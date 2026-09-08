@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -382,5 +383,53 @@ func TestExtractTasksReadsNumberedForms(t *testing.T) {
 func TestExtractTasksKeepsCountsOutOfTasks(t *testing.T) {
 	if got := ExtractTasks("12 files still need the new header\n"); len(got) != 0 {
 		t.Errorf("extracted %#v, want nothing", got)
+	}
+}
+
+// TestFanOutCapCountsStartedAgents covers the cap over a list a user has been
+// editing. Blank rows are left behind by that editing, and they must not be
+// counted against the agents the cap is there to limit.
+func TestFanOutCapCountsStartedAgents(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	var tasks []string
+	for i := 0; i < maxTasks; i++ {
+		tasks = append(tasks, "", fmt.Sprintf("do the %dth thing", i))
+	}
+	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
+	if len(made) != maxTasks {
+		t.Errorf("started %d agents, want the full %d", len(made), maxTasks)
+	}
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors: %v", errs)
+	}
+}
+
+// TestFanOutStopsAtTheCap is the other half: past the cap the extra tasks are
+// refused, and the caller is told rather than left to count panes.
+func TestFanOutStopsAtTheCap(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	var tasks []string
+	for i := 0; i < maxTasks+3; i++ {
+		tasks = append(tasks, fmt.Sprintf("do the %dth thing", i))
+	}
+	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
+	if len(made) != maxTasks {
+		t.Errorf("started %d agents, want %d", len(made), maxTasks)
+	}
+	if len(errs) != 1 {
+		t.Fatalf("errors = %v, want the one that says it stopped", errs)
+	}
+	if !strings.Contains(errs[0].Error(), "stopped after") {
+		t.Errorf("error = %q, want it to say the fan-out stopped", errs[0])
 	}
 }

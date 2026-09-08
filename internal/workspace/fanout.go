@@ -457,14 +457,21 @@ func (w *Workspace) FanOut(parentPaneID string, tasks []string, o SpawnOptions) 
 		made []string
 		errs []error
 	)
-	for i, task := range tasks {
-		if strings.TrimSpace(task) == "" {
+	// The cap counts the tasks actually attempted, not positions in the slice.
+	// The list arrives from a user who has been editing it, so it carries blank
+	// rows, and counting those would let a handful of empty lines stand in for
+	// agents that were never started.
+	attempted := 0
+	for _, task := range tasks {
+		task = strings.TrimSpace(task)
+		if task == "" {
 			continue
 		}
-		if i >= maxTasks {
+		if attempted >= maxTasks {
 			errs = append(errs, fmt.Errorf("stopped after %d tasks", maxTasks))
 			break
 		}
+		attempted++
 		opts := o
 		opts.Task = task
 		opts.Title = summarisePrompt(task)
