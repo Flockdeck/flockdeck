@@ -202,7 +202,15 @@ func run(opts options) error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
 	}
-	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+	// Say which of the three ways this can go wrong actually happened: a
+	// path that is missing and one that cannot be read are both common, and
+	// "is not a directory" sends the user looking for the wrong thing.
+	switch fi, err := os.Stat(root); {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%s does not exist", root)
+	case err != nil:
+		return fmt.Errorf("open %s: %w", root, err)
+	case !fi.IsDir():
 		return fmt.Errorf("%s is not a directory", root)
 	}
 
