@@ -23,10 +23,16 @@ func (w *Workspace) MovePane(paneID, targetID string, edge layout.Edge) error {
 	if w.Pane(paneID) == nil {
 		return fmt.Errorf("that pane is no longer open")
 	}
+	// The two halves of a drop fail for different reasons and the message is
+	// all the user gets, so say which of them went away. Dropping onto a pane
+	// another agent has just closed is the case that actually happens.
 	src := w.tabOf(paneID)
-	dest := w.tabOf(targetID)
-	if src == nil || dest == nil {
+	if src == nil {
 		return fmt.Errorf("that pane is no longer on screen")
+	}
+	dest := w.tabOf(targetID)
+	if dest == nil {
+		return fmt.Errorf("the pane it was dropped on is no longer on screen")
 	}
 
 	if src == dest {
@@ -52,9 +58,13 @@ func (w *Workspace) SwapPanes(a, b string) error {
 	if a == "" || a == b {
 		return fmt.Errorf("a pane cannot be swapped with itself")
 	}
-	ta, tb := w.tabOf(a), w.tabOf(b)
-	if ta == nil || tb == nil {
+	ta := w.tabOf(a)
+	if ta == nil {
 		return fmt.Errorf("that pane is no longer on screen")
+	}
+	tb := w.tabOf(b)
+	if tb == nil {
+		return fmt.Errorf("the pane it was swapped with is no longer on screen")
 	}
 	if ta == tb {
 		if !ta.Tree.SwapPanes(a, b) {

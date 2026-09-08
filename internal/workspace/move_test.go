@@ -570,3 +570,41 @@ func TestMergeTabsInProjectReadsLikeTheTabBar(t *testing.T) {
 		t.Errorf("children = %d, want the four tabs side by side", got)
 	}
 }
+
+// TestMoveSaysWhichPaneWentAway checks the two halves of a failed drop are
+// told apart. The message is all the user gets, and dropping onto a pane
+// another agent has just closed is the case that really happens.
+func TestMoveSaysWhichPaneWentAway(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	here := panesOfTab(ws.CurrentTab())[0]
+
+	cases := []struct {
+		what string
+		a, b error
+	}{
+		{
+			"move",
+			ws.MovePane("gone", here, layout.EdgeRight),
+			ws.MovePane(here, "gone", layout.EdgeRight),
+		},
+		{
+			"swap",
+			ws.SwapPanes("gone", here),
+			ws.SwapPanes(here, "gone"),
+		},
+	}
+	for _, c := range cases {
+		if c.a == nil || c.b == nil {
+			t.Errorf("%s: both should be refused, got %v and %v", c.what, c.a, c.b)
+			continue
+		}
+		if c.a.Error() == c.b.Error() {
+			t.Errorf("%s: both refusals say %q, so the user cannot tell whether it was "+
+				"the pane they picked up or the one they aimed at that went away",
+				c.what, c.a.Error())
+		}
+	}
+}
