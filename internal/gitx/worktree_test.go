@@ -77,6 +77,40 @@ func TestStatusOfReportsWorkingTreeState(t *testing.T) {
 	}
 }
 
+// TestStatusCountsAgreeWithTheFileList covers the number in a pane header
+// against the panel below it: git collapses a new directory into a single
+// entry unless it is asked for every file.
+func TestStatusCountsAgreeWithTheFileList(t *testing.T) {
+	repo := newRepo(t)
+
+	if err := os.MkdirAll(filepath.Join(repo, "newdir", "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.txt", "two.txt", "three.txt"} {
+		if err := os.WriteFile(filepath.Join(repo, "newdir", "sub", name), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	st := StatusOf(repo)
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	var listed int
+	for _, f := range files {
+		if f.Untracked {
+			listed++
+		}
+	}
+	if st.Untracked != listed {
+		t.Errorf("header says %d untracked, the panel lists %d", st.Untracked, listed)
+	}
+	if listed != 3 {
+		t.Errorf("expected the three files in the new directory, got %d", listed)
+	}
+}
+
 // TestStatusOfEmptyRepository covers a repository someone has just created:
 // git reports the head as "(initial)", which is not a commit id.
 func TestStatusOfEmptyRepository(t *testing.T) {

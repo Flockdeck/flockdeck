@@ -34,7 +34,11 @@ func (s Status) HasChanges() bool { return s.Dirty > 0 || s.Untracked > 0 }
 // same information would otherwise take.
 func StatusOf(dir string) Status {
 	var st Status
-	out, err := run(dir, "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
+	// --untracked-files=all matters for the number, not the listing: "normal"
+	// collapses a new directory into one entry, so a pane header claiming one
+	// untracked file sat above a review panel -- which asks for "all" --
+	// listing the thirty inside it.
+	out, err := run(dir, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
 	if err != nil {
 		return st
 	}
