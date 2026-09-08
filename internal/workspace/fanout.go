@@ -227,6 +227,11 @@ func isTask(s string) bool {
 			return false
 		}
 	}
+	for _, prefix := range terminalChromeOpeners {
+		if strings.HasPrefix(lower, prefix) {
+			return false
+		}
+	}
 	// An agent bullets its findings as readily as its plan. A finding opens by
 	// naming the thing it is about — "The Go process owns the panes" — where an
 	// instruction opens with the doing, or with what is to be done to. Note
@@ -245,8 +250,6 @@ func isTask(s string) bool {
 // beginning with a bullet glyph looks exactly like a list item.
 var terminalChrome = []string{
 	"esc to interrupt",
-	"ctrl+",
-	"shift+tab",
 	"for shortcuts",
 	"tokens ·",
 	"tokens)",
@@ -255,6 +258,15 @@ var terminalChrome = []string{
 	"context left",
 	"auto-accept",
 	"bypass permissions",
+}
+
+// terminalChromeOpeners is chrome that fills the line it opens, so it is only
+// looked for at the start. A key hint stands alone on its own row, where the
+// same text inside a sentence — "add a ctrl+k command palette" — is a job to
+// do, and this application's plans are full of them.
+var terminalChromeOpeners = []string{
+	"ctrl+",
+	"shift+tab",
 }
 
 // isProgress reports whether a line is Claude Code's status line: a word, an

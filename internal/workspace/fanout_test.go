@@ -484,3 +484,28 @@ func TestDistinctBranchSeparatesSiblings(t *testing.T) {
 		t.Errorf("later siblings should be suffixed: %v", seen)
 	}
 }
+
+// TestExtractTasksKeepsKeyNamesInTasks covers the cost of matching Claude
+// Code's key hints anywhere in a line: this application's own plans are about
+// keyboard shortcuts, and a task naming one is not a hint.
+func TestExtractTasksKeepsKeyNamesInTasks(t *testing.T) {
+	plan := `
+- Add a ctrl+k command palette to the web interface
+- Make shift+tab move focus backwards through the panes
+• ctrl+o to expand thinking
+• shift+tab to cycle permission modes
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add a ctrl+k command palette to the web interface",
+		"Make shift+tab move focus backwards through the panes",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
