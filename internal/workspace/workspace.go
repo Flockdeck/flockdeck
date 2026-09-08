@@ -984,6 +984,18 @@ func (w *Workspace) Close() {
 			w.destroyPane(id)
 		}
 	}
+	// Anything still registered belongs to no tab: a pane whose split was
+	// rejected, or one left over from a tab that was rebuilt. Its process is
+	// just as real, so it is shut down rather than outliving the window.
+	w.mu.RLock()
+	orphans := make([]string, 0, len(w.panes))
+	for id := range w.panes {
+		orphans = append(orphans, id)
+	}
+	w.mu.RUnlock()
+	for _, id := range orphans {
+		w.destroyPane(id)
+	}
 	if w.hookSrv != nil {
 		_ = w.hookSrv.Close()
 	}
