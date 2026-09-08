@@ -282,3 +282,33 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 		t.Errorf("main checkout has %d panes, want 1", counts[repo])
 	}
 }
+
+// TestConnectingAWindowRefreshesGit covers the other half of leaving the git
+// summaries alone while no window is open: opening one has to bring them up to
+// date, well inside the fifteen second polling interval.
+func TestConnectingAWindowRefreshesGit(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+
+	// Let the refresh made shortly after startup land first, so what follows
+	// can only be explained by the connection.
+	time.Sleep(1500 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(repo, "new-file.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	conn := dialControl(t, srv)
+	start := time.Now()
+	nextState(t, conn, func(s stateMsg) bool {
+		for _, p := range s.Panes {
+			if p.Untracked > 0 {
+				return true
+			}
+		}
+		return false
+	})
+	// Anything near the polling interval means the refresh was the next tick
+	// coming round rather than the connection asking for one.
+	if elapsed := time.Since(start); elapsed > gitStatusInterval/2 {
+		t.Errorf("the window waited %v for its git summary, want a refresh on connect", elapsed)
+	}
+}

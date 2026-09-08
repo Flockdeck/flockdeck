@@ -50,6 +50,10 @@ type Server struct {
 	cmds   chan func()
 	dirty  chan struct{}
 	closed chan struct{}
+	// gitNow asks the git loop for an out-of-turn refresh, so a window that
+	// has just opened does not have to wait out the interval for its branch
+	// labels.
+	gitNow chan struct{}
 	once   sync.Once
 
 	// prefs is what the interface remembers about this person rather than
@@ -89,6 +93,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		clients: map[*controlClient]struct{}{},
 		cmds:    make(chan func(), 64),
 		dirty:   make(chan struct{}, 1),
+		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
 
@@ -156,7 +161,19 @@ func (s *Server) pushLoop() {
 // cheap here but not free, and uncommitted work does not appear that fast.
 const gitStatusInterval = 15 * time.Second
 
-// gitLoop keeps the per-pane git summaries current.
+// RefreshGitNow asks the git loop to re-examine the checkouts straight away.
+// It is safe to call from any goroutine and never blocks; a request made while
+// one is already pending is folded into it.
+func (s *Server) RefreshGitNow() {
+	select {
+	case s.gitNow <- struct{}{}:
+	default:
+	}
+}
+
+// gitLoop keeps the per-pane git summaries current. Doing it here rather than
+// per caller keeps one refresh running at a time: each one shells out to git
+// once per distinct checkout and waits for them all.
 func (s *Server) gitLoop() {
 	tick := time.NewTicker(gitStatusInterval)
 	defer tick.Stop()
@@ -169,7 +186,16 @@ func (s *Server) gitLoop() {
 			return
 		case <-first:
 			s.ws.RefreshGit(s.do)
+		case <-s.gitNow:
+			s.ws.RefreshGit(s.do)
 		case <-tick.C:
+			// Nothing is reading the branch labels while every window is
+			// closed, and a detached run can sit like that for hours: polling
+			// git over every checkout the whole time buys nobody anything.
+			// A window that opens asks for a refresh of its own.
+			if s.ClientCount() == 0 {
+				continue
+			}
 			s.ws.RefreshGit(s.do)
 		}
 	}

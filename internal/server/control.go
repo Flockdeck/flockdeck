@@ -333,6 +333,9 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
+	// The git summaries are only kept current while somebody is looking, so
+	// this window's arrival is what makes them current again.
+	s.RefreshGitNow()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
