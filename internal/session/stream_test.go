@@ -141,3 +141,35 @@ func TestRecentTextReadsTheTail(t *testing.T) {
 		t.Error("escape sequences should not survive")
 	}
 }
+
+// TestTailLinesDropsThePartialFirstLine covers the byte cut the tail of a
+// pane's output is taken at. Landing inside an escape sequence spills its
+// parameters into the text as if they were words, which is what the fan-out
+// dialog then shows to the user.
+func TestTailLinesDropsThePartialFirstLine(t *testing.T) {
+	raw := []byte("\x1b[38;5;42mearlier line\x1b[m\r\n\x1b[1mlater line\x1b[m\r\n")
+
+	// A budget that lands part way through the first line's colour sequence.
+	got := stripANSI(tailLines(raw, 41))
+	if strings.Contains(got, "5;42") {
+		t.Errorf("escape parameters leaked into the text: %q", got)
+	}
+	if strings.Contains(got, "earlier") {
+		t.Errorf("the cut line should be dropped whole: %q", got)
+	}
+	if !strings.Contains(got, "later line") {
+		t.Errorf("the last line should survive: %q", got)
+	}
+
+	// A budget bigger than the output keeps all of it, and so does no budget.
+	for _, n := range []int{0, -1, len(raw), len(raw) * 2} {
+		if got := stripANSI(tailLines(raw, n)); !strings.Contains(got, "earlier line") {
+			t.Errorf("tailLines(_, %d) dropped output that fitted: %q", n, got)
+		}
+	}
+
+	// Output with no line break at all is better shown truncated than lost.
+	if got := tailLines([]byte("no breaks here"), 5); string(got) != " here" {
+		t.Errorf("unbroken output = %q, want the tail", got)
+	}
+}

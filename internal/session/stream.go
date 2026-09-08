@@ -1,6 +1,9 @@
 package session
 
-import "strings"
+import (
+	"bytes"
+	"strings"
+)
 
 // ring is a fixed-size circular buffer of recent output. It keeps the most
 // recent replayBytes of a pane so a viewer that connects late, or reloads, can
@@ -245,8 +248,23 @@ func (s *Session) RecentText(maxBytes int) string {
 	raw := s.history.bytes()
 	s.mu.RUnlock()
 
-	if maxBytes > 0 && len(raw) > maxBytes {
-		raw = raw[len(raw)-maxBytes:]
+	return stripANSI(tailLines(raw, maxBytes))
+}
+
+// tailLines returns the last whole lines of p that fit in maxBytes, or all of
+// p when maxBytes is zero or negative.
+//
+// Cutting at a byte offset lands mid-line, and a line of terminal output is
+// mostly escape sequences: starting inside one leaves the reader looking at
+// "38;5;42mgreen" where it expected a word, and can halve a UTF-8 rune
+// besides. The partial line the cut opens with is dropped.
+func tailLines(p []byte, maxBytes int) []byte {
+	if maxBytes <= 0 || len(p) <= maxBytes {
+		return p
 	}
-	return stripANSI(raw)
+	p = p[len(p)-maxBytes:]
+	if i := bytes.IndexByte(p, '\n'); i >= 0 {
+		return p[i+1:]
+	}
+	return p
 }
