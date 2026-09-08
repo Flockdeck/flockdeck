@@ -70,9 +70,16 @@ body { display: flex; flex-direction: column; }
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .close {
   opacity: 0; border: 0; background: transparent; color: var(--fg-dim);
-  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 3px;
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0; border-radius: 3px;
+  /* The glyph on its own is a ten-pixel target. Squaring it off fills the tab's
+   * height instead, which is as much room as there is to give. */
+  flex: 0 0 auto; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
 }
-.tab:hover .close, .tab.active .close { opacity: 1; }
+/* Hidden until the tab is hovered or current, so it does not clutter a row of
+ * tabs - but opacity hides the focus ring too, and a keyboard user reaching it
+ * would otherwise be sitting on a button they cannot see. */
+.tab:hover .close, .tab.active .close, .tab .close:focus-visible { opacity: 1; }
 .tab .close:hover { background: #3a414d; color: var(--fg); }
 
 /* An agent in this tab is blocked on the user. */
