@@ -21,7 +21,9 @@
     <button id="btn-changes" class="chip">Changes</button>
     <button id="btn-history" class="chip">History</button>
     <button id="btn-worktrees" class="chip">Worktrees</button>
-    <button id="btn-help" class="chip">?</button>
+    <!-- A bare "?" is not a name a screen reader can read out, and the same
+         goes for the two arrows in the find bar below. -->
+    <button id="btn-help" class="chip" aria-label="Help">?</button>
   </header>
 
   <div id="hints" hidden></div>
@@ -39,15 +41,15 @@
   <div id="searchbar" hidden>
     <label for="search-input">Find</label>
     <input id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search this terminal">
-    <button id="search-prev" class="chip" title="Previous (Shift+Enter)">↑</button>
-    <button id="search-next" class="chip" title="Next (Enter)">↓</button>
+    <button id="search-prev" class="chip" title="Previous (Shift+Enter)" aria-label="Previous match (Shift+Enter)">↑</button>
+    <button id="search-next" class="chip" title="Next (Enter)" aria-label="Next match (Enter)">↓</button>
     <button id="search-close" class="chip">Close</button>
   </div>
 
   <div id="palette" hidden>
     <div id="palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
       <input id="palette-input" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Type a command…">
+             aria-label="Command" placeholder="Type a command…">
       <div id="palette-list"></div>
     </div>
   </div>
