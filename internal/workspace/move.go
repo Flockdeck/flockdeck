@@ -180,6 +180,14 @@ func (w *Workspace) MovePaneToNewTab(paneID string) error {
 // agents started in separate tabs are put side by side without restarting
 // either of them.
 func (w *Workspace) MergeTab(id, targetID string, dir layout.Dir) error {
+	return w.mergeTab(id, targetID, dir, false)
+}
+
+// mergeTab is MergeTab with a say in which side of the destination the
+// arriving panes land on. Gathering a whole project needs that: a tab sitting
+// to the left of the one being gathered into should come out on the left of
+// it, so the row of panes reads in the order the tab bar did.
+func (w *Workspace) mergeTab(id, targetID string, dir layout.Dir, before bool) error {
 	src := w.Tab(id)
 	dest := w.Tab(targetID)
 	if src == nil || dest == nil {
@@ -202,7 +210,11 @@ func (w *Workspace) MergeTab(id, targetID string, dir layout.Dir) error {
 		}
 	}
 
-	dest.Tree = layout.Combine(dest.Tree, src.Tree, dir)
+	if before {
+		dest.Tree = layout.Combine(src.Tree, dest.Tree, dir)
+	} else {
+		dest.Tree = layout.Combine(dest.Tree, src.Tree, dir)
+	}
 	// The panes now belong to dest, so unlinking must not go looking for them
 	// in src again.
 	src.Tree = layout.NewSplit(dir)
@@ -218,19 +230,27 @@ func (w *Workspace) MergeTab(id, targetID string, dir layout.Dir) error {
 
 // MergeTabsInProject folds every other tab of a project into one, which is the
 // quickest way from agents scattered across tabs to all of them on screen at
-// once. Tabs are merged in the order they are shown.
+// once.
+//
+// The panes come out in the order the tab bar showed them, whichever tab was
+// gathered into: a tab that was two to the left stays two to the left. Folding
+// each tab in on the near side and working outwards is what gets that, since
+// each merge only ever places a tab's panes against what has already been
+// gathered.
 func (w *Workspace) MergeTabsInProject(targetID string, dir layout.Dir) error {
 	dest := w.Tab(targetID)
 	if dest == nil {
 		return fmt.Errorf("that tab is no longer open")
 	}
-	others := make([]string, 0, len(w.Tabs))
-	for _, t := range w.tabsOf(dest.Root) {
-		if t != dest {
-			others = append(others, t.ID)
+	tabs := w.tabsOf(dest.Root)
+	at := -1
+	for i, t := range tabs {
+		if t == dest {
+			at = i
+			break
 		}
 	}
-	if len(others) == 0 {
+	if at < 0 || len(tabs) == 1 {
 		return fmt.Errorf("there is no other tab to merge in")
 	}
 	// Every merge lands on the pane it brought over, so the focus has to be
@@ -238,8 +258,13 @@ func (w *Workspace) MergeTabsInProject(targetID string, dir layout.Dir) error {
 	// the tabs is a command about the tab as a whole, and it should leave the
 	// user typing into the pane they were typing into.
 	focus := dest.Focus
-	for _, id := range others {
-		if err := w.MergeTab(id, targetID, dir); err != nil {
+	for i := at - 1; i >= 0; i-- {
+		if err := w.mergeTab(tabs[i].ID, targetID, dir, true); err != nil {
+			return err
+		}
+	}
+	for i := at + 1; i < len(tabs); i++ {
+		if err := w.mergeTab(tabs[i].ID, targetID, dir, false); err != nil {
 			return err
 		}
 	}

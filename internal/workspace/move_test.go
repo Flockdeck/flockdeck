@@ -539,3 +539,34 @@ func TestDraggingAPaneAwayLeavesTheFocusBesideIt(t *testing.T) {
 		t.Errorf("focus left behind = %q, want its neighbour %q", src.Focus, beside)
 	}
 }
+
+// TestMergeTabsInProjectReadsLikeTheTabBar checks the order the gathered panes
+// come out in when the tab gathered into is not the first one. Folding every
+// other tab in on the right would put the tabs that were to the left of it on
+// the right, scrambling an arrangement the user built deliberately.
+func TestMergeTabsInProjectReadsLikeTheTabBar(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	ws.NewTab(session.KindShell, root, "two")
+	ws.NewTab(session.KindShell, root, "three")
+	ws.NewTab(session.KindShell, root, "four")
+
+	var want []string
+	for _, tab := range ws.VisibleTabs() {
+		want = append(want, panesOfTab(tab)...)
+	}
+	// Gather into the third of the four, so there are tabs on both sides.
+	keep := ws.VisibleTabs()[2]
+
+	if err := ws.MergeTabsInProject(keep.ID, layout.Horizontal); err != nil {
+		t.Fatalf("merge all: %v", err)
+	}
+	if got := panesOfTab(keep); !reflect.DeepEqual(got, want) {
+		t.Errorf("panes = %v, want them in tab order %v", got, want)
+	}
+	if got := len(keep.Tree.Children); got != 4 {
+		t.Errorf("children = %d, want the four tabs side by side", got)
+	}
+}
