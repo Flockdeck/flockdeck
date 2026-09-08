@@ -455,3 +455,32 @@ func TestExtractTasksKeepsLongWrappedItems(t *testing.T) {
 		t.Errorf("the tail was joined past the cap: %q", got[0])
 	}
 }
+
+// TestDistinctBranchSeparatesSiblings covers the hazard in an auto-branched
+// fan-out: branch names are truncated, so two tasks that begin alike derive the
+// same name, and a worktree that already exists is reused rather than made
+// again. Sharing one would put two agents in one checkout.
+func TestDistinctBranchSeparatesSiblings(t *testing.T) {
+	a := BranchNameFor("add a health endpoint to the HTTP server")
+	b := BranchNameFor("add a health endpoint to the gRPC server")
+	if a != b {
+		t.Fatalf("the two tasks derived %q and %q; the test needs them to collide", a, b)
+	}
+
+	used := map[string]bool{}
+	seen := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		got := distinctBranch(a, used)
+		if seen[got] {
+			t.Fatalf("branch %q handed out twice", got)
+		}
+		seen[got] = true
+		used[got] = true
+	}
+	if !seen[a] {
+		t.Errorf("the first sibling should keep the plain name %q: %v", a, seen)
+	}
+	if !seen[a+"-2"] || !seen[a+"-3"] {
+		t.Errorf("later siblings should be suffixed: %v", seen)
+	}
+}

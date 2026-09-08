@@ -470,6 +470,11 @@ func (w *Workspace) FanOut(parentPaneID string, tasks []string, o SpawnOptions) 
 	// rows, and counting those would let a handful of empty lines stand in for
 	// agents that were never started.
 	attempted := 0
+	// Branch names are derived from the task text and then truncated, so two
+	// tasks that begin alike derive the same name — and worktreeFor reuses the
+	// worktree a branch already has, which would quietly put two agents in one
+	// checkout. Keep the names each fan-out hands out distinct.
+	used := map[string]bool{}
 	for _, task := range tasks {
 		task = strings.TrimSpace(task)
 		if task == "" {
@@ -484,7 +489,8 @@ func (w *Workspace) FanOut(parentPaneID string, tasks []string, o SpawnOptions) 
 		opts.Task = task
 		opts.Title = summarisePrompt(task)
 		if o.Branch == autoBranch {
-			opts.Branch = BranchNameFor(task)
+			opts.Branch = distinctBranch(BranchNameFor(task), used)
+			used[opts.Branch] = true
 		}
 		id, err := w.Spawn(parentPaneID, opts)
 		if err != nil {
@@ -494,6 +500,16 @@ func (w *Workspace) FanOut(parentPaneID string, tasks []string, o SpawnOptions) 
 		made = append(made, id)
 	}
 	return made, errs
+}
+
+// distinctBranch returns base, or base-2, base-3 and so on, until it names a
+// branch this fan-out has not already handed to a sibling.
+func distinctBranch(base string, used map[string]bool) string {
+	candidate := base
+	for i := 2; used[candidate]; i++ {
+		candidate = fmt.Sprintf("%s-%d", base, i)
+	}
+	return candidate
 }
 
 // autoBranch asks FanOut to derive a branch name per task.
