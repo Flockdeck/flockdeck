@@ -199,9 +199,12 @@ func (w *Workspace) MergeTab(id, targetID string, dir layout.Dir) error {
 // it, so the row of panes reads in the order the tab bar did.
 func (w *Workspace) mergeTab(id, targetID string, dir layout.Dir, before bool) error {
 	src := w.Tab(id)
-	dest := w.Tab(targetID)
-	if src == nil || dest == nil {
+	if src == nil {
 		return fmt.Errorf("that tab is no longer open")
+	}
+	dest := w.Tab(targetID)
+	if dest == nil {
+		return fmt.Errorf("the tab it was dropped on is no longer open")
 	}
 	if src == dest {
 		return fmt.Errorf("a tab cannot be merged into itself")
@@ -296,8 +299,16 @@ func (w *Workspace) MoveTab(id, beforeID string) error {
 		return nil
 	}
 	before := w.Tab(beforeID)
-	if beforeID != "" && (before == nil || before.Root != moving.Root) {
-		return fmt.Errorf("a tab can only be reordered within its own project")
+	if beforeID != "" {
+		// A destination that has been closed since the drag started is a
+		// different problem from one in another project, and telling the user
+		// about the wrong one sends them looking in the wrong place.
+		if before == nil {
+			return fmt.Errorf("the tab it was dropped before is no longer open")
+		}
+		if before.Root != moving.Root {
+			return fmt.Errorf("a tab can only be reordered within its own project")
+		}
 	}
 
 	// Tabs of every project share one slice, and only a project's own tabs are

@@ -608,3 +608,42 @@ func TestMoveSaysWhichPaneWentAway(t *testing.T) {
 		}
 	}
 }
+
+// TestTabDropSaysWhatWentWrong covers the two ways a tab drop can be refused
+// that are easy to confuse: the tab it was aimed at has been closed, or it
+// belongs to another project. They need different messages, because they send
+// the user looking in different places.
+func TestTabDropSaysWhatWentWrong(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "mine")
+	mine := ws.CurrentTab()
+
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second project: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "theirs")
+	theirs := ws.CurrentTab()
+
+	closed := ws.MoveTab(mine.ID, "gone")
+	elsewhere := ws.MoveTab(mine.ID, theirs.ID)
+	if closed == nil || elsewhere == nil {
+		t.Fatalf("both reorders should be refused, got %v and %v", closed, elsewhere)
+	}
+	if closed.Error() == elsewhere.Error() {
+		t.Errorf("a closed destination and one in another project both say %q",
+			closed.Error())
+	}
+
+	// The same for a merge: which of the two tabs went away matters.
+	gonePicked := ws.MergeTab("gone", mine.ID, layout.Horizontal)
+	goneTarget := ws.MergeTab(mine.ID, "gone", layout.Horizontal)
+	if gonePicked == nil || goneTarget == nil {
+		t.Fatalf("both merges should be refused, got %v and %v", gonePicked, goneTarget)
+	}
+	if gonePicked.Error() == goneTarget.Error() {
+		t.Errorf("both refusals say %q, so the user cannot tell which tab went away",
+			gonePicked.Error())
+	}
+}
