@@ -860,3 +860,57 @@ func TestSaveRestoreKeepsProportionsAndDirectories(t *testing.T) {
 		}
 	}
 }
+
+// TestSaveRestoreKeepsKindsAndAxes pins the small translations between the live
+// layout and the saved one. They have no other cover, and getting either of
+// them wrong fails quietly: a shell pane would come back as an agent, or a row
+// of panes as a column, with the layout otherwise looking entirely correct.
+func TestSaveRestoreKeepsKindsAndAxes(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "mixed")
+	ws.SplitPane(layout.Vertical, session.KindClaude)
+
+	tab := ws.CurrentTab()
+	if tab.Tree.Dir != layout.Vertical {
+		t.Fatalf("split axis = %v, want vertical before saving", tab.Tree.Dir)
+	}
+	wantKind := map[string]session.Kind{}
+	wantName := map[string]string{}
+	for _, id := range tab.Tree.Panes() {
+		wantKind[id] = ws.Pane(id).Kind
+		wantName[id] = ws.Pane(id).Name
+	}
+	if wantKind[tab.Tree.Panes()[0]] == wantKind[tab.Tree.Panes()[1]] {
+		t.Fatal("the two panes should be of different kinds for this to test anything")
+	}
+
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, root)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	back := again.VisibleTabs()[0].Tree
+	if back.Dir != layout.Vertical {
+		t.Errorf("split axis = %v, want the vertical stack it was saved as", back.Dir)
+	}
+	for id, kind := range wantKind {
+		p := again.Pane(id)
+		if p == nil {
+			t.Errorf("pane %q was not restored", id)
+			continue
+		}
+		if p.Kind != kind {
+			t.Errorf("pane %q came back as kind %v, want %v", id, p.Kind, kind)
+		}
+		if p.Name != wantName[id] {
+			t.Errorf("pane %q came back named %q, want %q", id, p.Name, wantName[id])
+		}
+	}
+}
