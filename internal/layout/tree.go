@@ -567,6 +567,13 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 		return ""
 	}
 	from := cur.rect
+	if from.W <= 0 || from.H <= 0 {
+		// Nothing has been measured yet, so every rectangle is empty and every
+		// pane looks equally adjacent. Answering from that would send the
+		// focus somewhere the user is not looking; say there is nothing that
+		// way instead, which callers already report.
+		return ""
+	}
 
 	type cand struct {
 		pane string
@@ -581,6 +588,9 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 			continue
 		}
 		r := l.rect
+		if r.W <= 0 || r.H <= 0 {
+			continue
+		}
 		var primary, secondary int
 		switch dir {
 		case Left:

@@ -828,3 +828,23 @@ func TestNeighborAlwaysLandsOnAPaneThatIsThere(t *testing.T) {
 		}
 	}
 }
+
+// TestNeighborNeedsGeometry covers being asked to move focus before anything
+// has been measured. Every rectangle is empty then, so every pane looks
+// adjacent to every other, and an answer would land the focus at random.
+func TestNeighborNeedsGeometry(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Vertical)
+
+	for _, d := range []Direction{Left, Right, Up, Down} {
+		if got := root.Neighbor("a", d); got != "" {
+			t.Errorf("before Compute, %d of a = %q, want no answer", d, got)
+		}
+	}
+
+	root.Compute(Rect{X: 0, Y: 0, W: 80, H: 24})
+	if got := root.Neighbor("a", Right); got != "b" {
+		t.Errorf("once measured, right of a = %q, want b", got)
+	}
+}
