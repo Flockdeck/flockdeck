@@ -279,7 +279,17 @@ func (w *Workspace) RestoreSession() int {
 	// any of them runs.
 	wasOn := w.activeTab
 	opened := 0
-	for _, root := range sess.Open {
+	for _, saved := range sess.Open {
+		// Every other way into the workspace puts a project through
+		// filepath.Abs and the window then compares roots exactly — isOpen,
+		// tabsOf, the project switch. A path out of the saved session has been
+		// through neither, so it is put into the same form here; left as it
+		// was, opening the very same directory from the picker later would open
+		// a second copy of a project that is already on screen.
+		root, err := filepath.Abs(saved)
+		if err != nil {
+			continue
+		}
 		if w.sessionRootIsOpen(root) {
 			continue
 		}

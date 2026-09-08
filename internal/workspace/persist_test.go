@@ -649,3 +649,42 @@ func TestRestoreSessionKeepsReopenedProjectsRecent(t *testing.T) {
 		t.Errorf("recents = %v, want the reopened project among them", recents)
 	}
 }
+
+// TestRestoreSessionCanonicalisesRoots checks that a project brought back from
+// the saved session is held under the same spelling every other route into the
+// workspace uses, so opening it again from the picker finds it rather than
+// starting a second copy of it.
+func TestRestoreSessionCanonicalisesRoots(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	if err := store.SaveSession(&store.Session{
+		Open: []string{first, second + string(os.PathSeparator)},
+	}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	again := newTestWorkspace(t, first)
+	if n := again.RestoreSession(); n != 1 {
+		t.Fatalf("reopened %d projects, want 1", n)
+	}
+	// Opening the same directory again must select the project, not add one.
+	if err := again.OpenProject(second); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got := again.Projects(); len(got) != 2 {
+		t.Fatalf("projects = %d, want the two distinct directories", len(got))
+	}
+	if again.ActiveRoot() != second {
+		t.Errorf("active root = %q, want %q", again.ActiveRoot(), second)
+	}
+}
