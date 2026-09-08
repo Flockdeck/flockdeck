@@ -568,3 +568,28 @@ func TestExtractTasksSkipsTabIndentedDetail(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksDropsSingleMarkEmphasis covers emphasis written with one mark
+// rather than two. Left on the front of an entry it opens the task on
+// punctuation, which isTask reads as a fragment of a wrapped line.
+func TestExtractTasksDropsSingleMarkEmphasis(t *testing.T) {
+	plan := `
+- *Add a delegated pointerover listener to app.js*
+- _Style the tooltip bubble in app.css_
+- __Write tests for the tooltip layer__
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add a delegated pointerover listener to app.js",
+		"Style the tooltip bubble in app.css",
+		"Write tests for the tooltip layer",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

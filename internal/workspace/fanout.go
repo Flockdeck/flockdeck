@@ -218,7 +218,12 @@ func isPlanCue(line string) bool {
 // was being rendered.
 func tidyTask(s string) string {
 	s = strings.ReplaceAll(s, "**", "")
-	return strings.Join(strings.Fields(s), " ")
+	s = strings.ReplaceAll(s, "__", "")
+	s = strings.Join(strings.Fields(s), " ")
+	// Emphasis written with one mark rather than two is left over at the ends.
+	// Kept, it makes the entry open on punctuation, and isTask reads that as
+	// the middle of a wrapped line and throws the whole task away.
+	return strings.Trim(s, "*_")
 }
 
 // isTask reports whether a line reads as work rather than as the interface drawn
