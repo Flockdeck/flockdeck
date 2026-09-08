@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/coder/websocket"
 )
@@ -41,7 +42,15 @@ func main() {
 		fmt.Println("decode:", err)
 		os.Exit(1)
 	}
-	for id, p := range st.Panes {
+	// Ranging over the map directly would order the panes differently on
+	// every run, which makes two dumps impossible to compare.
+	ids := make([]string, 0, len(st.Panes))
+	for id := range st.Panes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		p := st.Panes[id]
 		fmt.Printf("pane %s  %-6s %dx%d  %-8s err=%q\n", short(id), p.Kind, p.Cols, p.Rows, p.Status, p.Err)
 	}
 }
