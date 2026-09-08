@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -69,7 +70,13 @@ func Conversations(cwd string) ([]Conversation, error) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil
+		// Never having used Claude Code here is not a failure; being unable to
+		// read what is there is, and reporting it as an empty list leaves
+		// somebody looking for conversations they know they had.
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
 	}
 
 	var out []Conversation
@@ -134,7 +141,10 @@ const cwdProbeLimit = 5
 func findProjectDir(projects, cwd string) (string, error) {
 	entries, err := os.ReadDir(projects)
 	if err != nil {
-		return "", nil
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", projects, err)
 	}
 	for _, e := range entries {
 		if !e.IsDir() {

@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -335,5 +336,30 @@ func TestCountEntriesCountsAnUnfinishedLastLine(t *testing.T) {
 		if got := countEntries(strings.NewReader(c.in)); got != c.want {
 			t.Errorf("countEntries(%q) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+// TestConversationsReportAnUnreadableStateDirectory covers the difference
+// between "you have never used Claude Code here" and "your Claude Code state
+// could not be read". Both used to arrive as an empty list, which leaves
+// someone hunting for conversations they know they had.
+func TestConversationsReportAnUnreadableStateDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports a path through a non-directory as not existing, which is the quiet case")
+	}
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	// Something that is not a directory where the projects directory belongs.
+	if err := os.WriteFile(filepath.Join(home, "projects"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Conversations(t.TempDir())
+	if err == nil {
+		t.Fatalf("Conversations = %+v with no error; the failure should be reported", got)
+	}
+	if !strings.Contains(err.Error(), "projects") {
+		t.Errorf("error = %q; it should name what could not be read", err)
 	}
 }
