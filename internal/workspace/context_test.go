@@ -443,3 +443,41 @@ func TestPaneStartFailureNamesTheDirectory(t *testing.T) {
 		t.Errorf("pane error %q does not say which directory it tried", p.Err)
 	}
 }
+
+// TestProjectsWithTheSameNameAreToldApart covers the project switcher, which
+// shows the name and nothing else: two checkouts of one repository are both
+// called the same thing, and picking between two identical labels is guesswork.
+func TestProjectsWithTheSameNameAreToldApart(t *testing.T) {
+	isolateConfig(t)
+	first := filepath.Join(t.TempDir(), "checkout-a", "service")
+	second := filepath.Join(t.TempDir(), "checkout-b", "service")
+	for _, dir := range []string{first, second} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("make %s: %v", dir, err)
+		}
+	}
+
+	ws := newTestWorkspace(t, first)
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	projects := ws.Projects()
+	if len(projects) != 2 {
+		t.Fatalf("projects = %d, want two", len(projects))
+	}
+	if projects[0].Name == projects[1].Name {
+		t.Errorf("both projects are called %q", projects[0].Name)
+	}
+	for _, p := range projects {
+		if !strings.HasSuffix(p.Name, "service") {
+			t.Errorf("name %q no longer ends in the project directory", p.Name)
+		}
+	}
+
+	// A name that stands on its own is left alone.
+	lone := newTestWorkspace(t, first).Projects()
+	if lone[0].Name != "service" {
+		t.Errorf("name = %q, want the directory name on its own", lone[0].Name)
+	}
+}

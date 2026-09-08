@@ -271,7 +271,37 @@ func (w *Workspace) Projects() []Project {
 		}
 		out = append(out, p)
 	}
+	disambiguate(out)
 	return out
+}
+
+// disambiguate gives the projects whose directory names collide enough of the
+// path to tell them apart.
+//
+// Two checkouts of the same repository, or the same service in two
+// repositories, are both called the same thing, and the project switcher shows
+// only the name: without this the user is asked to pick between two identical
+// labels.
+func disambiguate(projects []Project) {
+	seen := map[string]int{}
+	for _, p := range projects {
+		seen[p.Name]++
+	}
+	for i, p := range projects {
+		if seen[p.Name] < 2 {
+			continue
+		}
+		parent := filepath.Base(filepath.Dir(p.Root))
+		// A project at the root of a drive has no parent worth borrowing: Base
+		// of "C:\" is a separator, which names nothing.
+		if parent == "" || parent == "." || parent == p.Name {
+			continue
+		}
+		if len(parent) == 1 && os.IsPathSeparator(parent[0]) {
+			continue
+		}
+		projects[i].Name = filepath.Join(parent, p.Name)
+	}
 }
 
 // OpenProject opens a directory as a project and makes it active. A project
