@@ -883,3 +883,55 @@ func TestResizeIsIndependentOfTheWeightScale(t *testing.T) {
 		t.Errorf("a is %d columns and c is %d, want a to have grown", a, c)
 	}
 }
+
+// TestComputeIsProportionalWithinACell states what the weights actually
+// promise: every pane gets its share of the space to within one cell, whatever
+// the weights are and however the space divides. Rounding is allowed to lose a
+// cell here and there, but never to accumulate.
+func TestComputeIsProportionalWithinACell(t *testing.T) {
+	for seed := int64(0); seed < 300; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		n := 2 + rnd.Intn(6)
+		dir := Dir(rnd.Intn(2))
+
+		root := NewLeaf("p0")
+		for i := 1; i < n; i++ {
+			root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), dir)
+		}
+		weights := make([]float64, n)
+		total := 0.0
+		for i := range weights {
+			weights[i] = 0.2 + rnd.Float64()*5
+			total += weights[i]
+		}
+		if !root.SetChildWeights(weights) {
+			t.Fatalf("seed %d: weights refused", seed)
+		}
+
+		size := 200 + rnd.Intn(800)
+		// A horizontal split spends a column on each separator; a stack does not.
+		avail := float64(size)
+		if dir == Horizontal {
+			root.Compute(Rect{W: size, H: 40})
+			avail -= float64(n - 1)
+		} else {
+			root.Compute(Rect{W: 40, H: size})
+		}
+
+		covered := 0
+		for i, c := range root.Children {
+			got := c.Rect().W
+			if dir == Vertical {
+				got = c.Rect().H
+			}
+			covered += got
+			want := avail * weights[i] / total
+			if math.Abs(want-float64(got)) > 1 {
+				t.Fatalf("seed %d: pane %d got %d cells, want %.2f", seed, i, got, want)
+			}
+		}
+		if float64(covered) != avail {
+			t.Fatalf("seed %d: panes cover %d cells of %v", seed, covered, avail)
+		}
+	}
+}
