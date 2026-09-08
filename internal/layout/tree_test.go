@@ -766,3 +766,65 @@ func TestTreeInvariantsUnderRandomEditing(t *testing.T) {
 		checkInvariants(t, Combine(root, other, Dir(rnd.Intn(2))), hist+"; merged a tab in")
 	}
 }
+
+// adjacent reports whether r sits directly against from on the given side,
+// sharing some of the edge between them. Horizontally adjacent panes have the
+// separator column between them; stacked ones touch outright.
+func adjacent(from, r Rect, d Direction) bool {
+	switch d {
+	case Left:
+		return r.X+r.W+separatorWidth == from.X && r.Y < from.Y+from.H && from.Y < r.Y+r.H
+	case Right:
+		return from.X+from.W+separatorWidth == r.X && r.Y < from.Y+from.H && from.Y < r.Y+r.H
+	case Up:
+		return r.Y+r.H == from.Y && r.X < from.X+from.W && from.X < r.X+r.W
+	default:
+		return from.Y+from.H == r.Y && r.X < from.X+from.W && from.X < r.X+r.W
+	}
+}
+
+// TestNeighborAlwaysLandsOnAPaneThatIsThere is the property behind moving focus
+// with the arrow keys: pressing right must put the cursor in a pane that is
+// genuinely against the right-hand edge of this one, and must not report there
+// is nothing that way while such a pane exists.
+func TestNeighborAlwaysLandsOnAPaneThatIsThere(t *testing.T) {
+	dirs := []Direction{Left, Right, Up, Down}
+
+	for seed := int64(0); seed < 200; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		next := 1
+		for step := 0; step < 12; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			switch rnd.Intn(3) {
+			case 0:
+				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
+				next++
+			case 1:
+				root.Remove(victim)
+			case 2:
+				root.MovePane(victim, panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4)))
+			}
+		}
+		root.Compute(Rect{X: 0, Y: 0, W: 997, H: 401})
+
+		for _, l := range root.Leaves() {
+			from := l.Rect()
+			for _, d := range dirs {
+				got := root.Neighbor(l.Pane, d)
+				if got == "" {
+					for _, other := range root.Leaves() {
+						if other != l && adjacent(from, other.Rect(), d) {
+							t.Fatalf("seed %d: nothing is %d of %s, but %s is against that edge", seed, d, l.Pane, other.Pane)
+						}
+					}
+					continue
+				}
+				if r := root.Find(got).Rect(); !adjacent(from, r, d) {
+					t.Fatalf("seed %d: %d of %s at %+v is %s at %+v, which does not touch it", seed, d, l.Pane, from, got, r)
+				}
+			}
+		}
+	}
+}
