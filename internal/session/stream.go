@@ -1,9 +1,6 @@
 package session
 
-import (
-	"bytes"
-	"strings"
-)
+import "bytes"
 
 // ring is a fixed-size circular buffer of recent output. It keeps the most
 // recent replayBytes of a pane so a viewer that connects late, or reloads, can
@@ -130,8 +127,14 @@ func (b *bellScanner) scan(p []byte) bool {
 // It is deliberately small: the goal is to recover prose and list items from a
 // pane's recent output, not to emulate a terminal.
 func stripANSI(p []byte) string {
-	var b strings.Builder
-	b.Grow(len(p))
+	out := make([]byte, 0, len(p))
+	// lineStart is where the line currently being written began, which is
+	// where a carriage return goes back to.
+	lineStart := 0
+	breakLine := func() {
+		out = append(out, '\n')
+		lineStart = len(out)
+	}
 
 	state := scanNormal
 	var params []byte
@@ -145,11 +148,20 @@ func stripANSI(p []byte) string {
 			case c == 0x07, c == 0x00:
 				// Bells and padding are not text.
 			case c == '\r':
-				// Carriage returns are redraw artefacts; the newline carries
-				// the line break.
-			case c < 0x20 && c != '\n' && c != '\t':
+				// Before a newline a carriage return is only part of the line
+				// break. On its own it rewinds to the start of the line and
+				// what follows takes the place of what was there, which is
+				// how a progress line redraws itself; keeping both is how the
+				// screen's "100%" is read back as "50%100%".
+				if i+1 < len(p) && p[i+1] == '\n' {
+					break
+				}
+				out = out[:lineStart]
+			case c == '\n':
+				breakLine()
+			case c < 0x20 && c != '\t':
 			default:
-				b.WriteByte(c)
+				out = append(out, c)
 			}
 		case scanEsc:
 			switch c {
@@ -189,8 +201,8 @@ func stripANSI(p []byte) string {
 			// outright would run separate lines together. Treat the
 			// movement as the line break it stands for.
 			case breaksLine(c):
-				if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
-					b.WriteByte('\n')
+				if len(out) > 0 && out[len(out)-1] != '\n' {
+					breakLine()
 				}
 			// Moving the cursor right is how a full-screen program draws a run
 			// of blanks without printing them. Dropping the move runs the words
@@ -198,7 +210,7 @@ func stripANSI(p []byte) string {
 			// here as onelongword.
 			case c == 'C':
 				for n := csiCount(params); n > 0; n-- {
-					b.WriteByte(' ')
+					out = append(out, ' ')
 				}
 			}
 		case scanOSC:
@@ -211,7 +223,7 @@ func stripANSI(p []byte) string {
 			state = scanNormal
 		}
 	}
-	return b.String()
+	return string(out)
 }
 
 // maxCSICount bounds a cursor move that stands in for blanks. No terminal is

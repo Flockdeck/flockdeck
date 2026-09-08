@@ -117,6 +117,11 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"osc title", "\x1b]0;window title\x07visible", "visible"},
 		{"osc with ST", "\x1b]8;;http://x\x1b\\link", "link"},
 		{"carriage returns", "first\r\nsecond\r\n", "first\nsecond\n"},
+		// On its own a carriage return rewinds to the start of the line and
+		// what follows overwrites it, which is how a progress line redraws.
+		{"a redrawn line keeps only its last state", "50%\r100%\ndone", "100%\ndone"},
+		{"repeated redraws", "a\rb\rc", "c"},
+		{"a redraw after a real line break", "first\nhalf\rwhole", "first\nwhole"},
 		{"bell", "ding\x07dong", "dingdong"},
 		// A charset designator carries the set it selects in the byte after
 		// the escape; leaving that behind puts a stray letter in the prose.
