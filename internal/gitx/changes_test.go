@@ -235,6 +235,35 @@ func TestHasRemoteWithoutOrigin(t *testing.T) {
 	}
 }
 
+// TestRemotesMatchWholeNames covers a repository whose remote is not called
+// "origin": a substring test both mismatched "my-origin" and hid a usable
+// remote under another name.
+func TestRemotesMatchWholeNames(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "my-origin", "https://example.invalid/x.git")
+
+	if got := Remotes(repo); len(got) != 1 || got[0] != "my-origin" {
+		t.Errorf("remotes = %v, want [my-origin]", got)
+	}
+	if !HasRemote(repo) {
+		t.Error("a repository with one remote can be pushed, whatever it is called")
+	}
+	if got, err := pushRemote(repo); err != nil || got != "my-origin" {
+		t.Errorf("pushRemote = %q, %v; want the sole remote", got, err)
+	}
+
+	// Once there is a choice and no origin, the user has to make it.
+	gitRun(t, repo, "remote", "add", "other", "https://example.invalid/y.git")
+	if _, err := pushRemote(repo); err == nil {
+		t.Error("two remotes and no origin should not be guessed at")
+	}
+
+	gitRun(t, repo, "remote", "add", "origin", "https://example.invalid/z.git")
+	if got, err := pushRemote(repo); err != nil || got != "origin" {
+		t.Errorf("pushRemote = %q, %v; want origin once it exists", got, err)
+	}
+}
+
 // gitRun runs a git command in dir and returns its output, failing the test on
 // error.
 func gitRun(t *testing.T, dir string, args ...string) string {

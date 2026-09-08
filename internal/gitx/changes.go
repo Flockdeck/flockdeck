@@ -231,10 +231,32 @@ func Push(dir string) (string, error) {
 		return "", &gitError{"cannot push a detached HEAD"}
 	}
 	if StatusOf(dir).Upstream == "" {
-		out, err := run(dir, "push", "--set-upstream", "origin", branch)
-		return out, err
+		remote, err := pushRemote(dir)
+		if err != nil {
+			return "", err
+		}
+		return run(dir, "push", "--set-upstream", remote, branch)
 	}
 	return run(dir, "push")
+}
+
+// pushRemote picks where a branch with no upstream should go: "origin" by
+// convention, or the only remote when the repository names it something else.
+// More than one and no origin is a choice the user has to make themselves.
+func pushRemote(dir string) (string, error) {
+	remotes := Remotes(dir)
+	switch {
+	case len(remotes) == 0:
+		return "", &gitError{"this repository has no remote to push to"}
+	case len(remotes) == 1:
+		return remotes[0], nil
+	}
+	for _, r := range remotes {
+		if r == "origin" {
+			return r, nil
+		}
+	}
+	return "", &gitError{"no \"origin\" remote; push manually to one of: " + strings.Join(remotes, ", ")}
 }
 
 // Pull fast-forwards from the upstream. A merge that cannot fast-forward is
@@ -248,8 +270,23 @@ func Fetch(dir string) (string, error) {
 	return run(dir, "fetch", "--prune")
 }
 
-// HasRemote reports whether the repository has an "origin" to push to.
-func HasRemote(dir string) bool {
+// HasRemote reports whether the repository has anywhere to push to. A
+// substring test for "origin" used to be enough here, but it also matched a
+// remote merely named "my-origin" and missed a repository whose only remote is
+// called something else entirely.
+func HasRemote(dir string) bool { return len(Remotes(dir)) > 0 }
+
+// Remotes lists the configured remote names.
+func Remotes(dir string) []string {
 	out, err := run(dir, "remote")
-	return err == nil && strings.Contains(out, "origin")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
