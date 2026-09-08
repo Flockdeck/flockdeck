@@ -274,6 +274,10 @@ func (w *Workspace) RestoreSession() int {
 	if err != nil || sess == nil {
 		return 0
 	}
+	// Each restoreProject below moves the focus onto the tabs it has just
+	// brought back, so the tab the window was left on has to be noted before
+	// any of them runs.
+	wasOn := w.activeTab
 	opened := 0
 	for _, root := range sess.Open {
 		if w.sessionRootIsOpen(root) {
@@ -299,8 +303,14 @@ func (w *Workspace) RestoreSession() int {
 		}
 		opened++
 	}
-	// restoreProject moves focus to the tabs it restored, so put it back.
-	w.focusFirstTabOf(w.activeRoot)
+	// Putting the focus back means the tab it was actually on, not merely a tab
+	// of the right project: focusFirstTabOf would land on the first one and
+	// quietly discard the tab the user quit from.
+	if t := w.Tab(wasOn); t != nil && t.Root == w.activeRoot {
+		w.activeTab = wasOn
+	} else {
+		w.focusFirstTabOf(w.activeRoot)
+	}
 	return opened
 }
 

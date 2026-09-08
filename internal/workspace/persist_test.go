@@ -571,3 +571,39 @@ func TestRestoreSessionDoesNotReopenTheActiveProject(t *testing.T) {
 		t.Errorf("projects = %d, want the one directory listed once", len(got))
 	}
 }
+
+// TestRestoreSessionKeepsTheTabTheUserLeftOn checks that bringing the other
+// projects back does not disturb which tab of the active project is on screen.
+func TestRestoreSessionKeepsTheTabTheUserLeftOn(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	ws.NewTab(session.KindShell, first, "beta")
+	beta := ws.ActiveTabID()
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "theirs")
+	// Quit while looking at the second of the first project's two tabs.
+	ws.SelectTab(beta)
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, first)
+	if _, err := again.Restore(); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	again.RestoreSession()
+
+	current := again.CurrentTab()
+	if current == nil {
+		t.Fatal("no tab is on screen after restoring")
+	}
+	if current.Title != "beta" {
+		t.Errorf("tab on screen = %q, want the one the window was left on", current.Title)
+	}
+}
