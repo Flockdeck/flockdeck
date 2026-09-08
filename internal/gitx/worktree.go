@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -50,10 +51,21 @@ func run(dir string, args ...string) (string, error) {
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// Nothing here has a terminal to answer on, so a command that would ask
+	// for a password has to fail instead of sitting until the timeout. Giving
+	// up the optional index lock also keeps the status polling of several
+	// panes from colliding with an agent's own commit.
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_OPTIONAL_LOCKS=0",
+	)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
+		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back
 		// to it before showing a bare "exit status 1".
