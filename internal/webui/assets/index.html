@@ -68,10 +68,14 @@
     </div>
   </div>
 
+  <!-- This covers the whole viewport and nothing behind it can be used, so it
+       is a modal like the other two, and an alert one: it appears on its own
+       rather than because the user asked for it. -->
   <div id="disconnected" hidden>
-    <div class="panel">
-      <h2>Disconnected</h2>
-      <p>The agent-wrapper process is no longer running, or the connection was lost.</p>
+    <div class="panel" role="alertdialog" aria-modal="true"
+         aria-labelledby="disconnected-title" aria-describedby="disconnected-desc">
+      <h2 id="disconnected-title">Disconnected</h2>
+      <p id="disconnected-desc">The agent-wrapper process is no longer running, or the connection was lost.</p>
       <button id="retry" class="chip primary">Reconnect</button>
     </div>
   </div>
