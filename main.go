@@ -46,7 +46,11 @@ func main() {
 	// from inside a pane, which is where the address and token come from.
 	if len(os.Args) > 1 && os.Args[1] == "spawn" {
 		if err := runSpawn(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "agent-wrapper spawn:", err)
+			// A flag set has already explained a parse failure itself; saying
+			// it a second time only makes the real message harder to find.
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "agent-wrapper spawn:", err)
+			}
 			os.Exit(1)
 		}
 		return
@@ -112,7 +116,7 @@ func usage() {
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
-	fmt.Fprintf(out, "Press F1 in the window for the keyboard shortcuts.\n")
+	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
 
 // fail reports a startup error. When the process was started from a desktop
@@ -332,6 +336,10 @@ func run(opts options) error {
 	return nil
 }
 
+// errReported marks an error the failing code has already printed, so the
+// caller exits without repeating it.
+var errReported = errors.New("already reported")
+
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
 //
@@ -353,7 +361,12 @@ func runSpawn(args []string) error {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return err
+		// `spawn -h` is the user asking for the usage they have just been
+		// given, not a failure to report on top of it.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return errReported
 	}
 
 	api := os.Getenv("AGENT_WRAPPER_API")
