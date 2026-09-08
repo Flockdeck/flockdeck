@@ -579,7 +579,10 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		Rows: rows,
 	})
 	if err != nil {
-		p.Err = err
+		// This is shown in the pane in place of a terminal, so it has to name
+		// the directory: a worktree removed under a pane is the usual reason a
+		// session will not start, and the error itself never says which one.
+		p.Err = fmt.Errorf("%w (working directory %s)", err, p.Cwd)
 		return
 	}
 	s.OnChange = w.wake

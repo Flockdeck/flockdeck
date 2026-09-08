@@ -421,3 +421,25 @@ func TestOpenProjectMatchesAnOpenProjectWhateverTheCase(t *testing.T) {
 		t.Errorf("active root = %q, want %q", ws.ActiveRoot(), root)
 	}
 }
+
+// TestPaneStartFailureNamesTheDirectory covers what the pane shows when there
+// is no terminal to show: a worktree pulled out from under it is the usual
+// cause, and the error from the process never says which directory it was.
+func TestPaneStartFailureNamesTheDirectory(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	gone := filepath.Join(root, "worktree-that-went-away")
+	tab := ws.NewTab(session.KindShell, gone, "")
+	p := ws.Pane(tab.Focus)
+	if p == nil {
+		t.Fatal("no pane for the new tab")
+	}
+	if p.Err == nil {
+		t.Skip("this platform starts a shell in a directory that is not there")
+	}
+	if !strings.Contains(p.Err.Error(), gone) {
+		t.Errorf("pane error %q does not say which directory it tried", p.Err)
+	}
+}
