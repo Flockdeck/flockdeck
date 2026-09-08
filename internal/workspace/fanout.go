@@ -21,6 +21,10 @@ const recentOutputBytes = 64 << 10
 // beyond this the machine, not the idea, becomes the limit.
 const maxTasks = 12
 
+// MaxTasks is maxTasks for callers that start the agents themselves, so the
+// limit is one number rather than one per fan-out path.
+const MaxTasks = maxTasks
+
 // maxTaskRunes bounds a task. Longer than this and the line is a paragraph that
 // happens to begin with a dash, not a job to hand to an agent.
 const maxTaskRunes = 600

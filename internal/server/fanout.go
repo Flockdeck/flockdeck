@@ -125,6 +125,14 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			if task == "" {
 				continue
 			}
+			// Every task here becomes an agent with a terminal of its own. The
+			// proposed list is capped, but the user edits it before anything
+			// starts, and nothing between there and here held the edited one to
+			// a size the machine can actually run.
+			if started+failed >= workspace.MaxTasks {
+				c.notify(fmt.Sprintf("stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
+				break
+			}
 
 			cwd := baseCwd
 			if worktrees {
