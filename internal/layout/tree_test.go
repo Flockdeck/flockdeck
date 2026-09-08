@@ -424,3 +424,40 @@ func TestNeighborBreaksTiesInTreeOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoveFlattensASplitPulledUpByTheCollapse covers the layout where the
+// collapse of one split hands its parent a split along the same axis. The row
+// has to end up flat, the way it would have if it had been built that way.
+func TestRemoveFlattensASplitPulledUpByTheCollapse(t *testing.T) {
+	// a | [ b over (c | d) ]
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Vertical)
+	root.Split("c", "d", Horizontal)
+
+	if !root.Remove("b") {
+		t.Fatal("remove b failed")
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "c", "d"}) {
+		t.Fatalf("panes = %v, want [a c d]", got)
+	}
+	if len(root.Children) != 3 {
+		t.Fatalf("the row holds %d children, want the pulled-up row flattened into it", len(root.Children))
+	}
+	for _, c := range root.Children {
+		if !c.IsLeaf() {
+			t.Errorf("child %s should be a leaf once the row is flat", c.ID)
+		}
+	}
+
+	// c and d shared the half of the row that b's column occupied, so they
+	// should still have a quarter each against a's half.
+	root.Compute(Rect{X: 0, Y: 0, W: 1000, H: 100})
+	a, c, d := root.Find("a").Rect().W, root.Find("c").Rect().W, root.Find("d").Rect().W
+	if a < 480 || a > 520 {
+		t.Errorf("a is %d of 1000 columns, want about half", a)
+	}
+	if c < 230 || c > 270 || d < 230 || d > 270 {
+		t.Errorf("c and d are %d and %d columns, want about a quarter each", c, d)
+	}
+}

@@ -430,12 +430,40 @@ func (root *Node) Remove(pane string) bool {
 	}
 
 	parent.Children = append(parent.Children[:idx], parent.Children[idx+1:]...)
-	if len(parent.Children) == 1 {
-		only := parent.Children[0]
-		parent.Pane = only.Pane
-		parent.Dir = only.Dir
-		parent.Children = only.Children
+	if len(parent.Children) != 1 {
+		return true
 	}
+	only := parent.Children[0]
+	parent.Pane = only.Pane
+	parent.Dir = only.Dir
+	parent.Children = only.Children
+
+	// Collapsing a split can pull a split up into a parent along the same
+	// axis, which is exactly the nesting Split, InsertBeside and Combine all
+	// take care to avoid: a row of three would read as a row of two, giving
+	// the lone pane half the width and the other two a quarter each, and its
+	// divider would move both of them together. Splice the collapsed split
+	// into its parent, sharing out the slot it was occupying so the panes
+	// keep the proportions they had.
+	grand, at := root.parentOf(parent)
+	if grand == nil || parent.IsLeaf() || grand.Dir != parent.Dir {
+		return true
+	}
+	total := 0.0
+	for _, c := range parent.Children {
+		total += c.weight()
+	}
+	if total <= 0 {
+		total = 1
+	}
+	for _, c := range parent.Children {
+		c.Weight = c.weight() * parent.weight() / total
+	}
+	spliced := make([]*Node, 0, len(grand.Children)+len(parent.Children)-1)
+	spliced = append(spliced, grand.Children[:at]...)
+	spliced = append(spliced, parent.Children...)
+	spliced = append(spliced, grand.Children[at+1:]...)
+	grand.Children = spliced
 	return true
 }
 
