@@ -545,3 +545,26 @@ func TestExtractTasksReadsCheckboxes(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksSkipsTabIndentedDetail is the nesting rule again, written the
+// other way a markdown list is indented. Counting bytes put a tabbed sub-item
+// one column in, which reads as alignment drift rather than as nesting.
+func TestExtractTasksSkipsTabIndentedDetail(t *testing.T) {
+	plan := "1. Add a tooltip layer to the web interface\n" +
+		"\t- app.js: one delegated listener\n" +
+		"\t- app.css: the bubble itself\n" +
+		"2. Write tests for the tooltip layer\n"
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add a tooltip layer to the web interface",
+		"Write tests for the tooltip layer",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

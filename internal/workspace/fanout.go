@@ -115,7 +115,7 @@ func listItems(text string) ([]item, int) {
 	for n, raw := range strings.Split(text, "\n") {
 		line := strings.TrimRight(raw, " \t")
 		body := strings.TrimLeft(line, " \t")
-		indent := len(line) - len(body)
+		indent := indentWidth(line)
 
 		// A list inside a code block is sample text, not a plan.
 		if strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~") {
@@ -152,6 +152,30 @@ func listItems(text string) ([]item, int) {
 		open = -1
 	}
 	return items, cue
+}
+
+// tabWidth is how wide a tab is taken to be when measuring indentation. Any
+// value above one would do: what matters is that a tab outranks the single
+// space that separates alignment from nesting.
+const tabWidth = 4
+
+// indentWidth measures how far a line is indented, in columns rather than in
+// bytes. A markdown list is as often indented with tabs as with spaces, and
+// counting bytes puts a tabbed sub-item one column in, which reads as drift
+// rather than as nesting — so an agent is handed the detail of a job as a job.
+func indentWidth(line string) int {
+	n := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			n++
+		case '\t':
+			n += tabWidth
+		default:
+			return n
+		}
+	}
+	return n
 }
 
 // planHeadings are the whole line, once its markup is stripped: a heading over
