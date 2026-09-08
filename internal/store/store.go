@@ -128,6 +128,14 @@ func Load(root string) (*State, error) {
 	if s.Version != Version {
 		return nil, nil
 	}
+	// The filename is a hash of the root, so a file can only be the wrong one
+	// through a collision or through a change to how the hash is taken. Either
+	// way, restoring another project's tabs into this one would be far worse
+	// than restoring nothing. Layouts written before the root was recorded
+	// have nothing to check and are taken as they are.
+	if s.Root != "" && !sameRoot(s.Root, root) {
+		return nil, nil
+	}
 	return &s, nil
 }
 
@@ -139,7 +147,7 @@ func Save(root string, s *State) error {
 		return err
 	}
 	s.Version = Version
-	s.Root = root
+	s.Root = filepath.Clean(root)
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)

@@ -537,3 +537,37 @@ func TestSessionDropsAnActiveProjectThatIsNotOpen(t *testing.T) {
 		t.Errorf("active project is %q, but it is not among the open ones", got.Active)
 	}
 }
+
+// TestLoadRejectsAnotherProjectsLayout checks a layout file that turns out to
+// describe a different directory restores nothing, rather than opening one
+// project's tabs inside another.
+func TestLoadRejectsAnotherProjectsLayout(t *testing.T) {
+	isolateConfig(t)
+
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "alpha"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	data, err := json.MarshalIndent(&State{
+		Version: Version,
+		Root:    filepath.Clean("/repo/somewhere-else"),
+		Tabs:    []Tab{{Title: "beta"}},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Load("/repo/a")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != nil {
+		t.Errorf("restored %q, which belongs to another project", got.Tabs[0].Title)
+	}
+}
