@@ -600,6 +600,12 @@ kbd {
   position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
   background: var(--bg-raised); border: 1px solid var(--line-strong);
   border-radius: var(--radius); padding: 8px 14px; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  /* Centred by shifting a shrink-to-fit box, so its own available width is
+   * only the half of the viewport to the right of the midpoint: without a max
+   * of its own a long message wrapped into a needlessly narrow column, and an
+   * unbreakable one - a git error quoting a full path - ran off the edge. */
+  max-width: min(560px, calc(100vw - 28px));
+  overflow-wrap: break-word;
 }
 #notice[hidden] { display: none; }
 #notice.error { border-color: var(--exited); color: var(--exited); }

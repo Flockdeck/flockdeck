@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-wrapper</title>
+<link rel="stylesheet" href="/assets/vendor/xterm.css">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header id="topbar">
+    <button id="project-btn" class="chip project">
+      <span id="project-name">project</span><span class="caret">▾</span>
+    </button>
+    <div class="divider-v"></div>
+    <div id="tabs" role="tablist" aria-label="Tabs"></div>
+    <button id="new-tab" class="icon-btn" aria-label="New agent tab">+</button>
+    <div class="spacer"></div>
+    <button id="summary" class="chip summary" aria-live="polite"></button>
+    <button id="btn-broadcast" class="chip">Broadcast</button>
+    <button id="btn-changes" class="chip">Changes</button>
+    <button id="btn-history" class="chip">History</button>
+    <button id="btn-worktrees" class="chip">Worktrees</button>
+    <button id="btn-help" class="chip">?</button>
+  </header>
+
+  <div id="hints" hidden></div>
+
+  <main id="workspace"></main>
+
+  <div id="promptbar" hidden>
+    <label for="prompt-input" id="prompt-label">Prompt</label>
+    <input id="prompt-input" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Type an instruction and press Enter">
+    <button id="prompt-send" class="chip primary">Send</button>
+    <button id="prompt-cancel" class="chip">Cancel</button>
+  </div>
+
+  <div id="searchbar" hidden>
+    <label for="search-input">Find</label>
+    <input id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search this terminal">
+    <button id="search-prev" class="chip" title="Previous (Shift+Enter)">↑</button>
+    <button id="search-next" class="chip" title="Next (Enter)">↓</button>
+    <button id="search-close" class="chip">Close</button>
+  </div>
+
+  <div id="palette" hidden>
+    <div id="palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
+      <input id="palette-input" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Type a command…">
+      <div id="palette-list"></div>
+    </div>
+  </div>
+
+  <!-- Transient toast. It is the only feedback for a command that succeeds or
+       fails without changing the screen, so it has to be spoken as well. -->
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+
+  <div id="overlay" hidden>
+    <div id="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+      <div id="overlay-head">
+        <h2 id="overlay-title">Worktrees</h2>
+        <button id="overlay-close" class="icon-btn" aria-label="Close this dialog (Esc)" data-tip="Close this dialog (Esc)">×</button>
+      </div>
+      <div id="overlay-body"></div>
+    </div>
+  </div>
+
+  <div id="disconnected" hidden>
+    <div class="panel">
+      <h2>Disconnected</h2>
+      <p>The agent-wrapper process is no longer running, or the connection was lost.</p>
+      <button id="retry" class="chip primary">Reconnect</button>
+    </div>
+  </div>
+
+  <script src="/assets/vendor/xterm.js"></script>
+  <script src="/assets/vendor/addon-fit.js"></script>
+  <script src="/assets/vendor/addon-webgl.js"></script>
+  <script src="/assets/vendor/addon-search.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
