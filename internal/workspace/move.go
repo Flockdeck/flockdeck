@@ -305,12 +305,29 @@ func (w *Workspace) detachPane(paneID string) {
 		w.unlinkTab(t)
 		return
 	}
+	// When the pane being taken away is the focused one, choose where the focus
+	// lands before mutating the tree, and choose it the way closing a pane
+	// does: the pane beside the gap it leaves, rather than whichever happens to
+	// come first in tree order. Neighbour lookup is geometric, so the tree
+	// needs its rectangles first.
+	next := ""
+	if t.Focus == paneID {
+		computeTab(t)
+		for _, dir := range []layout.Direction{layout.Right, layout.Left, layout.Down, layout.Up} {
+			if next = t.Tree.Neighbor(paneID, dir); next != "" {
+				break
+			}
+		}
+	}
+
 	t.Tree.Remove(paneID)
 	t.Zoom = false
 	if t.Focus == paneID {
-		t.Focus = ""
-		if panes := t.Tree.Panes(); len(panes) > 0 {
-			t.Focus = panes[0]
+		t.Focus = next
+		if t.Focus == "" {
+			if panes := t.Tree.Panes(); len(panes) > 0 {
+				t.Focus = panes[0]
+			}
 		}
 	}
 }

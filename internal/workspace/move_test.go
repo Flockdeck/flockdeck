@@ -509,3 +509,33 @@ func TestMovePaneToNewTabNamesTheTab(t *testing.T) {
 		t.Errorf("tab title = %q, want it still waiting to be named", got.Title)
 	}
 }
+
+// TestDraggingAPaneAwayLeavesTheFocusBesideIt checks where the focus lands in
+// the tab a pane is dragged out of. Closing a pane hands the focus to the pane
+// beside the gap; dragging one away should do the same rather than jumping to
+// whichever pane happens to come first in the tree.
+func TestDraggingAPaneAwayLeavesTheFocusBesideIt(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	src := ws.CurrentTab()
+	panes := panesOfTab(src)
+	if len(panes) != 3 {
+		t.Fatalf("panes = %v, want three in a row", panes)
+	}
+	leaving, beside := panes[2], panes[1]
+	ws.FocusPane(leaving)
+
+	ws.NewTab(session.KindShell, root, "two")
+	target := panesOfTab(ws.CurrentTab())[0]
+
+	if err := ws.MovePane(leaving, target, layout.EdgeRight); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if src.Focus != beside {
+		t.Errorf("focus left behind = %q, want its neighbour %q", src.Focus, beside)
+	}
+}
