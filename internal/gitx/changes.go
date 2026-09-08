@@ -96,11 +96,22 @@ func numstat(dir string, cached bool) map[string]lineCount {
 	return counts
 }
 
+// unmerged holds the porcelain codes git uses for a conflicted file. Several
+// of them contain no "U" at all -- "AA" is both sides adding, "DD" both
+// deleting -- so they have to be recognised as a set before the letters are
+// read individually, or a conflict is labelled "added" or "deleted".
+var unmerged = map[string]bool{
+	"DD": true, "AU": true, "UD": true, "UA": true,
+	"DU": true, "AA": true, "UU": true,
+}
+
 // statusLabel turns a porcelain code into a word.
 func statusLabel(code string) string {
 	switch {
 	case code == "??":
 		return "new"
+	case unmerged[code]:
+		return "conflict"
 	case strings.ContainsAny(code, "D"):
 		return "deleted"
 	case strings.ContainsAny(code, "R"):

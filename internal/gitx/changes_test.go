@@ -93,6 +93,32 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	}
 }
 
+// TestStatusLabelNamesConflicts covers the words shown beside each file. The
+// unmerged codes are the ones worth pinning: most of them look like an
+// ordinary add or delete if the letters are read one at a time.
+func TestStatusLabelNamesConflicts(t *testing.T) {
+	cases := map[string]string{
+		"??": "new",
+		" M": "modified",
+		"M ": "modified",
+		"A ": "added",
+		" D": "deleted",
+		"R ": "renamed",
+		"UU": "conflict",
+		"AA": "conflict",
+		"DD": "conflict",
+		"AU": "conflict",
+		"UD": "conflict",
+		"DU": "conflict",
+		"UA": "conflict",
+	}
+	for code, want := range cases {
+		if got := statusLabel(code); got != want {
+			t.Errorf("statusLabel(%q) = %q, want %q", code, got, want)
+		}
+	}
+}
+
 // TestUntrackedDiffHasNoPhantomLastLine pins the shape of the synthetic diff
 // shown for a new file: the trailing newline ends the last line, it does not
 // begin an empty one.
