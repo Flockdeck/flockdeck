@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -318,5 +319,45 @@ func TestTouchRecentStoresTidyPaths(t *testing.T) {
 	}
 	if list, _ := Recents(); len(list) != 1 {
 		t.Errorf("the empty path changed the list: %v", list)
+	}
+}
+
+// TestRecentsCollapsesStaleDuplicates checks a projects file written before
+// two spellings of a path counted as one still lists each project once.
+func TestRecentsCollapsesStaleDuplicates(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	now := time.Now()
+	raw := []Project{
+		{Root: filepath.Clean("/repo/a"), LastUsed: now.Add(-time.Hour)},
+		{Root: filepath.Clean("/repo/a") + string(filepath.Separator), LastUsed: now},
+		{Root: "", LastUsed: now.Add(-2 * time.Hour)},
+		{Root: filepath.Clean("/repo/b"), LastUsed: now.Add(-3 * time.Hour)},
+	}
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, recentsFile), data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("listed %d projects, want 2: %v", len(list), list)
+	}
+	// The newest spelling wins, so the entry keeps its real last-used time.
+	if !list[0].LastUsed.Equal(now) {
+		t.Errorf("kept the older duplicate: %v", list[0])
+	}
+	if !sameRoot(list[1].Root, "/repo/b") {
+		t.Errorf("second entry is %q, want /repo/b", list[1].Root)
 	}
 }

@@ -305,7 +305,31 @@ func Recents() ([]Project, error) {
 		return nil, nil
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].LastUsed.After(list[j].LastUsed) })
-	return list, nil
+
+	// Collapse entries that name the same directory, keeping the most recent.
+	// The file outlives any one version of this code, so it can hold paths
+	// that only later became equal — two spellings of one root, or a blank
+	// left by a caller that did not check. The picker must not show either.
+	out := make([]Project, 0, len(list))
+	for _, p := range list {
+		if strings.TrimSpace(p.Root) == "" {
+			continue
+		}
+		seen := false
+		for _, kept := range out {
+			if sameRoot(kept.Root, p.Root) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, p)
+		}
+	}
+	if len(out) > maxRecents {
+		out = out[:maxRecents]
+	}
+	return out, nil
 }
 
 // TouchRecent records that a project was opened, moving it to the front.
