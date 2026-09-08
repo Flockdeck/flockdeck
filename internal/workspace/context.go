@@ -147,9 +147,12 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.Siblings = c.Siblings[:maxSiblings]
 	}
 
-	for _, root := range w.openRoots {
+	// Named the way the project switcher names them, so two checkouts of one
+	// repository do not both reach the agent as the same word.
+	names := projectNames(w.openRoots)
+	for i, root := range w.openRoots {
 		if !sameDir(root, c.ProjectRoot) {
-			c.OtherProjects = append(c.OtherProjects, filepath.Base(root))
+			c.OtherProjects = append(c.OtherProjects, names[i])
 		}
 	}
 	sort.Strings(c.OtherProjects)

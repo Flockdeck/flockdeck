@@ -496,3 +496,38 @@ func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 		t.Error("a shell pane should not be told to spawn agents")
 	}
 }
+
+// TestOtherProjectsAreNamedApart checks the list of projects an agent is told
+// about: two checkouts of one repository reaching it as the same word says
+// nothing at all.
+func TestOtherProjectsAreNamedApart(t *testing.T) {
+	isolateConfig(t)
+	first := filepath.Join(t.TempDir(), "checkout-a", "service")
+	second := filepath.Join(t.TempDir(), "checkout-b", "service")
+	for _, dir := range []string{first, second} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("make %s: %v", dir, err)
+		}
+	}
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "lead")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ws.SelectProject(first)
+
+	c, ok := ws.PaneContext(ws.CurrentTab().Focus)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if len(c.OtherProjects) != 1 {
+		t.Fatalf("other projects = %#v, want the one next door", c.OtherProjects)
+	}
+	if c.OtherProjects[0] == "service" {
+		t.Errorf("the other project is named %q, the same as this one", c.OtherProjects[0])
+	}
+	if !strings.Contains(c.OtherProjects[0], "checkout-b") {
+		t.Errorf("name %q does not say which checkout it is", c.OtherProjects[0])
+	}
+}

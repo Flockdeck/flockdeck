@@ -248,9 +248,10 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 // Projects returns the open projects with a summary of each.
 func (w *Workspace) Projects() []Project {
 	w.applyPendingTitles()
+	names := projectNames(w.openRoots)
 	out := make([]Project, 0, len(w.openRoots))
-	for _, root := range w.openRoots {
-		p := Project{Root: root, Name: filepath.Base(root), Active: root == w.activeRoot}
+	for i, root := range w.openRoots {
+		p := Project{Root: root, Name: names[i], Active: root == w.activeRoot}
 		for _, t := range w.Tabs {
 			if t.Root != root {
 				continue
@@ -271,37 +272,39 @@ func (w *Workspace) Projects() []Project {
 		}
 		out = append(out, p)
 	}
-	disambiguate(out)
 	return out
 }
 
-// disambiguate gives the projects whose directory names collide enough of the
-// path to tell them apart.
+// projectNames names each root by its own directory, and gives the ones whose
+// names would collide enough of the path to tell them apart.
 //
-// Two checkouts of the same repository, or the same service in two
-// repositories, are both called the same thing, and the project switcher shows
-// only the name: without this the user is asked to pick between two identical
-// labels.
-func disambiguate(projects []Project) {
+// Two checkouts of the same repository, or the same service in two of them,
+// are called the same thing. The project switcher shows the name and nothing
+// else, and so does the list of other open projects an agent is given, so
+// without this both are asked to tell two identical labels apart.
+func projectNames(roots []string) []string {
+	names := make([]string, len(roots))
 	seen := map[string]int{}
-	for _, p := range projects {
-		seen[p.Name]++
+	for i, root := range roots {
+		names[i] = filepath.Base(root)
+		seen[names[i]]++
 	}
-	for i, p := range projects {
-		if seen[p.Name] < 2 {
+	for i, root := range roots {
+		if seen[names[i]] < 2 {
 			continue
 		}
-		parent := filepath.Base(filepath.Dir(p.Root))
+		parent := filepath.Base(filepath.Dir(root))
 		// A project at the root of a drive has no parent worth borrowing: Base
 		// of "C:\" is a separator, which names nothing.
-		if parent == "" || parent == "." || parent == p.Name {
+		if parent == "" || parent == "." || parent == names[i] {
 			continue
 		}
 		if len(parent) == 1 && os.IsPathSeparator(parent[0]) {
 			continue
 		}
-		projects[i].Name = filepath.Join(parent, p.Name)
+		names[i] = filepath.Join(parent, names[i])
 	}
+	return names
 }
 
 // OpenProject opens a directory as a project and makes it active. A project
