@@ -399,3 +399,28 @@ func TestSetChildWeightsRejectsWithoutMutating(t *testing.T) {
 		t.Error("a leaf has no children to weight")
 	}
 }
+
+// TestNeighborBreaksTiesInTreeOrder covers the symmetric case that distance and
+// alignment cannot separate: two stacked panes beside one tall one. Whichever
+// pane wins, it has to be the same one every time, and the topmost is the one a
+// reader of the layout would expect.
+func TestNeighborBreaksTiesInTreeOrder(t *testing.T) {
+	// Layout:  a | c
+	//          b | c
+	root := NewLeaf("a")
+	root.Split("a", "c", Horizontal)
+	root.Split("a", "b", Vertical)
+	root.Compute(Rect{X: 0, Y: 0, W: 1000, H: 1000})
+
+	// a and b are equally far from c and equally misaligned with it.
+	a, b, c := root.Find("a").Rect(), root.Find("b").Rect(), root.Find("c").Rect()
+	if abs(a.centerY()-c.centerY()) != abs(b.centerY()-c.centerY()) {
+		t.Fatalf("this test needs a genuine tie, got %d and %d", a.centerY(), b.centerY())
+	}
+
+	for i := 0; i < 50; i++ {
+		if got := root.Neighbor("c", Left); got != "a" {
+			t.Fatalf("left of c = %q on attempt %d, want a every time", got, i)
+		}
+	}
+}

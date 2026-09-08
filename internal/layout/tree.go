@@ -488,12 +488,12 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 	type cand struct {
 		pane string
 		// primary is distance along the movement axis, secondary is
-		// misalignment across it.
-		primary, secondary int
+		// misalignment across it, order is the leaf's position in the tree.
+		primary, secondary, order int
 	}
 	var cands []cand
 
-	for _, l := range root.Leaves() {
+	for i, l := range root.Leaves() {
 		if l == cur {
 			continue
 		}
@@ -525,16 +525,23 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 			primary = r.Y - (from.Y + from.H)
 			secondary = abs(r.centerX() - from.centerX())
 		}
-		cands = append(cands, cand{l.Pane, primary, secondary})
+		cands = append(cands, cand{l.Pane, primary, secondary, i})
 	}
 	if len(cands) == 0 {
 		return ""
 	}
+	// Distance and alignment tie whenever the layout is symmetric about the
+	// pane being left, which two stacked panes beside one tall one already
+	// are. Fall back to tree order so the winner is the topmost, leftmost of
+	// the tied panes rather than whichever the sort happened to leave first.
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].primary != cands[j].primary {
 			return cands[i].primary < cands[j].primary
 		}
-		return cands[i].secondary < cands[j].secondary
+		if cands[i].secondary != cands[j].secondary {
+			return cands[i].secondary < cands[j].secondary
+		}
+		return cands[i].order < cands[j].order
 	})
 	return cands[0].pane
 }
