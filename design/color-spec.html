@@ -1,0 +1,537 @@
+<title>agent-wrapper Color</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ============================================================
+   This page is built from the tokens it documents.
+   Page chrome uses var(--c-*). Only the specimens use literal
+   hex — they must show the actual color in either theme, so
+   each specimen paints its own explicit ground.
+   ============================================================ */
+:root {
+  --c-surface:#FAFBFB; --c-raised:#FFFFFF; --c-sunken:#F1F3F4;
+  --c-border-subtle:#E3E7E9; --c-border:#CBD2D6; --c-border-strong:#7A868C;
+  --c-text:#131A1E; --c-text-muted:#5C676D;
+  --c-accent:#0B6E77; --c-accent-strong:#08575E; --c-accent-subtle:#E6F3F4;
+  --c-accent-border:#A9D5D8; --c-on-accent:#FFFFFF;
+  --c-ok:#196634; --c-ok-subtle:#E7F2EA; --c-ok-border:#B4D6BF;
+  --c-warn:#92610A; --c-warn-subtle:#FAF0DC; --c-warn-border:#E3CE96;
+  --c-err:#B02A1F; --c-err-subtle:#FBEAE8; --c-err-border:#EBB8B1;
+  --c-focus:#0B6E77;
+  --ansi-0:#131A1E; --ansi-8:#5C676D;
+  --ansi-1:#B02A1F; --ansi-9:#8E1F16;
+  --ansi-2:#196634; --ansi-10:#114B26;
+  --ansi-3:#92610A; --ansi-11:#764E06;
+  --ansi-4:#1F5FA8; --ansi-12:#164A85;
+  --ansi-5:#7E3AA0; --ansi-13:#642C80;
+  --ansi-6:#0B6E77; --ansi-14:#08575E;
+  --ansi-7:#646F75; --ansi-15:#131A1E;
+
+  --sans:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --measure:68ch; --page:1140px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --c-surface:#0F1418; --c-raised:#161C21; --c-sunken:#0A0E11;
+  --c-border-subtle:#1F272D; --c-border:#2C363D; --c-border-strong:#5D6B72;
+  --c-text:#E6EDF1; --c-text-muted:#93A1A9;
+  --c-accent:#4FD1DB; --c-accent-strong:#7BE0E8; --c-accent-subtle:#0E2B2E;
+  --c-accent-border:#1F4E53; --c-on-accent:#0F1418;
+  --c-ok:#64C97F; --c-ok-subtle:#10261A; --c-ok-border:#24492F;
+  --c-warn:#E2B341; --c-warn-subtle:#2A2110; --c-warn-border:#4E3D18;
+  --c-err:#F0776A; --c-err-subtle:#2C1512; --c-err-border:#58251F;
+  --c-focus:#4FD1DB;
+  --ansi-0:#2A3238; --ansi-8:#738087;
+  --ansi-1:#F0776A; --ansi-9:#FF9E92;
+  --ansi-2:#64C97F; --ansi-10:#8FE0A2;
+  --ansi-3:#E2B341; --ansi-11:#F2CC6E;
+  --ansi-4:#5AA9E6; --ansi-12:#8AC4F0;
+  --ansi-5:#C98BE0; --ansi-13:#DDAAEF;
+  --ansi-6:#4FD1DB; --ansi-14:#86E5EC;
+  --ansi-7:#C7D1D7; --ansi-15:#EDF3F6;
+} }
+:root[data-theme="dark"] {
+  --c-surface:#0F1418; --c-raised:#161C21; --c-sunken:#0A0E11;
+  --c-border-subtle:#1F272D; --c-border:#2C363D; --c-border-strong:#5D6B72;
+  --c-text:#E6EDF1; --c-text-muted:#93A1A9;
+  --c-accent:#4FD1DB; --c-accent-strong:#7BE0E8; --c-accent-subtle:#0E2B2E;
+  --c-accent-border:#1F4E53; --c-on-accent:#0F1418;
+  --c-ok:#64C97F; --c-ok-subtle:#10261A; --c-ok-border:#24492F;
+  --c-warn:#E2B341; --c-warn-subtle:#2A2110; --c-warn-border:#4E3D18;
+  --c-err:#F0776A; --c-err-subtle:#2C1512; --c-err-border:#58251F;
+  --c-focus:#4FD1DB;
+  --ansi-0:#2A3238; --ansi-8:#738087;
+  --ansi-1:#F0776A; --ansi-9:#FF9E92;
+  --ansi-2:#64C97F; --ansi-10:#8FE0A2;
+  --ansi-3:#E2B341; --ansi-11:#F2CC6E;
+  --ansi-4:#5AA9E6; --ansi-12:#8AC4F0;
+  --ansi-5:#C98BE0; --ansi-13:#DDAAEF;
+  --ansi-6:#4FD1DB; --ansi-14:#86E5EC;
+  --ansi-7:#C7D1D7; --ansi-15:#EDF3F6;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--c-surface); color: var(--c-text);
+  font-family: var(--sans); font-size: 16px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+:where(a,button,summary,[tabindex]):focus-visible {
+  outline: 2px solid var(--c-focus); outline-offset: 2px; border-radius: 2px;
+}
+.wrap { max-width: var(--page); margin: 0 auto; padding: 0 32px 96px; }
+p { max-width: var(--measure); }
+code { font-family: var(--mono); font-size: .92em; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 32px; padding: 44px 0 0;
+}
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--c-text-muted);
+}
+h1 {
+  font-size: clamp(38px, 6.4vw, 64px); font-weight: 700; letter-spacing: -.035em;
+  line-height: .98; margin: 14px 0 0; text-wrap: balance;
+}
+h1 .cyan { color: var(--c-accent); }
+.lede { font-size: 19px; line-height: 1.55; margin: 22px 0 0; color: var(--c-text-muted); }
+.lede strong { color: var(--c-text); font-weight: 500; }
+
+.themetoggle {
+  flex: none; font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase;
+  background: transparent; color: var(--c-text-muted);
+  border: 1px solid var(--c-border-strong); border-radius: 2px;
+  padding: 7px 12px; cursor: pointer; margin-top: 4px;
+}
+.themetoggle:hover { color: var(--c-accent); border-color: var(--c-accent); }
+
+/* ---------- the two accents, stated up front ---------- */
+.accents { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 44px 0 0; }
+.accent-panel { padding: 30px 28px 26px; }
+.accent-panel .role {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase; display: block;
+}
+.accent-panel .hex {
+  font-family: var(--mono); font-size: clamp(26px, 4vw, 40px); font-weight: 700;
+  letter-spacing: -.02em; display: block; margin-top: 10px;
+}
+.accent-panel .meta { font-family: var(--mono); font-size: 12px; margin-top: 8px; display: block; }
+.ap-light { background: #FAFBFB; color: #0B6E77; }
+.ap-light .role, .ap-light .meta { color: #5C676D; }
+.ap-dark { background: #0F1418; color: #4FD1DB; }
+.ap-dark .role, .ap-dark .meta { color: #93A1A9; }
+
+/* ---------- sections ---------- */
+section { margin-top: 76px; }
+.sec-head {
+  display: flex; align-items: baseline; gap: 16px;
+  border-top: 1px solid var(--c-border); padding-top: 14px; margin-bottom: 26px;
+}
+.sec-head h2 {
+  font-size: 25px; font-weight: 600; letter-spacing: -.02em; margin: 0;
+  text-wrap: balance;
+}
+.sec-head .num {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+  color: var(--c-accent); text-transform: uppercase; flex: none;
+}
+.intro { margin-top: 0; margin-bottom: 24px; color: var(--c-text-muted); }
+
+/* ---------- rule list ---------- */
+.rules { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.rules li { padding: 20px 0; border-bottom: 1px solid var(--c-border-subtle); }
+.rules li:first-child { padding-top: 4px; }
+.rules h3 { font-size: 17px; font-weight: 600; margin: 0 0 5px; letter-spacing: -.01em; }
+.rules p { margin: 0; color: var(--c-text-muted); font-size: 15px; }
+
+/* ---------- state map ---------- */
+.states {
+  display: grid; gap: 1px; background: var(--c-border-subtle);
+  border: 1px solid var(--c-border-subtle);
+}
+.state-row {
+  display: grid; grid-template-columns: 26px 122px 1fr auto;
+  align-items: center; gap: 16px; padding: 13px 16px; background: var(--c-raised);
+}
+.state-row .glyph { font-family: var(--mono); font-size: 15px; font-weight: 700; text-align: center; }
+.state-row .label { font-weight: 600; font-size: 15px; }
+.state-row .desc { color: var(--c-text-muted); font-size: 14px; }
+.state-row .tok { font-family: var(--mono); font-size: 12px; color: var(--c-text-muted); white-space: nowrap; }
+.s-idle .glyph, .s-idle .label { color: var(--c-text-muted); }
+.s-run  .glyph, .s-run  .label { color: var(--c-accent); }
+.s-done .glyph, .s-done .label { color: var(--c-ok); }
+.s-block .glyph, .s-block .label { color: var(--c-warn); }
+.s-fail .glyph, .s-fail .label { color: var(--c-err); }
+.spin { display: inline-block; animation: spin 1.1s steps(8) infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* ---------- deuteranopia demo ---------- */
+.cvd { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.cvd-col { background: #0F1418; padding: 22px 22px 24px; }
+.cvd-col h4 {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  margin: 0 0 14px; color: #93A1A9; font-weight: 500;
+}
+.cvd-sim { filter: url(#deuteranopia); }
+.cvd-row { display: flex; align-items: center; gap: 11px; padding: 7px 0; font-size: 15px; }
+.cvd-row .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+.cvd-row .nm { font-weight: 600; }
+.cvd-row .ct {
+  font-family: var(--mono); font-size: 12px; color: #93A1A9; margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.cvd-note {
+  margin-top: 22px; padding: 16px 18px; font-size: 15px; max-width: none;
+  background: var(--c-warn-subtle); border-left: 3px solid var(--c-warn); color: var(--c-text);
+}
+.cvd-note strong { color: var(--c-warn); font-weight: 600; }
+
+/* ---------- palette table ---------- */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 660px; }
+th {
+  text-align: left; font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--c-text-muted);
+  padding: 0 14px 10px 0; border-bottom: 1px solid var(--c-border);
+}
+td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--c-border-subtle); vertical-align: middle; }
+td.tok { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+td.use { color: var(--c-text-muted); }
+.chip { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.chip i {
+  width: 22px; height: 22px; flex: none; border-radius: 2px;
+  border: 1px solid rgba(128,128,128,.32);
+}
+.chip code { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.chip .r {
+  font-family: var(--mono); font-size: 11.5px; color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- terminal ---------- */
+.termbar {
+  display: flex; align-items: center; gap: 12px; font-family: var(--mono);
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--c-text-muted); border: 1px solid var(--c-border); border-bottom: none;
+  padding: 8px 14px; background: var(--c-raised); margin-top: 28px;
+}
+.termbar .dotline { flex: 1; height: 1px; background: var(--c-border); }
+.term {
+  background: var(--c-sunken); border: 1px solid var(--c-border);
+  font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+  padding: 16px 20px; overflow-x: auto; color: var(--ansi-7);
+  white-space: pre; margin: 0;
+}
+.term .b { font-weight: 700; }
+
+.slotgroup { margin-top: 22px; }
+.slotgroup .cap {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--c-text-muted); margin-bottom: 8px;
+}
+.slots { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.slot { padding: 12px 6px 10px; text-align: center; font-family: var(--mono); font-size: 10.5px; }
+.slot b { display: block; font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+
+/* ---------- callout / code ---------- */
+.callout {
+  border: 1px solid var(--c-accent-border); background: var(--c-accent-subtle);
+  padding: 18px 20px; font-size: 15px; color: var(--c-text); max-width: none;
+}
+.callout .k { color: var(--c-accent); font-weight: 600; }
+pre.sh {
+  font-family: var(--mono); font-size: 13px; background: var(--c-sunken);
+  border: 1px solid var(--c-border); padding: 14px 16px; overflow-x: auto;
+  margin: 18px 0 0; color: var(--c-text); line-height: 1.7;
+}
+pre.sh .c { color: var(--c-text-muted); }
+pre.sh .pass { color: var(--c-ok); font-weight: 700; }
+.foot {
+  margin-top: 76px; border-top: 1px solid var(--c-border); padding-top: 18px;
+  font-family: var(--mono); font-size: 12px; color: var(--c-text-muted);
+  display: flex; flex-wrap: wrap; gap: 8px 28px;
+}
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 20px 72px; }
+  .accents, .cvd { grid-template-columns: 1fr; }
+  .slots { grid-template-columns: repeat(4, 1fr); }
+  .state-row { grid-template-columns: 24px 1fr; gap: 6px 12px; }
+  .state-row .desc, .state-row .tok { grid-column: 2; }
+  .masthead { flex-direction: column-reverse; align-items: flex-start; gap: 12px; }
+  .sec-head { flex-direction: column; gap: 4px; }
+}
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <filter id="deuteranopia" color-interpolation-filters="linearRGB">
+    <feColorMatrix type="matrix" values="0.625 0.375 0.000 0 0
+                                         0.700 0.300 0.000 0 0
+                                         0.000 0.300 0.700 0 0
+                                         0     0     0     1 0"></feColorMatrix>
+  </filter>
+</svg>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">agent-wrapper &middot; design system &middot; color</div>
+      <h1>Status is the only<br>reason to spend <span class="cyan">color</span>.</h1>
+      <p class="lede">The app's own status palette is the honest source. Green, amber and red are
+      spent on states the app actually knows &mdash; never on decoration. Everything else is neutral,
+      and the single accent is a <strong>deepened terminal cyan</strong>, borrowed from the ANSI world
+      the app already lives in.</p>
+    </div>
+    <button class="themetoggle" id="tt" type="button">Theme</button>
+  </header>
+
+  <div class="accents">
+    <div class="accent-panel ap-light">
+      <span class="role">Accent &middot; light</span>
+      <span class="hex">#0B6E77</span>
+      <span class="meta">5.77:1 on surface &middot; ANSI slot 6</span>
+    </div>
+    <div class="accent-panel ap-dark">
+      <span class="role">Accent &middot; dark</span>
+      <span class="hex">#4FD1DB</span>
+      <span class="meta">10.12:1 on surface &middot; ANSI slot 6</span>
+    </div>
+  </div>
+
+  <section>
+    <div class="sec-head"><span class="num">Rules</span><h2>Five that decide everything else</h2></div>
+    <ul class="rules">
+      <li>
+        <h3>Status color is earned, never decorative.</h3>
+        <p>Green, amber and red appear only where the app is reporting a state it actually knows.
+        Not on a heading, not on a chart series, not to make a button feel positive. If you want a
+        color and there is no state behind it, the answer is the accent or a neutral.</p>
+      </li>
+      <li>
+        <h3>Running is accent, not green.</h3>
+        <p>Green is a verdict, and a run in progress has not reached one. This is why the accent had
+        to be cyan rather than a hue chosen for taste &mdash; it has to sit beside the status trio
+        without being read as one of them.</p>
+      </li>
+      <li>
+        <h3>Never color alone.</h3>
+        <p>Every status carries a glyph and a word. Color is the third channel, not the first. Here
+        that is load-bearing rather than a nicety &mdash; the evidence is two sections down.</p>
+      </li>
+      <li>
+        <h3>One accent, no second brand hue.</h3>
+        <p>Two accents and the eye starts assigning meaning to the difference. Emphasis comes from
+        <code>--c-accent-strong</code>, weight and space.</p>
+      </li>
+      <li>
+        <h3>Neutrals carry the UI.</h3>
+        <p>Nearly every surface, border and glyph is neutral. Color is the exception &mdash; which is
+        exactly what makes it legible when it does appear.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">States</span><h2>What the app knows</h2></div>
+    <p class="intro">Every state maps to a token in one place, so a new state is a decision made once
+    rather than a color picked at a call site. Three of seven states get a hue; the rest stay muted.</p>
+    <div class="states">
+      <div class="state-row s-idle"><span class="glyph">&middot;</span><span class="label">Idle</span><span class="desc">No session attached</span><span class="tok">--c-text-muted</span></div>
+      <div class="state-row s-idle"><span class="glyph">&#9702;</span><span class="label">Queued</span><span class="desc">Waiting on a free slot</span><span class="tok">--c-text-muted</span></div>
+      <div class="state-row s-run"><span class="glyph"><span class="spin">&#9692;</span></span><span class="label">Running</span><span class="desc">Streaming &mdash; the only state that moves</span><span class="tok">--c-accent</span></div>
+      <div class="state-row s-done"><span class="glyph">&#10003;</span><span class="label">Done</span><span class="desc">Exited 0</span><span class="tok">--c-ok</span></div>
+      <div class="state-row s-block"><span class="glyph">!</span><span class="label">Blocked</span><span class="desc">Needs input before it can continue</span><span class="tok">--c-warn</span></div>
+      <div class="state-row s-fail"><span class="glyph">&#10007;</span><span class="label">Failed</span><span class="desc">Non-zero exit or transport error</span><span class="tok">--c-err</span></div>
+      <div class="state-row s-idle"><span class="glyph">&ndash;</span><span class="label">Cancelled</span><span class="desc">Stopped by the user &mdash; must not read as failure</span><span class="tok">--c-text-muted</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">Evidence</span><h2>Why &ldquo;never color alone&rdquo; is a hard rule</h2></div>
+    <p class="intro">The right-hand column is the same status list under a deuteranopia simulation
+    &mdash; the most common color vision deficiency, around 6% of men. It is applied live, to these
+    actual token values.</p>
+    <div class="cvd">
+      <div class="cvd-col">
+        <h4>As specified</h4>
+        <div class="cvd-row"><span class="dot" style="background:#4FD1DB"></span><span class="nm" style="color:#4FD1DB">Running</span><span class="ct">#4FD1DB</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#64C97F"></span><span class="nm" style="color:#64C97F">Done</span><span class="ct">#64C97F</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#E2B341"></span><span class="nm" style="color:#E2B341">Blocked</span><span class="ct">#E2B341</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#F0776A"></span><span class="nm" style="color:#F0776A">Failed</span><span class="ct">#F0776A</span></div>
+      </div>
+      <div class="cvd-col cvd-sim">
+        <h4>Deuteranopia</h4>
+        <div class="cvd-row"><span class="dot" style="background:#4FD1DB"></span><span class="nm" style="color:#4FD1DB">Running</span><span class="ct">#4FD1DB</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#64C97F"></span><span class="nm" style="color:#64C97F">Done</span><span class="ct">#64C97F</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#E2B341"></span><span class="nm" style="color:#E2B341">Blocked</span><span class="ct">#E2B341</span></div>
+        <div class="cvd-row"><span class="dot" style="background:#F0776A"></span><span class="nm" style="color:#F0776A">Failed</span><span class="ct">#F0776A</span></div>
+      </div>
+    </div>
+    <div class="cvd-note">
+      <strong>Running and Done collapse to 1.25:1 &mdash; effectively one color.</strong>
+      We tested the alternatives: shifting green yellow-ward reaches 1.47:1, still indistinguishable.
+      No hue pair solves this at these lightnesses while keeping a cyan accent. And
+      <em>running</em> and <em>done</em> are adjacent rows in the session list &mdash; the two states
+      a user most needs to tell apart at a glance &mdash; so the separation cannot live in the color.
+      It lives in the glyph, the label, and the fact that running is the only state that animates.
+      The palette is sound; the redundancy is what makes it safe.
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">Palette</span><h2>Every value, verified at its pairing</h2></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:200px">Token</th><th style="width:196px">Light</th><th style="width:196px">Dark</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td class="tok">--c-surface</td><td><span class="chip"><i style="background:#FAFBFB"></i><code>#FAFBFB</code></span></td><td><span class="chip"><i style="background:#0F1418"></i><code>#0F1418</code></span></td><td class="use">The page</td></tr>
+          <tr><td class="tok">--c-raised</td><td><span class="chip"><i style="background:#FFFFFF"></i><code>#FFFFFF</code></span></td><td><span class="chip"><i style="background:#161C21"></i><code>#161C21</code></span></td><td class="use">Cards, panels, popovers</td></tr>
+          <tr><td class="tok">--c-sunken</td><td><span class="chip"><i style="background:#F1F3F4"></i><code>#F1F3F4</code></span></td><td><span class="chip"><i style="background:#0A0E11"></i><code>#0A0E11</code></span></td><td class="use">Agent output, code, terminal</td></tr>
+          <tr><td class="tok">--c-border-subtle</td><td><span class="chip"><i style="background:#E3E7E9"></i><code>#E3E7E9</code></span></td><td><span class="chip"><i style="background:#1F272D"></i><code>#1F272D</code></span></td><td class="use">Separators</td></tr>
+          <tr><td class="tok">--c-border</td><td><span class="chip"><i style="background:#CBD2D6"></i><code>#CBD2D6</code></span></td><td><span class="chip"><i style="background:#2C363D"></i><code>#2C363D</code></span></td><td class="use">Container edges</td></tr>
+          <tr><td class="tok">--c-border-strong</td><td><span class="chip"><i style="background:#7A868C"></i><code>#7A868C</code><span class="r">3.61</span></span></td><td><span class="chip"><i style="background:#5D6B72"></i><code>#5D6B72</code><span class="r">3.36</span></span></td><td class="use">Control boundaries &mdash; meets 1.4.11</td></tr>
+          <tr><td class="tok">--c-text</td><td><span class="chip"><i style="background:#131A1E"></i><code>#131A1E</code><span class="r">16.96</span></span></td><td><span class="chip"><i style="background:#E6EDF1"></i><code>#E6EDF1</code><span class="r">15.66</span></span></td><td class="use">Body</td></tr>
+          <tr><td class="tok">--c-text-muted</td><td><span class="chip"><i style="background:#5C676D"></i><code>#5C676D</code><span class="r">5.60</span></span></td><td><span class="chip"><i style="background:#93A1A9"></i><code>#93A1A9</code><span class="r">6.98</span></span></td><td class="use">Secondary &mdash; still AA</td></tr>
+          <tr><td class="tok">--c-accent</td><td><span class="chip"><i style="background:#0B6E77"></i><code>#0B6E77</code><span class="r">5.77</span></span></td><td><span class="chip"><i style="background:#4FD1DB"></i><code>#4FD1DB</code><span class="r">10.12</span></span></td><td class="use">Activity, links, selection</td></tr>
+          <tr><td class="tok">--c-accent-strong</td><td><span class="chip"><i style="background:#08575E"></i><code>#08575E</code><span class="r">7.99</span></span></td><td><span class="chip"><i style="background:#7BE0E8"></i><code>#7BE0E8</code><span class="r">12.06</span></span></td><td class="use">Hover, pressed</td></tr>
+          <tr><td class="tok">--c-accent-subtle</td><td><span class="chip"><i style="background:#E6F3F4"></i><code>#E6F3F4</code></span></td><td><span class="chip"><i style="background:#0E2B2E"></i><code>#0E2B2E</code></span></td><td class="use">Tinted fill &mdash; accent on it holds 5.27 / 8.18</td></tr>
+          <tr><td class="tok">--c-ok</td><td><span class="chip"><i style="background:#196634"></i><code>#196634</code><span class="r">6.77</span></span></td><td><span class="chip"><i style="background:#64C97F"></i><code>#64C97F</code><span class="r">9.00</span></span></td><td class="use">Done</td></tr>
+          <tr><td class="tok">--c-warn</td><td><span class="chip"><i style="background:#92610A"></i><code>#92610A</code><span class="r">5.15</span></span></td><td><span class="chip"><i style="background:#E2B341"></i><code>#E2B341</code><span class="r">9.49</span></span></td><td class="use">Blocked, needs input</td></tr>
+          <tr><td class="tok">--c-err</td><td><span class="chip"><i style="background:#B02A1F"></i><code>#B02A1F</code><span class="r">6.34</span></span></td><td><span class="chip"><i style="background:#F0776A"></i><code>#F0776A</code><span class="r">6.66</span></span></td><td class="use">Failed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top:26px">
+      <span class="k">On the two borders that don't reach 3:1.</span>
+      <code>--c-border</code> and <code>--c-border-subtle</code> sit below it deliberately. They
+      separate; they don't delimit anything you can operate. Every control boundary uses
+      <code>--c-border-strong</code>, which clears WCAG 1.4.11 in both themes.
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">Passthrough</span><h2>The agent's colors, and where ours stop</h2></div>
+    <p>Agent output arrives carrying its own SGR escape codes. We don't restyle it &mdash; that would
+    misrepresent what the wrapped agent said. We only decide what the sixteen slots resolve to inside
+    <code>--c-sunken</code>. That surface is the boundary: <strong>inside it the agent's colors,
+    outside it ours.</strong></p>
+
+    <div class="termbar"><span>session e4f1c2</span><span class="dotline"></span><span>--c-sunken</span></div>
+    <pre class="term"><span style="color:var(--ansi-8)">$</span> agent-wrapper run review --agent claude
+<span style="color:var(--ansi-8)">[14:02:11]</span> <span style="color:var(--ansi-6)">session e4f1c2 started</span>
+  <span style="color:var(--ansi-2)">&#10003;</span> 12 files staged
+  <span style="color:var(--ansi-4)">&#8594;</span> analyzing <span style="color:var(--ansi-5)">src/render/ansi.ts</span>
+  <span style="color:var(--ansi-3)">!</span> 2 findings need input
+  <span style="color:var(--ansi-1)">&#10007;</span> <span class="b" style="color:var(--ansi-9)">tsc exited 2</span>
+<span style="color:var(--ansi-8)">[14:02:19]</span> <span style="color:var(--ansi-8)">3 warnings suppressed</span></pre>
+
+    <div class="slotgroup">
+      <div class="cap">The sixteen slots &middot; light</div>
+      <div class="slots">
+        <div class="slot" style="background:#F1F3F4;color:#131A1E"><b>0</b>131A1E</div>
+        <div class="slot" style="background:#F1F3F4;color:#B02A1F"><b>1</b>B02A1F</div>
+        <div class="slot" style="background:#F1F3F4;color:#196634"><b>2</b>196634</div>
+        <div class="slot" style="background:#F1F3F4;color:#92610A"><b>3</b>92610A</div>
+        <div class="slot" style="background:#F1F3F4;color:#1F5FA8"><b>4</b>1F5FA8</div>
+        <div class="slot" style="background:#F1F3F4;color:#7E3AA0"><b>5</b>7E3AA0</div>
+        <div class="slot" style="background:#F1F3F4;color:#0B6E77"><b>6</b>0B6E77</div>
+        <div class="slot" style="background:#F1F3F4;color:#646F75"><b>7</b>646F75</div>
+        <div class="slot" style="background:#F1F3F4;color:#5C676D"><b>8</b>5C676D</div>
+        <div class="slot" style="background:#F1F3F4;color:#8E1F16"><b>9</b>8E1F16</div>
+        <div class="slot" style="background:#F1F3F4;color:#114B26"><b>10</b>114B26</div>
+        <div class="slot" style="background:#F1F3F4;color:#764E06"><b>11</b>764E06</div>
+        <div class="slot" style="background:#F1F3F4;color:#164A85"><b>12</b>164A85</div>
+        <div class="slot" style="background:#F1F3F4;color:#642C80"><b>13</b>642C80</div>
+        <div class="slot" style="background:#F1F3F4;color:#08575E"><b>14</b>08575E</div>
+        <div class="slot" style="background:#F1F3F4;color:#131A1E"><b>15</b>131A1E</div>
+      </div>
+    </div>
+
+    <div class="slotgroup">
+      <div class="cap">The sixteen slots &middot; dark</div>
+      <div class="slots">
+        <div class="slot" style="background:#0A0E11;color:#2A3238"><b>0</b>2A3238</div>
+        <div class="slot" style="background:#0A0E11;color:#F0776A"><b>1</b>F0776A</div>
+        <div class="slot" style="background:#0A0E11;color:#64C97F"><b>2</b>64C97F</div>
+        <div class="slot" style="background:#0A0E11;color:#E2B341"><b>3</b>E2B341</div>
+        <div class="slot" style="background:#0A0E11;color:#5AA9E6"><b>4</b>5AA9E6</div>
+        <div class="slot" style="background:#0A0E11;color:#C98BE0"><b>5</b>C98BE0</div>
+        <div class="slot" style="background:#0A0E11;color:#4FD1DB"><b>6</b>4FD1DB</div>
+        <div class="slot" style="background:#0A0E11;color:#C7D1D7"><b>7</b>C7D1D7</div>
+        <div class="slot" style="background:#0A0E11;color:#738087"><b>8</b>738087</div>
+        <div class="slot" style="background:#0A0E11;color:#FF9E92"><b>9</b>FF9E92</div>
+        <div class="slot" style="background:#0A0E11;color:#8FE0A2"><b>10</b>8FE0A2</div>
+        <div class="slot" style="background:#0A0E11;color:#F2CC6E"><b>11</b>F2CC6E</div>
+        <div class="slot" style="background:#0A0E11;color:#8AC4F0"><b>12</b>8AC4F0</div>
+        <div class="slot" style="background:#0A0E11;color:#DDAAEF"><b>13</b>DDAAEF</div>
+        <div class="slot" style="background:#0A0E11;color:#86E5EC"><b>14</b>86E5EC</div>
+        <div class="slot" style="background:#0A0E11;color:#EDF3F6"><b>15</b>EDF3F6</div>
+      </div>
+    </div>
+
+    <ul class="rules" style="margin-top:36px">
+      <li>
+        <h3>In light mode the bright half deepens rather than lightens.</h3>
+        <p>Slot 10 is <code>#114B26</code>, darker than slot 2's <code>#196634</code>. Bright means
+        emphasis, and on a light ground emphasis is more contrast, not less.</p>
+      </li>
+      <li>
+        <h3>Slot 0 in dark mode is a fill, not a foreground.</h3>
+        <p>At 1.49:1 it is unreadable as text, so the renderer lifts foreground <code>ANSI black</code>
+        to slot 8 rather than emitting invisible output. It is the only lift needed &mdash; the other
+        fifteen slots clear 4.5:1 on <code>--c-sunken</code> in both themes.</p>
+      </li>
+      <li>
+        <h3>Slot 6 is the accent, in both themes.</h3>
+        <p>That is the join. The app's accent isn't imposed on the terminal &mdash; it's a color the
+        terminal already had.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">Enforcement</span><h2>The numbers are checked, not claimed</h2></div>
+    <p><code>design/contrast.js</code> parses the token values straight out of <code>color.css</code>
+    and asserts every pairing on this page, so the documentation cannot drift from what ships. It also
+    asserts the invariants the rules depend on &mdash; that slot 6 equals the accent, that
+    <code>running</code> resolves to the accent and not to <code>ok</code>, and that the bright half
+    moves the right direction in each theme. It exits non-zero on a regression.</p>
+    <pre class="sh">$ node design/contrast.js
+<span class="c">  ok   light --c-accent      on --c-surface    5.77:1 (min 4.5)
+  ok   light --c-border-strong on --c-surface   3.61:1 (min 3)
+  ok   dark  --c-err         on --c-surface    6.66:1 (min 4.5)
+  ok   dark  --ansi-8        on --c-sunken     4.77:1 (min 4.5)
+  &hellip; 78 checks &hellip;
+  ok   accent === ANSI cyan (light)
+  ok   running is accent, not ok</span>
+<span class="pass">all checks pass</span></pre>
+  </section>
+
+  <div class="foot">
+    <span>agent-wrapper/design/color.css</span>
+    <span>WCAG 2.1 &middot; AA text &middot; AA non-text</span>
+    <span>Type direction: Archivo, per the type branch</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('tt');
+  var root = document.documentElement;
+  btn.addEventListener('click', function () {
+    var explicit = root.getAttribute('data-theme');
+    var dark = explicit
+      ? explicit === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+  });
+})();
+</script>

@@ -1,0 +1,175 @@
+/* agent-wrapper — color tokens
+ *
+ * One accent (a deepened terminal cyan). Green/amber/red are reserved for
+ * status the app actually knows. Everything else is neutral.
+ *
+ * Light is defined on bare :root. Dark redefines only what changes, twice:
+ * once for the system preference and once for an explicit [data-theme="dark"],
+ * so an in-app toggle wins in both directions.
+ */
+
+:root {
+  /* ---- neutral ground ------------------------------------------------ */
+  --c-surface:        #FAFBFB;  /* the page */
+  --c-raised:         #FFFFFF;  /* cards, panels, popovers */
+  --c-sunken:         #F1F3F4;  /* agent output, code, terminal blocks */
+
+  --c-border-subtle:  #E3E7E9;  /* separators between related things */
+  --c-border:         #CBD2D6;  /* container edges */
+  --c-border-strong:  #7A868C;  /* control boundaries — meets 3:1 (WCAG 1.4.11) */
+
+  --c-text:           #131A1E;
+  --c-text-muted:     #5C676D;  /* secondary text; still meets 4.5:1 */
+
+  /* ---- accent — deepened terminal cyan -------------------------------- */
+  --c-accent:         #0B6E77;
+  --c-accent-strong:  #08575E;  /* hover / pressed / high-emphasis */
+  --c-accent-subtle:  #E6F3F4;  /* tinted fill behind accent text */
+  --c-accent-border:  #A9D5D8;
+  --c-on-accent:      #FFFFFF;  /* text on an accent fill */
+
+  /* ---- status — only ever set from a real app state -------------------- */
+  --c-ok:             #196634;
+  --c-ok-subtle:      #E7F2EA;
+  --c-ok-border:      #B4D6BF;
+
+  --c-warn:           #92610A;
+  --c-warn-subtle:    #FAF0DC;
+  --c-warn-border:    #E3CE96;
+
+  --c-err:            #B02A1F;
+  --c-err-subtle:     #FBEAE8;
+  --c-err-border:     #EBB8B1;
+
+  /* ---- focus ---------------------------------------------------------- */
+  --c-focus:          #0B6E77;
+  --c-focus-offset:   #FAFBFB;  /* ring gap, so focus reads on any surface */
+
+  /* ---- ANSI passthrough ----------------------------------------------- */
+  /* Agent output carries its own SGR codes. We do not restyle it — we only
+   * decide what the 16 slots resolve to. In light mode the "bright" half
+   * deepens rather than lightens: on a light ground, emphasis is more
+   * contrast, not less. */
+  --ansi-0:  #131A1E;  --ansi-8:  #5C676D;  /* black        / bright black  */
+  --ansi-1:  #B02A1F;  --ansi-9:  #8E1F16;  /* red          / bright red    */
+  --ansi-2:  #196634;  --ansi-10: #114B26;  /* green        / bright green  */
+  --ansi-3:  #92610A;  --ansi-11: #764E06;  /* yellow       / bright yellow */
+  --ansi-4:  #1F5FA8;  --ansi-12: #164A85;  /* blue         / bright blue   */
+  --ansi-5:  #7E3AA0;  --ansi-13: #642C80;  /* magenta      / bright magenta*/
+  --ansi-6:  #0B6E77;  --ansi-14: #08575E;  /* cyan         / bright cyan   */
+  --ansi-7:  #646F75;  --ansi-15: #131A1E;  /* white        / bright white  */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-surface:        #0F1418;
+    --c-raised:         #161C21;
+    --c-sunken:         #0A0E11;
+
+    --c-border-subtle:  #1F272D;
+    --c-border:         #2C363D;
+    --c-border-strong:  #5D6B72;
+
+    --c-text:           #E6EDF1;
+    --c-text-muted:     #93A1A9;
+
+    --c-accent:         #4FD1DB;
+    --c-accent-strong:  #7BE0E8;
+    --c-accent-subtle:  #0E2B2E;
+    --c-accent-border:  #1F4E53;
+    --c-on-accent:      #0F1418;
+
+    --c-ok:             #64C97F;
+    --c-ok-subtle:      #10261A;
+    --c-ok-border:      #24492F;
+
+    --c-warn:           #E2B341;
+    --c-warn-subtle:    #2A2110;
+    --c-warn-border:    #4E3D18;
+
+    --c-err:            #F0776A;
+    --c-err-subtle:     #2C1512;
+    --c-err-border:     #58251F;
+
+    --c-focus:          #4FD1DB;
+    --c-focus-offset:   #0F1418;
+
+    --ansi-0:  #2A3238;  --ansi-8:  #738087;
+    --ansi-1:  #F0776A;  --ansi-9:  #FF9E92;
+    --ansi-2:  #64C97F;  --ansi-10: #8FE0A2;
+    --ansi-3:  #E2B341;  --ansi-11: #F2CC6E;
+    --ansi-4:  #5AA9E6;  --ansi-12: #8AC4F0;
+    --ansi-5:  #C98BE0;  --ansi-13: #DDAAEF;
+    --ansi-6:  #4FD1DB;  --ansi-14: #86E5EC;
+    --ansi-7:  #C7D1D7;  --ansi-15: #EDF3F6;
+  }
+}
+
+:root[data-theme="dark"] {
+  --c-surface:        #0F1418;
+  --c-raised:         #161C21;
+  --c-sunken:         #0A0E11;
+
+  --c-border-subtle:  #1F272D;
+  --c-border:         #2C363D;
+  --c-border-strong:  #5D6B72;
+
+  --c-text:           #E6EDF1;
+  --c-text-muted:     #93A1A9;
+
+  --c-accent:         #4FD1DB;
+  --c-accent-strong:  #7BE0E8;
+  --c-accent-subtle:  #0E2B2E;
+  --c-accent-border:  #1F4E53;
+  --c-on-accent:      #0F1418;
+
+  --c-ok:             #64C97F;
+  --c-ok-subtle:      #10261A;
+  --c-ok-border:      #24492F;
+
+  --c-warn:           #E2B341;
+  --c-warn-subtle:    #2A2110;
+  --c-warn-border:    #4E3D18;
+
+  --c-err:            #F0776A;
+  --c-err-subtle:     #2C1512;
+  --c-err-border:     #58251F;
+
+  --c-focus:          #4FD1DB;
+  --c-focus-offset:   #0F1418;
+
+  --ansi-0:  #2A3238;  --ansi-8:  #738087;
+  --ansi-1:  #F0776A;  --ansi-9:  #FF9E92;
+  --ansi-2:  #64C97F;  --ansi-10: #8FE0A2;
+  --ansi-3:  #E2B341;  --ansi-11: #F2CC6E;
+  --ansi-4:  #5AA9E6;  --ansi-12: #8AC4F0;
+  --ansi-5:  #C98BE0;  --ansi-13: #DDAAEF;
+  --ansi-6:  #4FD1DB;  --ansi-14: #86E5EC;
+  --ansi-7:  #C7D1D7;  --ansi-15: #EDF3F6;
+}
+
+/* ---- status aliases ---------------------------------------------------
+ * The app's states map onto the palette here, in one place. Note that
+ * `running` takes the accent, not green: green is a verdict, and a run in
+ * progress has not reached one yet.
+ */
+:root {
+  --state-idle:      var(--c-text-muted);
+  --state-queued:    var(--c-text-muted);
+  --state-running:   var(--c-accent);
+  --state-done:      var(--c-ok);
+  --state-blocked:   var(--c-warn);
+  --state-failed:    var(--c-err);
+  --state-cancelled: var(--c-text-muted);
+}
+
+/* ---- focus ring -------------------------------------------------------- */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+body {
+  background: var(--c-surface);
+  color: var(--c-text);
+}
