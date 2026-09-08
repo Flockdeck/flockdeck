@@ -1207,3 +1207,84 @@ func TestCombineHalvesTheRoomEachTimeATabIsFoldedIn(t *testing.T) {
 		t.Errorf("widths = %v, want the halving this merge compounds to", widths)
 	}
 }
+
+// facing returns the direction that undoes d.
+func facing(d Direction) Direction {
+	switch d {
+	case Left:
+		return Right
+	case Right:
+		return Left
+	case Up:
+		return Down
+	default:
+		return Up
+	}
+}
+
+// TestKeyboardMoveReversesBetweenPanesOfEqualSpan pins the promise behind
+// moving a pane with the arrow keys: swap it past its neighbour, press the
+// opposite arrow, and the layout is back as it was.
+//
+// That holds whenever the two panes span the same width across a vertical move
+// or the same height across a horizontal one, which is every evenly split
+// layout. It cannot hold in general: a pane moved into a slot twice as wide
+// has several panes under it on the way back, and geometry alone has no memory
+// of which one it came from. So the guarantee is asserted where it applies and
+// the rest is left alone rather than pretended about.
+func TestKeyboardMoveReversesBetweenPanesOfEqualSpan(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 997, H: 401}
+	checked := 0
+
+	for seed := int64(0); seed < 200; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		next := 1
+		for step := 0; step < 12; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			switch rnd.Intn(3) {
+			case 0:
+				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
+				next++
+			case 1:
+				root.Remove(victim)
+			case 2:
+				root.MovePane(victim, panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4)))
+			}
+		}
+		root.Compute(view)
+
+		for _, l := range root.Leaves() {
+			for _, d := range []Direction{Left, Right, Up, Down} {
+				me := l.Pane
+				other := root.Neighbor(me, d)
+				if other == "" {
+					continue
+				}
+				mine, theirs := l.Rect(), root.Find(other).Rect()
+				equalSpan := mine.Y == theirs.Y && mine.H == theirs.H
+				if d == Up || d == Down {
+					equalSpan = mine.X == theirs.X && mine.W == theirs.W
+				}
+				if !equalSpan {
+					continue
+				}
+				checked++
+
+				root.SwapPanes(me, other)
+				root.Compute(view)
+				if back := root.Neighbor(me, facing(d)); back != other {
+					t.Fatalf("seed %d: moved %s past %s going %d; the opposite arrow found %q instead",
+						seed, me, other, d, back)
+				}
+				root.SwapPanes(me, other) // put the layout back for the next case
+				root.Compute(view)
+			}
+		}
+	}
+
+	if checked < 100 {
+		t.Fatalf("only %d moves were of equal span, too few to mean anything", checked)
+	}
+}
