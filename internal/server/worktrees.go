@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -176,6 +177,23 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	root := s.activeRoot()
 	go func() {
+		// Removing a worktree deletes its directory. An agent working in it
+		// would be left in a path that no longer exists, with nothing to
+		// explain why everything it does from then on fails, so this is worth
+		// saying before the fact rather than discovering afterwards. git makes
+		// the same kind of check for uncommitted work, and force is already
+		// how the panel says it means it.
+		if !force {
+			if n := s.panesPerPath([]string{path})[path]; n > 0 {
+				subject := "pane is"
+				if n > 1 {
+					subject = "panes are"
+				}
+				c.notify(fmt.Sprintf("%d %s still working in %s — close them first, or force the removal",
+					n, subject, filepath.Base(path)), true)
+				return
+			}
+		}
 		if err := gitx.Remove(root, path, force); err != nil {
 			c.notify(err.Error(), true)
 			return

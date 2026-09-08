@@ -387,3 +387,25 @@ func TestCommitRefreshesThePaneHeaders(t *testing.T) {
 		t.Errorf("the pane headers took %v to settle, want a refresh on commit", elapsed)
 	}
 }
+
+// TestRemovingAWorktreeWithOpenPanesIsRefused covers the destructive half of
+// the worktree panel: the directory goes with the worktree, and an agent left
+// standing in it has nothing to tell it why.
+func TestRemovingAWorktreeWithOpenPanesIsRefused(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	sendCmd(t, conn, command{Cmd: "worktreeRemove", Path: repo})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error {
+		t.Fatalf("expected an error notice, got %+v", note)
+	}
+	if !strings.Contains(note.Text, "still working in") {
+		t.Errorf("notice = %q, want it to name the panes in the way", note.Text)
+	}
+	if _, err := os.Stat(repo); err != nil {
+		t.Fatalf("the worktree was removed anyway: %v", err)
+	}
+}
