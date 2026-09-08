@@ -58,16 +58,38 @@ type Pane struct {
 }
 
 // Dir returns the per-user directory holding wrapper state.
+//
+// It is kept private to the user. Below it sit the local server's auth token,
+// the browser profile the application window signs in through, and the
+// generated settings handed to each agent; the files themselves are written
+// 0600, but a world-readable directory still lets any other account on the
+// machine list them and read whatever was not written by this package.
 func Dir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
 	}
 	dir := filepath.Join(base, "agent-wrapper")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
+	makePrivate(dir)
 	return dir, nil
+}
+
+// makePrivate narrows a directory that was created before it was kept private,
+// or by a umask that let group and other in. Windows does not express
+// permissions this way and os.Chmod there means something else entirely, so it
+// is left alone.
+func makePrivate(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || fi.Mode().Perm()&0o077 == 0 {
+		return
+	}
+	_ = os.Chmod(dir, 0o700)
 }
 
 // SessionsDir returns the directory holding generated per-session settings.
@@ -77,9 +99,10 @@ func SessionsDir() (string, error) {
 		return "", err
 	}
 	sub := filepath.Join(dir, "sessions")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
+	if err := os.MkdirAll(sub, 0o700); err != nil {
 		return "", fmt.Errorf("create sessions dir: %w", err)
 	}
+	makePrivate(sub)
 	return sub, nil
 }
 
@@ -331,9 +354,10 @@ func BrowserProfileDir() (string, error) {
 		return "", err
 	}
 	sub := filepath.Join(dir, "window")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
+	if err := os.MkdirAll(sub, 0o700); err != nil {
 		return "", fmt.Errorf("create window profile dir: %w", err)
 	}
+	makePrivate(sub)
 	return sub, nil
 }
 

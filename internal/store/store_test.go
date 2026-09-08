@@ -571,3 +571,42 @@ func TestLoadRejectsAnotherProjectsLayout(t *testing.T) {
 		t.Errorf("restored %q, which belongs to another project", got.Tabs[0].Title)
 	}
 }
+
+// TestStateDirectoriesArePrivate checks no other account on the machine can
+// list the wrapper's state, including a directory left wide open by an earlier
+// version.
+func TestStateDirectoriesArePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not express directory permissions this way")
+	}
+	isolateConfig(t)
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("widen: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		get  func() (string, error)
+	}{
+		{"state", Dir},
+		{"sessions", SessionsDir},
+		{"window profile", BrowserProfileDir},
+	} {
+		got, err := tc.get()
+		if err != nil {
+			t.Fatalf("%s dir: %v", tc.name, err)
+		}
+		fi, err := os.Stat(got)
+		if err != nil {
+			t.Fatalf("stat %s dir: %v", tc.name, err)
+		}
+		if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+			t.Errorf("%s directory is %v; group and other must not reach it", tc.name, perm)
+		}
+	}
+}
