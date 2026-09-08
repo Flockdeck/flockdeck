@@ -51,7 +51,8 @@ type PaneContext struct {
 	Worktree bool
 
 	// Task is the opening prompt the pane was spawned with, when it was
-	// started by a fan-out or by another agent rather than by hand.
+	// started by a fan-out or by another agent rather than by hand. Which of
+	// the two it was is not recorded, so the pane is not told either.
 	Task string
 
 	Siblings []Sibling
@@ -207,7 +208,7 @@ func (c PaneContext) Render() string {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
 	}
 	if c.Task != "" {
-		fmt.Fprintf(&b, "- You were started by another agent to do this: %s\n", oneLine(c.Task))
+		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task))
 	}
 	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
 		"restored, so what you say here outlives the window.\n")
