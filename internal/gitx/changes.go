@@ -3,6 +3,7 @@ package gitx
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -155,21 +156,63 @@ func looksBinary(data []byte) bool {
 }
 
 // countLines counts the lines in a file, used to size an untracked addition.
+//
+// It reads in chunks rather than whole: this runs for every untracked file on
+// every refresh of the panel, and one of them can be a multi-gigabyte log or
+// model checkpoint that nobody wants held in memory to be counted.
 func countLines(path string) int {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return 0
 	}
-	if len(data) == 0 || looksBinary(data) {
-		return 0
+	defer f.Close()
+
+	var (
+		buf   = make([]byte, 64<<10)
+		lines int
+		last  byte
+		empty = true
+	)
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if empty && looksBinary(chunk) {
+				return 0
+			}
+			empty = false
+			lines += bytes.Count(chunk, []byte{'\n'})
+			last = chunk[n-1]
+		}
+		if err != nil {
+			break
+		}
 	}
-	text := string(data)
-	n := strings.Count(text, "\n")
 	// A file that does not end in a newline still has a final line.
-	if !strings.HasSuffix(text, "\n") {
-		n++
+	if !empty && last != '\n' {
+		lines++
 	}
-	return n
+	return lines
+}
+
+// readCapped reads at most limit bytes of a file and reports its full size, so
+// a caller can say how much it left behind.
+func readCapped(path string, limit int64) ([]byte, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, fi.Size(), nil
 }
 
 // maxDiffBytes bounds what is sent to the interface. A generated file can be
@@ -188,16 +231,24 @@ func Diff(dir, path string) (string, error) {
 	full := filepath.Join(dir, path)
 	if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
 		if untracked(dir, path) {
-			data, err := os.ReadFile(full)
+			// Only as much as the panel will show is read: a new file can be
+			// a gigabyte of generated output.
+			data, size, err := readCapped(full, maxDiffBytes+1)
 			if err != nil {
 				return "", err
 			}
 			if looksBinary(data) {
 				// git says this rather than printing the bytes, and so should
 				// a panel that has to render them as text.
-				return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, len(data)), nil
+				return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, size), nil
 			}
-			return renderAsAddition(path, string(data)), nil
+			if size > int64(len(data)) {
+				// Do not end on half a line.
+				if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+					data = data[:i+1]
+				}
+			}
+			return renderAsAddition(path, string(data), size-int64(len(data))), nil
 		}
 	}
 
@@ -235,7 +286,9 @@ func untracked(dir, path string) bool {
 	return err != nil || strings.TrimSpace(out) == ""
 }
 
-func renderAsAddition(path, content string) string {
+// renderAsAddition shows a file's content as one big addition. omitted is the
+// number of bytes the caller did not read, and is reported at the end.
+func renderAsAddition(path, content string, omitted int64) string {
 	// A file's trailing newline terminates its last line rather than starting
 	// an empty one, so splitting it off would show a phantom "+" at the end.
 	// git marks the other case explicitly, and so do we.
@@ -248,6 +301,7 @@ func renderAsAddition(path, content string) string {
 	var b strings.Builder
 	b.WriteString("--- /dev/null\n+++ b/" + path + "\n")
 	b.WriteString(fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines)))
+	var capped bool
 	for i, line := range lines {
 		b.WriteString("+" + line + "\n")
 		if !endsWithNewline && i == len(lines)-1 {
@@ -255,8 +309,12 @@ func renderAsAddition(path, content string) string {
 		}
 		if b.Len() > maxDiffBytes {
 			b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
+			capped = true
 			break
 		}
+	}
+	if omitted > 0 && !capped {
+		b.WriteString(fmt.Sprintf("… truncated, %d more bytes\n", omitted))
 	}
 	return b.String()
 }

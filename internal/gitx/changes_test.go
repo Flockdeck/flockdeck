@@ -214,6 +214,45 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestDiffOfHugeUntrackedFileIsBounded covers a generated file dropped in the
+// tree: only as much as the panel will show should be read, and the rest
+// accounted for rather than silently dropped.
+func TestDiffOfHugeUntrackedFileIsBounded(t *testing.T) {
+	repo := newRepo(t)
+
+	line := strings.Repeat("x", 99) + "\n"
+	lines := (maxDiffBytes / len(line)) * 3
+	if err := os.WriteFile(filepath.Join(repo, "generated.log"),
+		[]byte(strings.Repeat(line, lines)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	diff, err := Diff(repo, "generated.log")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if len(diff) > 2*maxDiffBytes {
+		t.Errorf("diff is %d bytes, want it bounded near %d", len(diff), maxDiffBytes)
+	}
+	if !strings.Contains(diff, "truncated") {
+		t.Error("a diff that stops early should say so")
+	}
+	if strings.HasSuffix(strings.TrimSuffix(diff, "\n"), "x") {
+		t.Error("the diff should not end mid-line")
+	}
+
+	// The file list still counts every line, without holding the file.
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	for _, f := range files {
+		if f.Path == "generated.log" && f.Added != lines {
+			t.Errorf("added = %d, want %d", f.Added, lines)
+		}
+	}
+}
+
 // TestDiffOfBinaryFileSaysSo covers dropping a screenshot into the tree: the
 // panel renders whatever it is given as text, so the bytes must not be sent.
 func TestDiffOfBinaryFileSaysSo(t *testing.T) {
