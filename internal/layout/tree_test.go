@@ -984,3 +984,91 @@ func TestDividerDragLandsWhereItWasDropped(t *testing.T) {
 		t.Errorf("the column's panes are %d and %d wide, want 300 each", b, c)
 	}
 }
+
+// remaining returns ps with drop taken out, keeping the order of the rest.
+func remaining(ps []string, drop string) []string {
+	out := []string{}
+	for _, p := range ps {
+		if p != drop {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// TestClosingOrDraggingOnePaneLeavesTheRestInOrder pins a promise the UI makes
+// everywhere it walks the tree: the pane list, the agent list and the history
+// view are all in Panes order, so closing one pane or dragging one somewhere
+// else must not shuffle the panes nobody touched.
+func TestClosingOrDraggingOnePaneLeavesTheRestInOrder(t *testing.T) {
+	for seed := int64(0); seed < 300; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		next := 1
+
+		for step := 0; step < 18; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			before := append([]string(nil), panes...)
+
+			switch rnd.Intn(3) {
+			case 0:
+				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
+				next++
+			case 1:
+				if !root.Remove(victim) {
+					continue
+				}
+				if got, want := root.Panes(), remaining(before, victim); !reflect.DeepEqual(got, want) {
+					t.Fatalf("seed %d: closing %s left %v, want %v", seed, victim, got, want)
+				}
+			case 2:
+				target, edge := panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4))
+				if !root.MovePane(victim, target, edge) {
+					continue
+				}
+				got := remaining(root.Panes(), victim)
+				want := remaining(before, victim)
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("seed %d: dragging %s onto %s left the others as %v, want %v", seed, victim, target, got, want)
+				}
+			}
+		}
+	}
+}
+
+// TestClosingPanesOneAtATimeEndsWithTheLastOneFillingTheTab walks a layout all
+// the way down, which is what closing panes until one is left does.
+func TestClosingPanesOneAtATimeEndsWithTheLastOneFillingTheTab(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Vertical)
+	root.Split("c", "d", Horizontal)
+
+	for _, closing := range []string{"b", "d", "c"} {
+		if !root.Remove(closing) {
+			t.Fatalf("closing %s failed", closing)
+		}
+		if root.Find(closing) != nil {
+			t.Fatalf("%s is still in the tree", closing)
+		}
+	}
+
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("panes = %v, want just [a]", got)
+	}
+	if !root.IsLeaf() {
+		t.Error("the last pane should be the whole tree, not a split around it")
+	}
+	if root.Remove("a") {
+		t.Error("closing the last pane is the caller's decision, not the tree's")
+	}
+
+	root.Compute(Rect{X: 0, Y: 0, W: 80, H: 24})
+	if got := root.Find("a").Rect(); got != (Rect{X: 0, Y: 0, W: 80, H: 24}) {
+		t.Errorf("the surviving pane got %+v, want the whole tab", got)
+	}
+	if seps := root.Separators(); len(seps) != 0 {
+		t.Errorf("a single pane needs no separators, got %d", len(seps))
+	}
+}
