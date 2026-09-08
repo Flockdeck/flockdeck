@@ -104,7 +104,11 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		}
 
 		// Resolve the parent's directory once, off the workspace goroutine.
-		done := make(chan string, 1)
+		type start struct {
+			cwd    string
+			claude bool
+		}
+		done := make(chan start, 1)
 		s.do(func() {
 			id := parent
 			if id == "" {
@@ -117,14 +121,22 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				cwd = p.Cwd
 			}
 			parent = id
-			done <- cwd
+			done <- start{cwd: cwd, claude: s.ws.ClaudeAvailable()}
 		})
-		var baseCwd string
+		var in start
 		select {
-		case baseCwd = <-done:
+		case in = <-done:
 		case <-s.closed:
 			return
 		}
+		// Asked once for the whole fan-out. Left to Spawn it is asked once per
+		// task, and a missing CLI answers a dozen tasks with a dozen copies of
+		// the same notice, each naming a task as though the task were at fault.
+		if !in.claude {
+			c.notify("the `claude` CLI was not found on PATH, so no agents can be started", true)
+			return
+		}
+		baseCwd := in.cwd
 
 		// Branch names are derived from the task text and then truncated, so two
 		// tasks that begin alike would otherwise land on the same branch — and
