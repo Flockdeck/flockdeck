@@ -86,6 +86,13 @@ func ClaudeArgs(sessionID, settingsPath string, resume bool, extra []string) []s
 	if settingsPath != "" {
 		argv = append(argv, "--settings", settingsPath)
 	}
+	// The extra arguments are the task the pane opens with, and a task is
+	// free to begin with a dash -- "-p is not what I meant, use ...". Left as
+	// it is, the CLI reads it as an option it does not have and the pane dies
+	// on the spot; "--" is how the rest is declared not to be options.
+	if len(extra) > 0 && strings.HasPrefix(extra[0], "-") {
+		argv = append(argv, "--")
+	}
 	return append(argv, extra...)
 }
 

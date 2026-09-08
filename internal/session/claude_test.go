@@ -119,3 +119,27 @@ func TestSessionStartDoesNotMoveTheStatusDot(t *testing.T) {
 		t.Error("SessionStart should not change a pane's status")
 	}
 }
+
+// TestClaudeArgsGuardsATaskThatLooksLikeAFlag covers the opening prompt a pane
+// is spawned with. Nothing stops someone starting a task with a dash, and the
+// CLI would take it for an option it does not have and exit at once.
+func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
+	const id = "11111111-2222-3333-4444-555555555555"
+
+	got := ClaudeArgs(id, "", false, []string{"--verbose is the wrong flag; fix the parser"})
+	last := got[len(got)-2:]
+	if last[0] != "--" {
+		t.Errorf("argv = %q; the task should be shielded with --", got)
+	}
+
+	// The common case is left exactly as it was.
+	plain := ClaudeArgs(id, "", false, []string{"fix the parser"})
+	for _, a := range plain {
+		if a == "--" {
+			t.Errorf("argv = %q; an ordinary task needs no --", plain)
+		}
+	}
+	if plain[len(plain)-1] != "fix the parser" {
+		t.Errorf("argv = %q; the task should come last", plain)
+	}
+}
