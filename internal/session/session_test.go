@@ -282,3 +282,23 @@ func TestExitDeliversFinalOutputThenCloses(t *testing.T) {
 		t.Error("a viewer arriving after the exit should get a closed stream")
 	}
 }
+
+// TestEnvExtrasReplaceInheritedValues covers a pane opened from inside another
+// wrapper: the pane identity it inherits must not outrank the one it is given,
+// because the first copy of a duplicated name is the one that takes effect.
+func TestEnvExtrasReplaceInheritedValues(t *testing.T) {
+	t.Setenv("AGENT_WRAPPER_PANE", "the-parent-pane")
+
+	var seen []string
+	for _, kv := range Env("AGENT_WRAPPER_PANE=this-pane") {
+		if strings.HasPrefix(kv, "AGENT_WRAPPER_PANE=") {
+			seen = append(seen, kv)
+		}
+	}
+	if len(seen) != 1 {
+		t.Fatalf("AGENT_WRAPPER_PANE appears %d times: %q", len(seen), seen)
+	}
+	if seen[0] != "AGENT_WRAPPER_PANE=this-pane" {
+		t.Errorf("environment says %q; the given value should win", seen[0])
+	}
+}
