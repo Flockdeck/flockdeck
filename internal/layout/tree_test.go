@@ -1,7 +1,9 @@
 package layout
 
 import (
+	"fmt"
 	"math"
+	"math/rand"
 	"reflect"
 	"strconv"
 	"testing"
@@ -649,5 +651,118 @@ func TestComputeSpreadsTheRounding(t *testing.T) {
 	}
 	if sum != 100 {
 		t.Errorf("rows cover %d of 100 lines", sum)
+	}
+}
+
+// checkInvariants asserts everything that must hold of any tree the package
+// hands back, whatever sequence of edits produced it. hist names that sequence
+// so a failure points at the operation that broke it.
+func checkInvariants(t *testing.T, root *Node, hist string) {
+	t.Helper()
+
+	seen := map[string]bool{}
+	for _, p := range root.Panes() {
+		if p == "" {
+			t.Fatalf("%s: a leaf names no pane", hist)
+		}
+		if seen[p] {
+			t.Fatalf("%s: pane %q appears twice", hist, p)
+		}
+		seen[p] = true
+	}
+
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		if n.IsLeaf() {
+			return
+		}
+		// A split with one child is a container that should have collapsed,
+		// and a split nested in another along the same axis is the shape every
+		// operation here goes out of its way not to build.
+		if len(n.Children) < 2 {
+			t.Fatalf("%s: split %s has %d children", hist, n.ID, len(n.Children))
+		}
+		for _, c := range n.Children {
+			if !c.IsLeaf() && c.Dir == n.Dir {
+				t.Fatalf("%s: split %s holds a split along its own axis", hist, n.ID)
+			}
+			walk(c)
+		}
+	}
+	walk(root)
+
+	// The panes must tile the tab: no overlaps, and no cell belonging to
+	// neither a pane nor a separator.
+	const w, h = 61, 25
+	root.Compute(Rect{X: 0, Y: 0, W: w, H: h})
+	leaves := root.Leaves()
+	for i := range leaves {
+		for j := i + 1; j < len(leaves); j++ {
+			a, b := leaves[i].Rect(), leaves[j].Rect()
+			if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
+				t.Fatalf("%s: %s at %+v overlaps %s at %+v", hist, leaves[i].Pane, a, leaves[j].Pane, b)
+			}
+		}
+	}
+	rule := map[[2]int]bool{}
+	for _, s := range root.Separators() {
+		for y := s.Y; y < s.Y+s.H; y++ {
+			for x := s.X; x < s.X+s.W; x++ {
+				rule[[2]int{x, y}] = true
+			}
+		}
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if root.PaneAt(x, y) == "" && !rule[[2]int{x, y}] {
+				t.Fatalf("%s: cell %d,%d belongs to neither a pane nor a separator", hist, x, y)
+			}
+		}
+	}
+}
+
+// TestTreeInvariantsUnderRandomEditing drives the tree through sequences of
+// splits, removals, drags and merges that no hand-written case would think of,
+// checking after every one that the tree is still something the app can draw.
+func TestTreeInvariantsUnderRandomEditing(t *testing.T) {
+	for seed := int64(0); seed < 120; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		hist := "p0"
+		next := 1
+
+		for step := 0; step < 14; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			switch rnd.Intn(4) {
+			case 0:
+				id := "p" + strconv.Itoa(next)
+				next++
+				dir := Dir(rnd.Intn(2))
+				hist += fmt.Sprintf("; split %s into %s along %d", victim, id, dir)
+				root.Split(victim, id, dir)
+			case 1:
+				hist += "; remove " + victim
+				root.Remove(victim)
+			case 2:
+				target, edge := panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4))
+				hist += fmt.Sprintf("; move %s onto %s edge %d", victim, target, edge)
+				root.MovePane(victim, target, edge)
+			case 3:
+				id := "p" + strconv.Itoa(next)
+				next++
+				edge := Edge(rnd.Intn(4))
+				hist += fmt.Sprintf("; insert %s beside %s edge %d", id, victim, edge)
+				root.InsertBeside(victim, id, edge)
+			}
+			checkInvariants(t, root, hist)
+		}
+
+		// And merging a tab in has to leave a tree that is just as sound.
+		other := NewLeaf(fmt.Sprintf("q%d", seed))
+		for i := 0; i < rnd.Intn(4); i++ {
+			other.Split(other.Panes()[rnd.Intn(other.Count())], fmt.Sprintf("q%d-%d", seed, i), Dir(rnd.Intn(2)))
+		}
+		checkInvariants(t, Combine(root, other, Dir(rnd.Intn(2))), hist+"; merged a tab in")
 	}
 }
