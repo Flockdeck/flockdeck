@@ -653,3 +653,41 @@ func TestExtractTasksHandlesATruncatedCodeBlock(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksReadsRedrawnRows covers the screen fallback on a real
+// terminal. A row is updated in place with a carriage return rather than a
+// newline, so the status line and the bullet that replaced it arrive as one
+// line, and the bullet is invisible to anything splitting on newlines alone.
+func TestExtractTasksReadsRedrawnRows(t *testing.T) {
+	screen := "\u00b7 Perambulating\u2026 (2s\r\u00b7 Perambulating\u2026 (3s\r" +
+		"- Add the delegated listener to app.js\r\n" +
+		"- Style the tooltip bubble in app.css\r\n"
+	got := ExtractTasks(screen)
+	want := []string{
+		"Add the delegated listener to app.js",
+		"Style the tooltip bubble in app.css",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestExtractTasksKeepsWrappedItemsWholeOnCRLF is the wrapped-bullet case with
+// the line endings a Windows terminal actually produces.
+func TestExtractTasksKeepsWrappedItemsWholeOnCRLF(t *testing.T) {
+	screen := "  - One delegated pointerover listener on document. On hover of\r\n" +
+		"    an element carrying data-tip, position the bubble and show it.\r\n" +
+		"  - A second, shorter task\r\n"
+	got := ExtractTasks(screen)
+	if len(got) != 2 {
+		t.Fatalf("extracted %#v, want 2 tasks", got)
+	}
+	if !strings.HasSuffix(got[0], "position the bubble and show it.") {
+		t.Errorf("the wrapped tail was lost: %q", got[0])
+	}
+}

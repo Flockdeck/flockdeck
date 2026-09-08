@@ -113,7 +113,15 @@ type item struct {
 // indented lines. Keeping only the first row of either would hand an agent a
 // task that stops mid-sentence.
 func listItems(text string) ([]item, []int) {
-	lines := strings.Split(text, "\n")
+	// A terminal redraws a row by returning to the start of it and writing
+	// over what was there, so one newline-delimited line of a pane history
+	// can hold several renderings of the same row — the last of which is how
+	// the row finally read. Each rendering is a line of its own here. The
+	// pair is folded first: turning the carriage return of a CRLF into a
+	// newline of its own would put a blank line under every row, and a blank
+	// line ends the entry a wrapped bullet is still in the middle of.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(strings.ReplaceAll(text, "\r", "\n"), "\n")
 
 	var items []item
 	var cues []int // the lines announcing a plan, in the order they appear
