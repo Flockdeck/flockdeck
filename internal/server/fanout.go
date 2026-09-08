@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,15 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		}
 		done <- info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id)}
 	})
-	in := <-done
+	// s.do drops the callback once the server is closing, so every reply from
+	// the workspace goroutine has to be waited for with a way out. Without one
+	// the receive never returns and takes its caller down with it.
+	var in info
+	select {
+	case in = <-done:
+	case <-s.closed:
+		return
+	}
 
 	go func() {
 		// Reading the transcript touches the disk, which is why it happens here
@@ -110,7 +119,12 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			parent = id
 			done <- cwd
 		})
-		baseCwd := <-done
+		var baseCwd string
+		select {
+		case baseCwd = <-done:
+		case <-s.closed:
+			return
+		}
 
 		// Branch names are derived from the task text and then truncated, so two
 		// tasks that begin alike would otherwise land on the same branch — and
@@ -169,7 +183,13 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				})
 				res <- err
 			})
-			if err := <-res; err != nil {
+			var err error
+			select {
+			case err = <-res:
+			case <-s.closed:
+				return
+			}
+			if err != nil {
 				c.notify(fmt.Sprintf("%s: %v", short(task), err), true)
 				failed++
 				continue
@@ -236,6 +256,10 @@ func (s *Server) installContextHandler() {
 	})
 }
 
+// errShuttingDown is what a spawn is answered with when the window it would
+// have opened in is already going away.
+var errShuttingDown = errors.New("the workspace is shutting down")
+
 // installSpawnHandler lets an agent start helpers of its own by running
 // `agent-wrapper spawn` inside its pane.
 func (s *Server) installSpawnHandler() {
@@ -253,7 +277,15 @@ func (s *Server) installSpawnHandler() {
 			}
 			done <- cwd
 		})
-		cwd := <-done
+		// The agent's `agent-wrapper spawn` is blocked on this reply, so a
+		// closing workspace has to answer it rather than leave the command
+		// hanging in the pane forever.
+		var cwd string
+		select {
+		case cwd = <-done:
+		case <-s.closed:
+			return "", errShuttingDown
+		}
 
 		if req.Branch != "" {
 			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
@@ -282,7 +314,12 @@ func (s *Server) installSpawnHandler() {
 			})
 			res <- result{id, err}
 		})
-		r := <-res
+		var r result
+		select {
+		case r = <-res:
+		case <-s.closed:
+			return "", errShuttingDown
+		}
 		if r.err == nil {
 			s.Wake()
 		}
