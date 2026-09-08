@@ -470,9 +470,17 @@ func (w *Workspace) worktreeFor(cwd, branch string) (string, error) {
 	// A branch that already has a worktree is reused rather than duplicated.
 	if wts, err := gitx.List(repo); err == nil {
 		for _, wt := range wts {
-			if wt.Branch == branch {
-				return wt.Path, nil
+			if wt.Branch != branch {
+				continue
 			}
+			// Reusing a sibling worktree is the point. Handing back the
+			// checkout the request came from is not: the child would work in
+			// the very directory the worktree was asked for to keep it out of,
+			// and nothing would say so.
+			if filepath.Clean(wt.Path) == filepath.Clean(repo) {
+				return "", fmt.Errorf("%s is checked out in %s itself, so a worktree of its own cannot be made for it", branch, filepath.Base(repo))
+			}
+			return wt.Path, nil
 		}
 	}
 	path := gitx.DefaultWorktreePath(repo, branch)

@@ -349,6 +349,15 @@ func TestPrepareWorktreeIsolatesChildren(t *testing.T) {
 	if filepath.Clean(again) != filepath.Clean(path) {
 		t.Errorf("second call gave %q, want the existing %q", again, path)
 	}
+
+	// The branch the repository itself is on is the one case where reuse would
+	// defeat the point: the child would land in the user's own checkout.
+	shared, err := ws.PrepareWorktree(repo, "main")
+	if err == nil {
+		t.Errorf("preparing the checked-out branch gave %q, want a refusal", shared)
+	} else if !strings.Contains(err.Error(), "main") {
+		t.Errorf("error = %q, want it to name the branch", err)
+	}
 }
 
 // TestExtractTasksReadsNumberedForms covers the ways an agent numbers a plan.
