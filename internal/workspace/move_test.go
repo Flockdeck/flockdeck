@@ -473,3 +473,39 @@ func TestMergeTabsInProjectKeepsTheFocus(t *testing.T) {
 		t.Errorf("focus = %q, want the pane it started on %q", keep.Focus, mine)
 	}
 }
+
+// TestMovePaneToNewTabNamesTheTab covers what the tab a pane is pulled out
+// into is called. The directory name is what every other tab in the project is
+// already called, so it is the least useful answer available.
+func TestMovePaneToNewTabNamesTheTab(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	spawned := panesOfTab(ws.CurrentTab())[1]
+	ws.Pane(spawned).Task = "repair the token refresh"
+
+	if err := ws.MovePaneToNewTab(spawned); err != nil {
+		t.Fatalf("move to new tab: %v", err)
+	}
+	fresh := ws.CurrentTab()
+	if fresh.Title != "repair the token refresh" {
+		t.Errorf("tab title = %q, want what the agent was spawned to do", fresh.Title)
+	}
+	if fresh.AutoTitle {
+		t.Error("a tab named after the task should not be renamed again")
+	}
+
+	// A pane with no task falls back to the directory, but stays open to being
+	// named by the next thing it is asked — as a fresh Claude tab would be.
+	ws.NewTab(session.KindShell, root, "two")
+	ws.SplitPane(layout.Horizontal, session.KindClaude)
+	plain := panesOfTab(ws.CurrentTab())[1]
+	if err := ws.MovePaneToNewTab(plain); err != nil {
+		t.Fatalf("move to new tab: %v", err)
+	}
+	if got := ws.CurrentTab(); !got.AutoTitle {
+		t.Errorf("tab title = %q, want it still waiting to be named", got.Title)
+	}
+}

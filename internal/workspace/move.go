@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmwri/agent-wrapper/internal/layout"
+	"github.com/jmwri/agent-wrapper/internal/session"
 )
 
 // Rearranging panes moves live sessions between positions and between tabs.
@@ -143,15 +144,25 @@ func (w *Workspace) MovePaneToNewTab(paneID string) error {
 	if src.Tree.Count() <= 1 {
 		return fmt.Errorf("that pane already has a tab to itself")
 	}
-	root, title := src.Root, p.Name
+	// A tab named after its directory tells the user nothing once several are
+	// open, and a pane is pulled out into its own tab precisely when several
+	// are. What the agent was spawned to do names it far better; failing that,
+	// leave the tab open to being named by the next thing it is asked, exactly
+	// as a tab created from scratch would be.
+	root := src.Root
+	title, auto := summarisePrompt(p.Task), false
+	if title == "" {
+		title, auto = p.Name, p.Kind == session.KindClaude
+	}
 
 	w.detachPane(paneID)
 	t := &Tab{
-		ID:    uuid.NewString(),
-		Root:  root,
-		Title: title,
-		Tree:  layout.NewLeaf(paneID),
-		Focus: paneID,
+		ID:        uuid.NewString(),
+		Root:      root,
+		Title:     title,
+		Tree:      layout.NewLeaf(paneID),
+		Focus:     paneID,
+		AutoTitle: auto,
 	}
 	// Put it directly after the tab it came from rather than at the far end,
 	// so a pane pulled out stays next to its old neighbours.
