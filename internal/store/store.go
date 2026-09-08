@@ -188,7 +188,31 @@ func writeAtomic(path string, data []byte) error {
 	}
 	// os.CreateTemp already makes the file 0600, which is what these state
 	// files want: they carry the local server's auth token.
-	return renameWithRetry(tmp, path)
+	if err := renameWithRetry(tmp, path); err != nil {
+		return err
+	}
+	syncDir(dir)
+	return nil
+}
+
+// syncDir flushes a directory's own entries to disk.
+//
+// Syncing the file only promises its contents are there; the rename that gives
+// them their name is a change to the directory, and on a crash before that
+// reaches disk the file reverts to the version before this write. Failures are
+// ignored: the rename has already happened, so the write did succeed, and the
+// call is not supported at all on Windows, where the file system journals the
+// rename regardless.
+func syncDir(dir string) {
+	if dir == "" {
+		dir = "."
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_ = f.Sync()
 }
 
 // renameWithRetry replaces dst with src, retrying briefly on failure.
