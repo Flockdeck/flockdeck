@@ -302,3 +302,32 @@ func TestEnvExtrasReplaceInheritedValues(t *testing.T) {
 		t.Errorf("environment says %q; the given value should win", seen[0])
 	}
 }
+
+// TestWriteToAnExitedPaneSaysSo covers typing into a pane whose process has
+// gone. The PTY's own error names a closed handle and nothing else, which is
+// not something to show anybody.
+func TestWriteToAnExitedPaneSaysSo(t *testing.T) {
+	s := startShell(t)
+	if err := s.WriteString("exit\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for !s.Exited() {
+		if time.Now().After(deadline) {
+			t.Fatal("session never reported the process as exited")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	err := s.WriteString("hello?")
+	if err == nil {
+		t.Fatal("writing to an exited pane should fail")
+	}
+	if !strings.Contains(err.Error(), "has exited") {
+		t.Errorf("error = %q; it should say the pane has exited", err)
+	}
+	if !strings.Contains(err.Error(), s.ID) {
+		t.Errorf("error = %q; it should name the pane", err)
+	}
+}

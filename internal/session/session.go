@@ -282,12 +282,18 @@ func (s *Session) Unsubscribe(id int) {
 	}
 }
 
-// Write sends input to the process.
+// Write sends input to the process. Writing to a pane whose process has ended
+// reports that, rather than the closed-handle error the PTY would give, which
+// says nothing about which pane or why.
 func (s *Session) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 	s.mu.Lock()
+	if s.status == StatusExited {
+		s.mu.Unlock()
+		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
+	}
 	s.sawInput = true
 	s.mu.Unlock()
 	return s.pty.Write(p)
