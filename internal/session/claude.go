@@ -229,5 +229,13 @@ func claudeHome() string {
 // resuming one would kill it on restart, and would kill every such pane when a
 // saved layout is restored.
 func ConversationExists(sessionID string) bool {
-	return TranscriptPath(sessionID) != ""
+	path := TranscriptPath(sessionID)
+	if path == "" {
+		return false
+	}
+	// The file existing is not enough: a session that was interrupted before
+	// it recorded anything leaves an empty one behind, and Claude Code refuses
+	// that the same way it refuses a missing one.
+	fi, err := os.Stat(path)
+	return err == nil && fi.Size() > 0
 }
