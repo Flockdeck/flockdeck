@@ -93,6 +93,45 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	}
 }
 
+// TestUntrackedDiffHasNoPhantomLastLine pins the shape of the synthetic diff
+// shown for a new file: the trailing newline ends the last line, it does not
+// begin an empty one.
+func TestUntrackedDiffHasNoPhantomLastLine(t *testing.T) {
+	repo := newRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, "fresh.txt"), []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := Diff(repo, "fresh.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	var added int
+	for _, line := range strings.Split(strings.TrimSuffix(diff, "\n"), "\n") {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			added++
+		}
+	}
+	if added != 2 {
+		t.Errorf("added lines = %d, want 2:\n%s", added, diff)
+	}
+	if !strings.Contains(diff, "@@ -0,0 +1,2 @@") {
+		t.Errorf("expected a hunk header covering both lines:\n%s", diff)
+	}
+
+	// A file with no final newline is marked the way git marks it.
+	if err := os.WriteFile(filepath.Join(repo, "bare.txt"), []byte("no newline"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err = Diff(repo, "bare.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, `\ No newline at end of file`) {
+		t.Errorf("missing the no-newline marker:\n%s", diff)
+	}
+}
+
 // TestCommitAllStagesEverything covers the commit button.
 func TestCommitAllStagesEverything(t *testing.T) {
 	repo := newRepo(t)
