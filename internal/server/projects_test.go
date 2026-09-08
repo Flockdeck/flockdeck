@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +211,57 @@ func TestUnreadableRecentsAreReported(t *testing.T) {
 	}
 	if !strings.Contains(note.Text, "recent projects") {
 		t.Errorf("notice = %q, want it to name the recent projects", note.Text)
+	}
+}
+
+// linkDir makes name point at target, falling back to a directory junction
+// where creating a symlink needs a privilege the test run does not have.
+// Windows reports a junction as neither a file nor a directory, which is
+// exactly the case a listing has to follow before it can judge.
+func linkDir(t *testing.T, target, name string) {
+	t.Helper()
+	if err := os.Symlink(target, name); err == nil {
+		return
+	} else if runtime.GOOS != "windows" {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", name, target).CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot link a directory here: %v: %s", err, out)
+	}
+}
+
+// TestBrowseListsLinkedDirectories covers a project reached through a link,
+// which is how a checkout kept on another volume usually appears. The listing
+// describes the link itself rather than what it leads to, so following it is
+// the only way to tell that it is somewhere to open — and a plain file still
+// must not be offered as one.
+func TestBrowseListsLinkedDirectories(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := t.TempDir()
+	if err := os.WriteFile(filepath.Join(parent, "notes.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir(t, target, filepath.Join(parent, "linked-repo"))
+
+	var br browseMsg
+	sendCmd(t, conn, command{Cmd: "browse", Path: parent})
+	readUntil(t, conn, "browse", &br)
+	if br.Error != "" {
+		t.Fatalf("browse error: %s", br.Error)
+	}
+	if len(br.Entries) != 1 || br.Entries[0].Name != "linked-repo" {
+		t.Fatalf("listed %+v, want only linked-repo", br.Entries)
+	}
+	if !br.Entries[0].IsRepo {
+		t.Error("a repository reached through a link should still be flagged as one")
 	}
 }

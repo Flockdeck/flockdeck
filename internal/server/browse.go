@@ -80,14 +80,18 @@ func (s *Server) browse(c *controlClient, path string) {
 		msg.IsRepo = isRepoDir(abs)
 
 		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
 			name := e.Name()
 			full := filepath.Join(abs, name)
-			// A symlink to a directory reads as a directory here only after a
-			// stat; skipping the check would hide real project folders.
-			if e.Type()&os.ModeSymlink != 0 {
+			if !e.IsDir() {
+				// A listing describes the entry itself, not what it leads to:
+				// a symlink to a project reads as a symlink, and a Windows
+				// directory junction as neither a file nor a directory. Only
+				// following them says whether they are somewhere to open, so
+				// everything that is not plainly a file is stat-ed -- which
+				// costs nothing on entries that were about to be dropped.
+				if e.Type().IsRegular() {
+					continue
+				}
 				if fi, err := os.Stat(full); err != nil || !fi.IsDir() {
 					continue
 				}
