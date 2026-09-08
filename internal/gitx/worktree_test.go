@@ -102,6 +102,35 @@ func TestStatusOfEmptyRepository(t *testing.T) {
 	}
 }
 
+// TestCurrentBranchOnUnbornAndDetachedHeads covers the two heads that are not
+// an ordinary branch with commits on it.
+func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+
+	// A repository nobody has committed to is still on a branch.
+	empty := t.TempDir()
+	cmd := exec.Command("git", "init", "--initial-branch=main")
+	cmd.Dir = empty
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git init failed (%v): %s", err, out)
+	}
+	if got := CurrentBranch(empty); got != "main" {
+		t.Errorf("branch of an empty repository = %q, want main", got)
+	}
+	if got := DefaultBase(empty); got != "main" {
+		t.Errorf("default base = %q, want main", got)
+	}
+
+	// A detached checkout has no branch at all.
+	repo := newRepo(t)
+	gitRun(t, repo, "checkout", "--detach")
+	if got := CurrentBranch(repo); got != "" {
+		t.Errorf("detached HEAD reported branch %q", got)
+	}
+}
+
 // TestWorktreeLifecycle covers creating, listing and removing worktrees, which
 // is how agents are given separate checkouts to work in.
 func TestWorktreeLifecycle(t *testing.T) {

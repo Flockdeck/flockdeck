@@ -158,16 +158,17 @@ func IsRepo(dir string) bool {
 }
 
 // CurrentBranch returns the checked-out branch, or "" when detached.
+//
+// symbolic-ref reads the branch HEAD points at without needing a commit on it,
+// where `rev-parse --abbrev-ref HEAD` fails outright in a repository nobody
+// has committed to yet -- which made a fresh repository look detached, and its
+// first push report "cannot push a detached HEAD".
 func CurrentBranch(dir string) string {
-	out, err := run(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := run(dir, "symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil {
-		return ""
+		return "" // detached, or not a repository
 	}
-	b := strings.TrimSpace(out)
-	if b == "HEAD" {
-		return "" // detached
-	}
-	return b
+	return strings.TrimSpace(out)
 }
 
 // Dirty reports whether the worktree has uncommitted changes.
