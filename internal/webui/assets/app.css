@@ -363,12 +363,17 @@ textarea:focus-visible {
 .chip.danger { border-color: var(--exited); color: var(--exited); }
 .chip.danger:hover { background: var(--exited); color: #1a0d0c; }
 
-.wt-form { display: flex; gap: 8px; }
+/* A text field's automatic minimum width is its default twenty-character size,
+ * so two of them and a button will not fit inside a narrow overlay and simply
+ * ran off the right of it. min-width lets them shrink to their flex basis, and
+ * wrapping catches the case where even that is too wide. */
+.wt-form { display: flex; gap: 8px; flex-wrap: wrap; }
 .wt-form input {
   background: var(--bg-inset); border: 1px solid var(--line-strong);
   border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
+  min-width: 0;
 }
-.wt-form input:first-child { flex: 2 1 auto; }
+.wt-form input:first-child { flex: 2 1 180px; }
 .wt-form input:nth-child(2) { flex: 1 1 120px; }
 .wt-form input:focus { outline: none; border-color: var(--accent); }
 .wt-hint { color: var(--fg-dim); font-size: 11px; margin-top: 6px; }
@@ -397,9 +402,10 @@ textarea:focus-visible {
 .proj-badge .working { color: var(--working); }
 .proj-row .icon-btn { font-size: 14px; }
 
-.browse-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.browse-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .browse-bar input {
-  flex: 1 1 auto; background: var(--bg-inset); border: 1px solid var(--line-strong);
+  flex: 1 1 180px; min-width: 0;
+  background: var(--bg-inset); border: 1px solid var(--line-strong);
   border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
 }
 .browse-bar input:focus { outline: none; border-color: var(--accent); }
