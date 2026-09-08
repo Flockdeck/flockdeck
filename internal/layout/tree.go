@@ -246,11 +246,18 @@ func (n *Node) Separators() []Rect {
 }
 
 // Split replaces the leaf holding pane with a split containing that pane and
-// newPane, arranged along dir. It returns false if the pane is not in the tree.
+// newPane, arranged along dir. It returns false if the pane is not in the
+// tree, or if newPane is empty or already somewhere in it.
 //
 // Splitting an existing split along the same axis appends a sibling instead of
 // nesting, which keeps three-way splits evenly sized rather than lopsided.
 func (root *Node) Split(pane, newPane string, dir Dir) bool {
+	// A pane may appear once. A second leaf for the same id would show the
+	// same terminal in two places, and Find and Remove would only ever reach
+	// the first of them, so closing the pane would leave the other behind.
+	if newPane == "" || root.Find(newPane) != nil {
+		return false
+	}
 	leaf := root.Find(pane)
 	if leaf == nil {
 		return false
@@ -308,8 +315,14 @@ func (e Edge) axis() (Dir, bool) {
 // nesting a new one, so dropping a third pane to the right of two side by side
 // gives three columns rather than a column containing a column.
 func (root *Node) InsertBeside(target, pane string, edge Edge) bool {
+	// As in Split, the same pane must not land in the tree twice. Every caller
+	// that moves a pane detaches it from wherever it was first, so a pane that
+	// is still here is a mistake rather than a move.
+	if pane == "" || root.Find(pane) != nil {
+		return false
+	}
 	leaf := root.Find(target)
-	if leaf == nil || pane == "" {
+	if leaf == nil {
 		return false
 	}
 	dir, before := edge.axis()

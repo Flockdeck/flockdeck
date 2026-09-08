@@ -461,3 +461,32 @@ func TestRemoveFlattensASplitPulledUpByTheCollapse(t *testing.T) {
 		t.Errorf("c and d are %d and %d columns, want about a quarter each", c, d)
 	}
 }
+
+// TestSplitAndInsertRefuseADuplicatePane guards the invariant the rest of the
+// package relies on: one leaf per pane. A second leaf for the same id would
+// render the same terminal twice and survive the pane being closed.
+func TestSplitAndInsertRefuseADuplicatePane(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+
+	if root.Split("a", "b", Horizontal) {
+		t.Error("splitting in a pane that is already in the tree should be refused")
+	}
+	if root.Split("a", "", Horizontal) {
+		t.Error("splitting in a pane with no id should be refused")
+	}
+	if root.InsertBeside("a", "b", EdgeRight) {
+		t.Error("inserting a pane that is already in the tree should be refused")
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("panes = %v, want the refused calls to have changed nothing", got)
+	}
+
+	// A move is still a move: the pane is detached first, so it can go back in.
+	if !root.MovePane("b", "a", EdgeLeft) {
+		t.Fatal("moving b past a failed")
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"b", "a"}) {
+		t.Fatalf("panes = %v, want [b a]", got)
+	}
+}
