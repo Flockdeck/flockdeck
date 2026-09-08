@@ -446,8 +446,15 @@ func Combine(dst, src *Node, dir Dir) *Node {
 	if src.Count() == 0 {
 		return dst
 	}
+	// The merged tree gets its own slice of children. Appending straight onto
+	// the one shareOf hands back would leave it sharing an array with the tree
+	// it came from, so a later split in either could write over the other's
+	// children.
+	from, joining := shareOf(dst, dir), shareOf(src, dir)
 	root := NewSplit(dir)
-	root.Children = append(shareOf(dst, dir), shareOf(src, dir)...)
+	root.Children = make([]*Node, 0, len(from)+len(joining))
+	root.Children = append(root.Children, from...)
+	root.Children = append(root.Children, joining...)
 	return root
 }
 

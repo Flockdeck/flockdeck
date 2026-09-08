@@ -1135,3 +1135,46 @@ func TestEveryDropEdgePutsThePaneWhereItWasDropped(t *testing.T) {
 		}
 	}
 }
+
+// TestCombineKeepsEachSidesProportions covers the weights a merge produces
+// rather than just its shape: each tab gets half the room, and inside its half
+// its panes stay in the proportions the user had dragged them to.
+func TestCombineKeepsEachSidesProportions(t *testing.T) {
+	// A row dragged to 3:1, merged with a tab holding a single pane.
+	row := NewLeaf("wide")
+	row.Split("wide", "narrow", Horizontal)
+	if !row.SetChildWeights([]float64{3, 1}) {
+		t.Fatal("setting the row's weights failed")
+	}
+	root := Combine(row, NewLeaf("lone"), Horizontal)
+
+	root.Compute(Rect{W: 1002, H: 100}) // 1000 columns once the rules are paid for
+	wide, narrow, lone := root.Find("wide").Rect().W, root.Find("narrow").Rect().W, root.Find("lone").Rect().W
+	if lone < 495 || lone > 505 {
+		t.Errorf("the lone pane got %d of 1000 columns, want about half", lone)
+	}
+	if wide < 370 || wide > 380 || narrow < 120 || narrow > 130 {
+		t.Errorf("the merged row is %d and %d wide, want its 3:1 kept inside its half", wide, narrow)
+	}
+
+	// Two columns merged side by side each keep their own stacking.
+	left := NewLeaf("a")
+	left.Split("a", "b", Vertical)
+	left.SetChildWeights([]float64{1, 3})
+	right := NewLeaf("c")
+	right.Split("c", "d", Vertical)
+
+	pair := Combine(left, right, Horizontal)
+	pair.Compute(Rect{W: 201, H: 200})
+	for _, pane := range []string{"a", "b", "c", "d"} {
+		if w := pair.Find(pane).Rect().W; w != 100 {
+			t.Errorf("pane %s is %d columns wide, want the two columns to halve the row", pane, w)
+		}
+	}
+	if a, b := pair.Find("a").Rect().H, pair.Find("b").Rect().H; a != 50 || b != 150 {
+		t.Errorf("the dragged column came back as %d and %d lines, want 50 and 150", a, b)
+	}
+	if c, d := pair.Find("c").Rect().H, pair.Find("d").Rect().H; c != 100 || d != 100 {
+		t.Errorf("the even column came back as %d and %d lines, want an even split", c, d)
+	}
+}
