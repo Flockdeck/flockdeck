@@ -2,7 +2,9 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -205,6 +207,13 @@ func transcriptCwd(path string) string {
 
 // describeTranscript returns the opening prompt and how many entries the
 // transcript holds.
+//
+// The two are found separately because they cost very different things. The
+// prompt is near the top, so parsing stops after the opening entries. The
+// count has to reach the end of the file, but counting line breaks is a scan
+// rather than a parse and stays quick on the tens of megabytes a long
+// conversation runs to -- and, unlike a parse, is not stopped by a single
+// entry too large to hold in memory.
 func describeTranscript(path string) (string, int) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -212,17 +221,18 @@ func describeTranscript(path string) (string, int) {
 	}
 	defer f.Close()
 
-	sc := newTranscriptScanner(f)
-	summary := ""
-	count := 0
-	for sc.Scan() {
-		count++
-		// Every line is counted, but only the first few are parsed: the
-		// opening prompt is near the top, and stopping the count there would
-		// report a long conversation as a short one.
-		if summary != "" || count > summaryScanLimit {
-			continue
-		}
+	summary := openingPrompt(f)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return summary, 0
+	}
+	return summary, countEntries(f)
+}
+
+// openingPrompt reads the first thing the user asked, looking only at the
+// opening entries of the transcript.
+func openingPrompt(r io.Reader) string {
+	sc := newTranscriptScanner(r)
+	for i := 0; i < summaryScanLimit && sc.Scan(); i++ {
 		var line transcriptLine
 		if json.Unmarshal(sc.Bytes(), &line) != nil {
 			continue
@@ -231,10 +241,33 @@ func describeTranscript(path string) (string, int) {
 			continue
 		}
 		if text := contentText(line.Message.Content); text != "" {
-			summary = text
+			return text
 		}
 	}
-	return summary, count
+	return ""
+}
+
+// countEntries counts the entries in a transcript, which is one per line.
+func countEntries(r io.Reader) int {
+	buf := make([]byte, 256<<10)
+	n := 0
+	// A file that ends without a line break still has an entry on that last
+	// line: a transcript being written to at this moment usually does.
+	last := byte('\n')
+	for {
+		read, err := r.Read(buf)
+		if read > 0 {
+			n += bytes.Count(buf[:read], []byte{'\n'})
+			last = buf[read-1]
+		}
+		if err != nil {
+			break
+		}
+	}
+	if last != '\n' {
+		n++
+	}
+	return n
 }
 
 // contentText pulls readable text out of a message's content, which is either
@@ -310,8 +343,8 @@ func firstPrompt(s string) string {
 
 // newTranscriptScanner returns a scanner able to cope with the long lines a
 // transcript contains.
-func newTranscriptScanner(f *os.File) *bufio.Scanner {
-	sc := bufio.NewScanner(f)
+func newTranscriptScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	return sc
 }

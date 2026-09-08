@@ -283,3 +283,57 @@ func TestConversationsOmitEmptyTranscriptsAndOrderStably(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationsCountPastAnEntryTooLargeToParse covers a transcript holding
+// a pasted image or some other very large entry. Counting by parsing stops
+// dead at a line that will not fit in memory, and reports the conversation as
+// having ended there.
+func TestConversationsCountPastAnEntryTooLargeToParse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	cwd := filepath.Join(t.TempDir(), "pasted")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	huge := `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("x", 9<<20) + `"}}`
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(cwd)), "99999999-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"look at this"}}`,
+		huge,
+		`{"type":"assistant","message":{"role":"assistant","content":"I see it"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Messages != 3 {
+		t.Errorf("entry count = %d, want 3", got[0].Messages)
+	}
+	if got[0].Summary != "look at this" {
+		t.Errorf("summary = %q", got[0].Summary)
+	}
+}
+
+// TestCountEntriesCountsAnUnfinishedLastLine covers a transcript being written
+// to as it is read: the entry in flight has no line break after it yet.
+func TestCountEntriesCountsAnUnfinishedLastLine(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"", 0},
+		{"one\n", 1},
+		{"one\ntwo\n", 2},
+		{"one\ntwo", 2},
+		{"\n\n", 2},
+	}
+	for _, c := range cases {
+		if got := countEntries(strings.NewReader(c.in)); got != c.want {
+			t.Errorf("countEntries(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
