@@ -225,27 +225,52 @@ func hashRoot(root string) string {
 	return fmt.Sprintf("%016x", h)
 }
 
-// SweepSessions removes generated per-session settings files left behind by
-// runs that were killed rather than closed, and returns how many it deleted.
+// SweepSessions removes files left behind by runs that were killed rather than
+// closed, and returns how many it deleted: generated per-session settings, and
+// the temporaries of writes that never reached their rename.
 //
 // Files are only removed once they are older than maxAge, because a second
-// wrapper may be running concurrently and its panes' settings must not be
-// pulled out from under it. Normal shutdown deletes these files as panes
-// close, so anything this finds is genuinely orphaned.
+// wrapper may be running concurrently and neither its panes' settings nor a
+// write it is part-way through must be pulled out from under it. Normal
+// shutdown deletes both as it goes, so anything this finds is genuinely
+// orphaned.
 func SweepSessions(maxAge time.Duration) (int, error) {
-	dir, err := SessionsDir()
+	sessions, err := SessionsDir()
 	if err != nil {
 		return 0, err
 	}
-	entries, err := os.ReadDir(dir)
+	state, err := Dir()
 	if err != nil {
-		return 0, fmt.Errorf("read sessions dir: %w", err)
+		return 0, err
 	}
 
 	cutoff := time.Now().Add(-maxAge)
+	isSettings := func(name string) bool { return strings.HasSuffix(name, ".settings.json") }
+	// writeAtomic names its temporaries "<file>.tmp<random>"; nothing the
+	// wrapper keeps has ".tmp" anywhere in its name.
+	isTemp := func(name string) bool { return strings.Contains(name, ".tmp") }
+
+	removed, err := sweepDir(sessions, cutoff, func(name string) bool {
+		return isSettings(name) || isTemp(name)
+	})
+	if err != nil {
+		return removed, err
+	}
+	n, err := sweepDir(state, cutoff, isTemp)
+	return removed + n, err
+}
+
+// sweepDir deletes the matching files in a directory that were last written
+// before cutoff, and reports how many went. A file that will not delete is
+// skipped rather than failing the sweep: it is somebody else's to worry about.
+func sweepDir(dir string, cutoff time.Time, match func(name string) bool) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", filepath.Base(dir), err)
+	}
 	removed := 0
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".settings.json") {
+		if e.IsDir() || !match(e.Name()) {
 			continue
 		}
 		info, err := e.Info()

@@ -415,3 +415,52 @@ func TestClearInstanceKeepsALiveRivalsRecord(t *testing.T) {
 		t.Errorf("clearing an absent record: %v", err)
 	}
 }
+
+// TestSweepRemovesAbandonedTemporaries checks the temporary of a write that
+// was killed before its rename does not sit in the state directory forever,
+// while one young enough to belong to a write still in flight is left alone.
+func TestSweepRemovesAbandonedTemporaries(t *testing.T) {
+	isolateConfig(t)
+	state, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+
+	write := func(dir, name string, age time.Duration) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		when := time.Now().Add(-age)
+		if err := os.Chtimes(p, when, when); err != nil {
+			t.Fatalf("chtimes %s: %v", name, err)
+		}
+		return p
+	}
+
+	abandoned := write(state, "session.json.tmp1234", 48*time.Hour)
+	inFlight := write(state, "session.json.tmp5678", time.Minute)
+	kept := write(state, "session.json", 48*time.Hour)
+	sessionTemp := write(sessions, "abcd.settings.json.tmp99", 48*time.Hour)
+
+	if _, err := SweepSessions(24 * time.Hour); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Error("an abandoned temporary should have been removed")
+	}
+	if _, err := os.Stat(sessionTemp); !os.IsNotExist(err) {
+		t.Error("an abandoned temporary in the sessions directory should have been removed")
+	}
+	if _, err := os.Stat(inFlight); err != nil {
+		t.Error("a fresh temporary may belong to a write in flight and must be kept")
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Error("the sweep must not touch the state files themselves")
+	}
+}
