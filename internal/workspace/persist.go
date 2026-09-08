@@ -113,6 +113,7 @@ func (w *Workspace) restoreProject(root string) int {
 		if tab.Title == "" {
 			tab.Title = filepath.Base(root)
 		}
+		tab.AutoTitle = w.stillAutoTitled(tab)
 		w.Tabs = append(w.Tabs, tab)
 		if firstTab == "" {
 			firstTab = tab.ID
@@ -131,6 +132,31 @@ func (w *Workspace) restoreProject(root string) int {
 	}
 	w.activeTab = activeTab
 	return added
+}
+
+// stillAutoTitled reports whether a restored tab should go on renaming itself
+// after the first thing its agent is asked.
+//
+// The saved layout carries the title but nothing saying who chose it, so the
+// test is whether it is still the name the tab would have been given
+// automatically: the directory it was opened on. Without this, a tab created
+// but never prompted before a restart would keep its directory name forever,
+// while an identical tab created after one would rename itself — the same tab
+// behaving differently for no reason the user can see.
+//
+// A tab the user deliberately named after its own directory loses nothing much
+// by being renamed once more; a tab named after a prompt keeps that name.
+func (w *Workspace) stillAutoTitled(t *Tab) bool {
+	if t.Title != filepath.Base(t.Root) {
+		return false
+	}
+	// Only Claude panes report the prompts a rename would come from.
+	for _, id := range t.Tree.Panes() {
+		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeNode rebuilds a layout subtree, starting a session for every pane.

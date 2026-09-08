@@ -470,3 +470,68 @@ func TestRestoreIgnoresDuplicatePaneIds(t *testing.T) {
 		}
 	}
 }
+
+// TestRestoredTabStillRenamesItself covers a tab created but never prompted
+// before a restart. Its title is still the directory name, so the first thing
+// asked of its agent should replace it, exactly as it would have before.
+func TestRestoredTabStillRenamesItself(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	base := filepath.Base(root)
+
+	saved := &store.State{Tabs: []store.Tab{
+		{
+			Title: base,
+			Focus: "unprompted",
+			Root:  &store.Node{Pane: &store.Pane{ID: "unprompted", Kind: "claude", Cwd: root}},
+		},
+		{
+			Title: "already named by hand",
+			Focus: "named",
+			Root:  &store.Node{Pane: &store.Pane{ID: "named", Kind: "claude", Cwd: root}},
+		},
+	}}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+
+	ws.nameTabAfterPrompt("unprompted", "rewrite the parser")
+	ws.nameTabAfterPrompt("named", "rewrite the parser")
+
+	tabs := ws.VisibleTabs()
+	if tabs[0].Title == base {
+		t.Errorf("tab title = %q, want it renamed after the first prompt", tabs[0].Title)
+	}
+	if tabs[1].Title != "already named by hand" {
+		t.Errorf("tab title = %q, want a name the user chose left alone", tabs[1].Title)
+	}
+}
+
+// TestRestoredShellTabKeepsItsName guards the other half: shell panes report
+// no prompts, so a shell tab named after its directory is not waiting to be
+// renamed and must not be treated as though it were.
+func TestRestoredShellTabKeepsItsName(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	saved := &store.State{Tabs: []store.Tab{{
+		Title: filepath.Base(root),
+		Root:  &store.Node{Pane: &store.Pane{ID: "sh", Kind: "shell", Cwd: root}},
+	}}}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	if ws.VisibleTabs()[0].AutoTitle {
+		t.Error("a shell tab should not be marked as waiting for a prompt to name it")
+	}
+}
