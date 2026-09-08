@@ -453,7 +453,14 @@ textarea:focus-visible {
 .agent-main { flex: 1 1 auto; min-width: 0; }
 .agent-title { display: flex; align-items: center; gap: 8px; }
 .agent-tab { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-meta { color: var(--fg-dim); font-size: 11px; display: flex; gap: 9px; margin-top: 2px; }
+/* Branch, uncommitted count and the running tool, on one line. None of them
+ * has a bounded length, and a branch name is a single unbreakable token, so
+ * without wrapping the row spilled past the agent's status on the right - the
+ * same treatment the worktree rows already get. */
+.agent-meta {
+  color: var(--fg-dim); font-size: 11px; display: flex; gap: 9px; margin-top: 2px;
+  flex-wrap: wrap; overflow-wrap: anywhere;
+}
 .agent-project { color: var(--accent); font-size: 11px; }
 .agent-for { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
 .agent-status { font-size: 11px; white-space: nowrap; }
@@ -539,7 +546,7 @@ textarea:focus-visible {
 .conv-row.open { opacity: .6; cursor: default; }
 .conv-main { flex: 1 1 auto; min-width: 0; }
 .conv-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-meta { color: var(--fg-dim); font-size: 11px; display: flex; gap: 9px; margin-top: 2px; }
+.conv-meta { color: var(--fg-dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 9px; margin-top: 2px; }
 .conv-id { font-family: ui-monospace, Consolas, monospace; }
 
 /* -------------------------------------------------------------------- help */
