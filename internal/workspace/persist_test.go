@@ -795,3 +795,68 @@ func TestSaveAllNamesTheProjectThatFailed(t *testing.T) {
 		t.Errorf("error = %q, want only the project that failed named", err)
 	}
 }
+
+// TestSaveRestoreKeepsProportionsAndDirectories pins the two parts of a
+// restored layout that are easy to lose without anything looking broken: the
+// proportions the user dragged the dividers to, and the directory each pane
+// was working in. A pane in a worktree coming back rooted anywhere else would
+// be worse than not restoring it at all.
+func TestSaveRestoreKeepsProportionsAndDirectories(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	worktree := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "wide")
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	ws.SplitPaneIn(layout.Vertical, session.KindShell, worktree)
+
+	tab := ws.CurrentTab()
+	// A wide left column beside a narrow right one, the right one split in two
+	// unevenly: three distinct shares, none of them the default.
+	if !tab.Tree.SetChildWeights([]float64{3, 1}) {
+		t.Fatal("could not set the top-level weights")
+	}
+	if !tab.Tree.Children[1].SetChildWeights([]float64{1, 4}) {
+		t.Fatal("could not set the nested weights")
+	}
+	wantPanes := tab.Tree.Panes()
+	wantCwd := map[string]string{}
+	for _, id := range wantPanes {
+		wantCwd[id] = ws.Pane(id).Cwd
+	}
+	if wantCwd[wantPanes[2]] != worktree {
+		t.Fatalf("pane cwd = %q, want the worktree it was started in", wantCwd[wantPanes[2]])
+	}
+
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, root)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	back := again.VisibleTabs()[0].Tree
+	if got := back.Panes(); !reflect.DeepEqual(got, wantPanes) {
+		t.Fatalf("panes = %v, want %v", got, wantPanes)
+	}
+	if got := []float64{back.Children[0].Weight, back.Children[1].Weight}; !reflect.DeepEqual(got, []float64{3, 1}) {
+		t.Errorf("column weights = %v, want the 3:1 the divider was dragged to", got)
+	}
+	nested := back.Children[1]
+	if got := []float64{nested.Children[0].Weight, nested.Children[1].Weight}; !reflect.DeepEqual(got, []float64{1, 4}) {
+		t.Errorf("nested weights = %v, want 1:4", got)
+	}
+	for _, id := range wantPanes {
+		p := again.Pane(id)
+		if p == nil {
+			t.Errorf("pane %q was not restored", id)
+			continue
+		}
+		if p.Cwd != wantCwd[id] {
+			t.Errorf("pane %q came back in %q, want %q", id, p.Cwd, wantCwd[id])
+		}
+	}
+}
