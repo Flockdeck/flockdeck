@@ -46,6 +46,40 @@ func (w Worktree) Label() string {
 
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
+	out, _, err := runCapture(dir, args...)
+	return out, err
+}
+
+// runVerbose returns what git said on both streams.
+//
+// push, pull and fetch write their progress and their summary to stderr, so a
+// caller that shows the user only stdout shows them nothing at all: stderr
+// comes first because that is the order the two were written in.
+func runVerbose(dir string, args ...string) (string, error) {
+	out, errText, err := runCapture(dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return cleanProgress(errText + out), nil
+}
+
+// cleanProgress collapses git's in-place progress lines -- "Writing objects:
+// 33%\rWriting objects: 100%, done." -- down to the state they finished in.
+func cleanProgress(s string) string {
+	var kept []string
+	for _, line := range strings.Split(s, "\n") {
+		if i := strings.LastIndex(line, "\r"); i >= 0 {
+			line = line[i+1:]
+		}
+		if strings.TrimSpace(line) != "" {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// runCapture executes git in dir and returns stdout and stderr separately.
+func runCapture(dir string, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 
@@ -64,7 +98,7 @@ func run(dir string, args ...string) (string, error) {
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
+			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
 		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back
@@ -76,9 +110,9 @@ func run(dir string, args ...string) (string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(msg, 4))
+		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(msg, 4))
 	}
-	return out.String(), nil
+	return out.String(), errb.String(), nil
 }
 
 // firstLines keeps an error message short enough to sit in a toast: git can

@@ -221,8 +221,14 @@ func TestPushSetsUpstreamOnFirstPush(t *testing.T) {
 		t.Fatalf("expected no upstream yet, got %q", got)
 	}
 
-	if _, err := Push(repo); err != nil {
+	// git writes a push's summary to stderr, so a Push that returned stdout
+	// alone left the interface with nothing to report but "done".
+	out, err := Push(repo)
+	if err != nil {
 		t.Fatalf("first push: %v", err)
+	}
+	if !strings.Contains(out, "main") {
+		t.Errorf("push said %q, want git's own summary of the branch it pushed", out)
 	}
 	st := StatusOf(repo)
 	if st.Upstream == "" {

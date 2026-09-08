@@ -246,9 +246,9 @@ func Push(dir string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return run(dir, "push", "--set-upstream", remote, branch)
+		return runVerbose(dir, "push", "--set-upstream", remote, branch)
 	}
-	return run(dir, "push")
+	return runVerbose(dir, "push")
 }
 
 // pushRemote picks where a branch with no upstream should go: "origin" by
@@ -273,12 +273,12 @@ func pushRemote(dir string) (string, error) {
 // Pull fast-forwards from the upstream. A merge that cannot fast-forward is
 // left for the user to resolve deliberately rather than started here.
 func Pull(dir string) (string, error) {
-	return run(dir, "pull", "--ff-only")
+	return runVerbose(dir, "pull", "--ff-only")
 }
 
 // Fetch updates the remote-tracking branches.
 func Fetch(dir string) (string, error) {
-	return run(dir, "fetch", "--prune")
+	return runVerbose(dir, "fetch", "--prune")
 }
 
 // HasRemote reports whether the repository has anywhere to push to. A
