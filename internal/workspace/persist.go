@@ -91,7 +91,9 @@ func (w *Workspace) restoreProject(root string) int {
 	}
 
 	added := 0
-	var firstTab, activeTab string
+	// nearest is the last tab restored at or before the saved active one, so a
+	// tab that cannot be restored hands the window over to its neighbour.
+	var firstTab, activeTab, nearest string
 	for i, t := range st.Tabs {
 		tree := w.decodeNode(t.Root)
 		if tree == nil {
@@ -121,12 +123,22 @@ func (w *Workspace) restoreProject(root string) int {
 		if i == st.Active {
 			activeTab = tab.ID
 		}
+		if i <= st.Active {
+			nearest = tab.ID
+		}
 		added++
 	}
 	if added == 0 {
 		return 0
 	}
 
+	// The tab that was on screen may be one of the ones that could not be
+	// restored — its panes' directories deleted since, say. Land on the tab
+	// beside where it was rather than jumping to the front of the bar, which is
+	// what closing a tab does with the same problem.
+	if activeTab == "" {
+		activeTab = nearest
+	}
 	if activeTab == "" {
 		activeTab = firstTab
 	}

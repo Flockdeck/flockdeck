@@ -688,3 +688,45 @@ func TestRestoreSessionCanonicalisesRoots(t *testing.T) {
 		t.Errorf("active root = %q, want %q", again.ActiveRoot(), second)
 	}
 }
+
+// TestRestoreLandsBesideATabThatIsGone covers the tab the window was left on
+// being one that cannot be restored — its pane's directory deleted since, as a
+// finished worktree would be. The window should come up on the tab beside it,
+// the way closing a tab lands on a neighbour, rather than at the front of the
+// bar.
+func TestRestoreLandsBesideATabThatIsGone(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	tab := func(title, id string, cwd string) store.Tab {
+		return store.Tab{
+			Title: title,
+			Focus: id,
+			Root:  &store.Node{Pane: &store.Pane{ID: id, Kind: "shell", Cwd: cwd}},
+		}
+	}
+	saved := &store.State{
+		Active: 2,
+		Tabs: []store.Tab{
+			tab("one", "a", root),
+			tab("two", "b", root),
+			tab("gone", "c", ""), // no directory: cannot be restored
+			tab("four", "d", root),
+		},
+	}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	current := ws.CurrentTab()
+	if current == nil {
+		t.Fatal("no tab is on screen after restoring")
+	}
+	if current.Title != "two" {
+		t.Errorf("tab on screen = %q, want the neighbour of the one that is gone", current.Title)
+	}
+}
