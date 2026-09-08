@@ -203,6 +203,29 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	return nil
 }
 
+// startupOnlyFlags lists the flags that describe a fresh start, and so mean
+// nothing when the launch turns into attaching to a running instance.
+func startupOnlyFlags(opts options) []string {
+	var out []string
+	if opts.fresh {
+		out = append(out, "-new")
+	}
+	if opts.shell {
+		out = append(out, "-shell")
+	}
+	if opts.detach {
+		out = append(out, "-detach")
+	}
+	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // run starts the workspace, serves it and shows the window.
 func run(opts options) error {
 	root, err := filepath.Abs(opts.dir)
@@ -225,6 +248,14 @@ func run(opts options) error {
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
 		if inst, base, err := runningInstance(); err == nil && inst != nil {
+			// The flags that describe how to start up have nobody to apply
+			// to once we are joining agents that are already running. Say so:
+			// silently ignoring -new looks like the layout was kept on purpose.
+			if ignored := startupOnlyFlags(opts); len(ignored) > 0 {
+				fmt.Fprintf(os.Stderr,
+					"agent-wrapper: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
+					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
+			}
 			return attach(inst, base, root, opts.noWindow)
 		}
 	}

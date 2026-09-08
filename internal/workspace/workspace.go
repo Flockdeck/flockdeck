@@ -1028,6 +1028,9 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 				return nil
 			}
 		}
+		// Registered but on screen nowhere. Reusing the id below would drop it
+		// from the registry with its process still running, so end it first.
+		w.destroyPane(id)
 	}
 	if cwd == "" {
 		cwd = w.activeRoot
