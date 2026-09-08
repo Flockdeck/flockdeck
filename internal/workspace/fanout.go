@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmwri/agent-wrapper/internal/gitx"
@@ -132,10 +133,17 @@ func listItems(text string) ([]item, int) {
 			open = -1
 			continue
 		}
-		// Text indented under the entry above it is the rest of that entry.
-		if open >= 0 && indent >= items[open].indent+2 && len(items[open].text) < maxTaskRunes {
-			items[open].text += " " + body
-			continue
+		// Text indented under the entry above it is the rest of that entry, but
+		// only while the join still reads as a task. isTask throws away
+		// anything past maxTaskRunes whole, so a continuation that tips an
+		// entry over the cap would cost the plan a real job rather than the
+		// tail of one. Stop at the last row that fits and close the entry.
+		if open >= 0 && indent >= items[open].indent+2 {
+			joined := items[open].text + " " + body
+			if utf8.RuneCountInString(joined) <= maxTaskRunes {
+				items[open].text = joined
+				continue
+			}
 		}
 		open = -1
 	}

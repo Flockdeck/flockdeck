@@ -433,3 +433,25 @@ func TestFanOutStopsAtTheCap(t *testing.T) {
 		t.Errorf("error = %q, want it to say the fan-out stopped", errs[0])
 	}
 }
+
+// TestExtractTasksKeepsLongWrappedItems covers a bullet long enough that its
+// wrapped tail would carry it past the cap. isTask discards anything over the
+// cap whole, so joining blindly cost the plan a real job instead of its tail.
+func TestExtractTasksKeepsLongWrappedItems(t *testing.T) {
+	head := "Rewrite the pane renderer " + strings.Repeat("and tidy it up ", 36)
+	if n := len([]rune(head)); n > maxTaskRunes {
+		t.Fatalf("the test's first row is %d runes, already over the cap", n)
+	}
+	screen := "- " + head + "\n  " + strings.Repeat("a continuation row ", 8) + "\n"
+
+	got := ExtractTasks(screen)
+	if len(got) != 1 {
+		t.Fatalf("extracted %#v, want the one task", got)
+	}
+	if !strings.HasPrefix(got[0], "Rewrite the pane renderer") {
+		t.Errorf("task = %q, want the bullet itself", got[0])
+	}
+	if strings.Contains(got[0], "a continuation row") {
+		t.Errorf("the tail was joined past the cap: %q", got[0])
+	}
+}
