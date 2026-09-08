@@ -260,6 +260,13 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		// The page names these assets without a version in the path, and the
+		// window keeps a browser profile of its own from one run to the next,
+		// so a cached app.js would outlive the binary it came with and be left
+		// talking to an upgraded server. Embedded files carry no modification
+		// time for the browser to revalidate against either, and fetching them
+		// again over loopback costs nothing.
+		w.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(w, r)
 	})
 }

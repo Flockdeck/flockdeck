@@ -100,6 +100,12 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 		if r.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", asset, r.StatusCode)
 		}
+		// The page names these without a version in the path and the window
+		// keeps its browser profile between runs, so a cached copy would
+		// outlive the binary it shipped with.
+		if cc := r.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("GET %s Cache-Control = %q, want no-store", asset, cc)
+		}
 	}
 }
 
