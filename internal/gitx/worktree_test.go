@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -255,6 +256,43 @@ func TestAddFromExistingBranchChecksItOut(t *testing.T) {
 	}
 	if got := StatusOf(wtPath).Branch; got != "existing" {
 		t.Errorf("worktree is on %q, want existing", got)
+	}
+}
+
+// TestDefaultWorktreePathIsUsable covers the path offered in the new-worktree
+// dialog: it has to be a name the filesystem accepts and a directory that is
+// not already there.
+func TestDefaultWorktreePathIsUsable(t *testing.T) {
+	repo := t.TempDir()
+	project := filepath.Join(repo, "proj")
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := filepath.Base(DefaultWorktreePath(project, "feature/login")); got != "proj-feature-login" {
+		t.Errorf("base = %q, want proj-feature-login", got)
+	}
+	// Windows will not accept these in a name, and git allows them in a ref.
+	if got := filepath.Base(DefaultWorktreePath(project, `fix|bug<1>`)); strings.ContainsAny(got, `|<>`) {
+		t.Errorf("base = %q, want the hostile characters replaced", got)
+	}
+	// Nor a name that ends in a dot or a space.
+	for _, branch := range []string{"trailing.", "trailing ", "..", "///"} {
+		got := filepath.Base(DefaultWorktreePath(project, branch))
+		if strings.HasSuffix(got, ".") || strings.HasSuffix(got, " ") || got == "proj-" {
+			t.Errorf("branch %q gave %q", branch, got)
+		}
+	}
+
+	// A leftover directory is stepped around rather than suggested, because
+	// git worktree add refuses a path that already exists.
+	first := DefaultWorktreePath(project, "taken")
+	if err := os.MkdirAll(first, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	second := DefaultWorktreePath(project, "taken")
+	if second == first {
+		t.Errorf("suggested %q again although it already exists", second)
 	}
 }
 

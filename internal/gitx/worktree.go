@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // commandTimeout bounds every git invocation so a hung command cannot freeze
@@ -276,8 +277,47 @@ func Remove(repoDir, path string, force bool) error {
 // DefaultWorktreePath suggests where a new worktree for a branch should live:
 // a sibling of the repository, named after it, so checkouts stay grouped
 // together without nesting inside the repository itself.
+//
+// A directory already sitting at that name is stepped around rather than
+// suggested: `git worktree add` refuses an occupied path, and the leftovers of
+// a worktree someone deleted by hand are exactly what is found there.
 func DefaultWorktreePath(repoRoot, branch string) string {
-	base := filepath.Base(repoRoot)
-	safe := strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(branch)
-	return filepath.Join(filepath.Dir(repoRoot), base+"-"+safe)
+	parent := filepath.Dir(repoRoot)
+	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
+
+	path := filepath.Join(parent, name)
+	for i := 2; i < 100; i++ {
+		if _, err := os.Lstat(path); err != nil {
+			break
+		}
+		path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, i))
+	}
+	return path
+}
+
+// worktreeSegment turns a branch name into one directory name.
+//
+// git allows characters in a ref that Windows will not have in a path -- most
+// of "<>|\"" and the slashes of a namespaced branch -- and rejects a name
+// ending in a dot or a space outright.
+func worktreeSegment(branch string) string {
+	var b strings.Builder
+	var lastDash bool
+	for _, r := range branch {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '_', r == '.', r == '-':
+			b.WriteRune(r)
+			lastDash = false
+		case !lastDash:
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	name := strings.Trim(b.String(), "-. ")
+	if name == "" {
+		// A branch named entirely in characters a path cannot hold, or no
+		// branch at all for a detached checkout.
+		return "worktree"
+	}
+	return name
 }
