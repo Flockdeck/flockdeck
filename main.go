@@ -149,11 +149,17 @@ type options struct {
 // quitRunning stops an instance that is already going.
 func quitRunning() error {
 	inst, base, err := runningInstance()
-	if err != nil || inst == nil {
+	// A record that cannot be read is not the same as there being nothing to
+	// stop: reporting it as "none found" sends the user looking for a process
+	// that is very likely still running.
+	if err != nil {
+		return fmt.Errorf("read the record of the running instance: %w", err)
+	}
+	if inst == nil {
 		return fmt.Errorf("no running agent-wrapper found")
 	}
 	if err := server.RequestQuit(base, inst.Token); err != nil {
-		return err
+		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
 	}
 	fmt.Println("agent-wrapper: stopped")
 	return nil
