@@ -1,0 +1,309 @@
+// Package hooks carries Claude Code lifecycle events from panes back to the
+// wrapper.
+//
+// Each Claude pane is launched with a generated --settings file registering
+// command hooks that re-invoke this binary in `hook` mode. Those invocations
+// POST to a loopback server the wrapper runs, which is how a pane's status
+// ("working", "waiting on you", "idle") is known accurately rather than being
+// guessed from screen scraping.
+package hooks
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Event is a lifecycle notification from one pane.
+type Event struct {
+	SessionID string `json:"session"`
+	Event     string `json:"event"`
+	Tool      string `json:"tool,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
+	// Prompt is what the user asked, present on UserPromptSubmit. It is what
+	// lets a tab name itself after the work rather than the directory.
+	Prompt string `json:"prompt,omitempty"`
+	// Source is how a SessionStart came about: "startup", "resume", "clear",
+	// "compact" or "fork".
+	Source string `json:"source,omitempty"`
+}
+
+// payload is what the hook subprocess posts to the server.
+type payload struct {
+	Event
+	Token string `json:"token"`
+}
+
+// claudePayload is the subset of the JSON Claude Code writes to a hook's stdin
+// that we care about.
+type claudePayload struct {
+	SessionID string `json:"session_id"`
+	ToolName  string `json:"tool_name"`
+	Cwd       string `json:"cwd"`
+	Prompt    string `json:"prompt"`
+	// Claude Code has spelled the SessionStart source both ways; read either.
+	Source string `json:"source"`
+	How    string `json:"how"`
+}
+
+// Server receives hook events on the loopback interface.
+type Server struct {
+	ln    net.Listener
+	srv   *http.Server
+	token string
+	on    func(Event)
+
+	mu        sync.RWMutex
+	onSpawn   func(SpawnRequest) (string, error)
+	onContext func(sessionID string) string
+}
+
+// SessionStart is the lifecycle event a pane's Claude session fires as it
+// starts, resumes or is compacted. It is the one event whose reply matters:
+// the response body carries the text describing the pane the session is
+// running in, which the hook then prints for Claude to read.
+const SessionStart = "SessionStart"
+
+// SetContextHandler installs the function that describes a pane to the agent
+// running in it. Returning an empty string leaves the session as it was.
+func (s *Server) SetContextHandler(fn func(sessionID string) string) {
+	s.mu.Lock()
+	s.onContext = fn
+	s.mu.Unlock()
+}
+
+// Serve starts a hook server on a random loopback port. Events are delivered
+// to on, which may be called from multiple goroutines.
+func Serve(on func(Event)) (*Server, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("listen on loopback: %w", err)
+	}
+
+	tok := make([]byte, 16)
+	if _, err := rand.Read(tok); err != nil {
+		ln.Close()
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+
+	s := &Server{ln: ln, token: hex.EncodeToString(tok), on: on}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/hook", s.handle)
+	mux.HandleFunc("/spawn", s.handleSpawn)
+	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+
+	go func() { _ = s.srv.Serve(ln) }()
+	return s, nil
+}
+
+func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var p payload
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&p); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	// The port is loopback-only but still reachable by any local process, so
+	// require the token we handed to our own panes.
+	if subtle.ConstantTimeCompare([]byte(p.Token), []byte(s.token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.on != nil && p.SessionID != "" {
+		s.on(p.Event)
+	}
+
+	// Only SessionStart has anything to say back. Building the context costs a
+	// trip through the goroutine that owns the workspace, so it is not done
+	// for the events that fire on every tool call.
+	s.mu.RLock()
+	fn := s.onContext
+	s.mu.RUnlock()
+	if p.Event.Event != SessionStart || fn == nil || p.SessionID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(reply{Context: fn(p.SessionID)})
+}
+
+// reply is what the server answers a hook with.
+type reply struct {
+	Context string `json:"context,omitempty"`
+}
+
+// Endpoint is the URL panes should post their events to.
+func (s *Server) Endpoint() string {
+	return "http://" + s.ln.Addr().String() + "/hook"
+}
+
+// Token is the shared secret panes must present.
+func (s *Server) Token() string { return s.token }
+
+// Close shuts the server down.
+func (s *Server) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return s.srv.Shutdown(ctx)
+}
+
+// Emit is the client half, run inside the hook subprocess. It reads Claude's
+// hook JSON from stdin to pick up the tool name, then posts the event.
+//
+// It is deliberately forgiving: a hook that fails must never block or break
+// the Claude session it is reporting on.
+func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, error) {
+	p := payload{Event: Event{SessionID: sessionID, Event: event}, Token: token}
+
+	if stdin != nil {
+		if raw, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(raw) > 0 {
+			var cp claudePayload
+			if json.Unmarshal(raw, &cp) == nil {
+				p.Tool = cp.ToolName
+				p.Cwd = cp.Cwd
+				p.Prompt = cp.Prompt
+				p.Source = cp.Source
+				if p.Source == "" {
+					p.Source = cp.How
+				}
+			}
+		}
+	}
+
+	body, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out reply
+	if resp.StatusCode == http.StatusOK {
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return out.Context, nil
+}
+
+// SpawnRequest is a pane asking the application to start another agent.
+//
+// This is what makes a lead agent able to hand work to helpers: it runs
+// `agent-wrapper spawn`, which posts here using the address and token its pane
+// was given in its environment.
+type SpawnRequest struct {
+	Parent   string `json:"parent"`
+	Task     string `json:"task"`
+	Branch   string `json:"branch,omitempty"`
+	Split    bool   `json:"split,omitempty"`
+	Shell    bool   `json:"shell,omitempty"`
+	Token    string `json:"token"`
+	Response struct {
+		PaneID string `json:"paneId,omitempty"`
+	} `json:"-"`
+}
+
+// BaseURL is the address panes call back on.
+func (s *Server) BaseURL() string { return "http://" + s.ln.Addr().String() }
+
+// SetSpawnHandler installs the function that starts a child agent. It returns
+// the new pane's id, or an error explaining why it could not.
+func (s *Server) SetSpawnHandler(fn func(SpawnRequest) (string, error)) {
+	s.mu.Lock()
+	s.onSpawn = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req SpawnRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(s.token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	s.mu.RLock()
+	fn := s.onSpawn
+	s.mu.RUnlock()
+	if fn == nil {
+		http.Error(w, "spawning is not available", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := fn(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"paneId": id})
+}
+
+// Spawn is the client half, used by the `spawn` subcommand inside a pane.
+func Spawn(api, token, parent string, req SpawnRequest) (string, error) {
+	req.Token = token
+	req.Parent = parent
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		// A refusal usually explains itself in the body; when it does not,
+		// the status is all the caller has to go on, so never return an
+		// error that prints as nothing.
+		if text := strings.TrimSpace(string(msg)); text != "" {
+			return "", fmt.Errorf("%s", text)
+		}
+		return "", fmt.Errorf("the application refused: %s", resp.Status)
+	}
+	var out struct {
+		PaneID string `json:"paneId"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return "", fmt.Errorf("unreadable answer from the application: %w", err)
+	}
+	if out.PaneID == "" {
+		return "", fmt.Errorf("the application accepted the request but named no pane")
+	}
+	return out.PaneID, nil
+}
