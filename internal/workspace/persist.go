@@ -153,9 +153,21 @@ func (w *Workspace) decodeNode(n *store.Node) *layout.Node {
 			p.Name = filepath.Base(p.Cwd)
 		}
 		p.Branch = branchOf(p.Cwd)
+		// A layout naming the same pane twice would put two processes on one
+		// Claude transcript, and only the second would be reachable in the map:
+		// the first could never be focused, resized or closed, and would run on
+		// until the application exits. Ids are UUIDs, so this only happens to a
+		// file that has been damaged or edited by hand; the later occurrence is
+		// dropped, the way a leaf that fails to decode is.
 		w.mu.Lock()
-		w.panes[p.ID] = p
+		_, duplicate := w.panes[p.ID]
+		if !duplicate {
+			w.panes[p.ID] = p
+		}
 		w.mu.Unlock()
+		if duplicate {
+			return nil
+		}
 		// Resuming reattaches the pane to the same Claude conversation it had
 		// before, which is the point of persisting pane ids as session UUIDs.
 		w.startPane(p, p.Kind == session.KindClaude)

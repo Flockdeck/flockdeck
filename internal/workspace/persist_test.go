@@ -435,3 +435,38 @@ func TestRestoreCollapsedSplitKeepsItsShare(t *testing.T) {
 		t.Errorf("surviving pane weight = %v, want the collapsed split's 4", got)
 	}
 }
+
+// TestRestoreIgnoresDuplicatePaneIds covers a damaged layout that names one
+// pane in two places. Starting it twice would leave a process nothing in the
+// workspace points at, and for a Claude pane two agents on one transcript.
+func TestRestoreIgnoresDuplicatePaneIds(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	saved := &store.State{Tabs: []store.Tab{{
+		Title: "one",
+		Root: &store.Node{Dir: "h", Children: []*store.Node{
+			{Pane: &store.Pane{ID: "twice", Kind: "shell", Cwd: root}},
+			{Pane: &store.Pane{ID: "twice", Kind: "shell", Cwd: root}},
+			{Pane: &store.Pane{ID: "once", Kind: "shell", Cwd: root}},
+		}},
+	}}}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	if got := ws.VisibleTabs()[0].Tree.Panes(); !reflect.DeepEqual(got, []string{"twice", "once"}) {
+		t.Errorf("panes = %v, want the repeat dropped", got)
+	}
+	// Closing the tab must be able to reach every process that was started.
+	ws.CloseTab(ws.ActiveTabID())
+	for _, id := range []string{"twice", "once"} {
+		if ws.Pane(id) != nil {
+			t.Errorf("pane %q outlived its tab", id)
+		}
+	}
+}
