@@ -706,8 +706,18 @@ func checkInvariants(t *testing.T, root *Node, hist string) {
 	}
 	rule := map[[2]int]bool{}
 	for _, s := range root.Separators() {
+		if s.W != separatorWidth || s.H < 1 {
+			t.Fatalf("%s: separator %+v is not a rule between two panes", hist, s)
+		}
+		if s.X < 0 || s.X+s.W > w || s.Y < 0 || s.Y+s.H > h {
+			t.Fatalf("%s: separator %+v hangs off the tab", hist, s)
+		}
 		for y := s.Y; y < s.Y+s.H; y++ {
 			for x := s.X; x < s.X+s.W; x++ {
+				// A rule drawn over a terminal would overwrite what it says.
+				if p := root.PaneAt(x, y); p != "" {
+					t.Fatalf("%s: separator %+v runs through pane %s at %d,%d", hist, s, p, x, y)
+				}
 				rule[[2]int{x, y}] = true
 			}
 		}
