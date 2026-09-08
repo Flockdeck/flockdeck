@@ -1072,3 +1072,56 @@ func TestClosingPanesOneAtATimeEndsWithTheLastOneFillingTheTab(t *testing.T) {
 		t.Errorf("a single pane needs no separators, got %d", len(seps))
 	}
 }
+
+// TestEveryDropEdgePutsThePaneWhereItWasDropped checks the four drop zones by
+// where the pane actually ends up on screen, not just where it lands in the
+// tree: a left drop has to produce a pane to the left, whether it nests a new
+// split or joins a row that is already there.
+func TestEveryDropEdgePutsThePaneWhereItWasDropped(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 400, H: 200}
+
+	for _, tc := range []struct {
+		name string
+		edge Edge
+		// want reports whether the dropped pane sits correctly against the
+		// pane it was dropped on.
+		want func(dropped, onto Rect) bool
+	}{
+		{"left", EdgeLeft, func(d, o Rect) bool { return d.X+d.W <= o.X }},
+		{"right", EdgeRight, func(d, o Rect) bool { return o.X+o.W <= d.X }},
+		{"top", EdgeTop, func(d, o Rect) bool { return d.Y+d.H <= o.Y }},
+		{"bottom", EdgeBottom, func(d, o Rect) bool { return o.Y+o.H <= d.Y }},
+	} {
+		// Dropped on a lone pane, which has to nest a split around it.
+		lone := NewLeaf("target")
+		if !lone.InsertBeside("target", "dropped", tc.edge) {
+			t.Fatalf("%s: dropping on a lone pane failed", tc.name)
+		}
+		lone.Compute(view)
+		if !tc.want(lone.Find("dropped").Rect(), lone.Find("target").Rect()) {
+			t.Errorf("%s: dropped at %+v is not on that side of %+v",
+				tc.name, lone.Find("dropped").Rect(), lone.Find("target").Rect())
+		}
+
+		// Dropped on a pane in the middle of a row and of a column, where the
+		// same-axis case joins the existing split instead of nesting.
+		for _, dir := range []Dir{Horizontal, Vertical} {
+			row := NewLeaf("first")
+			row.Split("first", "target", dir)
+			row.Split("target", "last", dir)
+
+			if !row.InsertBeside("target", "dropped", tc.edge) {
+				t.Fatalf("%s: dropping into a split along %d failed", tc.name, dir)
+			}
+			row.Compute(view)
+			if !tc.want(row.Find("dropped").Rect(), row.Find("target").Rect()) {
+				t.Errorf("%s in a split along %d: dropped at %+v is not on that side of %+v",
+					tc.name, dir, row.Find("dropped").Rect(), row.Find("target").Rect())
+			}
+			// The panes it was not dropped between must be untouched.
+			if got := remaining(row.Panes(), "dropped"); !reflect.DeepEqual(got, []string{"first", "target", "last"}) {
+				t.Errorf("%s in a split along %d: the rest of the panes are %v", tc.name, dir, got)
+			}
+		}
+	}
+}
