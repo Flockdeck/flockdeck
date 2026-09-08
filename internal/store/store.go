@@ -143,14 +143,69 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := writeAtomic(p, data); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
-	if err := os.Rename(tmp, p); err != nil {
-		return fmt.Errorf("replace layout: %w", err)
-	}
 	return nil
+}
+
+// writeAtomic replaces a file with new contents, leaving either the old file
+// or the new one behind and never a half-written mixture of the two.
+//
+// The temporary file gets a unique name because two wrappers can be running at
+// once: with a shared "<name>.tmp" one process could rename the other's
+// half-written file into place. It is flushed to disk before the rename, since
+// a rename that reaches the disk ahead of the contents it names would leave an
+// empty file after a crash.
+func writeAtomic(path string, data []byte) error {
+	dir, base := filepath.Split(path)
+	f, err := os.CreateTemp(dir, base+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp) // no-op once the rename below has succeeded
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp already makes the file 0600, which is what these state
+	// files want: they carry the local server's auth token.
+	return renameWithRetry(tmp, path)
+}
+
+// renameWithRetry replaces dst with src, retrying briefly on failure.
+//
+// On Windows replacing a file fails outright with a sharing violation while
+// anything else holds it open, and these files are opened constantly — by the
+// other wrapper instance saving at the same moment, and by the virus scanner
+// and search indexer that follow every write in the user's AppData directory.
+// Those holds last microseconds, so a few retries turn a lost save into a
+// slightly slower one. On other platforms the first attempt always decides it.
+func renameWithRetry(src, dst string) error {
+	delay := time.Millisecond
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		if err = os.Rename(src, dst); err == nil {
+			return nil
+		}
+		// A missing source is our own bug, not contention: retrying it would
+		// only turn an immediate error into a delayed one.
+		if errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		time.Sleep(delay)
+		delay *= 2
+	}
+	return err
 }
 
 // hashRoot turns a path into a short stable filename component.
@@ -290,12 +345,10 @@ func writeRecents(list []Project) error {
 	if err != nil {
 		return fmt.Errorf("encode projects: %w", err)
 	}
-	path := filepath.Join(dir, recentsFile)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
 		return fmt.Errorf("write projects: %w", err)
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
 // sameRoot compares project paths, case-insensitively on platforms whose file
@@ -344,12 +397,10 @@ func SaveSession(s *Session) error {
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	path := filepath.Join(dir, sessionFile)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
 // Instance records a running agent-wrapper so a second launch can attach to it
@@ -403,11 +454,10 @@ func SaveInstance(inst *Instance) error {
 	if err != nil {
 		return fmt.Errorf("encode instance: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := writeAtomic(path, data); err != nil {
 		return fmt.Errorf("write instance: %w", err)
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
 // ClearInstance removes the record, and does nothing if it is already gone.

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -142,6 +145,85 @@ func TestLayoutFollowsRootSpelling(t *testing.T) {
 		}
 		if got.Tabs[0].Title != "alpha" {
 			t.Errorf("load %q restored %q, want alpha", root, got.Tabs[0].Title)
+		}
+	}
+}
+
+// TestConcurrentSavesLeaveValidState checks a second writer can never rename a
+// half-written file into place, which a shared "<name>.tmp" would allow, and
+// that no temporary files are left lying in the state directory.
+func TestConcurrentSavesLeaveValidState(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			open := make([]string, 0, 60)
+			for j := 0; j < 50+i; j++ {
+				open = append(open, fmt.Sprintf("/repo/%d/%d", i, j))
+			}
+			if err := SaveSession(&Session{Open: open, Active: open[0]}); err != nil {
+				t.Errorf("save session: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	got, err := LoadSession()
+	if err != nil {
+		t.Fatalf("load session: %v", err)
+	}
+	if got == nil {
+		t.Fatal("concurrent writers left the session file unreadable")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("temporary file %s was left behind", e.Name())
+		}
+	}
+}
+
+// TestSaveLeavesNoTemporaryFiles checks the write-then-rename dance cleans up
+// after itself, so the state directory does not silently fill with debris.
+func TestSaveLeavesNoTemporaryFiles(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "alpha"}}}); err != nil {
+			t.Fatalf("save layout: %v", err)
+		}
+		if err := SaveSession(&Session{Open: []string{"/repo/a"}, Active: "/repo/a"}); err != nil {
+			t.Fatalf("save session: %v", err)
+		}
+		if err := TouchRecent("/repo/a"); err != nil {
+			t.Fatalf("touch recent: %v", err)
+		}
+		if err := SaveInstance(&Instance{PID: 1, URL: "http://127.0.0.1:1/"}); err != nil {
+			t.Fatalf("save instance: %v", err)
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("temporary file %s was left behind", e.Name())
 		}
 	}
 }
