@@ -928,3 +928,47 @@ func TestSaveFailureKeepsWhatWasThere(t *testing.T) {
 		t.Errorf("restored %q, want the workspace that was last saved", got.Tabs[0].Title)
 	}
 }
+
+// TestSweepContinuesPastAnUnreadableDirectory checks one directory it cannot
+// read does not cost the other its clean-up. The two fill up independently, so
+// giving up on both would leave the state directory's orphans there for good.
+func TestSweepContinuesPastAnUnreadableDirectory(t *testing.T) {
+	isolateConfig(t)
+	state, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+
+	orphan := filepath.Join(state, "session.json.tmp1234")
+	if err := os.WriteFile(orphan, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	when := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(orphan, when, when); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	// A file standing where the sessions directory belongs makes reading it
+	// fail on every platform.
+	if err := os.RemoveAll(sessions); err != nil {
+		t.Fatalf("remove sessions dir: %v", err)
+	}
+	if err := os.WriteFile(sessions, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("block sessions dir: %v", err)
+	}
+
+	n, err := SweepSessions(24 * time.Hour)
+	if err == nil {
+		t.Error("the unreadable directory should have been reported")
+	}
+	if n != 1 {
+		t.Errorf("removed %d files, want the one orphan in the state directory", n)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Error("the state directory was not swept")
+	}
+}

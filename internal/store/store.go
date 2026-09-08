@@ -296,10 +296,6 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 	if maxAge <= 0 {
 		return 0, fmt.Errorf("sweep sessions: maxAge must be positive, got %s", maxAge)
 	}
-	sessions, err := SessionsDir()
-	if err != nil {
-		return 0, err
-	}
 	state, err := Dir()
 	if err != nil {
 		return 0, err
@@ -311,14 +307,21 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 	// wrapper keeps has ".tmp" anywhere in its name.
 	isTemp := func(name string) bool { return strings.Contains(name, ".tmp") }
 
-	removed, err := sweepDir(sessions, cutoff, func(name string) bool {
-		return isSettings(name) || isTemp(name)
-	})
-	if err != nil {
-		return removed, err
+	// Both directories are swept whatever happens to either. They fill up
+	// independently, so giving up on the second because the first could not be
+	// reached would leave its orphans there for good.
+	removed := 0
+	sessions, firstErr := SessionsDir()
+	if firstErr == nil {
+		removed, firstErr = sweepDir(sessions, cutoff, func(name string) bool {
+			return isSettings(name) || isTemp(name)
+		})
 	}
 	n, err := sweepDir(state, cutoff, isTemp)
-	return removed + n, err
+	if firstErr == nil {
+		firstErr = err
+	}
+	return removed + n, firstErr
 }
 
 // sweepDir deletes the matching files in a directory that were last written
@@ -327,7 +330,7 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 func sweepDir(dir string, cutoff time.Time, match func(name string) bool) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0, fmt.Errorf("read %s: %w", filepath.Base(dir), err)
+		return 0, fmt.Errorf("read %s: %w", dir, err)
 	}
 	removed := 0
 	for _, e := range entries {
