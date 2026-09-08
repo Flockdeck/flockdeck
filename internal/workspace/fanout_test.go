@@ -509,3 +509,30 @@ func TestExtractTasksKeepsKeyNamesInTasks(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksReadsCheckboxes covers a task list written as checkboxes. The
+// tick is written several ways, and an entry left holding its box opens on
+// punctuation, which isTask reads as a fragment and drops.
+func TestExtractTasksReadsCheckboxes(t *testing.T) {
+	plan := `
+- [ ] Remove the unused helpers
+- [x] Add a health endpoint to the server
+- [X] Write tests for the config parser
+* [-] Update the README with the new flags
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Remove the unused helpers",
+		"Add a health endpoint to the server",
+		"Write tests for the config parser",
+		"Update the README with the new flags",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

@@ -290,10 +290,10 @@ func isProgress(s string) bool {
 // deliberately not markers. On screen they sit at the head of a line with a
 // space after them, which is indistinguishable from a bullet.
 func listItem(line string) (string, bool) {
-	// Bullets.
-	for _, marker := range []string{"- [ ] ", "- [x] ", "* ", "- ", "• "} {
+	// Bullets, and the checkbox one may carry.
+	for _, marker := range []string{"* ", "- ", "• "} {
 		if strings.HasPrefix(line, marker) {
-			return strings.TrimPrefix(line, marker), true
+			return trimCheckbox(strings.TrimPrefix(line, marker)), true
 		}
 	}
 	// "1. text", "2) text", "10 - text"
@@ -318,6 +318,17 @@ func listItem(line string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// trimCheckbox drops the box a task-list bullet carries: "[ ]", "[x]", and the
+// "[X]" and "[-]" that get written just as often. Leaving it on would make the
+// entry open on punctuation, which isTask reads as the middle of a line and
+// throws away — so an unticked plan lost every item it had.
+func trimCheckbox(s string) string {
+	if len(s) >= 4 && s[0] == '[' && s[2] == ']' && s[3] == ' ' {
+		return s[4:]
+	}
+	return s
 }
 
 // isDecoration reports whether a line is terminal furniture rather than words.
