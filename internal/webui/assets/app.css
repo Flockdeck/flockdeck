@@ -679,7 +679,12 @@ kbd {
 }
 #palette-input {
   width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line);
-  color: var(--fg); padding: 13px 16px; font: 14px/1.4 inherit;
+  color: var(--fg); padding: 13px 16px;
+  /* "font: 14px/1.4 inherit" was a parse error - inherit is only legal as a
+   * whole value, never as one part of a shorthand - so the entire declaration
+   * was dropped and the palette typed in the browser's default input font
+   * rather than the app's, at the browser's size rather than 14px. */
+  font-family: inherit; font-size: 14px; line-height: 1.4;
 }
 #palette-input:focus { outline: none; }
 #palette-list { max-height: 50vh; overflow: auto; }
