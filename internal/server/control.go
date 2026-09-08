@@ -524,18 +524,30 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "closeProject":
 			ws.CloseProject(cmd.Root)
 		case "splitPane":
-			ws.FocusPane(cmd.ID)
+			if !focusFor(ws, cmd.ID) {
+				c.notify(paneGone, true)
+				return
+			}
 			ws.SplitPaneIn(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Path)
 		case "closePane":
-			ws.FocusPane(cmd.ID)
+			if !focusFor(ws, cmd.ID) {
+				c.notify(paneGone, true)
+				return
+			}
 			ws.ClosePane()
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
-			ws.FocusPane(cmd.ID)
+			if !focusFor(ws, cmd.ID) {
+				c.notify(paneGone, true)
+				return
+			}
 			ws.RestartPane()
 		case "toggleZoom":
-			ws.FocusPane(cmd.ID)
+			if !focusFor(ws, cmd.ID) {
+				c.notify(paneGone, true)
+				return
+			}
 			ws.ToggleZoom()
 		case "movePane":
 			if err := ws.MovePane(cmd.ID, cmd.Target, parseEdge(cmd.Edge)); err != nil {
@@ -588,7 +600,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "toggleBroadcast":
 			ws.ToggleBroadcast()
 		case "toggleBroadcastMember":
-			ws.FocusPane(cmd.ID)
+			if !focusFor(ws, cmd.ID) {
+				c.notify(paneGone, true)
+				return
+			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
 			ws.SendPrompt(cmd.Text, true)
@@ -608,6 +623,28 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.Wake()
 	})
+}
+
+// paneGone is what a window is told when it acts on a pane that has since
+// been closed, most often because another window closed it first.
+const paneGone = "that pane is no longer open"
+
+// focusFor moves focus onto the pane a command names and reports whether the
+// command should go ahead.
+//
+// The commands that use it all act on whichever pane has focus. FocusPane
+// ignores a pane that is not in the current tab, so a stale click — on a pane
+// closed a moment ago, or from a window still showing an older layout — would
+// leave focus where it was and quietly close or restart the wrong agent
+// instead. An empty id is the keyboard's way of saying "the focused pane" and
+// is always allowed.
+func focusFor(ws *workspace.Workspace, id string) bool {
+	if id == "" {
+		return true
+	}
+	ws.FocusPane(id)
+	t := ws.CurrentTab()
+	return t != nil && t.Focus == id
 }
 
 // tabTitle cleans up a hand-typed tab name. The front end only checks that

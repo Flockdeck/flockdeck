@@ -410,3 +410,29 @@ func TestSnapshotSendsArraysWhenEmpty(t *testing.T) {
 		t.Errorf("snapshot sent a null project list: %s", data)
 	}
 }
+
+// TestStalePaneCommandDoesNotHitTheWrongPane covers a click on a pane that has
+// already gone. These commands act on whichever pane has focus after being
+// pointed at the named one, so failing to point at it must stop the command
+// rather than let it close or restart whatever was focused instead.
+func TestStalePaneCommandDoesNotHitTheWrongPane(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	st := nextState(t, conn, nil)
+	survivor := st.Tabs[0].Root.Pane
+
+	sendCmd(t, conn, command{Cmd: "closePane", ID: "a-pane-that-has-gone"})
+
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error {
+		t.Errorf("expected an error notice, got %+v", note)
+	}
+
+	// The pane that did have focus must still be there.
+	sendCmd(t, conn, command{Cmd: "focusPane", ID: survivor})
+	st = nextState(t, conn, func(s stateMsg) bool { return s.Tabs[0].Focus == survivor })
+	if _, ok := st.Panes[survivor]; !ok {
+		t.Fatal("the focused pane was closed by a command aimed at another one")
+	}
+}
