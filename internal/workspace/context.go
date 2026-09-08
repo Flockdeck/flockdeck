@@ -241,11 +241,13 @@ func (c PaneContext) Render() string {
 			"agent-wrapper spawn \"add tests for the parser\"\n" +
 			"agent-wrapper spawn --worktree fix-auth \"repair the token refresh\"\n" +
 			"agent-wrapper spawn --split \"watch the build\"\n" +
+			"agent-wrapper spawn --split --shell \"tail the build log\"\n" +
 			"```\n\n" +
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
 			"yours, so the task you give it has to stand on its own. Use `--worktree` when two " +
-			"of them would otherwise edit the same files. Do this when the user asks for " +
-			"parallel work, not on your own initiative.\n")
+			"of them would otherwise edit the same files, and `--shell` when what you want " +
+			"beside you is a terminal rather than another conversation. Do this when the " +
+			"user asks for parallel work, not on your own initiative.\n")
 	}
 
 	b.WriteString("\n## The user's view\n\n" +

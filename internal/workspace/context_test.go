@@ -481,3 +481,18 @@ func TestProjectsWithTheSameNameAreToldApart(t *testing.T) {
 		t.Errorf("name = %q, want the directory name on its own", lone[0].Name)
 	}
 }
+
+// TestRenderDocumentsEverySpawnFlag keeps the one place an agent learns this
+// command in step with the command itself: a flag it is never shown is a flag
+// it will not use.
+func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, flag := range []string{"--worktree", "--split", "--shell"} {
+		if !strings.Contains(text, flag) {
+			t.Errorf("the spawn section does not mention %s", flag)
+		}
+	}
+	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "agent-wrapper spawn") {
+		t.Error("a shell pane should not be told to spawn agents")
+	}
+}
