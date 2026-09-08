@@ -326,3 +326,34 @@ func TestStaleTokenInURLKeepsWorkingCookie(t *testing.T) {
 		}
 	}
 }
+
+// TestCloseEndsControlConnections covers shutdown of a hijacked connection:
+// http.Shutdown leaves websockets alone, so the server has to close them
+// itself or the window is left holding a socket nothing is listening on.
+func TestCloseEndsControlConnections(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	if err := srv.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		if _, _, err := conn.Read(ctx); err != nil {
+			break
+		}
+	}
+	if ctx.Err() != nil {
+		t.Fatal("the control connection outlived the server")
+	}
+	// The server side unwinds independently, so give it a moment to notice.
+	for deadline := time.Now().Add(5 * time.Second); srv.ClientCount() != 0; {
+		if time.Now().After(deadline) {
+			t.Fatalf("client count = %d after close, want 0", srv.ClientCount())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -329,6 +329,16 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// http.Shutdown does not touch a hijacked connection, so a closing server
+	// would otherwise leave this one open with its two goroutines parked on it
+	// for ever. Tie the connection's lifetime to the server's.
+	go func() {
+		select {
+		case <-s.closed:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	go c.writeLoop(ctx)
 
 	// The key table and the preferences come first: the palette and the
@@ -354,7 +364,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		_, data, err := conn.Read(context.Background())
+		_, data, err := conn.Read(ctx)
 		if err != nil {
 			return
 		}
