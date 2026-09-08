@@ -948,3 +948,56 @@ func TestSaveRestoreKeepsTheTask(t *testing.T) {
 		t.Errorf("task = %q, want %q", p.Task, task)
 	}
 }
+
+// TestSaveKeepsEachProjectsOwnActiveTab covers the projects that are not the
+// one being looked at when the window closes. Only one project can hold the
+// active tab, so every other one has to be saved with the tab it was last on
+// rather than with its first — otherwise switching away from a project and
+// quitting quietly moves you off the tab you were working in.
+func TestSaveKeepsEachProjectsOwnActiveTab(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	// A run that ends while looking at the second project's third tab.
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "beta")
+	ws.NewTab(session.KindShell, second, "gamma")
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	// A run that ends while looking at the first project instead. The second
+	// project is still open, but none of its tabs is the one on screen.
+	next := newTestWorkspace(t, first)
+	if _, err := next.Restore(); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if n := next.RestoreSession(); n != 1 {
+		t.Fatalf("reopened %d projects, want 1", n)
+	}
+	if next.ActiveRoot() != first {
+		t.Fatalf("active root = %q, want %q", next.ActiveRoot(), first)
+	}
+	if err := next.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	next.Close()
+
+	// Opening the second project again should still land on gamma.
+	again := newTestWorkspace(t, second)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	current := again.CurrentTab()
+	if current == nil {
+		t.Fatal("no tab is on screen")
+	}
+	if current.Title != "gamma" {
+		t.Errorf("tab on screen = %q, want the one that project was left on", current.Title)
+	}
+}

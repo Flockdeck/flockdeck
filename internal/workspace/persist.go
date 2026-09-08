@@ -35,8 +35,9 @@ func (w *Workspace) SaveAll() error {
 // SaveProject writes one project's tabs to its own layout file, so projects
 // are restored independently of one another.
 func (w *Workspace) SaveProject(root string) error {
-	st := &store.State{}
-	for i, t := range w.tabsOf(root) {
+	tabs := w.tabsOf(root)
+	st := &store.State{Active: w.rememberedActive(root, len(tabs))}
+	for i, t := range tabs {
 		if t.ID == w.activeTab {
 			st.Active = i
 		}
@@ -47,6 +48,28 @@ func (w *Workspace) SaveProject(root string) error {
 		})
 	}
 	return store.Save(root, st)
+}
+
+// rememberedActive is the tab a project should come back on when none of its
+// tabs is the one on screen — which is true of every project but the one being
+// looked at when the window closes.
+//
+// Defaulting to the first tab there would quietly move the user off the tab
+// they had been on in every project except the last one they looked at, so the
+// index from the previous save is carried forward instead, clamped to the tabs
+// that are still there.
+func (w *Workspace) rememberedActive(root string, tabs int) int {
+	if tabs == 0 {
+		return 0
+	}
+	st, err := store.Load(root)
+	if err != nil || st == nil || st.Active <= 0 {
+		return 0
+	}
+	if st.Active >= tabs {
+		return tabs - 1
+	}
+	return st.Active
 }
 
 // encodeNode converts a live layout node into its persisted form.
