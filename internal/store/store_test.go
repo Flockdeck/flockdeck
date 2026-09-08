@@ -820,3 +820,33 @@ func TestInstanceRecordRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestRecentsAreCapped checks the remembered list stops growing, and that it
+// is the projects the user has not touched in longest that fall off the end.
+func TestRecentsAreCapped(t *testing.T) {
+	isolateConfig(t)
+
+	for i := 0; i < maxRecents+5; i++ {
+		if err := TouchRecent(fmt.Sprintf("/repo/p%02d", i)); err != nil {
+			t.Fatalf("touch %d: %v", i, err)
+		}
+	}
+
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != maxRecents {
+		t.Fatalf("remembered %d projects, want %d", len(list), maxRecents)
+	}
+	if !sameRoot(list[0].Root, "/repo/p44") {
+		t.Errorf("most recent is %q, want the last project opened", list[0].Root)
+	}
+	for _, p := range list {
+		for i := 0; i < 5; i++ {
+			if sameRoot(p.Root, fmt.Sprintf("/repo/p%02d", i)) {
+				t.Errorf("%q should have fallen off the end", p.Root)
+			}
+		}
+	}
+}
