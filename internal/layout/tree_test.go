@@ -935,3 +935,52 @@ func TestComputeIsProportionalWithinACell(t *testing.T) {
 		}
 	}
 }
+
+// TestDividerDragLandsWhereItWasDropped follows the path a drag actually takes:
+// the browser names the split by node id, sends the shares it wants, and
+// expects the next layout to match. FindNode has to reach nested splits, and
+// the weights have to survive into Compute.
+func TestDividerDragLandsWhereItWasDropped(t *testing.T) {
+	// a | [ b over c ]
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Vertical)
+	column := root.Children[1]
+
+	if got := root.FindNode(root.ID); got != root {
+		t.Error("FindNode should reach the root itself")
+	}
+	if got := root.FindNode(column.ID); got != column {
+		t.Fatal("FindNode should reach a nested split")
+	}
+	if got := root.FindNode("nosuchnode"); got != nil {
+		t.Errorf("FindNode of an unknown id = %v, want nil", got)
+	}
+	if got := root.FindNode(""); got != nil {
+		t.Errorf("FindNode of no id = %v, want nil", got)
+	}
+
+	// Drag the outer divider to a quarter, and the inner one to a fifth.
+	if !root.FindNode(root.ID).SetChildWeights([]float64{1, 3}) {
+		t.Fatal("setting the row's weights failed")
+	}
+	if !root.FindNode(column.ID).SetChildWeights([]float64{1, 4}) {
+		t.Fatal("setting the column's weights failed")
+	}
+
+	root.Compute(Rect{X: 0, Y: 0, W: 401, H: 100})
+	// 400 columns to share once the separator is paid for.
+	if w := root.Find("a").Rect().W; w != 100 {
+		t.Errorf("a is %d columns wide, want a quarter of 400", w)
+	}
+	if h := root.Find("b").Rect().H; h != 20 {
+		t.Errorf("b is %d lines tall, want a fifth of 100", h)
+	}
+	if h := root.Find("c").Rect().H; h != 80 {
+		t.Errorf("c is %d lines tall, want the other four fifths", h)
+	}
+	// Both panes of the column keep the width the outer drag gave it.
+	if b, c := root.Find("b").Rect().W, root.Find("c").Rect().W; b != 300 || c != 300 {
+		t.Errorf("the column's panes are %d and %d wide, want 300 each", b, c)
+	}
+}
