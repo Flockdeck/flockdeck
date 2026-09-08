@@ -289,6 +289,12 @@ func (w *Workspace) RestoreSession() int {
 			continue
 		}
 		w.openRoots = append(w.openRoots, root)
+		// A project reopened every run is one the user is working in, and the
+		// recent list is capped: without this, the projects that are always
+		// open are exactly the ones that age out of the picker, because only
+		// the one named on the command line and the ones opened by hand are
+		// ever recorded as used.
+		_ = store.TouchRecent(root)
 		if w.restoreProject(root) == 0 {
 			// It was open but had no saved tabs; give it one so switching to
 			// it shows something.

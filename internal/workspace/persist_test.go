@@ -607,3 +607,45 @@ func TestRestoreSessionKeepsTheTabTheUserLeftOn(t *testing.T) {
 		t.Errorf("tab on screen = %q, want the one the window was left on", current.Title)
 	}
 }
+
+// TestRestoreSessionKeepsReopenedProjectsRecent checks that a project brought
+// back by the saved session counts as used. The recent list is capped, so a
+// project that is always open but never opened by hand would otherwise be the
+// first to fall out of the picker.
+func TestRestoreSessionKeepsReopenedProjectsRecent(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	// Push the second project out of living memory, as a run that never opened
+	// it by hand would leave it.
+	if err := store.ForgetRecent(second); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+
+	again := newTestWorkspace(t, first)
+	if n := again.RestoreSession(); n != 1 {
+		t.Fatalf("reopened %d projects, want 1", n)
+	}
+	recents, err := store.Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	found := false
+	for _, p := range recents {
+		if p.Root == second {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("recents = %v, want the reopened project among them", recents)
+	}
+}
