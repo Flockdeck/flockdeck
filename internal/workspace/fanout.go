@@ -619,6 +619,10 @@ const autoBranch = "@auto"
 // on a branch named after its task.
 const AutoBranch = autoBranch
 
+// maxBranchName bounds the derived part of a branch name. A task description
+// is a sentence, and a branch that long is unreadable in `git branch`.
+const maxBranchName = 32
+
 // BranchNameFor derives a git branch name from a task description.
 func BranchNameFor(task string) string {
 	var b strings.Builder
@@ -634,17 +638,25 @@ func BranchNameFor(task string) string {
 				lastDash = true
 			}
 		}
-		if b.Len() >= 32 {
+		// One character past the limit, which is what tells a name that only
+		// just fits from one that was cut short.
+		if b.Len() > maxBranchName {
 			break
 		}
 	}
 	name := strings.Trim(b.String(), "-")
-	// Truncation lands mid-word as often as not; back up to the last word
-	// boundary so the branch reads as words rather than a fragment.
-	if len(name) >= 32 {
-		if i := strings.LastIndex(name, "-"); i > 8 {
-			name = name[:i]
+	if len(name) > maxBranchName {
+		cut := maxBranchName
+		// A cut that lands inside a word backs up to the boundary before it, so
+		// the branch reads as words rather than as a fragment. A cut that lands
+		// on one is already where it should be, and backing up from there would
+		// throw away a word the name had room for.
+		if name[cut] != '-' {
+			if i := strings.LastIndex(name[:cut], "-"); i > 8 {
+				cut = i
+			}
 		}
+		name = strings.Trim(name[:cut], "-")
 	}
 	if name == "" {
 		name = "task"

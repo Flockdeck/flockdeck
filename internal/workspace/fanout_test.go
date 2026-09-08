@@ -233,6 +233,9 @@ func TestBranchNameFor(t *testing.T) {
 		"Fix the parser!! (urgent)": "agent/fix-the-parser-urgent",
 		"   ":                       "agent/task",
 		"a very long task description that keeps going and going": "agent/a-very-long-task-description",
+		// Exactly the length the name is allowed, and every word of it whole.
+		// Backing up from a cut that never happened dropped the last word.
+		"abcd efgh ijkl mnop qrst uvwx yz": "agent/abcd-efgh-ijkl-mnop-qrst-uvwx-yz",
 	}
 	for in, want := range cases {
 		got := BranchNameFor(in)
