@@ -32,6 +32,12 @@ const (
 	// report end of output when the process it is attached to goes away, so
 	// this is a grace period rather than something to wait on indefinitely.
 	drainGrace = 500 * time.Millisecond
+	// maxCols and maxRows bound a resize. The dimensions are measured by the
+	// browser and can be anything it cares to send, while a PTY allocates a
+	// cell for every one of them, so a figure no display could produce is
+	// clamped rather than honoured.
+	maxCols = 2000
+	maxRows = 2000
 )
 
 // Config describes a session to start.
@@ -373,12 +379,14 @@ func (s *Session) Exited() bool {
 	return st == StatusExited
 }
 
-// Resize resizes the PTY. Unchanged dimensions are skipped, since a resize
-// forces applications to redraw.
+// Resize resizes the PTY, clamped to something a terminal could plausibly be.
+// Unchanged dimensions are skipped, since a resize forces applications to
+// redraw.
 func (s *Session) Resize(cols, rows int) {
 	if cols <= 0 || rows <= 0 {
 		return
 	}
+	cols, rows = min(cols, maxCols), min(rows, maxRows)
 	s.mu.Lock()
 	if s.cols == cols && s.rows == rows {
 		s.mu.Unlock()

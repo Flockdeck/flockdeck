@@ -397,3 +397,28 @@ func TestBellBeforeAnyInputIsNotAttention(t *testing.T) {
 		t.Error("a startup bell should not mark an untouched pane as waiting")
 	}
 }
+
+// TestResizeIsClampedAndValidated covers dimensions arriving from a browser,
+// which measures them itself and is free to send anything at all.
+func TestResizeIsClampedAndValidated(t *testing.T) {
+	s := startShell(t)
+
+	s.Resize(120, 40)
+	if cols, rows := s.Size(); cols != 120 || rows != 40 {
+		t.Fatalf("size = %dx%d, want 120x40", cols, rows)
+	}
+
+	// Nonsense is ignored rather than applied.
+	s.Resize(0, 40)
+	s.Resize(120, -1)
+	if cols, rows := s.Size(); cols != 120 || rows != 40 {
+		t.Errorf("size = %dx%d after an invalid resize, want 120x40", cols, rows)
+	}
+
+	// A figure no display could produce is clamped, not handed to the PTY to
+	// allocate a cell for.
+	s.Resize(1<<20, 1<<20)
+	if cols, rows := s.Size(); cols != maxCols || rows != maxRows {
+		t.Errorf("size = %dx%d, want the clamp %dx%d", cols, rows, maxCols, maxRows)
+	}
+}
