@@ -914,3 +914,37 @@ func TestSaveRestoreKeepsKindsAndAxes(t *testing.T) {
 		}
 	}
 }
+
+// TestSaveRestoreKeepsTheTask covers why a pane's task is persisted at all: a
+// spawned agent is told what it exists to do through the context handed to it
+// at session start, and after a restart that is the only place the task can
+// come from. A restored pane that has forgotten it looks exactly like one that
+// never had one.
+func TestSaveRestoreKeepsTheTask(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "spawner")
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	spawned := ws.CurrentTab().Focus
+	const task = "repair the token refresh"
+	ws.Pane(spawned).Task = task
+
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, root)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	p := again.Pane(spawned)
+	if p == nil {
+		t.Fatal("the spawned pane was not restored")
+	}
+	if p.Task != task {
+		t.Errorf("task = %q, want %q", p.Task, task)
+	}
+}
