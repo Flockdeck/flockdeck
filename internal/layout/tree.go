@@ -435,6 +435,12 @@ func (root *Node) SwapPanes(a, b string) bool {
 // inside it, for the same reason Split and InsertBeside append to an existing
 // split: a row of two merged with a row of two is four columns, not a row of
 // rows.
+//
+// That halving is per merge, and it compounds. Folding tabs in one at a time
+// gives the last one half the room, the one before a quarter, and so on, so a
+// caller gathering a whole project's tabs this way ends up with the earliest
+// ones a column wide. Gathering many tabs evenly needs their shares worked out
+// across all of them at once rather than a pairwise merge repeated.
 func Combine(dst, src *Node, dir Dir) *Node {
 	// A tree with no panes in it, which is what a tab emptied by an earlier
 	// merge is left holding, contributes nothing. Merging it anyway made a

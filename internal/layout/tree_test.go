@@ -1178,3 +1178,32 @@ func TestCombineKeepsEachSidesProportions(t *testing.T) {
 		t.Errorf("the even column came back as %d and %d lines, want an even split", c, d)
 	}
 }
+
+// TestCombineHalvesTheRoomEachTimeATabIsFoldedIn states what folding tabs in
+// one at a time actually produces. Each merge is an even split between the two
+// trees, which is right for a single drag, but repeated it compounds: the last
+// tab in takes half the tab and the first ones are squeezed to nothing. A
+// caller gathering a whole project this way needs to share the room out across
+// all the tabs at once instead.
+func TestCombineHalvesTheRoomEachTimeATabIsFoldedIn(t *testing.T) {
+	root := NewLeaf("t0")
+	for i := 1; i < 5; i++ {
+		root = Combine(root, NewLeaf("t"+strconv.Itoa(i)), Horizontal)
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"t0", "t1", "t2", "t3", "t4"}) {
+		t.Fatalf("panes = %v, want every tab in the order it was folded in", got)
+	}
+	if len(root.Children) != 5 {
+		t.Fatalf("children = %d, want one flat row", len(root.Children))
+	}
+
+	root.Compute(Rect{W: 1004, H: 100}) // 1000 columns once the four rules are paid for
+	widths := make([]int, 0, 5)
+	for _, l := range root.Leaves() {
+		widths = append(widths, l.Rect().W)
+	}
+	// 1/16, 1/16, 1/8, 1/4, 1/2 of the room.
+	if !reflect.DeepEqual(widths, []int{62, 63, 125, 250, 500}) {
+		t.Errorf("widths = %v, want the halving this merge compounds to", widths)
+	}
+}
