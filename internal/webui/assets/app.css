@@ -620,6 +620,22 @@ kbd {
 
 .empty { padding: 40px; color: var(--fg-dim); text-align: center; margin: auto; }
 
+/* --------------------------------------------------------- reduced motion */
+
+/* The working dot pulses for as long as an agent is working, and a tab of ten
+ * panes is then ten things breathing at once in the corner of the eye - the
+ * exact case the system setting exists for. Colour still carries the status,
+ * so nothing is lost by holding the animation still. Written as a sweep rather
+ * than a list because the panes, the drop indicator and anything the script
+ * adds later all need to honour it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 /* ---------------------------------------------------------------- tooltips */
 
 /* Script places this against the viewport, so no ancestor's overflow - the tab
