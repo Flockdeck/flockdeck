@@ -331,3 +331,69 @@ func TestWriteToAnExitedPaneSaysSo(t *testing.T) {
 		t.Errorf("error = %q; it should name the pane", err)
 	}
 }
+
+// claudePane builds a Claude session without a process behind it, for the
+// parts of the status machinery that only look at the output stream.
+func claudePane() *Session {
+	return &Session{
+		ID:          "claude-pane",
+		Kind:        KindClaude,
+		status:      StatusIdle,
+		statusSince: time.Now(),
+		sawInput:    true,
+		history:     newRing(4096),
+		subs:        map[int]chan []byte{},
+	}
+}
+
+// TestRepeatedBellsDoNotRestartTheWaitClock covers the number the tab bar uses
+// to say how long an agent has been blocked. Claude rings again each time it
+// nudges about the same unanswered question.
+func TestRepeatedBellsDoNotRestartTheWaitClock(t *testing.T) {
+	s := claudePane()
+
+	s.publish([]byte("please choose\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v, want waiting", st)
+	}
+	since := s.StatusSince()
+
+	time.Sleep(10 * time.Millisecond)
+	s.publish([]byte("still waiting\x07"))
+	if got := s.StatusSince(); !got.Equal(since) {
+		t.Errorf("the wait clock restarted on a second bell: %v then %v", since, got)
+	}
+
+	// A genuine change of status does start it again.
+	time.Sleep(10 * time.Millisecond)
+	s.SetStatus(StatusWorking, "")
+	if got := s.StatusSince(); !got.After(since) {
+		t.Errorf("moving to a different status should restart the clock: %v", got)
+	}
+}
+
+// TestBellIsIgnoredOnceHooksReport pins the fallback's place: lifecycle hooks
+// are the only source of truth once they have reported, because Claude rings
+// the bell when a turn merely ends as well as when it needs an answer.
+func TestBellIsIgnoredOnceHooksReport(t *testing.T) {
+	s := claudePane()
+	s.SetStatus(StatusWorking, "Bash")
+
+	s.publish([]byte("done\x07"))
+	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
+		t.Errorf("status = %v %q; a bell must not overrule a hook", st, detail)
+	}
+}
+
+// TestBellBeforeAnyInputIsNotAttention covers a pane nobody has spoken to yet:
+// Claude rings while it starts up, and a pane that announces it needs
+// attention before being asked anything is noise.
+func TestBellBeforeAnyInputIsNotAttention(t *testing.T) {
+	s := claudePane()
+	s.sawInput = false
+
+	s.publish([]byte("welcome\x07"))
+	if st, _ := s.Status(); st == StatusWaiting {
+		t.Error("a startup bell should not mark an untouched pane as waiting")
+	}
+}

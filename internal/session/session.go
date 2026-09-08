@@ -193,8 +193,15 @@ func (s *Session) publish(chunk []byte) {
 		// they are the sole source of truth; letting the bell win would flip
 		// every completed turn to "waiting".
 		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && s.sawInput {
+			// Claude rings again every time it nudges about the input it is
+			// still waiting for, so the clock only starts on the transition:
+			// restarting it on each bell is how a pane that has been blocked
+			// for twenty minutes reports having just started waiting, which
+			// is exactly the number being used to decide where to look.
+			if s.status != StatusWaiting {
+				s.statusSince = time.Now()
+			}
 			s.status = StatusWaiting
-			s.statusSince = time.Now()
 		}
 	}
 	var dead []int
