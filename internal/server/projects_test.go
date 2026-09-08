@@ -1,0 +1,183 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+// readUntil reads control messages until one of the given type arrives, and
+// decodes it into out.
+func readUntil(t *testing.T, conn *websocket.Conn, typ string, out any) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		_, data, err := conn.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("read control: %v", err)
+		}
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &probe) != nil || probe.Type != typ {
+			continue
+		}
+		if err := json.Unmarshal(data, out); err != nil {
+			t.Fatalf("decode %s: %v", typ, err)
+		}
+		return
+	}
+	t.Fatalf("timed out waiting for a %q message", typ)
+}
+
+// TestOpenAndSwitchProjects drives the picker the way the window does.
+func TestOpenAndSwitchProjects(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+
+	st := nextState(t, conn, nil)
+	if len(st.Projects) != 1 || !st.Projects[0].Active {
+		t.Fatalf("expected one active project, got %+v", st.Projects)
+	}
+	first := st.Projects[0].Root
+
+	second := t.TempDir()
+	sendCmd(t, conn, command{Cmd: "openProject", Path: second})
+	st = nextState(t, conn, func(s stateMsg) bool { return len(s.Projects) == 2 })
+
+	// The newly opened project becomes active and shows only its own tabs.
+	var active string
+	for _, p := range st.Projects {
+		if p.Active {
+			active = p.Root
+		}
+	}
+	if active == first {
+		t.Error("opening a project should switch to it")
+	}
+	if len(st.Tabs) != 1 {
+		t.Errorf("new project shows %d tabs, want 1", len(st.Tabs))
+	}
+
+	// Switching back shows the original project again, and the other project's
+	// agents are still running.
+	sendCmd(t, conn, command{Cmd: "selectProject", Root: first})
+	nextState(t, conn, func(s stateMsg) bool {
+		for _, p := range s.Projects {
+			if p.Root == first && p.Active {
+				return true
+			}
+		}
+		return false
+	})
+	if len(ws.Tabs) != 2 {
+		t.Errorf("expected both projects' tabs to survive, got %d", len(ws.Tabs))
+	}
+
+	// Closing a project removes it.
+	sendCmd(t, conn, command{Cmd: "closeProject", Root: second})
+	nextState(t, conn, func(s stateMsg) bool { return len(s.Projects) == 1 })
+}
+
+// TestRecentsAndBrowse covers the picker's two data sources.
+func TestRecentsAndBrowse(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	// The project opened at startup should be remembered.
+	var rec recentsMsg
+	sendCmd(t, conn, command{Cmd: "recents"})
+	readUntil(t, conn, "recents", &rec)
+	found := false
+	for _, r := range rec.Items {
+		if r.Root == ws.ActiveRoot() {
+			found = true
+			if !r.Open {
+				t.Error("the active project should be marked as open")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("active project missing from recents: %+v", rec.Items)
+	}
+
+	// Browsing lists sub-directories and flags repositories.
+	parent := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(parent, "plain-dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(parent, "repo-dir", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var br browseMsg
+	sendCmd(t, conn, command{Cmd: "browse", Path: parent})
+	readUntil(t, conn, "browse", &br)
+	if br.Error != "" {
+		t.Fatalf("browse error: %s", br.Error)
+	}
+	if len(br.Entries) != 2 {
+		t.Fatalf("listed %d directories, want 2: %+v", len(br.Entries), br.Entries)
+	}
+	// Repositories sort first, since they are what a project usually is.
+	if br.Entries[0].Name != "repo-dir" || !br.Entries[0].IsRepo {
+		t.Errorf("expected the repository first and flagged, got %+v", br.Entries[0])
+	}
+	if br.Entries[1].IsRepo {
+		t.Error("a plain directory must not be flagged as a repository")
+	}
+	if br.Parent == "" {
+		t.Error("browse should offer a parent to navigate up to")
+	}
+	if len(br.Places) == 0 {
+		t.Error("browse should offer shortcut places")
+	}
+}
+
+// TestBrowseMissingDirectoryReportsError covers a path that does not exist.
+func TestBrowseMissingDirectoryReportsError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	parent := t.TempDir()
+	var br browseMsg
+	sendCmd(t, conn, command{Cmd: "browse", Path: filepath.Join(parent, "nope")})
+	readUntil(t, conn, "browse", &br)
+	if br.Error == "" {
+		t.Error("expected an error for a missing directory")
+	}
+	// The way back out has to come with the error: without a parent the
+	// picker's up control is disabled and whoever walked in here is stuck.
+	if br.Parent != parent {
+		t.Errorf("parent = %q, want %q", br.Parent, parent)
+	}
+}
+
+// TestOpenProjectRejectsFiles checks the failure is reported to the window
+// rather than silently ignored.
+func TestOpenProjectRejectsFiles(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	file := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sendCmd(t, conn, command{Cmd: "openProject", Path: file})
+
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error {
+		t.Errorf("expected an error notice, got %+v", note)
+	}
+}
