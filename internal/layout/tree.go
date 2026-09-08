@@ -196,6 +196,10 @@ func (n *Node) Compute(r Rect) {
 		total = 1
 	}
 
+	// Each child is measured to a running boundary rather than on its own, so
+	// the cells lost to truncation are spread one at a time across the row
+	// instead of piling up in the last child: ten equal panes in 105 columns
+	// come out ten and eleven wide, not nine of ten and one of fifteen.
 	if n.Dir == Horizontal {
 		seps := separatorWidth * (len(n.Children) - 1)
 		avail := r.W - seps
@@ -203,11 +207,12 @@ func (n *Node) Compute(r Rect) {
 			avail = len(n.Children) // degenerate, but never negative
 		}
 		x := r.X
-		used := 0
+		used, acc := 0, 0.0
 		for i, c := range n.Children {
-			w := int(float64(avail) * c.weight() / total)
+			acc += c.weight()
+			w := int(float64(avail)*acc/total) - used
 			if i == len(n.Children)-1 {
-				w = avail - used // absorb rounding into the last child
+				w = avail - used // absorb what is left over
 			}
 			if w < 1 {
 				w = 1
@@ -220,9 +225,10 @@ func (n *Node) Compute(r Rect) {
 	}
 
 	y := r.Y
-	used := 0
+	used, acc := 0, 0.0
 	for i, c := range n.Children {
-		h := int(float64(r.H) * c.weight() / total)
+		acc += c.weight()
+		h := int(float64(r.H)*acc/total) - used
 		if i == len(n.Children)-1 {
 			h = r.H - used
 		}

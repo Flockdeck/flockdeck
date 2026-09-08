@@ -3,6 +3,7 @@ package layout
 import (
 	"math"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -592,5 +593,61 @@ func TestMovePaneOntoItsOwnEdgeKeepsTheWeights(t *testing.T) {
 	}
 	if got := root.Panes(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
 		t.Fatalf("panes = %v, want [b a c]", got)
+	}
+}
+
+// TestComputeSpreadsTheRounding checks that panes of equal weight come out
+// within a cell of each other however the space divides, rather than the last
+// one swallowing everything the truncation left behind.
+func TestComputeSpreadsTheRounding(t *testing.T) {
+	root := NewLeaf("p0")
+	for i := 1; i < 10; i++ {
+		if !root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Horizontal) {
+			t.Fatalf("building pane %d failed", i)
+		}
+	}
+	// 10 panes and 9 separators leave 105 columns to divide ten ways.
+	root.Compute(Rect{X: 0, Y: 0, W: 114, H: 30})
+
+	lo, hi, sum := 1<<30, 0, 0
+	for _, l := range root.Leaves() {
+		w := l.Rect().W
+		sum += w
+		if w < lo {
+			lo = w
+		}
+		if w > hi {
+			hi = w
+		}
+	}
+	if hi-lo > 1 {
+		t.Errorf("widths run from %d to %d, want equal panes within a cell of each other", lo, hi)
+	}
+	if sum+9*separatorWidth != 114 {
+		t.Errorf("panes and separators cover %d columns, want all 114", sum+9*separatorWidth)
+	}
+
+	// The same for a stack, which has no separators to account for.
+	col := NewLeaf("q0")
+	for i := 1; i < 7; i++ {
+		col.Split("q"+strconv.Itoa(i-1), "q"+strconv.Itoa(i), Vertical)
+	}
+	col.Compute(Rect{X: 0, Y: 0, W: 20, H: 100})
+	lo, hi, sum = 1<<30, 0, 0
+	for _, l := range col.Leaves() {
+		h := l.Rect().H
+		sum += h
+		if h < lo {
+			lo = h
+		}
+		if h > hi {
+			hi = h
+		}
+	}
+	if hi-lo > 1 {
+		t.Errorf("heights run from %d to %d, want equal panes within a cell of each other", lo, hi)
+	}
+	if sum != 100 {
+		t.Errorf("rows cover %d of 100 lines", sum)
 	}
 }
