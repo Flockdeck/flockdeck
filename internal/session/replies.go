@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // replyTailBytes bounds how much of a transcript is read looking for what the
@@ -182,5 +183,23 @@ func TranscriptPath(sessionID string) string {
 	if err != nil || len(matches) == 0 {
 		return ""
 	}
-	return matches[0]
+	// Resuming a conversation from a different working directory files it
+	// under that directory's folder and leaves the earlier copy behind, so an
+	// id can match in more than one place. The most recently written copy is
+	// the live one; taking whichever sorts first would read a transcript that
+	// stopped growing turns ago.
+	newest, newestMod := "", time.Time{}
+	for _, m := range matches {
+		fi, err := os.Stat(m)
+		if err != nil {
+			continue
+		}
+		if newest == "" || fi.ModTime().After(newestMod) {
+			newest, newestMod = m, fi.ModTime()
+		}
+	}
+	if newest == "" {
+		return matches[0]
+	}
+	return newest
 }

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeReplies puts a transcript where Claude Code would have left one and
@@ -115,5 +116,33 @@ func TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries(t *testing.T) {
 	}
 	if strings.Contains(got[0], "0.42") {
 		t.Errorf("slash command output is not what the agent said: %q", got[0])
+	}
+}
+
+// TestTranscriptPathPrefersTheLiveCopy covers a conversation resumed from a
+// different working directory: Claude Code files it under the new directory's
+// folder and the old copy stays behind, so the same id matches twice.
+func TestTranscriptPathPrefersTheLiveCopy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	const id = "77777777-7777-7777-7777-777777777777"
+	// "a-..." sorts before "z-...", so picking the first match picks the stale
+	// one.
+	stale := writeTranscript(t, filepath.Join(home, "projects", "a-old-place"), id,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"stale answer"}]}}`)
+	live := writeTranscript(t, filepath.Join(home, "projects", "z-new-place"), id,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"live answer"}]}}`)
+
+	now := time.Now()
+	touch(t, stale, now.Add(-24*time.Hour))
+	touch(t, live, now)
+
+	if got := TranscriptPath(id); got != live {
+		t.Errorf("TranscriptPath = %q, want the most recently written copy %q", got, live)
+	}
+	got := RecentReplies(id, 1)
+	if len(got) != 1 || !strings.Contains(got[0], "live answer") {
+		t.Errorf("RecentReplies read the stale transcript: %#v", got)
 	}
 }
