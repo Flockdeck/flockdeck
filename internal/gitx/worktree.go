@@ -7,7 +7,9 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,7 +266,18 @@ func branchExists(dir, branch string) bool {
 }
 
 // Remove deletes a worktree. force discards uncommitted changes in it.
+//
+// When the directory has already been deleted by hand -- which is how these
+// usually disappear -- git refuses to remove a path that is not there. Pruning
+// the record it left behind is what the person pressing remove meant, and it
+// is the only thing left to do.
 func Remove(repoDir, path string, force bool) error {
+	if strings.TrimSpace(path) == "" {
+		return &gitError{"which worktree? no path was given"}
+	}
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return Prune(repoDir)
+	}
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")

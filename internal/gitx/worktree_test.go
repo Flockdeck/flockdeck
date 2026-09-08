@@ -237,6 +237,34 @@ func TestRemoveDirtyWorktreeNeedsForce(t *testing.T) {
 	}
 }
 
+// TestRemoveWorktreeAlreadyDeleted covers pressing remove on an entry whose
+// directory someone deleted in the file manager: git refuses to remove a path
+// that is not there, but the record it left behind can still go.
+func TestRemoveWorktreeAlreadyDeleted(t *testing.T) {
+	repo := newRepo(t)
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-vanished")
+
+	if err := AddFrom(repo, wtPath, "vanished", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := os.RemoveAll(wtPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Remove(repo, wtPath, false); err != nil {
+		t.Fatalf("removing an already-deleted worktree: %v", err)
+	}
+	wts, _ := List(repo)
+	if len(wts) != 1 {
+		t.Errorf("expected the record to be gone, got %d worktrees", len(wts))
+	}
+
+	// An empty path would otherwise prune every record in the repository.
+	if err := Remove(repo, "  ", false); err == nil {
+		t.Error("remove with no path should be refused")
+	}
+}
+
 // TestAddFromExistingBranchChecksItOut covers the "branch without a worktree"
 // shortcut.
 func TestAddFromExistingBranchChecksItOut(t *testing.T) {
