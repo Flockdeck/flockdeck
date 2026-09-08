@@ -154,6 +154,15 @@ textarea:focus-visible {
   outline-offset: 1px;
 }
 
+/* Windows high contrast replaces every colour here with a system one, which
+ * takes the accent border the text fields use to show focus with it - and they
+ * switched the outline off to get that border, so they are left with nothing.
+ * !important because those rules are written against an id and would otherwise
+ * keep winning. */
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid Highlight !important; outline-offset: 1px; }
+}
+
 /* --------------------------------------------------------------- workspace */
 
 #workspace { flex: 1 1 auto; position: relative; overflow: hidden; }
