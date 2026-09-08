@@ -456,11 +456,20 @@ func runHook(args []string) {
 	if err := fs.Parse(args); err != nil {
 		return
 	}
+	// Stderr is the one place a hook can complain: Claude Code shows it under
+	// --debug, and it neither fails the session nor lands in the stdout that
+	// SessionStart parses as JSON. Without it a hook that never arrives leaves
+	// no trace at all, only panes whose status stops changing.
 	if *endpoint == "" || *sessID == "" || *event == "" {
+		fmt.Fprintln(os.Stderr, "agent-wrapper hook: -endpoint, -session and -event are all required")
 		return
 	}
 	ctx, err := hooks.Emit(os.Stdin, *endpoint, *token, *sessID, *event)
-	if err != nil || strings.TrimSpace(ctx) == "" {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "agent-wrapper hook:", err)
+		return
+	}
+	if strings.TrimSpace(ctx) == "" {
 		return
 	}
 	// SessionStart is the one event that answers back. Claude Code reads a
@@ -473,6 +482,7 @@ func runHook(args []string) {
 		},
 	})
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "agent-wrapper hook: could not encode the session context:", err)
 		return
 	}
 	_, _ = os.Stdout.Write(out)
