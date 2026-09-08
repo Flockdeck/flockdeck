@@ -535,3 +535,39 @@ func TestRestoredShellTabKeepsItsName(t *testing.T) {
 		t.Error("a shell tab should not be marked as waiting for a prompt to name it")
 	}
 }
+
+// TestRestoreSessionDoesNotReopenTheActiveProject covers a saved session that
+// spells the project the window was started on differently — a trailing
+// separator here, but on Windows and macOS it is as likely to be the case of a
+// drive letter. Reopening it would show the same directory twice, each copy
+// resuming the other's conversations.
+func TestRestoreSessionDoesNotReopenTheActiveProject(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "alpha")
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	// Rewrite the session the way an earlier run might have left it.
+	if err := store.SaveSession(&store.Session{
+		Open:   []string{root + string(os.PathSeparator)},
+		Active: root,
+	}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	again := newTestWorkspace(t, root)
+	if _, err := again.Restore(); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if n := again.RestoreSession(); n != 0 {
+		t.Errorf("reopened %d projects, want none: it is already open", n)
+	}
+	if got := again.Projects(); len(got) != 1 {
+		t.Errorf("projects = %d, want the one directory listed once", len(got))
+	}
+}

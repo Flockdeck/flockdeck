@@ -276,7 +276,7 @@ func (w *Workspace) RestoreSession() int {
 	}
 	opened := 0
 	for _, root := range sess.Open {
-		if w.isOpen(root) {
+		if w.sessionRootIsOpen(root) {
 			continue
 		}
 		// A project whose directory has since been deleted or moved is simply
@@ -302,6 +302,25 @@ func (w *Workspace) RestoreSession() int {
 	// restoreProject moves focus to the tabs it restored, so put it back.
 	w.focusFirstTabOf(w.activeRoot)
 	return opened
+}
+
+// sessionRootIsOpen reports whether a root recorded in the saved session names
+// a project that is already open.
+//
+// The comparison has to be looser than isOpen's exact one: the path in the
+// saved session was written by an earlier run, while the project the window
+// started on came off the command line, and the two can spell the same
+// directory differently — a trailing separator, or a different case on Windows
+// and macOS. Reopening it would put a second copy of the project in the
+// switcher, with a second set of panes trying to resume the very conversations
+// the first set is already in.
+func (w *Workspace) sessionRootIsOpen(root string) bool {
+	for _, r := range w.openRoots {
+		if sameDir(r, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // SaveSession records which projects are open for the next run.
