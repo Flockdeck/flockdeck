@@ -105,6 +105,11 @@ func projectSlug(path string) string {
 	return b.String()
 }
 
+// cwdProbeLimit bounds how many transcripts in one folder are opened looking
+// for the directory it belongs to, so an unrelated folder full of empty
+// transcripts cannot make listing history slow.
+const cwdProbeLimit = 5
+
 // findProjectDir looks for the folder whose transcripts belong to cwd.
 func findProjectDir(projects, cwd string) (string, error) {
 	entries, err := os.ReadDir(projects)
@@ -121,16 +126,26 @@ func findProjectDir(projects, cwd string) (string, error) {
 		if err != nil {
 			continue
 		}
+		// One transcript that names a directory identifies the whole folder,
+		// but the first file need not be that transcript: a session that was
+		// opened and abandoned leaves one with nothing in it. Keep looking
+		// past those, up to a handful, rather than writing the folder off.
+		tried := 0
 		for _, f := range files {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 				continue
 			}
-			if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
-				if strings.ToLower(filepath.Clean(got)) == want {
-					return dir, nil
+			got := transcriptCwd(filepath.Join(dir, f.Name()))
+			if got == "" {
+				if tried++; tried >= cwdProbeLimit {
+					break
 				}
+				continue
 			}
-			break // one transcript is enough to identify the folder
+			if strings.ToLower(filepath.Clean(got)) == want {
+				return dir, nil
+			}
+			break
 		}
 	}
 	return "", nil

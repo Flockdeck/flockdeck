@@ -172,3 +172,30 @@ func TestConversationsCountsEveryEntry(t *testing.T) {
 		t.Errorf("summary = %q", got[0].Summary)
 	}
 }
+
+// TestConversationsSkipsEmptyTranscriptsWhenSearching covers a relocated folder
+// whose first transcript is an abandoned session: it records no working
+// directory, and giving up on the folder there hides every conversation in it.
+func TestConversationsSkipsEmptyTranscriptsWhenSearching(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	cwd := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "projects", "an-unexpected-folder-name")
+
+	// Sorts first, and says nothing about where it ran.
+	writeTranscript(t, dir, "00000000-0000-0000-0000-000000000000", `{"type":"summary"}`)
+	writeTranscript(t, dir, "66666666-6666-6666-6666-666666666666",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"still findable"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d conversations, want 2", len(got))
+	}
+}
