@@ -127,7 +127,11 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 		if err != nil {
 			msg.Error = err.Error()
 		} else if strings.TrimSpace(text) == "" {
-			msg.Text = "(no textual differences — the file may be binary)"
+			// Binary content is not the explanation it once looked like: git
+			// says "Binary files differ" for a tracked one and gitx renders an
+			// untracked one as a size. An empty diff now means the file agrees
+			// with the last commit after all.
+			msg.Text = "(nothing to show — this file matches the last commit, so it may have been changed back)"
 		} else {
 			msg.Text = text
 		}
@@ -151,7 +155,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			if out, err := gitx.Push(dir); err != nil {
 				c.notify(err.Error(), true)
 			} else {
-				c.notify(pushSummary(out), false)
+				c.notify(remoteSummary("push", out), false)
 			}
 		}
 		s.listChanges(c, dir)
@@ -185,17 +189,27 @@ func (s *Server) runRemote(c *controlClient, action, path string) {
 		if err != nil {
 			c.notify(err.Error(), true)
 		} else {
-			c.notify(pushSummary(out), false)
+			c.notify(remoteSummary(action, out), false)
 		}
 		s.listChanges(c, dir)
 		s.RefreshGitNow()
 	}()
 }
 
-// pushSummary reduces git's output to the line worth showing.
-func pushSummary(out string) string {
+// remoteSummary reduces git's output to the line worth showing.
+//
+// A fetch that found nothing prints nothing at all, and a bare "done" against
+// a button press leaves it unclear whether anything was even looked at, so the
+// quiet cases say what happened instead.
+func remoteSummary(action, out string) string {
 	out = strings.TrimSpace(out)
 	if out == "" {
+		switch action {
+		case "fetch":
+			return "fetched — nothing new"
+		case "pull":
+			return "already up to date"
+		}
 		return "done"
 	}
 	lines := strings.Split(out, "\n")

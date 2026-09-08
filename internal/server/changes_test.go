@@ -409,3 +409,44 @@ func TestRemovingAWorktreeWithOpenPanesIsRefused(t *testing.T) {
 		t.Fatalf("the worktree was removed anyway: %v", err)
 	}
 }
+
+// TestRemoteSummary pins what a window is told when git itself says little.
+func TestRemoteSummary(t *testing.T) {
+	cases := []struct {
+		action, out, want string
+	}{
+		{"fetch", "", "fetched — nothing new"},
+		{"pull", "  \n ", "already up to date"},
+		{"push", "", "done"},
+		{"push", "To github.com:x/y.git\n * [new branch] main -> main\n", "* [new branch] main -> main"},
+		{"pull", "Updating a..b\nFast-forward\n 1 file changed\n", "1 file changed"},
+	}
+	for _, c := range cases {
+		if got := remoteSummary(c.action, c.out); got != c.want {
+			t.Errorf("remoteSummary(%q, %q) = %q, want %q", c.action, c.out, got, c.want)
+		}
+	}
+}
+
+// TestDiffOfAnUnchangedFileDoesNotBlameBinaryContent covers the empty diff.
+// git reports binary content in its own words, so an empty diff means the file
+// agrees with the last commit — saying otherwise sent people looking for a
+// problem that was not there.
+func TestDiffOfAnUnchangedFileDoesNotBlameBinaryContent(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	var d diffMsg
+	sendCmd(t, conn, command{Cmd: "diff", Path: repo, Text: "README.md"})
+	readUntil(t, conn, "diff", &d)
+	if d.Error != "" {
+		t.Fatalf("diff error: %s", d.Error)
+	}
+	if strings.Contains(d.Text, "binary") {
+		t.Errorf("an unchanged file was reported as possibly binary: %q", d.Text)
+	}
+	if !strings.Contains(d.Text, "matches the last commit") {
+		t.Errorf("diff text = %q, want it to say the file is unchanged", d.Text)
+	}
+}
