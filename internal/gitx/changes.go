@@ -77,8 +77,12 @@ func Changes(dir string) ([]FileChange, error) {
 type lineCount struct{ added, removed int }
 
 // numstat reads per-file line counts for the staged or unstaged diff.
+//
+// The keys have to match the names Changes reports, so this reads -z as well:
+// otherwise a quoted name never matches, and a rename is keyed under
+// "old => new", which matches nothing at all and left it counted as 0/0.
 func numstat(dir string, cached bool) map[string]lineCount {
-	args := []string{"diff", "--numstat"}
+	args := []string{"diff", "--numstat", "-z"}
 	if cached {
 		args = append(args, "--cached")
 	}
@@ -87,15 +91,26 @@ func numstat(dir string, cached bool) map[string]lineCount {
 		return nil
 	}
 	counts := map[string]lineCount{}
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		fields := strings.SplitN(records[i], "\t", 3)
 		if len(fields) < 3 {
 			continue
 		}
 		// Binary files report "-" instead of a count.
 		a, _ := strconv.Atoi(fields[0])
 		r, _ := strconv.Atoi(fields[1])
-		counts[fields[2]] = lineCount{added: a, removed: r}
+		path := fields[2]
+		if path == "" {
+			// A rename leaves the path field empty and sends the old and new
+			// names as the next two records; the new one is what is shown.
+			if i+2 >= len(records) {
+				break
+			}
+			path = records[i+2]
+			i += 2
+		}
+		counts[path] = lineCount{added: a, removed: r}
 	}
 	return counts
 }

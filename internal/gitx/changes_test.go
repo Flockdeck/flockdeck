@@ -154,6 +154,38 @@ func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
 	if files[0].Label != "renamed" {
 		t.Errorf("label = %q, want renamed", files[0].Label)
 	}
+
+	// A rename that also edits the file must carry its line counts: numstat
+	// keys those under the new name only when it is read NUL-delimited.
+	// The file needs enough lines for git to still see a rename after the edit.
+	body := strings.Repeat("a line\n", 20)
+	if err := os.WriteFile(filepath.Join(repo, "long.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "long.txt")
+	gitRun(t, repo, "commit", "-m", "add long")
+	gitRun(t, repo, "mv", "long.txt", "longer.txt")
+	if err := os.WriteFile(filepath.Join(repo, "longer.txt"), []byte(body+"one more\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "longer.txt")
+
+	files, err = Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	var renamed *FileChange
+	for i := range files {
+		if files[i].Path == "longer.txt" {
+			renamed = &files[i]
+		}
+	}
+	if renamed == nil {
+		t.Fatalf("longer.txt not reported: %+v", files)
+	}
+	if renamed.Added != 1 {
+		t.Errorf("renamed file added = %d, want 1", renamed.Added)
+	}
 }
 
 // TestStatusLabelNamesConflicts covers the words shown beside each file. The
