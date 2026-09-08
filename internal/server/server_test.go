@@ -357,3 +357,29 @@ func TestCloseEndsControlConnections(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestRenameTabRejectsBlankAndClampsLongTitles covers what a window can
+// actually send: the rename prompt only checks that something was typed.
+func TestRenameTabRejectsBlankAndClampsLongTitles(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	st := nextState(t, conn, nil)
+	id := st.Tabs[0].ID
+
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "   \t "})
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "  renamed   by   hand  "})
+	st = nextState(t, conn, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title != "first"
+	})
+	if got := st.Tabs[0].Title; got != "renamed by hand" {
+		t.Errorf("title = %q, want %q", got, "renamed by hand")
+	}
+
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: strings.Repeat("x", 200)})
+	st = nextState(t, conn, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title != "renamed by hand"
+	})
+	if n := len([]rune(st.Tabs[0].Title)); n > 41 {
+		t.Errorf("title kept %d runes, want it clamped", n)
+	}
+}

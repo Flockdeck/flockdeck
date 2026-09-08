@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -494,11 +495,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "prevTab":
 			ws.PrevTab()
 		case "renameTab":
-			if t := ws.Tab(cmd.ID); t != nil && cmd.Text != "" {
-				t.Title = cmd.Text
-				// A title chosen by hand is not replaced by a later prompt.
-				t.AutoTitle = false
+			t := ws.Tab(cmd.ID)
+			if t == nil {
+				return
 			}
+			title := tabTitle(cmd.Text)
+			if title == "" {
+				c.notify("a tab name is required", true)
+				return
+			}
+			t.Title = title
+			// A title chosen by hand is not replaced by a later prompt.
+			t.AutoTitle = false
 		case "openProject":
 			if err := ws.OpenProject(cmd.Path); err != nil {
 				c.notify(err.Error(), true)
@@ -594,6 +602,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.Wake()
 	})
+}
+
+// tabTitle cleans up a hand-typed tab name. The front end only checks that
+// something was typed, so a name of nothing but spaces would otherwise leave a
+// tab with no label at all and no way to tell it from its neighbours, and a
+// pasted paragraph would push every other tab off the bar.
+func tabTitle(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	// Longer than the titles the workspace picks for itself, since this one
+	// was chosen deliberately, but still bounded.
+	const limit = 40
+	if r := []rune(s); len(r) > limit {
+		return strings.TrimSpace(string(r[:limit])) + "…"
+	}
+	return s
 }
 
 // paneByID looks a pane up on the workspace goroutine.
