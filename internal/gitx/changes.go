@@ -219,18 +219,27 @@ func renderAsAddition(path, content string) string {
 			b.WriteString("\\ No newline at end of file\n")
 		}
 		if b.Len() > maxDiffBytes {
-			b.WriteString("… truncated\n")
+			b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
 			break
 		}
 	}
 	return b.String()
 }
 
+// truncateDiff caps a diff at maxDiffBytes, on a line boundary: cutting at an
+// exact byte count leaves half a line, which the panel colours as though it
+// were a real one, and can slice a UTF-8 character in two.
 func truncateDiff(s string) string {
 	if len(s) <= maxDiffBytes {
 		return s
 	}
-	return s[:maxDiffBytes] + "\n… truncated\n"
+	cut := s[:maxDiffBytes]
+	if i := strings.LastIndexByte(cut, '\n'); i >= 0 {
+		cut = cut[:i+1]
+	} else {
+		cut += "\n"
+	}
+	return cut + fmt.Sprintf("… truncated, %d more bytes\n", len(s)-len(cut))
 }
 
 // CommitAll stages everything and commits it.

@@ -214,6 +214,38 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestTruncateDiffCutsOnALineBoundary covers an enormous diff: a cut at an
+// exact byte count leaves half a line, which the panel then colours as though
+// it were whole, and can split a multi-byte character.
+func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
+	// Lines wide enough that the cap lands in the middle of one.
+	line := "+" + strings.Repeat("é", 300) + "\n"
+	whole := strings.Repeat(line, (maxDiffBytes/len(line))+10)
+
+	got := truncateDiff(whole)
+	body, marker, found := strings.Cut(got, "… truncated")
+	if !found {
+		t.Fatal("a diff over the cap should say it was truncated")
+	}
+	if !strings.HasSuffix(body, "\n") {
+		t.Error("the kept part should end at a line boundary")
+	}
+	if !strings.Contains(marker, "more bytes") {
+		t.Errorf("marker = %q, want it to say how much was dropped", marker)
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
+		if l != strings.TrimSuffix(line, "\n") {
+			t.Fatalf("a line was cut in half: %d bytes", len(l))
+		}
+	}
+
+	// Anything within the cap is passed through untouched.
+	small := "--- a\n+++ b\n+one\n"
+	if truncateDiff(small) != small {
+		t.Error("a small diff should not be altered")
+	}
+}
+
 // TestUntrackedDiffHasNoPhantomLastLine pins the shape of the synthetic diff
 // shown for a new file: the trailing newline ends the last line, it does not
 // begin an empty one.
