@@ -152,7 +152,13 @@ func (s *Server) snapshot() stateMsg {
 		Broadcast:       ws.Broadcast,
 		Waiting:         waiting,
 		Working:         working,
-		Panes:           map[string]paneView{},
+		// The window walks these without checking them first, so an empty one
+		// has to arrive as an empty array. Closing a project's last tab leaves
+		// no visible tabs at all, and a nil slice would encode as null and take
+		// the interface down instead of showing its empty state.
+		Projects: []projectView{},
+		Tabs:     []tabView{},
+		Panes:    map[string]paneView{},
 	}
 	for _, p := range ws.Projects() {
 		msg.Projects = append(msg.Projects, projectView{

@@ -383,3 +383,30 @@ func TestRenameTabRejectsBlankAndClampsLongTitles(t *testing.T) {
 		t.Errorf("title kept %d runes, want it clamped", n)
 	}
 }
+
+// TestSnapshotSendsArraysWhenEmpty covers the state a project is left in when
+// its last tab is closed. The window walks tabs and projects without checking
+// them, so an empty list has to arrive as [] rather than null.
+func TestSnapshotSendsArraysWhenEmpty(t *testing.T) {
+	srv, ws := newTestServer(t)
+
+	done := make(chan []byte, 1)
+	srv.do(func() {
+		for len(ws.Tabs) > 0 {
+			ws.CloseTab(ws.Tabs[0].ID)
+		}
+		data, err := json.Marshal(srv.snapshot())
+		if err != nil {
+			t.Error(err)
+		}
+		done <- data
+	})
+	data := string(<-done)
+
+	if !strings.Contains(data, `"tabs":[]`) {
+		t.Errorf("snapshot with no tabs does not send an empty array: %s", data)
+	}
+	if strings.Contains(data, `"projects":null`) {
+		t.Errorf("snapshot sent a null project list: %s", data)
+	}
+}
