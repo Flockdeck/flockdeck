@@ -491,3 +491,49 @@ func TestSweepRefusesZeroAge(t *testing.T) {
 		t.Error("a live settings file was swept away")
 	}
 }
+
+// TestSessionNamesEachProjectOnce checks the restorer is handed one entry per
+// directory. It reopens everything in Open and only skips what it already has,
+// so a second spelling of the same root would restore its layout twice.
+func TestSessionNamesEachProjectOnce(t *testing.T) {
+	isolateConfig(t)
+
+	a := filepath.Clean("/repo/a")
+	if err := SaveSession(&Session{
+		Open:   []string{a, a + string(filepath.Separator), "", filepath.Clean("/repo/b")},
+		Active: a + string(filepath.Separator),
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got.Open) != 2 {
+		t.Fatalf("restored %d projects, want 2: %v", len(got.Open), got.Open)
+	}
+	if got.Open[0] != a || got.Open[1] != filepath.Clean("/repo/b") {
+		t.Errorf("open projects are %v, want tidy paths in their original order", got.Open)
+	}
+	if got.Active != a {
+		t.Errorf("active project is %q, want %q", got.Active, a)
+	}
+}
+
+// TestSessionDropsAnActiveProjectThatIsNotOpen checks the active project is
+// only ever one of the open ones.
+func TestSessionDropsAnActiveProjectThatIsNotOpen(t *testing.T) {
+	isolateConfig(t)
+
+	if err := SaveSession(&Session{Open: []string{"/repo/a"}, Active: "/repo/gone"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Active != "" {
+		t.Errorf("active project is %q, but it is not among the open ones", got.Active)
+	}
+}

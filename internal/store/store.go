@@ -457,7 +457,52 @@ func LoadSession() (*Session, error) {
 	if json.Unmarshal(data, &s) != nil {
 		return nil, nil // a damaged session must not stop startup
 	}
-	return &s, nil
+	return tidySession(&s), nil
+}
+
+// tidySession returns the session with each project named once, in a form the
+// caller can compare against paths of its own.
+//
+// The restorer reopens every entry in Open, skipping the ones it already has.
+// Two spellings of one directory read as two projects there, so it would open
+// the project twice and restore the same saved layout into both, doubling the
+// user's tabs. Nothing else notices, because the duplicates are only equal
+// once the paths are cleaned.
+func tidySession(s *Session) *Session {
+	out := &Session{Open: make([]string, 0, len(s.Open)), Active: filepath.Clean(s.Active)}
+	if strings.TrimSpace(s.Active) == "" {
+		out.Active = ""
+	}
+	for _, root := range s.Open {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		seen := false
+		for _, kept := range out.Open {
+			if sameRoot(kept, root) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out.Open = append(out.Open, filepath.Clean(root))
+		}
+	}
+	// An active project that is not open cannot be restored to; leaving it set
+	// would only mislead whoever reads it next.
+	if out.Active != "" {
+		found := false
+		for _, root := range out.Open {
+			if sameRoot(root, out.Active) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out.Active = ""
+		}
+	}
+	return out
 }
 
 // SaveSession records which projects are open.
@@ -466,7 +511,7 @@ func SaveSession(s *Session) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := json.MarshalIndent(tidySession(s), "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
