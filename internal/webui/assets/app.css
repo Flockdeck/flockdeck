@@ -432,7 +432,11 @@ textarea:focus-visible {
 .agent-status { font-size: 11px; white-space: nowrap; }
 .agent-status.waiting { color: var(--waiting); font-weight: 600; }
 .agent-status.working { color: var(--working); }
-.agent-status.idle, .agent-status.starting { color: var(--idle); }
+/* --idle is tuned for the 8px status dot, where 3.6:1 against the panel is
+ * enough. As 11px text - and this is the word that tells you what the agent is
+ * actually doing - it is under the 4.5:1 needed to read it, so the dim text
+ * colour is used instead. */
+.agent-status.idle, .agent-status.starting { color: var(--fg-dim); }
 .agent-status.exited { color: var(--exited); }
 
 /* ------------------------------------------------------------------ review */
