@@ -108,6 +108,10 @@ func Start(cfg Config) (*Session, error) {
 	if cfg.Rows <= 0 {
 		cfg.Rows = 24
 	}
+	// The size a pane starts at comes from the same place a resize does -- the
+	// browser's own measurement, kept in the saved layout -- so it needs the
+	// same bound.
+	cfg.Cols, cfg.Rows = clampSize(cfg.Cols, cfg.Rows)
 	if len(cfg.Argv) == 0 {
 		return nil, fmt.Errorf("session %s: no command to run", cfg.ID)
 	}
@@ -386,7 +390,7 @@ func (s *Session) Resize(cols, rows int) {
 	if cols <= 0 || rows <= 0 {
 		return
 	}
-	cols, rows = min(cols, maxCols), min(rows, maxRows)
+	cols, rows = clampSize(cols, rows)
 	s.mu.Lock()
 	if s.cols == cols && s.rows == rows {
 		s.mu.Unlock()
@@ -397,6 +401,11 @@ func (s *Session) Resize(cols, rows int) {
 
 	_ = s.pty.Resize(cols, rows)
 	s.changed()
+}
+
+// clampSize bounds terminal dimensions to something a display could produce.
+func clampSize(cols, rows int) (int, int) {
+	return min(cols, maxCols), min(rows, maxRows)
 }
 
 // Size returns the current PTY dimensions.

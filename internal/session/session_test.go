@@ -422,3 +422,32 @@ func TestResizeIsClampedAndValidated(t *testing.T) {
 		t.Errorf("size = %dx%d, want the clamp %dx%d", cols, rows, maxCols, maxRows)
 	}
 }
+
+// TestStartClampsItsInitialSize covers the size a pane opens at, which comes
+// from the same measurement a resize does and is kept in the saved layout, so
+// a bad one outlives the session that produced it.
+func TestStartClampsItsInitialSize(t *testing.T) {
+	s, err := Start(Config{
+		ID:   "oversized",
+		Kind: KindShell,
+		Cwd:  t.TempDir(),
+		Argv: ShellArgs(),
+		Env:  Env(),
+		Cols: 1 << 20,
+		Rows: 1 << 20,
+	})
+	if err != nil {
+		t.Skipf("cannot start a shell in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	if cols, rows := s.Size(); cols != maxCols || rows != maxRows {
+		t.Errorf("size = %dx%d, want the clamp %dx%d", cols, rows, maxCols, maxRows)
+	}
+
+	// The ordinary defaults are untouched.
+	d := startShell(t)
+	if cols, rows := d.Size(); cols != 80 || rows != 24 {
+		t.Errorf("size = %dx%d, want 80x24", cols, rows)
+	}
+}
