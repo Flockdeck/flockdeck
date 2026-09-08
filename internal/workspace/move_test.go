@@ -647,3 +647,60 @@ func TestTabDropSaysWhatWentWrong(t *testing.T) {
 			gonePicked.Error())
 	}
 }
+
+// TestRearrangedLayoutComesBack joins the two halves of this area: a layout the
+// user dragged into shape is saved like any other and comes back on the next
+// run. Every move here is one the README describes, and none of them is worth
+// making if the arrangement is lost at the next restart.
+func TestRearrangedLayoutComesBack(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	first := ws.CurrentTab()
+	ws.NewTab(session.KindShell, root, "two")
+	second := ws.CurrentTab()
+
+	// Drag a pane out of the first tab into the second, then pull one of the
+	// second's panes out into a tab of its own, then reorder the bar.
+	moving := panesOfTab(first)[1]
+	if err := ws.MovePane(moving, panesOfTab(second)[0], layout.EdgeBottom); err != nil {
+		t.Fatalf("move between tabs: %v", err)
+	}
+	if err := ws.MovePaneToNewTab(moving); err != nil {
+		t.Fatalf("move to new tab: %v", err)
+	}
+	if err := ws.MoveTab(ws.ActiveTabID(), first.ID); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+
+	wantTitles := tabTitles(ws)
+	var wantPanes [][]string
+	for _, tab := range ws.VisibleTabs() {
+		wantPanes = append(wantPanes, panesOfTab(tab))
+	}
+	wantActive := ws.CurrentTab().Title
+
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, root)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	if got := tabTitles(again); !reflect.DeepEqual(got, wantTitles) {
+		t.Fatalf("tabs = %v, want them in the order they were dragged into %v", got, wantTitles)
+	}
+	for i, tab := range again.VisibleTabs() {
+		if got := panesOfTab(tab); !reflect.DeepEqual(got, wantPanes[i]) {
+			t.Errorf("tab %q panes = %v, want %v", tab.Title, got, wantPanes[i])
+		}
+	}
+	if got := again.CurrentTab(); got == nil || got.Title != wantActive {
+		t.Errorf("tab on screen = %v, want %q", got, wantActive)
+	}
+}
