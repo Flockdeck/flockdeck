@@ -388,3 +388,36 @@ func TestSiblingsInTheSameCheckoutAreCalledOut(t *testing.T) {
 		t.Errorf("the pane in its own checkout should still show its path:\n%s", text)
 	}
 }
+
+// TestOpenProjectMatchesAnOpenProjectWhateverTheCase covers the same directory
+// arriving spelled differently — from the command line, the recent list, or a
+// drag onto the window — which used to open a second copy of a project that
+// was already there.
+func TestOpenProjectMatchesAnOpenProjectWhateverTheCase(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	shouted := strings.ToUpper(root)
+	open, ok := ws.openRootFor(shouted)
+	if !ok {
+		t.Fatalf("openRootFor(%q) found nothing, want the open project", shouted)
+	}
+	if open != root {
+		t.Errorf("openRootFor returned %q, want the spelling it was opened with", open)
+	}
+
+	// On a filesystem that ignores case, the whole path should behave.
+	if _, err := os.Stat(shouted); err != nil {
+		t.Skip("case-sensitive filesystem: nothing more to check")
+	}
+	if err := ws.OpenProject(shouted); err != nil {
+		t.Fatalf("open project: %v", err)
+	}
+	if n := len(ws.Projects()); n != 1 {
+		t.Errorf("projects = %d, want the one already open", n)
+	}
+	if ws.ActiveRoot() != root {
+		t.Errorf("active root = %q, want %q", ws.ActiveRoot(), root)
+	}
+}

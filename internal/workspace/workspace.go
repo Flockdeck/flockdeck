@@ -295,8 +295,10 @@ func (w *Workspace) OpenProject(path string) error {
 		return fmt.Errorf("%s is not a directory", root)
 	}
 
-	if w.isOpen(root) {
-		w.SelectProject(root)
+	if open, ok := w.openRootFor(root); ok {
+		// Select it under the spelling it was opened with: the tabs already
+		// hold that one, and they are matched against it by string.
+		w.SelectProject(open)
 		return nil
 	}
 
@@ -319,7 +321,8 @@ func (w *Workspace) OpenProject(path string) error {
 
 // SelectProject shows an already open project.
 func (w *Workspace) SelectProject(root string) {
-	if !w.isOpen(root) {
+	root, ok := w.openRootFor(root)
+	if !ok {
 		return
 	}
 	w.activeRoot = root
@@ -332,7 +335,8 @@ func (w *Workspace) SelectProject(root string) {
 // last open project cannot be closed, since the window would have nothing to
 // show.
 func (w *Workspace) CloseProject(root string) {
-	if len(w.openRoots) <= 1 || !w.isOpen(root) {
+	root, ok := w.openRootFor(root)
+	if !ok || len(w.openRoots) <= 1 {
 		return
 	}
 	_ = w.SaveProject(root)
@@ -365,12 +369,25 @@ func (w *Workspace) CloseProject(root string) {
 }
 
 func (w *Workspace) isOpen(root string) bool {
+	_, ok := w.openRootFor(root)
+	return ok
+}
+
+// openRootFor finds the open project a path names and returns it as it was
+// opened.
+//
+// The comparison ignores case, because the same directory reaches the
+// application spelled several ways: from the command line, from the recent
+// list, and from a drag onto the window. Matching by string alone opened a
+// second copy of a project that was already there, with its own tabs and its
+// own idea of the layout to save.
+func (w *Workspace) openRootFor(root string) (string, bool) {
 	for _, r := range w.openRoots {
-		if r == root {
-			return true
+		if sameDir(r, root) {
+			return r, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // focusFirstTabOf moves focus to a tab belonging to root, unless the focused
