@@ -1,5 +1,10 @@
 // Command ctl drives a running agent-wrapper instance over its control socket.
 // Development aid, not part of the product.
+//
+//	go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"type":"split","dir":"h"}' ...
+//
+// Each argument after the URL is one JSON command. Commands that name a pane
+// but leave "id" out are addressed to the focused pane.
 package main
 
 import (
@@ -13,6 +18,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" [command-json ...]`)
+		os.Exit(2)
+	}
 	url := os.Args[1]
 	ctx := context.Background()
 	conn, _, err := websocket.Dial(ctx, url, nil)
