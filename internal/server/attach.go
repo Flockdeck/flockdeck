@@ -71,6 +71,9 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if !requirePost(w, r) {
+		return
+	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "no path", http.StatusBadRequest)
@@ -90,6 +93,11 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+	case <-s.closed:
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		return
+	case <-r.Context().Done():
+		return
 	case <-time.After(10 * time.Second):
 		http.Error(w, "timed out", http.StatusGatewayTimeout)
 		return
@@ -97,11 +105,29 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// requirePost rejects anything but the POST the launching binary sends.
+//
+// Both endpoints below act rather than report: one opens a project, the other
+// shuts the application down. A GET carrying the token — a link followed by
+// accident, a browser filling in an address from its history, a preview
+// fetched on someone's behalf — should not be able to do either.
+func requirePost(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodPost {
+		return true
+	}
+	w.Header().Set("Allow", http.MethodPost)
+	http.Error(w, "use POST", http.StatusMethodNotAllowed)
+	return false
+}
+
 // handleQuit stops the running instance from outside, which is how
 // `agent-wrapper -quit` reaches a detached one.
 func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !requirePost(w, r) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

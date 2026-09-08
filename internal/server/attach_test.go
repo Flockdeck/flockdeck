@@ -163,3 +163,34 @@ func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
 		t.Errorf("probe took %v, want an answer within %v", elapsed, probeTimeout)
 	}
 }
+
+// TestActingEndpointsNeedAPost covers the two endpoints that do something
+// rather than report something. A GET carrying the token — a link followed by
+// accident, an address filled in from history — must not open a project or
+// stop the agents.
+func TestActingEndpointsNeedAPost(t *testing.T) {
+	srv, ws := newTestServer(t)
+	srv.OnQuit = func() { t.Error("a GET should not have stopped the application") }
+
+	before := len(ws.Projects())
+	urls := []string{
+		srv.BaseURL() + "/quit?t=" + srv.Token(),
+		srv.BaseURL() + "/open?t=" + srv.Token() + "&path=" + queryEscape(t.TempDir()),
+	}
+	for _, url := range urls {
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("GET %s = %d, want 405", url, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != http.MethodPost {
+			t.Errorf("GET %s Allow = %q, want POST", url, allow)
+		}
+	}
+	if n := len(ws.Projects()); n != before {
+		t.Errorf("projects = %d, want %d — a GET opened one", n, before)
+	}
+}
