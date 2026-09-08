@@ -917,39 +917,27 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 	if !gitx.Available() {
 		return
 	}
-	type target struct {
-		id  string
-		cwd string
-	}
-	var targets []target
+	// One status call per distinct directory, not per pane: several panes
+	// commonly share a checkout.
+	var cwds []string
 	seen := map[string]bool{}
 	w.mu.RLock()
-	for id, p := range w.panes {
-		if p.Cwd == "" || seen[p.Cwd+"|"+id] {
+	for _, p := range w.panes {
+		if p.Cwd == "" || seen[p.Cwd] {
 			continue
 		}
-		targets = append(targets, target{id: id, cwd: p.Cwd})
+		seen[p.Cwd] = true
+		cwds = append(cwds, p.Cwd)
 	}
 	w.mu.RUnlock()
-	if len(targets) == 0 {
+	if len(cwds) == 0 {
 		return
 	}
 
-	// One status call per distinct directory, not per pane: several panes
-	// commonly share a checkout.
-	dirs := map[string]gitx.Status{}
+	dirs := make(map[string]gitx.Status, len(cwds))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, t := range targets {
-		mu.Lock()
-		_, done := dirs[t.cwd]
-		if !done {
-			dirs[t.cwd] = gitx.Status{}
-		}
-		mu.Unlock()
-		if done {
-			continue
-		}
+	for _, cwd := range cwds {
 		wg.Add(1)
 		go func(cwd string) {
 			defer wg.Done()
@@ -957,7 +945,7 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 			mu.Lock()
 			dirs[cwd] = st
 			mu.Unlock()
-		}(t.cwd)
+		}(cwd)
 	}
 	wg.Wait()
 
