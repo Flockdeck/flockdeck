@@ -86,12 +86,20 @@ func Available() bool {
 }
 
 // Root returns the top level of the working tree containing dir.
+//
+// git answers with forward slashes even on Windows, so the path is cleaned to
+// the platform's own form: List does the same, and the two are compared
+// against each other to tell the main worktree from the linked ones.
 func Root(dir string) (string, error) {
 	out, err := run(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	root := strings.TrimSpace(out)
+	if root == "" {
+		return "", &gitError{"git did not report a working tree root"}
+	}
+	return filepath.Clean(root), nil
 }
 
 // IsRepo reports whether dir is inside a git repository.

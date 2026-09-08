@@ -172,6 +172,48 @@ func TestWorktreeLifecycle(t *testing.T) {
 	}
 }
 
+// TestPathsAgreeAcrossCalls covers a Windows trap: git prints paths with
+// forward slashes, so a root or worktreepath taken verbatim never compares
+// equal to a path the rest of the program built with filepath.
+func TestPathsAgreeAcrossCalls(t *testing.T) {
+	repo := newRepo(t)
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-paths")
+	t.Cleanup(func() { os.RemoveAll(wtPath) })
+
+	if err := AddFrom(repo, wtPath, "paths", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	root, err := Root(repo)
+	if err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	if root != filepath.Clean(root) {
+		t.Errorf("root = %q, want it in the platform's own form", root)
+	}
+
+	wts, err := List(repo)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if wts[0].Path != root {
+		t.Errorf("main worktree path %q does not match root %q", wts[0].Path, root)
+	}
+
+	branches, err := Branches(repo)
+	if err != nil {
+		t.Fatalf("branches: %v", err)
+	}
+	for _, b := range branches {
+		if b.Name != "paths" {
+			continue
+		}
+		if b.CheckedIn != filepath.Clean(wtPath) {
+			t.Errorf("checked-in path = %q, want %q", b.CheckedIn, filepath.Clean(wtPath))
+		}
+	}
+}
+
 // TestRemoveDirtyWorktreeNeedsForce pins the behaviour the UI warns about
 // before discarding someone's work.
 func TestRemoveDirtyWorktreeNeedsForce(t *testing.T) {

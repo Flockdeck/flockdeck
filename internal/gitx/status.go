@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,11 +110,17 @@ func Branches(dir string) ([]Branch, error) {
 		if len(parts) < 4 {
 			continue
 		}
+		// worktreepath comes back with forward slashes, like every other path
+		// git prints; clean it so it can be compared with a Worktree.Path.
+		checkedIn := parts[3]
+		if checkedIn != "" {
+			checkedIn = filepath.Clean(checkedIn)
+		}
 		branches = append(branches, Branch{
 			Name:      parts[0],
 			Upstream:  parts[1],
 			Current:   parts[2] == "*",
-			CheckedIn: parts[3],
+			CheckedIn: checkedIn,
 		})
 	}
 	return branches, nil
