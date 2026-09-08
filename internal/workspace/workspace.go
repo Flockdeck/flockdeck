@@ -39,6 +39,13 @@ type Pane struct {
 	// in: whether it has uncommitted work and how it stands against upstream.
 	Git gitx.Status
 
+	// Cols and Rows are the terminal size the viewer last measured for this
+	// pane. They are remembered so a restart comes back at the size the pane
+	// is really being drawn at, instead of reflowing at the default until the
+	// window happens to be resized again.
+	Cols int
+	Rows int
+
 	Sess *session.Session
 	// Err records why a pane failed to start, so the UI can show it in place
 	// rather than the app dying at launch.
@@ -437,7 +444,12 @@ func (w *Workspace) FocusedPane() *Pane {
 
 // startPane launches a session for a pane description.
 func (w *Workspace) startPane(p *Pane, resume bool) {
-	cols, rows := 80, 24
+	// A pane that has been on screen knows what size it is; one starting for
+	// the first time gets a conventional default until the viewer measures it.
+	cols, rows := p.Cols, p.Rows
+	if cols <= 0 || rows <= 0 {
+		cols, rows = 80, 24
+	}
 
 	var argv, env []string
 	switch p.Kind {
@@ -778,7 +790,12 @@ func (w *Workspace) ToggleZoom() {
 // and applies it to the PTY. Geometry is decided by the browser, which knows
 // the font metrics, so the server only forwards the result.
 func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
-	if p := w.Pane(id); p != nil && p.Sess != nil {
+	p := w.Pane(id)
+	if p == nil || cols <= 0 || rows <= 0 {
+		return
+	}
+	p.Cols, p.Rows = cols, rows
+	if p.Sess != nil {
 		p.Sess.Resize(cols, rows)
 	}
 }
