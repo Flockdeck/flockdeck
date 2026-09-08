@@ -490,3 +490,30 @@ func TestSplitAndInsertRefuseADuplicatePane(t *testing.T) {
 		t.Fatalf("panes = %v, want [b a]", got)
 	}
 }
+
+// TestResizeGrowsTheLastPaneToo checks that a positive delta means the same
+// thing wherever the pane sits in its split. The last pane has no next sibling
+// and takes its space from the previous one, but it still grows.
+func TestResizeGrowsTheLastPaneToo(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Horizontal)
+	view := Rect{X: 0, Y: 0, W: 300, H: 10}
+
+	root.Compute(view)
+	before := root.Find("c").Rect().W
+
+	if !root.Resize("c", Horizontal, 0.5) {
+		t.Fatal("resizing the last pane failed")
+	}
+	root.Compute(view)
+	if after := root.Find("c").Rect().W; after <= before {
+		t.Fatalf("the last pane went from %d to %d columns, want it to grow", before, after)
+	}
+
+	// And its neighbour is the one that paid for it.
+	root.Compute(view)
+	if root.Find("b").Rect().W >= root.Find("a").Rect().W {
+		t.Error("the pane before the last one should have given up the space")
+	}
+}

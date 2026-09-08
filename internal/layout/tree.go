@@ -483,8 +483,10 @@ func (root *Node) Remove(pane string) bool {
 // Count returns the number of panes in the tree.
 func (n *Node) Count() int { return len(n.Leaves()) }
 
-// Resize shifts space between the pane holding the focus and its next sibling
-// along the given axis, by delta cells' worth of weight.
+// Resize shifts space between the pane and one of its siblings along the given
+// axis, by delta cells' worth of weight. A positive delta always grows the
+// named pane, whichever sibling pays for it: normally the next one along, or
+// the previous one when the pane is last in its split.
 func (root *Node) Resize(pane string, dir Dir, delta float64) bool {
 	leaf := root.Find(pane)
 	if leaf == nil {
@@ -502,7 +504,6 @@ func (root *Node) Resize(pane string, dir Dir, delta float64) bool {
 			other := idx + 1
 			if other >= len(parent.Children) {
 				other = idx - 1
-				delta = -delta
 			}
 			a, b := parent.Children[idx], parent.Children[other]
 			na, nb := a.weight()+delta, b.weight()-delta
