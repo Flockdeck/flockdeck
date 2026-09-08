@@ -579,9 +579,16 @@ textarea:focus-visible {
 .help-item:hover { background: #22262e; color: var(--fg); }
 .help-item.sel { background: #22262e; border-color: var(--line-strong); color: var(--fg); }
 .help-item-title { display: block; font-weight: 600; color: var(--fg); }
+/* Two lines of the matching snippet, no more. The -webkit-box display is what
+ * makes the clamp work today and overrides the display:block that used to sit
+ * in front of it; line-clamp is the same thing under its standard name. The
+ * snippet is a slice of help prose and can contain a path or a flag with no
+ * space in it, which in a 240px index would otherwise scroll the whole list
+ * sideways rather than wrapping. */
 .help-item-sub {
-  display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--fg-dim);
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--fg-dim);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+  -webkit-box-orient: vertical; overflow-wrap: anywhere;
 }
 
 /* In a narrow window the contents would leave the prose a gutter to read in,
