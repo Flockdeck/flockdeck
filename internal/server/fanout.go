@@ -197,6 +197,11 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			started++
 		}
 
+		if started == 0 && failed == 0 {
+			// Every row was blank. A fan-out that says nothing at all reads as
+			// one that was accepted and quietly did the work somewhere.
+			c.notify("no tasks to start", true)
+		}
 		if started > 0 {
 			word := "agents"
 			if started == 1 {
