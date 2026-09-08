@@ -593,3 +593,38 @@ func TestExtractTasksDropsSingleMarkEmphasis(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksIgnoresATrailingHeading covers the shape a reply usually ends
+// on: the plan, and then one more heading over a closing sentence. Judging by
+// the last cue alone fell back to every bullet in the answer, which handed the
+// findings back as work.
+func TestExtractTasksIgnoresATrailingHeading(t *testing.T) {
+	reply := `
+I read the file. What is there today:
+
+- Tooltips are set with title=, which screen readers ignore
+- Status colours are hard-coded in three places
+
+Here's the plan:
+
+- Add a delegated pointerover listener to app.js
+- Style the tooltip bubble in app.css
+
+Next steps:
+
+Tell me which of those to start with.
+`
+	got := ExtractTasks(reply)
+	want := []string{
+		"Add a delegated pointerover listener to app.js",
+		"Style the tooltip bubble in app.css",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

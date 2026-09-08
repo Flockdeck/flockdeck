@@ -40,21 +40,27 @@ const minTaskRunes = 8
 // is a suggestion the user edits before anything is started, so it is better to
 // offer a few plausible lines than to guess cleverly.
 func ExtractTasks(text string) []string {
-	items, cue := listItems(text)
+	items, cues := listItems(text)
 
 	// An agent's answer is rarely only its plan: it surveys what it read, notes
 	// what it found, and then says what it would do. All of that is bulleted,
 	// and only the last part is work. When the answer says where the plan
 	// starts, take it at its word — but only while that still leaves something.
-	if cue >= 0 {
+	//
+	// The latest cue that does is the one to trust. A reply commonly closes on
+	// another heading, "Next steps" over a sentence rather than a list, and
+	// judging by the last cue alone would fall all the way back to every bullet
+	// in the answer — the findings the cue was there to leave behind included.
+	for i := len(cues) - 1; i >= 0; i-- {
 		var planned []item
 		for _, it := range items {
-			if it.line > cue {
+			if it.line > cues[i] {
 				planned = append(planned, it)
 			}
 		}
 		if len(planned) > 0 {
 			items = planned
+			break
 		}
 	}
 
@@ -99,17 +105,17 @@ type item struct {
 	text   string
 }
 
-// listItems reads the list entries out of text, and reports the line on which
-// the text last announced a plan.
+// listItems reads the list entries out of text, and reports the lines on which
+// the text announced a plan.
 //
 // An entry that carries on over the lines below it is put back together: a
 // terminal breaks a long bullet across rows, and markdown lets one run on over
 // indented lines. Keeping only the first row of either would hand an agent a
 // task that stops mid-sentence.
-func listItems(text string) ([]item, int) {
+func listItems(text string) ([]item, []int) {
 	var items []item
-	cue := -1  // the last line announcing a plan
-	open := -1 // the entry a continuation line belongs to, if any
+	var cues []int // the lines announcing a plan, in the order they appear
+	open := -1     // the entry a continuation line belongs to, if any
 	fenced := false
 
 	for n, raw := range strings.Split(text, "\n") {
@@ -133,7 +139,7 @@ func listItems(text string) ([]item, int) {
 			continue
 		}
 		if isPlanCue(body) {
-			cue = n
+			cues = append(cues, n)
 			open = -1
 			continue
 		}
@@ -151,7 +157,7 @@ func listItems(text string) ([]item, int) {
 		}
 		open = -1
 	}
-	return items, cue
+	return items, cues
 }
 
 // tabWidth is how wide a tab is taken to be when measuring indentation. Any
