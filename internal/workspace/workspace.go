@@ -208,10 +208,18 @@ func (w *Workspace) wake() {
 
 // handleHook applies a lifecycle event from a pane.
 func (w *Workspace) handleHook(ev hooks.Event) {
+	// The session is taken once, under the lock. This runs on the hook
+	// server's goroutine while the interface may be restarting the very pane
+	// the event is about, and a pane mid-restart has no session at all: read
+	// the field twice and the second read can be the nil.
 	w.mu.RLock()
 	p := w.panes[ev.SessionID]
+	var sess *session.Session
+	if p != nil {
+		sess = p.Sess
+	}
 	w.mu.RUnlock()
-	if p == nil || p.Sess == nil {
+	if sess == nil {
 		return
 	}
 	// A tab named after its directory is not much help once several are open;
@@ -229,7 +237,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	if st == session.StatusExited {
 		return
 	}
-	p.Sess.SetStatus(st, detail)
+	sess.SetStatus(st, detail)
 }
 
 // ----------------------------------------------------------------- projects
@@ -521,8 +529,12 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		return
 	}
 	s.OnChange = w.wake
+	// Lifecycle hooks read this field from the hook server's goroutine, so it
+	// is only ever swapped under the lock.
+	w.mu.Lock()
 	p.Sess = s
 	p.Err = nil
+	w.mu.Unlock()
 	// The opening prompt is spent; a later restart resumes instead.
 	p.initial = ""
 }
@@ -760,7 +772,9 @@ func (w *Workspace) RestartPane() {
 	}
 	if p.Sess != nil {
 		_ = p.Sess.Close()
+		w.mu.Lock()
 		p.Sess = nil
+		w.mu.Unlock()
 	}
 	w.startPane(p, p.Kind == session.KindClaude)
 	w.wake()
