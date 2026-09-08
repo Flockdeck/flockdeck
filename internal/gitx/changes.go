@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,13 +145,22 @@ func statusLabel(code string) string {
 	}
 }
 
+// looksBinary applies git's own test: a NUL byte near the start of the file.
+func looksBinary(data []byte) bool {
+	const sniff = 8000
+	if len(data) > sniff {
+		data = data[:sniff]
+	}
+	return bytes.IndexByte(data, 0) >= 0
+}
+
 // countLines counts the lines in a file, used to size an untracked addition.
 func countLines(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0
 	}
-	if len(data) == 0 {
+	if len(data) == 0 || looksBinary(data) {
 		return 0
 	}
 	text := string(data)
@@ -181,6 +191,11 @@ func Diff(dir, path string) (string, error) {
 			data, err := os.ReadFile(full)
 			if err != nil {
 				return "", err
+			}
+			if looksBinary(data) {
+				// git says this rather than printing the bytes, and so should
+				// a panel that has to render them as text.
+				return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, len(data)), nil
 			}
 			return renderAsAddition(path, string(data)), nil
 		}

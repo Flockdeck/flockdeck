@@ -214,6 +214,39 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestDiffOfBinaryFileSaysSo covers dropping a screenshot into the tree: the
+// panel renders whatever it is given as text, so the bytes must not be sent.
+func TestDiffOfBinaryFileSaysSo(t *testing.T) {
+	repo := newRepo(t)
+
+	blob := []byte{0x89, 'P', 'N', 'G', 0x00, 0x1a, 0x0a, 0x00, 0xff, 0xfe}
+	if err := os.WriteFile(filepath.Join(repo, "shot.png"), blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	diff, err := Diff(repo, "shot.png")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, "Binary file") {
+		t.Errorf("diff = %q, want it to name the file as binary", diff)
+	}
+	if strings.ContainsRune(diff, 0) {
+		t.Error("the raw bytes were sent to the interface")
+	}
+
+	// Nor is it counted as though it had lines.
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	for _, f := range files {
+		if f.Path == "shot.png" && f.Added != 0 {
+			t.Errorf("binary file reported %d added lines", f.Added)
+		}
+	}
+}
+
 // TestDiffRefusesPathsOutsideTheTree covers a path arriving from the browser:
 // it names a file in the working tree, or it is refused.
 func TestDiffRefusesPathsOutsideTheTree(t *testing.T) {
