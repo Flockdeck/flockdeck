@@ -726,3 +726,45 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 		t.Errorf("nested pane kind %q, want shell", nested.Children[0].Pane.Kind)
 	}
 }
+
+// TestLoadIgnoresAnotherSchemaVersion checks a layout written by a different
+// version of the wrapper is passed over quietly. The fields it holds may mean
+// something else entirely, and a start-up that fails is worse than one that
+// opens a fresh tab.
+func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	for _, version := range []int{0, Version - 1, Version + 1} {
+		data, err := json.MarshalIndent(&State{
+			Version: version,
+			Root:    filepath.Clean("/repo/a"),
+			Tabs:    []Tab{{Title: "alpha", Root: &Node{Pane: &Pane{ID: "1", Kind: "claude", Cwd: "/repo/a"}}}},
+		}, "", "  ")
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		got, err := Load("/repo/a")
+		if err != nil {
+			t.Errorf("version %d should be ignored, not reported: %v", version, err)
+		}
+		if got != nil {
+			t.Errorf("version %d restored %d tabs, want none", version, len(got.Tabs))
+		}
+	}
+
+	// The version this build writes is of course still read back.
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "alpha"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got, err := Load("/repo/a"); err != nil || got == nil {
+		t.Fatalf("the current version did not survive a round trip: %v", err)
+	}
+}
