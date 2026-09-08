@@ -276,7 +276,15 @@ textarea:focus-visible {
   position: absolute; inset: 0; padding: 12px;
   display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
   color: var(--exited); font-size: 12px; background: var(--bg-inset);
+  /* This fills the pane, and a pane in a four-way split is not tall. A spawn
+   * failure quoting a full PATH is easily taller than that, and it sits above
+   * the Restart and Close buttons - the only way out of the state - so without
+   * a scrollbar the message silently pushes them out of reach. */
+  overflow: auto;
+  overflow-wrap: break-word;
 }
+/* Let the box scroll rather than squeezing the message and the buttons. */
+.pane-error > * { flex: 0 0 auto; max-width: 100%; }
 
 /* -------------------------------------------------------------- prompt bar */
 
