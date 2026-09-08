@@ -113,8 +113,9 @@ func usage() {
 	fmt.Fprintf(out, "Usage:\n  agent-wrapper [flags]\n\nFlags:\n")
 	flag.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] <task>\n")
+	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
+	fmt.Fprintf(out, "        run agent-wrapper spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
