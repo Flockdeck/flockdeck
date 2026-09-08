@@ -314,12 +314,19 @@ func TouchRecent(root string) error {
 	// has to stop us: carrying on would quietly discard every other project
 	// the user has opened. A damaged or absent list reads as empty, which is
 	// the case where starting again is the right answer.
+	// An empty root is not a project. It would be stored as "." and then
+	// offered in the picker as a directory that opens somewhere unpredictable.
+	if strings.TrimSpace(root) == "" {
+		return errors.New("recent project: empty path")
+	}
 	list, err := Recents()
 	if err != nil {
 		return err
 	}
 	out := make([]Project, 0, len(list)+1)
-	out = append(out, Project{Root: root, LastUsed: time.Now()})
+	// Store the tidied path, not whatever spelling this run happened to use:
+	// the picker shows these to the user verbatim.
+	out = append(out, Project{Root: filepath.Clean(root), LastUsed: time.Now()})
 	for _, p := range list {
 		if !sameRoot(p.Root, root) {
 			out = append(out, p)

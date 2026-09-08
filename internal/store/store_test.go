@@ -291,3 +291,32 @@ func TestRecentsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestTouchRecentStoresTidyPaths checks the picker is offered a clean path
+// rather than whichever spelling the caller happened to have, and that an
+// empty path is refused instead of being remembered as ".".
+func TestTouchRecentStoresTidyPaths(t *testing.T) {
+	isolateConfig(t)
+
+	messy := filepath.Join("/repo", "a", "b", "..") + string(filepath.Separator)
+	if err := TouchRecent(messy); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("remembered %d projects, want 1", len(list))
+	}
+	if want := filepath.Clean("/repo/a"); list[0].Root != want {
+		t.Errorf("remembered %q, want %q", list[0].Root, want)
+	}
+
+	if err := TouchRecent("   "); err == nil {
+		t.Error("an empty path should not be remembered as a project")
+	}
+	if list, _ := Recents(); len(list) != 1 {
+		t.Errorf("the empty path changed the list: %v", list)
+	}
+}
