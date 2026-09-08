@@ -253,8 +253,14 @@ func Diff(dir, path string) (string, error) {
 	}
 
 	// HEAD covers staged and unstaged changes together, which is what someone
-	// reviewing "what changed" wants to see.
-	out, err := run(dir, "diff", "HEAD", "--", path)
+	// reviewing "what changed" wants to see. Before the first commit there is
+	// no HEAD to name -- git fails with "bad revision" rather than treating it
+	// as empty -- and everything staged is the change.
+	against := "HEAD"
+	if !hasHead(dir) {
+		against = "--cached"
+	}
+	out, err := run(dir, "diff", against, "--", path)
 	if err != nil {
 		return "", err
 	}
@@ -265,6 +271,12 @@ func Diff(dir, path string) (string, error) {
 		}
 	}
 	return truncateDiff(out), nil
+}
+
+// hasHead reports whether the repository has a commit to compare against.
+func hasHead(dir string) bool {
+	_, err := run(dir, "rev-parse", "--verify", "--quiet", "HEAD")
+	return err == nil
 }
 
 // insideTree reports whether a repository-relative path stays within the tree.

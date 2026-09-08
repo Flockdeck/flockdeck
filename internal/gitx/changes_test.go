@@ -214,6 +214,34 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestDiffBeforeTheFirstCommit covers a project someone has just started:
+// there is no HEAD to compare a staged file against, and git says so rather
+// than treating it as empty.
+func TestDiffBeforeTheFirstCommit(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	cmd := exec.Command("git", "init", "--initial-branch=main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git init failed (%v): %s", err, out)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "first.txt"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "first.txt")
+
+	diff, err := Diff(repo, "first.txt")
+	if err != nil {
+		t.Fatalf("diff before the first commit: %v", err)
+	}
+	if !strings.Contains(diff, "+hello") {
+		t.Errorf("staged file shows no addition:\n%s", diff)
+	}
+}
+
 // TestUntrackedTellsTrackedFilesApart covers the test that decides between a
 // real diff and showing the whole file as an addition.
 func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
