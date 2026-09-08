@@ -273,3 +273,27 @@ func TestBroadcastSelectionByHandSurvivesAToggle(t *testing.T) {
 		t.Error("a pane the user added to the broadcast set should stay in it")
 	}
 }
+
+// TestSummarisePromptStopsAtAWord checks the tab title a first prompt gives a
+// tab: it is read at a glance, and a title that stops mid-word is harder to
+// tell from its neighbours than one that stops after a word.
+func TestSummarisePromptStopsAtAWord(t *testing.T) {
+	got := summarisePrompt("I want you to spin off ten parallel agents")
+	if strings.HasSuffix(got, "pa…") {
+		t.Errorf("title %q breaks off inside a word", got)
+	}
+	if !strings.HasPrefix(got, "I want you to spin off") {
+		t.Errorf("title %q lost the start of the prompt", got)
+	}
+	if n := len([]rune(got)); n > 29 {
+		t.Errorf("title %q is %d characters, too wide for a tab", got, n)
+	}
+
+	// A single long word has no boundary to fall back on, so it is still cut.
+	if got := summarisePrompt(strings.Repeat("x", 60)); len([]rune(got)) != 29 {
+		t.Errorf("unbroken title = %q, want it cut at the limit", got)
+	}
+	if got := summarisePrompt("short enough"); got != "short enough" {
+		t.Errorf("short title = %q, want it left alone", got)
+	}
+}

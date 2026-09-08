@@ -408,10 +408,21 @@ func summarisePrompt(prompt string) string {
 		return ""
 	}
 	const limit = 28
-	if r := []rune(s); len(r) > limit {
-		return strings.TrimSpace(string(r[:limit])) + "…"
+	r := []rune(s)
+	if len(r) <= limit {
+		return s
 	}
-	return s
+	// Stop at a word boundary if there is one worth using, so the tab reads as
+	// the start of a sentence rather than breaking off mid-word. Fields has
+	// already collapsed the whitespace, so a space is the only separator left.
+	cut := limit
+	for i := limit - 1; i > limit*2/3; i-- {
+		if r[i] == ' ' {
+			cut = i
+			break
+		}
+	}
+	return strings.TrimSpace(string(r[:cut])) + "…"
 }
 
 // Pane returns the pane with the given id.
