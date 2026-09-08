@@ -60,6 +60,21 @@ func (s *Server) reviewDir(path string) string {
 	}
 }
 
+// repoRoot resolves the top of the working tree dir belongs to, falling back
+// to dir itself when it is not in one.
+//
+// git names changed files relative to that root whichever directory it was
+// asked from, so a review has to be conducted from the root as well. A pane
+// usually sits somewhere inside the project rather than at the top of it, and
+// joining a root-relative name onto that subdirectory names a file that is not
+// there: every diff came back empty and was reported as possibly binary.
+func repoRoot(dir string) string {
+	if root, err := gitx.Root(dir); err == nil {
+		return root
+	}
+	return dir
+}
+
 // listChanges answers a request for what has changed in a working tree.
 func (s *Server) listChanges(c *controlClient, path string) {
 	dir := s.reviewDir(path)
@@ -70,11 +85,16 @@ func (s *Server) listChanges(c *controlClient, path string) {
 			c.sendJSON(msg)
 			return
 		}
-		if !gitx.IsRepo(dir) {
+		root, err := gitx.Root(dir)
+		if err != nil {
 			msg.Error = dir + " is not a git repository"
 			c.sendJSON(msg)
 			return
 		}
+		// The panel works in root-relative paths from here on, and echoes this
+		// back as the directory its later commands carry.
+		dir = root
+		msg.Cwd = dir
 
 		st := gitx.StatusOf(dir)
 		msg.Branch, msg.Upstream = st.Branch, st.Upstream
@@ -101,6 +121,7 @@ func (s *Server) listChanges(c *controlClient, path string) {
 func (s *Server) showDiff(c *controlClient, path, file string) {
 	dir := s.reviewDir(path)
 	go func() {
+		dir = repoRoot(dir)
 		msg := diffMsg{Type: "diff", Cwd: dir, File: file}
 		text, err := gitx.Diff(dir, file)
 		if err != nil {
@@ -119,6 +140,7 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 func (s *Server) commitChanges(c *controlClient, path, message string, push bool) {
 	dir := s.reviewDir(path)
 	go func() {
+		dir = repoRoot(dir)
 		if err := gitx.CommitAll(dir, message); err != nil {
 			c.notify(err.Error(), true)
 			s.listChanges(c, dir)

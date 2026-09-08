@@ -312,3 +312,48 @@ func TestConnectingAWindowRefreshesGit(t *testing.T) {
 		t.Errorf("the window waited %v for its git summary, want a refresh on connect", elapsed)
 	}
 }
+
+// TestReviewFromASubdirectoryDiffsTheRightFile covers where panes actually
+// sit: somewhere inside the project rather than at the top of it. git reports
+// changed files relative to the repository root whichever directory it is
+// asked from, so a review conducted from a subdirectory was looking for those
+// names underneath it and finding nothing.
+func TestReviewFromASubdirectoryDiffsTheRightFile(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	sub := filepath.Join(repo, "nested", "deeper")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\nand more\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var ch changesMsg
+	sendCmd(t, conn, command{Cmd: "changes", Path: sub})
+	readUntil(t, conn, "changes", &ch)
+	if ch.Error != "" {
+		t.Fatalf("changes error: %s", ch.Error)
+	}
+	if ch.Cwd == sub {
+		t.Errorf("changes came back for %q, want the repository root", ch.Cwd)
+	}
+	if filepath.Base(ch.Cwd) != filepath.Base(repo) {
+		t.Errorf("cwd = %q, want the root of %q", ch.Cwd, repo)
+	}
+	if len(ch.Files) != 1 || ch.Files[0].Path != "README.md" {
+		t.Fatalf("changed files = %+v, want README.md", ch.Files)
+	}
+
+	var d diffMsg
+	sendCmd(t, conn, command{Cmd: "diff", Path: sub, Text: ch.Files[0].Path})
+	readUntil(t, conn, "diff", &d)
+	if d.Error != "" {
+		t.Fatalf("diff error: %s", d.Error)
+	}
+	if !strings.Contains(d.Text, "and more") {
+		t.Errorf("diff from a subdirectory did not show the change: %q", d.Text)
+	}
+}
