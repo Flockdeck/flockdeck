@@ -628,3 +628,28 @@ Tell me which of those to start with.
 		}
 	}
 }
+
+// TestExtractTasksHandlesATruncatedCodeBlock covers the screen fallback. A
+// pane's output is read from the tail, so it can begin part way through a code
+// block; taking that block's closing fence for an opening one hid every task
+// after it, which is the whole plan.
+func TestExtractTasksHandlesATruncatedCodeBlock(t *testing.T) {
+	screen := "  listen: 0.0.0.0\n" +
+		"  port: 8080\n" +
+		"```\n\n" +
+		"- Apply that config to the staging cluster\n" +
+		"- Roll the change forward to production\n"
+	got := ExtractTasks(screen)
+	want := []string{
+		"Apply that config to the staging cluster",
+		"Roll the change forward to production",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

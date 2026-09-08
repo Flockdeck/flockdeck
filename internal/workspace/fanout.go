@@ -113,18 +113,24 @@ type item struct {
 // indented lines. Keeping only the first row of either would hand an agent a
 // task that stops mid-sentence.
 func listItems(text string) ([]item, []int) {
+	lines := strings.Split(text, "\n")
+
 	var items []item
 	var cues []int // the lines announcing a plan, in the order they appear
 	open := -1     // the entry a continuation line belongs to, if any
-	fenced := false
+	// A pane screen is only the tail of its output, so it can begin part way
+	// through a code block. An odd number of fences says that is what happened:
+	// the first marker is a closing one, and reading it as an opening one would
+	// bury the whole plan that follows it.
+	fenced := countFences(lines)%2 == 1
 
-	for n, raw := range strings.Split(text, "\n") {
+	for n, raw := range lines {
 		line := strings.TrimRight(raw, " \t")
 		body := strings.TrimLeft(line, " \t")
 		indent := indentWidth(line)
 
 		// A list inside a code block is sample text, not a plan.
-		if strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~") {
+		if isFence(body) {
 			fenced = !fenced
 			open = -1
 			continue
@@ -179,6 +185,22 @@ func indentWidth(line string) int {
 			n += tabWidth
 		default:
 			return n
+		}
+	}
+	return n
+}
+
+// isFence reports whether a line opens or closes a code block.
+func isFence(body string) bool {
+	return strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~")
+}
+
+// countFences counts the code block markers in a set of lines.
+func countFences(lines []string) int {
+	n := 0
+	for _, raw := range lines {
+		if isFence(strings.TrimLeft(raw, " \t")) {
+			n++
 		}
 	}
 	return n
