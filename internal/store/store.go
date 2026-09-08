@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -502,13 +503,47 @@ func SaveInstance(inst *Instance) error {
 }
 
 // ClearInstance removes the record, and does nothing if it is already gone.
+//
+// A record naming another process that is still running is left alone. There
+// are two callers — a wrapper shutting down, and a launch that found the
+// recorded address unreachable — and neither can tell whether the record it is
+// about to delete is still its own. It often is not: a wrapper whose server
+// briefly failed to answer a probe has its record cleared and then overwritten
+// by the rival launch, and when the first one finally exits it would delete
+// the second one's record, leaving a running instance that no later launch can
+// find and attach to.
 func ClearInstance() error {
 	path, err := instancePath()
 	if err != nil {
 		return err
 	}
+	if inst, err := LoadInstance(); err == nil && inst != nil {
+		if inst.PID != os.Getpid() && processAlive(inst.PID) {
+			return nil
+		}
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return nil
+}
+
+// processAlive reports whether a process id still names a running process. It
+// is a variable so tests can answer for a process table they control.
+var processAlive = func(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		// Windows has no signals; FindProcess opens a handle to the process,
+		// so getting one at all is the answer.
+		p.Release()
+		return true
+	}
+	// Signal 0 is delivered to nothing and only checks the process exists.
+	return p.Signal(syscall.Signal(0)) == nil
 }

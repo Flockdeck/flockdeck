@@ -361,3 +361,57 @@ func TestRecentsCollapsesStaleDuplicates(t *testing.T) {
 		t.Errorf("second entry is %q, want /repo/b", list[1].Root)
 	}
 }
+
+// TestClearInstanceKeepsALiveRivalsRecord checks a wrapper shutting down
+// cannot delete the record of another one that is still running, which would
+// leave a live instance no later launch could attach to.
+func TestClearInstanceKeepsALiveRivalsRecord(t *testing.T) {
+	isolateConfig(t)
+
+	alive := map[int]bool{}
+	restore := processAlive
+	processAlive = func(pid int) bool { return alive[pid] }
+	t.Cleanup(func() { processAlive = restore })
+
+	save := func(pid int) {
+		t.Helper()
+		if err := SaveInstance(&Instance{PID: pid, URL: "http://127.0.0.1:1/", Token: "t"}); err != nil {
+			t.Fatalf("save instance: %v", err)
+		}
+	}
+
+	// Another wrapper, still running: its record must survive.
+	const rival = 4242
+	alive[rival] = true
+	save(rival)
+	if err := ClearInstance(); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if inst, _ := LoadInstance(); inst == nil || inst.PID != rival {
+		t.Error("a live instance's record was deleted by another process shutting down")
+	}
+
+	// The same record once that process is gone: now it is ours to remove.
+	alive[rival] = false
+	if err := ClearInstance(); err != nil {
+		t.Fatalf("clear stale: %v", err)
+	}
+	if inst, _ := LoadInstance(); inst != nil {
+		t.Error("a record left by a dead process should be cleared")
+	}
+
+	// Our own record always goes, alive or not.
+	save(os.Getpid())
+	alive[os.Getpid()] = true
+	if err := ClearInstance(); err != nil {
+		t.Fatalf("clear own: %v", err)
+	}
+	if inst, _ := LoadInstance(); inst != nil {
+		t.Error("a wrapper shutting down must clear its own record")
+	}
+
+	// Nothing recorded at all is not an error.
+	if err := ClearInstance(); err != nil {
+		t.Errorf("clearing an absent record: %v", err)
+	}
+}
