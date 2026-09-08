@@ -517,3 +517,45 @@ func TestResizeGrowsTheLastPaneToo(t *testing.T) {
 		t.Error("the pane before the last one should have given up the space")
 	}
 }
+
+// TestCombineIgnoresAnEmptyTree covers merging with a tab that has already been
+// emptied. Its tree is a split with no children, which held no panes but would
+// still have claimed half the room.
+func TestCombineIgnoresAnEmptyTree(t *testing.T) {
+	occupied := NewLeaf("a")
+	occupied.Split("a", "b", Horizontal)
+
+	root := Combine(occupied, NewSplit(Vertical), Horizontal)
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("panes = %v, want [a b]", got)
+	}
+	if len(root.Children) != 2 {
+		t.Fatalf("children = %d, want nothing added for the empty tree", len(root.Children))
+	}
+	root.Compute(Rect{W: 101, H: 10})
+	if a, b := root.Find("a").Rect().W, root.Find("b").Rect().W; a+b+separatorWidth != 101 {
+		t.Errorf("panes are %d and %d wide, want the whole 101 columns between them", a, b)
+	}
+
+	if got := Combine(NewSplit(Vertical), occupied, Horizontal); got != occupied {
+		t.Error("merging an empty tree into one with panes should give back the occupied tree")
+	}
+	if got := Combine(nil, nil, Horizontal); got != nil {
+		t.Errorf("combining two nothings gave %v, want nil", got)
+	}
+}
+
+// TestEmptiedSplitIsNotAPane pins the other half of the same problem: a split
+// with no children names no pane, so it must not be counted as one.
+func TestEmptiedSplitIsNotAPane(t *testing.T) {
+	empty := NewSplit(Horizontal)
+	if got := empty.Panes(); len(got) != 0 {
+		t.Errorf("panes of an emptied tab = %v, want none", got)
+	}
+	if got := empty.Count(); got != 0 {
+		t.Errorf("count = %d, want 0", got)
+	}
+	if got := empty.PaneAt(0, 0); got != "" {
+		t.Errorf("PaneAt on an emptied tab = %q, want no pane", got)
+	}
+}

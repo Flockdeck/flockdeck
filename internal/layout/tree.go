@@ -118,12 +118,21 @@ func (n *Node) weight() float64 {
 // Rect returns the rectangle assigned by the last Compute call.
 func (n *Node) Rect() Rect { return n.rect }
 
-// Leaves returns every leaf in left-to-right, top-to-bottom tree order.
+// Leaves returns every leaf holding a pane, in left-to-right, top-to-bottom
+// tree order.
+//
+// A split with no children left looks structurally like a leaf but names no
+// pane, which is what a tab emptied by a merge is holding. It is skipped, so
+// it is not counted as a pane, offered as a drop target, or drawn as an empty
+// frame by a client walking the tree.
 func (n *Node) Leaves() []*Node {
 	if n == nil {
 		return nil
 	}
 	if n.IsLeaf() {
+		if n.Pane == "" {
+			return nil
+		}
 		return []*Node{n}
 	}
 	var out []*Node
@@ -399,10 +408,14 @@ func (root *Node) SwapPanes(a, b string) bool {
 // split: a row of two merged with a row of two is four columns, not a row of
 // rows.
 func Combine(dst, src *Node, dir Dir) *Node {
-	if dst == nil {
+	// A tree with no panes in it, which is what a tab emptied by an earlier
+	// merge is left holding, contributes nothing. Merging it anyway made a
+	// childless split a child of the result, so it took a share of the room
+	// and left that share blank.
+	if dst.Count() == 0 {
 		return src
 	}
-	if src == nil {
+	if src.Count() == 0 {
 		return dst
 	}
 	root := NewSplit(dir)
