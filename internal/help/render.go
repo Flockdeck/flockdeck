@@ -159,11 +159,16 @@ func toHTML(src string) (string, error) {
 func plainText(htmlText string) string {
 	var b strings.Builder
 	depth := 0
-	for _, r := range htmlText {
+	for i, r := range htmlText {
 		switch {
 		case r == '<':
 			depth++
-			b.WriteByte(' ')
+			// An opening tag stands where a word break may be, so it becomes
+			// a space. A closing one does not: "<kbd>F1</kbd>." is one word
+			// followed by a full stop, and a space there reads as a typo.
+			if !strings.HasPrefix(htmlText[i:], "</") {
+				b.WriteByte(' ')
+			}
 		case r == '>':
 			if depth > 0 {
 				depth--

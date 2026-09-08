@@ -160,3 +160,12 @@ func TestPlainTextStripsMarkup(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Punctuation right after a closing tag belongs to the word before it.
+func TestPlainTextKeepsPunctuationAttached(t *testing.T) {
+	got := plainText("<p>Press <kbd>F1</kbd>. Then <em>wait</em>, please.</p>")
+	want := "Press F1. Then wait, please."
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
