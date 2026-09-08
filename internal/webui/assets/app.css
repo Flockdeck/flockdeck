@@ -43,8 +43,13 @@ body { display: flex; flex-direction: column; }
   flex: 0 0 auto;
 }
 
-#tabs { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+#tabs { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 #tabs::-webkit-scrollbar { display: none; }
+
+/* The tab strip is the one part of the bar that scrolls, so it is also the one
+ * part that should give up width. Without this the buttons on the right shrink
+ * too and the last of them is clipped off the edge of a narrow window. */
+#topbar > .chip, #topbar > .icon-btn, #topbar > .divider-v { flex: 0 0 auto; }
 
 .tab {
   display: flex;
@@ -102,6 +107,11 @@ body { display: flex; flex-direction: column; }
   padding: 4px 10px;
   cursor: pointer;
   font: inherit;
+  /* A chip is always a short label on one line. Left to wrap it grows taller
+   * than the 38px top bar and the row it sits in, which is how a two-word
+   * label ("Open here", "Remove worktree") breaks the layout when the window
+   * or the overlay is narrow. */
+  white-space: nowrap;
 }
 .chip:hover { background: #22262e; color: var(--fg); }
 .chip.on { background: var(--cast); border-color: var(--cast); color: #fff; }
