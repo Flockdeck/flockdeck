@@ -23,6 +23,10 @@ type Sibling struct {
 	Status string
 	Shell  bool
 	Task   string
+	// SameCheckout marks a pane working in the reader's own directory. It is
+	// the one fact in the list that changes what the agent should do, and it
+	// is easy to miss when it has to be read off two long paths.
+	SameCheckout bool
 }
 
 // PaneContext is everything an agent is told about the situation it is running
@@ -120,13 +124,14 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				continue
 			}
 			s := Sibling{
-				Name:   sib.Name,
-				Tab:    t.Title,
-				Cwd:    sib.Cwd,
-				Branch: sib.Branch,
-				Status: st.String(),
-				Shell:  sib.Kind == session.KindShell,
-				Task:   sib.Task,
+				Name:         sib.Name,
+				Tab:          t.Title,
+				Cwd:          sib.Cwd,
+				Branch:       sib.Branch,
+				Status:       st.String(),
+				Shell:        sib.Kind == session.KindShell,
+				Task:         sib.Task,
+				SameCheckout: sameDir(sib.Cwd, c.Cwd),
 			}
 			if own != nil && t.ID == own.ID {
 				sameTab = append(sameTab, s)
@@ -268,7 +273,13 @@ func (s Sibling) describe() string {
 	if s.Branch != "" {
 		fmt.Fprintf(&b, " on branch `%s`", s.Branch)
 	}
-	fmt.Fprintf(&b, " in `%s`", s.Cwd)
+	if s.SameCheckout {
+		// The path is the reader's own, so repeating it says nothing; that it
+		// is shared says everything.
+		b.WriteString(" in the same directory as you")
+	} else {
+		fmt.Fprintf(&b, " in `%s`", s.Cwd)
+	}
 	if !s.Shell {
 		fmt.Fprintf(&b, " — %s", s.Status)
 	}

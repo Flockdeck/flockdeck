@@ -347,3 +347,44 @@ func TestTabTitleFromAPromptIsAppliedOnARead(t *testing.T) {
 		t.Error("a tab named after a prompt should not be renamed again")
 	}
 }
+
+// TestSiblingsInTheSameCheckoutAreCalledOut checks the one line in the list
+// that changes what an agent should do. Panes usually share a directory, so
+// the path is the same on every line and the collision is easy to read past.
+func TestSiblingsInTheSameCheckoutAreCalledOut(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+
+	other := filepath.Join(t.TempDir(), "fix-auth")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("make worktree dir: %v", err)
+	}
+	parent := ws.CurrentTab().Focus
+	if _, err := ws.Spawn(parent, SpawnOptions{Task: "beside you", Kind: session.KindShell}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, err := ws.Spawn(parent, SpawnOptions{Task: "elsewhere", Cwd: other, Kind: session.KindShell}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	c, ok := ws.PaneContext(parent)
+	if !ok || len(c.Siblings) != 2 {
+		t.Fatalf("siblings = %#v, want both children", c.Siblings)
+	}
+	for _, sib := range c.Siblings {
+		want := sib.Cwd == root
+		if sib.SameCheckout != want {
+			t.Errorf("sibling in %q: SameCheckout = %v, want %v", sib.Cwd, sib.SameCheckout, want)
+		}
+	}
+
+	text := c.Render()
+	if !strings.Contains(text, "same directory as you") {
+		t.Errorf("the pane sharing the checkout is not called out:\n%s", text)
+	}
+	if !strings.Contains(text, other) {
+		t.Errorf("the pane in its own checkout should still show its path:\n%s", text)
+	}
+}
