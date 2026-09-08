@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,17 +14,22 @@ import (
 
 // SaveAll writes the layout of every open project and the list of which ones
 // were open.
+//
+// Every project is attempted even when one fails, and each failure is named
+// after the project it belongs to: this runs on the way out, so the message
+// printed to the terminal is the only thing the user gets, and "could not save
+// layout" is no help at all when several projects are open.
 func (w *Workspace) SaveAll() error {
-	var firstErr error
+	var errs []error
 	for _, root := range w.openRoots {
-		if err := w.SaveProject(root); err != nil && firstErr == nil {
-			firstErr = err
+		if err := w.SaveProject(root); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", root, err))
 		}
 	}
-	if err := w.SaveSession(); err != nil && firstErr == nil {
-		firstErr = err
+	if err := w.SaveSession(); err != nil {
+		errs = append(errs, fmt.Errorf("open projects: %w", err))
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // SaveProject writes one project's tabs to its own layout file, so projects

@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jmwri/agent-wrapper/internal/layout"
@@ -728,5 +730,68 @@ func TestRestoreLandsBesideATabThatIsGone(t *testing.T) {
 	}
 	if current.Title != "two" {
 		t.Errorf("tab on screen = %q, want the neighbour of the one that is gone", current.Title)
+	}
+}
+
+// layoutFileFor finds the layout file a project's state was written to.
+func layoutFileFor(t *testing.T, root string) string {
+	t.Helper()
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatalf("state dir: %v", err)
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "layout-*.json"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var st store.State
+		if json.Unmarshal(data, &st) == nil && st.Root == root {
+			return f
+		}
+	}
+	t.Fatalf("no layout file was written for %s", root)
+	return ""
+}
+
+// TestSaveAllNamesTheProjectThatFailed covers the message printed on the way
+// out. It is the only thing the user gets, and with several projects open
+// "could not save layout" does not say which one to go and look at.
+func TestSaveAllNamesTheProjectThatFailed(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Put a directory where the second project's layout file belongs, so that
+	// one save cannot be written and the other still goes through.
+	blocked := layoutFileFor(t, second)
+	if err := os.Remove(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ws.SaveAll()
+	if err == nil {
+		t.Fatal("expected the blocked project to report a failure")
+	}
+	if !strings.Contains(err.Error(), second) {
+		t.Errorf("error = %q, want it to name the project %q", err, second)
+	}
+	if strings.Contains(err.Error(), first) {
+		t.Errorf("error = %q, want only the project that failed named", err)
 	}
 }
