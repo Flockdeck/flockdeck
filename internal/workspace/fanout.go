@@ -82,7 +82,7 @@ func ExtractTasks(text string) []string {
 			continue
 		}
 		task := tidyTask(it.text)
-		if !isTask(task) {
+		if !isTask(task) || isPlanHeading(task) {
 			continue
 		}
 		key := strings.ToLower(task)
@@ -240,7 +240,15 @@ func isPlanCue(line string) bool {
 			return true
 		}
 	}
-	heading := strings.TrimSpace(strings.Trim(lower, "#*_:. "))
+	return isPlanHeading(line)
+}
+
+// isPlanHeading reports whether a line is nothing but a heading over the list
+// below it. Written as prose it announces the plan; written as a bullet it is
+// still a heading, and handing "Next steps" to an agent as its whole brief
+// tells it nothing at all.
+func isPlanHeading(line string) bool {
+	heading := strings.TrimSpace(strings.Trim(strings.ToLower(tidyTask(line)), "#*_:. "))
 	for _, h := range planHeadings {
 		if heading == h {
 			return true

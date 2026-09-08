@@ -694,3 +694,28 @@ func TestExtractTasksKeepsWrappedItemsWholeOnCRLF(t *testing.T) {
 		t.Errorf("the wrapped tail was lost: %q", got[0])
 	}
 }
+
+// TestExtractTasksDropsBulletedHeadings covers a plan that bullets its own
+// headings. "Next steps" reads as a list entry and clears every test isTask
+// applies, but handed to an agent as its whole brief it says nothing.
+func TestExtractTasksDropsBulletedHeadings(t *testing.T) {
+	plan := `
+- Next steps
+- Add a delegated pointerover listener to app.js
+- **Proposed work**
+- Style the tooltip bubble in app.css
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add a delegated pointerover listener to app.js",
+		"Style the tooltip bubble in app.css",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
