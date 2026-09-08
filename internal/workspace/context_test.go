@@ -238,3 +238,38 @@ func TestRenderSaysWhenSiblingsWereOmitted(t *testing.T) {
 		t.Errorf("the context does not say four panes were left out:\n%s", text)
 	}
 }
+
+// TestBroadcastDefaultIsDroppedWhenBroadcastIsTurnedOff covers the selection
+// nobody made: it describes the tab it was built from, so carrying it into
+// the next tab would leave broadcast on with nothing to send to.
+func TestBroadcastDefaultIsDroppedWhenBroadcastIsTurnedOff(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	tab := ws.NewTab(session.KindClaude, root, "first")
+
+	ws.ToggleBroadcast()
+	if !ws.InBroadcast(tab.Focus) {
+		t.Fatal("turning broadcast on should select the Claude panes in the tab")
+	}
+	ws.ToggleBroadcast()
+	if ws.InBroadcast(tab.Focus) {
+		t.Error("a set filled in by default should not outlive broadcast being turned off")
+	}
+}
+
+// TestBroadcastSelectionByHandSurvivesAToggle is the other half: once the user
+// has picked the panes, they stay picked.
+func TestBroadcastSelectionByHandSurvivesAToggle(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	tab := ws.NewTab(session.KindShell, root, "first")
+
+	ws.ToggleBroadcastMember()
+	ws.ToggleBroadcast()
+	ws.ToggleBroadcast()
+	if !ws.InBroadcast(tab.Focus) {
+		t.Error("a pane the user added to the broadcast set should stay in it")
+	}
+}

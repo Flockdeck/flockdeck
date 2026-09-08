@@ -106,6 +106,10 @@ type Workspace struct {
 	// broadcast set as well as the focused one.
 	Broadcast    bool
 	BroadcastSet map[string]bool
+	// broadcastAuto marks a set that was filled in by default rather than
+	// chosen pane by pane, so it can be dropped when broadcast is switched
+	// off instead of following the user into the next tab.
+	broadcastAuto bool
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
@@ -805,8 +809,20 @@ func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 // ToggleBroadcast turns broadcast mode on or off.
 func (w *Workspace) ToggleBroadcast() {
 	w.Broadcast = !w.Broadcast
+	if !w.Broadcast {
+		// A set nobody picked describes the tab it was built from and nothing
+		// else. Keeping it would leave the next tab broadcasting to panes that
+		// are not in it, which looks like broadcast doing nothing at all.
+		if w.broadcastAuto {
+			w.mu.Lock()
+			clear(w.BroadcastSet)
+			w.broadcastAuto = false
+			w.mu.Unlock()
+		}
+		return
+	}
 	t := w.CurrentTab()
-	if !w.Broadcast || t == nil {
+	if t == nil {
 		return
 	}
 	// Which panes would be selected is decided before taking the lock: pane
@@ -829,6 +845,7 @@ func (w *Workspace) ToggleBroadcast() {
 	for _, id := range claude {
 		w.BroadcastSet[id] = true
 	}
+	w.broadcastAuto = len(claude) > 0
 }
 
 // ToggleBroadcastMember adds or removes the focused pane from the broadcast set.
@@ -844,6 +861,9 @@ func (w *Workspace) ToggleBroadcastMember() {
 	} else {
 		w.BroadcastSet[t.Focus] = true
 	}
+	// The selection is the user's now, so it survives broadcast being turned
+	// off and on again.
+	w.broadcastAuto = false
 }
 
 // InBroadcast reports whether a pane receives broadcast input.
