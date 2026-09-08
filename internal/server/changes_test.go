@@ -260,3 +260,25 @@ func TestWorkspaceQueriesUnblockOnClose(t *testing.T) {
 		t.Fatal("a workspace query blocked after the server was closed")
 	}
 }
+
+// TestPanesPerPathCreditsTheDeepestWorktree covers a worktree kept inside the
+// repository it came from: a pane in it is under both paths, and it belongs to
+// the checkout it is actually working in.
+func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
+	srv, ws, repo := newRepoServer(t)
+
+	inner := filepath.Join(repo, ".worktrees", "feature")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws.NewTab(session.KindShell, inner, "feature")
+
+	counts := srv.panesPerPath([]string{repo, inner})
+	if counts[inner] != 1 {
+		t.Errorf("inner worktree has %d panes, want 1", counts[inner])
+	}
+	// newRepoServer's own tab is the only pane left in the main checkout.
+	if counts[repo] != 1 {
+		t.Errorf("main checkout has %d panes, want 1", counts[repo])
+	}
+}

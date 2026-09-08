@@ -116,11 +116,20 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 				if p == nil {
 					continue
 				}
+				// A worktree kept inside the repository it came from -- a
+				// .worktrees directory, say -- is under the main checkout as
+				// well as itself, so a pane in it matches both paths. The
+				// deepest match is the checkout it is really working in;
+				// taking the first would credit its panes to the parent and
+				// leave the worktree looking unattended.
+				best, bestLen := "", -1
 				for _, path := range paths {
-					if underPath(p.Cwd, path) {
-						counts[path]++
-						break
+					if n := len(filepath.Clean(path)); n > bestLen && underPath(p.Cwd, path) {
+						best, bestLen = path, n
 					}
+				}
+				if best != "" {
+					counts[best]++
 				}
 			}
 		}
