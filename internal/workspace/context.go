@@ -100,7 +100,17 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	if c.ProjectRoot == "" {
 		c.ProjectRoot = w.activeRoot
 	}
+	// Projects are named the way the switcher names them, so an agent and the
+	// user looking at it call the same thing by the same word — and so two
+	// checkouts of one repository are not both simply "the project".
+	names := projectNames(w.openRoots)
 	c.ProjectName = filepath.Base(c.ProjectRoot)
+	for i, root := range w.openRoots {
+		if sameDir(root, c.ProjectRoot) {
+			c.ProjectName = names[i]
+			break
+		}
+	}
 	c.Worktree = c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot)
 
 	// Panes sharing the tab come first. They are the ones the agent is most
@@ -147,9 +157,6 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.Siblings = c.Siblings[:maxSiblings]
 	}
 
-	// Named the way the project switcher names them, so two checkouts of one
-	// repository do not both reach the agent as the same word.
-	names := projectNames(w.openRoots)
 	for i, root := range w.openRoots {
 		if !sameDir(root, c.ProjectRoot) {
 			c.OtherProjects = append(c.OtherProjects, names[i])

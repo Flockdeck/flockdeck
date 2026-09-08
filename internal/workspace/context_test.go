@@ -530,4 +530,13 @@ func TestOtherProjectsAreNamedApart(t *testing.T) {
 	if !strings.Contains(c.OtherProjects[0], "checkout-b") {
 		t.Errorf("name %q does not say which checkout it is", c.OtherProjects[0])
 	}
+
+	// The pane's own project is named the same way, so the agent and the user
+	// looking at the switcher call it the same thing.
+	if !strings.Contains(c.ProjectName, "checkout-a") {
+		t.Errorf("this project is named %q, which does not say which checkout it is", c.ProjectName)
+	}
+	if text := c.Render(); !strings.Contains(text, c.ProjectName) {
+		t.Errorf("the rendered context does not name the project:\n%s", text)
+	}
 }
