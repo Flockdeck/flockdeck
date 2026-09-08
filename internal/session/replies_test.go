@@ -1,0 +1,119 @@
+package session
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeReplies puts a transcript where Claude Code would have left one and
+// returns the session id that finds it.
+func writeReplies(t *testing.T, lines ...string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	const id = "11111111-2222-3333-4444-555555555555"
+	writeTranscript(t, filepath.Join(home, "projects", "C--Users-someone-code-repo"), id, lines...)
+	return id
+}
+
+// TestRecentRepliesReadsWhatTheAgentSaid covers the source a fan-out reads its
+// tasks from. What matters is that it is the agent's words and only its words:
+// not its thinking, not the tools it ran, and not a subagent's answer.
+func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
+	id := writeReplies(t,
+		`{"type":"user","message":{"role":"user","content":"give me a plan"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"muttering to myself"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here is the plan:\n\n- Do the first thing\n- Do the second thing"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"file contents"}]}}`,
+		`{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"a subagent's report"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"thanks"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"You are welcome."}]}}`,
+	)
+
+	got := RecentReplies(id, 4)
+	if len(got) != 2 {
+		t.Fatalf("read %d turns, want 2: %#v", len(got), got)
+	}
+	// Newest first: the follow-up, then the plan it followed.
+	if got[0] != "You are welcome." {
+		t.Errorf("newest turn = %q", got[0])
+	}
+	if !strings.Contains(got[1], "- Do the first thing") {
+		t.Errorf("the plan was lost: %q", got[1])
+	}
+	for _, turn := range got {
+		if strings.Contains(turn, "muttering") {
+			t.Error("thinking is not what the agent said")
+		}
+		if strings.Contains(turn, "subagent") {
+			t.Error("a subagent's answer is not this agent's")
+		}
+		if strings.Contains(turn, "file contents") {
+			t.Error("a tool result is not what the agent said")
+		}
+	}
+
+	// A tool result must not split a turn: everything said in reply to one
+	// prompt belongs together.
+	if n := len(RecentReplies(id, 1)); n != 1 {
+		t.Errorf("asked for 1 turn, got %d", n)
+	}
+}
+
+// TestRecentRepliesWithoutATranscript covers a shell pane, and an agent that
+// has not said anything yet.
+func TestRecentRepliesWithoutATranscript(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "does-not-exist"))
+	if got := RecentReplies("11111111-2222-3333-4444-555555555555", 4); got != nil {
+		t.Errorf("RecentReplies = %#v, want nothing", got)
+	}
+	if got := RecentReplies("", 4); got != nil {
+		t.Errorf("RecentReplies with no session = %#v, want nothing", got)
+	}
+}
+
+// TestRecentRepliesSkipsUnparseableLines guards against a transcript being
+// written to while it is read: the last line can be half a line.
+func TestRecentRepliesSkipsUnparseableLines(t *testing.T) {
+	id := writeReplies(t,
+		`{"type":"user","message":{"role":"user","content":"go"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the thing"}]}}`,
+		`{"type":"assistant","message":{"role":"assist`,
+	)
+	got := RecentReplies(id, 4)
+	if len(got) != 1 || !strings.Contains(got[0], "Do the thing") {
+		t.Errorf("RecentReplies = %#v", got)
+	}
+}
+
+// TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries covers the entries
+// Claude Code writes as if the user had typed them: a slash command, its
+// output, an injected reminder. Ending a turn on one leaves the fan-out dialog
+// showing the tail of a plan instead of the plan.
+func TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries(t *testing.T) {
+	id := writeReplies(t,
+		`{"type":"user","message":{"role":"user","content":"give me a plan"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the first thing"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"<command-name>/cost</command-name>"}}`,
+		`{"type":"user","message":{"role":"user","content":"<local-command-stdout>$0.42</local-command-stdout>"}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"Caveat: the messages below were generated"}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>be nice</system-reminder>"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the second thing"}]}}`,
+	)
+
+	got := RecentReplies(id, 4)
+	if len(got) != 1 {
+		t.Fatalf("read %d turns, want 1: %#v", len(got), got)
+	}
+	for _, want := range []string{"- Do the first thing", "- Do the second thing"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("turn lost %q: %q", want, got[0])
+		}
+	}
+	if strings.Contains(got[0], "0.42") {
+		t.Errorf("slash command output is not what the agent said: %q", got[0])
+	}
+}

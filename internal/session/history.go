@@ -229,6 +229,31 @@ func contentText(raw json.RawMessage) string {
 	return ""
 }
 
+// syntheticPromptPrefixes open the user entries Claude Code writes itself: a
+// slash command and its output, an injected reminder, the note that opens a
+// resumed conversation. They are recorded exactly like something a person
+// typed, and telling them apart is only possible by how they start.
+var syntheticPromptPrefixes = []string{
+	"<command-name>",
+	"<command-message>",
+	"<local-command",
+	"<system-reminder>",
+	"<user-prompt-submit-hook>",
+	"Caveat:",
+}
+
+// isSyntheticPrompt reports whether a user entry was written by Claude Code
+// rather than typed by the user.
+func isSyntheticPrompt(s string) bool {
+	s = strings.TrimSpace(s)
+	for _, skip := range syntheticPromptPrefixes {
+		if strings.HasPrefix(s, skip) {
+			return true
+		}
+	}
+	return false
+}
+
 // firstPrompt tidies a prompt for display and skips the synthetic entries
 // Claude Code records alongside real ones.
 func firstPrompt(s string) string {
@@ -238,10 +263,8 @@ func firstPrompt(s string) string {
 	}
 	// Slash commands, hook output and system reminders are not what someone
 	// scanning the list is looking for.
-	for _, skip := range []string{"<command-name>", "<local-command", "<system-reminder>", "Caveat:"} {
-		if strings.HasPrefix(s, skip) {
-			return ""
-		}
+	if isSyntheticPrompt(s) {
+		return ""
 	}
 	s = strings.Join(strings.Fields(s), " ")
 	if len([]rune(s)) > 160 {
