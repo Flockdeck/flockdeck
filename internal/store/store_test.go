@@ -227,3 +227,67 @@ func TestSaveLeavesNoTemporaryFiles(t *testing.T) {
 		}
 	}
 }
+
+// TestTouchRecentKeepsListWhenUnreadable checks an unreadable projects file
+// stops the rewrite rather than replacing every remembered project with the
+// one being opened.
+func TestTouchRecentKeepsListWhenUnreadable(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	// A directory where the file belongs is the portable way to make a read
+	// fail with something other than "does not exist".
+	if err := os.Mkdir(filepath.Join(dir, recentsFile), 0o755); err != nil {
+		t.Fatalf("block projects file: %v", err)
+	}
+
+	if err := TouchRecent("/repo/a"); err == nil {
+		t.Error("TouchRecent reported success while it could not read the existing list")
+	}
+	if err := ForgetRecent("/repo/a"); err == nil {
+		t.Error("ForgetRecent reported success while it could not read the existing list")
+	}
+}
+
+// TestRecentsRoundTrip checks the remembered list is ordered most recent first
+// and that reopening a project moves it to the front rather than duplicating
+// it, however its path is spelled.
+func TestRecentsRoundTrip(t *testing.T) {
+	isolateConfig(t)
+
+	for _, root := range []string{"/repo/a", "/repo/b", "/repo/c"} {
+		if err := TouchRecent(root); err != nil {
+			t.Fatalf("touch %s: %v", root, err)
+		}
+	}
+	if err := TouchRecent(filepath.Clean("/repo/a") + string(filepath.Separator)); err != nil {
+		t.Fatalf("re-touch a: %v", err)
+	}
+
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("remembered %d projects, want 3: %v", len(list), list)
+	}
+	if !sameRoot(list[0].Root, "/repo/a") {
+		t.Errorf("most recent is %q, want /repo/a", list[0].Root)
+	}
+
+	if err := ForgetRecent("/repo/b"); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	list, err = Recents()
+	if err != nil {
+		t.Fatalf("recents after forget: %v", err)
+	}
+	for _, p := range list {
+		if sameRoot(p.Root, "/repo/b") {
+			t.Error("a forgotten project came back")
+		}
+	}
+}

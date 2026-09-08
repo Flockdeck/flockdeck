@@ -310,7 +310,14 @@ func Recents() ([]Project, error) {
 
 // TouchRecent records that a project was opened, moving it to the front.
 func TouchRecent(root string) error {
-	list, _ := Recents()
+	// The rewrite below replaces the whole file, so a list we could not read
+	// has to stop us: carrying on would quietly discard every other project
+	// the user has opened. A damaged or absent list reads as empty, which is
+	// the case where starting again is the right answer.
+	list, err := Recents()
+	if err != nil {
+		return err
+	}
 	out := make([]Project, 0, len(list)+1)
 	out = append(out, Project{Root: root, LastUsed: time.Now()})
 	for _, p := range list {
@@ -326,7 +333,10 @@ func TouchRecent(root string) error {
 
 // ForgetRecent drops a project from the remembered list.
 func ForgetRecent(root string) error {
-	list, _ := Recents()
+	list, err := Recents()
+	if err != nil {
+		return err
+	}
 	out := make([]Project, 0, len(list))
 	for _, p := range list {
 		if !sameRoot(p.Root, root) {
