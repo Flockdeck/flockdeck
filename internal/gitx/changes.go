@@ -281,9 +281,17 @@ func insideTree(path string) bool {
 	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
+// untracked reports whether the file is one git does not have in its index,
+// and so has no diff to show for.
+//
+// It asks the positive question -- is this one of the "other" files? -- rather
+// than reading the exit code of `ls-files --error-unmatch`, which is also
+// non-zero when the directory is not a repository at all. Answering "yes" to
+// that used to make a tracked file's contents appear as one huge addition
+// whenever git failed for any reason.
 func untracked(dir, path string) bool {
-	out, err := run(dir, "ls-files", "--error-unmatch", "--", path)
-	return err != nil || strings.TrimSpace(out) == ""
+	out, err := run(dir, "ls-files", "--others", "--", path)
+	return err == nil && strings.TrimSpace(out) != ""
 }
 
 // renderAsAddition shows a file's content as one big addition. omitted is the

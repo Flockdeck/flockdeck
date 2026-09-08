@@ -214,6 +214,41 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestUntrackedTellsTrackedFilesApart covers the test that decides between a
+// real diff and showing the whole file as an addition.
+func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
+	repo := newRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("build/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "build"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "build", "out.txt"), []byte("made\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if untracked(repo, "README.md") {
+		t.Error("a committed file is tracked")
+	}
+	if !untracked(repo, "new.txt") {
+		t.Error("a new file is untracked")
+	}
+	// An ignored file has no diff either, so it is still shown whole.
+	if !untracked(repo, "build/out.txt") {
+		t.Error("an ignored file has nothing in the index to diff against")
+	}
+	// Outside a repository the answer is "no", so the caller reports git's
+	// error rather than dumping the file as an addition.
+	if untracked(t.TempDir(), "anything.txt") {
+		t.Error("a directory that is not a repository should not claim a file is untracked")
+	}
+}
+
 // TestDiffOfHugeUntrackedFileIsBounded covers a generated file dropped in the
 // tree: only as much as the panel will show should be read, and the rest
 // accounted for rather than silently dropped.
