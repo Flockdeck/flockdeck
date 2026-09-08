@@ -610,3 +610,41 @@ func TestStateDirectoriesArePrivate(t *testing.T) {
 		}
 	}
 }
+
+// TestForgetUnknownProjectLeavesTheFileAlone checks forgetting something that
+// was never remembered does not rewrite the list, which would give a wrapper
+// saving at the same moment a needless chance to lose its own write.
+func TestForgetUnknownProjectLeavesTheFileAlone(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	if err := TouchRecent("/repo/a"); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+
+	p := filepath.Join(dir, recentsFile)
+	before, err := os.Stat(p)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	when := before.ModTime().Add(-time.Hour)
+	if err := os.Chtimes(p, when, when); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	if err := ForgetRecent("/repo/never-opened"); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	after, err := os.Stat(p)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if !after.ModTime().Equal(when) {
+		t.Error("the projects file was rewritten although nothing was forgotten")
+	}
+	if list, _ := Recents(); len(list) != 1 {
+		t.Errorf("remembered projects changed: %v", list)
+	}
+}

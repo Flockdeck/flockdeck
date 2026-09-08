@@ -462,6 +462,11 @@ func ForgetRecent(root string) error {
 			out = append(out, p)
 		}
 	}
+	if len(out) == len(list) {
+		// Nothing to forget. Rewriting the file anyway would be a needless
+		// chance for another wrapper's save to be the one that loses.
+		return nil
+	}
 	return writeRecents(out)
 }
 
