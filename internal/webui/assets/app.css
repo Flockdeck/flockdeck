@@ -241,14 +241,19 @@ textarea:focus-visible {
 
 .pane-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-branch { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pane-detail { color: var(--accent); font-size: 11px; white-space: nowrap; }
-.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; }
+/* Everything to the left of the actions has to be able to collapse. The
+ * actions are the only part of the header that is not informational - closing
+ * and zooming a pane happen here - so in a three-way split, where a pane is a
+ * couple of hundred pixels wide, a long branch or an MCP tool name must
+ * truncate rather than push the buttons out past the clipped edge. */
+.pane-detail { color: var(--accent); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; }
 .pane-git .dirty { color: var(--waiting); }
 .pane-git .ahead { color: var(--working); }
 .pane-git .behind { color: var(--exited); }
-.pane-cast { color: var(--fg-dim); font-size: 11px; }
+.pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-cast.active { color: var(--cast); font-weight: 600; }
-.pane-actions { margin-left: auto; display: flex; gap: 2px; }
+.pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
 .pane-actions button {
   border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
   border-radius: 3px; padding: 2px 6px; min-width: 22px; text-align: center;
