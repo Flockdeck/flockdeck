@@ -319,3 +319,31 @@ func TestOpenProjectSaysWhatWentWrong(t *testing.T) {
 		t.Errorf("opening a file gave %v, want it said so", err)
 	}
 }
+
+// TestTabTitleFromAPromptIsAppliedOnARead pins where the rename happens. The
+// request arrives on the hook server's goroutine, which must not walk the tab
+// list, so the tab changes when the interface next reads it instead.
+func TestTabTitleFromAPromptIsAppliedOnARead(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	tab := ws.NewTab(session.KindClaude, root, "")
+	if !tab.AutoTitle {
+		t.Fatal("a tab named after its directory should be waiting for a prompt")
+	}
+	was := tab.Title
+
+	ws.nameTabAfterPrompt(tab.Focus, "rewrite the parser")
+	if tab.Title != was {
+		t.Errorf("tab renamed to %q off the interface goroutine", tab.Title)
+	}
+
+	// Projects is the first thing the interface reads when it refreshes.
+	ws.Projects()
+	if tab.Title != "rewrite the parser" {
+		t.Errorf("tab title = %q, want the prompt it was given", tab.Title)
+	}
+	if tab.AutoTitle {
+		t.Error("a tab named after a prompt should not be renamed again")
+	}
+}

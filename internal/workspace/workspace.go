@@ -114,6 +114,9 @@ type Workspace struct {
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
+	// pendingTitles holds titles a pane asked for from the hook goroutine,
+	// waiting to be applied to its tab on the interface's own goroutine.
+	pendingTitles map[string]string
 
 	// openRoots are the projects currently open, in the order they were
 	// opened; activeRoot is the one being shown.
@@ -244,6 +247,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 
 // Projects returns the open projects with a summary of each.
 func (w *Workspace) Projects() []Project {
+	w.applyPendingTitles()
 	out := make([]Project, 0, len(w.openRoots))
 	for _, root := range w.openRoots {
 		p := Project{Root: root, Name: filepath.Base(root), Active: root == w.activeRoot}
@@ -385,7 +389,10 @@ func (w *Workspace) focusFirstTabOf(root string) {
 }
 
 // VisibleTabs returns the tabs of the active project, in order.
-func (w *Workspace) VisibleTabs() []*Tab { return w.tabsOf(w.activeRoot) }
+func (w *Workspace) VisibleTabs() []*Tab {
+	w.applyPendingTitles()
+	return w.tabsOf(w.activeRoot)
+}
 
 func (w *Workspace) tabsOf(root string) []*Tab {
 	out := make([]*Tab, 0, len(w.Tabs))
@@ -399,21 +406,51 @@ func (w *Workspace) tabsOf(root string) []*Tab {
 
 // --------------------------------------------------------------------- tabs
 
-// nameTabAfterPrompt titles the tab holding a pane after what was asked of it,
-// unless the user has named it themselves.
+// nameTabAfterPrompt asks for the tab holding a pane to be named after what
+// was asked of it, unless the user has named it themselves.
+//
+// It is called from the hook server's goroutine, which must not walk the tab
+// list: the interface adds and removes tabs on its own goroutine and without a
+// lock, so reading the slice from here could see it half-replaced. The title is
+// left on the workspace instead and picked up by applyPendingTitles.
 func (w *Workspace) nameTabAfterPrompt(paneID, prompt string) {
 	title := summarisePrompt(prompt)
 	if title == "" {
 		return
 	}
-	for _, t := range w.Tabs {
-		if !t.AutoTitle || t.Tree.Find(paneID) == nil {
-			continue
-		}
-		t.Title = title
-		t.AutoTitle = false
-		w.wake()
+	w.mu.Lock()
+	if w.pendingTitles == nil {
+		w.pendingTitles = map[string]string{}
+	}
+	w.pendingTitles[paneID] = title
+	w.mu.Unlock()
+	w.wake()
+}
+
+// applyPendingTitles moves requested titles onto their tabs. It is called at
+// the top of the tab and project readers, which is where the interface always
+// arrives before it draws, and so is the safe moment to change a tab.
+func (w *Workspace) applyPendingTitles() {
+	w.mu.RLock()
+	n := len(w.pendingTitles)
+	w.mu.RUnlock()
+	if n == 0 {
 		return
+	}
+	w.mu.Lock()
+	pending := w.pendingTitles
+	w.pendingTitles = nil
+	w.mu.Unlock()
+
+	for paneID, title := range pending {
+		for _, t := range w.Tabs {
+			if !t.AutoTitle || t.Tree.Find(paneID) == nil {
+				continue
+			}
+			t.Title = title
+			t.AutoTitle = false
+			break
+		}
 	}
 }
 
