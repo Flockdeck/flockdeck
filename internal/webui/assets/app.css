@@ -462,7 +462,14 @@ textarea:focus-visible {
 .rev-file:hover { background: #22262e; }
 .rev-file.sel { background: var(--accent); color: #06101f; }
 .rev-file.sel .rev-plus, .rev-file.sel .rev-minus, .rev-file.sel .rev-kind { color: #06101f; opacity: .8; }
+/* direction:rtl is what puts the ellipsis at the head of the path, so the file
+ * name stays visible. It also makes the line's base direction RTL, which sends
+ * a leading punctuation character to the far end: ".gitignore" was drawn as
+ * "gitignore.", and every path under ".github/" the same way. Prefixing a
+ * left-to-right mark gives those neutrals a strong character to attach to, so
+ * they stay where they were typed while the elision still happens on the left. */
 .rev-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.rev-name::before { content: "\200E"; }
 .rev-kind { color: var(--fg-dim); font-size: 10px; }
 .rev-plus { color: var(--working); font-size: 11px; }
 .rev-minus { color: var(--exited); font-size: 11px; }
