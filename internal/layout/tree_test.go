@@ -559,3 +559,38 @@ func TestEmptiedSplitIsNotAPane(t *testing.T) {
 		t.Errorf("PaneAt on an emptied tab = %q, want no pane", got)
 	}
 }
+
+// TestMovePaneOntoItsOwnEdgeKeepsTheWeights covers the drag that ends where it
+// started. Rebuilding the split would silently even out the columns the user
+// had dragged the divider to set.
+func TestMovePaneOntoItsOwnEdgeKeepsTheWeights(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Horizontal)
+	if !root.SetChildWeights([]float64{3, 1, 1}) {
+		t.Fatal("setting the starting weights failed")
+	}
+
+	// b is already immediately right of a, and immediately left of c.
+	if !root.MovePane("b", "a", EdgeRight) {
+		t.Fatal("dropping b where it already is should succeed")
+	}
+	if !root.MovePane("b", "c", EdgeLeft) {
+		t.Fatal("dropping b where it already is should succeed")
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("panes = %v, want [a b c]", got)
+	}
+	got := []float64{root.Children[0].Weight, root.Children[1].Weight, root.Children[2].Weight}
+	if !reflect.DeepEqual(got, []float64{3, 1, 1}) {
+		t.Errorf("weights = %v, want the divider left where it was", got)
+	}
+
+	// A drop on the other edge of the same neighbour is still a real move.
+	if !root.MovePane("b", "a", EdgeLeft) {
+		t.Fatal("moving b to the left of a failed")
+	}
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
+		t.Fatalf("panes = %v, want [b a c]", got)
+	}
+}

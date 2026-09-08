@@ -375,13 +375,35 @@ func (root *Node) MovePane(pane, target string, edge Edge) bool {
 	if pane == "" || pane == target {
 		return false
 	}
-	if root.Find(pane) == nil || root.Find(target) == nil {
+	moving, onto := root.Find(pane), root.Find(target)
+	if moving == nil || onto == nil {
 		return false
+	}
+	if alreadyBeside(root, moving, onto, edge) {
+		// A drop on the edge the pane is already on is a no-op, but taking it
+		// out and putting it back would rebuild both nodes with fresh ids and
+		// even weights, throwing away wherever the user had left the divider.
+		return true
 	}
 	if !root.Remove(pane) {
 		return false
 	}
 	return root.InsertBeside(target, pane, edge)
+}
+
+// alreadyBeside reports whether moving is the immediate neighbour of onto on
+// the given edge, in a split along that edge's axis.
+func alreadyBeside(root, moving, onto *Node, edge Edge) bool {
+	dir, before := edge.axis()
+	mp, mi := root.parentOf(moving)
+	op, oi := root.parentOf(onto)
+	if mp == nil || mp != op || mp.Dir != dir {
+		return false
+	}
+	if before {
+		return mi == oi-1
+	}
+	return mi == oi+1
 }
 
 // SwapPanes exchanges the positions of two panes, keeping every split and
