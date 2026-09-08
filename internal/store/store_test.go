@@ -648,3 +648,81 @@ func TestForgetUnknownProjectLeavesTheFileAlone(t *testing.T) {
 		t.Errorf("remembered projects changed: %v", list)
 	}
 }
+
+// TestStateSurvivesTheRoundTrip pins the shape a restored workspace arrives
+// in. Everything here is something the restorer reads: a pane whose id or
+// working directory is lost cannot be resumed, and a weight that does not come
+// back moves every split the user had arranged.
+func TestStateSurvivesTheRoundTrip(t *testing.T) {
+	isolateConfig(t)
+
+	want := &State{
+		Active: 1,
+		Tabs: []Tab{
+			{
+				Title: "api",
+				Focus: "pane-1",
+				Root: &Node{
+					Dir:    "h",
+					Weight: 0.5,
+					Children: []*Node{
+						{Pane: &Pane{ID: "pane-1", Kind: "claude", Cwd: "/repo/a", Name: "worker", Task: "fix the parser"}, Weight: 0.7},
+						{
+							Dir: "v",
+							Children: []*Node{
+								{Pane: &Pane{ID: "pane-2", Kind: "shell", Cwd: "/repo/a/sub"}},
+							},
+						},
+					},
+				},
+			},
+			{Title: "docs", Root: &Node{Pane: &Pane{ID: "pane-3", Kind: "claude", Cwd: "/repo/a"}}},
+		},
+	}
+
+	if err := Save("/repo/a", want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := Load("/repo/a")
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if got.Version != Version {
+		t.Errorf("version %d, want %d", got.Version, Version)
+	}
+	if !sameRoot(got.Root, "/repo/a") {
+		t.Errorf("root %q, want /repo/a", got.Root)
+	}
+	if got.Active != 1 {
+		t.Errorf("active tab %d, want 1", got.Active)
+	}
+	if len(got.Tabs) != 2 {
+		t.Fatalf("restored %d tabs, want 2", len(got.Tabs))
+	}
+	if got.Tabs[0].Focus != "pane-1" {
+		t.Errorf("focus %q, want pane-1", got.Tabs[0].Focus)
+	}
+
+	tree := got.Tabs[0].Root
+	if tree.Dir != "h" || tree.Weight != 0.5 || len(tree.Children) != 2 {
+		t.Fatalf("outer split came back as %+v", tree)
+	}
+	left := tree.Children[0]
+	if left.Pane == nil {
+		t.Fatal("the left leaf lost its pane")
+	}
+	if *left.Pane != (Pane{ID: "pane-1", Kind: "claude", Cwd: "/repo/a", Name: "worker", Task: "fix the parser"}) {
+		t.Errorf("pane came back as %+v", *left.Pane)
+	}
+	if left.Weight != 0.7 {
+		t.Errorf("pane weight %v, want 0.7", left.Weight)
+	}
+	nested := tree.Children[1]
+	if nested.Dir != "v" || len(nested.Children) != 1 || nested.Children[0].Pane == nil {
+		t.Fatalf("nested split came back as %+v", nested)
+	}
+	if nested.Children[0].Pane.Kind != "shell" {
+		t.Errorf("nested pane kind %q, want shell", nested.Children[0].Pane.Kind)
+	}
+}
