@@ -297,3 +297,25 @@ func TestSummarisePromptStopsAtAWord(t *testing.T) {
 		t.Errorf("short title = %q, want it left alone", got)
 	}
 }
+
+// TestOpenProjectSaysWhatWentWrong keeps the two failures apart: a path that
+// has been moved away and a path that is a file are fixed by different things.
+func TestOpenProjectSaysWhatWentWrong(t *testing.T) {
+	isolateConfig(t)
+	dir := t.TempDir()
+	ws := newTestWorkspace(t, dir)
+
+	err := ws.OpenProject(filepath.Join(dir, "gone"))
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("opening a missing path gave %v, want it said so", err)
+	}
+
+	file := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(file, []byte("hi"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	err = ws.OpenProject(file)
+	if err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Errorf("opening a file gave %v, want it said so", err)
+	}
+}
