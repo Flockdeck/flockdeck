@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -448,5 +449,36 @@ func TestDiffOfAnUnchangedFileDoesNotBlameBinaryContent(t *testing.T) {
 	}
 	if !strings.Contains(d.Text, "matches the last commit") {
 		t.Errorf("diff text = %q, want it to say the file is unchanged", d.Text)
+	}
+}
+
+// TestUnderPath pins which directories count as being inside a worktree. The
+// answer decides the pane counts in the worktree panel and, since a worktree
+// with panes in it is not removed without force, whether a checkout an agent
+// is using can be deleted from under it.
+func TestUnderPath(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "repo")
+	cases := []struct {
+		cwd  string
+		want bool
+	}{
+		{base, true},
+		{filepath.Join(base, "internal", "server"), true},
+		// A directory whose name merely begins with dots is inside, not out.
+		{filepath.Join(base, "..old-notes"), true},
+		{filepath.Dir(base), false},
+		{filepath.Join(filepath.Dir(base), "repo-other"), false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := underPath(c.cwd, base); got != c.want {
+			t.Errorf("underPath(%q, %q) = %v, want %v", c.cwd, base, got, c.want)
+		}
+	}
+
+	// Windows names the same directory in either case; the two paths compared
+	// here come from git and from however the project was opened.
+	if runtime.GOOS == "windows" && !underPath(strings.ToUpper(base), strings.ToLower(base)) {
+		t.Error("a difference in case made the same directory look unrelated")
 	}
 }

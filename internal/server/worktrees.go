@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/jmwri/agent-wrapper/internal/gitx"
@@ -145,12 +146,24 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 }
 
 // underPath reports whether cwd is base or inside it.
+//
+// The two paths reach here from different places -- one from git, the other
+// from however the project was opened -- so on Windows they can name the same
+// directory in different case, which filepath.Rel treats as unrelated even
+// though the file system does not.
 func underPath(cwd, base string) bool {
-	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(cwd))
+	c, b := filepath.Clean(cwd), filepath.Clean(base)
+	if runtime.GOOS == "windows" {
+		c, b = strings.ToLower(c), strings.ToLower(b)
+	}
+	rel, err := filepath.Rel(b, c)
 	if err != nil {
 		return false
 	}
-	return rel == "." || !strings.HasPrefix(rel, "..")
+	// Only a leading path element of ".." means the way out. Testing the
+	// prefix alone put a directory genuinely called something like "..old"
+	// outside the tree it is sitting in.
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // addWorktree creates a worktree and reports the outcome.
