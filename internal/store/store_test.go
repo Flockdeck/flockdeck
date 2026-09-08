@@ -768,3 +768,55 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 		t.Fatalf("the current version did not survive a round trip: %v", err)
 	}
 }
+
+// TestInstanceRecordRoundTrip pins what a second launch reads before deciding
+// whether to attach to a wrapper already running or start one of its own.
+func TestInstanceRecordRoundTrip(t *testing.T) {
+	isolateConfig(t)
+
+	if inst, err := LoadInstance(); err != nil || inst != nil {
+		t.Fatalf("with nothing recorded, got %v, %v; want nil, nil", inst, err)
+	}
+
+	started := time.Now().Round(time.Second)
+	want := &Instance{PID: 4321, URL: "http://127.0.0.1:53124/", Token: "s3cret", Started: started}
+	if err := SaveInstance(want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := LoadInstance()
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.PID != want.PID || got.URL != want.URL || got.Token != want.Token {
+		t.Errorf("recorded %+v, want %+v", *got, *want)
+	}
+	if !got.Started.Equal(started) {
+		t.Errorf("start time %v, want %v", got.Started, started)
+	}
+
+	p, err := instancePath()
+	if err != nil {
+		t.Fatalf("instance path: %v", err)
+	}
+	// The token in here is what authorises commands to the running wrapper.
+	if fi, err := os.Stat(p); err != nil {
+		t.Fatalf("stat: %v", err)
+	} else if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
+		t.Errorf("instance file is %v; the token it holds must not be readable by others", fi.Mode().Perm())
+	}
+
+	// A record that says nothing about where to connect is no record at all:
+	// treating it as one would send the launch off to probe an empty address.
+	for _, body := range []string{"{not json", "{}", `{"pid":1,"url":""}`} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		got, err := LoadInstance()
+		if err != nil {
+			t.Errorf("%s should be ignored, not reported: %v", body, err)
+		}
+		if got != nil {
+			t.Errorf("%s was taken as a running instance: %+v", body, *got)
+		}
+	}
+}
