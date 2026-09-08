@@ -464,3 +464,30 @@ func TestSweepRemovesAbandonedTemporaries(t *testing.T) {
 		t.Error("the sweep must not touch the state files themselves")
 	}
 }
+
+// TestSweepRefusesZeroAge checks the sweep will not treat every file as an
+// orphan, which would delete the settings of whichever wrapper is running.
+func TestSweepRefusesZeroAge(t *testing.T) {
+	isolateConfig(t)
+	dir, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+	live := filepath.Join(dir, "live.settings.json")
+	if err := os.WriteFile(live, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	for _, age := range []time.Duration{0, -time.Hour} {
+		n, err := SweepSessions(age)
+		if err == nil {
+			t.Errorf("SweepSessions(%s) should have refused", age)
+		}
+		if n != 0 {
+			t.Errorf("SweepSessions(%s) removed %d files", age, n)
+		}
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Error("a live settings file was swept away")
+	}
+}

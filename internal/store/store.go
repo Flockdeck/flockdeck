@@ -235,6 +235,12 @@ func hashRoot(root string) string {
 // shutdown deletes both as it goes, so anything this finds is genuinely
 // orphaned.
 func SweepSessions(maxAge time.Duration) (int, error) {
+	// Without an age there is nothing separating an orphan from a file a
+	// running wrapper wrote a moment ago, and the sweep would delete the live
+	// wrapper's settings and half-written state. Refuse rather than guess.
+	if maxAge <= 0 {
+		return 0, fmt.Errorf("sweep sessions: maxAge must be positive, got %s", maxAge)
+	}
 	sessions, err := SessionsDir()
 	if err != nil {
 		return 0, err
