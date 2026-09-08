@@ -972,3 +972,48 @@ func TestSweepContinuesPastAnUnreadableDirectory(t *testing.T) {
 		t.Error("the state directory was not swept")
 	}
 }
+
+// TestSameRootDecidesWhatCountsAsOneProject pins the comparison the rest of
+// the store is built on: it decides which layout file a workspace gets, which
+// entries in the project list and the saved session are duplicates, and which
+// project a recorded layout is allowed to be restored into.
+func TestSameRootDecidesWhatCountsAsOneProject(t *testing.T) {
+	a := filepath.Clean("/repo/app")
+	sep := string(filepath.Separator)
+
+	same := []string{a, a + sep, filepath.Join("/repo", "sub", "..", "app")}
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		// These file systems do not distinguish the two, so neither may we:
+		// treating them as separate projects would give one directory two
+		// layouts and list it twice in the picker.
+		same = append(same, strings.ToUpper(a), strings.ToLower(a))
+	}
+	for _, root := range same {
+		if !sameRoot(a, root) {
+			t.Errorf("sameRoot(%q, %q) = false, want true", a, root)
+		}
+		if hashRoot(root) != hashRoot(a) {
+			t.Errorf("%q is stored under a different layout file from %q", root, a)
+		}
+	}
+
+	for _, root := range []string{
+		filepath.Clean("/repo/app2"),
+		filepath.Clean("/repo/app/sub"),
+		filepath.Clean("/other/app"),
+	} {
+		if sameRoot(a, root) {
+			t.Errorf("sameRoot(%q, %q) = true, want false", a, root)
+		}
+		if hashRoot(root) == hashRoot(a) {
+			t.Errorf("%q shares a layout file with %q", root, a)
+		}
+	}
+
+	// The name is what the layout file is found by, so its shape has to hold:
+	// a change here loses every saved workspace at once.
+	name := "layout-" + hashRoot(a) + ".json"
+	if len(name) != len("layout-")+16+len(".json") {
+		t.Errorf("layout file %q is not the expected layout-<16 hex>.json", name)
+	}
+}
