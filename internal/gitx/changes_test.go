@@ -93,6 +93,69 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	}
 }
 
+// TestChangesReportsAwkwardNames covers the names git quotes and escapes: a
+// path taken from its quoted form does not name a file that can be opened.
+func TestChangesReportsAwkwardNames(t *testing.T) {
+	repo := newRepo(t)
+
+	// Windows refuses ">" in a name, so each one is only expected back if the
+	// filesystem accepted it in the first place.
+	var names []string
+	for _, name := range []string{"a file with spaces.txt", "café.txt", "a -> b.txt"} {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte("x\n"), 0o600); err == nil {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		t.Skip("this filesystem accepted none of the awkward names")
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, f := range files {
+		seen[f.Path] = true
+	}
+	for _, name := range names {
+		if !seen[name] {
+			t.Errorf("%q not reported under its real name, got %+v", name, files)
+		}
+	}
+
+	// The diff panel opens the file by the name the list gave it.
+	diff, err := Diff(repo, "café.txt")
+	if err != nil {
+		t.Fatalf("diff of an escaped name: %v", err)
+	}
+	if !strings.Contains(diff, "+x") {
+		t.Errorf("diff did not find the file:\n%s", diff)
+	}
+}
+
+// TestChangesReportsRenameUnderItsNewName covers a staged rename, whose old
+// name git sends as a separate record.
+func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
+	repo := newRepo(t)
+
+	gitRun(t, repo, "mv", "README.md", "READTHIS.md")
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("a rename is one entry, got %+v", files)
+	}
+	if files[0].Path != "READTHIS.md" {
+		t.Errorf("path = %q, want the new name", files[0].Path)
+	}
+	if files[0].Label != "renamed" {
+		t.Errorf("label = %q, want renamed", files[0].Label)
+	}
+}
+
 // TestStatusLabelNamesConflicts covers the words shown beside each file. The
 // unmerged codes are the ones worth pinning: most of them look like an
 // ordinary add or delete if the letters are read one at a time.

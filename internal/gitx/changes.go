@@ -24,7 +24,12 @@ type FileChange struct {
 
 // Changes lists the files that differ from HEAD, with line counts.
 func Changes(dir string) ([]FileChange, error) {
-	out, err := run(dir, "status", "--porcelain", "--untracked-files=all")
+	// -z is what makes the names trustworthy: without it git quotes anything
+	// with a space, a quote or a non-ASCII character and escapes the bytes, so
+	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
+	// It also puts a rename's old name in its own record rather than writing
+	// "old -> new", which a file genuinely called "a -> b" was mistaken for.
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -34,18 +39,17 @@ func Changes(dir string) ([]FileChange, error) {
 	unstaged := numstat(dir, false)
 
 	var files []FileChange
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if len(line) < 4 {
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		entry := records[i]
+		if len(entry) < 4 {
 			continue
 		}
-		code := line[:2]
-		path := strings.TrimSpace(line[3:])
-		// Renames read as "old -> new"; the new name is the one to show.
-		if i := strings.Index(path, " -> "); i >= 0 {
-			path = path[i+4:]
+		code := entry[:2]
+		path := entry[3:]
+		if code[0] == 'R' || code[0] == 'C' {
+			i++ // the name it came from follows as its own record
 		}
-		path = strings.Trim(path, `"`)
 
 		fc := FileChange{
 			Path:      path,
