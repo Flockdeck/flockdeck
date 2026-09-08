@@ -239,3 +239,47 @@ func TestConversationsDoNotLeakBetweenCollidingSlugs(t *testing.T) {
 		t.Errorf("a colliding directory was shown %d conversations that are not its own: %+v", len(got), got)
 	}
 }
+
+// TestConversationsOmitEmptyTranscriptsAndOrderStably covers two things a
+// history list has to get right: it must not offer a row whose resume Claude
+// Code will refuse, and it must not reshuffle itself between refreshes when
+// several conversations share a timestamp.
+func TestConversationsOmitEmptyTranscriptsAndOrderStably(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	cwd := filepath.Join(t.TempDir(), "busy")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "projects", projectSlug(cwd))
+
+	prompt := `{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"a real prompt"}}`
+	together := time.Now().Add(-time.Hour)
+	for _, id := range []string{"bbbbbbbb-0000-0000-0000-000000000000", "aaaaaaaa-0000-0000-0000-000000000000", "cccccccc-0000-0000-0000-000000000000"} {
+		touch(t, writeTranscript(t, dir, id, prompt), together)
+	}
+
+	// Opened, never used: the file is there and holds nothing.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(dir, "dddddddd-0000-0000-0000-000000000000.jsonl")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, empty, time.Now())
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("listed %d conversations, want the 3 with something in them: %+v", len(got), got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1].ID > got[i].ID {
+			t.Errorf("conversations sharing a timestamp are not in a stable order: %q before %q", got[i-1].ID, got[i].ID)
+		}
+	}
+}

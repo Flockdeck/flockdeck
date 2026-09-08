@@ -79,6 +79,13 @@ func Conversations(cwd string) ([]Conversation, error) {
 		if err != nil {
 			continue
 		}
+		// A session interrupted before it recorded anything leaves an empty
+		// file behind. Offering it as a conversation is offering a resume
+		// that Claude Code refuses, on a row that can say nothing about
+		// itself but its date.
+		if info.Size() == 0 {
+			continue
+		}
 		c := Conversation{
 			ID:       strings.TrimSuffix(e.Name(), ".jsonl"),
 			Cwd:      cwd,
@@ -91,7 +98,14 @@ func Conversations(cwd string) ([]Conversation, error) {
 		}
 		out = append(out, c)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Modified.After(out[j].Modified) })
+	// Most recently used first, with the id breaking a tie so that two
+	// conversations started together do not swap places between refreshes.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Modified.Equal(out[j].Modified) {
+			return out[i].Modified.After(out[j].Modified)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 
