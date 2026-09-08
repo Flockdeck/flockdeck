@@ -593,6 +593,8 @@ func (s *Server) paneByID(id string) *workspace.Pane {
 	select {
 	case p := <-done:
 		return p
+	case <-s.closed:
+		return nil
 	case <-time.After(5 * time.Second):
 		return nil
 	}

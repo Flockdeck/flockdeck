@@ -126,7 +126,12 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 		}
 		done <- counts
 	})
-	return <-done
+	select {
+	case counts := <-done:
+		return counts
+	case <-s.closed:
+		return nil
+	}
 }
 
 // underPath reports whether cwd is base or inside it.
