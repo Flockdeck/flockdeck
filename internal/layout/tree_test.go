@@ -848,3 +848,38 @@ func TestNeighborNeedsGeometry(t *testing.T) {
 		t.Errorf("once measured, right of a = %q, want b", got)
 	}
 }
+
+// TestResizeIsIndependentOfTheWeightScale covers the same keypress landing on
+// two rows that look identical but whose weights are a thousand times apart,
+// which is what merging tabs leaves behind. It has to move both dividers by
+// the same visible amount.
+func TestResizeIsIndependentOfTheWeightScale(t *testing.T) {
+	build := func(scale float64) *Node {
+		root := NewLeaf("a")
+		root.Split("a", "b", Horizontal)
+		root.Split("b", "c", Horizontal)
+		if !root.SetChildWeights([]float64{scale, scale, scale}) {
+			t.Fatalf("scaling the row by %v failed", scale)
+		}
+		return root
+	}
+	view := Rect{X: 0, Y: 0, W: 302, H: 10}
+
+	plain, tiny := build(1), build(0.001)
+	if !plain.Resize("a", Horizontal, 0.4) || !tiny.Resize("a", Horizontal, 0.4) {
+		t.Fatal("resize failed")
+	}
+	plain.Compute(view)
+	tiny.Compute(view)
+
+	for _, pane := range []string{"a", "b", "c"} {
+		want, got := plain.Find(pane).Rect().W, tiny.Find(pane).Rect().W
+		if want != got {
+			t.Errorf("pane %s is %d columns in the scaled-down row and %d in the plain one", pane, got, want)
+		}
+	}
+	// And it actually moved: a took space from b, c is untouched.
+	if a, c := plain.Find("a").Rect().W, plain.Find("c").Rect().W; a <= c {
+		t.Errorf("a is %d columns and c is %d, want a to have grown", a, c)
+	}
+}

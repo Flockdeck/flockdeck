@@ -525,9 +525,13 @@ func (root *Node) Remove(pane string) bool {
 func (n *Node) Count() int { return len(n.Leaves()) }
 
 // Resize shifts space between the pane and one of its siblings along the given
-// axis, by delta cells' worth of weight. A positive delta always grows the
-// named pane, whichever sibling pays for it: normally the next one along, or
-// the previous one when the pane is last in its split.
+// axis. A positive delta always grows the named pane, whichever sibling pays
+// for it: normally the next one along, or the previous one when the pane is
+// last in its split.
+//
+// delta is measured against an even share of the split, so 0.5 moves the
+// divider by half of what one pane would get if they all shared equally, and a
+// pane may not be squeezed below a tenth of that share.
 func (root *Node) Resize(pane string, dir Dir, delta float64) bool {
 	leaf := root.Find(pane)
 	if leaf == nil {
@@ -546,9 +550,22 @@ func (root *Node) Resize(pane string, dir Dir, delta float64) bool {
 			if other >= len(parent.Children) {
 				other = idx - 1
 			}
+			// Weights are only meaningful against their siblings, and their
+			// absolute scale drifts: merging tabs scales a whole row down, so
+			// one row can sum to 2 and another to 0.03 and look identical on
+			// screen. Measuring delta against an even share of this split is
+			// what makes one keypress move the divider by the same visible
+			// amount wherever it is pressed.
+			total := 0.0
+			for _, c := range parent.Children {
+				total += c.weight()
+			}
+			share := total / float64(len(parent.Children))
+			step := delta * share
+
 			a, b := parent.Children[idx], parent.Children[other]
-			na, nb := a.weight()+delta, b.weight()-delta
-			if na < 0.1 || nb < 0.1 {
+			na, nb := a.weight()+step, b.weight()-step
+			if na < share/10 || nb < share/10 {
 				return false
 			}
 			a.Weight, b.Weight = na, nb
