@@ -118,6 +118,11 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"osc with ST", "\x1b]8;;http://x\x1b\\link", "link"},
 		{"carriage returns", "first\r\nsecond\r\n", "first\nsecond\n"},
 		{"bell", "ding\x07dong", "dingdong"},
+		// A charset designator carries the set it selects in the byte after
+		// the escape; leaving that behind puts a stray letter in the prose.
+		{"charset designator", "\x1b(Bplain ascii", "plain ascii"},
+		{"alternate charset", "\x1b)0line\x1b(Btext", "linetext"},
+		{"line size", "\x1b#8grid", "grid"},
 		{"plain", "nothing to strip", "nothing to strip"},
 	}
 	for _, c := range cases {

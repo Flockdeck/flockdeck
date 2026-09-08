@@ -75,6 +75,7 @@ const (
 	scanOSC
 	scanOSCEsc
 	scanCSI
+	scanEscArg
 )
 
 // scan reports whether p contains a real bell.
@@ -159,9 +160,18 @@ func stripANSI(p []byte) string {
 				state = scanOSC
 			case 'P', '^', '_':
 				state = scanOSC // string sequences end the same way
+			// A designator takes one more byte to say which set it selects,
+			// and that byte is a letter or a digit. Dropping only the escape
+			// leaves it behind, which is how "ESC ( B" -- how a program says
+			// it is back to plain ASCII, printed constantly -- turns into a
+			// stray "B" in the middle of a sentence.
+			case '(', ')', '*', '+', '-', '.', '/', '#', '%', ' ':
+				state = scanEscArg
 			default:
 				state = scanNormal
 			}
+		case scanEscArg:
+			state = scanNormal
 		case scanCSI:
 			// A CSI sequence ends at its final byte; the bytes before it are
 			// the parameters, which matter for the moves that stand in for
