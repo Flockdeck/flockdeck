@@ -155,8 +155,12 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			}
 		}
 		s.listChanges(c, dir)
-		// The pane headers show the same counts, so refresh them too.
-		s.ws.RefreshGit(s.do)
+		// The pane headers show the same counts, so refresh them too. Asking
+		// the git loop rather than sweeping here keeps one sweep running at a
+		// time: each one shells out to git for every open checkout, and a
+		// commit that lands while the interval comes round would otherwise
+		// start a second pass over all of them.
+		s.RefreshGitNow()
 	}()
 }
 
@@ -184,7 +188,7 @@ func (s *Server) runRemote(c *controlClient, action, path string) {
 			c.notify(pushSummary(out), false)
 		}
 		s.listChanges(c, dir)
-		s.ws.RefreshGit(s.do)
+		s.RefreshGitNow()
 	}()
 }
 

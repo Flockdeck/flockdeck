@@ -357,3 +357,33 @@ func TestReviewFromASubdirectoryDiffsTheRightFile(t *testing.T) {
 		t.Errorf("diff from a subdirectory did not show the change: %q", d.Text)
 	}
 }
+
+// TestCommitRefreshesThePaneHeaders pins the reason the review panel asks for
+// a git refresh at all: the dirty and untracked counts beside each pane's
+// branch have to settle down once the work has been committed, without waiting
+// for the polling interval to come round.
+func TestCommitRefreshesThePaneHeaders(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	if err := os.WriteFile(filepath.Join(repo, "added.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dirty := func(s stateMsg) bool {
+		for _, p := range s.Panes {
+			if p.Dirty > 0 || p.Untracked > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	nextState(t, conn, dirty)
+
+	sendCmd(t, conn, command{Cmd: "commit", Path: repo, Text: "keep it"})
+	start := time.Now()
+	nextState(t, conn, func(s stateMsg) bool { return !dirty(s) })
+	if elapsed := time.Since(start); elapsed > gitStatusInterval/2 {
+		t.Errorf("the pane headers took %v to settle, want a refresh on commit", elapsed)
+	}
+}
