@@ -169,6 +169,12 @@ const maxDiffBytes = 400 << 10
 // Diff returns a unified diff for one file, including untracked files, whose
 // content is shown as an addition.
 func Diff(dir, path string) (string, error) {
+	// The path arrives from the interface, so it has to be checked before it
+	// is joined onto the working tree: "../../.ssh/id_rsa" is not a file
+	// anyone asked the review panel about.
+	if !insideTree(path) {
+		return "", &gitError{"not a path inside the working tree: " + path}
+	}
 	full := filepath.Join(dir, path)
 	if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
 		if untracked(dir, path) {
@@ -193,6 +199,20 @@ func Diff(dir, path string) (string, error) {
 		}
 	}
 	return truncateDiff(out), nil
+}
+
+// insideTree reports whether a repository-relative path stays within the tree.
+func insideTree(path string) bool {
+	if path == "" || filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
+		return false
+	}
+	// git speaks in forward slashes; both separators have to be considered on
+	// Windows, where a leading one is still a rooted path.
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`) {
+		return false
+	}
+	clean := filepath.Clean(path)
+	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
 func untracked(dir, path string) bool {

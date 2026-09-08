@@ -214,6 +214,38 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 	}
 }
 
+// TestDiffRefusesPathsOutsideTheTree covers a path arriving from the browser:
+// it names a file in the working tree, or it is refused.
+func TestDiffRefusesPathsOutsideTheTree(t *testing.T) {
+	repo := newRepo(t)
+
+	outside := filepath.Join(filepath.Dir(repo), "secret.txt")
+	if err := os.WriteFile(outside, []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(outside) })
+
+	for _, p := range []string{
+		"../secret.txt",
+		"sub/../../secret.txt",
+		outside,
+		"/etc/passwd",
+		"",
+	} {
+		if out, err := Diff(repo, p); err == nil {
+			t.Errorf("Diff(%q) was allowed and returned %q", p, out)
+		}
+	}
+
+	// A path that stays inside is still served, including through a "..".
+	if err := os.MkdirAll(filepath.Join(repo, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Diff(repo, "sub/../README.md"); err != nil {
+		t.Errorf("a path that resolves inside the tree should be served: %v", err)
+	}
+}
+
 // TestTruncateDiffCutsOnALineBoundary covers an enormous diff: a cut at an
 // exact byte count leaves half a line, which the panel then colours as though
 // it were whole, and can split a multi-byte character.
