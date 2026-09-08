@@ -198,6 +198,11 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		return err
 	}
 	if _, err := appwindow.Open(url, profile); err != nil {
+		// The instance carries on without us, so its address stays good.
+		if errors.Is(err, appwindow.ErrNoBrowser) {
+			return fmt.Errorf("%w — set %s to one, or open this URL manually:\n  %s",
+				err, appwindow.BrowserEnv, url)
+		}
 		return fmt.Errorf("%w — open this URL manually:\n  %s", err, url)
 	}
 	return nil
@@ -339,11 +344,14 @@ func run(opts options) error {
 		}
 		win, err = appwindow.Open(srv.URL(), profile)
 		if err != nil {
+			// Unlike attaching, this server is ours and stops with us, so the
+			// address it was serving will not answer by the time anyone reads
+			// this. Name the ways to get a window instead.
 			if errors.Is(err, appwindow.ErrNoBrowser) {
-				return fmt.Errorf("%w — open this URL manually, or set %s:\n  %s",
-					err, appwindow.BrowserEnv, srv.URL())
+				return fmt.Errorf("%w — set %s to one, or run `agent-wrapper -no-window` and open the URL it prints",
+					err, appwindow.BrowserEnv)
 			}
-			return err
+			return fmt.Errorf("open the window: %w — or run `agent-wrapper -no-window` and open the URL it prints", err)
 		}
 		defer win.Close()
 
