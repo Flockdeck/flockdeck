@@ -52,8 +52,12 @@ func Conversations(cwd string) ([]Conversation, error) {
 	}
 	projects := filepath.Join(home, "projects")
 
+	// The derived name is only a guess, and a lossy one: every character that
+	// is not a letter or a digit becomes a dash, so "my-app" and "my_app"
+	// derive the same folder. Take it only when its transcripts agree they
+	// were recorded here, or say nothing either way.
 	dir := filepath.Join(projects, projectSlug(cwd))
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() || !folderCouldBe(dir, cwd) {
 		found, err := findProjectDir(projects, cwd)
 		if err != nil || found == "" {
 			return nil, err
@@ -116,39 +120,56 @@ func findProjectDir(projects, cwd string) (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	want := strings.ToLower(filepath.Clean(cwd))
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		// One transcript that names a directory identifies the whole folder,
-		// but the first file need not be that transcript: a session that was
-		// opened and abandoned leaves one with nothing in it. Keep looking
-		// past those, up to a handful, rather than writing the folder off.
-		tried := 0
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
-				continue
-			}
-			got := transcriptCwd(filepath.Join(dir, f.Name()))
-			if got == "" {
-				if tried++; tried >= cwdProbeLimit {
-					break
-				}
-				continue
-			}
-			if strings.ToLower(filepath.Clean(got)) == want {
-				return dir, nil
-			}
-			break
+		if got := folderCwd(dir); got != "" && sameDir(got, cwd) {
+			return dir, nil
 		}
 	}
 	return "", nil
+}
+
+// folderCwd returns the working directory a project folder's transcripts
+// record, or "" when none of the ones it looks at says.
+//
+// One transcript that names a directory identifies the whole folder, but the
+// first file need not be that transcript: a session that was opened and
+// abandoned leaves one with nothing in it. Look past those, up to a handful,
+// rather than writing the folder off.
+func folderCwd(dir string) string {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	tried := 0
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
+			continue
+		}
+		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
+			return got
+		}
+		if tried++; tried >= cwdProbeLimit {
+			break
+		}
+	}
+	return ""
+}
+
+// folderCouldBe reports whether a project folder may hold cwd's conversations:
+// either its transcripts say so, or they say nothing at all, which is what a
+// folder holding only abandoned sessions looks like.
+func folderCouldBe(dir, cwd string) bool {
+	got := folderCwd(dir)
+	return got == "" || sameDir(got, cwd)
+}
+
+// sameDir compares two recorded working directories.
+func sameDir(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 // transcriptCwd reads the working directory a transcript records.

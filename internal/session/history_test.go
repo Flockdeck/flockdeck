@@ -199,3 +199,43 @@ func TestConversationsSkipsEmptyTranscriptsWhenSearching(t *testing.T) {
 		t.Fatalf("found %d conversations, want 2", len(got))
 	}
 }
+
+// TestConversationsDoNotLeakBetweenCollidingSlugs covers the lossiness of the
+// derived folder name: every character that is not a letter or a digit becomes
+// a dash, so neighbouring directories share one. Listing the wrong project's
+// conversations would offer the user a resume that opens somebody else's work.
+func TestConversationsDoNotLeakBetweenCollidingSlugs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+
+	parent := t.TempDir()
+	dashed := filepath.Join(parent, "my-app")
+	scored := filepath.Join(parent, "my_app")
+	for _, d := range []string{dashed, scored} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if projectSlug(dashed) != projectSlug(scored) {
+		t.Fatalf("the two directories were expected to collide: %q vs %q", projectSlug(dashed), projectSlug(scored))
+	}
+
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(dashed)), "88888888-8888-8888-8888-888888888888",
+		`{"type":"user","cwd":"`+jsonPath(dashed)+`","message":{"role":"user","content":"work on my-app"}}`)
+
+	got, err := Conversations(dashed)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("the directory that owns the folder found %d conversations, want 1", len(got))
+	}
+
+	got, err = Conversations(scored)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("a colliding directory was shown %d conversations that are not its own: %+v", len(got), got)
+	}
+}
