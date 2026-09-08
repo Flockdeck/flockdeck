@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +180,34 @@ func TestOpenProjectRejectsFiles(t *testing.T) {
 	readUntil(t, conn, "notice", &note)
 	if !note.Error {
 		t.Errorf("expected an error notice, got %+v", note)
+	}
+}
+
+// TestUnreadableRecentsAreReported covers a config directory that cannot be
+// read: an empty picker looks exactly like never having opened a project
+// before, so the failure has to reach the window.
+func TestUnreadableRecentsAreReported(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	// Point the config location at a file, so the store cannot resolve its
+	// directory any more.
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APPDATA", blocker)
+	t.Setenv("XDG_CONFIG_HOME", blocker)
+	t.Setenv("HOME", blocker)
+
+	sendCmd(t, conn, command{Cmd: "recents"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error {
+		t.Errorf("expected an error notice, got %+v", note)
+	}
+	if !strings.Contains(note.Text, "recent projects") {
+		t.Errorf("notice = %q, want it to name the recent projects", note.Text)
 	}
 }

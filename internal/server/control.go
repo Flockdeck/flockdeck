@@ -485,7 +485,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.dismissTip(cmd.ID)
 		return
 	case "forgetRecent":
-		_ = store.ForgetRecent(cmd.Root)
+		if err := store.ForgetRecent(cmd.Root); err != nil {
+			// The list is about to be sent again with the project still on
+			// it; without this the entry just refuses to go away.
+			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+		}
 		s.recents(c)
 		return
 	}

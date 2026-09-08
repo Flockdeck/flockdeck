@@ -151,19 +151,34 @@ func places() []dirEntry {
 // recents answers the picker's request for previously opened projects.
 func (s *Server) recents(c *controlClient) {
 	open := map[string]bool{}
-	done := make(chan []store.Project, 1)
+	type result struct {
+		list []store.Project
+		err  error
+	}
+	done := make(chan result, 1)
 	s.do(func() {
 		for _, p := range s.ws.Projects() {
 			open[p.Root] = true
 		}
-		list, _ := store.Recents()
-		done <- list
+		list, err := store.Recents()
+		done <- result{list: list, err: err}
 	})
 
 	go func() {
-		list := <-done
+		var res result
+		select {
+		case res = <-done:
+		case <-s.closed:
+			return
+		}
+		if res.err != nil {
+			// A picker with nothing in it looks exactly like never having
+			// opened a project before, so an unreadable list has to say so
+			// rather than pass for an empty one.
+			c.notify("could not read the recent projects: "+res.err.Error(), true)
+		}
 		msg := recentsMsg{Type: "recents"}
-		for _, p := range list {
+		for _, p := range res.list {
 			fi, err := os.Stat(p.Root)
 			msg.Items = append(msg.Items, recentView{
 				Root:   p.Root,
