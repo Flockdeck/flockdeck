@@ -50,7 +50,12 @@ type PaneContext struct {
 	// started by a fan-out or by another agent rather than by hand.
 	Task string
 
-	Siblings      []Sibling
+	Siblings []Sibling
+	// SiblingsOmitted counts the live panes left out of Siblings once the list
+	// hit its limit, so the agent is told the list is partial rather than
+	// assuming it has seen everyone.
+	SiblingsOmitted int
+
 	OtherProjects []string
 
 	// CanSpawn reports whether `agent-wrapper spawn` will work from this pane.
@@ -93,6 +98,11 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	c.ProjectName = filepath.Base(c.ProjectRoot)
 	c.Worktree = c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot)
 
+	// Panes sharing the tab come first. They are the ones the agent is most
+	// likely to collide with — a split tab usually means one checkout — and
+	// the list is cut short in a busy project, so they must not be the ones
+	// that get dropped.
+	var sameTab, elsewhere []Sibling
 	for _, t := range w.Tabs {
 		if t.Root != c.ProjectRoot {
 			continue
@@ -109,7 +119,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			if st == session.StatusExited {
 				continue
 			}
-			c.Siblings = append(c.Siblings, Sibling{
+			s := Sibling{
 				Name:   sib.Name,
 				Tab:    t.Title,
 				Cwd:    sib.Cwd,
@@ -117,10 +127,17 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				Status: st.String(),
 				Shell:  sib.Kind == session.KindShell,
 				Task:   sib.Task,
-			})
+			}
+			if own != nil && t.ID == own.ID {
+				sameTab = append(sameTab, s)
+				continue
+			}
+			elsewhere = append(elsewhere, s)
 		}
 	}
+	c.Siblings = append(sameTab, elsewhere...)
 	if len(c.Siblings) > maxSiblings {
+		c.SiblingsOmitted = len(c.Siblings) - maxSiblings
 		c.Siblings = c.Siblings[:maxSiblings]
 	}
 
@@ -199,6 +216,9 @@ func (c PaneContext) Render() string {
 			"see yours, so nothing is shared unless the user or a commit carries it across.\n\n")
 		for _, s := range c.Siblings {
 			b.WriteString("- " + s.describe() + "\n")
+		}
+		if c.SiblingsOmitted > 0 {
+			fmt.Fprintf(&b, "- …and %d more, not listed.\n", c.SiblingsOmitted)
 		}
 		b.WriteString("\nIf more than one of you is working in the same checkout, expect files to " +
 			"change under you and re-read before editing.\n")

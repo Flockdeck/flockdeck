@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/agent-wrapper/internal/layout"
 	"github.com/jmwri/agent-wrapper/internal/session"
 )
 
@@ -194,5 +195,46 @@ func TestOneLineKeepsRunesWhole(t *testing.T) {
 	}
 	if strings.ContainsRune(got, utf8.RuneError) {
 		t.Errorf("oneLine cut a rune in half: %q", got)
+	}
+}
+
+// TestPaneContextPutsTabMatesFirst checks the ordering the sibling limit
+// relies on: panes sharing a tab usually share a checkout, so they are the
+// ones that must survive when the list is cut short.
+func TestPaneContextPutsTabMatesFirst(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "first")
+	ws.NewTab(session.KindShell, root, "second")
+	ws.SplitPane(layout.Vertical, session.KindShell)
+
+	mine := ws.CurrentTab().Focus
+	c, ok := ws.PaneContext(mine)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if len(c.Siblings) != 2 {
+		t.Fatalf("siblings = %#v, want the tab mate and the other tab", c.Siblings)
+	}
+	if c.Siblings[0].Tab != "second" {
+		t.Errorf("first sibling is in tab %q, want the pane sharing this tab", c.Siblings[0].Tab)
+	}
+	if c.SiblingsOmitted != 0 {
+		t.Errorf("omitted = %d, want none with only two siblings", c.SiblingsOmitted)
+	}
+}
+
+// TestRenderSaysWhenSiblingsWereOmitted keeps a truncated list from reading as
+// the whole picture, which would tell an agent it has the repository to
+// itself when it does not.
+func TestRenderSaysWhenSiblingsWereOmitted(t *testing.T) {
+	c := PaneContext{
+		PaneName:        "one",
+		Siblings:        []Sibling{{Name: "two", Cwd: "/repo", Status: "working"}},
+		SiblingsOmitted: 4,
+	}
+	if text := c.Render(); !strings.Contains(text, "4 more") {
+		t.Errorf("the context does not say four panes were left out:\n%s", text)
 	}
 }
