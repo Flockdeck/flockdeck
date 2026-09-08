@@ -145,6 +145,20 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		repo := gitRoot(baseCwd)
 		used := map[string]bool{}
 
+		// Whether a worktree can be cut at all is a property of the directory, not
+		// of any one task. Leaving it to PrepareWorktree answers every task in the
+		// list with the same complaint about the directory they all share.
+		if worktrees {
+			switch {
+			case !gitx.Available():
+				c.notify("git is not installed, so no worktrees can be created", true)
+				return
+			case repo == "":
+				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktrees can be created", filepath.Base(baseCwd)), true)
+				return
+			}
+		}
+
 		started, failed := 0, 0
 		for _, task := range tasks {
 			task = strings.TrimSpace(task)
