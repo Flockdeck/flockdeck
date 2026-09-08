@@ -487,6 +487,16 @@ textarea:focus-visible {
 .rev-commit textarea:focus { outline: none; border-color: var(--accent); }
 .rev-commit-buttons { display: flex; flex-direction: column; gap: 6px; }
 
+/* The file list is a fixed 260px beside the diff, so on a narrow window the
+ * diff is left with roughly twenty-five monospace columns - too few to read a
+ * changed line without scrolling every one of them sideways. The list goes
+ * above the diff instead, where it can be short and the diff gets the width. */
+@media (max-width: 720px) {
+  .rev-body { flex-direction: column; }
+  .rev-files { flex: 0 1 auto; align-self: stretch; max-height: 160px; }
+  .rev-diff { align-self: stretch; }
+}
+
 /* ------------------------------------------------------------------ history */
 
 .conv-row {
