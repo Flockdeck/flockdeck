@@ -850,3 +850,81 @@ func TestRecentsAreCapped(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteAtomicReplacesRatherThanOverwrites checks a shorter write leaves
+// none of the longer one it replaced, and that a write that cannot be done
+// reports it and leaves no debris. Writing over a file in place would pass the
+// first of those only by accident.
+func TestWriteAtomicReplacesRatherThanOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "state.json")
+
+	long := []byte(`{"open":["/repo/a","/repo/b","/repo/c"]}`)
+	short := []byte(`{"open":[]}`)
+	if err := writeAtomic(p, long); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if err := writeAtomic(p, short); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(short) {
+		t.Errorf("file holds %q, want exactly %q", got, short)
+	}
+
+	if err := writeAtomic(filepath.Join(dir, "no-such-dir", "state.json"), short); err == nil {
+		t.Error("writing into a directory that does not exist should have failed")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "state.json" {
+		t.Errorf("directory holds %v, want only the state file", entries)
+	}
+}
+
+// TestSaveFailureKeepsWhatWasThere checks a save that cannot complete leaves
+// the workspace that was last saved intact, rather than destroying it on the
+// way to failing.
+func TestSaveFailureKeepsWhatWasThere(t *testing.T) {
+	isolateConfig(t)
+
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "alpha"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	// A directory standing where the file goes is the portable way to make the
+	// rename fail with the file itself still readable underneath.
+	blocked := filepath.Join(filepath.Dir(p), "blocked.json")
+	if err := os.Rename(p, blocked); err != nil {
+		t.Fatalf("move aside: %v", err)
+	}
+	if err := os.Mkdir(p, 0o700); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "beta"}}}); err == nil {
+		t.Error("saving over a blocked path should have failed")
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatalf("unblock: %v", err)
+	}
+	if err := os.Rename(blocked, p); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	got, err := Load("/repo/a")
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Tabs[0].Title != "alpha" {
+		t.Errorf("restored %q, want the workspace that was last saved", got.Tabs[0].Title)
+	}
+}
