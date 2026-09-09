@@ -49,20 +49,78 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 
 func (s *Server) baseURL() string { return "http://" + s.Addr() }
 
+// everyRoute is every path the server answers on. The token is the only thing
+// standing between the agents and anything else running on the machine, so a
+// route added without a check for it is the whole security model gone; listing
+// them here is what makes that visible when one is.
+var everyRoute = []string{
+	"/",
+	"/assets/app.js",
+	"/assets/vendor/xterm.js",
+	"/ws/control",
+	"/ws/pty?id=any",
+	"/help.json",
+	"/health",
+	"/open?path=/tmp",
+	"/quit",
+}
+
 // TestTokenGatesEverything checks the loopback port cannot be driven by another
 // local process that has not been given the token.
+//
+// The routes that matter most are the ones a bare GET would otherwise act on:
+// /quit stops every agent in every project and /open opens a directory as one.
+// Both check the token before they look at the method, which is the right way
+// round and worth holding them to.
 func TestTokenGatesEverything(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	for _, path := range []string{"/", "/assets/app.js", "/ws/control"} {
-		resp, err := http.Get(srv.baseURL() + path)
-		if err != nil {
-			t.Fatalf("GET %s: %v", path, err)
+	// Nothing at all, a token that is not ours, one that is a prefix of ours,
+	// and ours with a character changed — all of them somebody else's guess.
+	real := srv.Token()
+	for _, creds := range []struct {
+		name   string
+		query  string
+		cookie string
+	}{
+		{name: "no token"},
+		{name: "a token from somewhere else", query: "not-the-token"},
+		{name: "a prefix of the token", query: real[:len(real)-1]},
+		{name: "the token with one character changed", query: "0" + real[1:]},
+		{name: "somebody else's cookie", cookie: "not-the-token"},
+		{name: "a prefix of the token as a cookie", cookie: real[:len(real)-1]},
+	} {
+		for _, path := range everyRoute {
+			url := srv.baseURL() + path
+			if creds.query != "" {
+				sep := "?"
+				if strings.Contains(path, "?") {
+					sep = "&"
+				}
+				url += sep + "t=" + creds.query
+			}
+			req, err := http.NewRequest(http.MethodGet, url, nil)
+			if err != nil {
+				t.Fatalf("build request for %s: %v", path, err)
+			}
+			if creds.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: tokenCookie, Value: creds.cookie})
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("GET %s: %v", path, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("GET %s with %s = %d, want 403", path, creds.name, resp.StatusCode)
+			}
 		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden {
-			t.Errorf("GET %s without a token = %d, want 403", path, resp.StatusCode)
-		}
+	}
+
+	// And the agents are still running, which is the point: /quit must not
+	// have been acted on before the token was looked at.
+	if roots := srv.projectRoots(t); len(roots) == 0 {
+		t.Error("the workspace is gone after unauthorised requests")
 	}
 }
 
