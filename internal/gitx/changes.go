@@ -79,7 +79,7 @@ func Changes(dir string) ([]FileChange, error) {
 		}
 		files = append(files, fc)
 	}
-	countUntracked(dir, files)
+	countUntracked(dir, files, maxCounted)
 	return files, nil
 }
 
@@ -91,7 +91,7 @@ func Changes(dir string) ([]FileChange, error) {
 // at a time took 27 seconds over 20,000 of them -- almost all of it waiting on
 // the disk with nothing else in flight, while the git call that found them
 // took 262ms. Reading several at once is what shortens that wait.
-func countUntracked(dir string, files []FileChange) {
+func countUntracked(dir string, files []FileChange, limit int) {
 	const readers = 16
 	jobs := make(chan int)
 	var wg sync.WaitGroup
@@ -106,14 +106,29 @@ func countUntracked(dir string, files []FileChange) {
 			}
 		}()
 	}
+	left := limit
 	for i := range files {
-		if files[i].Untracked {
-			jobs <- i
+		if !files[i].Untracked {
+			continue
 		}
+		if left == 0 {
+			break
+		}
+		left--
+		jobs <- i
 	}
 	close(jobs)
 	wg.Wait()
 }
+
+// maxCounted bounds how many new files have their lines counted.
+//
+// The count is a nicety -- a "+40" beside the name -- and it costs a whole
+// file read each. Reading them at once brought 20,000 of them down from 27s to
+// 6s, which is still seconds of the panel not appearing, for numbers on rows
+// nobody scrolls to. Past this many the file is still listed, without a count,
+// which is how a file with nothing added in it looks anyway.
+const maxCounted = 1000
 
 type lineCount struct{ added, removed int }
 

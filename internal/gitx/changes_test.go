@@ -142,6 +142,37 @@ func TestUntrackedCountsSurviveBeingReadAtOnce(t *testing.T) {
 	}
 }
 
+// TestUntrackedCountingStopsAtTheLimit checks that the panel is not made to
+// wait on a checkout that has picked up thousands of new files.
+func TestUntrackedCountingStopsAtTheLimit(t *testing.T) {
+	repo := newRepo(t)
+	for i := 1; i <= 5; i++ {
+		write(t, repo, fmt.Sprintf("new-%03d.txt", i), strings.Repeat("x\n", i))
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	for i := range files {
+		files[i].Added = 0
+	}
+	countUntracked(repo, files, 3)
+
+	var counted int
+	for _, f := range files {
+		if f.Added > 0 {
+			counted++
+		}
+	}
+	if counted != 3 {
+		t.Errorf("%d files counted, want the limit of 3: %+v", counted, files)
+	}
+	if len(files) != 5 {
+		t.Errorf("%d files listed, want all 5: the limit is on the counting, not the listing", len(files))
+	}
+}
+
 // TestDiffCoversTrackedAndUntracked checks both paths the panel needs.
 func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	repo := newRepo(t)
