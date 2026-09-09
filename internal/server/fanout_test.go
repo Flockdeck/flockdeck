@@ -322,7 +322,7 @@ func TestPlanJobsIgnoresBlankRows(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		tasks = append(tasks, "")
 	}
-	jobs, capped := planJobs(tasks, `C:epo`)
+	jobs, capped := planJobs(tasks, `C:epo`)
 	if capped {
 		t.Error("blank rows were counted towards the cap")
 	}
@@ -334,7 +334,7 @@ func TestPlanJobsIgnoresBlankRows(t *testing.T) {
 		if jobs[i].task != want {
 			t.Errorf("task %d = %q, want %q", i, jobs[i].task, want)
 		}
-		if jobs[i].cwd != `C:epo` {
+		if jobs[i].cwd != `C:epo` {
 			t.Errorf("task %d starts in %q, want the project", i, jobs[i].cwd)
 		}
 	}
