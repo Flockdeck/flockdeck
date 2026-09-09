@@ -252,6 +252,27 @@ func stripANSI(p []byte) string {
 				for n := csiCount(params); n > 0; n-- {
 					out = append(out, ' ')
 				}
+			// Moving to a column is the other way of saying what a carriage
+			// return says, and the way Claude Code's own interface says it:
+			// go back to the start of the line and draw it again. Without
+			// this the line before the redraw and the line after it are read
+			// as one, which is how a status line that has counted to a
+			// hundred arrives here as every number it passed through.
+			case c == 'G':
+				col := csiCount(params)
+				if col < 1 {
+					col = 1
+				}
+				target := lineStart + col - 1
+				for len(out) < target {
+					out = append(out, ' ')
+				}
+				out = out[:target]
+			// Erasing the line is the rest of that idiom. Only erasing all of
+			// it has anything to undo where text is appended rather than laid
+			// out: the other forms erase what has not been written yet.
+			case c == 'K' && csiCount(params) == 2:
+				out = out[:lineStart]
 			}
 		case scanOSC:
 			if c == 0x07 {

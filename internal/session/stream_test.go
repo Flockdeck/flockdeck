@@ -129,6 +129,16 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"charset designator", "\x1b(Bplain ascii", "plain ascii"},
 		{"alternate charset", "\x1b)0line\x1b(Btext", "linetext"},
 		{"line size", "\x1b#8grid", "grid"},
+		// Moving to a column is the other spelling of a carriage return, and
+		// the one Claude Code's own interface uses to redraw a line.
+		{"a column move rewinds the line", "50%\x1b[1G100%", "100%"},
+		{"an unparameterised column move is column one", "50%\x1b[G100%", "100%"},
+		{"a column move keeps what is before it", "abcdef\x1b[3Gxy", "abxy"},
+		{"a column move past the end pads", "ab\x1b[5Gcd", "ab  cd"},
+		{"a column move after a line break stays on its line", "first\n50%\x1b[1G100%", "first\n100%"},
+		// Erasing the whole line is the rest of that idiom.
+		{"erasing the line drops it", "stale text\x1b[2K\x1b[1Gfresh", "fresh"},
+		{"erasing to the end of the line drops nothing", "kept\x1b[K", "kept"},
 		{"plain", "nothing to strip", "nothing to strip"},
 	}
 	for _, c := range cases {
