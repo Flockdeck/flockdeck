@@ -343,22 +343,89 @@
     return document.querySelector('.split[data-node="' + CSS.escape(id) + '"]');
   }
 
-  /** makeDivider returns a draggable separator that reweights its siblings. */
+  /** panelsAround returns the two panels a divider sits between, and every
+   *  panel in the split — the weights are saved as a set. */
+  function panelsAround(split, d) {
+    const kids = [...split.children];
+    const panels = kids.filter((c) => !c.classList.contains("divider"));
+    // The divider follows the panel it belongs to, so the count of panels
+    // before it, less one, is that panel's place in the list.
+    const at = kids.slice(0, kids.indexOf(d)).filter((c) => !c.classList.contains("divider")).length - 1;
+    const a = panels[at], b = panels[at + 1];
+    return a && b ? { panels, a, b } : null;
+  }
+
+  /** saveWeights tells the Go side how the split was left, so it comes back
+   *  the same way, and refits the terminals to their new size. */
+  function saveWeights(node, panels) {
+    send({ cmd: "setWeights", node: node.id, weights: panels.map((p) => parseFloat(p.style.flexGrow) || 1) });
+    panels.forEach(refitWithin);
+  }
+
+  /** sayShare puts the split on the separator, which is the only way a screen
+   *  reader can tell that an arrow key did anything. */
+  function sayShare(d, a, b) {
+    const aGrow = parseFloat(a.style.flexGrow) || 1;
+    const bGrow = parseFloat(b.style.flexGrow) || 1;
+    d.setAttribute("aria-valuenow", String(Math.round((aGrow / (aGrow + bGrow)) * 100)));
+  }
+
+  /** One press of an arrow key moves this much of the pair across. */
+  const RESIZE_STEP = 0.04;
+
+  /** makeDivider returns a separator that reweights its siblings, by dragging
+   *  or from the keyboard. A row of six agents is unreadable until some of them
+   *  are given more room than others, and until now that could only be done
+   *  with a mouse. */
   function makeDivider(split, node) {
     const d = el("div", "divider");
+    const acrossIsWidth = node.dir === "h";
+    d.tabIndex = 0;
+    d.setAttribute("role", "separator");
+    // The bar itself lies across the split: a row of panes is divided by an
+    // upright one, which is what a reader is told about.
+    d.setAttribute("aria-orientation", acrossIsWidth ? "vertical" : "horizontal");
+    d.setAttribute("aria-valuemin", "10");
+    d.setAttribute("aria-valuemax", "90");
+    const how = acrossIsWidth
+      ? "Sets how the width is shared between the panes either side. Drag it, or use the left and right arrow keys; Home makes them equal."
+      : "Sets how the height is shared between the panes either side. Drag it, or use the up and down arrow keys; Home makes them equal.";
+    d.setAttribute("aria-label", how);
+    describe(d, how);
+
+    d.addEventListener("keydown", (ev) => {
+      const less = ev.key === (acrossIsWidth ? "ArrowLeft" : "ArrowUp");
+      const more = ev.key === (acrossIsWidth ? "ArrowRight" : "ArrowDown");
+      if (!less && !more && ev.key !== "Home") return;
+      const pair = panelsAround(split, d);
+      if (!pair) return;
+      ev.preventDefault();
+      // The window handler dispatches bindings from the action table; a bare
+      // arrow is not one, but stopping here says so rather than relying on it.
+      ev.stopPropagation();
+      const aGrow = parseFloat(pair.a.style.flexGrow) || 1;
+      const bGrow = parseFloat(pair.b.style.flexGrow) || 1;
+      const total = aGrow + bGrow;
+      const share = ev.key === "Home"
+        ? 0.5
+        : Math.max(0.1, Math.min(0.9, aGrow / total + (more ? RESIZE_STEP : -RESIZE_STEP)));
+      pair.a.style.flexGrow = String(total * share);
+      pair.b.style.flexGrow = String(total * (1 - share));
+      sayShare(d, pair.a, pair.b);
+      saveWeights(node, pair.panels);
+    });
+
     d.addEventListener("pointerdown", (ev) => {
       // The secondary button opens a menu; it does not start a resize. Without
       // this, a right-click on a divider began one and the panes then followed
       // the pointer around until something released the primary button.
       if (ev.button !== 0) return;
-      ev.preventDefault();
-      const horizontal = node.dir === "h";
       // Only the two panels either side of this divider are affected.
-      const panels = [...split.children].filter((c) => !c.classList.contains("divider"));
-      const idx = [...split.children].indexOf(d);
-      const before = [...split.children].slice(0, idx).filter((c) => !c.classList.contains("divider")).length - 1;
-      const a = panels[before], b = panels[before + 1];
-      if (!a || !b) return;
+      const pair = panelsAround(split, d);
+      if (!pair) return;
+      ev.preventDefault();
+      const { panels, a, b } = pair;
+      const horizontal = acrossIsWidth;
 
       const startPos = horizontal ? ev.clientX : ev.clientY;
       const aSize = horizontal ? a.offsetWidth : a.offsetHeight;
@@ -392,10 +459,8 @@
         d.removeEventListener("pointerup", onUp);
         d.removeEventListener("pointercancel", onUp);
         d.classList.remove("dragging");
-        // Persist every child's weight, so the split is restored as drawn.
-        const weights = panels.map((p) => parseFloat(p.style.flexGrow) || 1);
-        send({ cmd: "setWeights", node: node.id, weights });
-        panels.forEach(refitWithin);
+        sayShare(d, a, b);
+        saveWeights(node, panels);
       };
       d.addEventListener("pointermove", onMove);
       d.addEventListener("pointerup", onUp);

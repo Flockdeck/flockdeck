@@ -146,6 +146,7 @@ body { display: flex; flex-direction: column; }
 .tab:focus-visible,
 .tab .close:focus-visible,
 .pane-actions button:focus-visible,
+.divider:focus-visible,
 .help-item:focus-visible,
 .places button:focus-visible,
 input:focus-visible,
@@ -190,6 +191,10 @@ textarea:focus-visible {
 .split.h > .divider { cursor: col-resize; }
 .split.v > .divider { cursor: row-resize; }
 .divider:hover::after, .divider.dragging::after { background: var(--accent); }
+/* The bar is four pixels wide, so a ring drawn around it would be most of what
+ * you saw. Lighting the line itself says the same thing in the space there is,
+ * and the ring above still draws for anything that does have room. */
+.divider:focus-visible::after { background: var(--accent); }
 
 /* ------------------------------------------------------------------- panes */
 

@@ -672,6 +672,67 @@ assert.deepStrictEqual(panels(), dragged, "the panes still follow a pointer that
 `)
 }
 
+// A row of six agents is unreadable until some of them are given more room
+// than others, and that could only be done by dragging.
+func TestASplitCanBeResizedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [{ id: "t1", title: "three up", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") },
+}));
+
+const bars = h.doc.querySelectorAll("div.divider");
+assert.strictEqual(bars.length, 2, "two dividers between three panes");
+const bar = bars[0];
+assert.strictEqual(bar.getAttribute("role"), "separator");
+assert.strictEqual(bar.getAttribute("aria-orientation"), "vertical", "a row of panes is split by an upright bar");
+assert.ok(bar.getAttribute("aria-label"), "the separator has no name");
+assert.strictEqual(bar.getAttribute("tabindex"), "0", "the separator cannot be reached from the keyboard");
+
+const panes = () => h.doc.querySelectorAll("div.pane").map((p) => Number(p.style.flexGrow));
+bar.focus();
+const start = panes();
+assert.deepStrictEqual(start, [1, 1, 1], "the panes start level");
+
+// Right widens the pane on the left of this divider, at the expense of the
+// one on its right. The third pane is not involved.
+h.dispatch(bar, new h.Ev("keydown", { key: "ArrowRight" }));
+let now = panes();
+assert.ok(now[0] > start[0], "the left pane did not grow");
+assert.ok(now[1] < start[1], "the right pane did not give way");
+assert.strictEqual(now[2], start[2], "a pane on the other side of the split moved");
+assert.ok(Math.abs(now[0] + now[1] - 2) < 1e-9, "the pair no longer adds up");
+assert.strictEqual(bar.getAttribute("aria-valuenow"), "54", "the separator does not say how it was left");
+
+// It is saved as it is left, so the layout comes back this way.
+const saved = h.commands().filter((c) => c.cmd === "setWeights");
+assert.strictEqual(saved.length, 1);
+assert.strictEqual(saved[0].node, "s-h-3");
+assert.strictEqual(saved[0].weights.length, 3);
+
+// Left goes back, and Home makes the pair equal again.
+for (let i = 0; i < 6; i++) h.dispatch(bar, new h.Ev("keydown", { key: "ArrowLeft" }));
+assert.ok(panes()[0] < start[0], "the left arrow did not narrow the pane");
+h.dispatch(bar, new h.Ev("keydown", { key: "Home" }));
+assert.deepStrictEqual(panes(), [1, 1, 1], "Home did not level the pair");
+
+// It stops rather than letting a pane disappear.
+for (let i = 0; i < 40; i++) h.dispatch(bar, new h.Ev("keydown", { key: "ArrowLeft" }));
+assert.ok(panes()[0] >= 0.2, "the pane was squeezed out of existence: " + panes()[0]);
+
+// The other divider is the pair to its own right, not this one.
+bars[1].focus();
+h.dispatch(bars[1], new h.Ev("keydown", { key: "ArrowRight" }));
+assert.ok(panes()[2] < 1, "the second divider moved the wrong pair");
+
+// A key the separator does not use is left for the rest of the application.
+const ev = h.dispatch(bar, new h.Ev("keydown", { key: "ArrowUp" }));
+assert.ok(ev, "an up arrow on an upright separator is not its business");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
