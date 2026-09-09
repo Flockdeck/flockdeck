@@ -1292,3 +1292,48 @@ func TestABadWeightCannotSilenceTheWindows(t *testing.T) {
 		}
 	}
 }
+
+// TestChatterIsHeldToTheInterval covers the cap the interval exists for. Each
+// state message costs the window a parse and a full redraw of its chrome, on
+// the same thread that draws the terminals, so what the agents change between
+// themselves has to be rationed however fast they change it.
+func TestChatterIsHeldToTheInterval(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	// A change every few milliseconds, each one different, arriving the way a
+	// session's own output does rather than as something a person asked for.
+	stop := make(chan struct{})
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			renameTab(t, srv, id, fmt.Sprintf("chatter %d", i))
+			time.Sleep(3 * time.Millisecond)
+		}
+	}()
+
+	const window = 2 * time.Second
+	deadline := time.Now().Add(window)
+	sent := 0
+	for time.Now().Before(deadline) {
+		if _, ok := r.stateWithin(time.Until(deadline), nil); ok {
+			sent++
+		}
+	}
+	close(stop)
+
+	// A little over the cap allows for the wait being measured from the start
+	// of one broadcast rather than the end.
+	most := int(window/stateInterval) + 2
+	if sent > most {
+		t.Errorf("%d broadcasts in %v, which is more than the %v interval allows (%d)", sent, window, stateInterval, most)
+	}
+	t.Logf("%d broadcasts in %v", sent, window)
+}

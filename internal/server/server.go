@@ -32,7 +32,15 @@ const tokenCookie = "perch_token"
 // stateInterval is the shortest gap between two state pushes made for the
 // agents' own account. They produce output continuously; the tab bar does not
 // need to be rebuilt for every chunk.
-const stateInterval = 40 * time.Millisecond
+//
+// Ten a second is as fast as this is worth doing. What it carries is a status
+// word, a detail line and a few counts, and nobody can read those changing
+// faster than that — while each one costs the window a parse and a full redraw
+// of the tab bar, every pane header and the summary, taken from the same thread
+// that is drawing the terminals. It used to be twenty-five a second because the
+// same number decided how long a person waited to see their own click; now that
+// those are separate, this one can be set on its own merits.
+const stateInterval = 100 * time.Millisecond
 
 // askedInterval is the same for a change somebody just asked for. It is a
 // floor rather than a pace: it exists only so that a client sending commands
