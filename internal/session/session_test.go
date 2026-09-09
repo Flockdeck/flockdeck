@@ -854,3 +854,81 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 		t.Errorf("status = %v; a hook outranks the keyboard", st)
 	}
 }
+
+// TestClosingAPaneRacesEverythingElse closes a pane while every other thing
+// that can happen to one is happening: the reader publishing, the layout
+// resizing, a viewer arriving and leaving, keystrokes, and lifecycle hooks.
+// That is not a contrived arrangement -- closing a pane reflows the tab, which
+// resizes its neighbours, and the pane being closed is on screen with a viewer
+// attached and its agent still printing.
+//
+// The fake pseudo-terminal refuses to be used after it is released, so
+// anything that reaches it late brings the test down rather than passing
+// quietly. That is what a real one does on Windows, where the handle points
+// into the console host and closing it frees what it points at.
+func TestClosingAPaneRacesEverythingElse(t *testing.T) {
+	for round := 0; round < 50; round++ {
+		f := newFakePTY()
+		s := fakeSession(f)
+		s.Kind = KindClaude
+		s.idleAfter = time.Millisecond
+		go s.pumpOutput()
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		stop := make(chan struct{})
+		spawn := func(fn func(i int)) {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for i := 0; ; i++ {
+					select {
+					case <-stop:
+						return
+					default:
+						fn(i)
+					}
+				}
+			}()
+		}
+
+		spawn(func(i int) { s.Resize(60+i%40, 20+i%10) })
+		spawn(func(int) { _ = s.WriteString("keystroke") })
+		spawn(func(int) {
+			id, _, out := s.Subscribe()
+			select {
+			case <-out:
+			default:
+			}
+			s.Unsubscribe(id)
+		})
+		spawn(func(i int) {
+			if i%2 == 0 {
+				s.SetStatus(StatusWorking, "Bash")
+			} else {
+				s.SetStatus(StatusWaiting, "")
+			}
+			_, _ = s.Status()
+			_, _ = s.Size()
+			_ = s.RecentText(64)
+			_ = s.Exited()
+		})
+		spawn(func(int) { f.feed([]byte("output from the agent\x07\n")) })
+
+		close(start)
+		time.Sleep(time.Duration(round%5) * time.Millisecond)
+		if err := s.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		// Keep everything running for a moment past the close, which is where
+		// a late call into a released pseudo-terminal would land.
+		time.Sleep(2 * time.Millisecond)
+		close(stop)
+		wg.Wait()
+
+		if err := s.Close(); err != nil {
+			t.Fatalf("closing twice: %v", err)
+		}
+	}
+}

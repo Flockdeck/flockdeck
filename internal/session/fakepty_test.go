@@ -28,8 +28,20 @@ type fakePTY struct {
 
 func newFakePTY() *fakePTY { return &fakePTY{reads: make(chan []byte, 64)} }
 
-// feed queues a chunk for the reader to pick up.
-func (f *fakePTY) feed(p []byte) { f.reads <- p }
+// feed queues a chunk for the reader to pick up. A chunk offered to a closed
+// pseudo-terminal, or to one nothing is draining, is dropped rather than
+// blocking the test that offered it.
+func (f *fakePTY) feed(p []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+	select {
+	case f.reads <- p:
+	default:
+	}
+}
 
 func (f *fakePTY) Read(p []byte) (int, error) {
 	chunk, ok := <-f.reads
@@ -51,12 +63,12 @@ func (f *fakePTY) Write(p []byte) (int, error) {
 
 func (f *fakePTY) Close() error {
 	f.mu.Lock()
-	already := f.closed
-	f.closed = true
-	f.mu.Unlock()
-	if !already {
-		close(f.reads)
+	defer f.mu.Unlock()
+	if f.closed {
+		return nil
 	}
+	f.closed = true
+	close(f.reads)
 	return nil
 }
 
