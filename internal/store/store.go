@@ -55,6 +55,15 @@ type Pane struct {
 	// Task is what a spawned pane was asked to do. It is kept so a restored
 	// agent can still be told why its pane exists.
 	Task string `json:"task,omitempty"`
+	// Root is the project the pane belongs to, written only when it is not the
+	// project of the tab holding it. A tab may show agents from more than one
+	// project, and without this a borrowed pane would come back counted
+	// against the tab's project: shown under the wrong name, stopped when the
+	// wrong project was closed, and told it was working somewhere it was not.
+	//
+	// Absent — which is every layout written before this — means the tab's own
+	// project, which is what those layouts meant.
+	Root string `json:"root,omitempty"`
 }
 
 // Dir returns the per-user directory holding Perch's state.

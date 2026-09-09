@@ -10,6 +10,19 @@ them starts waiting on you while you are elsewhere.
 Each project keeps its own tabs, its own layout and its own restored
 conversations.
 
+## Two at once, side by side
+
+Switching shows one project at a time. To watch two of them together, split a
+pane into another project: the split button beside a project in the picker, or
+**Split into project** in the command palette. The new agent works in that
+project while sitting on this tab, and its header carries the project's name so
+the tab still says which is which.
+
+The tab goes on belonging to the project it was made in, and is saved with that
+project's layout. Reopening it brings the other project back too, since the
+agent on it belongs there — and closing that project stops the agent wherever
+it is being shown.
+
 ## Opening one
 
 The picker offers the projects you have opened before, and a directory browser

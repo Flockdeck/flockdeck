@@ -45,6 +45,8 @@
     untracked:   "New files git is not tracking yet - they are in no commit, and a push leaves them behind.",
     clean:       "Nothing to commit - this working tree matches its last commit.",
     branch:      "The branch this checkout has in its working tree.",
+    project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
+    splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
     broadcast:   "Mirrors what you type into every pane in the broadcast set, so one instruction reaches them all.",
     fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
@@ -758,6 +760,7 @@
     const header = el("div", "pane-header");
     const dot = el("span", "dot");
     const name = el("span", "pane-name");
+    const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
@@ -781,7 +784,7 @@
       btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
-    header.append(dot, name, branch, git, detail, cast, actions);
+    header.append(dot, project, name, branch, git, detail, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -829,7 +832,7 @@
       /* Canvas rendering is a fine fallback. */
     }
 
-    p = { id, wrap, header, dot, name, branch, git, detail, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, git, detail, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone };
     panes.set(id, p);
 
@@ -909,6 +912,7 @@
       p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
       describe(p.dot, TIPS[v.status] || v.status);
       p.name.textContent = v.name;
+      renderPaneProject(p, v);
       renderPaneBranch(p, v);
       p.detail.textContent = v.detail || "";
       renderPaneGit(p, v);
@@ -928,6 +932,18 @@
       p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
       renderPaneOverlay(p, v);
     }
+  }
+
+  /** renderPaneProject names the pane's own project, and is empty for the
+   *  ordinary pane whose project is its tab's. The server only sends the field
+   *  when the two differ, so the label appears exactly when it says something
+   *  the tab bar does not already. */
+  function renderPaneProject(p, v) {
+    p.project.textContent = "";
+    p.project.hidden = !v.project;
+    if (!v.project) { delete p.project.dataset.tip; return; }
+    p.project.textContent = v.project;
+    describe(p.project, TIPS.project);
   }
 
   /** renderPaneBranch names the checkout the pane is sitting in. The fork glyph
@@ -1286,6 +1302,19 @@
       }
       badge.append(document.createTextNode(p.tabs + (p.tabs === 1 ? " tab" : " tabs")));
       row.append(badge);
+
+      // Splitting into the project already on screen is just an ordinary
+      // split, so the button is offered on the others.
+      if (!p.active) {
+        const split = el("button", "icon-btn", "⊞");
+        describe(split, TIPS.splitHere);
+        split.onclick = (ev) => {
+          ev.stopPropagation();
+          send({ cmd: "splitPane", dir: "h", root: p.root });
+          closeOverlay();
+        };
+        row.append(split);
+      }
 
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
@@ -1651,6 +1680,9 @@
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
+      if (!p.active) {
+        cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
+      }
     });
     (s.tabs || []).forEach((t) => {
       if (t.id === s.activeTab) return;

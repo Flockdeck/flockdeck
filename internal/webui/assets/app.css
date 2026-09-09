@@ -269,6 +269,21 @@ textarea:focus-visible {
 
 .pane-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-branch { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Only a pane borrowed from another project carries this, so it is meant to
+ * catch the eye: it is the one thing saying that the tab is not all one
+ * project. It does not collapse, because a pane whose project has been
+ * squeezed out of the header is the pane the label existed for. */
+.pane-project {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--fg);
+  background: var(--sep);
+  white-space: nowrap;
+}
 /* Everything to the left of the actions has to be able to collapse. The
  * actions are the only part of the header that is not informational - closing
  * and zooming a pane happen here - so in a three-way split, where a pane is a

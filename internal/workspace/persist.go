@@ -45,7 +45,7 @@ func (w *Workspace) SaveProject(root string) error {
 		st.Tabs = append(st.Tabs, store.Tab{
 			Title: t.Title,
 			Focus: t.Focus,
-			Root:  w.encodeNode(t.Tree),
+			Root:  w.encodeNode(t.Tree, t.Root),
 		})
 	}
 	return store.Save(root, st)
@@ -74,7 +74,7 @@ func (w *Workspace) rememberedActive(root string, tabs int) int {
 }
 
 // encodeNode converts a live layout node into its persisted form.
-func (w *Workspace) encodeNode(n *layout.Node) *store.Node {
+func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 	if n == nil {
 		return nil
 	}
@@ -91,11 +91,17 @@ func (w *Workspace) encodeNode(n *layout.Node) *store.Node {
 			Name: p.Name,
 			Task: p.Task,
 		}
+		// Only a pane borrowed from another project needs its project written
+		// down; leaving it out otherwise keeps the file as it has always been
+		// for the ordinary case, which is every pane in a one-project tab.
+		if p.Root != "" && !sameDir(p.Root, tabRoot) {
+			out.Pane.Root = p.Root
+		}
 		return out
 	}
 	out.Dir = dirName(n.Dir)
 	for _, c := range n.Children {
-		if enc := w.encodeNode(c); enc != nil {
+		if enc := w.encodeNode(c, tabRoot); enc != nil {
 			out.Children = append(out.Children, enc)
 		}
 	}
@@ -126,7 +132,7 @@ func (w *Workspace) restoreProject(root string) int {
 	// tab that cannot be restored hands the window over to its neighbour.
 	var firstTab, activeTab, nearest string
 	for i, t := range st.Tabs {
-		tree := w.decodeNode(t.Root)
+		tree := w.decodeNode(t.Root, root)
 		if tree == nil {
 			continue
 		}
@@ -202,8 +208,41 @@ func (w *Workspace) stillAutoTitled(t *Tab) bool {
 	return false
 }
 
+// ensureProjectOpen opens the project a restored pane belongs to, so a tab
+// showing agents from two projects brings both projects back with it.
+//
+// A project whose directory has since gone is not opened. The pane itself is
+// still started in the directory it recorded — losing the project it was
+// counted against is no reason to lose the conversation.
+func (w *Workspace) ensureProjectOpen(root string) {
+	if root == "" {
+		return
+	}
+	if _, ok := w.openRootFor(root); ok {
+		return
+	}
+	if w.opening[root] {
+		return
+	}
+	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+		return
+	}
+	if w.opening == nil {
+		w.opening = make(map[string]bool)
+	}
+	w.opening[root] = true
+	defer delete(w.opening, root)
+
+	w.openRoots = append(w.openRoots, root)
+	_ = store.TouchRecent(root)
+	// Its own tabs come back too. A project with no saved layout is left
+	// without tabs of its own, which is right: it is open because one of its
+	// agents is being shown on another project's tab.
+	w.restoreProject(root)
+}
+
 // decodeNode rebuilds a layout subtree, starting a session for every pane.
-func (w *Workspace) decodeNode(n *store.Node) *layout.Node {
+func (w *Workspace) decodeNode(n *store.Node, tabRoot string) *layout.Node {
 	if n == nil {
 		return nil
 	}
@@ -214,6 +253,10 @@ func (w *Workspace) decodeNode(n *store.Node) *layout.Node {
 			Cwd:  n.Pane.Cwd,
 			Name: n.Pane.Name,
 			Task: n.Pane.Task,
+			Root: n.Pane.Root,
+		}
+		if p.Root == "" {
+			p.Root = tabRoot
 		}
 		if p.ID == "" || p.Cwd == "" {
 			return nil
@@ -222,6 +265,12 @@ func (w *Workspace) decodeNode(n *store.Node) *layout.Node {
 			p.Name = filepath.Base(p.Cwd)
 		}
 		p.Branch = branchOf(p.Cwd)
+		// A borrowed pane names a project that may not be open yet. Restoring
+		// the window as it was left means opening it: the alternative is a
+		// pane belonging to nothing, which nothing would stop when its project
+		// was closed and which would be counted against the tab's project
+		// everywhere it was shown.
+		w.ensureProjectOpen(p.Root)
 		// A layout naming the same pane twice would put two processes on one
 		// Claude transcript, and only the second would be reachable in the map:
 		// the first could never be focused, resized or closed, and would run on
@@ -256,7 +305,7 @@ func (w *Workspace) decodeNode(n *store.Node) *layout.Node {
 		node.Weight = n.Weight
 	}
 	for _, c := range n.Children {
-		if dec := w.decodeNode(c); dec != nil {
+		if dec := w.decodeNode(c, tabRoot); dec != nil {
 			node.Children = append(node.Children, dec)
 		}
 	}

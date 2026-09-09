@@ -474,6 +474,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Kind:    o.Kind,
 		Cwd:     cwd,
 		Name:    filepath.Base(cwd),
+		Root:    w.projectFor(cwd),
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,

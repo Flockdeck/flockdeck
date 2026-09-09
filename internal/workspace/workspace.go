@@ -34,6 +34,12 @@ type Pane struct {
 	Kind session.Kind
 	Cwd  string
 	Name string
+	// Root is the open project this pane belongs to. It is usually the project
+	// of the tab the pane sits on, but need not be: a tab can show agents from
+	// more than one project side by side, and this is what says which one an
+	// agent is working in. Cwd may be deeper still, since a pane can be put
+	// into a worktree inside its project.
+	Root string
 	// Branch is the git branch checked out in Cwd, shown in the pane header so
 	// agents running in parallel worktrees can be told apart at a glance.
 	Branch string
@@ -121,7 +127,11 @@ type Workspace struct {
 
 	// openRoots are the projects currently open, in the order they were
 	// opened; activeRoot is the one being shown.
-	openRoots  []string
+	openRoots []string
+	// opening guards against a restore that reopens itself. A tab can show
+	// panes from another project, so restoring one project can open a second,
+	// whose own layout may hold a pane belonging back to the first.
+	opening    map[string]bool
 	activeRoot string
 	activeTab  string
 
@@ -378,10 +388,33 @@ func (w *Workspace) CloseProject(root string) {
 	kept := make([]*Tab, 0, len(w.Tabs))
 	for _, t := range w.Tabs {
 		if t.Root == root {
+			// The tab goes, and everything drawn on it goes with it —
+			// including a pane borrowed from another project, which would
+			// otherwise be left running with nowhere to be shown.
 			for _, id := range t.Tree.Panes() {
 				w.destroyPane(id)
 			}
 			continue
+		}
+		// A tab belonging to another project may still be showing this one's
+		// agents. Closing a project stops its agents, so they have to be found
+		// where they are rather than only among its own tabs.
+		for _, id := range t.Tree.Panes() {
+			p := w.Pane(id)
+			if p == nil || !sameDir(w.rootOf(id), root) {
+				continue
+			}
+			t.Tree.Remove(id)
+			w.destroyPane(id)
+		}
+		panes := t.Tree.Panes()
+		if len(panes) == 0 {
+			// Nothing of this tab is left once the closing project's panes
+			// have gone.
+			continue
+		}
+		if t.Tree.Find(t.Focus) == nil {
+			t.Focus = panes[0]
 		}
 		kept = append(kept, t)
 	}
@@ -657,24 +690,56 @@ func (w *Workspace) paneEnv(p *Pane) []string {
 	return env
 }
 
-// rootOf reports the project a pane belongs to, falling back to the active one
-// for a pane that has not been placed in a tab yet.
+// RootOf reports the project a pane belongs to, for callers outside the
+// package that need to name it rather than the tab it is drawn on.
+func (w *Workspace) RootOf(paneID string) string { return w.rootOf(paneID) }
+
+// rootOf reports the project a pane belongs to.
+//
+// The pane's own project is the answer wherever it has one: a tab may show
+// agents from several projects, so the tab it happens to sit on no longer says
+// which project an agent is working in. The tab is still the fallback for a
+// pane restored from a layout written before panes recorded their own.
 func (w *Workspace) rootOf(paneID string) string {
+	if p := w.Pane(paneID); p != nil && p.Root != "" {
+		return p.Root
+	}
 	if t := w.tabOf(paneID); t != nil {
 		return t.Root
 	}
 	return w.activeRoot
 }
 
-// newPane creates and starts a pane, registering it in the workspace.
-func (w *Workspace) newPane(kind session.Kind, cwd, name string) *Pane {
+// projectFor reports the open project a directory belongs to: the innermost
+// one containing it, so a pane put into a worktree nested inside a project is
+// counted against that project rather than against whichever one happens to be
+// on screen. A directory under no open project belongs to the active one.
+func (w *Workspace) projectFor(cwd string) string {
+	best := ""
+	for _, r := range w.openRoots {
+		if underDir(cwd, r) && len(r) > len(best) {
+			best = r
+		}
+	}
+	if best == "" {
+		return w.activeRoot
+	}
+	return best
+}
+
+// newPane creates and starts a pane, registering it in the workspace. An empty
+// root works the project out from the directory.
+func (w *Workspace) newPane(kind session.Kind, cwd, name, root string) *Pane {
 	if cwd == "" {
 		cwd = w.activeRoot
 	}
 	if name == "" {
 		name = filepath.Base(cwd)
 	}
-	p := &Pane{ID: uuid.NewString(), Kind: kind, Cwd: cwd, Name: name, Branch: branchOf(cwd)}
+	if root == "" {
+		root = w.projectFor(cwd)
+	}
+	p := &Pane{ID: uuid.NewString(), Kind: kind, Cwd: cwd, Name: name, Root: root, Branch: branchOf(cwd)}
 	w.mu.Lock()
 	w.panes[p.ID] = p
 	w.mu.Unlock()
@@ -693,7 +758,7 @@ func branchOf(dir string) string {
 
 // NewTab appends a tab to the active project and focuses it.
 func (w *Workspace) NewTab(kind session.Kind, cwd, title string) *Tab {
-	p := w.newPane(kind, cwd, "")
+	p := w.newPane(kind, cwd, "", w.activeRoot)
 	// A tab with no title of its own is named after the directory for now, and
 	// renames itself when the agent is first asked something.
 	autoTitle := title == "" && kind == session.KindClaude
@@ -807,22 +872,48 @@ func (w *Workspace) SplitPane(dir layout.Dir, kind session.Kind) {
 	w.SplitPaneIn(dir, kind, "")
 }
 
+// SplitPaneInProject splits the focused pane and starts the new session in
+// another open project, which is how two projects come to be worked on side by
+// side in one tab. An unknown or empty project falls back to an ordinary
+// split.
+func (w *Workspace) SplitPaneInProject(dir layout.Dir, kind session.Kind, root string) {
+	open, ok := w.openRootFor(root)
+	if !ok {
+		w.SplitPaneIn(dir, kind, "")
+		return
+	}
+	w.splitPaneIn(dir, kind, open, open)
+}
+
 // SplitPaneIn splits the focused pane, starting the new session in cwd. An
 // empty cwd inherits the focused pane's directory, which is what a plain split
 // should do; the worktree panel passes a directory to put an agent straight
 // into another checkout.
 func (w *Workspace) SplitPaneIn(dir layout.Dir, kind session.Kind, cwd string) {
+	w.splitPaneIn(dir, kind, cwd, "")
+}
+
+// splitPaneIn is the whole of the split, with the project the new pane belongs
+// to given separately from its directory: the two differ when an agent is put
+// into a worktree, which sits under the project it was made from.
+func (w *Workspace) splitPaneIn(dir layout.Dir, kind session.Kind, cwd, root string) {
 	t := w.CurrentTab()
 	if t == nil {
 		return
 	}
 	if cwd == "" {
 		cwd = t.Root
+		// A plain split inherits the focused pane's directory, and with it the
+		// project that pane belongs to, so splitting a borrowed pane gives
+		// another pane of the same project rather than of the tab's.
 		if p := w.Pane(t.Focus); p != nil {
 			cwd = p.Cwd
+			if root == "" {
+				root = p.Root
+			}
 		}
 	}
-	np := w.newPane(kind, cwd, "")
+	np := w.newPane(kind, cwd, "", root)
 	if !t.Tree.Split(t.Focus, np.ID, dir) {
 		w.destroyPane(np.ID)
 		return
@@ -1205,6 +1296,7 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 		Kind:   session.KindClaude,
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),
+		Root:   w.projectFor(cwd),
 		Branch: branchOf(cwd),
 	}
 	w.mu.Lock()

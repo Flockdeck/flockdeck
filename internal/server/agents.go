@@ -48,11 +48,15 @@ func (s *Server) listAgents(c *controlClient) {
 				}
 				st, detail := p.Status()
 				av := agentView{
-					PaneID:  p.ID,
-					TabID:   t.ID,
-					Tab:     t.Title,
+					PaneID: p.ID,
+					TabID:  t.ID,
+					Tab:    t.Title,
+					// Root says where the pane is drawn, which is what
+					// revealing it has to switch to; Project says which
+					// project the agent is actually working in. They differ
+					// for a pane borrowed onto another project's tab.
 					Root:    t.Root,
-					Project: filepath.Base(t.Root),
+					Project: filepath.Base(s.ws.RootOf(p.ID)),
 					Name:    p.Name,
 					Branch:  p.Branch,
 					Kind:    kindName(p.Kind),

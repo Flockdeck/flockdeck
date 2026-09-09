@@ -84,11 +84,16 @@ type nodeView struct {
 }
 
 type paneView struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Cwd       string `json:"cwd"`
-	Branch    string `json:"branch"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Cwd    string `json:"cwd"`
+	Branch string `json:"branch"`
+	// Project names the pane's own project, and is sent only when that is not
+	// the project of the tab the pane is drawn on. The header shows it so that
+	// a tab holding agents from two projects says which is which; leaving it
+	// out for the ordinary pane keeps the header uncluttered.
+	Project   string `json:"project,omitempty"`
 	Status    string `json:"status"`
 	Detail    string `json:"detail"`
 	Err       string `json:"err,omitempty"`
@@ -192,6 +197,9 @@ func (s *Server) snapshot() stateMsg {
 				Status:    st.String(),
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
+			}
+			if root := ws.RootOf(p.ID); root != "" && !strings.EqualFold(filepath.Clean(root), filepath.Clean(t.Root)) {
+				pv.Project = filepath.Base(root)
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -534,6 +542,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			if !focusFor(ws, cmd.ID) {
 				c.notify(paneGone, true)
 				return
+			}
+			// A root names another open project to split into, which is how a
+			// tab comes to hold agents from two projects at once. A path names
+			// a directory, which is how the worktree panel puts an agent into
+			// another checkout of the project it is already in.
+			if cmd.Root != "" {
+				ws.SplitPaneInProject(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Root)
+				break
 			}
 			ws.SplitPaneIn(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Path)
 		case "closePane":
