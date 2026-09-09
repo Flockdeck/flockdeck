@@ -491,19 +491,32 @@ func (w *Workspace) CloseProject(root string) {
 		// A tab belonging to another project may still be showing this one's
 		// agents. Closing a project stops its agents, so they have to be found
 		// where they are rather than only among its own tabs.
+		emptied := false
 		for _, id := range t.Tree.Panes() {
 			p := w.Pane(id)
 			if p == nil || !sameDir(w.rootOf(id), root) {
 				continue
 			}
+			// Losing the pane you were typing into leaves the focus beside the
+			// space it left, the way closing it by hand would, rather than
+			// throwing it to the front of the tab.
+			if t.Focus == id {
+				t.Focus = paneBesideTheGap(t, id)
+			}
 			t.Tree.Remove(id)
 			w.destroyPane(id)
+			emptied = true
 		}
 		panes := t.Tree.Panes()
 		if len(panes) == 0 {
 			// Nothing of this tab is left once the closing project's panes
 			// have gone.
 			continue
+		}
+		if emptied {
+			// A tab that lost panes underneath it comes back showing what is
+			// left of it, not one survivor filling the window.
+			t.Zoom = false
 		}
 		if t.Tree.Find(t.Focus) == nil {
 			t.Focus = panes[0]
@@ -1082,15 +1095,8 @@ func (w *Workspace) ClosePane() {
 		w.CloseTab(t.ID)
 		return
 	}
-	// Choose the pane to focus next before mutating the tree. Neighbour lookup
-	// is geometric, so the tree needs its rectangles first.
-	computeTab(t)
-	next := ""
-	for _, dir := range []layout.Direction{layout.Right, layout.Left, layout.Down, layout.Up} {
-		if next = t.Tree.Neighbor(id, dir); next != "" {
-			break
-		}
-	}
+	// Choose the pane to focus next before mutating the tree.
+	next := paneBesideTheGap(t, id)
 
 	t.Tree.Remove(id)
 	w.destroyPane(id)

@@ -347,18 +347,10 @@ func (w *Workspace) detachPane(paneID string) {
 		return
 	}
 	// When the pane being taken away is the focused one, choose where the focus
-	// lands before mutating the tree, and choose it the way closing a pane
-	// does: the pane beside the gap it leaves, rather than whichever happens to
-	// come first in tree order. Neighbour lookup is geometric, so the tree
-	// needs its rectangles first.
+	// lands before mutating the tree.
 	next := ""
 	if t.Focus == paneID {
-		computeTab(t)
-		for _, dir := range []layout.Direction{layout.Right, layout.Left, layout.Down, layout.Up} {
-			if next = t.Tree.Neighbor(paneID, dir); next != "" {
-				break
-			}
-		}
+		next = paneBesideTheGap(t, paneID)
 	}
 
 	t.Tree.Remove(paneID)
@@ -442,6 +434,20 @@ func (w *Workspace) landOn(t *Tab, paneID string) {
 // any large rectangle puts the panes in the right places relative to each
 // other; this one is big enough that no pane rounds away to nothing.
 var nominalRect = layout.Rect{W: 1000, H: 1000}
+
+// paneBesideTheGap chooses the pane to focus once paneID is taken out of a
+// tab: the one next to the space it leaves rather than whichever happens to
+// come first in tree order, so the focus ends up where the user was looking.
+// Neighbour lookup is geometric, so the tree needs its rectangles first.
+func paneBesideTheGap(t *Tab, paneID string) string {
+	computeTab(t)
+	for _, dir := range []layout.Direction{layout.Right, layout.Left, layout.Down, layout.Up} {
+		if next := t.Tree.Neighbor(paneID, dir); next != "" {
+			return next
+		}
+	}
+	return ""
+}
 
 // computeTab assigns rectangles to a tab's panes so the geometric queries —
 // Neighbor, PaneAt — have something to work from.

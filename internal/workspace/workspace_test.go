@@ -447,3 +447,37 @@ func TestComingBackToAProjectReturnsToItsLastTab(t *testing.T) {
 		t.Fatalf("no tab of the project is focused: %#v", tab)
 	}
 }
+
+// TestClosingAProjectLeavesTheFocusBesideTheGap covers a tab that loses a pane
+// from under it: the agent you were typing into disappears, and the focus
+// should land next to where it was rather than at the front of the tab.
+func TestClosingAProjectLeavesTheFocusBesideTheGap(t *testing.T) {
+	isolateConfig(t)
+	ws, _, second := twoProjects(t)
+
+	// Three panes in a row on the first project's tab, the middle one an agent
+	// of the second project.
+	left := ws.CurrentTab().Focus
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	right := ws.CurrentTab().Focus
+	ws.FocusPane(left)
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+	borrowed := ws.CurrentTab().Focus
+
+	tab := ws.CurrentTab()
+	panes := tab.Tree.Panes()
+	if len(panes) != 3 || panes[0] != left || panes[1] != borrowed || panes[2] != right {
+		t.Fatalf("panes = %v, want [%v %v %v]", panes, left, borrowed, right)
+	}
+	tab.Zoom = true
+
+	ws.CloseProject(second)
+
+	if tab.Focus != right {
+		t.Errorf("focus landed on %q, want %q, the pane beside the one that went away",
+			tab.Focus, right)
+	}
+	if tab.Zoom {
+		t.Error("the tab is still zoomed, on a pane the user did not choose")
+	}
+}
