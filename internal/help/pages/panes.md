@@ -1,7 +1,7 @@
 # Panes and tabs
 
-A pane is one terminal running one agent. Tabs hold panes, and a tab can hold
-one or several, split however you like.
+A pane is one terminal running one agent, or a plain shell. Tabs hold panes,
+and a tab can hold one or several, split however you like.
 
 ## Making them
 
@@ -12,6 +12,12 @@ one or several, split however you like.
 | [[key:splitRight]] | An agent beside the focused pane |
 | [[key:splitDown]] | An agent below the focused pane |
 | [[action:splitRightShell]] | A shell beside the focused pane |
+
+Each of those takes the project's default agent, which keeps making a pane one
+keystroke. To choose a different agent or a different model, hold the split
+button in a pane header, click the caret beside **New tab**, or take the two
+picker entries out of the command palette; **Agents and models** is the page
+for all of it. The pane header then names what it got, beside the branch.
 
 A shell pane is an ordinary terminal in the same directory. It is there for
 the `git`, `npm` or `go` command you want to run yourself while the agents
@@ -36,9 +42,10 @@ broadcast, restart, zoom, close. Double-click a tab to rename it.
 ## Restarting
 
 [[action:restartPane]], in the command palette and in the pane header, stops the
-process and starts it again in the same directory — resuming the same
-conversation, because a pane and its conversation are one identity. Use it
-when an agent has wedged itself, not to clear the screen.
+process and starts it again in the same directory, with the same agent and
+model — resuming the same conversation where that agent can, because a pane and
+its conversation are one identity. Use it when an agent has wedged itself, not
+to clear the screen.
 
 A pane whose process exits covers its terminal with a **Restart** button
 rather than leaving a dead black rectangle.

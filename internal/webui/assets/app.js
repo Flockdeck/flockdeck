@@ -2134,6 +2134,13 @@
   const ACTIONS = {
     splitRight: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "claude" }),
     splitDown: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "v", kind: "claude" }),
+    // Shim, added by the documentation branch: the key table names the two
+    // picker actions and the front end has to implement every id in it, but the
+    // picker itself belongs with the rest of the agent work. Falling back to the
+    // default agent keeps the palette entries doing the plain thing rather than
+    // nothing until openAgentPicker arrives to replace both lines.
+    splitRightChoose: () =>
+      typeof openAgentPicker === "function" ? openAgentPicker("splitRight") : ACTIONS.splitRight(),
     splitRightShell: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "shell" }),
     movePaneLeft: () => send({ cmd: "movePaneDir", dir: "left" }),
     movePaneRight: () => send({ cmd: "movePaneDir", dir: "right" }),
@@ -2145,6 +2152,8 @@
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
 
     newAgentTab: () => send({ cmd: "newTab", kind: "claude" }),
+    newAgentTabChoose: () =>
+      typeof openAgentPicker === "function" ? openAgentPicker("newAgentTab") : ACTIONS.newAgentTab(),
     newShellTab: () => send({ cmd: "newTab", kind: "shell" }),
     nextTab: () => send({ cmd: "nextTab" }),
     prevTab: () => send({ cmd: "prevTab" }),

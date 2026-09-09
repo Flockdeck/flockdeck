@@ -28,6 +28,7 @@ var pagesFS embed.FS
 var order = []string{
 	"getting-started",
 	"panes",
+	"agents",
 	"status",
 	"rearranging",
 	"broadcast",

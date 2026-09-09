@@ -4,36 +4,57 @@ The things that go wrong most often, and what they mean.
 
 ## An agent pane opened as a shell
 
-The `claude` CLI was not found on your `PATH`. Install
-[Claude Code](https://claude.com/claude-code), then restart the application —
-the path is looked up once at startup.
+The agent's command was not found on your `PATH`. Install it — the picker shows
+where to get every agent it knows about, and Claude Code is at
+[claude.com/claude-code](https://claude.com/claude-code) — then restart the
+application, because the lookup is done at startup.
+
+## An agent is greyed out in the picker
+
+For a CLI agent, its command is not on your `PATH`; the line under it says
+where to get it. For an API agent, no key was found: nothing in the
+environment variables it looks at, and nothing in Perch's own store. `perch
+keys set <agent>` reads one from stdin, and **Agents and models** covers the
+rest. Unavailable agents are shown rather than hidden on purpose, so that an
+agent you have not installed is a decision rather than an absence.
 
 ## A pane is dead, with a Restart button
 
 The process exited. [[action:restartPane]] starts it again in the same directory and
-resumes the same conversation. If it exits immediately every time, run
-`claude` yourself in that directory to see what it says.
+resumes the same conversation. If it exits immediately every time, run the
+agent's own command yourself in that directory to see what it says — a bad
+model id and an expired login both look like this from outside.
 
 ## An agent stopped to ask about trusting a folder
 
-A worktree is a directory Claude Code has never seen. Answer it once and it
-will not ask again for that directory; to avoid it entirely when fanning out,
-use the trust checkbox in the fan-out dialog, which carries over the answer
-already given for the project.
+A worktree is a directory the agent has never seen, and some agents — Claude
+Code among them — ask before working in one. Answer it once and it will not ask
+again for that directory; to avoid it entirely when fanning out, use the trust
+checkbox in the fan-out dialog, which carries over the answer already given for
+the project.
 
 ## A pane stopped saying what its agent is doing
 
-The status in a pane's header comes from Claude Code's own lifecycle hooks,
-which each pane reports back to the application over loopback. When that
-reporting stops, only the reporting has stopped: the agent carries on working,
-and its terminal is still the truth.
+Where an agent reports its own lifecycle, the status in its header is those
+reports, sent back to the application over loopback. When they stop, only the
+reporting has stopped: the agent carries on working, and its terminal is still
+the truth.
 
 **Restart** the pane. It is launched with a freshly written settings file
 pointing at the address and token this run is listening on, which is what a
 pane running against a settings file from an earlier run is missing. If it
-happens repeatedly, run `claude --debug` in that directory: a hook that cannot
-reach the application, or that is turned away by it, says so on its standard
-error, and that is where Claude Code shows it.
+happens repeatedly with Claude Code, run `claude --debug` in that directory: a
+hook that cannot reach the application, or that is turned away by it, says so
+on its standard error, and that is where Claude Code shows it.
+
+## A pane's status is vague, or late
+
+Check what is running in it. An agent with no lifecycle of its own to report is
+read from its terminal instead — the bell, a quiet timer and the lines it
+prints — which is a guess, and a guess is sometimes a beat behind and sometimes
+wrong. **Agents and models** says which agents report and which are read. There
+is nothing to fix here; it is the price of running an agent that was never
+built to be watched.
 
 ## The window looks like a browser tab
 
@@ -58,11 +79,13 @@ title bar. Notifications are only raised while the window is *not* in front.
 
 ## An agent seems to think it is a child of another session
 
-It is not: each pane is a separate top-level Claude session with its own
-session id, its own generated settings file, and an environment scrubbed of
-the markers a parent Claude session would otherwise pass down. If a pane is
-behaving as though it inherited something, restart it — and the state that
-survives a restart is the conversation, deliberately.
+It is not: each pane is a separate top-level session with its own session id,
+its own generated settings file, and an environment scrubbed of the markers a
+parent agent session would otherwise pass down — every agent's markers, not
+only the ones belonging to whatever is in that pane, since Perch may itself
+have been launched from inside one of them. If a pane is behaving as though it
+inherited something, restart it, and the state that survives a restart is the
+conversation, deliberately.
 
 ## Everything stopped when I closed the window
 
