@@ -135,7 +135,16 @@ func (s *Session) usageAsOf(now time.Time) Usage {
 
 	table := currentProcTable(now)
 	if table == nil {
-		return Usage{}
+		// The process table could not be read this time round, which on
+		// Windows a snapshot can simply fail to do while processes are
+		// starting and ending underneath it. Keeping the last reading for a
+		// few seconds longer is better than every pane's figure blinking out
+		// and back, which reads as something having gone wrong. A platform
+		// that can never read one has nothing cached, so it still shows
+		// nothing.
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return s.usage
 	}
 
 	s.mu.Lock()

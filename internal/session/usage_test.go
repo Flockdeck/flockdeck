@@ -239,6 +239,40 @@ func TestUsageStopsAtACycle(t *testing.T) {
 	}
 }
 
+// TestUsageKeepsItsLastReadingWhenTheTableCannotBeRead covers a reading that
+// fails once. Taking a snapshot of the process table is documented as able to
+// fail while processes are starting and ending, which on a machine running
+// several agents is all the time, and every pane's figure blinking out and
+// back reads as something having gone wrong.
+func TestUsageKeepsItsLastReadingWhenTheTableCannotBeRead(t *testing.T) {
+	root := &fakeProc{ppid: 1, rss: 10 << 20, started: 500}
+	fakeProcs(t, map[int]*fakeProc{100: root})
+	s := usagePane(100)
+
+	now := time.Now()
+	s.usageAsOf(now)
+	now = now.Add(10 * time.Second)
+	root.cpu += 5 * time.Second
+	before := s.usageAsOf(now)
+	if !before.Known || before.CPUPercent < 45 {
+		t.Fatalf("the reading before the failure is %+v", before)
+	}
+
+	// The next reading cannot be taken at all.
+	readParents = func() map[int]int { return nil }
+	resetProcTable()
+
+	got := s.usageAsOf(now.Add(10 * time.Second))
+	if got != before {
+		t.Errorf("a failed reading changed the figure from %+v to %+v", before, got)
+	}
+
+	// A pane that has never had a reading still shows nothing.
+	if u := usagePane(200).usageAsOf(now); u.Known {
+		t.Errorf("a pane with no reading yet reported %+v", u)
+	}
+}
+
 // TestUsageBuildsOneTableForEveryPane is what keeps the cost flat as panes are
 // opened: reading the process table is the expensive part, and fifteen panes
 // asking at once must not do it fifteen times.
