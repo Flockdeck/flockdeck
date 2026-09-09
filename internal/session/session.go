@@ -27,6 +27,15 @@ const (
 	// subscriberQueue is how many output chunks may be outstanding for one
 	// viewer before it is considered too slow to keep up.
 	subscriberQueue = 512
+	// subscriberBytes is how much output may be outstanding for one viewer,
+	// which is the same question asked in the units that matter. A chunk is
+	// whatever one read returned, up to the reader's whole buffer, so a queue
+	// counted in chunks alone puts no bound at all on what a stalled viewer
+	// holds: five hundred reads of thirty-two kilobytes is sixteen megabytes
+	// for one pane, and a window that has been minimised or throttled stalls
+	// every pane at once. Reaching this is also the point at which replaying
+	// from history is cheaper than delivering the backlog.
+	subscriberBytes = 2 << 20
 	// drainGrace is how long the exit is held back so the reader can pick up
 	// whatever the process printed on its way out. A PTY does not always
 	// report end of output when the process it is attached to goes away, so
@@ -118,7 +127,7 @@ type Session struct {
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
-	subs    map[int]chan []byte
+	subs    map[int]*subscriber
 	nextSub int
 
 	// resizeMu orders resizes, and keeps one from overlapping the release of
@@ -179,7 +188,7 @@ func Start(cfg Config) (*Session, error) {
 		rows:        cfg.Rows,
 		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
-		subs:        map[int]chan []byte{},
+		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
 	}
 
@@ -199,6 +208,31 @@ func Start(cfg Config) (*Session, error) {
 	go s.wait()
 
 	return s, nil
+}
+
+// subscriber is one viewer's queue of output.
+type subscriber struct {
+	ch chan []byte
+	// sizes holds the lengths of the chunks put into ch, oldest first, and
+	// queued their sum. A channel is first in first out, so whatever is still
+	// in it is the last len(ch) of what was put there, which is what makes the
+	// outstanding bytes exactly knowable without the viewer reporting back.
+	sizes  []int
+	queued int
+}
+
+// settle forgets the chunks the viewer has taken since the last look.
+func (v *subscriber) settle() {
+	taken := len(v.sizes) - len(v.ch)
+	if taken <= 0 {
+		return
+	}
+	for _, n := range v.sizes[:taken] {
+		v.queued -= n
+	}
+	// Copied down rather than resliced forwards, so the array is reused
+	// instead of growing away from its start for the life of the viewer.
+	v.sizes = append(v.sizes[:0], v.sizes[taken:]...)
 }
 
 // pumpOutput reads process output, records it for replay and fans it out.
@@ -288,17 +322,25 @@ func (s *Session) publish(chunk []byte) {
 		copy(owned, chunk)
 		chunk = owned
 	}
-	for id, ch := range s.subs {
+	for id, v := range s.subs {
+		v.settle()
+		// A viewer too slow to keep up would otherwise stall the process, or
+		// hold the backlog for as long as it took to catch up. Drop it; the
+		// client reconnects and replays from history, which is bounded.
+		if v.queued+len(chunk) > subscriberBytes {
+			dead = append(dead, id)
+			continue
+		}
 		select {
-		case ch <- chunk:
+		case v.ch <- chunk:
+			v.sizes = append(v.sizes, len(chunk))
+			v.queued += len(chunk)
 		default:
-			// A viewer too slow to keep up would otherwise stall the process.
-			// Drop it; the client reconnects and replays from history.
 			dead = append(dead, id)
 		}
 	}
 	for _, id := range dead {
-		close(s.subs[id])
+		close(s.subs[id].ch)
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
@@ -351,8 +393,8 @@ func (s *Session) wait() {
 	s.exitErr = err
 	s.status = StatusExited
 	s.statusSince = time.Now()
-	for id, ch := range s.subs {
-		close(ch)
+	for id, v := range s.subs {
+		close(v.ch)
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
@@ -412,7 +454,7 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 	}
 	s.nextSub++
 	id = s.nextSub
-	s.subs[id] = ch
+	s.subs[id] = &subscriber{ch: ch}
 	return id, replay, ch
 }
 
@@ -420,8 +462,8 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 func (s *Session) Unsubscribe(id int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if ch, ok := s.subs[id]; ok {
-		close(ch)
+	if v, ok := s.subs[id]; ok {
+		close(v.ch)
 		delete(s.subs, id)
 	}
 }

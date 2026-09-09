@@ -281,7 +281,7 @@ func BenchmarkRecentText(b *testing.B) {
 func TestReplayStartsAtALineBoundary(t *testing.T) {
 	// Sized so the buffer wraps six bytes into the colour sequence on the
 	// second line, which is the middle of its parameters.
-	s := &Session{history: newRing(24), subs: map[int]chan []byte{}, idleAfter: time.Minute}
+	s := &Session{history: newRing(24), subs: map[int]*subscriber{}, idleAfter: time.Minute}
 	s.publish([]byte("first line\n"))
 	s.publish([]byte("\x1b[38;5;42mgreen\x1b[m\n"))
 	s.publish([]byte("plain tail\n"))
@@ -299,7 +299,7 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	// A buffer that has not wrapped is replayed whole: there is no partial
 	// line at the front of it, and dropping one would lose the first thing the
 	// pane ever said.
-	fresh := &Session{history: newRing(4096), subs: map[int]chan []byte{}, idleAfter: time.Minute}
+	fresh := &Session{history: newRing(4096), subs: map[int]*subscriber{}, idleAfter: time.Minute}
 	fresh.publish([]byte("the first line\nthe second\n"))
 	id2, replay2, _ := fresh.Subscribe()
 	t.Cleanup(func() { fresh.Unsubscribe(id2) })

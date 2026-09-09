@@ -66,7 +66,7 @@ func usagePane(pid int) *Session {
 		statusSince: time.Now(),
 		idleAfter:   time.Minute,
 		history:     newRing(1024),
-		subs:        map[int]chan []byte{},
+		subs:        map[int]*subscriber{},
 	}
 }
 

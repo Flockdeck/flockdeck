@@ -120,7 +120,7 @@ func fakeSession(f *fakePTY) *Session {
 		rows:        24,
 		idleAfter:   time.Minute,
 		history:     newRing(4096),
-		subs:        map[int]chan []byte{},
+		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
 	}
 }

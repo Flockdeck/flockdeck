@@ -346,7 +346,7 @@ func claudePane() *Session {
 		// Long enough that nothing settles underneath a bell assertion.
 		idleAfter: time.Minute,
 		history:   newRing(4096),
-		subs:      map[int]chan []byte{},
+		subs:      map[int]*subscriber{},
 	}
 }
 
@@ -467,7 +467,7 @@ func shellPane() *Session {
 		statusSince: time.Now(),
 		idleAfter:   40 * time.Millisecond,
 		history:     newRing(4096),
-		subs:        map[int]chan []byte{},
+		subs:        map[int]*subscriber{},
 	}
 }
 
@@ -965,4 +965,81 @@ func TestARealPaneReportsBusyThenIdle(t *testing.T) {
 	}
 
 	waitForStatus(t, s, StatusIdle, 60*time.Second)
+}
+
+// TestAStalledViewerIsBoundedInBytes covers a window that has stopped reading
+// -- minimised, throttled, or on a machine that is paging -- while its panes
+// carry on producing output. Counting chunks puts no bound on what that holds:
+// a chunk is whatever one read returned, so five hundred of them is sixteen
+// megabytes for one pane, and every pane stalls together.
+func TestAStalledViewerIsBoundedInBytes(t *testing.T) {
+	s := shellPane()
+	s.idleAfter = time.Minute
+	id, _, out := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+
+	// Chunks the size of a whole read, never taken.
+	chunk := make([]byte, 32<<10)
+	accepted := 0
+	for i := 0; i < subscriberQueue; i++ {
+		s.publish(chunk)
+		s.mu.Lock()
+		_, live := s.subs[id]
+		s.mu.Unlock()
+		if !live {
+			break
+		}
+		accepted += len(chunk)
+	}
+
+	s.mu.Lock()
+	_, live := s.subs[id]
+	s.mu.Unlock()
+	if live {
+		t.Fatalf("a viewer holding %d bytes was still being fed", accepted)
+	}
+	if accepted > subscriberBytes+len(chunk) {
+		t.Errorf("the viewer was allowed to fall %d bytes behind, want at most %d",
+			accepted, subscriberBytes+len(chunk))
+	}
+	// And it is dropped rather than left to wedge the pane, so the stream ends.
+	drained := 0
+	for range out {
+		drained++
+		if drained > subscriberQueue {
+			t.Fatal("the subscription was never closed")
+		}
+	}
+}
+
+// TestAViewerKeepingUpIsNotDropped is the other half of it: the bound counts
+// what is outstanding, not what has been sent, so a viewer reading as fast as
+// the pane produces stays attached however much goes through it.
+func TestAViewerKeepingUpIsNotDropped(t *testing.T) {
+	s := shellPane()
+	s.idleAfter = time.Minute
+	id, _, out := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+
+	chunk := make([]byte, 32<<10)
+	total := 0
+	for i := 0; i < 400; i++ {
+		s.publish(chunk)
+		select {
+		case c := <-out:
+			total += len(c)
+		case <-time.After(5 * time.Second):
+			t.Fatal("nothing arrived")
+		}
+	}
+
+	s.mu.Lock()
+	_, live := s.subs[id]
+	s.mu.Unlock()
+	if !live {
+		t.Fatal("a viewer that kept up was dropped")
+	}
+	if want := 400 * len(chunk); total != want {
+		t.Errorf("the viewer received %d bytes, want %d", total, want)
+	}
 }
