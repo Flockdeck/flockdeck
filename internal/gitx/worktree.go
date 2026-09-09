@@ -360,31 +360,54 @@ func isWorktree(repoDir, path string) (bool, error) {
 // The two reach here from different places -- one from git, the other from
 // whatever the window sent back -- so on Windows they can name the same
 // directory in different case, which a plain comparison calls different.
-func samePath(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
+func samePath(a, b string) bool { return foldPath(a) == foldPath(b) }
 
 // DefaultWorktreePath suggests where a new worktree for a branch should live:
 // a sibling of the repository, named after it, so checkouts stay grouped
 // together without nesting inside the repository itself.
 //
-// A directory already sitting at that name is stepped around rather than
-// suggested: `git worktree add` refuses an occupied path, and the leftovers of
-// a worktree someone deleted by hand are exactly what is found there.
+// A name that is already taken is stepped around rather than suggested. That
+// means two things, and only one of them is visible in the file system: a
+// directory sitting there, which `git worktree add` refuses, and a worktree
+// git still has a record of. The second is what someone who deleted a
+// checkout in their file manager leaves behind, and it fails differently --
+// "a missing but already registered worktree" -- for a path that looks free.
 func DefaultWorktreePath(repoRoot, branch string) string {
 	parent := filepath.Dir(repoRoot)
 	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
 
+	registered := map[string]bool{}
+	if wts, err := List(repoRoot); err == nil {
+		for _, wt := range wts {
+			registered[foldPath(wt.Path)] = true
+		}
+	}
+	taken := func(path string) bool {
+		if registered[foldPath(path)] {
+			return true
+		}
+		_, err := os.Lstat(path)
+		return err == nil
+	}
+
 	path := filepath.Join(parent, name)
-	for i := 2; i < 100; i++ {
-		if _, err := os.Lstat(path); err != nil {
-			break
+	// The last name tried is checked like the rest, so a hundred collisions
+	// end in a name that is merely unlikely rather than one known to be
+	// taken -- which is what a loop that stopped on the counter returned.
+	for i := 2; taken(path); i++ {
+		if i > 99 {
+			return filepath.Join(parent, fmt.Sprintf("%s-%d", name, time.Now().UnixNano()))
 		}
 		path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, i))
+	}
+	return path
+}
+
+// foldPath puts a path in the form two of them can be compared in.
+func foldPath(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(path)
 	}
 	return path
 }

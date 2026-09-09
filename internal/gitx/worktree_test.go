@@ -555,6 +555,35 @@ func TestDefaultWorktreePathIsUsable(t *testing.T) {
 	}
 }
 
+// TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories covers the state a
+// checkout deleted in a file manager leaves behind: git still has a record of
+// a worktree at a path where there is now nothing to see.
+//
+// The suggested path looked free, and `git worktree add` then refused it as "a
+// missing but already registered worktree" -- an error about a path the person
+// never chose and cannot see.
+func TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories(t *testing.T) {
+	repo := newRepo(t)
+	first := DefaultWorktreePath(repo, "shared")
+	if err := AddFrom(repo, first, "shared", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	// Deleted by hand, as happens; the record stays behind.
+	if err := os.RemoveAll(first); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(first) })
+
+	next := DefaultWorktreePath(repo, "shared")
+	if next == first {
+		t.Fatalf("suggested %q again, which git still has a record of", next)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(next) })
+	if err := AddFrom(repo, next, "second", ""); err != nil {
+		t.Errorf("a worktree at the suggested path: %v", err)
+	}
+}
+
 // TestPruneRemovesStaleRecords covers the maintenance button.
 func TestPruneRemovesStaleRecords(t *testing.T) {
 	repo := newRepo(t)
