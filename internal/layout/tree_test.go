@@ -2262,3 +2262,32 @@ func TestCombineIgnoresTheWeightATreeArrivesWith(t *testing.T) {
 		t.Errorf("the merged column got %d of 1000 columns, want about half", w)
 	}
 }
+
+// TestCombineGivesTheMergedTreeItsOwnChildren covers what a merge does and does
+// not take from the tabs it merges. The nodes come across as they are, which is
+// what keeps a pane's id and a split's proportions; the slice holding them must
+// not, because a slice with room to spare is written into rather than copied,
+// and the tab it came from would then be writing into the merged one.
+//
+// Nothing holds a tab after merging it away today. This is the kind of sharing
+// that is invisible until something does.
+func TestCombineGivesTheMergedTreeItsOwnChildren(t *testing.T) {
+	left := NewLeaf("l0")
+	left.Split("l0", "l1", Horizontal)
+	left.Split("l1", "l2", Horizontal) // three in a row, with a slot to spare
+	right := NewLeaf("r0")             // one pane, which is what fits in that spare slot
+
+	merged := Combine(left, right, Horizontal)
+	was := merged.Panes()
+	if len(was) != 4 {
+		t.Fatalf("the merged tab holds %v, want all four panes", was)
+	}
+
+	// A pane added to the tab that was merged away has to stay there.
+	if !left.Split("l2", "x", Horizontal) {
+		t.Fatal("splitting the merged-away tab failed")
+	}
+	if got := merged.Panes(); !reflect.DeepEqual(got, was) {
+		t.Errorf("the merged tab now holds %v, want %v", got, was)
+	}
+}
