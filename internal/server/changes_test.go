@@ -472,6 +472,34 @@ func gitCmd(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// TestPanelsSayWhenTheCheckoutIsGone covers a pane left behind by a worktree
+// that was removed under it: the directory is not missing a .git, it is not
+// there at all, and saying so is the difference between looking for the
+// problem and knowing it.
+func TestPanelsSayWhenTheCheckoutIsGone(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "removed-worktree")
+	if err := os.MkdirAll(gone, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := collectChanges(gone).Error; !strings.Contains(got, "no longer exists") {
+		t.Errorf("changes error = %q, want it to say the directory is gone", got)
+	}
+	if got := collectWorktrees(gone).Error; !strings.Contains(got, "no longer exists") {
+		t.Errorf("worktrees error = %q, want it to say the directory is gone", got)
+	}
+
+	// A directory that is there but holds no repository still gets the older
+	// wording, which is the right answer for it.
+	plain := t.TempDir()
+	if got := collectChanges(plain).Error; !strings.Contains(got, "not a git repository") {
+		t.Errorf("changes error for a plain directory = %q", got)
+	}
+}
+
 // TestRemoteSummary pins what a window is told when git itself says little.
 func TestRemoteSummary(t *testing.T) {
 	cases := []struct {

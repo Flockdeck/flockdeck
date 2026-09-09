@@ -98,7 +98,7 @@ func collectWorktrees(root string) worktreesMsg {
 	if wtErr != nil {
 		msg.Error = wtErr.Error()
 		if !gitx.IsRepo(root) {
-			msg.Error = root + " is not a git repository"
+			msg.Error = noRepoReason(root)
 		}
 		return msg
 	}

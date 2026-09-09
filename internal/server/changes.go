@@ -1,6 +1,9 @@
 package server
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"strings"
 	"sync"
 
@@ -97,7 +100,7 @@ func collectChanges(dir string) changesMsg {
 	}
 	root, err := gitx.Root(dir)
 	if err != nil {
-		msg.Error = dir + " is not a git repository"
+		msg.Error = noRepoReason(dir)
 		return msg
 	}
 	// The panel works in root-relative paths from here on, and echoes this
@@ -129,6 +132,20 @@ func collectChanges(dir string) changesMsg {
 		})
 	}
 	return msg
+}
+
+// noRepoReason explains why a directory has nothing to review.
+//
+// Removing a worktree deletes its directory, and a pane that was working in it
+// is left somewhere that is not there any more. Reporting that as "not a git
+// repository" sends the reader looking for the wrong thing entirely -- a
+// missing .git, a project opened at the wrong level -- when the answer is that
+// the checkout is gone.
+func noRepoReason(dir string) string {
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return dir + " no longer exists"
+	}
+	return dir + " is not a git repository"
 }
 
 // showDiff sends the diff of one file.
