@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jmwri/perch/internal/session"
 )
@@ -828,5 +829,46 @@ func TestExtractTasksIgnoresAHalfBracketedNumber(t *testing.T) {
 	got := ExtractTasks(plan)
 	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
 		t.Errorf("extracted %#v, want only the bulleted task", got)
+	}
+}
+
+// A task written in any other script used to reduce to nothing, so every
+// branch of the fan-out was the fallback name and the branches told the user
+// which agent was which only by their numbering.
+func TestBranchNameForOtherScripts(t *testing.T) {
+	cases := []struct {
+		task string
+		want string
+	}{
+		{"Добавить проверку", "agent/добавить-проверку"},
+		{"設定を読み込む", "agent/設定を読み込む"},
+		{"Ajouter une vérification", "agent/ajouter-une-vérification"},
+		// Only when there is genuinely nothing to name it after.
+		{"!!! ??? ...", "agent/task"},
+	}
+	for _, c := range cases {
+		if got := BranchNameFor(c.task); got != c.want {
+			t.Errorf("BranchNameFor(%q) = %q, want %q", c.task, got, c.want)
+		}
+	}
+}
+
+// The length limit is in bytes, and a cut that lands inside a character hands
+// git a ref that is not UTF-8 — which it refuses, taking the agent with it.
+func TestBranchNameForCutsOnACharacter(t *testing.T) {
+	for _, task := range []string{
+		strings.Repeat("настройка", 8),
+		strings.Repeat("設定", 20),
+		strings.Repeat("é", 60),
+		strings.Repeat("a", 60),
+		"проверка настройки конфигурации приложения и его окружения",
+	} {
+		got := BranchNameFor(task)
+		if !utf8.ValidString(got) {
+			t.Errorf("BranchNameFor(%.20q…) = %q, which is not valid UTF-8", task, got)
+		}
+		if strings.HasSuffix(got, "-") || strings.Contains(got, "--") {
+			t.Errorf("BranchNameFor(%.20q…) = %q is not a tidy branch name", task, got)
+		}
 	}
 }

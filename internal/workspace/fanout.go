@@ -730,44 +730,68 @@ const AutoBranch = autoBranch
 const maxBranchName = 32
 
 // BranchNameFor derives a git branch name from a task description.
+//
+// Letters are letters in every script. Keeping only a-z threw away every
+// character of a task written in Cyrillic, Greek, Japanese or anything else,
+// which left nothing at all — so each of those tasks came out as the fallback
+// name, and a whole fan-out landed on agent/task, agent/task-2, agent/task-3,
+// naming nothing. git takes UTF-8 in a ref, and the worktree directory derived
+// from it keeps the same characters already.
 func BranchNameFor(task string) string {
 	var b strings.Builder
 	lastDash := true
+	written := 0
 	for _, r := range strings.ToLower(task) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			lastDash = false
 		default:
-			if !lastDash {
-				b.WriteByte('-')
-				lastDash = true
+			if lastDash {
+				continue
 			}
+			b.WriteByte('-')
+			lastDash = true
 		}
 		// One character past the limit, which is what tells a name that only
 		// just fits from one that was cut short.
-		if b.Len() > maxBranchName {
+		written++
+		if written > maxBranchName {
 			break
 		}
 	}
+	// Counted in characters rather than in bytes, because what the limit is for
+	// is a name that can be read in `git branch` — and because measuring in
+	// bytes would both halve a Cyrillic name and, worse, cut one in the middle
+	// of a character, handing git a ref that is not UTF-8 at all.
 	name := strings.Trim(b.String(), "-")
-	if len(name) > maxBranchName {
+	if r := []rune(name); len(r) > maxBranchName {
 		cut := maxBranchName
 		// A cut that lands inside a word backs up to the boundary before it, so
 		// the branch reads as words rather than as a fragment. A cut that lands
 		// on one is already where it should be, and backing up from there would
 		// throw away a word the name had room for.
-		if name[cut] != '-' {
-			if i := strings.LastIndex(name[:cut], "-"); i > 8 {
+		if r[cut] != '-' {
+			if i := lastDashBefore(r, cut); i > 8 {
 				cut = i
 			}
 		}
-		name = strings.Trim(name[:cut], "-")
+		name = strings.Trim(string(r[:cut]), "-")
 	}
 	if name == "" {
 		name = "task"
 	}
 	return "agent/" + name
+}
+
+// lastDashBefore reports the index of the last dash in r before cut, or -1.
+func lastDashBefore(r []rune, cut int) int {
+	for i := cut - 1; i >= 0; i-- {
+		if r[i] == '-' {
+			return i
+		}
+	}
+	return -1
 }
 
 // planTurns is how far back a fan-out looks for a plan. What the agent last
