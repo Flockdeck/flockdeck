@@ -3,9 +3,14 @@ package server
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jmwri/perch/internal/gitx"
 )
 
 // Writing out a working tree is the slowest thing a fan-out does, and a
@@ -112,4 +117,74 @@ func TestNameBranchesAreDistinct(t *testing.T) {
 		}
 		seen[j.branch] = true
 	}
+}
+
+// A worktree is cut before the agent that will work in it is started, so a
+// pane that fails to open leaves a branch and a fresh copy of the project
+// with nothing in it — indistinguishable, from the worktree list, from a
+// checkout an agent is busy in.
+func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed")
+	}
+	repo := newTestRepo(t)
+	path := filepath.Join(t.TempDir(), "wt")
+	if err := gitx.AddFrom(repo, path, "agent/never-started", ""); err != nil {
+		t.Fatalf("worktree add: %v", err)
+	}
+
+	discardWorktree(repo, repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path})
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the worktree directory is still there: %v", err)
+	}
+	wts, err := gitx.List(repo)
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	for _, wt := range wts {
+		if wt.Branch == "agent/never-started" {
+			t.Errorf("git still lists the worktree at %s", wt.Path)
+		}
+	}
+}
+
+// The dangerous case: a fan-out without worktrees runs every agent in the
+// project itself, so a pane that fails to start must not take the user's own
+// checkout with it.
+func TestDiscardWorktreeLeavesTheProjectAlone(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed")
+	}
+	repo := newTestRepo(t)
+
+	discardWorktree(repo, repo, &fanoutJob{task: "x", cwd: repo})
+
+	if _, err := os.Stat(filepath.Join(repo, "README.md")); err != nil {
+		t.Fatalf("the project checkout was removed: %v", err)
+	}
+}
+
+// newTestRepo creates a repository with one commit and returns its path.
+func newTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	steps := [][]string{
+		{"init", "--initial-branch=main"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+		{"config", "commit.gpgsign", "false"},
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	steps = append(steps, []string{"add", "."}, []string{"commit", "-m", "initial"})
+	for _, args := range steps {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v failed (%v): %s", args, err, out)
+		}
+	}
+	return dir
 }

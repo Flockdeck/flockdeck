@@ -163,12 +163,13 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			return
 		}
 
+		var repo string
 		if worktrees {
 			// Whether a worktree can be cut at all is a property of the
 			// directory, not of any one task. Leaving it to PrepareWorktree
 			// answers every task in the list with the same complaint about the
 			// directory they all share.
-			repo := gitRoot(baseCwd)
+			repo = gitRoot(baseCwd)
 			switch {
 			case !gitx.Available():
 				c.notify("git is not installed, so no worktrees can be created", true)
@@ -222,6 +223,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			if err != nil {
 				c.notify(fmt.Sprintf("%s: %v", short(j.task), err), true)
 				failed++
+				discardWorktree(repo, baseCwd, j)
 				continue
 			}
 			started++
@@ -300,6 +302,28 @@ func makeWorktrees(jobs []*fanoutJob, prepare func(branch string) (string, error
 		}()
 	}
 	wg.Wait()
+}
+
+// discardWorktree removes the worktree cut for an agent that then failed to
+// start.
+//
+// Left behind, it is a branch and a directory holding a fresh copy of the
+// project with nothing done in it — which is exactly what a worktree that an
+// agent is working in looks like from the outside. The worktree list offers it
+// as somewhere work is going on, and the only way to find out otherwise is to
+// go and look.
+//
+// Removing it is safe in this one place because a fan-out never reuses a
+// checkout: nameBranches only hands out branches the repository does not
+// already have, so every worktree here was made moments ago and no agent has
+// ever run in it. That is also why the removal is forced — there is nothing in
+// it to lose, and a checkout can read as modified the instant it is made when
+// the repository and the platform disagree about line endings.
+func discardWorktree(repo, baseCwd string, j *fanoutJob) {
+	if repo == "" || j.cwd == "" || j.cwd == baseCwd {
+		return
+	}
+	_ = gitx.Remove(repo, j.cwd, true)
 }
 
 // contextDeadline bounds how long a pane's SessionStart hook waits for its
