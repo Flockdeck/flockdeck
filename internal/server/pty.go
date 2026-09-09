@@ -168,7 +168,7 @@ func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.C
 }
 
 // termReset is RIS, which puts the emulator back to how it starts up.
-var termReset = []byte("c")
+var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
@@ -179,15 +179,13 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 		if err != nil {
 			return
 		}
-		sess := live.Load()
-		if sess == nil {
-			continue
-		}
 		if typ == websocket.MessageBinary {
-			// Typing into a pane whose process has ended is not worth dropping
-			// the connection over: the pane may be restarted under it, and the
-			// next keystroke will land.
-			_, _ = sess.Write(data)
+			// Typing into a pane whose process has ended, or never had one, is
+			// not worth dropping the connection over: the pane may be started
+			// under it, and the next keystroke will land.
+			if sess := live.Load(); sess != nil {
+				_, _ = sess.Write(data)
+			}
 			continue
 		}
 		var ctl ptyControl

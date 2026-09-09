@@ -653,11 +653,47 @@ func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
 
 	pty := dialPTY(t, srv, paneID)
 
+	// The size the window measured has to be taken even now -- there is no
+	// session to apply it to, and it is exactly what the process will be
+	// started at once there is one.
+	sendResize(t, pty, 111, 37)
+	deadline := time.Now().Add(10 * time.Second)
+	var cols, rows int
+	for time.Now().Before(deadline) {
+		if cols, rows = paneSize(t, srv, paneID); cols == 111 && rows == 37 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if cols != 111 || rows != 37 {
+		t.Errorf("pane remembers %dx%d, want the measured 111x37", cols, rows)
+	}
+
 	// It must stay open rather than be hung up on, so the window has no reason
 	// to come back and ask again.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if _, _, err := pty.Read(ctx); ctx.Err() == nil {
 		t.Errorf("the socket was closed under the window: %v", err)
+	}
+}
+
+// paneSize reads the size a pane remembers, on the goroutine that owns it.
+func paneSize(t *testing.T, srv *Server, id string) (cols, rows int) {
+	t.Helper()
+	done := make(chan [2]int, 1)
+	srv.do(func() {
+		if p := srv.ws.Pane(id); p != nil {
+			done <- [2]int{p.Cols, p.Rows}
+			return
+		}
+		done <- [2]int{}
+	})
+	select {
+	case sz := <-done:
+		return sz[0], sz[1]
+	case <-time.After(5 * time.Second):
+		t.Fatal("the workspace did not answer")
+		return 0, 0
 	}
 }
