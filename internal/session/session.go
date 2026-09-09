@@ -8,17 +8,25 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
+
+	"github.com/jmwri/perch/internal/agent"
 )
 
 // Kind distinguishes an agent pane from a plain shell pane.
 type Kind int
 
 const (
-	// KindClaude is a pane running the `claude` CLI.
-	KindClaude Kind = iota
+	// KindAgent is a pane running a coding agent, described by an agent.Spec.
+	KindAgent Kind = iota
 	// KindShell is a pane running the user's shell.
 	KindShell
 )
+
+// KindClaude is what an agent pane was called while the `claude` CLI was the
+// only agent Perch could run. It is the same kind under its older name, kept
+// so that a pane is not read as a different sort of thing depending on which
+// name the caller reached for.
+const KindClaude = KindAgent
 
 const (
 	// replayBytes is how much recent output each pane keeps so a reconnecting
@@ -50,6 +58,12 @@ const (
 	// bellGrace is how long after a pane starts its bells are treated as part
 	// of starting up rather than a request for attention.
 	bellGrace = 5 * time.Second
+	// patternBytes is how much recent output an agent's own patterns are read
+	// in. It is small on purpose: the patterns stand for what the agent is
+	// doing now, and a question answered ten minutes ago is still somewhere in
+	// the half megabyte of replay history, where it would go on reporting a
+	// pane as blocked for the rest of its life.
+	patternBytes = 512
 	// maxCols and maxRows bound a resize. The dimensions are measured by the
 	// browser and can be anything it cares to send, while a PTY allocates a
 	// cell for every one of them, so a figure no display could produce is
@@ -60,8 +74,13 @@ const (
 
 // Config describes a session to start.
 type Config struct {
-	ID   string // stable id; for Claude panes this is also the --session-id UUID
+	ID   string // stable id; for agent panes this is also the conversation UUID
 	Kind Kind
+	// Spec is the agent running in the pane, and what the pane is understood
+	// through after it starts: whether its status is reported to Perch or has
+	// to be read out of what it prints, and what to look for when it does.
+	// A shell pane leaves it empty.
+	Spec agent.Spec
 	Name string // display name, usually the basename of Cwd
 	Cwd  string
 	Argv []string
@@ -97,9 +116,21 @@ type Session struct {
 	statusSince time.Time
 	exitErr     error
 	closed      bool
-	// hooksSeen records that Claude lifecycle hooks have reported for this
-	// session, which makes them authoritative over the terminal bell.
+	// hooksSeen records that lifecycle hooks have reported for this session,
+	// which makes them authoritative over the terminal bell and over anything
+	// else read out of the output.
+	//
+	// This is also where Caps.Hooks does its choosing. The hooks are only
+	// installed for an agent whose Spec says it reports a lifecycle, so this can
+	// only ever become true for one of those: for them the guesses below are a
+	// bridge until the first event arrives, and for every other agent they are
+	// the whole story, for as long as it runs.
 	hooksSeen bool
+	// patterns are what to read out of an agent's output in place of the
+	// lifecycle it does not report. They are taken off the Spec at launch
+	// because the status machinery below runs on every chunk a pane prints and
+	// must not go looking anything up to do it.
+	patterns agent.Patterns
 	// sawInput records that the user has typed into this pane, and startedAt
 	// when it was launched. Claude rings the bell while starting up, so
 	// without one of the two a freshly opened pane would announce that it
@@ -186,6 +217,7 @@ func Start(cfg Config) (*Session, error) {
 		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
+		patterns:    cfg.Spec.Patterns,
 		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
 		subs:        map[int]*subscriber{},
@@ -270,15 +302,32 @@ func (s *Session) publish(chunk []byte) {
 	s.mu.Lock()
 	s.history.write(chunk)
 	s.lastOutput = time.Now()
-	// A pane nothing is reporting for is read from what it prints. Shell panes
-	// never get lifecycle hooks at all, and a Claude pane has none until its
-	// first event arrives, so without this a build running for a minute and a
-	// prompt nobody has typed at look exactly alike from the tab bar.
+	// A pane nothing is reporting for is read from what it prints, in three
+	// ways that know progressively more. An agent's own patterns are the
+	// sharpest: its Spec says what the lines it prints when it is blocked on
+	// you, or back at its prompt, look like, which are exactly the two events
+	// its lifecycle would have reported if it had one. A hook event outranks
+	// all three, which is what !hooksSeen says throughout.
+	inferred, patterned := StatusIdle, false
+	if !s.hooksSeen && s.status != StatusExited {
+		inferred, patterned = s.patternStatus()
+	}
+	switch {
+	case patterned:
+		if inferred != s.status {
+			s.status = inferred
+			s.statusSince = s.lastOutput
+			notify = true
+		}
+	// Failing that, the fact that bytes arrived at all. Shell panes never get
+	// lifecycle hooks, an agent whose Spec claims none never will, and one that
+	// does has none until its first event arrives, so without this a build
+	// running for a minute and a prompt nobody has typed at look exactly alike
+	// from the tab bar.
 	//
-	// Waiting is left alone: it is the one status here worth surfacing, and it
-	// is set from the bell below, which knows more than the fact that bytes
-	// arrived.
-	if !s.hooksSeen && s.status != StatusExited && s.status != StatusWaiting {
+	// Waiting is left alone: it is the one status here worth surfacing, and the
+	// bell and the patterns both know more than the fact that bytes arrived.
+	case !s.hooksSeen && s.status != StatusExited && s.status != StatusWaiting:
 		if s.status != StatusWorking {
 			s.status = StatusWorking
 			s.statusSince = s.lastOutput
@@ -294,7 +343,10 @@ func (s *Session) publish(chunk []byte) {
 		// The bell is only a fallback. Claude rings it both when it wants input
 		// and when a turn simply ends, so once lifecycle hooks are reporting
 		// they are the sole source of truth; letting the bell win would flip
-		// every completed turn to "waiting".
+		// every completed turn to "waiting". An agent's own patterns outrank it
+		// for the same reason: they can tell a question from the end of a turn
+		// and the bell cannot, so a chunk they have spoken for is left to them.
+		//
 		// A pane is past its startup either because somebody typed into it or
 		// because enough time has gone by. Waiting for the typing alone
 		// silenced this for the panes it matters most for: an agent spawned
@@ -302,8 +354,12 @@ func (s *Session) publish(chunk []byte) {
 		// a pane restored from a saved layout until the user gets to it, so a
 		// workspace of fifteen restored agents had no fallback at all if
 		// their lifecycle hooks did not report.
+		//
+		// A shell is left out of it: it bells for a finished build and for a
+		// command it did not recognise, neither of which is a question, and a
+		// shell pane is never reported as wanting you.
 		started := s.sawInput || time.Since(s.startedAt) > bellGrace
-		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && started {
+		if s.Kind == KindAgent && s.status != StatusExited && !s.hooksSeen && !patterned && started {
 			// Claude rings again every time it nudges about the input it is
 			// still waiting for, so the clock only starts on the transition:
 			// restarting it on each bell is how a pane that has been blocked

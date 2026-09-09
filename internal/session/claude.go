@@ -6,63 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// inheritedClaudeVars are environment variables a running Claude Code session
-// injects into its children. If we passed them through, every pane we spawn
-// would think it was a nested child session (and, among other things, stop
-// saving its transcript). They are stripped so each pane is a clean top-level
-// session, regardless of whether Perch itself was launched from Claude.
-var inheritedClaudeVars = map[string]bool{
-	"CLAUDECODE":                   true,
-	"CLAUDE_CODE_CHILD_SESSION":    true,
-	"CLAUDE_CODE_ENTRYPOINT":       true,
-	"CLAUDE_CODE_SESSION_ID":       true,
-	"CLAUDE_CODE_SSE_PORT":         true,
-	"CLAUDE_CODE_DONT_INHERIT_ENV": true,
-}
-
-// Env builds the environment for a pane: Perch's own environment minus
-// inherited Claude session markers, plus extra KEY=VALUE entries.
-//
-// An extra entry replaces an inherited one of the same name rather than
-// joining it. A duplicated name in an environment block is resolved by the
-// first copy, on Windows and on Unix alike, so appending alone would leave the
-// stale value in force -- which is how a pane opened from inside another
-// instance would tell its agent it was the pane that spawned it.
-func Env(extra ...string) []string {
-	replaced := make(map[string]bool, len(extra))
-	for _, kv := range extra {
-		if name, _, ok := strings.Cut(kv, "="); ok {
-			replaced[envKey(name)] = true
-		}
-	}
-
-	base := os.Environ()
-	out := make([]string, 0, len(base)+len(extra))
-	for _, kv := range base {
-		name, _, ok := strings.Cut(kv, "=")
-		if ok && (inheritedClaudeVars[strings.ToUpper(name)] || replaced[envKey(name)]) {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return append(out, extra...)
-}
-
-// envKey normalises an environment variable name for comparison: Windows
-// matches them without regard to case, everywhere else they are exact.
-func envKey(name string) string {
-	if runtime.GOOS == "windows" {
-		return strings.ToUpper(name)
-	}
-	return name
-}
-
 // LookClaude returns the path to the claude CLI, or an error explaining that
-// it is not installed.
+// it is not installed. Look does the same for any agent, reading the command
+// and where it comes from off its Spec; this is the answer for the one agent
+// Perch could run before it had a Spec to read it from.
 func LookClaude() (string, error) {
 	exe, err := exec.LookPath("claude")
 	if err != nil {
@@ -72,6 +22,12 @@ func LookClaude() (string, error) {
 }
 
 // ClaudeArgs builds the argv for a Claude pane.
+//
+// A pane is built from a Spec by Launch, and what this is for is to say, in one
+// place and independently of the catalog, exactly what a Claude pane is run
+// with. TestArgvFromSpecMatchesClaude holds the Spec-built argv against it,
+// because a Claude pane that gains or loses an argument either refuses to start
+// or starts a conversation that cannot be resumed.
 //
 // New panes pin their conversation to our own session id with --session-id so
 // that a later run can reattach to exactly that conversation with --resume,
@@ -94,23 +50,6 @@ func ClaudeArgs(sessionID, settingsPath string, resume bool, extra []string) []s
 		argv = append(argv, "--")
 	}
 	return append(argv, extra...)
-}
-
-// ShellArgs returns the argv for a plain shell pane on this platform.
-func ShellArgs() []string {
-	if runtime.GOOS == "windows" {
-		if ps, err := exec.LookPath("pwsh"); err == nil {
-			return []string{ps, "-NoLogo"}
-		}
-		if comspec := os.Getenv("COMSPEC"); comspec != "" {
-			return []string{comspec}
-		}
-		return []string{"powershell", "-NoLogo"}
-	}
-	if sh := os.Getenv("SHELL"); sh != "" {
-		return []string{sh, "-l"}
-	}
-	return []string{"/bin/sh"}
 }
 
 // hookEvents are the Claude Code lifecycle events Perch subscribes to.

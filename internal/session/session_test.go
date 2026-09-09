@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jmwri/perch/internal/agent"
 )
 
 // startShell starts a shell session for testing, skipping if none can run.
@@ -1049,5 +1051,106 @@ func TestAViewerKeepingUpIsNotDropped(t *testing.T) {
 	}
 	if want := 400 * len(chunk); total != want {
 		t.Errorf("the viewer received %d bytes, want %d", total, want)
+	}
+}
+
+// TestPatternsSharpenTheFallback is the status path for an agent that reports
+// no lifecycle of its own. The bell and the quiet timer can tell that something
+// happened; the lines the Spec names can tell what, which is the difference
+// between a tab bar that says which pane wants you and one that says all of
+// them are busy.
+func TestPatternsSharpenTheFallback(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.sawInput = true
+	s.startedAt = time.Now()
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+	s.patterns = agent.Patterns{Waiting: []string{"(y/n)"}, Idle: []string{"ready."}}
+
+	// Output nothing recognises is still only output: working, as before.
+	s.publish([]byte("writing main.go\n"))
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Fatalf("status = %v while it was printing, want working", st)
+	}
+
+	s.publish([]byte("overwrite main.go? (y/n) "))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v at a question, want waiting", st)
+	}
+
+	// A bell cannot tell a question from the end of a turn, and this chunk is
+	// the end of a turn with a bell on it. The patterns can, so they have the
+	// last word: without this the pane would stay in the count of agents
+	// needing you until somebody typed into it.
+	s.publish([]byte("\nwrote main.go\nReady.\x07"))
+	if st, _ := s.Status(); st != StatusIdle {
+		t.Errorf("status = %v back at its prompt, want idle", st)
+	}
+
+	// A lifecycle event outranks anything read off the screen, for good: the
+	// agent knows what it is doing and the screen is a guess at it.
+	s.SetStatus(StatusWorking, "Bash")
+	s.publish([]byte("\noverwrite config.go? (y/n) "))
+	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
+		t.Errorf("status = %v/%q; a reported lifecycle beats a pattern", st, detail)
+	}
+}
+
+// TestAPaneWithoutPatternsIsUnchanged pins the promise that nothing regresses
+// for somebody who only ever runs Claude: Claude reports its own lifecycle and
+// names no patterns, so its pane must be read exactly as it was -- from the
+// bell, and from how long it has been quiet.
+func TestAPaneWithoutPatternsIsUnchanged(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindClaude
+	s.sawInput = true
+	s.startedAt = time.Now()
+	s.status = StatusIdle
+	s.idleAfter = 40 * time.Millisecond
+
+	s.publish([]byte("may I run this?\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v after the bell, want waiting", st)
+	}
+	if err := s.WriteString("y\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	waitForStatus(t, s, StatusIdle, 5*time.Second)
+}
+
+// TestStartTakesWhatItNeedsOffTheSpec covers the seam between launching a pane
+// and believing anything about it afterwards. The patterns are read on every
+// chunk the pane prints, so they are copied once at the start; if they were not
+// copied the pane would run with no fallback at all and nothing would say so.
+func TestStartTakesWhatItNeedsOffTheSpec(t *testing.T) {
+	spec := agent.Spec{
+		ID:       "codex",
+		Patterns: agent.Patterns{Waiting: []string{"(y/n)"}},
+	}
+	s, err := Start(Config{
+		ID:   "spec-test",
+		Kind: KindAgent,
+		Spec: spec,
+		Cwd:  t.TempDir(),
+		Argv: ShellArgs(),
+		Env:  Env(),
+		Cols: 80,
+		Rows: 24,
+	})
+	if err != nil {
+		t.Skipf("cannot start a shell in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	s.mu.RLock()
+	got := s.patterns
+	s.mu.RUnlock()
+	if len(got.Waiting) != 1 || got.Waiting[0] != "(y/n)" {
+		t.Errorf("patterns = %+v, want the Spec's own", got)
 	}
 }

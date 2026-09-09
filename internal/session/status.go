@@ -1,9 +1,11 @@
 package session
 
-// Status describes what a session is currently doing. For Claude sessions this
-// is driven by lifecycle hooks Perch installs via --settings; for shell
-// sessions (and as a fallback when hooks are unavailable) it is inferred from
-// PTY output activity and the terminal bell.
+// Status describes what a session is currently doing. An agent whose Spec says
+// it reports a lifecycle drives this from the events it sends Perch; for a
+// shell, for an agent that reports nothing, and until the first event of one
+// that does arrives, it is read out of the pane's output instead -- the
+// terminal bell, how long it has been quiet, and the lines the Spec says the
+// agent prints when it is blocked on you or back at its prompt.
 type Status int
 
 const (
