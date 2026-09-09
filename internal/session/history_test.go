@@ -1424,3 +1424,44 @@ func TestTranscriptIDReadsTheSessionOutOfAFileName(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationsTellApartTheAgentsSentTheSamePrompt covers a fan-out: the
+// same instruction handed to several agents at once, which is what this
+// application is for. Every one of their transcripts opens with the same
+// words, so the panel lists rows identical down to the last character and
+// nothing in them says which agent is which. Claude Code names each
+// conversation after what it turned out to be about, and those names differ.
+func TestConversationsTellApartTheAgentsSentTheSamePrompt(t *testing.T) {
+	cwd, dir := historyFixture(t, "fanout")
+
+	fanout := `{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"You are one of 10 agents working in parallel"}}`
+	writeTranscript(t, dir, "aaaaaaaa-1212-1212-1212-121212121212",
+		`{"type":"ai-title","aiTitle":"store layer fixes"}`, fanout)
+	writeTranscript(t, dir, "bbbbbbbb-1212-1212-1212-121212121212",
+		`{"type":"ai-title","aiTitle":"layout tree bugs"}`, fanout)
+	// One that was asked something of its own, and named as well.
+	writeTranscript(t, dir, "cccccccc-1212-1212-1212-121212121212",
+		`{"type":"ai-title","aiTitle":"a name nobody needs"}`,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"tidy the imports"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("found %d conversations, want 3", len(got))
+	}
+	summaries := map[string]string{}
+	for _, c := range got {
+		summaries[c.ID] = c.Summary
+	}
+	if got := summaries["aaaaaaaa-1212-1212-1212-121212121212"]; got != "store layer fixes" {
+		t.Errorf("summary = %q, want the name that tells this agent from the others", got)
+	}
+	if got := summaries["bbbbbbbb-1212-1212-1212-121212121212"]; got != "layout tree bugs" {
+		t.Errorf("summary = %q, want the name that tells this agent from the others", got)
+	}
+	if got := summaries["cccccccc-1212-1212-1212-121212121212"]; got != "tidy the imports" {
+		t.Errorf("summary = %q; a conversation whose prompt is its own keeps it", got)
+	}
+}

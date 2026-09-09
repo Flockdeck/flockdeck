@@ -19,9 +19,13 @@ import (
 type Conversation struct {
 	// ID is the session id, which is also the transcript's file name and what
 	// `claude --resume` takes.
-	ID       string
-	Cwd      string
-	Summary  string
+	ID      string
+	Cwd     string
+	Summary string
+	// Title is the name Claude Code gave the conversation, when it gave it
+	// one. It is what the summary falls back to, and what tells apart
+	// conversations that were opened with the same prompt.
+	Title    string
 	Modified time.Time
 	Messages int
 	Size     int64
@@ -47,6 +51,8 @@ type transcriptFacts struct {
 	// cwd is the working directory the transcript records, which says whose
 	// conversation it is when a folder is shared between two directories.
 	cwd string
+	// title is the name Claude Code gave the conversation.
+	title string
 	// prompted records that the summary is something a person typed rather
 	// than a name Claude Code gave the conversation or nothing at all. Until
 	// it is, the opening entries are worth reading again: the prompt may not
@@ -168,6 +174,7 @@ func Conversations(cwd string) ([]Conversation, error) {
 	}
 
 	out = newestOfEach(out)
+	nameTheAlike(out)
 
 	// Most recently used first, with the id breaking a tie so that two
 	// conversations started together do not swap places between refreshes.
@@ -269,6 +276,32 @@ func newestOfEach(all []Conversation) []Conversation {
 	return out
 }
 
+// nameTheAlike replaces the summary of conversations that were opened with
+// the same words by the name Claude Code gave each of them.
+//
+// Send the same prompt to ten agents at once -- which is what this
+// application is for -- and the history panel lists ten rows reading "You are
+// one of 10 agents working in parallel...", identical down to the last
+// character, and nothing in them says which is which. Claude Code names a
+// conversation after what it turned out to be about, and those names are all
+// different: "layout tree bugs", "store layer fixes", "server bugs and
+// usability". Where the prompt has stopped telling one row from another, the
+// name is what is left that does.
+//
+// A conversation whose prompt is its own keeps it: what somebody typed is
+// what they will look for.
+func nameTheAlike(all []Conversation) {
+	alike := make(map[string]int, len(all))
+	for _, c := range all {
+		alike[c.Summary]++
+	}
+	for i, c := range all {
+		if c.Title != "" && alike[c.Summary] > 1 {
+			all[i].Summary = c.Title
+		}
+	}
+}
+
 // describeReaders bounds how many transcripts are read at once. Reading a
 // folder of them is spent waiting on the disk far more than working, so
 // several at a time finish sooner than one after another; many more than
@@ -332,6 +365,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func
 			Modified: files[i].ModTime(),
 			Size:     files[i].Size(),
 			Summary:  facts[i].summary,
+			Title:    facts[i].title,
 			Messages: facts[i].entries(),
 		}
 		if c.Summary == "" {
@@ -655,19 +689,18 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 			return now, false
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
-		now.prompted = prev.prompted
+		now.title, now.prompted = prev.title, prev.prompted
 		tail = now.size - prev.size
 	}
 
 	counted := &countingReader{r: io.LimitReader(f, tail), last: '\n'}
 	if !grown {
-		var title string
-		now.summary, title, now.cwd = openingPrompt(counted)
+		now.summary, now.title, now.cwd = openingPrompt(counted)
 		now.prompted = now.summary != ""
 		if now.summary == "" {
 			// Nothing was typed here that a person would recognise the
 			// conversation by, but Claude Code may have named it.
-			now.summary = title
+			now.summary = now.title
 		}
 	}
 	drain(counted)
@@ -677,20 +710,36 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 	return now, true
 }
 
+// aiTitleMark is what an entry carrying the name Claude Code gave a
+// conversation has in it.
+var aiTitleMark = []byte(`"ai-title"`)
+
 // openingPrompt reads the first thing the user asked, the name Claude Code
 // gave the conversation, and the working directory the transcript records,
 // looking only at the opening entries.
 //
 // All three come back together because they are found in the same walk: every
 // entry carries the directory, so the one holding the prompt almost always
-// carries it too, and the name is written near the top, so reading them costs
-// nothing extra.
+// carries it too, and the name is written within the first entries as well --
+// though after the prompt, since Claude Code cannot name a conversation until
+// there is one. Walking past the prompt to find it is what makes ten agents
+// sent the same instruction tell apart in the panel.
+//
+// Once the prompt and the directory are known the only thing left to look for
+// is that name, so entries that cannot carry one are not parsed at all. The
+// entries here are the ones that run to megabytes -- a tool result, a pasted
+// file -- and looking for a mark in the bytes costs a fraction of parsing
+// them as JSON.
 func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 	lines := newTranscriptReader(r)
 	for i := 0; i < summaryScanLimit; i++ {
 		raw, ok := lines.next()
 		if !ok {
 			break
+		}
+		named := bytes.Contains(raw, aiTitleMark)
+		if !named && prompt != "" && cwd != "" {
+			continue
 		}
 		var line transcriptLine
 		if json.Unmarshal(raw, &line) != nil {
@@ -702,19 +751,17 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 		if line.Type == "ai-title" {
 			// Claude Code renames a conversation as it goes, so the last name
 			// it settled on is the one that describes it.
-			if named := firstPrompt(line.AiTitle); named != "" {
-				title = named
+			if got := firstPrompt(line.AiTitle); got != "" {
+				title = got
 			}
 			continue
 		}
-		if line.Type != "user" || line.Message.Role != "user" {
+		if prompt != "" || line.Type != "user" || line.Message.Role != "user" {
 			continue
 		}
-		if text := contentText(line.Message.Content); text != "" {
-			return text, title, cwd
-		}
+		prompt = contentText(line.Message.Content)
 	}
-	return "", title, cwd
+	return prompt, title, cwd
 }
 
 // countingReader counts the line breaks in everything read through it, and
