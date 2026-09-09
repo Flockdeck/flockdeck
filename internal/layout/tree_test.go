@@ -2229,3 +2229,36 @@ func TestATabWithNoRoomAtAllGivesEveryPaneNothing(t *testing.T) {
 		}
 	}
 }
+
+// TestCombineIgnoresTheWeightATreeArrivesWith covers merging a tab whose tree
+// carries a weight of its own. A tab's tree is usually weighted one, but not
+// always: restoring a layout collapses a split that has lost all but one child
+// into that child, which takes over the split's share, and that share is
+// whatever the file recorded — a thirtieth, after a few merges.
+//
+// Merging is between tabs, and a tab is a tab whatever the number on its root
+// says. The weight a tree arrives with means something only inside the tab it
+// came from, so it is dropped rather than let through into the split the merge
+// builds, where it would decide how the two tabs share the screen.
+func TestCombineIgnoresTheWeightATreeArrivesWith(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 1000, H: 100}
+
+	// A lone pane whose tab was left holding a thirtieth of a share.
+	lone := NewLeaf("lone")
+	lone.Weight = 0.03
+	root := Combine(NewLeaf("other"), lone, Horizontal)
+	root.Compute(view)
+	if w := root.Find("lone").Rect().W; w < 450 || w > 550 {
+		t.Errorf("the merged pane got %d of 1000 columns, want about half", w)
+	}
+
+	// And the same for a tab holding a column, which comes across whole.
+	column := NewLeaf("top")
+	column.Split("top", "bottom", Vertical)
+	column.Weight = 0.03
+	root = Combine(NewLeaf("beside"), column, Horizontal)
+	root.Compute(view)
+	if w := root.Find("top").Rect().W; w < 450 || w > 550 {
+		t.Errorf("the merged column got %d of 1000 columns, want about half", w)
+	}
+}
