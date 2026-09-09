@@ -3128,13 +3128,34 @@
     }
   }
 
+  /** How long a message stays. An error is not just news: something you asked
+   *  for did not happen, and this toast is the only place it is ever said —
+   *  there is no log to go back to. Four seconds is long enough for a message
+   *  about the thing you are looking at and not long enough for one about a
+   *  push you started before turning to another pane. */
+  const NOTICE_MS = 4000;
+  const ERROR_MS = 12000;
+
   function notice(text, isError) {
     const n = $("notice");
-    n.textContent = text;
     n.classList.toggle("error", !!isError);
+    // Set before the text, because it is the text changing that a screen
+    // reader acts on and it acts with whatever politeness is in force then. An
+    // error interrupts: waiting for a pause to mention that a push was
+    // rejected is waiting for the moment it stops mattering.
+    n.setAttribute("aria-live", isError ? "assertive" : "polite");
+    n.textContent = text;
     n.hidden = false;
     clearTimeout(notice.timer);
-    notice.timer = setTimeout(() => { n.hidden = true; }, 4000);
+    notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
+  }
+
+  /** hideNotice takes the message away. It is also what a click on it does:
+   *  the toast is drawn over the terminals and takes the pointer, so a click
+   *  meant for the pane underneath was going nowhere at all. */
+  function hideNotice() {
+    clearTimeout(notice.timer);
+    $("notice").hidden = true;
   }
 
   // -------------------------------------------------------------- shortcuts
@@ -3199,6 +3220,7 @@
   $("search-next").onclick = () => runSearch(false);
   $("search-prev").onclick = () => runSearch(true);
   $("search-close").onclick = closeSearch;
+  $("notice").onclick = hideNotice;
   // Asking on the first interaction rather than at load avoids a permission
   // prompt before the user has done anything. A keystroke is an interaction as
   // much as a click, and this is an application built to be driven from the

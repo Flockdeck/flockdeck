@@ -1636,6 +1636,42 @@ assert.strictEqual(h.win.Notification.asked, 1, "asked again after the question 
 `)
 }
 
+// The toast is the only place a failure is ever said — there is no log to go
+// back to — and it was said politely and taken away in four seconds.
+func TestAnErrorNoticeInterruptsAndWaits(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+
+h.recv({ type: "notice", text: "pushed 2 commits to origin/improve-webui", error: false });
+assert.ok(!n.hidden, "the message did not appear");
+assert.strictEqual(n.getAttribute("aria-live"), "polite", "ordinary news interrupts");
+assert.ok(!n.classList.contains("error"));
+
+h.recv({ type: "notice", text: "push rejected: the remote has commits you do not", error: true });
+assert.strictEqual(n.getAttribute("aria-live"), "assertive",
+  "a failure waits for a pause that may not come");
+assert.ok(n.classList.contains("error"));
+assert.ok(n.textContent.includes("rejected"), "got: " + n.textContent);
+
+// It outlives the four seconds a piece of news gets, because it is about
+// something started before you turned to another pane.
+await h.sleep(4300);
+assert.ok(!n.hidden, "the failure was taken away as quickly as an ordinary message");
+
+// The toast sits over the terminals and takes the pointer whatever it does, so
+// a click on it puts it away rather than going nowhere.
+h.click(n);
+assert.ok(n.hidden, "clicking the message did nothing at all");
+
+// And an ordinary message after an error goes back to being polite.
+h.recv({ type: "notice", text: "fetched", error: false });
+assert.strictEqual(n.getAttribute("aria-live"), "polite", "everything interrupts once anything has");
+h.click(n);   // so the case is not held open by the timer it has just started
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

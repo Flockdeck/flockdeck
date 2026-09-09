@@ -759,6 +759,9 @@ kbd {
    * unbreakable one - a git error quoting a full path - ran off the edge. */
   max-width: min(560px, calc(100vw - 28px));
   overflow-wrap: break-word;
+  /* It sits over the terminals and takes the pointer either way, so a click on
+   * it may as well be the way to put it away. */
+  cursor: pointer;
 }
 #notice[hidden] { display: none; }
 #notice.error { border-color: var(--exited); color: var(--exited); }
