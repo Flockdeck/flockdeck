@@ -702,17 +702,25 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 		// misalignment of their centres.
 		primary, shared, secondary int
 	}
-	// The pane a person is looking at when they press an arrow is the one most
-	// of that edge is against, so the widest shared edge wins before the
-	// closest centres: a full-height pane beside a tall one and a sliver under
-	// it must not hand the focus to the sliver because the sliver's centre
-	// happens to sit nearer.
+	// A pane this one does not face is never the answer while a pane it does
+	// face is on offer, however close the two happen to be. Rows split
+	// differently sit their dividers at different columns, so a pane in the
+	// row below can begin exactly where this row's divider is — nearer, by the
+	// arithmetic, than the pane genuinely beside this one.
+	//
+	// Among the panes it does face, the nearest wins, and then the one most of
+	// the edge is against: a full-height pane beside a tall one and a sliver
+	// under it must not hand the focus to the sliver because the sliver's
+	// centre happens to sit nearer.
 	//
 	// Centres still separate panes sharing the edge equally, and after that
 	// everything can tie — two stacked panes beside one tall one already do.
 	// The walk keeps the first of the tied panes, which is the topmost and
 	// leftmost, so the answer never depends on the order the tree came out in.
 	better := func(a, b cand) bool {
+		if (a.shared > 0) != (b.shared > 0) {
+			return a.shared > 0
+		}
 		if a.primary != b.primary {
 			return a.primary < b.primary
 		}

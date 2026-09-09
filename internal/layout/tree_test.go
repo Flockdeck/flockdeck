@@ -1537,3 +1537,35 @@ func TestComputeStaysInsideTheBoxWhenAWeightIsTiny(t *testing.T) {
 		t.Errorf("panes cover %d rows, want 10", sum)
 	}
 }
+
+// TestNeighborIgnoresAPaneItDoesNotFace covers two rows split differently, so
+// that a divider in one row lines up with a pane in the other. Moving right
+// out of the top-left pane must land in the pane beside it and not in the row
+// below, however neatly that pane happens to start where this row's divider
+// is.
+func TestNeighborIgnoresAPaneItDoesNotFace(t *testing.T) {
+	// Layout:  a  | b        two columns over three, in eight cells:
+	//          d | e | f     a covers 0-2 and e starts at 3, where the
+	//                        divider between a and b sits.
+	root := NewLeaf("a")
+	root.Split("a", "d", Vertical)
+	root.Split("a", "b", Horizontal)
+	root.Split("d", "e", Horizontal)
+	root.Split("e", "f", Horizontal)
+	root.Compute(Rect{X: 0, Y: 0, W: 8, H: 4})
+
+	a, b, e := root.Find("a").Rect(), root.Find("b").Rect(), root.Find("e").Rect()
+	if e.X != a.X+a.W || b.X != e.X+separatorWidth {
+		t.Fatalf("this test needs e to start at a's divider, got a=%+v b=%+v e=%+v", a, b, e)
+	}
+
+	if got := root.Neighbor("a", Right); got != "b" {
+		t.Errorf("right of a = %q, want b: %q is in the row below and shares no edge with a", got, got)
+	}
+	if got := root.Neighbor("b", Left); got != "a" {
+		t.Errorf("left of b = %q, want a", got)
+	}
+	if got := root.Neighbor("d", Up); got != "a" {
+		t.Errorf("up from d = %q, want a", got)
+	}
+}
