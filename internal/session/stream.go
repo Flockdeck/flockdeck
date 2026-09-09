@@ -116,6 +116,13 @@ const (
 )
 
 // scan reports whether p contains a real bell.
+//
+// It looks at every byte rather than skipping to the next escape or bell with
+// bytes.IndexByte. That was tried: it is forty times faster on plain lines and
+// two and a half times slower on the output a Claude pane actually produces,
+// where an escape sequence every few bytes turns each search into call
+// overhead over a span too short to pay for it. BenchmarkBellScan keeps all
+// three shapes of output in view so the next attempt starts from the numbers.
 func (b *bellScanner) scan(p []byte) bool {
 	rang := false
 	for _, c := range p {
@@ -151,9 +158,15 @@ func (b *bellScanner) scan(p []byte) bool {
 				b.state = scanOSCEsc
 			}
 		case scanOSCEsc:
-			if c == '\\' {
+			switch c {
+			case '\\':
 				b.state = scanNormal // ST terminator
-			} else {
+			case 0x1b:
+				// Still the start of a terminator, not the payload again.
+				// Dropping back to the payload here leaves the scanner inside
+				// the sequence for good, and the next real bell is swallowed
+				// as the byte that ends it.
+			default:
 				b.state = scanOSC
 			}
 		}

@@ -74,6 +74,10 @@ func TestBellScannerIgnoresOSCTerminator(t *testing.T) {
 		{"apc terminated by BEL", "\x1b_G f=100\x07after", false},
 		{"pm terminated by BEL", "\x1b^message\x07after", false},
 		{"a doubled escape still starts the sequence", "\x1b\x1b]0;t\x07", false},
+		// An escape inside the payload that is not the terminator is still the
+		// start of one: losing that leaves the scanner inside the sequence,
+		// and the next real bell is swallowed as the byte that ends it.
+		{"an escape before the ST terminator", "\x1b]0;t\x1b\x1b" + `\` + "ding\x07", true},
 		{"no bell at all", "just text", false},
 	}
 	for _, c := range cases {
@@ -276,5 +280,31 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	t.Cleanup(func() { fresh.Unsubscribe(id2) })
 	if !strings.Contains(string(replay2), "the first line") {
 		t.Errorf("replay dropped the start of a buffer that never wrapped: %q", replay2)
+	}
+}
+
+// BenchmarkBellScan measures the scan every byte of every pane's output goes
+// through on the way from the process to the screen, over the three shapes
+// terminal output comes in.
+func BenchmarkBellScan(b *testing.B) {
+	shapes := []struct{ name, unit string }{
+		// A build log, or anything writing plain lines.
+		{"plain", "some ordinary output on a line of its own\n"},
+		// Coloured output: a sequence every few words.
+		{"coloured", "\x1b[38;5;42m" + "some ordinary output " + "\x1b[m\r\n"},
+		// A full-screen interface redrawing itself, which is what a Claude
+		// pane produces: escape sequences with a few characters between them.
+		{"full screen", "\x1b[K\x1b[36mx\x1b[m\x1b[1B"},
+	}
+	for _, shape := range shapes {
+		b.Run(shape.name, func(b *testing.B) {
+			chunk := []byte(strings.Repeat(shape.unit, (32<<10)/len(shape.unit)))
+			var s bellScanner
+			b.SetBytes(int64(len(chunk)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				s.scan(chunk)
+			}
+		})
 	}
 }
