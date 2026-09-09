@@ -932,3 +932,37 @@ func TestClosingAPaneRacesEverythingElse(t *testing.T) {
 		}
 	}
 }
+
+// TestARealPaneReportsBusyThenIdle drives the status inference through a real
+// process, which the tests around it deliberately do not: they build sessions
+// by hand and set the quiet period themselves, so none of them would notice
+// Start forgetting to set it. A pane with no quiet period drops back to idle
+// between one line of output and the next, and the tab bar shows a working
+// agent as finished.
+func TestARealPaneReportsBusyThenIdle(t *testing.T) {
+	s := startShell(t)
+
+	// Whatever the shell prints coming up settles first.
+	waitForStatus(t, s, StatusIdle, 60*time.Second)
+
+	id, replay, out := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+	if err := s.WriteString("echo busy_marker_ok\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, ok := collect(t, out, replay, "busy_marker_ok", 30*time.Second); !ok {
+		t.Skip("shell did not echo in time")
+	}
+
+	waitForStatus(t, s, StatusWorking, 10*time.Second)
+
+	// The pane holds that for the quiet period rather than dropping back
+	// between one line and the next. This is the assertion that fails if the
+	// period is left at zero.
+	time.Sleep(quietBeforeIdle / 3)
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v a moment after output, want working until the pane is quiet", st)
+	}
+
+	waitForStatus(t, s, StatusIdle, 60*time.Second)
+}
