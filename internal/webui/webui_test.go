@@ -622,6 +622,56 @@ assert.ok(!h.doc.body.querySelector("div.tip"), "a bubble was left over a pane t
 `)
 }
 
+// The divider between two panes follows the pointer, and the pointer very
+// easily leaves the window: the panes reach its edges.
+func TestResizingASplitEndsWhenThePointerDoes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [{ id: "t1", title: "two up", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2") },
+}));
+
+const bar = h.doc.querySelector("div.divider");
+assert.ok(bar, "the split has a divider");
+const down = (button, id) => h.dispatch(bar, new h.Ev("pointerdown",
+  { button: button, pointerId: id, clientX: 400, clientY: 300 }));
+const move = (x, id) => h.dispatch(bar, new h.Ev("pointermove",
+  { pointerId: id, clientX: x, clientY: 300 }));
+const panels = () => h.doc.querySelectorAll("div.pane").map((p) => p.style.flexGrow);
+
+// The secondary button opens a menu. It does not start a resize.
+const before = panels();
+down(2, 1);
+move(460, 1);
+assert.deepStrictEqual(panels(), before, "a right-click on the divider resized the split");
+assert.ok(!bar.classList.contains("dragging"), "a right-click started a drag");
+assert.strictEqual(h.commands().filter((c) => c.cmd === "setWeights").length, 0);
+
+// The primary button does.
+down(0, 2);
+assert.ok(bar.classList.contains("dragging"), "the drag did not start");
+assert.strictEqual(bar.captured, 2, "the divider did not take the pointer, so a release outside is lost");
+move(440, 2);
+const dragged = panels();
+assert.notDeepStrictEqual(dragged, before, "dragging the divider did not move the panes");
+
+// The system takes the pointer away — a window losing focus, a touch turning
+// into a scroll. That has to end the drag as surely as letting go does.
+h.dispatch(bar, new h.Ev("pointercancel", { pointerId: 2 }));
+assert.ok(!bar.classList.contains("dragging"), "the drag outlived the pointer");
+const saved = h.commands().filter((c) => c.cmd === "setWeights");
+assert.strictEqual(saved.length, 1, "the split was not saved as it was left");
+assert.strictEqual(saved[0].node, "s-h-2");
+assert.strictEqual(saved[0].weights.length, 2);
+
+// And nothing moves any more.
+move(200, 2);
+assert.deepStrictEqual(panels(), dragged, "the panes still follow a pointer that is gone");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -807,6 +857,8 @@ class Element {
   get offsetHeight() { return 20; }
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
   scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
+  setPointerCapture(id) { this.captured = id; }
+  releasePointerCapture() { this.captured = undefined; }
 }
 
 function dashed(k) { return String(k).replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()); }

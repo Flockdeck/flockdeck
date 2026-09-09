@@ -346,7 +346,11 @@
   /** makeDivider returns a draggable separator that reweights its siblings. */
   function makeDivider(split, node) {
     const d = el("div", "divider");
-    d.addEventListener("mousedown", (ev) => {
+    d.addEventListener("pointerdown", (ev) => {
+      // The secondary button opens a menu; it does not start a resize. Without
+      // this, a right-click on a divider began one and the panes then followed
+      // the pointer around until something released the primary button.
+      if (ev.button !== 0) return;
       ev.preventDefault();
       const horizontal = node.dir === "h";
       // Only the two panels either side of this divider are affected.
@@ -365,24 +369,37 @@
       const totalGrow = aGrow + bGrow;
 
       d.classList.add("dragging");
+      // Capturing sends every move and the release to the divider itself, so a
+      // drag that leaves the window — which is easy, the panes reach the edge
+      // of it — is still delivered here. Listening on the document instead
+      // meant a button released outside never arrived, and the panes went on
+      // following the pointer with nothing held down.
+      try { d.setPointerCapture(ev.pointerId); } catch { /* older engines */ }
       const onMove = (m) => {
+        if (m.pointerId !== ev.pointerId) return;
         const delta = (horizontal ? m.clientX : m.clientY) - startPos;
-        let aPx = Math.max(60, Math.min(total - 60, aSize + delta));
+        const aPx = Math.max(60, Math.min(total - 60, aSize + delta));
         const ratio = aPx / total;
         a.style.flexGrow = String(totalGrow * ratio);
         b.style.flexGrow = String(totalGrow * (1 - ratio));
       };
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
+      // pointercancel is the system taking the pointer away — a touch turning
+      // into a scroll, the window losing it. The drag has to end there too, or
+      // it never ends at all.
+      const onUp = (u) => {
+        if (u.pointerId !== ev.pointerId) return;
+        d.removeEventListener("pointermove", onMove);
+        d.removeEventListener("pointerup", onUp);
+        d.removeEventListener("pointercancel", onUp);
         d.classList.remove("dragging");
         // Persist every child's weight, so the split is restored as drawn.
         const weights = panels.map((p) => parseFloat(p.style.flexGrow) || 1);
         send({ cmd: "setWeights", node: node.id, weights });
         panels.forEach(refitWithin);
       };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
+      d.addEventListener("pointermove", onMove);
+      d.addEventListener("pointerup", onUp);
+      d.addEventListener("pointercancel", onUp);
     });
     return d;
   }
