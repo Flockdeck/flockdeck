@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -771,5 +772,50 @@ func TestAPanicTellsTheWindow(t *testing.T) {
 	}
 	if !strings.Contains(note.Text, "the tab was not there") {
 		t.Errorf("notice = %q, want it to carry what went wrong", note.Text)
+	}
+}
+
+// projectRoots reads the open project list.
+func (s *Server) projectRoots(t *testing.T) []string {
+	t.Helper()
+	done := make(chan []string, 1)
+	s.do(func() {
+		var roots []string
+		for _, p := range s.ws.Projects() {
+			roots = append(roots, p.Root)
+		}
+		done <- roots
+	})
+	select {
+	case roots := <-done:
+		return roots
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out reading the project list")
+		return nil
+	}
+}
+
+// TestOpenProjectNeedsAFullPath covers what a path the window did not fill in
+// would otherwise mean. Anything that is not absolute is resolved against the
+// directory perch itself was launched from, and an empty one resolves to that
+// directory exactly — so it would open as a project, take over the tab bar and
+// have an agent started in it, none of which anybody asked for.
+func TestOpenProjectNeedsAFullPath(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	before := srv.projectRoots(t)
+
+	for _, path := range []string{"", ".", filepath.Join("relative", "dir")} {
+		sendCmd(t, conn, command{Cmd: "openProject", Path: path})
+		var note noticeMsg
+		readUntil(t, conn, "notice", &note)
+		if !note.Error {
+			t.Errorf("openProject %q was accepted: %+v", path, note)
+		}
+	}
+
+	if after := srv.projectRoots(t); len(after) != len(before) {
+		t.Errorf("open projects went from %v to %v", before, after)
 	}
 }

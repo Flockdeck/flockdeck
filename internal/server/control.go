@@ -640,6 +640,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// A title chosen by hand is not replaced by a later prompt.
 			t.AutoTitle = false
 		case "openProject":
+			// A path that is not absolute is resolved against the directory
+			// perch was launched from, which the window knows nothing about
+			// and did not mean. An empty one resolves to that directory
+			// exactly: it opens as a project, becomes the active one, and gets
+			// an agent started in it, while the projects the person was
+			// working in drop off the tab bar until they think to close it
+			// again. Everything the page sends here comes from a directory
+			// listing or the recent list and is absolute already.
+			if !filepath.IsAbs(cmd.Path) {
+				c.notify("a project has to be named by its full path", true)
+				return
+			}
 			if err := ws.OpenProject(cmd.Path); err != nil {
 				c.notify(err.Error(), true)
 				return
