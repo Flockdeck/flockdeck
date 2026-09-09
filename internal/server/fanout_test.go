@@ -418,3 +418,21 @@ func TestHelpNamesTheCapTheServerEnforces(t *testing.T) {
 		t.Errorf("the fan-out page does not name the cap of %s that the server enforces", want)
 	}
 }
+
+// A fan-out spends seconds in git before the first pane can exist, and until
+// then the window shows nothing at all. It has to say what it is waiting on —
+// but only when there is a wait, since one worktree is quick.
+func TestPreparingNotice(t *testing.T) {
+	for _, n := range []int{0, 1} {
+		if got := preparingNotice(n); got != "" {
+			t.Errorf("preparingNotice(%d) = %q, want nothing said for a wait this short", n, got)
+		}
+	}
+	got := preparingNotice(workspace.MaxTasks)
+	if got == "" {
+		t.Fatalf("preparingNotice(%d) said nothing", workspace.MaxTasks)
+	}
+	if !strings.Contains(got, strconv.Itoa(workspace.MaxTasks)) {
+		t.Errorf("preparingNotice(%d) = %q, want it to say how many", workspace.MaxTasks, got)
+	}
+}

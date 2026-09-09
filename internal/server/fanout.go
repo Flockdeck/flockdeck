@@ -100,7 +100,7 @@ func gitRoot(dir string) string {
 func (s *Server) runFanout(c *controlClient, parent string, tasks []string, worktrees, split, trust bool) {
 	go func() {
 		if len(tasks) == 0 {
-			c.notify("no tasks to start", true)
+			c.notify(fanoutSummary(0, 0))
 			return
 		}
 
@@ -162,6 +162,9 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			case repo == "":
 				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktrees can be created", filepath.Base(baseCwd)), true)
 				return
+			}
+			if text := preparingNotice(len(jobs)); text != "" {
+				c.notify(text, false)
 			}
 			nameBranches(jobs, localBranches(repo))
 			makeWorktrees(jobs, func(branch string) (string, error) {
@@ -364,6 +367,21 @@ func fanoutSummary(started, failed int) (string, bool) {
 	default:
 		return fmt.Sprintf("started %d %s", started, agents(started)), false
 	}
+}
+
+// preparingNotice is what a fan-out says before it starts anything, or "" when
+// there is nothing worth saying.
+//
+// Cutting a worktree writes out a whole working tree, so on a repository of any
+// size a fan-out spends seconds in git before the first pane can exist. Until
+// then there is nothing on screen at all: a button pressed, a dialog closed,
+// and silence — which reads as a fan-out that did not take. One agent is quick
+// enough not to need explaining; a dozen is not.
+func preparingNotice(n int) string {
+	if n < 2 {
+		return ""
+	}
+	return fmt.Sprintf("preparing %d worktrees…", n)
 }
 
 // agents is "agent" or "agents", for a count that is read rather than parsed.
