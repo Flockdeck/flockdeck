@@ -372,6 +372,105 @@ func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
 	}
 }
 
+// TestChangesDuringAConflictedMerge covers the state an agent most often
+// stops in and asks for help: the merge is half done and one file is in
+// pieces. Only the code-to-word mapping was tested before, not what the panel
+// is actually handed for it.
+func TestChangesDuringAConflictedMerge(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "base")
+	gitRun(t, repo, "checkout", "-b", "topic")
+	write(t, repo, "f.txt", "from the agent\n")
+	gitRun(t, repo, "commit", "-am", "topic")
+	gitRun(t, repo, "checkout", "main")
+	write(t, repo, "f.txt", "from main\n")
+	gitRun(t, repo, "commit", "-am", "main")
+
+	merge := exec.Command("git", "merge", "topic")
+	merge.Dir = repo
+	if out, err := merge.CombinedOutput(); err == nil {
+		t.Fatalf("expected the merge to conflict: %s", out)
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("%d files, want the one in conflict: %+v", len(files), files)
+	}
+	if files[0].Path != "f.txt" || files[0].Label != "conflict" {
+		t.Errorf("entry = %+v, want f.txt labelled conflict", files[0])
+	}
+
+	// A merge does not detach HEAD the way a rebase does, so the branch is
+	// still the branch.
+	if st := StatusOf(repo); st.Branch != "main" || st.Detached || st.Dirty != 1 {
+		t.Errorf("status = %+v, want main, attached, one dirty file", st)
+	}
+
+	// The diff of a conflicted file is the conflict, markers and all, which is
+	// the thing worth reading at that moment.
+	diff, err := Diff(repo, "f.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	for _, want := range []string{"<<<<<<<", "from the agent", ">>>>>>>"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("diff does not show %q:\n%s", want, diff)
+		}
+	}
+}
+
+// TestChangesReportsADirtySubmodule covers a gitlink, which is neither a file
+// with contents nor a directory to walk into: git reports one entry for the
+// whole submodule and one line of diff naming the commit it moved to.
+func TestChangesReportsADirtySubmodule(t *testing.T) {
+	inner := newRepo(t)
+	outer := newRepo(t)
+
+	add := exec.Command("git", "-c", "protocol.file.allow=always",
+		"submodule", "add", "--", filepath.ToSlash(inner), "mod")
+	add.Dir = outer
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Skipf("submodules are not usable here: %v: %s", err, out)
+	}
+	gitRun(t, outer, "commit", "-m", "add the submodule")
+
+	// Moving the submodule on by a commit is what makes the outer repository
+	// dirty, without changing a single file the outer one tracks.
+	mod := filepath.Join(outer, "mod")
+	write(t, mod, "README.md", "hello\nand more\n")
+	gitRun(t, mod, "commit", "-am", "work inside the submodule")
+
+	files, err := Changes(outer)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("%d files, want the submodule alone: %+v", len(files), files)
+	}
+	if files[0].Path != "mod" || files[0].Label != "modified" {
+		t.Errorf("entry = %+v, want mod reported as modified", files[0])
+	}
+	if files[0].Untracked {
+		t.Error("a submodule that moved is not an untracked file")
+	}
+	if st := StatusOf(outer); st.Dirty != 1 || st.Untracked != 0 {
+		t.Errorf("status = %+v, want one dirty entry and nothing untracked", st)
+	}
+
+	diff, err := Diff(outer, "mod")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, "Subproject commit") {
+		t.Errorf("submodule diff should name the commits it moved between:\n%s", diff)
+	}
+}
+
 // TestStatusLabelNamesConflicts covers the words shown beside each file. The
 // unmerged codes are the ones worth pinning: most of them look like an
 // ordinary add or delete if the letters are read one at a time.
