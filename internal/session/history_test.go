@@ -665,3 +665,63 @@ func TestTranscriptReaderWalksEveryEntry(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationsSplitAFolderTwoProjectsShare covers the other half of the
+// derived name being lossy. "my-app" and "my_app" do not merely collide in
+// theory: Claude Code puts both directories' transcripts in the one folder,
+// so the folder holds two projects' conversations at once. Handing the whole
+// folder to whichever project asked offers a resume that opens somebody
+// else's work; refusing the folder to the project that does not own its first
+// transcript hides conversations that are sitting right there.
+func TestConversationsSplitAFolderTwoProjectsShare(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	parent := t.TempDir()
+	dashed := filepath.Join(parent, "my-app")
+	scored := filepath.Join(parent, "my_app")
+	for _, d := range []string{dashed, scored} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if projectSlug(dashed) != projectSlug(scored) {
+		t.Fatalf("the two directories were expected to collide: %q vs %q", projectSlug(dashed), projectSlug(scored))
+	}
+
+	shared := filepath.Join(home, "projects", projectSlug(dashed))
+	writeTranscript(t, shared, "aaaaaaaa-1111-1111-1111-111111111111",
+		`{"type":"user","cwd":"`+jsonPath(dashed)+`","message":{"role":"user","content":"work on my-app"}}`)
+	writeTranscript(t, shared, "bbbbbbbb-1111-1111-1111-111111111111",
+		`{"type":"user","cwd":"`+jsonPath(scored)+`","message":{"role":"user","content":"work on my_app"}}`)
+	// An abandoned session says nothing about where it ran, and belongs to
+	// whoever asks: it is contentless either way.
+	writeTranscript(t, shared, "cccccccc-1111-1111-1111-111111111111", `{"type":"summary"}`)
+
+	for _, c := range []struct{ cwd, want string }{
+		{dashed, "work on my-app"},
+		{scored, "work on my_app"},
+	} {
+		got, err := Conversations(c.cwd)
+		if err != nil {
+			t.Fatalf("conversations in %s: %v", c.cwd, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("%s listed %d conversations, want its own and the abandoned one: %+v", c.cwd, len(got), got)
+		}
+		var summaries []string
+		for _, conv := range got {
+			summaries = append(summaries, conv.Summary)
+		}
+		if summaries[0] != c.want && summaries[1] != c.want {
+			t.Errorf("%s was not shown its own conversation: %q", c.cwd, summaries)
+		}
+		for _, s := range summaries {
+			if s != c.want && s != "(no prompt recorded)" {
+				t.Errorf("%s was shown a neighbour's conversation: %q", c.cwd, s)
+			}
+		}
+	}
+}

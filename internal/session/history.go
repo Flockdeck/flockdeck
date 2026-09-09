@@ -38,6 +38,9 @@ type transcriptFacts struct {
 	modTime time.Time
 	size    int64
 	summary string
+	// cwd is the working directory the transcript records, which says whose
+	// conversation it is when a folder is shared between two directories.
+	cwd string
 	// newlines is the raw count of line breaks, kept apart from the entry
 	// count so that an appended tail can be added to it.
 	newlines int
@@ -106,10 +109,15 @@ type transcriptLine struct {
 // Conversations lists the stored conversations for a working directory, most
 // recently used first.
 //
-// Claude Code keeps one transcript per session under a per-directory folder.
-// The folder name is derived from the path, but that mangling is Claude's
-// business, so the derived name is only a fast path: if it does not exist the
-// folders are searched for one whose transcripts record this directory.
+// Claude Code keeps one transcript per session under a per-directory folder
+// whose name it derives from the path, and the derivation is reproduced here,
+// so that folder is where this directory's transcripts are. It is a lossy
+// derivation -- every character that is not a letter or a digit becomes a
+// dash, so "my-app" and "my_app" land in the same folder -- so which
+// transcripts in it are this directory's is decided per transcript, by what
+// each one records. If nothing in there is ours the folders are searched for
+// one whose transcripts record this directory, which is where a folder Claude
+// named differently turns up.
 func Conversations(cwd string) ([]Conversation, error) {
 	home := claudeHome()
 	if home == "" {
@@ -117,36 +125,45 @@ func Conversations(cwd string) ([]Conversation, error) {
 	}
 	projects := filepath.Join(home, "projects")
 
-	// The derived name is only a guess, and a lossy one: every character that
-	// is not a letter or a digit becomes a dash, so "my-app" and "my_app"
-	// derive the same folder. Take it only when its transcripts agree they
-	// were recorded here, or say nothing either way. The listing that decides
-	// that is the listing the conversations are read from: on a folder of
-	// hundreds of transcripts, reading the directory is most of what a
-	// refresh costs, and it was being done twice.
 	dir := filepath.Join(projects, projectSlug(cwd))
-	entries, err := os.ReadDir(dir)
-	if err != nil || !folderCouldBe(dir, entries, cwd) {
-		found, ferr := findProjectDir(projects, cwd)
-		if ferr != nil {
-			return nil, ferr
+	entries, derr := os.ReadDir(dir)
+	out := conversationsIn(dir, entries, cwd)
+	if len(out) == 0 {
+		found, err := findProjectDir(projects, cwd)
+		if err != nil {
+			return nil, err
 		}
 		if found == "" {
 			// Never having used Claude Code here is not a failure; being
 			// unable to read what is there is, and reporting that as an empty
 			// list leaves somebody looking for conversations they know they
 			// had.
-			if err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
+			if derr != nil && !os.IsNotExist(derr) {
+				return nil, fmt.Errorf("read conversations in %s: %w", dir, derr)
 			}
 			return nil, nil
 		}
-		dir = found
-		if entries, err = os.ReadDir(dir); err != nil {
-			return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
+		entries, err := os.ReadDir(found)
+		if err != nil {
+			return nil, fmt.Errorf("read conversations in %s: %w", found, err)
 		}
+		out = conversationsIn(found, entries, cwd)
 	}
 
+	// Most recently used first, with the id breaking a tie so that two
+	// conversations started together do not swap places between refreshes.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Modified.Equal(out[j].Modified) {
+			return out[i].Modified.After(out[j].Modified)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// conversationsIn describes the transcripts in one project folder that belong
+// to cwd, in whatever order the folder was read.
+func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversation {
 	cached := cachedFacts(dir)
 	fresh := make(map[string]transcriptFacts, len(entries))
 
@@ -169,6 +186,15 @@ func Conversations(cwd string) ([]Conversation, error) {
 		facts := describeTranscript(filepath.Join(dir, e.Name()), info, cached[e.Name()])
 		fresh[e.Name()] = facts
 
+		// A transcript that names a different directory is a neighbour's,
+		// sharing this folder because the two paths derive the same name.
+		// Offering it here would resume somebody else's work in this project;
+		// one that names nowhere is an abandoned session and belongs to
+		// whoever asks.
+		if facts.cwd != "" && !sameDir(facts.cwd, cwd) {
+			continue
+		}
+
 		c := Conversation{
 			ID:       strings.TrimSuffix(e.Name(), ".jsonl"),
 			Cwd:      cwd,
@@ -183,15 +209,7 @@ func Conversations(cwd string) ([]Conversation, error) {
 		out = append(out, c)
 	}
 	rememberFacts(dir, fresh)
-	// Most recently used first, with the id breaking a tie so that two
-	// conversations started together do not swap places between refreshes.
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].Modified.Equal(out[j].Modified) {
-			return out[i].Modified.After(out[j].Modified)
-		}
-		return out[i].ID < out[j].ID
-	})
-	return out, nil
+	return out
 }
 
 // projectSlug reproduces the folder name Claude Code derives from a path.
@@ -227,51 +245,39 @@ func findProjectDir(projects, cwd string) (string, error) {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		if got := folderCwd(dir); got != "" && sameDir(got, cwd) {
+		if folderMentions(dir, cwd) {
 			return dir, nil
 		}
 	}
 	return "", nil
 }
 
-// folderCwd returns the working directory a project folder's transcripts
-// record, or "" when none of the ones it looks at says.
+// folderMentions reports whether any of the first few transcripts in a
+// project folder records cwd as the directory it ran in.
 //
-// One transcript that names a directory identifies the whole folder, but the
+// One transcript that names the directory identifies the folder, but the
 // first file need not be that transcript: a session that was opened and
-// abandoned leaves one with nothing in it. Look past those, up to a handful,
-// rather than writing the folder off.
-func folderCwd(dir string) string {
+// abandoned leaves one with nothing in it, and a folder can be shared with a
+// neighbouring directory whose path derives the same name. Look past those,
+// up to a handful, rather than writing the folder off on the first answer.
+func folderMentions(dir, cwd string) bool {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return ""
+		return false
 	}
-	return folderCwdIn(dir, files)
-}
-
-// folderCwdIn is folderCwd for a folder that has already been read.
-func folderCwdIn(dir string, files []os.DirEntry) string {
 	tried := 0
 	for _, f := range files {
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 			continue
 		}
-		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
-			return got
+		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" && sameDir(got, cwd) {
+			return true
 		}
 		if tried++; tried >= cwdProbeLimit {
 			break
 		}
 	}
-	return ""
-}
-
-// folderCouldBe reports whether a project folder may hold cwd's conversations:
-// either its transcripts say so, or they say nothing at all, which is what a
-// folder holding only abandoned sessions looks like.
-func folderCouldBe(dir string, files []os.DirEntry, cwd string) bool {
-	got := folderCwdIn(dir, files)
-	return got == "" || sameDir(got, cwd)
+	return false
 }
 
 // sameDir compares two recorded working directories.
@@ -332,9 +338,9 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
 			return now
 		}
-		now.summary, now.newlines = prev.summary, prev.newlines
+		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
 	} else {
-		now.summary = openingPrompt(f)
+		now.summary, now.cwd = openingPrompt(f)
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return now
 		}
@@ -346,9 +352,13 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 	return now
 }
 
-// openingPrompt reads the first thing the user asked, looking only at the
-// opening entries of the transcript.
-func openingPrompt(r io.Reader) string {
+// openingPrompt reads the first thing the user asked and the working
+// directory the transcript records, looking only at the opening entries.
+//
+// The two come back together because they are found in the same walk: every
+// entry carries the directory, so the one holding the prompt almost always
+// carries it too, and reading it costs nothing extra.
+func openingPrompt(r io.Reader) (prompt, cwd string) {
 	lines := newTranscriptReader(r)
 	for i := 0; i < summaryScanLimit; i++ {
 		raw, ok := lines.next()
@@ -359,14 +369,17 @@ func openingPrompt(r io.Reader) string {
 		if json.Unmarshal(raw, &line) != nil {
 			continue
 		}
+		if cwd == "" {
+			cwd = line.Cwd
+		}
 		if line.Type != "user" || line.Message.Role != "user" {
 			continue
 		}
 		if text := contentText(line.Message.Content); text != "" {
-			return text
+			return text, cwd
 		}
 	}
-	return ""
+	return "", cwd
 }
 
 // countNewlines counts the line breaks in what is left of a reader, and
