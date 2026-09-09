@@ -791,8 +791,14 @@ func branchOf(dir string) string {
 }
 
 // NewTab appends a tab to the active project and focuses it.
+//
+// The tab belongs to the active project, since that is the tab bar it is drawn
+// on, but the pane belongs to whichever open project its directory is in — the
+// same rule a split follows. Opening a checkout that is itself open as a
+// project, which is how a worktree usually reaches a new tab, otherwise gave an
+// agent working in one project every reason to think it was in another.
 func (w *Workspace) NewTab(kind session.Kind, cwd, title string) *Tab {
-	p := w.newPane(kind, cwd, "", w.activeRoot)
+	p := w.newPane(kind, cwd, "", "")
 	// A tab with no title of its own is named after the directory for now, and
 	// renames itself when the agent is first asked something.
 	autoTitle := title == "" && kind == session.KindClaude

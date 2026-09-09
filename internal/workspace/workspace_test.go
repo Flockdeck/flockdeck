@@ -82,3 +82,33 @@ func TestProjectCountsFollowTheAgentsProject(t *testing.T) {
 		}
 	}
 }
+
+// TestNewTabTakesTheProjectOfItsDirectory covers opening a checkout that is
+// itself an open project in a new tab: the tab is drawn on the active
+// project's tab bar, but the agent is working in the other project and has to
+// belong to it — as it already would have done had it been split in rather
+// than opened in a tab.
+func TestNewTabTakesTheProjectOfItsDirectory(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+
+	ws.NewTab(session.KindShell, second, "over there")
+	tab := ws.CurrentTab()
+	if tab.Root != first {
+		t.Errorf("tab root = %q, want the active project %q", tab.Root, first)
+	}
+	p := ws.Pane(tab.Focus)
+	if p == nil {
+		t.Fatal("the new tab has no pane")
+	}
+	if !sameDir(p.Root, second) {
+		t.Errorf("pane project = %q, want the project its directory is in %q", p.Root, second)
+	}
+
+	// Which is what makes closing that project stop the agent: an agent left
+	// running for a project that is no longer open belongs to nothing.
+	ws.CloseProject(second)
+	if ws.Pane(p.ID) != nil {
+		t.Error("the agent is still running after its project was closed")
+	}
+}
