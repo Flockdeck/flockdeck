@@ -261,18 +261,15 @@ func conversationsUnder(projects, cwd string) []Conversation {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
+		records, files := folderRecords(dir)
 		mentions := false
-		for _, got := range folderRecords(dir) {
+		for _, got := range records {
 			if sameDir(got, cwd) {
 				mentions = true
 				break
 			}
 		}
 		if !mentions {
-			continue
-		}
-		files, err := os.ReadDir(dir)
-		if err != nil {
 			continue
 		}
 		// Only what ran here. A transcript of the worktree's own work is the
@@ -532,7 +529,8 @@ func findProjectDir(projects, cwd string) (string, error) {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		for _, got := range folderRecords(dir) {
+		records, _ := folderRecords(dir)
+		for _, got := range records {
 			if sameDir(got, cwd) {
 				return dir, nil
 			}
@@ -576,10 +574,14 @@ type folderProbe struct {
 // folderRecords returns the working directories the first few transcripts in
 // a project folder record, opening them only when the folder has gained or
 // lost a transcript since it was last looked at.
-func folderRecords(dir string) []string {
+//
+// The folder has to be read either way, to see whether what was remembered
+// about it still holds, so what was read comes back with the answer: the
+// caller that goes on to list the folder would otherwise read it again.
+func folderRecords(dir string) ([]string, []os.DirEntry) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	transcripts := 0
 	for _, f := range files {
@@ -592,14 +594,14 @@ func folderRecords(dir string) []string {
 	probe, ok := probedFolders.dirs[dir]
 	probedFolders.Unlock()
 	if ok && probe.transcripts == transcripts {
-		return probe.cwds
+		return probe.cwds, files
 	}
 
 	probe = folderProbe{transcripts: transcripts, cwds: probeFolder(dir, files)}
 	probedFolders.Lock()
 	probedFolders.dirs[dir] = probe
 	probedFolders.Unlock()
-	return probe.cwds
+	return probe.cwds, files
 }
 
 // probeFolder opens the first few transcripts in a project folder and returns

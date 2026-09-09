@@ -838,7 +838,7 @@ func TestFolderRecordsAreKeptUntilTheFolderChanges(t *testing.T) {
 	writeTranscript(t, dir, "aaaaaaaa-2222-2222-2222-222222222222",
 		`{"type":"user","cwd":"`+jsonPath(`C:\first`)+`","message":{"role":"user","content":"one"}}`)
 
-	got := folderRecords(dir)
+	got, _ := folderRecords(dir)
 	if len(got) != 1 || !sameDir(got[0], `C:\first`) {
 		t.Fatalf("probed %q, want the directory the transcript records", got)
 	}
@@ -847,14 +847,14 @@ func TestFolderRecordsAreKeptUntilTheFolderChanges(t *testing.T) {
 	// has changed, so nothing should be opened again.
 	writeTranscript(t, dir, "aaaaaaaa-2222-2222-2222-222222222222",
 		`{"type":"user","cwd":"`+jsonPath(`C:\second`)+`","message":{"role":"user","content":"two"}}`)
-	if got := folderRecords(dir); len(got) != 1 || !sameDir(got[0], `C:\first`) {
+	if got, _ := folderRecords(dir); len(got) != 1 || !sameDir(got[0], `C:\first`) {
 		t.Errorf("probed %q again; an unchanged folder should not be opened twice", got)
 	}
 
 	// A transcript appears, which is the one thing that can change the answer.
 	writeTranscript(t, dir, "bbbbbbbb-2222-2222-2222-222222222222",
 		`{"type":"user","cwd":"`+jsonPath(`C:\third`)+`","message":{"role":"user","content":"three"}}`)
-	got = folderRecords(dir)
+	got, _ = folderRecords(dir)
 	if len(got) != 2 || !sameDir(got[0], `C:\second`) || !sameDir(got[1], `C:\third`) {
 		t.Errorf("probed %q; a folder that has gained a transcript should be read again", got)
 	}
