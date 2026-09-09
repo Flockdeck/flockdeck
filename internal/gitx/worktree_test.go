@@ -165,6 +165,51 @@ func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
 	}
 }
 
+// TestStatusDuringARebaseKeepsTheBranchName covers an agent that stopped on a
+// conflict: git detaches HEAD to replay commits, so without help the pane
+// header and the review panel both call the checkout "detached".
+func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "base")
+
+	gitRun(t, repo, "checkout", "-b", "topic")
+	write(t, repo, "f.txt", "topic\n")
+	gitRun(t, repo, "commit", "-am", "topic")
+	gitRun(t, repo, "checkout", "main")
+	write(t, repo, "f.txt", "main\n")
+	gitRun(t, repo, "commit", "-am", "main")
+	gitRun(t, repo, "checkout", "topic")
+
+	// The rebase is meant to stop here: both sides changed the same line.
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected the rebase to stop on a conflict: %s", out)
+	}
+	t.Cleanup(func() {
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = repo
+		_ = abort.Run()
+	})
+
+	st := StatusOf(repo)
+	if !st.Detached {
+		t.Error("a rebase in progress should still report a detached HEAD")
+	}
+	if st.Branch != "topic" {
+		t.Errorf("branch = %q, want topic -- the branch being rebased", st.Branch)
+	}
+
+	// A plain detached checkout has no branch to name, and must not borrow one.
+	gitRun(t, repo, "rebase", "--abort")
+	gitRun(t, repo, "checkout", "--detach", "main")
+	if st := StatusOf(repo); st.Branch != "" {
+		t.Errorf("branch = %q on a plain detached HEAD, want empty", st.Branch)
+	}
+}
+
 // TestWorktreeLifecycle covers creating, listing and removing worktrees, which
 // is how agents are given separate checkouts to work in.
 func TestWorktreeLifecycle(t *testing.T) {

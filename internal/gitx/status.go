@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -83,7 +84,49 @@ func StatusOf(dir string) Status {
 			st.Dirty++
 		}
 	}
+	if st.Detached && st.Branch == "" {
+		st.Branch = rebasingBranch(dir)
+	}
 	return st
+}
+
+// rebasingBranch names the branch a rebase in progress will return to.
+//
+// Replaying commits is done on a detached HEAD, so a checkout in the middle of
+// a rebase reports no branch at all: an agent that stopped on a conflict shows
+// in its pane header, and in the review panel, as "detached" -- which is true
+// of HEAD and useless to the person looking at it, who has not stopped
+// thinking of it as their branch. git keeps the name it will go back to in the
+// state directory, and reads it back for its own "rebasing topic".
+//
+// This costs an extra call, so it is only made for a checkout that has already
+// said it is detached, which is rare and stays that way for as long as the
+// rebase does.
+func rebasingBranch(dir string) string {
+	out, err := run(dir, "rev-parse", "--git-dir")
+	if err != nil {
+		return ""
+	}
+	base := strings.TrimSpace(out)
+	if base == "" {
+		return ""
+	}
+	// rev-parse answers relative to the directory it was asked from.
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(dir, base)
+	}
+	// rebase-merge belongs to the default backend; rebase-apply to `--apply`
+	// and to git old enough to have had no other.
+	for _, state := range []string{"rebase-merge", "rebase-apply"} {
+		data, err := os.ReadFile(filepath.Join(base, state, "head-name"))
+		if err != nil {
+			continue
+		}
+		if ref := strings.TrimSpace(string(data)); ref != "" {
+			return strings.TrimPrefix(ref, "refs/heads/")
+		}
+	}
+	return ""
 }
 
 // Branch is a local branch and where it stands against its upstream.
