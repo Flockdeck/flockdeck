@@ -662,3 +662,48 @@ func TestTheSharedCheckoutSurvivesTheSiblingCap(t *testing.T) {
 			c.Siblings[0].Name, c.Siblings[0].Cwd)
 	}
 }
+
+// TestSpawnExamplesNameACommandThatExists covers a build that has not been
+// installed. `perch` is only on PATH once it has been, and an agent handed
+// `perch spawn` on a machine without it is handed a command that cannot run,
+// with nothing but the failure to say why.
+func TestSpawnExamplesNameACommandThatExists(t *testing.T) {
+	exe := filepath.Join("C:", "Program Files", "perch", "perch.exe")
+	text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}.Render()
+	quoted := `"` + exe + `" spawn "add tests for the parser"`
+	if !strings.Contains(text, quoted) {
+		t.Errorf("the examples do not run %s, quoted for a path with a space:\n%s", exe, text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "perch spawn") {
+			t.Errorf("an example still runs a bare perch: %q", line)
+		}
+	}
+
+	// A name that needs no quoting is left as it is, and a context built
+	// without one still documents something.
+	plain := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: "perch"}.Render()
+	if !strings.Contains(plain, `perch spawn "add tests for the parser"`) {
+		t.Errorf("an installed copy should be run by name:\n%s", plain)
+	}
+	if bare := (PaneContext{PaneName: "one", CanSpawn: true}).Render(); !strings.Contains(bare, "perch spawn") {
+		t.Errorf("a context with no command recorded should still name one:\n%s", bare)
+	}
+}
+
+// TestTheSpawnCommandIsResolvedOnce checks the workspace hands the context a
+// command at all, since the text is only as good as what reaches it.
+func TestTheSpawnCommandIsResolvedOnce(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+
+	c, ok := ws.PaneContext(ws.CurrentTab().Focus)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if c.SpawnCommand == "" {
+		t.Error("the context carries no way of running perch")
+	}
+}

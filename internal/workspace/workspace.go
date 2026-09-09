@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -139,6 +140,7 @@ type Workspace struct {
 	lastTab map[string]string
 
 	selfExe     string
+	spawnCmd    string
 	settingsDir string
 	hookSrv     *hooks.Server
 	claudeExe   string
@@ -194,6 +196,7 @@ func New(opts Options) (*Workspace, error) {
 	// A missing claude CLI is not fatal: shell panes still work, and the pane
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
+	w.spawnCmd = spawnCommand(selfExe)
 
 	srv, err := hooks.Serve(w.handleHook)
 	if err != nil {
@@ -900,6 +903,22 @@ func (w *Workspace) newPane(kind session.Kind, cwd, name, root string) *Pane {
 	w.mu.Unlock()
 	w.startPane(p, false)
 	return p
+}
+
+// spawnCommand is the command an agent is told to run to start a helper.
+//
+// It is `perch` when that is on PATH, which is how an installed copy is
+// reached. It is this binary's own path when it is not: a build that has not
+// been installed still serves panes that can spawn, and an agent told to run a
+// command that is not there has no way of finding that out but to try it.
+func spawnCommand(selfExe string) string {
+	if _, err := exec.LookPath("perch"); err == nil {
+		return "perch"
+	}
+	if selfExe == "" {
+		return "perch"
+	}
+	return selfExe
 }
 
 // branchOf reports the branch checked out in dir, or "" when dir is not a

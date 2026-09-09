@@ -64,8 +64,11 @@ type PaneContext struct {
 
 	OtherProjects []string
 
-	// CanSpawn reports whether `perch spawn` will work from this pane.
+	// CanSpawn reports whether spawning helpers will work from this pane.
 	CanSpawn bool
+	// SpawnCommand is how Perch itself is run from inside the pane: the name
+	// on PATH where there is one, and the binary's own path where there is not.
+	SpawnCommand string
 }
 
 // PaneContext describes the situation a pane is running in. It reports false
@@ -81,13 +84,14 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	}
 
 	c := PaneContext{
-		PaneID:   p.ID,
-		PaneName: p.Name,
-		Shell:    p.Kind == session.KindShell,
-		Cwd:      p.Cwd,
-		Branch:   p.Branch,
-		Task:     p.Task,
-		CanSpawn: w.hookSrv != nil,
+		PaneID:       p.ID,
+		PaneName:     p.Name,
+		Shell:        p.Kind == session.KindShell,
+		Cwd:          p.Cwd,
+		Branch:       p.Branch,
+		Task:         p.Task,
+		CanSpawn:     w.hookSrv != nil,
+		SpawnCommand: w.spawnCmd,
 	}
 
 	own := w.tabOf(paneID)
@@ -284,13 +288,20 @@ func (c PaneContext) Render() string {
 	}
 
 	if c.CanSpawn && !c.Shell {
+		// The examples name the command that will actually run here. A copy
+		// that has not been installed is not on PATH, and an agent given
+		// `perch spawn` in that case is given something that cannot work.
+		perch := shellWord(c.SpawnCommand)
+		if perch == "" {
+			perch = "perch"
+		}
 		b.WriteString("\n## Starting agents of your own\n\n" +
 			"You can hand work to further agents, which appear as panes of their own:\n\n" +
 			"```sh\n" +
-			"perch spawn \"add tests for the parser\"\n" +
-			"perch spawn --worktree fix-auth \"repair the token refresh\"\n" +
-			"perch spawn --split \"watch the build\"\n" +
-			"perch spawn --split --shell \"tail the build log\"\n" +
+			perch + " spawn \"add tests for the parser\"\n" +
+			perch + " spawn --worktree fix-auth \"repair the token refresh\"\n" +
+			perch + " spawn --split \"watch the build\"\n" +
+			perch + " spawn --split --shell \"tail the build log\"\n" +
 			"```\n\n" +
 			"What the flags do — the placement ones matter, because a pane put somewhere " +
 			"the user did not expect is one they have to go looking for:\n\n" +
@@ -350,6 +361,15 @@ func (s Sibling) describe() string {
 		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task))
 	}
 	return b.String()
+}
+
+// shellWord quotes a command for the shell the examples are written for. The
+// path to a build that has not been installed routinely has a space in it.
+func shellWord(s string) string {
+	if s == "" || !strings.ContainsAny(s, " 	") {
+		return s
+	}
+	return "\"" + s + "\""
 }
 
 // oneLine flattens a prompt onto a single line and shortens it, so a pasted
