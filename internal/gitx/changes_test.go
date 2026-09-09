@@ -102,7 +102,7 @@ func TestDiffOfAGlobbyNameIsNotAPattern(t *testing.T) {
 }
 
 // write puts a file in the repository, failing the test if it cannot.
-func write(t *testing.T, dir, name, content string) {
+func write(t testing.TB, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -665,7 +665,7 @@ func TestRemotesMatchWholeNames(t *testing.T) {
 
 // gitRun runs a git command in dir and returns its output, failing the test on
 // error.
-func gitRun(t *testing.T, dir string, args ...string) string {
+func gitRun(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // FileChange is one modified file in a working tree.
@@ -31,14 +32,22 @@ func Changes(dir string) ([]FileChange, error) {
 	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
 	// It also puts a rename's old name in its own record rather than writing
 	// "old -> new", which a file genuinely called "a -> b" was mistaken for.
+	// None of the three calls needs an answer from the others, and each one is
+	// a process: run concurrently they cost one wait rather than three, which
+	// is what the panel notices on a checkout with a lot of changes in it.
+	var (
+		staged, unstaged map[string]lineCount
+		wg               sync.WaitGroup
+	)
+	wg.Add(2)
+	// Line counts come from numstat, which status does not provide.
+	go func() { defer wg.Done(); staged = numstat(dir, true) }()
+	go func() { defer wg.Done(); unstaged = numstat(dir, false) }()
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	wg.Wait()
 	if err != nil {
 		return nil, err
 	}
-
-	// Line counts come from numstat, which status does not provide.
-	staged := numstat(dir, true)
-	unstaged := numstat(dir, false)
 
 	var files []FileChange
 	records := strings.Split(out, "\x00")

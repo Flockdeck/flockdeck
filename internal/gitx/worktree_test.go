@@ -9,7 +9,7 @@ import (
 )
 
 // newRepo creates a repository with one commit and returns its path.
-func newRepo(t *testing.T) string {
+func newRepo(t testing.TB) string {
 	t.Helper()
 	if !Available() {
 		t.Skip("git is not installed")
