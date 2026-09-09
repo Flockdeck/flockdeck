@@ -1465,3 +1465,66 @@ func TestConversationsTellApartTheAgentsSentTheSamePrompt(t *testing.T) {
 		t.Errorf("summary = %q; a conversation whose prompt is its own keeps it", got)
 	}
 }
+
+// TestConversationsPickUpTheNameWrittenAfterThePrompt covers the window
+// between the two things a row is built out of. Claude Code cannot name a
+// conversation until there is one, so the name lands a few entries after the
+// prompt. A panel opened in between reads a transcript that has the prompt
+// and no name -- and it is the name that tells ten agents sent the same
+// instruction apart, so freezing the row there is freezing ten identical
+// rows.
+func TestConversationsPickUpTheNameWrittenAfterThePrompt(t *testing.T) {
+	cwd, dir := historyFixture(t, "naming")
+
+	prompt := `{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"you are one of 10 agents"}}`
+	first := writeTranscript(t, dir, "aaaaaaaa-1313-1313-1313-131313131313", prompt)
+	second := writeTranscript(t, dir, "bbbbbbbb-1313-1313-1313-131313131313", prompt)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d conversations, want 2", len(got))
+	}
+	for _, c := range got {
+		if c.Summary != "you are one of 10 agents" {
+			t.Fatalf("summary = %q before either was named", c.Summary)
+		}
+	}
+
+	// Claude Code works out what each of them is about.
+	for path, name := range map[string]string{
+		first:  "the first agent's lane",
+		second: "the second agent's lane",
+	} {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(`{"type":"ai-title","aiTitle":"` + name + `"}` + "\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	summaries := map[string]string{}
+	for _, c := range got {
+		summaries[c.ID] = c.Summary
+		if c.Messages != 2 {
+			t.Errorf("%s has %d entries, want 2", c.ID, c.Messages)
+		}
+	}
+	if got := summaries["aaaaaaaa-1313-1313-1313-131313131313"]; got != "the first agent's lane" {
+		t.Errorf("summary = %q, want the name that arrived after the first listing", got)
+	}
+	if got := summaries["bbbbbbbb-1313-1313-1313-131313131313"]; got != "the second agent's lane" {
+		t.Errorf("summary = %q, want the name that arrived after the first listing", got)
+	}
+}

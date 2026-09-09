@@ -54,9 +54,7 @@ type transcriptFacts struct {
 	// title is the name Claude Code gave the conversation.
 	title string
 	// prompted records that the summary is something a person typed rather
-	// than a name Claude Code gave the conversation or nothing at all. Until
-	// it is, the opening entries are worth reading again: the prompt may not
-	// have been written when they were last read.
+	// than a name Claude Code gave the conversation or nothing at all.
 	prompted bool
 	// newlines is the raw count of line breaks, kept apart from the entry
 	// count so that an appended tail can be added to it.
@@ -64,6 +62,15 @@ type transcriptFacts struct {
 	// partial records that the file ended mid-entry, which is what a
 	// transcript being written to right now looks like.
 	partial bool
+}
+
+// settled reports whether the opening entries have given up everything they
+// have: what a person typed, and the name Claude Code gave the conversation.
+// Until both are there they may still be coming. A pane opened a moment ago
+// has neither, and the name follows the prompt by a few entries, because
+// Claude Code cannot name a conversation before there is one.
+func (f transcriptFacts) settled() bool {
+	return f.prompted && f.title != ""
 }
 
 // entries is how many entries the transcript holds.
@@ -678,12 +685,13 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 	defer f.Close()
 
 	tail := now.size
-	// A transcript whose prompt has not been written yet is one a pane was
-	// opened for a moment ago, and the panel is full of those when several
-	// agents have just been spawned. Its opening entries are read again as it
-	// grows, so that the row picks up what was typed instead of standing at
-	// "no prompt recorded" for as long as the application runs.
-	grown := prev.prompted && prev.size > 0 && now.size > prev.size
+	// A transcript that has not said everything about itself yet is one a
+	// pane was opened for a moment ago, and the panel is full of those when
+	// several agents have just been spawned. Its opening entries are read
+	// again as it grows, so that the row picks up what was typed and what
+	// Claude Code called it, instead of standing at "no prompt recorded" --
+	// or at a prompt ten agents share -- for as long as the application runs.
+	grown := prev.settled() && prev.size > 0 && now.size > prev.size
 	if grown {
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
 			return now, false
