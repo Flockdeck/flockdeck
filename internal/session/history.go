@@ -56,6 +56,9 @@ type transcriptFacts struct {
 	// prompted records that the summary is something a person typed rather
 	// than a name Claude Code gave the conversation or nothing at all.
 	prompted bool
+	// headRead records that the opening entries were read as far as they are
+	// ever read, so whatever they did not say they never will.
+	headRead bool
 	// newlines is the raw count of line breaks, kept apart from the entry
 	// count so that an appended tail can be added to it.
 	newlines int
@@ -69,8 +72,17 @@ type transcriptFacts struct {
 // Until both are there they may still be coming. A pane opened a moment ago
 // has neither, and the name follows the prompt by a few entries, because
 // Claude Code cannot name a conversation before there is one.
+//
+// Or until there is nowhere left for them to come from. Only the opening
+// entries are ever read, and they do not change once they are written, so a
+// transcript already read that far has said all it is going to -- a
+// conversation Claude Code never named, or one whose prompt is buried deeper
+// than anybody is going to look. Without that, a transcript missing either
+// would be read from the top and counted from the top on every refresh for
+// as long as it kept growing, which for the agents that are working is every
+// refresh there is.
 func (f transcriptFacts) settled() bool {
-	return f.prompted && f.title != ""
+	return f.headRead || (f.prompted && f.title != "")
 }
 
 // entries is how many entries the transcript holds.
@@ -722,13 +734,13 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 			return now, false
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
-		now.title, now.prompted = prev.title, prev.prompted
+		now.title, now.prompted, now.headRead = prev.title, prev.prompted, prev.headRead
 		tail = now.size - prev.size
 	}
 
 	counted := &countingReader{r: io.LimitReader(f, tail), last: '\n'}
 	if !grown {
-		now.summary, now.title, now.cwd = openingPrompt(counted)
+		now.summary, now.title, now.cwd, now.headRead = openingPrompt(counted)
 		now.prompted = now.summary != ""
 		if now.summary == "" {
 			// Nothing was typed here that a person would recognise the
@@ -759,19 +771,28 @@ var aiTitleMark = []byte(`"ai-title"`)
 // sent the same instruction tell apart in the panel.
 //
 // The walk stops as soon as all three are in hand, which on the transcripts
-// on this machine is around the twenty-fifth entry. Until then, entries that
+// on this machine is around the twenty-fifth entry. read says whether it got
+// to the end of what it will ever look at, either way, so that a transcript
+// which is never going to say more is not read again and again. Until then, entries that
 // cannot carry what is still missing are not parsed at all: the ones in the
 // way are the megabyte-long ones -- a tool result, a pasted file -- and
 // looking for a mark in the bytes costs a fraction of parsing them as JSON.
-func openingPrompt(r io.Reader) (prompt, title, cwd string) {
+func openingPrompt(r io.Reader) (prompt, title, cwd string, read bool) {
 	lines := newTranscriptReader(r)
 	defer lines.release()
-	for i := 0; i < summaryScanLimit; i++ {
+	for i := 0; ; i++ {
 		if prompt != "" && title != "" && cwd != "" {
-			break
+			return prompt, title, cwd, true
+		}
+		if i >= summaryScanLimit {
+			// As far as the opening entries are ever read. Whatever they have
+			// not said by here, they are not going to.
+			return prompt, title, cwd, true
 		}
 		raw, ok := lines.next()
 		if !ok {
+			// The end of the file, which a transcript being written to now
+			// will pass: the entries after it may still say more.
 			break
 		}
 		named := bytes.Contains(raw, aiTitleMark)
@@ -798,7 +819,7 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 		}
 		prompt = contentText(line.Message.Content)
 	}
-	return prompt, title, cwd
+	return prompt, title, cwd, false
 }
 
 // countingReader counts the line breaks in everything read through it, and

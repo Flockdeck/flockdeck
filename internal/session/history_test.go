@@ -1143,7 +1143,7 @@ func TestCountingReaderCountsWhatThePromptScanAlreadyRead(t *testing.T) {
 	body := strings.Join(lines, "\n") + "\n"
 
 	counted := &countingReader{r: strings.NewReader(body), last: '\n'}
-	prompt, _, cwd := openingPrompt(counted)
+	prompt, _, cwd, _ := openingPrompt(counted)
 	drain(counted)
 
 	if prompt != "the prompt" {
@@ -1588,7 +1588,7 @@ func FuzzDescribeATranscript(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, body string) {
 		counted := &countingReader{r: strings.NewReader(body), last: '\n'}
-		prompt, title, cwd := openingPrompt(counted)
+		prompt, title, cwd, _ := openingPrompt(counted)
 		drain(counted)
 		facts := transcriptFacts{
 			summary:  prompt,
@@ -1740,5 +1740,60 @@ func TestConversationsForAProjectInFullSwing(t *testing.T) {
 			t.Errorf("two rows both read %q", c.Summary)
 		}
 		seen[c.Summary] = true
+	}
+}
+
+// TestConversationsStopRereadingATranscriptClaudeNeverNamed covers the
+// transcript that will never have a name: an older Claude Code wrote none, or
+// this one had not got round to it before the conversation grew past where
+// the opening entries are read. A transcript is read from the top again while
+// it may still say more about itself -- and one missing its name may always
+// be about to say it, so a live conversation would be read from the top, and
+// counted from the top, on every single refresh. That is the transcript of an
+// agent that is working, which is every transcript that matters.
+func TestConversationsStopRereadingATranscriptClaudeNeverNamed(t *testing.T) {
+	cwd, dir := historyFixture(t, "unnamed")
+
+	// Long enough that the opening entries have been read as far as they ever
+	// are, and with no name anywhere in them.
+	body := func(prompt string) []string {
+		lines := []string{`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"` + prompt + `"}}`}
+		for len(lines) < summaryScanLimit+10 {
+			lines = append(lines, `{"type":"assistant","message":{"role":"assistant","content":"ok"}}`)
+		}
+		return lines
+	}
+	const id = "aaaaaaaa-1515-1515-1515-151515151515"
+	writeTranscript(t, dir, id, body("the original prompt")...)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "the original prompt" {
+		t.Fatalf("first listing: %+v", got)
+	}
+	was := got[0].Messages
+
+	// The conversation carries on. The opening entries are rewritten here
+	// only so that reading them again would show: a transcript is only ever
+	// appended to, and the replacement is the same length, so what follows
+	// still lines up.
+	lines := body("a different prompt!")
+	lines = append(lines, `{"type":"assistant","message":{"role":"assistant","content":"more"}}`)
+	writeTranscript(t, dir, id, lines...)
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Summary != "the original prompt" {
+		t.Errorf("summary = %q; the opening entries had been read as far as they are ever read", got[0].Summary)
+	}
+	if got[0].Messages != was+1 {
+		t.Errorf("entry count = %d, want %d", got[0].Messages, was+1)
 	}
 }
