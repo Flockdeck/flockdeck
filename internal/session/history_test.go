@@ -933,3 +933,49 @@ func TestConversationsFallBackToTheNameClaudeGaveIt(t *testing.T) {
 		t.Errorf("summary = %q, want the prompt rather than the generated name", got)
 	}
 }
+
+// TestDescribeTranscriptCountsOnlyWhatItWasToldAbout covers the transcript of
+// an agent that is working while the panel is being drawn. The listing reads
+// the directory, then opens the files, and the transcript grows in between:
+// entries arrive that the size the listing recorded does not cover. Counting
+// to the end of the file counts them, and the next refresh -- which picks up
+// from that recorded size -- counts them again, so an agent that is busy has
+// its entry count drift further out with every refresh.
+func TestDescribeTranscriptCountsOnlyWhatItWasToldAbout(t *testing.T) {
+	dir := t.TempDir()
+	entry := `{"type":"assistant","message":{"role":"assistant","content":"ok"}}`
+	path := writeTranscript(t, dir, "aaaaaaaa-4444-4444-4444-444444444444",
+		`{"type":"user","cwd":"`+jsonPath(dir)+`","message":{"role":"user","content":"go"}}`,
+		entry, entry)
+
+	// What the directory listing knew, before the agent wrote anything more.
+	listed, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(entry + "\n" + entry + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	facts := describeTranscript(path, listed, transcriptFacts{})
+	if facts.entries() != 3 {
+		t.Errorf("counted %d entries, want the 3 the listing knew about", facts.entries())
+	}
+
+	// The next refresh sees the file as it now is and carries on from there.
+	grown, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := describeTranscript(path, grown, facts); got.entries() != 5 {
+		t.Errorf("counted %d entries after the transcript grew, want 5", got.entries())
+	}
+}

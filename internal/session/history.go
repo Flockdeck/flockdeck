@@ -444,6 +444,12 @@ func transcriptCwd(path string) string {
 // holds the line breaks already counted: only the new tail is read. Anything
 // else -- a first look, a file that shrank, one replaced at the same size --
 // is read whole.
+//
+// What is read is the file as the directory listing described it, not as it
+// is by the time it is opened. A transcript belonging to an agent that is
+// working right now grows between the two, and counting to the end of it
+// would count entries the recorded size does not cover -- which the next
+// refresh, resuming from that size, would then count again.
 func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) transcriptFacts {
 	now := transcriptFacts{modTime: info.ModTime(), size: info.Size()}
 	if prev.size == now.size && prev.modTime.Equal(now.modTime) {
@@ -456,11 +462,13 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 	}
 	defer f.Close()
 
+	tail := now.size
 	if grown := prev.size > 0 && now.size > prev.size; grown {
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
 			return now
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
+		tail = now.size - prev.size
 	} else {
 		var title string
 		now.summary, title, now.cwd = openingPrompt(f)
@@ -474,7 +482,7 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 		}
 	}
 
-	n, partial := countNewlines(f)
+	n, partial := countNewlines(io.LimitReader(f, tail))
 	now.newlines += n
 	now.partial = partial
 	return now
