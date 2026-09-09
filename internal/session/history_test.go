@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1031,5 +1032,91 @@ func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Summary != "still here" {
 		t.Fatalf("the transcript was not read again: %+v", got)
+	}
+}
+
+// TestConversationsFromSeveralWindowsAtOnce covers what the panel is: a list
+// several windows ask for at the same time, off the goroutine that owns the
+// workspace, while the agents whose conversations it lists are writing to
+// them. Everything remembered between listings -- what each transcript said,
+// and which directory each project folder belongs to -- is shared across all
+// of that, and a map written from two goroutines at once takes the process
+// down with it.
+func TestConversationsFromSeveralWindowsAtOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	// Two projects, so the listings write different folders as well as the
+	// same one, and one folder Claude named differently so the search for it
+	// runs too.
+	parent := t.TempDir()
+	var cwds []string
+	for _, name := range []string{"one", "two"} {
+		cwd := filepath.Join(parent, name)
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cwds = append(cwds, cwd)
+	}
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(cwds[0])), "aaaaaaaa-6666-6666-6666-666666666666",
+		`{"type":"user","cwd":"`+jsonPath(cwds[0])+`","message":{"role":"user","content":"the first project"}}`)
+	busy := writeTranscript(t, filepath.Join(home, "projects", "a-name-of-its-own"), "bbbbbbbb-6666-6666-6666-666666666666",
+		`{"type":"user","cwd":"`+jsonPath(cwds[1])+`","message":{"role":"user","content":"the second project"}}`)
+
+	// An agent writing to its transcript while the windows read it.
+	stop := make(chan struct{})
+	var writer sync.WaitGroup
+	writer.Add(1)
+	go func() {
+		defer writer.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			f, err := os.OpenFile(busy, os.O_APPEND|os.O_WRONLY, 0o600)
+			if err != nil {
+				continue
+			}
+			f.WriteString(`{"type":"assistant","message":{"role":"assistant","content":"working"}}` + "\n")
+			f.Close()
+		}
+	}()
+
+	var windows sync.WaitGroup
+	failed := make(chan string, 16)
+	for w := 0; w < 8; w++ {
+		windows.Add(1)
+		go func(w int) {
+			defer windows.Done()
+			cwd := cwds[w%len(cwds)]
+			want := "the first project"
+			if w%len(cwds) == 1 {
+				want = "the second project"
+			}
+			for i := 0; i < 25; i++ {
+				got, err := Conversations(cwd)
+				if err != nil {
+					failed <- fmt.Sprintf("conversations: %v", err)
+					return
+				}
+				if len(got) != 1 || got[0].Summary != want {
+					failed <- fmt.Sprintf("listing %d of %s: %+v", i, cwd, got)
+					return
+				}
+			}
+		}(w)
+	}
+	windows.Wait()
+	close(stop)
+	writer.Wait()
+
+	select {
+	case msg := <-failed:
+		t.Fatal(msg)
+	default:
 	}
 }
