@@ -93,12 +93,19 @@ func (f transcriptFacts) entries() int {
 // deleted from a folder drop out of it rather than accumulating.
 var transcriptCache = struct {
 	sync.Mutex
-	dirs map[string]map[string]transcriptFacts
-}{dirs: make(map[string]map[string]transcriptFacts)}
+	clock uint64
+	dirs  map[string]cachedFolder
+}{dirs: make(map[string]cachedFolder)}
 
-// cachedFolderLimit bounds how many project folders are remembered at once.
-// Someone who opens a great many projects in one sitting should not grow the
-// cache without end; starting over costs one slow listing.
+// cachedFolder is one folder's transcripts and when it was last listed.
+type cachedFolder struct {
+	used  uint64
+	files map[string]transcriptFacts
+}
+
+// cachedFolderLimit bounds how many project folders are remembered at once,
+// so that someone who opens a great many projects in one sitting does not
+// grow the cache without end.
 const cachedFolderLimit = 64
 
 // cachedFacts returns what the last listing of a folder found. The map is
@@ -106,17 +113,34 @@ const cachedFolderLimit = 64
 func cachedFacts(dir string) map[string]transcriptFacts {
 	transcriptCache.Lock()
 	defer transcriptCache.Unlock()
-	return transcriptCache.dirs[dir]
+	return transcriptCache.dirs[dir].files
 }
 
-// rememberFacts publishes what this listing of a folder found.
+// rememberFacts publishes what this listing of a folder found, forgetting the
+// folder nobody has looked at for longest when there is no room.
+//
+// Only the least useful one goes. A listing draws on several folders at once
+// -- a project's own and one for every worktree of it -- so a couple of
+// projects can fill the cache between them, and emptying the whole of it at
+// that point would put every project back to reading every transcript it has.
 func rememberFacts(dir string, facts map[string]transcriptFacts) {
 	transcriptCache.Lock()
 	defer transcriptCache.Unlock()
-	if len(transcriptCache.dirs) >= cachedFolderLimit {
-		transcriptCache.dirs = make(map[string]map[string]transcriptFacts, 1)
+
+	if _, held := transcriptCache.dirs[dir]; !held {
+		for len(transcriptCache.dirs) >= cachedFolderLimit {
+			oldest, oldestUsed := "", uint64(0)
+			for name, folder := range transcriptCache.dirs {
+				if oldest == "" || folder.used < oldestUsed {
+					oldest, oldestUsed = name, folder.used
+				}
+			}
+			delete(transcriptCache.dirs, oldest)
+		}
 	}
-	transcriptCache.dirs[dir] = facts
+
+	transcriptCache.clock++
+	transcriptCache.dirs[dir] = cachedFolder{used: transcriptCache.clock, files: facts}
 }
 
 // transcriptLine is the part of a transcript entry that identifies the first

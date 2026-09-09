@@ -373,7 +373,8 @@ func TestConversationsReportAnUnreadableStateDirectory(t *testing.T) {
 // or a benchmark sees a first listing rather than a refresh.
 func forgetTranscripts() {
 	transcriptCache.Lock()
-	transcriptCache.dirs = make(map[string]map[string]transcriptFacts)
+	transcriptCache.dirs = make(map[string]cachedFolder)
+	transcriptCache.clock = 0
 	transcriptCache.Unlock()
 
 	probedFolders.Lock()
@@ -1526,5 +1527,43 @@ func TestConversationsPickUpTheNameWrittenAfterThePrompt(t *testing.T) {
 	}
 	if got := summaries["bbbbbbbb-1313-1313-1313-131313131313"]; got != "the second agent's lane" {
 		t.Errorf("summary = %q, want the name that arrived after the first listing", got)
+	}
+}
+
+// TestTranscriptCacheForgetsTheFolderNobodyIsLookingAt covers what happens
+// when the cache is full. A single listing draws on several folders -- a
+// project's own, and one for every worktree of it -- so two or three projects
+// can fill it between them. Emptying the whole cache at that point puts every
+// project back to reading every transcript it has, which is the thing the
+// cache is there to stop.
+func TestTranscriptCacheForgetsTheFolderNobodyIsLookingAt(t *testing.T) {
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	facts := map[string]transcriptFacts{"a.jsonl": {summary: "something", size: 1}}
+	for i := 0; i < cachedFolderLimit; i++ {
+		rememberFacts(fmt.Sprintf("folder-%03d", i), facts)
+	}
+	// Looked at again, so it is not the one to go.
+	rememberFacts("folder-000", facts)
+	rememberFacts("one-folder-too-many", facts)
+
+	if got := cachedFacts("one-folder-too-many"); got == nil {
+		t.Error("the folder that was just listed was not remembered")
+	}
+	if got := cachedFacts("folder-000"); got == nil {
+		t.Error("a folder listed a moment ago was forgotten before an older one")
+	}
+	if got := cachedFacts("folder-001"); got != nil {
+		t.Error("the folder nobody had looked at for longest was kept")
+	}
+	if got := cachedFacts("folder-050"); got == nil {
+		t.Error("the whole cache was emptied to make room for one folder")
+	}
+
+	transcriptCache.Lock()
+	defer transcriptCache.Unlock()
+	if len(transcriptCache.dirs) > cachedFolderLimit {
+		t.Errorf("the cache holds %d folders, more than the %d it is bounded to", len(transcriptCache.dirs), cachedFolderLimit)
 	}
 }
