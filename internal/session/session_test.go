@@ -3,6 +3,7 @@ package session
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -570,5 +571,55 @@ func TestOutputDoesNotOverruleTheBell(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if st, _ := s.Status(); st != StatusWaiting {
 		t.Errorf("status = %v; more output after the bell does not answer it", st)
+	}
+}
+
+// TestStreamingOutputDoesNotWakeTheInterface covers what a pane printing hard
+// costs the rest of the application. Every report rebuilds the workspace
+// snapshot, encodes it and pushes it to the browser, and a streaming agent
+// produces thousands of chunks a second while saying nothing new about
+// itself.
+func TestStreamingOutputDoesNotWakeTheInterface(t *testing.T) {
+	s := shellPane()
+	s.idleAfter = time.Minute
+	var wakes int64
+	s.OnChange = func() { atomic.AddInt64(&wakes, 1) }
+
+	const chunks = 5000
+	for i := 0; i < chunks; i++ {
+		s.publish([]byte("a line of build output\n"))
+	}
+
+	// One report, for going from starting to working. The rest said nothing.
+	if got := atomic.LoadInt64(&wakes); got > 2 {
+		t.Errorf("%d chunks of output woke the interface %d times", chunks, got)
+	}
+
+	// A real transition still reports, or nothing would ever redraw.
+	before := atomic.LoadInt64(&wakes)
+	s.SetStatus(StatusWaiting, "")
+	if atomic.LoadInt64(&wakes) == before {
+		t.Error("a status change must still be reported")
+	}
+}
+
+// BenchmarkPublish measures the fan-out path a pane's output takes, with a
+// viewer attached and the interface listening for changes.
+func BenchmarkPublish(b *testing.B) {
+	s := shellPane()
+	s.idleAfter = time.Minute
+	s.OnChange = func() {}
+	id, _, out := s.Subscribe()
+	defer s.Unsubscribe(id)
+	go func() {
+		for range out {
+		}
+	}()
+
+	chunk := []byte(strings.Repeat("x", 4096))
+	b.SetBytes(int64(len(chunk)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.publish(chunk)
 	}
 }

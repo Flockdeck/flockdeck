@@ -199,6 +199,13 @@ func (s *Session) pumpOutput() {
 func (s *Session) publish(chunk []byte) {
 	rang := s.bell.scan(chunk)
 
+	// Output itself is not a change anyone outside this type can see: it
+	// reaches viewers on their own subscriptions, and nothing in the interface
+	// is drawn from the fact that bytes arrived. Reporting a change per chunk
+	// is what keeps the whole workspace snapshot being rebuilt, encoded and
+	// pushed to the browser for as long as any pane is streaming.
+	notify := false
+
 	s.mu.Lock()
 	s.history.write(chunk)
 	s.lastOutput = time.Now()
@@ -214,6 +221,7 @@ func (s *Session) publish(chunk []byte) {
 		if s.status != StatusWorking {
 			s.status = StatusWorking
 			s.statusSince = s.lastOutput
+			notify = true
 		}
 		if !s.settling {
 			s.settling = true
@@ -234,6 +242,7 @@ func (s *Session) publish(chunk []byte) {
 			// is exactly the number being used to decide where to look.
 			if s.status != StatusWaiting {
 				s.statusSince = time.Now()
+				notify = true
 			}
 			s.status = StatusWaiting
 		}
@@ -254,7 +263,9 @@ func (s *Session) publish(chunk []byte) {
 	}
 	s.mu.Unlock()
 
-	s.changed()
+	if notify {
+		s.changed()
+	}
 }
 
 // settleIdle returns an inferred-working pane to idle once it has been quiet
