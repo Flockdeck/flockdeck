@@ -47,6 +47,14 @@ const (
 	busyRetry     = 250 * time.Millisecond
 )
 
+// quitGrace is how long RequestQuit waits for an instance it has asked to stop
+// to actually stop, and quitPoll how often it looks. They are variables so a
+// test does not have to wait out the real grace to see it give up.
+var (
+	quitGrace = 15 * time.Second
+	quitPoll  = 100 * time.Millisecond
+)
+
 // handleHealth answers a probe from another launch of the binary.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
@@ -285,7 +293,15 @@ func RequestOpen(baseURL, token, path string) error {
 	return nil
 }
 
-// RequestQuit asks a running instance to shut down.
+// RequestQuit asks a running instance to shut down, and waits for it to have
+// gone.
+//
+// The instance answers as soon as it has accepted the request; stopping every
+// agent and saving the layout comes after. Returning on the acceptance made
+// `perch -quit` say "stopped" while it was still going, and left the next
+// launch racing it: a `perch` typed straight afterwards would probe the
+// instance on its way out, find it answering, and attach to a process that was
+// about to exit -- ending up with a window onto nothing.
 func RequestQuit(baseURL, token string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -297,9 +313,23 @@ func RequestQuit(baseURL, token string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("quit: %s", resp.Status)
 	}
-	return nil
+
+	deadline := time.Now().Add(quitGrace)
+	for {
+		// Only an instance that has stopped answering has gone. One that is
+		// merely too busy to report on itself is still there -- and being busy
+		// is exactly what shutting down looks like from outside.
+		_, err := probeOnce(baseURL, token)
+		if err != nil && !errors.Is(err, errNotReady) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the instance at %s accepted the request but is still running", baseURL)
+		}
+		time.Sleep(quitPoll)
+	}
 }

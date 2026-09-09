@@ -77,11 +77,13 @@ func TestRequestOpenRejectsBadPaths(t *testing.T) {
 	}
 }
 
-// TestQuitEndpointStopsTheApplication covers `perch -quit`.
+// TestQuitEndpointStopsTheApplication covers `perch -quit`. Stopping is what
+// the real OnQuit does, and the request does not report success until it has
+// happened, so the stand-in has to do it too.
 func TestQuitEndpointStopsTheApplication(t *testing.T) {
 	srv, _ := newTestServer(t)
 	stopped := make(chan struct{})
-	srv.OnQuit = func() { close(stopped) }
+	srv.OnQuit = func() { close(stopped); _ = srv.Close() }
 
 	if err := RequestQuit(srv.BaseURL(), srv.Token()); err != nil {
 		t.Fatalf("request quit: %v", err)
@@ -309,4 +311,46 @@ func sendFrom(t *testing.T, method, url, origin string) *http.Response {
 	}
 	resp.Body.Close()
 	return resp
+}
+
+// TestRequestQuitWaitsForTheInstanceToGo covers `perch -quit` followed by
+// `perch`. The instance answers as soon as it has accepted the request and
+// then takes a while over stopping the agents and saving the layout; a launch
+// during that window would find it answering and attach to a process about to
+// exit.
+func TestRequestQuitWaitsForTheInstanceToGo(t *testing.T) {
+	srv, _ := newTestServer(t)
+	const shutdown = 500 * time.Millisecond
+	srv.OnQuit = func() {
+		go func() {
+			time.Sleep(shutdown)
+			_ = srv.Close()
+		}()
+	}
+
+	start := time.Now()
+	if err := RequestQuit(srv.BaseURL(), srv.Token()); err != nil {
+		t.Fatalf("request quit: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < shutdown {
+		t.Errorf("returned after %v, before the instance had gone (%v)", elapsed, shutdown)
+	}
+	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
+		t.Error("the instance was still answering when the quit reported success")
+	}
+}
+
+// TestRequestQuitSaysSoWhenNothingStops covers the instance that takes the
+// request and then does not stop. Reporting success there would have the user
+// launch a second set of agents beside the first.
+func TestRequestQuitSaysSoWhenNothingStops(t *testing.T) {
+	defer func(g, p time.Duration) { quitGrace, quitPoll = g, p }(quitGrace, quitPoll)
+	quitGrace, quitPoll = 600*time.Millisecond, 50*time.Millisecond
+
+	srv, _ := newTestServer(t)
+	srv.OnQuit = func() {} // accepted, and then nothing happens
+
+	if err := RequestQuit(srv.BaseURL(), srv.Token()); err == nil {
+		t.Error("expected an instance that did not stop to be reported")
+	}
 }
