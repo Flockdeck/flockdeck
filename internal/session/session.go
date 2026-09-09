@@ -338,7 +338,7 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	replay = s.history.bytes()
+	replay = s.history.replay()
 	if s.status == StatusExited {
 		close(ch)
 		return -1, replay, ch

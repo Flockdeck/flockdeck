@@ -51,6 +51,22 @@ func (r *ring) bytes() []byte {
 	return out
 }
 
+// replay returns the buffered output for a viewer rebuilding its screen.
+//
+// Once the buffer has wrapped its oldest byte is wherever the last write
+// happened to land, which is usually the middle of an escape sequence: the
+// viewer feeds that to a fresh terminal, which has no sequence to attach the
+// parameters to and prints them, so every reload of a pane that has said more
+// than a bufferful opens with "38;5;42m" where a word should be. Starting at
+// a line boundary costs at most one line of scrollback.
+func (r *ring) replay() []byte {
+	out := r.bytes()
+	if r.full {
+		out = dropPartialLine(out)
+	}
+	return out
+}
+
 // tail returns the last n bytes written, oldest first, and reports whether
 // anything older than them was left behind. n of zero or less means all of it.
 //

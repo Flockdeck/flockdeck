@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRingKeepsMostRecentBytes(t *testing.T) {
@@ -231,5 +232,39 @@ func BenchmarkRecentText(b *testing.B) {
 		if len(s.RecentText(64<<10)) == 0 {
 			b.Fatal("no text")
 		}
+	}
+}
+
+// TestReplayStartsAtALineBoundary covers reloading a pane that has said more
+// than its buffer holds. The oldest byte kept is wherever the last write
+// landed, and a terminal handed the tail of an escape sequence has nothing to
+// attach the parameters to and prints them as if they were words.
+func TestReplayStartsAtALineBoundary(t *testing.T) {
+	// Sized so the buffer wraps six bytes into the colour sequence on the
+	// second line, which is the middle of its parameters.
+	s := &Session{history: newRing(24), subs: map[int]chan []byte{}, idleAfter: time.Minute}
+	s.publish([]byte("first line\n"))
+	s.publish([]byte("\x1b[38;5;42mgreen\x1b[m\n"))
+	s.publish([]byte("plain tail\n"))
+
+	id, replay, _ := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+
+	if strings.Contains(string(replay), "42m") {
+		t.Errorf("the replay opens inside an escape sequence: %q", replay)
+	}
+	if !strings.Contains(string(replay), "plain tail") {
+		t.Errorf("the replay lost the whole lines it did hold: %q", replay)
+	}
+
+	// A buffer that has not wrapped is replayed whole: there is no partial
+	// line at the front of it, and dropping one would lose the first thing the
+	// pane ever said.
+	fresh := &Session{history: newRing(4096), subs: map[int]chan []byte{}, idleAfter: time.Minute}
+	fresh.publish([]byte("the first line\nthe second\n"))
+	id2, replay2, _ := fresh.Subscribe()
+	t.Cleanup(func() { fresh.Unsubscribe(id2) })
+	if !strings.Contains(string(replay2), "the first line") {
+		t.Errorf("replay dropped the start of a buffer that never wrapped: %q", replay2)
 	}
 }
