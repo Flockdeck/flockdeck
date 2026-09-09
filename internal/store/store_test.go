@@ -1305,3 +1305,102 @@ func TestDamagedLegacyLayoutIsKeptUnderItsOwnName(t *testing.T) {
 		t.Errorf("the damaged legacy layout was not kept: %v", err)
 	}
 }
+
+// TestDamagedRecentsAreKeptBeforeTheListIsRebuilt checks the projects file
+// survives the open that could not read it. TouchRecent rewrites the whole
+// list from what it read, and what it read is nothing, so without this the
+// first project opened after the damage is the only one the user has ever
+// opened as far as the picker is concerned.
+func TestDamagedRecentsAreKeptBeforeTheListIsRebuilt(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, recentsFile)
+	broken := []byte(`[{"root":"/repo/one"},{"root":"/repo/two"}`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write projects: %v", err)
+	}
+
+	if got, err := Recents(); err != nil || got != nil {
+		t.Fatalf("Recents = %v, %v; a damaged list should read as empty without failing", got, err)
+	}
+	if err := TouchRecent("/repo/three"); err != nil {
+		t.Fatalf("touch recent: %v", err)
+	}
+
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged project list was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want %q", kept, broken)
+	}
+	// The list itself carries on from empty, as it always has.
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 1 || !sameRoot(list[0].Root, "/repo/three") {
+		t.Errorf("recents = %v, want just the project that was opened", list)
+	}
+}
+
+// TestDamagedSessionIsKept checks the record of which projects were open
+// survives a run that could not read it, since the save on the way out
+// replaces it with whatever this run happened to have open.
+func TestDamagedSessionIsKept(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, sessionFile)
+	broken := []byte(`{"open":["/repo/a","/repo/b"`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+
+	if got, err := LoadSession(); err != nil || got != nil {
+		t.Fatalf("LoadSession = %v, %v; want nothing restored and no error", got, err)
+	}
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged session was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want %q", kept, broken)
+	}
+}
+
+// TestLayoutFromAnotherSchemaVersionIsKept checks stepping back to an older
+// build does not destroy the layout the newer one saved. The older build
+// cannot read it and must not restore from it, but the save on the way out
+// lands on the same name, so ignoring it in place means deleting it.
+func TestLayoutFromAnotherSchemaVersionIsKept(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/newer")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	future := []byte(`{"version":` + fmt.Sprint(Version+1) + `,"tabs":[{"title":"from a later build"}]}`)
+	if err := os.WriteFile(p, future, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	if got, err := Load("/repo/newer"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a layout from another schema version should restore nothing", got, err)
+	}
+	if err := Save("/repo/newer", &State{}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the newer layout was not kept: %v", err)
+	}
+	if string(kept) != string(future) {
+		t.Errorf("kept copy is %q, want %q", kept, future)
+	}
+}

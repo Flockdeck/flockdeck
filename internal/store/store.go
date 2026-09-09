@@ -245,6 +245,12 @@ func Load(root string) (*State, error) {
 		return nil, nil
 	}
 	if s.Version != Version {
+		// Not damage but a layout from a build that numbered the format
+		// differently, most often a newer one the user has just stepped back
+		// from. It meets the same end as a damaged file, ignored now and
+		// written over on the way out, so it is kept for the same reason:
+		// going forward again is then a matter of moving one file back.
+		quarantine(from(p, legacy))
 		return nil, nil
 	}
 	// The filename is a hash of the root, so a file can only be the wrong one
@@ -275,15 +281,15 @@ func from(current, legacy string) string {
 	return current
 }
 
-// damagedSuffix marks a layout that could not be understood. It is not
+// damagedSuffix marks a state file this build could not use. It is not
 // ".json", so nothing looks for it again, and it holds no ".tmp", so the sweep
 // leaves it alone: the point is that it is still there when someone goes
-// looking for the tabs that vanished.
+// looking for what vanished.
 const damagedSuffix = ".damaged"
 
-// quarantine moves a layout out of the way, best effort. Only one damaged copy
-// is kept per project; a second one replacing the first is no loss, because a
-// file only becomes damaged again after a good one has been written over it.
+// quarantine moves a state file out of the way, best effort. Only one copy is
+// kept per name; a second one replacing the first is no loss, because a file
+// only becomes unreadable again after a good one has been written over it.
 func quarantine(path string) {
 	_ = os.Rename(path, path+damagedSuffix)
 }
@@ -522,6 +528,12 @@ func Recents() ([]Project, error) {
 	var list []Project
 	if json.Unmarshal(data, &list) != nil {
 		// A damaged list is not worth failing over; it is only a convenience.
+		// It is still moved aside, because the next project the user opens
+		// rewrites this file from what was read, and what was read is nothing:
+		// every directory they have ever opened, replaced by the one in front
+		// of them. The file is a plain list of paths, so the kept copy is
+		// something they can read and put back by hand.
+		quarantine(filepath.Join(dir, recentsFile))
 		return nil, nil
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].LastUsed.After(list[j].LastUsed) })
@@ -648,7 +660,12 @@ func LoadSession() (*Session, error) {
 	}
 	var s Session
 	if json.Unmarshal(data, &s) != nil {
-		return nil, nil // a damaged session must not stop startup
+		// A damaged session must not stop startup, and must not be lost to the
+		// save on the way out either: it names every project that was open,
+		// which is the one record of a workspace spread over several
+		// directories.
+		quarantine(filepath.Join(dir, sessionFile))
+		return nil, nil
 	}
 	return tidySession(&s), nil
 }
