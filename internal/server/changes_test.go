@@ -500,6 +500,37 @@ func TestPanelsSayWhenTheCheckoutIsGone(t *testing.T) {
 	}
 }
 
+// TestRepoRootAnswersWithoutGitWhereItCan covers the resolution done on every
+// click in the file list and every commit.
+func TestRepoRootAnswersWithoutGitWhereItCan(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	sub := filepath.Join(repo, "pkg", "inner")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	side := filepath.Join(t.TempDir(), "side")
+	gitCmd(t, repo, "worktree", "add", "-b", "side", side)
+
+	for _, tc := range []struct{ in, want string }{
+		{repo, repo},
+		{sub, repo},
+		// A linked worktree's .git is a file rather than a directory, and it
+		// is still the top of its own working tree.
+		{side, side},
+	} {
+		if got := repoRoot(tc.in); got != tc.want {
+			t.Errorf("repoRoot(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// A directory with no repository above it is its own answer, so a review
+	// of it fails with something about that directory rather than another.
+	plain := t.TempDir()
+	if got := repoRoot(plain); got != plain {
+		t.Errorf("repoRoot(%q) = %q, want it unchanged", plain, got)
+	}
+}
+
 // TestRemoteSummary pins what a window is told when git itself says little.
 func TestRemoteSummary(t *testing.T) {
 	cases := []struct {

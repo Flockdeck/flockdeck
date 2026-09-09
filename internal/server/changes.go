@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -72,7 +73,18 @@ func (s *Server) reviewDir(path string) string {
 // usually sits somewhere inside the project rather than at the top of it, and
 // joining a root-relative name onto that subdirectory names a file that is not
 // there: every diff came back empty and was reported as possibly binary.
+//
+// It is usually the root already, though. The panel is told the root when it
+// asks what changed and sends it back with every command after that, and a
+// working tree's top level is the directory holding the .git entry -- which is
+// free to look for, where asking git costs a process, on every click in the
+// file list and on every commit.
 func repoRoot(dir string) string {
+	if dir != "" {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+	}
 	if root, err := gitx.Root(dir); err == nil {
 		return root
 	}

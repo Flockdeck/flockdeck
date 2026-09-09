@@ -46,6 +46,17 @@ func benchRepo(b *testing.B, n int) string {
 	return repo
 }
 
+// BenchmarkRepoRoot times the resolution done before every diff and commit.
+func BenchmarkRepoRoot(b *testing.B) {
+	repo := benchRepo(b, 1)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if got := repoRoot(repo); got != repo {
+			b.Fatalf("repoRoot = %q, want %q", got, repo)
+		}
+	}
+}
+
 // BenchmarkCollectWorktrees times one refresh of the worktree panel over a
 // repository with a handful of checkouts, which is what running several agents
 // at once looks like.
