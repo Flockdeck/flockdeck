@@ -1022,6 +1022,7 @@
       btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
+    makeToolbar(actions);
     header.append(dot, project, name, branch, git, detail, cast, actions);
 
     const body = el("div", "pane-body");
@@ -1092,6 +1093,37 @@
     p.resize.observe(host);
     connectPTY(p);
     return p;
+  }
+
+  /** makeToolbar makes a row of buttons one stop on the way through the window,
+   *  walked with the arrow keys.
+   *
+   *  Five buttons per pane is thirty tab stops in a tab of six agents, and they
+   *  sit between the top bar and the terminals, so reaching a terminal from the
+   *  keyboard meant pressing Tab past every one of them. A toolbar is the shape
+   *  this already is; it just did not say so. */
+  function makeToolbar(bar) {
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "What to do with this pane");
+    const buttons = [...bar.children];
+    buttons.forEach((b, i) => { b.tabIndex = i === 0 ? 0 : -1; });
+    bar.addEventListener("keydown", (ev) => {
+      const at = buttons.indexOf(document.activeElement);
+      if (at < 0) return;
+      let to;
+      if (ev.key === "ArrowRight") to = (at + 1) % buttons.length;
+      else if (ev.key === "ArrowLeft") to = (at - 1 + buttons.length) % buttons.length;
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = buttons.length - 1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      // The stop stays where it was left, so coming back to this pane's
+      // buttons returns to the one last used rather than to the start.
+      buttons[at].tabIndex = -1;
+      buttons[to].tabIndex = 0;
+      buttons[to].focus();
+    });
   }
 
   function sendInput(p, data) {

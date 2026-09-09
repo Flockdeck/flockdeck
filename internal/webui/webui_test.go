@@ -1267,6 +1267,58 @@ assert.strictEqual(list().length, pages, "clearing the search did not bring the 
 	t.Log(strings.TrimSpace(out))
 }
 
+// The buttons in a pane header sit between the top bar and the terminals, and
+// there are five of them per pane.
+func TestThePaneButtonsAreOneStopEach(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const kids = [], panesIn = {};
+for (let i = 0; i < 6; i++) {
+  panesIn["p" + i] = pane("p" + i, { name: "agent " + i });
+  kids.push(leaf("n" + i, "p" + i));
+}
+h.recv(fixture({ tabs: [{ id: "t1", title: "six", focus: "p0", root: split("h", kids) }], panes: panesIn }));
+
+const bars = h.doc.querySelectorAll("div.pane-actions");
+assert.strictEqual(bars.length, 6, "a button row per pane");
+assert.ok(bars.every((b) => b.getAttribute("role") === "toolbar"), "the rows do not say what they are");
+assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no name");
+
+const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
+assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
+  "each row of buttons is more than one stop on the way through the window");
+assert.strictEqual(bars[0].children.length, 5, "five things to do with a pane");
+
+// The arrows walk the row and take the stop with them.
+const buttons = bars[0].children;
+buttons[0].focus();
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move along the row");
+assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
+assert.strictEqual(buttons[0].tabIndex, -1);
+h.key({ key: "End" });
+assert.ok(h.doc.activeElement === buttons[4], "End did not go to the last button");
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
+
+// Coming back returns to the button last used, not to the start.
+h.key({ key: "End" });
+h.doc.body.focus();
+h.key({ key: "Tab" });
+h.key({ key: "Tab" });
+assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
+assert.strictEqual(buttons[4].tabIndex, 0, "the stop did not stay where it was left");
+
+// And they still do what they say.
+buttons[4].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
+buttons[3].focus();
+h.key({ key: " " });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
