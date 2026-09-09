@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/gitx"
 	"github.com/jmwri/perch/internal/hooks"
 	"github.com/jmwri/perch/internal/session"
@@ -30,14 +31,61 @@ type fanoutPreviewMsg struct {
 	// worktrees a fan-out creates.
 	Trusted bool   `json:"trusted"`
 	Project string `json:"project"`
+	// Agents is the catalog, read afresh each time the dialog opens so that a
+	// hand-edited agents.json takes effect without a restart. Agent and Model
+	// are what the run starts on before anybody chooses otherwise.
+	Agents []fanoutAgentView `json:"agents,omitempty"`
+	Agent  string            `json:"agent,omitempty"`
+	Model  string            `json:"model,omitempty"`
+}
+
+// fanoutAgentView is one agent the dialog can offer, for the whole run or for
+// a single row of it.
+type fanoutAgentView struct {
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Models []agent.Model `json:"models,omitempty"`
+	// Default is the model this agent is asked for when nothing chooses one.
+	Default string `json:"default,omitempty"`
+	// Unavailable is why this agent cannot be started on this machine, and
+	// Install is where to get it. An agent the machine does not have is
+	// offered greyed rather than left out: somebody who has not installed
+	// Codex should still learn that Perch would run it.
+	Unavailable string `json:"unavailable,omitempty"`
+	Install     string `json:"install,omitempty"`
+}
+
+// fanoutCatalog lists the agents the dialog can offer, and the id of the one
+// a run starts on. It reads the catalog and probes for each agent, so it runs
+// on the workspace goroutine like every other read of it -- both are cheap,
+// and it happens once, when the dialog is opened.
+func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
+	specs, def := s.ws.AgentCatalog()
+	out := make([]fanoutAgentView, 0, len(specs))
+	for _, spec := range specs {
+		if spec.Hidden {
+			continue
+		}
+		view := fanoutAgentView{
+			ID: spec.ID, Name: spec.Name, Models: spec.Models,
+			Default: spec.DefaultModel, Install: spec.Install,
+		}
+		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
+			view.Unavailable = err.Error()
+		}
+		out = append(out, view)
+	}
+	return out, def
 }
 
 // previewFanout reads a pane's recent output and proposes tasks from it.
 func (s *Server) previewFanout(c *controlClient, paneID string) {
 	type info struct {
-		id  string
-		cwd string
-		src workspace.PlanSource
+		id     string
+		cwd    string
+		src    workspace.PlanSource
+		agents []fanoutAgentView
+		agent  string
 	}
 	done := make(chan info, 1)
 	s.do(func() {
@@ -51,7 +99,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		if p := s.ws.Pane(id); p != nil {
 			cwd = p.Cwd
 		}
-		done <- info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id)}
+		agents, def := s.fanoutCatalog()
+		done <- info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), agents: agents, agent: def}
 	})
 	// s.do drops the callback once the server is closing, so every reply from
 	// the workspace goroutine has to be waited for with a way out. Without one
@@ -76,6 +125,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			IsRepo:    isRepoDir(in.cwd) || gitRoot(in.cwd) != "",
 			Trusted:   session.IsTrusted(in.cwd),
 			Project:   filepath.Base(in.cwd),
+			Agents:    in.agents,
+			Agent:     in.agent,
 		}
 		c.sendJSON(msg)
 	}()
@@ -93,25 +144,71 @@ func gitRoot(dir string) string {
 	return root
 }
 
-// runFanout starts one agent per task.
+// fanoutRequest is what a window asks for when it turns a plan into agents.
+//
+// The agent and model chosen for the run are what every row takes unless its
+// own line says otherwise. That is the point of the pair: the dialog offers
+// one control for the whole fan-out and an override on each row, so twelve
+// tasks can be split between two agents deliberately rather than by running
+// two fan-outs and hoping they land side by side.
+type fanoutRequest struct {
+	Parent string
+	Tasks  []string
+	// Agent and Model are the run's choice. Empty is the default agent, and a
+	// model the agent is left to pick for itself.
+	Agent string
+	Model string
+	// TaskAgents and TaskModels are the per-row overrides, positional against
+	// Tasks. They are parallel arrays rather than a list of objects so that
+	// the tasks stay exactly where they have always been on the wire: a window
+	// that knows nothing about agents still sends a fan-out this side reads.
+	TaskAgents []string
+	TaskModels []string
+	Worktrees  bool
+	Split      bool
+	Trust      bool
+}
+
+// overrideAt returns the value list holds for row i, or "" when it holds none.
+// The overrides are as long as the window chose to make them, which need not
+// be as long as the task list.
+func overrideAt(list []string, i int) string {
+	if i < len(list) {
+		return list[i]
+	}
+	return ""
+}
+
+// runFanout is the entry the control switch calls today.
+//
+// The switch belongs to another task, so until the merge widens it to carry
+// the dialog's agent and model through, a fan-out started from it runs on the
+// default agent for every row -- which is what it did before there was
+// anything else to run. Deleting this and calling fanout with a request built
+// from the command is the whole of the merge on this side.
+func (s *Server) runFanout(c *controlClient, parent string, tasks []string, worktrees, split, trust bool) {
+	s.fanout(c, fanoutRequest{Parent: parent, Tasks: tasks, Worktrees: worktrees, Split: split, Trust: trust})
+}
+
+// fanout starts one agent per task.
 //
 // Worktrees are created before anything touches the workspace, because git is
 // slow and the workspace goroutine also serves every window's state.
-func (s *Server) runFanout(c *controlClient, parent string, tasks []string, worktrees, split, trust bool) {
+func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 	go func() {
-		if len(tasks) == 0 {
+		if len(req.Tasks) == 0 {
 			c.notify(fanoutSummary(0, 0))
 			return
 		}
 
 		// Resolve the parent's directory once, off the workspace goroutine.
 		type start struct {
+			parent string
 			cwd    string
-			claude bool
 		}
 		done := make(chan start, 1)
 		s.do(func() {
-			id := parent
+			id := req.Parent
 			if id == "" {
 				if t := s.ws.CurrentTab(); t != nil {
 					id = t.Focus
@@ -121,8 +218,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			if p := s.ws.Pane(id); p != nil {
 				cwd = p.Cwd
 			}
-			parent = id
-			done <- start{cwd: cwd, claude: s.ws.ClaudeAvailable()}
+			done <- start{parent: id, cwd: cwd}
 		})
 		var in start
 		select {
@@ -130,16 +226,9 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		case <-s.closed:
 			return
 		}
-		// Asked once for the whole fan-out. Left to Spawn it is asked once per
-		// task, and a missing CLI answers a dozen tasks with a dozen copies of
-		// the same notice, each naming a task as though the task were at fault.
-		if !in.claude {
-			c.notify("the `claude` CLI was not found on PATH, so no agents can be started", true)
-			return
-		}
-		baseCwd := in.cwd
+		parent, baseCwd := in.parent, in.cwd
 
-		jobs, capped := planJobs(tasks, baseCwd)
+		jobs, capped := planJobs(req, baseCwd)
 		if capped {
 			c.notify(fmt.Sprintf("stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
 		}
@@ -147,9 +236,20 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			c.notify(fanoutSummary(0, 0))
 			return
 		}
+		jobs, failed, ok := s.runnable(c, jobs)
+		if !ok {
+			return
+		}
+		if len(jobs) == 0 {
+			// Every row was dropped for want of its agent, and runnable has
+			// just said so agent by agent. A summary after that counts the
+			// same failures a second time -- and for a run on one agent it
+			// would be a second line where there has only ever been one.
+			return
+		}
 
 		var repo string
-		if worktrees {
+		if req.Worktrees {
 			// Whether a worktree can be cut at all is a property of the
 			// directory, not of any one task. Leaving it to PrepareWorktree
 			// answers every task in the list with the same complaint about the
@@ -170,13 +270,13 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			makeWorktrees(jobs, func(branch string) (string, error) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
-			if trust {
+			if req.Trust {
 				inheritTrust(jobs, baseCwd, session.InheritTrust,
 					func(text string) { c.notify(text, true) })
 			}
 		}
 
-		started, failed := 0, 0
+		started := 0
 		for _, j := range jobs {
 			if j.err != nil {
 				c.notify(fmt.Sprintf("%s: %v", short(j.task), j.err), true)
@@ -188,8 +288,10 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				_, err := s.ws.Spawn(parent, workspace.SpawnOptions{
 					Task:  j.task,
 					Cwd:   j.cwd,
-					Split: split,
+					Split: req.Split,
 					Kind:  session.KindClaude,
+					Agent: j.agent,
+					Model: j.model,
 				})
 				res <- err
 			})
@@ -213,6 +315,101 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 	}()
 }
 
+// runnable keeps the jobs whose agent can actually be started here, reports
+// how many were dropped, and reports whether the server is still open.
+//
+// Availability is asked once per agent, not once per job: left to Spawn, a
+// missing CLI answered a dozen tasks with a dozen copies of the same notice,
+// each naming a task as though the task were at fault. Nor is it asked once
+// for the whole run any more -- a fan-out divided between two agents starts
+// the rows whose agent is installed, and says which agent the rest were
+// waiting on.
+//
+// It happens before a single worktree is cut, so a row that cannot run costs
+// nothing but the line that explains it.
+func (s *Server) runnable(c *controlClient, jobs []*fanoutJob) ([]*fanoutJob, int, bool) {
+	ids := map[string]bool{}
+	for _, j := range jobs {
+		ids[j.agent] = true
+	}
+	out := make(chan map[string]error, 1)
+	s.do(func() {
+		bad := map[string]error{}
+		for id := range ids {
+			if _, err := s.ws.AgentSpec(id); err != nil {
+				bad[id] = err
+			}
+		}
+		out <- bad
+	})
+	var bad map[string]error
+	select {
+	case bad = <-out:
+	case <-s.closed:
+		return nil, 0, false
+	}
+	keep, notices, dropped := partitionRunnable(jobs, bad)
+	for _, text := range notices {
+		c.notify(text, true)
+	}
+	return keep, dropped, true
+}
+
+// partitionRunnable splits the jobs into the ones whose agent can be
+// started here and the ones that cannot, and writes what to say about each
+// agent that cannot.
+//
+// One notice per agent, in the order the agents first appear in the plan: the
+// map they arrive in has no order, and two missing agents named in a different
+// order each time are two notices nobody can match against the list they were
+// looking at.
+func partitionRunnable(jobs []*fanoutJob, bad map[string]error) ([]*fanoutJob, []string, int) {
+	if len(bad) == 0 {
+		return jobs, nil, 0
+	}
+	counts := map[string]int{}
+	for _, j := range jobs {
+		if bad[j.agent] != nil {
+			counts[j.agent]++
+		}
+	}
+
+	keep := make([]*fanoutJob, 0, len(jobs))
+	var notices []string
+	said := map[string]bool{}
+	dropped := 0
+	for _, j := range jobs {
+		err := bad[j.agent]
+		if err == nil {
+			keep = append(keep, j)
+			continue
+		}
+		dropped++
+		if said[j.agent] {
+			continue
+		}
+		said[j.agent] = true
+		if len(bad) == 1 && counts[j.agent] == len(jobs) {
+			// Word for word what a fan-out has always said when the CLI was
+			// missing. With one agent for the whole run, nothing has changed.
+			notices = append(notices, fmt.Sprintf("%v, so no agents can be started", err))
+			continue
+		}
+		n := counts[j.agent]
+		notices = append(notices, fmt.Sprintf("%v, so %d %s not started", err, n, tasksWere(n)))
+	}
+	return keep, notices, dropped
+}
+
+// tasksWere is "task was" or "tasks were", for a count that is read rather than
+// parsed.
+func tasksWere(n int) string {
+	if n == 1 {
+		return "task was"
+	}
+	return "tasks were"
+}
+
 // planJobs turns the edited task list into the jobs a fan-out will run, and
 // reports whether it stopped at the cap.
 //
@@ -223,9 +420,9 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 // started. Every row that is left becomes an agent with a terminal of its own:
 // the list the extractor proposed was capped, but nothing between there and
 // here held the edited one to a size the machine can actually run.
-func planJobs(tasks []string, cwd string) ([]*fanoutJob, bool) {
-	jobs := make([]*fanoutJob, 0, len(tasks))
-	for _, task := range tasks {
+func planJobs(req fanoutRequest, cwd string) ([]*fanoutJob, bool) {
+	jobs := make([]*fanoutJob, 0, len(req.Tasks))
+	for i, task := range req.Tasks {
 		task = strings.TrimSpace(task)
 		if task == "" {
 			continue
@@ -233,7 +430,18 @@ func planJobs(tasks []string, cwd string) ([]*fanoutJob, bool) {
 		if len(jobs) >= workspace.MaxTasks {
 			return jobs, true
 		}
-		jobs = append(jobs, &fanoutJob{task: task, cwd: cwd})
+		j := &fanoutJob{task: task, cwd: cwd, agent: req.Agent, model: req.Model}
+		// A row that names its own agent brings its own model with it, and
+		// takes no model at all when it named none. The model chosen for the
+		// run belongs to the agent chosen for the run: carrying "sonnet" over
+		// to the one row handed to Codex asks Codex for a model it has never
+		// heard of, and the pane dies on the spot.
+		if a := overrideAt(req.TaskAgents, i); a != "" {
+			j.agent, j.model = a, overrideAt(req.TaskModels, i)
+		} else if m := overrideAt(req.TaskModels, i); m != "" {
+			j.model = m
+		}
+		jobs = append(jobs, j)
 	}
 	return jobs, false
 }
@@ -242,6 +450,10 @@ func planJobs(tasks []string, cwd string) ([]*fanoutJob, bool) {
 type fanoutJob struct {
 	task string
 	cwd  string
+	// agent and model are the agent this task's pane runs and the model it is
+	// asked for: the run's choice, or the row's own override of it.
+	agent string
+	model string
 	// branch is the branch the agent gets when it is given a worktree.
 	branch string
 	// err is why this task could not be prepared. It is reported when the

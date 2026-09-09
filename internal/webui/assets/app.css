@@ -510,6 +510,23 @@ textarea:focus-visible {
 .fan-go { display: flex; align-items: center; gap: 10px; }
 .fan-count { color: var(--fg-dim); font-size: 12px; }
 
+/* The agent a task runs on, for the whole fan-out and for one row of it. The
+   row list is capped and scrolls: a dozen tasks with a control each is taller
+   than the dialog, and the button that starts them all must stay in sight. */
+.fan-agent { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--fg-dim); font-size: 12px; }
+.fan-agent-sel {
+  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; padding: 4px 6px;
+}
+.fan-agent-sel:focus { outline: none; border-color: var(--accent); }
+.fan-rows { max-height: 210px; overflow: auto; margin: 8px 0 0; }
+.fan-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.fan-row-n { color: var(--fg-dim); font-size: 11px; min-width: 18px; text-align: right; }
+.fan-row-task {
+  flex: 1 1 auto; min-width: 0; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ------------------------------------------------------------------ agents */
 
 .agent-row {

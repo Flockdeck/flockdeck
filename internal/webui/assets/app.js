@@ -2820,6 +2820,59 @@
     send({ cmd: "fanoutPreview", id: paneID || focusedPaneId() });
   }
 
+  /** agentOption is one entry of an agentSelect: what it reads as, and the
+   *  agent and model it stands for. */
+  function agentOption(text, value) {
+    const o = el("option", null, text);
+    o.value = value;
+    return o;
+  }
+
+  /** agentSelect is the control that says which agent, and which of its
+   *  models, does a piece of work.
+   *
+   *  Agent and model are one control rather than two because they are one
+   *  decision: a model belongs to the agent that knows it, and a row of the
+   *  task list is far too narrow to spend two controls on. The value carries
+   *  both, with a newline between them — the one character neither an agent id
+   *  nor a model id can contain.
+   *
+   *  An agent this machine does not have is offered greyed, with the line that
+   *  says where to get it, rather than left out: somebody who has not installed
+   *  Codex should still learn that Perch would run it. */
+  function agentSelect(agents, value, firstLabel) {
+    const sel = el("select", "fan-agent-sel");
+    if (firstLabel) sel.append(agentOption(firstLabel, ""));
+    (agents || []).forEach((a) => {
+      const group = document.createElement("optgroup");
+      group.label = a.unavailable
+        ? a.name + " — not installed" + (a.install ? ", see " + a.install : "")
+        : a.name;
+      // An agent that names no models still has to be choosable, so it stands
+      // as a single entry asking for whatever model it is already set to.
+      const models = a.models && a.models.length ? a.models : [{ id: a.default || "" }];
+      models.forEach((mo) => {
+        const name = mo.name || mo.id || "Default";
+        const o = agentOption(mo.note ? name + " — " + mo.note : name, a.id + "\n" + (mo.id || ""));
+        o.disabled = !!a.unavailable;
+        group.append(o);
+      });
+      sel.append(group);
+    });
+    sel.value = value || "";
+    // A choice naming an agent the catalog no longer has leaves the control
+    // showing nothing at all, which reads as a control that is broken rather
+    // than as one whose agent has gone.
+    if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+    return sel;
+  }
+
+  /** pickParts splits an agentSelect value back into its agent and its model. */
+  function pickParts(value) {
+    const i = (value || "").indexOf("\n");
+    return i < 0 ? ["", ""] : [value.slice(0, i), value.slice(i + 1)];
+  }
+
   function renderFanout(msg) {
     if (msg) fanout = msg;
     if (dialog !== "fanout") { dialog = "fanout"; openOverlay("Fan out", "fanout"); }
@@ -2836,10 +2889,37 @@
         : "No plan was found in this pane. Type one task per line."));
     body.append(hint);
 
+    // The agent controls are drawn only where there is a decision to make. A
+    // Perch that knows one agent with one model has nothing to ask, and a
+    // dialog that asks it anyway has grown for nobody.
+    const catalog = m.agents || [];
+    const picks = catalog.reduce((n, a) => n + Math.max(1, (a.models || []).length), 0);
+    const choosable = catalog.length > 0 && picks > 1;
+
+    let runSel = null;
+    if (choosable) {
+      const chosen = catalog.find((a) => a.id === m.agent) || catalog[0];
+      runSel = agentSelect(catalog, chosen.id + "\n" + (m.model || chosen.default || ""));
+      const line = el("div", "fan-agent");
+      line.append(el("span", null, "Run every task with"), runSel);
+      body.append(line);
+    }
+
     const box = el("textarea", "fan-tasks");
     box.value = (m.tasks || []).join("\n");
     box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser";
     body.append(box);
+
+    // Which agent each line gets, where it is not the one chosen for the run.
+    //
+    // Keyed by the text of the task rather than by its position, because the
+    // box above is being edited: deleting the second line moves every line
+    // below it up, and an override held by position would be left sitting on
+    // somebody else's task. Editing a line that had been assigned does lose the
+    // assignment, which is the honest answer — it is a different task now.
+    const overrides = new Map();
+    const rows = el("div", "fan-rows");
+    if (choosable) body.append(rows);
 
     const opts = el("div", "fan-opts");
     const wt = el("label", "fan-opt");
@@ -2878,27 +2958,88 @@
     const go = el("div", "fan-go");
     const count = el("span", "fan-count");
     const taskLines = () => box.value.split("\n").map((l) => l.trim()).filter(Boolean);
-    const updateCount = () => {
-      const n = taskLines().length;
-      count.textContent = n === 1 ? "1 agent" : n + " agents";
-      start.disabled = n === 0;
-      start.textContent = n === 1 ? "Start 1 agent" : "Start " + n + " agents";
+
+    /** tally is what the count line says: how many agents, and — when the run
+     *  has been split between two of them — how many of each. A dozen panes
+     *  divided on purpose is the easiest thing here to have got wrong, and the
+     *  last moment to notice it is before any of them exist. */
+    const tally = (lines) => {
+      const plural = lines.length === 1 ? "1 agent" : lines.length + " agents";
+      if (!choosable) return plural;
+      const runID = pickParts(runSel.value)[0];
+      const byAgent = new Map();
+      lines.forEach((task) => {
+        const id = pickParts(overrides.get(task))[0] || runID;
+        byAgent.set(id, (byAgent.get(id) || 0) + 1);
+      });
+      if (byAgent.size < 2) return plural;
+      const parts = [];
+      byAgent.forEach((n, id) => {
+        const a = catalog.find((x) => x.id === id);
+        parts.push(n + " × " + ((a && a.name) || id));
+      });
+      return plural + " — " + parts.join(", ");
     };
+
+    const updateCount = () => {
+      const lines = taskLines();
+      count.textContent = tally(lines);
+      start.disabled = lines.length === 0;
+      start.textContent = lines.length === 1 ? "Start 1 agent" : "Start " + lines.length + " agents";
+    };
+
+    const renderRows = () => {
+      rows.textContent = "";
+      taskLines().forEach((task, i) => {
+        const row = el("div", "fan-row");
+        row.append(el("span", "fan-row-n", String(i + 1)));
+        const text = el("span", "fan-row-task", task);
+        text.title = task;
+        row.append(text);
+        const sel = agentSelect(catalog, overrides.get(task), "Same as the run");
+        sel.onchange = () => {
+          if (sel.value) overrides.set(task, sel.value);
+          else overrides.delete(task);
+          updateCount();
+        };
+        row.append(sel);
+        rows.append(row);
+      });
+    };
+
     const start = el("button", "chip primary", "Start agents");
     start.onclick = () => {
       const tasks = taskLines();
       if (!tasks.length) return;
-      send({
+      const req = {
         cmd: "fanout",
         id: m.paneId,
         tasks,
         worktrees: wtBox.checked && !wtBox.disabled,
         split: spBox.checked,
         trust: trBox.checked && !trBox.disabled,
-      });
+      };
+      // The agent fields are left off altogether where there was nothing to
+      // choose, so a fan-out that made no decision about agents goes over the
+      // wire looking exactly as it always has.
+      if (choosable) {
+        const run = pickParts(runSel.value);
+        req.agent = run[0];
+        req.model = run[1];
+        const perTask = tasks.map((t) => pickParts(overrides.get(t))[0]);
+        if (perTask.some(Boolean)) {
+          req.taskAgents = perTask;
+          req.taskModels = tasks.map((t) => pickParts(overrides.get(t))[1]);
+        }
+      }
+      send(req);
       closeOverlay();
     };
-    box.oninput = updateCount;
+    box.oninput = () => { if (choosable) renderRows(); updateCount(); };
+    if (choosable) {
+      runSel.onchange = updateCount;
+      renderRows();
+    }
     go.append(start, count);
     body.append(go);
     updateCount();

@@ -876,3 +876,109 @@ func TestSpawnRefusesATaskTooLongToStartWith(t *testing.T) {
 		t.Errorf("a task of exactly the limit was refused: %v", err)
 	}
 }
+
+// A pane names the agent it wants, and the empty name is the default agent
+// rather than no agent at all — which is what keeps a fan-out that was never
+// asked about agents running exactly what it always ran.
+func TestAgentSpecResolvesByID(t *testing.T) {
+	isolateConfig(t)
+	ws := newTestWorkspace(t, t.TempDir())
+
+	cases := []struct {
+		name    string
+		id      string
+		want    string
+		unknown bool
+	}{
+		{name: "the default", id: "", want: defaultAgentID},
+		{name: "by name", id: "claude", want: "claude"},
+		{name: "one nobody has heard of", id: "nosuch", unknown: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			spec, err := ws.AgentSpec(c.id)
+			if c.unknown {
+				// Whether the machine has an agent installed is a different
+				// question from whether Perch knows of it, and only the second
+				// one leaves nothing to report about.
+				if spec.ID != "" {
+					t.Errorf("resolved %q to %q, want nothing", c.id, spec.ID)
+				}
+				if err == nil || !strings.Contains(err.Error(), c.id) {
+					t.Errorf("err = %v, want it to name %q", err, c.id)
+				}
+				return
+			}
+			if spec.ID != c.want {
+				t.Errorf("resolved %q to %q, want %q", c.id, spec.ID, c.want)
+			}
+			// The error here is only whether this machine has the CLI, which
+			// is not what the resolution is being asked about.
+			if err != nil && !strings.Contains(err.Error(), "not found") {
+				t.Errorf("err = %v, want either nothing or a missing CLI", err)
+			}
+		})
+	}
+}
+
+// The agent is checked before anything is created, so a name that is wrong
+// costs a message rather than a tab with a dead pane in it.
+func TestSpawnRefusesAnUnknownAgent(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	_, err := ws.Spawn(parent, SpawnOptions{
+		Task:  "split the router",
+		Kind:  session.KindClaude,
+		Agent: "nosuch",
+	})
+	if err == nil {
+		t.Fatal("a spawn naming an agent that does not exist was accepted")
+	}
+	if !strings.Contains(err.Error(), "nosuch") {
+		t.Errorf("err = %v, want it to name the agent", err)
+	}
+	if n := len(ws.VisibleTabs()); n != 1 {
+		t.Errorf("tabs = %d, want the refused child to have opened none", n)
+	}
+}
+
+// A shell pane runs no agent, so it is never held up over one.
+func TestSpawnAShellIsNotAskedAboutAgents(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindShell, Agent: "nosuch"}); err != nil {
+		t.Errorf("a shell pane was refused over an agent it does not run: %v", err)
+	}
+}
+
+// The catalog is what the fan-out dialog and the picker offer, so it has to
+// hold the agent Perch has always run and say which one is taken by default.
+func TestAgentCatalogHoldsTheDefault(t *testing.T) {
+	isolateConfig(t)
+	ws := newTestWorkspace(t, t.TempDir())
+
+	specs, def := ws.AgentCatalog()
+	if len(specs) == 0 {
+		t.Fatal("the catalog is empty")
+	}
+	found := false
+	for _, spec := range specs {
+		if spec.ID == def {
+			found = true
+		}
+		if spec.Name == "" {
+			t.Errorf("agent %q has no name to show", spec.ID)
+		}
+	}
+	if !found {
+		t.Errorf("the default agent %q is not in the catalog", def)
+	}
+}
