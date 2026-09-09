@@ -1379,3 +1379,48 @@ func TestConversationsListAConversationCopiedIntoTwoFoldersOnce(t *testing.T) {
 		t.Errorf("the row has %d entries; the copy still being written to has 3", got[0].Messages)
 	}
 }
+
+// TestConversationsSkipATranscriptClaudeOrphaned covers the files Claude Code
+// leaves in a project folder that are not conversations anyone can go back
+// to. A transcript it decides is orphaned is renamed with a timestamp and a
+// hash appended, and three of those are sitting in the folders on this
+// machine. Listed, they look like conversations -- they have a name and a
+// date and a size -- and resuming one fails, because the id in the row is
+// not a session id.
+func TestConversationsSkipATranscriptClaudeOrphaned(t *testing.T) {
+	cwd, dir := historyFixture(t, "orphans")
+
+	line := `{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"a real conversation"}}`
+	writeTranscript(t, dir, "aaaaaaaa-0101-0101-0101-010101010101", line)
+	writeTranscript(t, dir, "aaaaaaaa-0101-0101-0101-010101010101.orphaned-1788557454976-69dd3a08", line)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("listed %d conversations, want the one that can be resumed: %+v", len(got), got)
+	}
+	if got[0].ID != "aaaaaaaa-0101-0101-0101-010101010101" {
+		t.Errorf("id = %q, want the session id", got[0].ID)
+	}
+}
+
+// TestTranscriptIDReadsTheSessionOutOfAFileName pins what counts as a
+// transcript in a project folder.
+func TestTranscriptIDReadsTheSessionOutOfAFileName(t *testing.T) {
+	cases := map[string]string{
+		"aaaaaaaa-0101-0101-0101-010101010101.jsonl":                                 "aaaaaaaa-0101-0101-0101-010101010101",
+		"aaaaaaaa-0101-0101-0101-010101010101.orphaned-1788557454976-69dd3a08.jsonl": "",
+		"aaaaaaaa-0101-0101-0101-010101010101.jsonl.bak":                             "",
+		"aaaaaaaa-0101-0101-0101-010101010101":                                       "",
+		".jsonl":                                                                     "",
+		"memory":                                                                     "",
+		"":                                                                           "",
+	}
+	for name, want := range cases {
+		if got := transcriptID(name); got != want {
+			t.Errorf("transcriptID(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

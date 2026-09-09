@@ -281,8 +281,10 @@ const describeReaders = 8
 func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func(recorded string) bool) []Conversation {
 	files := make([]os.FileInfo, 0, len(entries))
 	names := make([]string, 0, len(entries))
+	ids := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+		id := transcriptID(e.Name())
+		if e.IsDir() || id == "" {
 			continue
 		}
 		info, err := e.Info()
@@ -297,6 +299,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func
 			continue
 		}
 		names = append(names, e.Name())
+		ids = append(ids, id)
 		files = append(files, info)
 	}
 
@@ -324,7 +327,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func
 		}
 
 		c := Conversation{
-			ID:       strings.TrimSuffix(name, ".jsonl"),
+			ID:       ids[i],
 			Cwd:      cwd,
 			Modified: files[i].ModTime(),
 			Size:     files[i].Size(),
@@ -397,6 +400,26 @@ func readTranscripts(read func(i int), n int) {
 		}()
 	}
 	wg.Wait()
+}
+
+// transcriptID returns the session id a transcript's file name holds, or ""
+// when the file is not a transcript that can be resumed.
+//
+// A transcript is named after the session id it holds, and that id is what
+// `claude --resume` takes and what a pane restored from a saved layout is
+// given. Claude Code also leaves files in these folders that are not that:
+// one it has decided is orphaned is renamed with a timestamp and a hash
+// appended -- "<id>.orphaned-1788557454976-69dd3a08.jsonl" -- and three of
+// them are sitting in the folders on this machine. Offering one is offering
+// a conversation whose id names nothing, and resuming it fails; the id
+// buried in the name is no way back to it either, because whatever it
+// belonged to is stored somewhere else or nowhere.
+func transcriptID(name string) string {
+	id, ok := strings.CutSuffix(name, ".jsonl")
+	if !ok || id == "" || strings.Contains(id, ".") {
+		return ""
+	}
+	return id
 }
 
 // projectSlug reproduces the folder name Claude Code derives from a path.
@@ -483,7 +506,7 @@ func folderRecords(dir string) []string {
 	}
 	transcripts := 0
 	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(f.Name(), ".jsonl") {
+		if !f.IsDir() && transcriptID(f.Name()) != "" {
 			transcripts++
 		}
 	}
@@ -514,7 +537,7 @@ func probeFolder(dir string, files []os.DirEntry) []string {
 	var cwds []string
 	tried := 0
 	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
+		if f.IsDir() || transcriptID(f.Name()) == "" {
 			continue
 		}
 		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
