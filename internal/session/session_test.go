@@ -341,8 +341,10 @@ func claudePane() *Session {
 		status:      StatusIdle,
 		statusSince: time.Now(),
 		sawInput:    true,
-		history:     newRing(4096),
-		subs:        map[int]chan []byte{},
+		// Long enough that nothing settles underneath a bell assertion.
+		idleAfter: time.Minute,
+		history:   newRing(4096),
+		subs:      map[int]chan []byte{},
 	}
 }
 
@@ -449,5 +451,124 @@ func TestStartClampsItsInitialSize(t *testing.T) {
 	d := startShell(t)
 	if cols, rows := d.Size(); cols != 80 || rows != 24 {
 		t.Errorf("size = %dx%d, want 80x24", cols, rows)
+	}
+}
+
+// shellPane builds a shell session with no process behind it and a short quiet
+// period, for the status a pane is given when nothing is reporting for it.
+func shellPane() *Session {
+	return &Session{
+		ID:          "shell-pane",
+		Kind:        KindShell,
+		status:      StatusStarting,
+		statusSince: time.Now(),
+		idleAfter:   40 * time.Millisecond,
+		history:     newRing(4096),
+		subs:        map[int]chan []byte{},
+	}
+}
+
+// waitForStatus waits for a session to reach a status, which the settling
+// goroutine arrives at on its own clock.
+func waitForStatus(t *testing.T, s *Session, want Status, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for {
+		got, _ := s.Status()
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %v after %v, want %v", got, d, want)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// TestOutputMarksAPaneWorkingUntilItGoesQuiet covers a pane no lifecycle hook
+// reports for -- every shell pane, and a Claude pane before its first event.
+// Without it a build running flat out and a prompt nobody has typed at are the
+// same dot in the tab bar.
+func TestOutputMarksAPaneWorkingUntilItGoesQuiet(t *testing.T) {
+	s := shellPane()
+	changed := make(chan struct{}, 32)
+	s.OnChange = func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	}
+
+	s.publish([]byte("compiling one.go\n"))
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Fatalf("status = %v, want working while a pane is printing", st)
+	}
+	busy := s.StatusSince()
+
+	// Output arriving inside the quiet period keeps the pane working, and does
+	// not restart the clock: how long it has been busy is the useful number.
+	for i := 0; i < 5; i++ {
+		time.Sleep(15 * time.Millisecond)
+		s.publish([]byte("compiling.\n"))
+		if st, _ := s.Status(); st != StatusWorking {
+			t.Fatalf("status = %v part way through a run of output, want working", st)
+		}
+	}
+	if got := s.StatusSince(); !got.Equal(busy) {
+		t.Errorf("the busy clock restarted mid-run: %v then %v", busy, got)
+	}
+
+	waitForStatus(t, s, StatusIdle, 5*time.Second)
+
+	// The transition has to be announced or nothing redraws the tab bar.
+	select {
+	case <-changed:
+	default:
+		t.Error("going idle was never reported")
+	}
+
+	// And the pane goes back to working when it starts printing again.
+	s.publish([]byte("running tests\n"))
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after output resumed, want working", st)
+	}
+}
+
+// TestOutputDoesNotOverruleALifecycleHook keeps the guess out of the way of
+// the thing that knows. A finished Claude pane still redraws its prompt, and
+// calling that work would show every idle agent as busy.
+func TestOutputDoesNotOverruleALifecycleHook(t *testing.T) {
+	s := claudePane()
+	s.idleAfter = 40 * time.Millisecond
+	s.SetStatus(StatusIdle, "")
+
+	s.publish([]byte("\x1b[2K> \n"))
+	if st, _ := s.Status(); st != StatusIdle {
+		t.Errorf("status = %v; a hook that said idle outranks the output", st)
+	}
+
+	s.SetStatus(StatusWaiting, "")
+	s.publish([]byte("still asking\n"))
+	time.Sleep(100 * time.Millisecond)
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v; a pane blocked on the user must stay that way", st)
+	}
+}
+
+// TestOutputDoesNotOverruleTheBell covers the fallback a Claude pane with no
+// hooks runs on: the bell says it is blocked, and the bytes around it say only
+// that something was printed.
+func TestOutputDoesNotOverruleTheBell(t *testing.T) {
+	s := claudePane()
+	s.idleAfter = 40 * time.Millisecond
+
+	s.publish([]byte("choose one\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v, want waiting", st)
+	}
+	s.publish([]byte("(y/n) "))
+	time.Sleep(100 * time.Millisecond)
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v; more output after the bell does not answer it", st)
 	}
 }

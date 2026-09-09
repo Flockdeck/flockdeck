@@ -32,6 +32,12 @@ const (
 	// report end of output when the process it is attached to goes away, so
 	// this is a grace period rather than something to wait on indefinitely.
 	drainGrace = 500 * time.Millisecond
+	// quietBeforeIdle is how long a pane with no lifecycle hooks reporting for
+	// it must print nothing before it is called idle again. It has to bridge
+	// the pauses inside one piece of work -- a compiler between files, a test
+	// runner between packages -- without leaving a pane that has genuinely
+	// finished claiming to be busy.
+	quietBeforeIdle = 3 * time.Second
 	// maxCols and maxRows bound a resize. The dimensions are measured by the
 	// browser and can be anything it cares to send, while a PTY allocates a
 	// cell for every one of them, so a figure no display could produce is
@@ -87,6 +93,12 @@ type Session struct {
 	// announce that it needs attention before anyone has spoken to it.
 	sawInput   bool
 	cols, rows int
+	// idleAfter is quietBeforeIdle, held per session so a test can shorten it.
+	idleAfter time.Duration
+	// settling records that a goroutine is already waiting to call this pane
+	// idle again, so a pane printing steadily starts one rather than one per
+	// chunk it prints.
+	settling bool
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
@@ -142,6 +154,7 @@ func Start(cfg Config) (*Session, error) {
 		statusSince: time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
+		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
 		subs:        map[int]chan []byte{},
 		pumped:      make(chan struct{}),
@@ -189,12 +202,23 @@ func (s *Session) publish(chunk []byte) {
 	s.mu.Lock()
 	s.history.write(chunk)
 	s.lastOutput = time.Now()
-	// A pane that has produced output is up. Claude panes are corrected to
-	// working/waiting by their lifecycle hooks; shells, and agents whose hooks
-	// never arrive, stay readable rather than stuck on "starting".
-	if s.status == StatusStarting {
-		s.status = StatusIdle
-		s.statusSince = time.Now()
+	// A pane nothing is reporting for is read from what it prints. Shell panes
+	// never get lifecycle hooks at all, and a Claude pane has none until its
+	// first event arrives, so without this a build running for a minute and a
+	// prompt nobody has typed at look exactly alike from the tab bar.
+	//
+	// Waiting is left alone: it is the one status here worth surfacing, and it
+	// is set from the bell below, which knows more than the fact that bytes
+	// arrived.
+	if !s.hooksSeen && s.status != StatusExited && s.status != StatusWaiting {
+		if s.status != StatusWorking {
+			s.status = StatusWorking
+			s.statusSince = s.lastOutput
+		}
+		if !s.settling {
+			s.settling = true
+			go s.settleIdle()
+		}
 	}
 	if rang {
 		s.bellAt = time.Now()
@@ -231,6 +255,31 @@ func (s *Session) publish(chunk []byte) {
 	s.mu.Unlock()
 
 	s.changed()
+}
+
+// settleIdle returns an inferred-working pane to idle once it has been quiet
+// for long enough, and gives up as soon as anything better informed -- a
+// lifecycle hook, the bell, the process exiting -- has spoken for it.
+func (s *Session) settleIdle() {
+	for {
+		s.mu.Lock()
+		if s.hooksSeen || s.status != StatusWorking {
+			s.settling = false
+			s.mu.Unlock()
+			return
+		}
+		if quiet := time.Since(s.lastOutput); quiet < s.idleAfter {
+			s.mu.Unlock()
+			time.Sleep(s.idleAfter - quiet)
+			continue
+		}
+		s.status = StatusIdle
+		s.statusSince = time.Now()
+		s.settling = false
+		s.mu.Unlock()
+		s.changed()
+		return
+	}
 }
 
 // wait reaps the process and records its exit status.
