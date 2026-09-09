@@ -426,7 +426,7 @@ func TestNeighborBreaksTiesInTreeOrder(t *testing.T) {
 	}
 	// Two panes of the same height, one above the other, are the same distance
 	// from the middle of the pane they both face.
-	if x, y := abs(a.centerY()-c.centerY()), abs(b.centerY()-c.centerY()); x != y {
+	if x, y := abs(a.centerY2()-c.centerY2()), abs(b.centerY2()-c.centerY2()); x != y {
 		t.Errorf("a and b are %d and %d from the middle of c, want a genuine tie", x, y)
 	}
 
@@ -1477,7 +1477,7 @@ func TestNeighborPrefersTheWiderSharedEdge(t *testing.T) {
 	if d.H >= b.H || c.Y+c.H != d.Y {
 		t.Fatalf("this test needs a sliver under a tall pane, got c=%+v d=%+v b=%+v", c, d, b)
 	}
-	if abs(d.centerY()-b.centerY()) >= abs(c.centerY()-b.centerY()) {
+	if abs(d.centerY2()-b.centerY2()) >= abs(c.centerY2()-b.centerY2()) {
 		t.Fatal("this test needs the sliver to be the better centre match")
 	}
 
@@ -2061,9 +2061,9 @@ func TestNeighborIsWhatThePaneLooksOnto(t *testing.T) {
 				votes, nearest := reachedFrom(root, view, l.Pane, d)
 				aligned := func(r Rect) int {
 					if d == Left || d == Right {
-						return abs(r.centerY() - from.centerY())
+						return abs(r.centerY2() - from.centerY2())
 					}
-					return abs(r.centerX() - from.centerX())
+					return abs(r.centerX2() - from.centerX2())
 				}
 				want, most, closest, lined := "", 0, 1<<30, 1<<30
 				for _, other := range root.Leaves() {

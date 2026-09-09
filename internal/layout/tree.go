@@ -48,14 +48,18 @@ func (r Rect) Contains(x, y int) bool {
 	return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
 }
 
-// centerX and centerY are doubled, so that a pane of an even number of cells
-// and one of an odd number can still be compared. Halving them first put the
-// middle of a 31-row pane half a row above where it is, which is enough to
-// decide a tie that should have been settled by tree order: two panes of the
+// centerX2 and centerY2 are twice the middle of the rectangle, which is where
+// the 2 in the name is: doubling is what lets a pane of an even number of
+// cells and one of an odd number be compared. Halving each of them instead put
+// the middle of a 31-row pane half a row above where it is, which is enough to
+// decide a tie that should have been settled by tree order — two panes of the
 // same height, one above the other, beside one twice as tall are the same
 // distance from its middle, and the truncation handed it to the lower of them.
-func (r Rect) centerX() int { return 2*r.X + r.W }
-func (r Rect) centerY() int { return 2*r.Y + r.H }
+//
+// Nothing can use these as a coordinate; they are only ever compared with each
+// other.
+func (r Rect) centerX2() int { return 2*r.X + r.W }
+func (r Rect) centerY2() int { return 2*r.Y + r.H }
 
 // separatorWidth is the single column drawn between horizontally adjacent
 // panes. Vertically stacked panes need no separator because each pane draws a
@@ -805,28 +809,28 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 			}
 			primary = from.X - (r.X + r.W)
 			shared = overlap(r.Y, r.H, from.Y, from.H)
-			secondary = abs(r.centerY() - from.centerY())
+			secondary = abs(r.centerY2() - from.centerY2())
 		case Right:
 			if r.X < from.X+from.W {
 				return true
 			}
 			primary = r.X - (from.X + from.W)
 			shared = overlap(r.Y, r.H, from.Y, from.H)
-			secondary = abs(r.centerY() - from.centerY())
+			secondary = abs(r.centerY2() - from.centerY2())
 		case Up:
 			if r.Y+r.H > from.Y {
 				return true
 			}
 			primary = from.Y - (r.Y + r.H)
 			shared = overlap(r.X, r.W, from.X, from.W)
-			secondary = abs(r.centerX() - from.centerX())
+			secondary = abs(r.centerX2() - from.centerX2())
 		case Down:
 			if r.Y < from.Y+from.H {
 				return true
 			}
 			primary = r.Y - (from.Y + from.H)
 			shared = overlap(r.X, r.W, from.X, from.W)
-			secondary = abs(r.centerX() - from.centerX())
+			secondary = abs(r.centerX2() - from.centerX2())
 		}
 		if c := (cand{l.Pane, primary, shared, secondary}); !found || better(c, best) {
 			best, found = c, true
