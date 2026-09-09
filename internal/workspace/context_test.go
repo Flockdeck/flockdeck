@@ -614,3 +614,51 @@ func TestPaneContextFollowsThePanesOwnProject(t *testing.T) {
 		}
 	}
 }
+
+// TestTheSharedCheckoutSurvivesTheSiblingCap covers a busy project, which is
+// where the list an agent is given stops being complete. What has to survive
+// being cut is the agent editing the reader's own files: dropping it says
+// nobody else is in this checkout, which is worse than saying nothing.
+func TestTheSharedCheckoutSurvivesTheSiblingCap(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("make worktree dir: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	reader := ws.CurrentTab().Focus
+
+	// Enough panes on the reader's own tab to fill the list on their own, none
+	// of them in its checkout.
+	for i := 0; i <= maxSiblings; i++ {
+		ws.SplitPaneIn(layout.Vertical, session.KindShell, worktree)
+	}
+	// And one agent in the reader's checkout, on a tab of its own.
+	ws.NewTab(session.KindShell, root, "next door")
+	ws.SelectTab(ws.VisibleTabs()[0].ID)
+
+	c, ok := ws.PaneContext(reader)
+	if !ok {
+		t.Fatal("no context for the reader")
+	}
+	if c.SiblingsOmitted == 0 {
+		t.Fatalf("siblings = %d with none omitted; the test needs a list long enough to be cut",
+			len(c.Siblings))
+	}
+	shared := 0
+	for _, s := range c.Siblings {
+		if s.SameCheckout {
+			shared++
+		}
+	}
+	if shared != 1 {
+		t.Errorf("%d of the listed siblings share the reader's checkout, want the one that does", shared)
+	}
+	if len(c.Siblings) > 0 && !c.Siblings[0].SameCheckout {
+		t.Errorf("first sibling is %q in %q, want the one sharing the checkout",
+			c.Siblings[0].Name, c.Siblings[0].Cwd)
+	}
+}

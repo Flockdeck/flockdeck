@@ -113,11 +113,13 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	}
 	c.Worktree = c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot)
 
-	// Panes sharing the tab come first. They are the ones the agent is most
-	// likely to collide with — a split tab usually means one checkout — and
-	// the list is cut short in a busy project, so they must not be the ones
-	// that get dropped.
-	var sameTab, elsewhere []Sibling
+	// The list is cut short in a busy project, so what it keeps matters more
+	// than the order it keeps it in. An agent working in the reader's own
+	// checkout comes first however far away it is drawn: it is the one fact
+	// here that changes what the reader should do, and losing it to the cap
+	// tells an agent it has its files to itself when it has not. Panes sharing
+	// the tab come next, being the ones the user is watching side by side.
+	var ownCheckoutSameTab, ownCheckout, sameTab, elsewhere []Sibling
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {
 			if id == paneID {
@@ -152,14 +154,21 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				Task:         sib.Task,
 				SameCheckout: sameDir(sib.Cwd, c.Cwd),
 			}
-			if own != nil && t.ID == own.ID {
+			switch onOwnTab := own != nil && t.ID == own.ID; {
+			case s.SameCheckout && onOwnTab:
+				ownCheckoutSameTab = append(ownCheckoutSameTab, s)
+			case s.SameCheckout:
+				ownCheckout = append(ownCheckout, s)
+			case onOwnTab:
 				sameTab = append(sameTab, s)
-				continue
+			default:
+				elsewhere = append(elsewhere, s)
 			}
-			elsewhere = append(elsewhere, s)
 		}
 	}
-	c.Siblings = append(sameTab, elsewhere...)
+	for _, group := range [][]Sibling{ownCheckoutSameTab, ownCheckout, sameTab, elsewhere} {
+		c.Siblings = append(c.Siblings, group...)
+	}
 	if len(c.Siblings) > maxSiblings {
 		c.SiblingsOmitted = len(c.Siblings) - maxSiblings
 		c.Siblings = c.Siblings[:maxSiblings]
