@@ -1649,6 +1649,23 @@
     body.append(renderBrowser());
   }
 
+  /** rowAction makes a whole row behave as the button it already is to a
+   *  mouse. A div carrying an onclick cannot be reached with Tab and does not
+   *  answer Enter, so a list built out of them is a list only a pointer can
+   *  use — and these lists are how the file an agent changed gets read and how
+   *  the agent that is blocked gets found. */
+  function rowAction(row, fn) {
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.onclick = fn;
+    row.onkeydown = (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      ev.preventDefault();
+      fn(ev);
+    };
+    return row;
+  }
+
   function section(title) {
     const wrap = el("div", "proj-section");
     wrap.append(el("h3", null, title));
@@ -2303,7 +2320,7 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        row.onclick = () => selectChangedFile(f.path, m.cwd);
+        rowAction(row, () => selectChangedFile(f.path, m.cwd));
         rows.set(f.path, row);
         list.append(row);
       });
@@ -2363,7 +2380,13 @@
 
   function markSelectedFile() {
     if (!changeView) return;
-    for (const [path, row] of changeView.rows) row.classList.toggle("sel", path === selectedFile);
+    for (const [path, row] of changeView.rows) {
+      const on = path === selectedFile;
+      row.classList.toggle("sel", on);
+      // The diff beside the list is of this row, which the colouring says to
+      // the eye and nothing said otherwise.
+      row.setAttribute("aria-current", String(on));
+    }
   }
 
   /** fillDiff draws whatever the diff panel should be showing now. */
@@ -2433,9 +2456,10 @@
       const title = el("div", "agent-title");
       // The dot is the only thing carrying status here, and it has no text
       // at all, so it needs both the copy and a name of its own.
+      // The row writes the status out in words further along, so the disc is
+      // decoration here — unlike in a pane header, where it is all there is.
       const dot = el("span", "dot " + a.status);
-      dot.setAttribute("role", "img");
-      dot.setAttribute("aria-label", a.status);
+      dot.setAttribute("aria-hidden", "true");
       title.append(describe(dot, TIPS[a.status] || a.status));
       title.append(el("span", "agent-tab", a.tab || a.name));
       title.append(el("span", "agent-project", a.project));
@@ -2463,10 +2487,10 @@
       row.append(status);
       if (a.for) row.append(el("span", "agent-for", "for " + a.for));
 
-      row.onclick = () => {
+      rowAction(row, () => {
         send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
         closeOverlay();
-      };
+      });
       wrap.append(row);
     });
     body.append(wrap);

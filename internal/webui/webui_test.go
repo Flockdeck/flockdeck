@@ -964,6 +964,76 @@ assert.strictEqual(h.doc.querySelectorAll("div.tab-page").length, 1);
 	t.Log(strings.TrimSpace(out))
 }
 
+// Reading what an agent changed, and finding the agent that is blocked, are
+// both lists of rows built out of divs carrying an onclick. Tab does not stop
+// on one of those and Enter does nothing to it.
+func TestTheReviewAndAgentListsAnswerTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "improve-webui", hasRemote: false, files: [
+  { path: "internal/webui/assets/app.js", label: "M", added: 40, removed: 12 },
+  { path: "internal/webui/webui_test.go", label: "M", added: 90, removed: 0 },
+  { path: "README.md", label: "A", added: 3, removed: 0 },
+] });
+
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+assert.strictEqual(rows.length, 3);
+assert.ok(rows.every((r) => r.getAttribute("tabindex") === "0"), "the rows cannot be tabbed to");
+assert.ok(rows.every((r) => r.getAttribute("role") === "button"), "the rows do not say they can be pressed");
+
+// Tab from the top of the dialog reaches them.
+const panel = h.$("overlay-panel");
+let reached = false;
+for (let i = 0; i < 40 && !reached; i++) {
+  h.key({ key: "Tab" });
+  reached = rows.includes(h.doc.activeElement);
+}
+assert.ok(reached, "no amount of tabbing inside the dialog reaches the file list");
+
+rows[1].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "diff", path: "C:/repo", text: "internal/webui/webui_test.go" });
+assert.ok(rows[1].classList.contains("sel"), "the row was not chosen");
+assert.strictEqual(rows[1].getAttribute("aria-current"), "true", "nothing says which file the diff is of");
+assert.strictEqual(rows[0].getAttribute("aria-current"), "false");
+
+// Space works the same way, and does not scroll the dialog instead.
+rows[2].focus();
+const ev = h.key({ key: " " });
+assert.ok(ev.defaultPrevented, "Space scrolled the dialog rather than choosing the file");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "README.md" });
+
+// The agents list is the way to the pane that is blocked, so it has to be
+// reachable the same way.
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "agent one",
+    status: "working", branch: "main", kind: "claude", detail: "", dirty: 0 },
+  { paneId: "p9", tabId: "t9", root: "C:/other", project: "other", tab: "nine", name: "agent nine",
+    status: "waiting", branch: "fix-auth", kind: "claude", detail: "may I write?", dirty: 2 },
+] });
+const agents = h.$("overlay-body").querySelectorAll("div.agent-row");
+assert.strictEqual(agents.length, 2);
+assert.ok(agents.every((r) => r.getAttribute("tabindex") === "0"), "the agent rows cannot be tabbed to");
+
+// The disc repeats the word the row already carries, so it is not read twice.
+const dot = agents[1].querySelector("span.dot");
+assert.strictEqual(dot.getAttribute("aria-hidden"), "true", "the status is announced twice over");
+assert.ok(agents[1].textContent.includes("waiting"), "the row does say the status in words");
+
+agents[1].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "revealPane", root: "C:/other", node: "t9", id: "p9" });
+assert.ok(h.$("overlay").hidden, "the dialog stayed open after going to the pane");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1532,10 +1602,14 @@ function boot() {
     open() { sockets.forEach((s) => { if (!s.opened && s.onopen) { s.opened = true; s.onopen(); } }); },
     commands() { return h.control.sent.map((s) => JSON.parse(s)); },
     click(node, init) { return dispatch(node, new Ev("click", Object.assign({ target: node }, init))); },
+    /** key presses a key at whatever has the keyboard. A keydown starts at the
+     *  focused element and travels out to the window, so a handler on a row and
+     *  the one on the window both get their turn, in that order. */
     key(init) {
       const ev = new Ev("keydown", Object.assign({ key: "", ctrlKey: false, shiftKey: false, altKey: false }, init));
-      ev.target = doc.activeElement;
-      win.dispatchEvent(ev);
+      const at = doc.activeElement;
+      if (at && at.nodeType === 1) dispatch(at, ev);
+      else win.dispatchEvent(ev);
       if (ev.key === "Tab" && !ev.defaultPrevented) tabTo(doc, ev.shiftKey);
       return ev;
     },

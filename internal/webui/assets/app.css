@@ -148,6 +148,8 @@ body { display: flex; flex-direction: column; }
 .pane-actions button:focus-visible,
 .divider:focus-visible,
 .help-item:focus-visible,
+.rev-file:focus-visible,
+.agent-row:focus-visible,
 .places button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
