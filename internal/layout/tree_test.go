@@ -1330,3 +1330,85 @@ func TestNeighborPrefersTheWiderSharedEdge(t *testing.T) {
 		t.Errorf("left of c = %q, want a", got)
 	}
 }
+
+// benchTree builds a tree of n panes by splitting the panes in turn, along
+// alternating axes, which is roughly the shape a tab grows into.
+func benchTree(n int) *Node {
+	root := NewLeaf("p0")
+	for i := 1; i < n; i++ {
+		panes := root.Panes()
+		root.Split(panes[i%len(panes)], "p"+strconv.Itoa(i), Dir(i%2))
+	}
+	root.Compute(Rect{X: 0, Y: 0, W: 997, H: 401})
+	return root
+}
+
+func BenchmarkCompute(b *testing.B) {
+	root := benchTree(16)
+	view := Rect{X: 0, Y: 0, W: 997, H: 401}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		root.Compute(view)
+	}
+}
+
+func BenchmarkNeighbor(b *testing.B) {
+	root := benchTree(16)
+	panes := root.Panes()
+	dirs := []Direction{Left, Right, Up, Down}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		root.Neighbor(panes[i%len(panes)], dirs[i%len(dirs)])
+	}
+}
+
+func BenchmarkFind(b *testing.B) {
+	root := benchTree(16)
+	panes := root.Panes()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		root.Find(panes[i%len(panes)])
+	}
+}
+
+func BenchmarkPaneAt(b *testing.B) {
+	root := benchTree(16)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		root.PaneAt(i%997, i%401)
+	}
+}
+
+func BenchmarkCount(b *testing.B) {
+	root := benchTree(16)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		root.Count()
+	}
+}
+
+// TestLookupsDoNotAllocate pins the walks a client leans on hardest. Finding a
+// pane, counting the panes, resolving a click and moving the focus all happen
+// several times per keystroke and per redraw, on every open tab; none of them
+// needs to build a list of the tree to answer.
+func TestLookupsDoNotAllocate(t *testing.T) {
+	root := benchTree(16)
+	panes := root.Panes()
+	last := panes[len(panes)-1]
+
+	for name, fn := range map[string]func(){
+		"Find":     func() { root.Find(last) },
+		"Count":    func() { root.Count() },
+		"PaneAt":   func() { root.PaneAt(500, 200) },
+		"Neighbor": func() { root.Neighbor(last, Left) },
+	} {
+		if got := testing.AllocsPerRun(50, fn); got != 0 {
+			t.Errorf("%s allocates %.0f times per call, want none", name, got)
+		}
+	}
+}

@@ -4,7 +4,6 @@ package layout
 
 import (
 	"math"
-	"sort"
 	"strconv"
 	"sync/atomic"
 )
@@ -126,40 +125,64 @@ func (n *Node) Rect() Rect { return n.rect }
 // it is not counted as a pane, offered as a drop target, or drawn as an empty
 // frame by a client walking the tree.
 func (n *Node) Leaves() []*Node {
-	if n == nil {
+	out := make([]*Node, 0, n.Count())
+	n.eachLeaf(func(l *Node) bool {
+		out = append(out, l)
+		return true
+	})
+	if len(out) == 0 {
 		return nil
-	}
-	if n.IsLeaf() {
-		if n.Pane == "" {
-			return nil
-		}
-		return []*Node{n}
-	}
-	var out []*Node
-	for _, c := range n.Children {
-		out = append(out, c.Leaves()...)
 	}
 	return out
 }
 
+// eachLeaf calls fn for each leaf holding a pane, in the order Leaves returns
+// them, and stops as soon as fn returns false. It reports whether it reached
+// the end of the tree.
+//
+// Every question about the panes of a tab goes through this rather than
+// through Leaves. Building the slice first cost an allocation per level of the
+// tree, on lookups a client makes several of per keystroke and per redraw, and
+// it walked the whole tree even when the answer was the first pane in it.
+func (n *Node) eachLeaf(fn func(*Node) bool) bool {
+	if n == nil {
+		return true
+	}
+	if n.IsLeaf() {
+		if n.Pane == "" {
+			return true
+		}
+		return fn(n)
+	}
+	for _, c := range n.Children {
+		if !c.eachLeaf(fn) {
+			return false
+		}
+	}
+	return true
+}
+
 // Panes returns the ids of every pane in the tree, in tree order.
 func (n *Node) Panes() []string {
-	leaves := n.Leaves()
-	out := make([]string, 0, len(leaves))
-	for _, l := range leaves {
+	out := make([]string, 0, n.Count())
+	n.eachLeaf(func(l *Node) bool {
 		out = append(out, l.Pane)
-	}
+		return true
+	})
 	return out
 }
 
 // Find returns the leaf holding the given pane, or nil.
 func (n *Node) Find(pane string) *Node {
-	for _, l := range n.Leaves() {
-		if l.Pane == pane {
-			return l
+	var found *Node
+	n.eachLeaf(func(l *Node) bool {
+		if l.Pane != pane {
+			return true
 		}
-	}
-	return nil
+		found = l
+		return false
+	})
+	return found
 }
 
 // parentOf returns the parent of target and target's index within it.
@@ -535,7 +558,14 @@ func (root *Node) Remove(pane string) bool {
 }
 
 // Count returns the number of panes in the tree.
-func (n *Node) Count() int { return len(n.Leaves()) }
+func (n *Node) Count() int {
+	count := 0
+	n.eachLeaf(func(*Node) bool {
+		count++
+		return true
+	})
+	return count
+}
 
 // Resize shifts space between the pane and one of its siblings along the given
 // axis. A positive delta always grows the named pane, whichever sibling pays
@@ -608,55 +638,9 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 	type cand struct {
 		pane string
 		// primary is distance along the movement axis, shared is how much of
-		// the two panes' edges face each other across it, secondary is the
-		// misalignment of their centres, order is the leaf's tree position.
-		primary, shared, secondary, order int
-	}
-	var cands []cand
-
-	for i, l := range root.Leaves() {
-		if l == cur {
-			continue
-		}
-		r := l.rect
-		if r.W <= 0 || r.H <= 0 {
-			continue
-		}
-		var primary, shared, secondary int
-		switch dir {
-		case Left:
-			if r.X+r.W > from.X {
-				continue
-			}
-			primary = from.X - (r.X + r.W)
-			shared = overlap(r.Y, r.H, from.Y, from.H)
-			secondary = abs(r.centerY() - from.centerY())
-		case Right:
-			if r.X < from.X+from.W {
-				continue
-			}
-			primary = r.X - (from.X + from.W)
-			shared = overlap(r.Y, r.H, from.Y, from.H)
-			secondary = abs(r.centerY() - from.centerY())
-		case Up:
-			if r.Y+r.H > from.Y {
-				continue
-			}
-			primary = from.Y - (r.Y + r.H)
-			shared = overlap(r.X, r.W, from.X, from.W)
-			secondary = abs(r.centerX() - from.centerX())
-		case Down:
-			if r.Y < from.Y+from.H {
-				continue
-			}
-			primary = r.Y - (from.Y + from.H)
-			shared = overlap(r.X, r.W, from.X, from.W)
-			secondary = abs(r.centerX() - from.centerX())
-		}
-		cands = append(cands, cand{l.Pane, primary, shared, secondary, i})
-	}
-	if len(cands) == 0 {
-		return ""
+		// the two panes' edges face each other across it, and secondary is the
+		// misalignment of their centres.
+		primary, shared, secondary int
 	}
 	// The pane a person is looking at when they press an arrow is the one most
 	// of that edge is against, so the widest shared edge wins before the
@@ -666,31 +650,78 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 	//
 	// Centres still separate panes sharing the edge equally, and after that
 	// everything can tie — two stacked panes beside one tall one already do.
-	// Fall back to tree order so the winner is the topmost, leftmost of the
-	// tied panes rather than whichever the sort happened to leave first.
-	sort.Slice(cands, func(i, j int) bool {
-		if cands[i].primary != cands[j].primary {
-			return cands[i].primary < cands[j].primary
+	// The walk keeps the first of the tied panes, which is the topmost and
+	// leftmost, so the answer never depends on the order the tree came out in.
+	better := func(a, b cand) bool {
+		if a.primary != b.primary {
+			return a.primary < b.primary
 		}
-		if cands[i].shared != cands[j].shared {
-			return cands[i].shared > cands[j].shared
+		if a.shared != b.shared {
+			return a.shared > b.shared
 		}
-		if cands[i].secondary != cands[j].secondary {
-			return cands[i].secondary < cands[j].secondary
+		return a.secondary < b.secondary
+	}
+
+	var best cand
+	found := false
+	root.eachLeaf(func(l *Node) bool {
+		if l == cur {
+			return true
 		}
-		return cands[i].order < cands[j].order
+		r := l.rect
+		if r.W <= 0 || r.H <= 0 {
+			return true
+		}
+		var primary, shared, secondary int
+		switch dir {
+		case Left:
+			if r.X+r.W > from.X {
+				return true
+			}
+			primary = from.X - (r.X + r.W)
+			shared = overlap(r.Y, r.H, from.Y, from.H)
+			secondary = abs(r.centerY() - from.centerY())
+		case Right:
+			if r.X < from.X+from.W {
+				return true
+			}
+			primary = r.X - (from.X + from.W)
+			shared = overlap(r.Y, r.H, from.Y, from.H)
+			secondary = abs(r.centerY() - from.centerY())
+		case Up:
+			if r.Y+r.H > from.Y {
+				return true
+			}
+			primary = from.Y - (r.Y + r.H)
+			shared = overlap(r.X, r.W, from.X, from.W)
+			secondary = abs(r.centerX() - from.centerX())
+		case Down:
+			if r.Y < from.Y+from.H {
+				return true
+			}
+			primary = r.Y - (from.Y + from.H)
+			shared = overlap(r.X, r.W, from.X, from.W)
+			secondary = abs(r.centerX() - from.centerX())
+		}
+		if c := (cand{l.Pane, primary, shared, secondary}); !found || better(c, best) {
+			best, found = c, true
+		}
+		return true
 	})
-	return cands[0].pane
+	return best.pane
 }
 
 // PaneAt returns the pane whose rectangle contains the point, or "".
 func (root *Node) PaneAt(x, y int) string {
-	for _, l := range root.Leaves() {
-		if l.rect.Contains(x, y) {
-			return l.Pane
+	pane := ""
+	root.eachLeaf(func(l *Node) bool {
+		if !l.rect.Contains(x, y) {
+			return true
 		}
-	}
-	return ""
+		pane = l.Pane
+		return false
+	})
+	return pane
 }
 
 // Direction is a focus movement direction.
