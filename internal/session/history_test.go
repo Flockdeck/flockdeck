@@ -1211,3 +1211,66 @@ func TestConversationsOnACaseSensitiveFilesystemStayApart(t *testing.T) {
 		t.Errorf("listed %d of a differently spelled directory's conversations: %+v", len(got), got)
 	}
 }
+
+// TestConversationsPickUpAPromptWrittenAfterTheFirstLook covers the panel
+// with several agents just spawned into it. A pane that has been opened but
+// not yet prompted has a transcript holding nothing but Claude Code's own
+// bookkeeping, and the row for it can say nothing. The prompt arrives a
+// moment later -- and because a transcript that has only grown is trusted to
+// open the way it did, that row went on saying nothing for as long as the
+// application ran.
+func TestConversationsPickUpAPromptWrittenAfterTheFirstLook(t *testing.T) {
+	cwd, dir := historyFixture(t, "just-spawned")
+
+	// Two panes opened: one Claude Code has already named, one it has not.
+	nameless := writeTranscript(t, dir, "aaaaaaaa-8888-8888-8888-888888888888",
+		`{"type":"mode","mode":"normal"}`)
+	named := writeTranscript(t, dir, "bbbbbbbb-8888-8888-8888-888888888888",
+		`{"type":"ai-title","aiTitle":"a generated name"}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d conversations, want 2", len(got))
+	}
+
+	// Both are prompted, which is what a pane is for.
+	for path, prompt := range map[string]string{
+		nameless: "what I typed into the first pane",
+		named:    "what I typed into the second pane",
+	} {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"` + prompt + `"}}` + "\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d conversations, want 2", len(got))
+	}
+	summaries := map[string]string{}
+	for _, c := range got {
+		summaries[c.ID] = c.Summary
+		if c.Messages != 2 {
+			t.Errorf("%s has %d entries, want 2", c.ID, c.Messages)
+		}
+	}
+	if got := summaries["aaaaaaaa-8888-8888-8888-888888888888"]; got != "what I typed into the first pane" {
+		t.Errorf("summary = %q, want the prompt that arrived after the first listing", got)
+	}
+	if got := summaries["bbbbbbbb-8888-8888-8888-888888888888"]; got != "what I typed into the second pane" {
+		t.Errorf("summary = %q, want the prompt to replace the generated name", got)
+	}
+}

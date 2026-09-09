@@ -47,6 +47,11 @@ type transcriptFacts struct {
 	// cwd is the working directory the transcript records, which says whose
 	// conversation it is when a folder is shared between two directories.
 	cwd string
+	// prompted records that the summary is something a person typed rather
+	// than a name Claude Code gave the conversation or nothing at all. Until
+	// it is, the opening entries are worth reading again: the prompt may not
+	// have been written when they were last read.
+	prompted bool
 	// newlines is the raw count of line breaks, kept apart from the entry
 	// count so that an appended tail can be added to it.
 	newlines int
@@ -476,8 +481,8 @@ func transcriptCwd(path string) string {
 // An untouched file is not opened at all. A transcript is only ever appended
 // to, so one that has merely grown still opens with the same prompt and still
 // holds the line breaks already counted: only the new tail is read. Anything
-// else -- a first look, a file that shrank, one replaced at the same size --
-// is read whole.
+// else -- a first look, a file that shrank, one replaced at the same size,
+// one that had not been prompted yet when it was last read -- is read whole.
 //
 // What is read is the file as the directory listing described it, not as it
 // is by the time it is opened. A transcript belonging to an agent that is
@@ -499,12 +504,18 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 	defer f.Close()
 
 	tail := now.size
-	grown := prev.size > 0 && now.size > prev.size
+	// A transcript whose prompt has not been written yet is one a pane was
+	// opened for a moment ago, and the panel is full of those when several
+	// agents have just been spawned. Its opening entries are read again as it
+	// grows, so that the row picks up what was typed instead of standing at
+	// "no prompt recorded" for as long as the application runs.
+	grown := prev.prompted && prev.size > 0 && now.size > prev.size
 	if grown {
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
 			return now, false
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
+		now.prompted = prev.prompted
 		tail = now.size - prev.size
 	}
 
@@ -512,6 +523,7 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 	if !grown {
 		var title string
 		now.summary, title, now.cwd = openingPrompt(counted)
+		now.prompted = now.summary != ""
 		if now.summary == "" {
 			// Nothing was typed here that a person would recognise the
 			// conversation by, but Claude Code may have named it.
