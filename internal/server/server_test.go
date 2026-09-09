@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -857,5 +858,177 @@ func TestTheKeyTableArrivesBeforeTheFirstState(t *testing.T) {
 	}
 	if early > 0 {
 		t.Errorf("the state overtook the key table on %d of %d connections", early, rounds)
+	}
+}
+
+// TestMalformedCommandsDoNotStopTheServer fires the whole shape of the command
+// surface at the socket with ids that name nothing, targets that are their own
+// source, oversized text and directions that do not exist.
+//
+// Everything here is reachable: a window renders from a snapshot that is
+// already out of date by the time it is clicked, so any id it sends may name
+// something another window closed a moment ago, and the socket is driven by
+// other things than the page — the ctl and dump tools speak it too. What the
+// dispatch must not do is stop serving, whatever it is handed.
+func TestMalformedCommandsDoNotStopTheServer(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	// Some of the answers are as long as what was sent; the browser has no
+	// such limit, so this is the test's own connection being realistic.
+	conn.SetReadLimit(8 << 20)
+	r := readControl(conn)
+	r.settle(t)
+
+	tab := srv.firstTabID(t)
+	pane := srv.firstPaneID(t)
+	big := strings.Repeat("q", 100000)
+
+	for _, cmd := range []command{
+		{Cmd: "movePane", ID: pane, Target: pane, Edge: "left"},
+		{Cmd: "movePane", ID: "gone", Target: pane, Edge: "nowhere"},
+		{Cmd: "swapPanes", ID: pane, Target: pane},
+		{Cmd: "movePaneToTab", ID: pane, Target: tab},
+		{Cmd: "movePaneToNewTab", ID: "gone"},
+		{Cmd: "movePaneDir", Dir: "sideways"},
+		{Cmd: "mergeTab", ID: tab, Target: tab, Dir: "h"},
+		{Cmd: "moveTab", ID: tab, Target: tab},
+		{Cmd: "mergeAllTabs", ID: "gone", Dir: "h"},
+		{Cmd: "setWeights", Node: "gone", Weights: []float64{1, 2, 3}},
+		{Cmd: "setWeights", Node: tab, Weights: make([]float64, 5000)},
+		{Cmd: "resize", ID: pane, Cols: -5, Rows: -5},
+		{Cmd: "resize", ID: pane, Cols: 1 << 30, Rows: 1 << 30},
+		{Cmd: "renameTab", ID: tab, Text: "a\x00b\nc\rd\te"},
+		{Cmd: "renameTab", ID: tab, Text: big},
+		{Cmd: "renameTab", ID: big, Text: "x"},
+		{Cmd: "selectTab", ID: big},
+		{Cmd: "closeTab", ID: big},
+		{Cmd: "focusPane", ID: big},
+		{Cmd: "splitPane", ID: "gone", Dir: "h", Kind: "shell"},
+		{Cmd: "closePane", ID: "gone"},
+		{Cmd: "restartPane", ID: "gone"},
+		{Cmd: "toggleZoom", ID: "gone"},
+		{Cmd: "toggleBroadcastMember", ID: "gone"},
+		{Cmd: "openProject", Path: "\x00"},
+		{Cmd: "closeProject", Root: ""},
+		{Cmd: "selectProject", Root: big},
+		{Cmd: "forgetRecent", Root: ""},
+		{Cmd: "revealPane", Root: big, Node: big, ID: big},
+		{Cmd: "changes", Path: big},
+		{Cmd: "conversations", Path: big},
+		{Cmd: "fanoutPreview", ID: "gone"},
+		{Cmd: "sendPrompt", Text: ""},
+		{Cmd: strings.Repeat("z", 5000)},
+		{Cmd: ""},
+	} {
+		sendCmd(t, conn, cmd)
+	}
+	// Not JSON at all, and JSON that is not a command.
+	writeRaw(t, conn, []byte("{"))
+	writeRaw(t, conn, []byte("[1,2,3]"))
+	writeRaw(t, conn, []byte(`{"cmd":123}`))
+
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: tab, Text: "still serving"})
+	if _, ok := r.stateWithin(20*time.Second, func(s stateMsg) bool {
+		for _, tb := range s.Tabs {
+			if tb.Title == "still serving" {
+				return true
+			}
+		}
+		return false
+	}); !ok {
+		t.Fatal("the server stopped answering after the malformed commands")
+	}
+}
+
+// TestWindowsComingAndGoingDoNotLeak covers reconnection, which the page does
+// by itself whenever the socket drops. A window that is not taken off the
+// client list keeps the count above zero for ever, so the application never
+// learns that its last window has gone and never shuts down.
+func TestWindowsComingAndGoingDoNotLeak(t *testing.T) {
+	srv, _ := newTestServer(t)
+	keep := dialControl(t, srv)
+	r := readControl(keep)
+	r.settle(t)
+	tab := srv.firstTabID(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 6; j++ {
+				c := dialControl(t, srv)
+				// Gone again before it has read a byte of what it was sent.
+				sendCmd(t, c, command{Cmd: "nextTab"})
+				_ = c.CloseNow()
+			}
+		}()
+	}
+	// Broadcasts running the whole time, so some of them are aimed at windows
+	// that go away between being listed and being written to.
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				srv.Wake()
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+	wg.Wait()
+
+	for deadline := time.Now().Add(20 * time.Second); srv.ClientCount() != 1; {
+		if time.Now().After(deadline) {
+			t.Fatalf("client count = %d, want the one window still open", srv.ClientCount())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	sendCmd(t, keep, command{Cmd: "renameTab", ID: tab, Text: "still serving"})
+	if _, ok := r.stateWithin(20*time.Second, func(s stateMsg) bool {
+		for _, tb := range s.Tabs {
+			if tb.Title == "still serving" {
+				return true
+			}
+		}
+		return false
+	}); !ok {
+		t.Fatal("the window that stayed stopped being served")
+	}
+}
+
+// firstPaneID reads the id of a pane on the first visible tab.
+func (s *Server) firstPaneID(t *testing.T) string {
+	t.Helper()
+	done := make(chan string, 1)
+	s.do(func() {
+		if tabs := s.ws.VisibleTabs(); len(tabs) > 0 {
+			if panes := tabs[0].Tree.Panes(); len(panes) > 0 {
+				done <- panes[0]
+				return
+			}
+		}
+		done <- ""
+	})
+	select {
+	case id := <-done:
+		if id == "" {
+			t.Fatal("no panes")
+		}
+		return id
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out reading the pane list")
+		return ""
+	}
+}
+
+// writeRaw sends bytes the command decoder is not expected to understand.
+func writeRaw(t *testing.T, conn *websocket.Conn, data []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+		t.Fatalf("write raw: %v", err)
 	}
 }
