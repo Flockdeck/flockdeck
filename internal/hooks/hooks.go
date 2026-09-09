@@ -226,6 +226,17 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 		return "", err
 	}
 	defer resp.Body.Close()
+	// A refusal is silent otherwise, and a hook that is being refused looks
+	// exactly like one that is not running: panes whose status simply stops
+	// changing. The caller only writes this to stderr, where Claude Code shows
+	// it under --debug, so saying so cannot disturb the session either.
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if text := strings.TrimSpace(string(msg)); text != "" {
+			return "", fmt.Errorf("the application refused the %s hook: %s", event, text)
+		}
+		return "", fmt.Errorf("the application refused the %s hook: %s", event, resp.Status)
+	}
 	var out reply
 	if resp.StatusCode == http.StatusOK {
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)

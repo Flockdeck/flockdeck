@@ -75,12 +75,15 @@ func TestEmitWithoutStdin(t *testing.T) {
 }
 
 // TestBadTokenRejected checks that the loopback port cannot be driven by other
-// local processes.
+// local processes, and that a hook being turned away says so. A refusal that
+// reports nothing is indistinguishable from a hook that never ran, which is a
+// pane whose status quietly stops changing.
 func TestBadTokenRejected(t *testing.T) {
 	srv, r := newServer(t)
 
-	if _, err := Emit(nil, srv.Endpoint(), "not-the-token", "pane-3", "Stop"); err != nil {
-		t.Fatalf("emit returned a transport error: %v", err)
+	_, err := Emit(nil, srv.Endpoint(), "not-the-token", "pane-3", "Stop")
+	if err == nil {
+		t.Error("a rejected hook reported success")
 	}
 	select {
 	case e := <-r.ch:
