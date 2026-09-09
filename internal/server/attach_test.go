@@ -160,8 +160,35 @@ func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
 	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
 		t.Fatal("expected the probe to fail while the workspace is stuck")
 	}
-	if elapsed := time.Since(start); elapsed > probeTimeout {
-		t.Errorf("probe took %v, want an answer within %v", elapsed, probeTimeout)
+	// The probe waits a busy instance out rather than writing it off, so the
+	// bound is that grace and not a single request.
+	if elapsed := time.Since(start); elapsed > busyGrace+probeTimeout {
+		t.Errorf("probe took %v, want an answer within %v", elapsed, busyGrace+probeTimeout)
+	}
+}
+
+// TestProbeWaitsOutABusyInstance is the other side of it. Opening a project
+// and starting the agents in it runs on the workspace goroutine, so an
+// instance can easily be unable to answer for a second while it does exactly
+// what a previous launch asked of it. Writing it off then is the expensive
+// mistake: the record is cleared and a second set of agents is started
+// alongside the first, in a second window, with no way back to one.
+func TestProbeWaitsOutABusyInstance(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	release := make(chan struct{})
+	srv.do(func() { <-release })
+	go func() {
+		time.Sleep(healthTimeout + 500*time.Millisecond)
+		close(release)
+	}()
+
+	h, err := Probe(srv.BaseURL(), srv.Token())
+	if err != nil {
+		t.Fatalf("probe gave up on a busy instance: %v", err)
+	}
+	if !h.Ready || h.Projects != 1 {
+		t.Errorf("probe reported ready=%v projects=%d, want true and 1", h.Ready, h.Projects)
 	}
 }
 

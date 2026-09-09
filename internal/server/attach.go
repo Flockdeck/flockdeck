@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -15,6 +17,11 @@ type healthMsg struct {
 	Version  string `json:"version"`
 	PID      int    `json:"pid"`
 	Projects int    `json:"projects"`
+	// Ready is false when the port is answering but the workspace behind it
+	// has not come back yet. The instance is there either way, which is the
+	// distinction that matters: a launch that cannot tell the two apart
+	// writes off a running instance and starts a rival set of agents.
+	Ready bool `json:"ready"`
 }
 
 // Version is reported by the health endpoint. main sets it at startup.
@@ -25,9 +32,17 @@ var Version = "dev"
 // deliberately shorter: an instance whose port answers but whose workspace has
 // wedged should say so, rather than let the probe give up on its own side with
 // nothing to report but a deadline.
+//
+// busyGrace is how long a probe keeps asking an instance that answers but says
+// it is not ready. Being busy for a moment is ordinary -- opening a project
+// and starting the agents in it happens on the workspace goroutine -- and
+// giving up on that costs far more than waiting: the launch clears the
+// instance record and starts a second set of agents alongside the first.
 const (
 	probeTimeout  = 2 * time.Second
 	healthTimeout = probeTimeout / 2
+	busyGrace     = 5 * time.Second
+	busyRetry     = 250 * time.Millisecond
 )
 
 // handleHealth answers a probe from another launch of the binary.
@@ -51,15 +66,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		// The port is still answering but the workspace behind it is not.
 		// Reporting a made-up project count would tell the second launch to
 		// hand its directory to an instance that cannot open it, and the
-		// window it expected would never appear; failing the probe sends it
-		// off to start its own instead.
-		http.Error(w, "workspace is not responding", http.StatusServiceUnavailable)
+		// window it expected would never appear. So this fails -- but it
+		// still says who it is, so the launch can wait for the workspace to
+		// come back instead of writing the instance off.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(healthMsg{
+			App: "perch", Version: Version, PID: pid(),
+		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "perch", Version: Version, PID: pid(), Projects: projects,
+		App: "perch", Version: Version, PID: pid(), Projects: projects, Ready: true,
 	})
 }
 
@@ -160,7 +180,26 @@ func (s *Server) Attach() { s.detached.Store(false) }
 
 // Probe checks whether a recorded instance is alive and answering, and returns
 // what it reports about itself.
+//
+// An instance that answers but reports itself not ready is given a while: the
+// caller's only other option is to declare the record stale and start a rival
+// instance, which splits the agents in two and is much the worse mistake.
 func Probe(baseURL, token string) (*healthMsg, error) {
+	deadline := time.Now().Add(busyGrace)
+	for {
+		h, err := probeOnce(baseURL, token)
+		if err == nil || !errors.Is(err, errNotReady) || !time.Now().Before(deadline) {
+			return h, err
+		}
+		time.Sleep(busyRetry)
+	}
+}
+
+// errNotReady marks the one failure worth waiting out: perch is listening on
+// that address, it just cannot answer for its workspace this moment.
+var errNotReady = errors.New("the instance is not ready")
+
+func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 
@@ -173,12 +212,19 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// The body is read whatever the status says, because an instance that is
+	// merely busy identifies itself in it.
+	var h healthMsg
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
+		if decodeErr == nil && h.App == "perch" {
+			return nil, fmt.Errorf("%w: %s", errNotReady, resp.Status)
+		}
 		return nil, fmt.Errorf("instance replied %s", resp.Status)
 	}
-	var h healthMsg
-	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
-		return nil, err
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
 	if h.App != "perch" {
 		return nil, fmt.Errorf("something else is listening on that address")
