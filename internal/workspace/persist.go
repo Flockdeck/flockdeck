@@ -38,16 +38,25 @@ func (w *Workspace) SaveAll() error {
 // are restored independently of one another.
 func (w *Workspace) SaveProject(root string) error {
 	tabs := w.tabsOf(root)
-	st := &store.State{Active: w.rememberedActive(root, len(tabs))}
+	st := &store.State{}
+	onScreen := -1
 	for i, t := range tabs {
 		if t.ID == w.activeTab {
-			st.Active = i
+			onScreen = i
 		}
 		st.Tabs = append(st.Tabs, store.Tab{
 			Title: t.Title,
 			Focus: t.Focus,
 			Root:  w.encodeNode(t.Tree, t.Root),
 		})
+	}
+	// Reading the last saved index back is a whole file read, and it is only
+	// an answer for a project with no tab on screen. Asking for it first and
+	// then throwing it away put that read on the way out of every run and on
+	// every project closed, for the one project it can never apply to.
+	st.Active = onScreen
+	if onScreen < 0 {
+		st.Active = w.rememberedActive(root, len(tabs))
 	}
 	return store.Save(root, st)
 }
