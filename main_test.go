@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/hooks"
 )
 
@@ -195,5 +198,66 @@ func TestOrderSpawnArgsLearnsArityFromTheFlagSet(t *testing.T) {
 	want = []string{"-split", "--", "watch", "the", "build"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// flagLike finds the words in prose that read as a command-line flag.
+var flagLike = regexp.MustCompile(`(?:^|[\s(\[` + "`" + `])(--?[A-Za-z][A-Za-z0-9-]*)`)
+
+// cliFlagNames is every flag the program actually accepts, from both of its
+// flag sets, without their dashes.
+func cliFlagNames() map[string]bool {
+	names := map[string]bool{}
+	perchFlagSet(&cliFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
+	spawnFlagSet(&spawnFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
+	return names
+}
+
+// The command-line help page is written by hand, so it is the copy of the
+// command line that goes stale: a flag added and never documented, or one
+// removed and still listed. Both directions are checked against the flag sets
+// the program parses with.
+func TestHelpPageMatchesTheCommandLine(t *testing.T) {
+	pages, err := help.Pages()
+	if err != nil {
+		t.Fatalf("help.Pages: %v", err)
+	}
+	var text string
+	for _, p := range pages {
+		if p.Slug == "cli" {
+			text = p.Text
+		}
+	}
+	if text == "" {
+		t.Fatal("no command-line help page")
+	}
+
+	documented := map[string]bool{}
+	for _, m := range flagLike.FindAllStringSubmatch(text, -1) {
+		documented[strings.TrimLeft(m[1], "-")] = true
+	}
+	for name := range cliFlagNames() {
+		if !documented[name] {
+			t.Errorf("-%s is a flag the program accepts but the help page does not mention", name)
+		}
+	}
+	real := cliFlagNames()
+	for name := range documented {
+		if !real[name] {
+			t.Errorf("the help page documents -%s, which is not a flag the program accepts", name)
+		}
+	}
+}
+
+// The usage printed for a wrong command line is the other hand-written copy.
+func TestUsageNamesEveryFlag(t *testing.T) {
+	var buf bytes.Buffer
+	fs := perchFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	for name := range cliFlagNames() {
+		if !strings.Contains(buf.String(), "-"+name) {
+			t.Errorf("-%s is missing from the usage message", name)
+		}
 	}
 }

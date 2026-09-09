@@ -56,20 +56,11 @@ func main() {
 		return
 	}
 
-	var (
-		dir      = flag.String("C", ".", "directory to open the workspace on")
-		fresh    = flag.Bool("new", false, "ignore any saved layout and start with a single pane")
-		shell    = flag.Bool("shell", false, "open the first pane as a shell instead of an agent")
-		noWindow = flag.Bool("no-window", false, "do not open a window; print the URL and keep serving")
-		detach   = flag.Bool("detach", false, "keep running without a window; reattach later by running it again")
-		quit     = flag.Bool("quit", false, "stop a running instance and its agents")
-		solo     = flag.Bool("solo", false, "always start a new instance instead of attaching to a running one")
-		showVer  = flag.Bool("version", false, "print the version and exit")
-	)
-	flag.Usage = usage
-	flag.Parse()
+	var c cliFlags
+	fs := perchFlagSet(&c)
+	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
 
-	if *showVer {
+	if c.version {
 		fmt.Println("perch", version)
 		return
 	}
@@ -77,41 +68,63 @@ func main() {
 	// Anything left over is a mistyped flag or a subcommand that does not
 	// exist. Ignoring it would open a window on the current directory and
 	// leave the user believing `perch quit` had done something.
-	if flag.NArg() > 0 {
-		arg := flag.Arg(0)
+	if fs.NArg() > 0 {
+		arg := fs.Arg(0)
 		fmt.Fprintf(os.Stderr, "perch: unrecognised argument %q\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
 			fmt.Fprintf(os.Stderr, "To open that directory: perch -C %s\n", arg)
-		case flag.Lookup(arg) != nil:
+		case fs.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
 		}
 		fmt.Fprintln(os.Stderr)
-		usage()
+		fs.Usage()
 		os.Exit(2)
 	}
 	server.Version = version
 
-	if *quit {
+	if c.quit {
 		if err := quitRunning(); err != nil {
 			fail(err)
 		}
 		return
 	}
 
-	if err := run(options{
-		dir: *dir, fresh: *fresh, shell: *shell,
-		noWindow: *noWindow, detach: *detach, solo: *solo,
-	}); err != nil {
+	if err := run(c.options); err != nil {
 		fail(err)
 	}
 }
 
-func usage() {
-	out := flag.CommandLine.Output()
+// cliFlags are the top-level flags and where their values land. The two that
+// are acted on here rather than passed to run sit alongside the rest.
+type cliFlags struct {
+	options
+	quit    bool
+	version bool
+}
+
+// perchFlagSet defines the top-level command line. It is built here rather
+// than inline in main so that a test can walk the same set the program uses
+// and check the help documents it.
+func perchFlagSet(c *cliFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("perch", flag.ExitOnError)
+	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
+	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
+	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
+	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window; print the URL and keep serving")
+	fs.BoolVar(&c.detach, "detach", false, "keep running without a window; reattach later by running it again")
+	fs.BoolVar(&c.quit, "quit", false, "stop a running instance and its agents")
+	fs.BoolVar(&c.solo, "solo", false, "always start a new instance instead of attaching to a running one")
+	fs.BoolVar(&c.version, "version", false, "print the version and exit")
+	fs.Usage = func() { usage(fs) }
+	return fs
+}
+
+func usage(fs *flag.FlagSet) {
+	out := fs.Output()
 	fmt.Fprintf(out, "perch — run several Claude Code agents in tabs and split panes.\n\n")
 	fmt.Fprintf(out, "Usage:\n  perch [flags]\n\nFlags:\n")
-	flag.PrintDefaults()
+	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
