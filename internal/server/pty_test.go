@@ -340,3 +340,77 @@ func TestRestartedPaneComesBackAtTheMeasuredSize(t *testing.T) {
 	}
 	t.Errorf("restarted pane is %dx%d, want the measured 137x41", cols, rows)
 }
+
+// sendResize reports a measured terminal size the way a window's fit does.
+func sendResize(t *testing.T, conn *websocket.Conn, cols, rows int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg := fmt.Sprintf(`{"resize":{"cols":%d,"rows":%d}}`, cols, rows)
+	if err := conn.Write(ctx, websocket.MessageText, []byte(msg)); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+}
+
+// awaitSize waits for a pane's PTY to settle on a size.
+func awaitSize(t *testing.T, srv *Server, paneID string, cols, rows int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var gotC, gotR int
+	for time.Now().Before(deadline) {
+		if sess, _ := srv.paneSession(paneID); sess != nil {
+			if gotC, gotR = sess.Size(); gotC == cols && gotR == rows {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("pane settled at %dx%d, want %dx%d", gotC, gotR, cols, rows)
+}
+
+// TestPaneFitsEveryWindowWatchingIt covers two windows on one pane, which is
+// what attaching to a running instance produces. They measure their own
+// geometry, so they report different sizes; a pane bigger than the smaller of
+// them wraps every line there, and that window has no reason to report again.
+func TestPaneFitsEveryWindowWatchingIt(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	first := dialPTY(t, srv, paneID)
+	sendResize(t, first, 100, 30)
+	awaitSize(t, srv, paneID, 100, 30)
+
+	// The second window is wider but shorter. Letting it win outright would
+	// leave the first one wrapping every line, so the pane takes the smaller
+	// of each dimension -- which both of them can draw.
+	second := dialPTY(t, srv, paneID)
+	sendResize(t, second, 200, 20)
+	awaitSize(t, srv, paneID, 100, 20)
+
+	// Once the first window has gone the pane is free to widen, and nothing
+	// else is going to tell it to: the remaining window's own geometry has not
+	// changed, so it has no reason to report again.
+	first.CloseNow()
+	awaitSize(t, srv, paneID, 200, 20)
+}
+
+// TestViewerSizesForgetsTheLastWindow keeps the registry from holding a pane
+// after nobody is watching it, which would size the next window that opened
+// against a measurement from a window that is gone.
+func TestViewerSizesForgetsTheLastWindow(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]termSize{}}
+
+	if cols, rows := v.set("pane", 1, 120, 40); cols != 120 || rows != 40 {
+		t.Errorf("one window gave %dx%d, want its own 120x40", cols, rows)
+	}
+	if _, _, ok := v.drop("pane", 1); ok {
+		t.Error("dropping the only window asked for a resize; there is nobody to resize for")
+	}
+	if len(v.panes) != 0 {
+		t.Errorf("registry still holds %d panes after the last window left", len(v.panes))
+	}
+	if _, _, ok := v.drop("pane", 1); ok {
+		t.Error("dropping a window twice asked for a resize")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -58,12 +59,20 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	viewer := nextViewer.Add(1)
+	defer func() {
+		// This window is no longer one the pane has to fit inside.
+		if cols, rows, ok := viewers.drop(id, viewer); ok {
+			s.do(func() { s.ws.ResizePaneTerminal(id, cols, rows) })
+		}
+	}()
+
 	// Keystrokes and resizes have to reach whichever session the pane is
 	// running now, which is no longer the one this connection started on once
 	// the pane has been restarted.
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
-	go s.readInput(ctx, cancel, conn, id, &live)
+	go s.readInput(ctx, cancel, conn, id, viewer, &live)
 
 	for {
 		subID, replay, out := sess.Subscribe()
@@ -94,7 +103,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	for {
 		typ, data, err := conn.Read(ctx)
@@ -117,13 +126,13 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			continue
 		}
 		if ctl.Resize != nil {
+			cols, rows := viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
 			// Through the workspace rather than straight at the session, so
 			// the pane remembers the size the browser measured. It is the
 			// only place that measurement exists -- the server has no idea
 			// what the font metrics are -- and a restarted pane that does not
 			// have it starts its process at a conventional 80x24 and draws
 			// its first screen at the wrong width.
-			cols, rows := ctl.Resize.Cols, ctl.Resize.Rows
 			s.do(func() { s.ws.ResizePaneTerminal(id, cols, rows) })
 		}
 	}
@@ -252,6 +261,77 @@ func coalesce(buf, chunk []byte, out <-chan []byte) (data []byte, ended bool) {
 		}
 	}
 	return buf, false
+}
+
+// viewers remembers the size each attached window has reported for each pane,
+// and nextViewer names them apart.
+//
+// More than one window can be looking at the same pane: a second launch
+// attaches to the running instance rather than starting a rival, and the page
+// can be opened in a browser beside the application's own window. Each
+// measures its own geometry, so each reports a different size, and whichever
+// spoke last used to win. The loser was left with a terminal wider than it
+// could draw -- every line wrapped -- and no reason to ever report again,
+// because nothing about its own geometry had changed.
+//
+// This lives here rather than on the Server because it is the terminal
+// transport's own bookkeeping, and it holds nothing once the last window
+// showing a pane has gone.
+var (
+	viewers    = &viewerSizes{panes: map[string]map[int64]termSize{}}
+	nextViewer atomic.Int64
+)
+
+type termSize struct{ cols, rows int }
+
+type viewerSizes struct {
+	mu    sync.Mutex
+	panes map[string]map[int64]termSize
+}
+
+// set records what one window measured and returns the size the pane should
+// actually be: the smallest any of its windows can show, taken per dimension,
+// which is the only size all of them draw correctly.
+func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) (int, int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	byViewer := v.panes[pane]
+	if byViewer == nil {
+		byViewer = map[int64]termSize{}
+		v.panes[pane] = byViewer
+	}
+	byViewer[viewer] = termSize{cols, rows}
+	return smallest(byViewer, cols, rows)
+}
+
+// drop forgets a window that has gone away and reports the size the pane is
+// free to grow back to, if anything is still watching it.
+func (v *viewerSizes) drop(pane string, viewer int64) (cols, rows int, ok bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	byViewer := v.panes[pane]
+	if _, had := byViewer[viewer]; !had {
+		return 0, 0, false
+	}
+	delete(byViewer, viewer)
+	if len(byViewer) == 0 {
+		delete(v.panes, pane)
+		return 0, 0, false
+	}
+	cols, rows = smallest(byViewer, 0, 0)
+	return cols, rows, true
+}
+
+func smallest(byViewer map[int64]termSize, cols, rows int) (int, int) {
+	for _, sz := range byViewer {
+		if sz.cols > 0 && (cols <= 0 || sz.cols < cols) {
+			cols = sz.cols
+		}
+		if sz.rows > 0 && (rows <= 0 || sz.rows < rows) {
+			rows = sz.rows
+		}
+	}
+	return cols, rows
 }
 
 func writeChunk(ctx context.Context, conn *websocket.Conn, data []byte) error {
