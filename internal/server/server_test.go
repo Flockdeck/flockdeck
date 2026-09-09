@@ -1337,3 +1337,45 @@ func TestChatterIsHeldToTheInterval(t *testing.T) {
 	}
 	t.Logf("%d broadcasts in %v", sent, window)
 }
+
+// TestNewTabTitleIsClampedLikeARename covers the one place a title reached the
+// tab bar uncleaned. The rename path has always trimmed and bounded what it was
+// given; the create path did not, and it is fed branch names — the worktree
+// panel opens a tab named after one, and a branch named out of a ticket title
+// is long enough to push every other tab off the bar.
+func TestNewTabTitleIsClampedLikeARename(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+
+	long := "feature/" + strings.Repeat("a-very-long-branch-name-", 12)
+	sendCmd(t, conn, command{Cmd: "newTab", Kind: "shell", Text: long})
+	st, ok := r.stateWithin(20*time.Second, func(s stateMsg) bool { return len(s.Tabs) == 2 })
+	if !ok {
+		t.Fatal("the tab was never created")
+	}
+	if n := len([]rune(st.Tabs[1].Title)); n > 41 {
+		t.Errorf("new tab kept %d runes of its title, want it clamped like a rename", n)
+	}
+
+	// Whitespace is collapsed, as a rename does.
+	sendCmd(t, conn, command{Cmd: "newTab", Kind: "shell", Text: "  two   words  "})
+	st, ok = r.stateWithin(20*time.Second, func(s stateMsg) bool { return len(s.Tabs) == 3 })
+	if !ok {
+		t.Fatal("the second tab was never created")
+	}
+	if got := st.Tabs[2].Title; got != "two words" {
+		t.Errorf("new tab title = %q, want %q", got, "two words")
+	}
+
+	// And a tab asked for with no title still names itself.
+	sendCmd(t, conn, command{Cmd: "newTab", Kind: "shell"})
+	st, ok = r.stateWithin(20*time.Second, func(s stateMsg) bool { return len(s.Tabs) == 4 })
+	if !ok {
+		t.Fatal("the third tab was never created")
+	}
+	if st.Tabs[3].Title == "" {
+		t.Error("a tab created with no title was left without one")
+	}
+}

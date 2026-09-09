@@ -683,7 +683,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		ws := s.ws
 		switch cmd.Cmd {
 		case "newTab":
-			ws.NewTab(parseKind(cmd.Kind), cmd.Path, cmd.Text)
+			// Cleaned the same way a rename is. The worktree panel opens a tab
+			// named after a branch, and a branch name has no length to it —
+			// one written out of a ticket title is long enough to push every
+			// other tab off the bar, and it is written to the layout that way
+			// too. An empty title still means "name it yourself", which is
+			// what an agent tab does until it has been asked something.
+			ws.NewTab(parseKind(cmd.Kind), cmd.Path, tabTitle(cmd.Text))
 		case "closeTab":
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
