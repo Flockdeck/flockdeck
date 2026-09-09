@@ -1014,7 +1014,9 @@ func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	got := conversationsIn(dir, entries, cwd)
+	got := conversationsIn(dir, entries, cwd, func(recorded string) bool {
+		return ours(dir, recorded, cwd)
+	})
 	if len(got) != 1 {
 		t.Fatalf("listed %d conversations; the folder held one when it was read", len(got))
 	}
@@ -1279,45 +1281,101 @@ func TestConversationsPickUpAPromptWrittenAfterTheFirstLook(t *testing.T) {
 // application does to a session: it is started in a project and told to work
 // in a worktree of it, and Claude Code follows. The transcript is stored
 // under the worktree it ended in, while its entries record the directory it
-// began in. That folder is the only place `claude --resume` will find it, so
-// the worktree's history panel is the only place it can be offered -- and it
-// is a real conversation, an hour of somebody's work, not a stray.
+// began in. It is a real conversation -- an hour of somebody's work -- and
+// until it was looked for under the worktrees, the project it was done for
+// could not offer it, and deleting the worktree took it out of reach for
+// good.
 func TestConversationsOfferAConversationThatMovedIntoAWorktree(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
 	forgetTranscripts()
 	t.Cleanup(forgetTranscripts)
 
-	project := filepath.Join(t.TempDir(), "flipping")
+	parent := t.TempDir()
+	project := filepath.Join(parent, "flipping")
 	worktree := filepath.Join(project, ".claude-worktrees", "password-reset")
+	// A neighbour whose folder name begins the same way but is nothing to do
+	// with this project.
+	sibling := filepath.Join(parent, "flipping-old")
+	for _, d := range []string{worktree, sibling} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	underWorktree := filepath.Join(home, "projects", projectSlug(worktree))
+	// Stored under the worktree, recording the project it was started in.
+	writeTranscript(t, underWorktree, "aaaaaaaa-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"in a worktree, implement password reset"}}`)
+	// The worktree's own work, and a session abandoned there: neither is the
+	// project's.
+	writeTranscript(t, underWorktree, "cccccccc-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(worktree)+`","message":{"role":"user","content":"the worktree's own work"}}`)
+	writeTranscript(t, underWorktree, "dddddddd-9999-9999-9999-999999999999", `{"type":"summary"}`)
+	// The project's own folder.
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(project)), "bbbbbbbb-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"work in the project itself"}}`)
+	// The neighbour's, under a folder whose name starts with the project's.
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(sibling)), "eeeeeeee-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(sibling)+`","message":{"role":"user","content":"the neighbour's work"}}`)
+
+	got, err := Conversations(project)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	summaries := map[string]bool{}
+	for _, c := range got {
+		summaries[c.Summary] = true
+	}
+	if !summaries["work in the project itself"] || !summaries["in a worktree, implement password reset"] {
+		t.Errorf("the project was not offered its own conversations: %+v", got)
+	}
+	if len(got) != 2 {
+		t.Errorf("the project listed %d conversations, want its own two: %+v", len(got), got)
+	}
+
+	// The worktree still offers what is stored under it, its own included.
+	got, err = Conversations(worktree)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("the worktree listed %d conversations, want the three stored under it: %+v", len(got), got)
+	}
+}
+
+// TestConversationsListAConversationCopiedIntoTwoFoldersOnce covers resuming
+// a conversation somewhere else: Claude Code copies its transcript under that
+// directory's folder and leaves the first behind, so the same conversation is
+// stored twice. It is one conversation and belongs on one row, showing what
+// the copy that is still being written to says.
+func TestConversationsListAConversationCopiedIntoTwoFoldersOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	project := filepath.Join(t.TempDir(), "twice")
+	worktree := filepath.Join(project, "wt")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Stored under the worktree, recording the project it was started in.
-	writeTranscript(t, filepath.Join(home, "projects", projectSlug(worktree)), "aaaaaaaa-9999-9999-9999-999999999999",
-		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"in a worktree, implement password reset"}}`)
-	// The project's own folder, so its listing has rows of its own and does
-	// not go looking through other folders.
-	writeTranscript(t, filepath.Join(home, "projects", projectSlug(project)), "bbbbbbbb-9999-9999-9999-999999999999",
-		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"work in the project itself"}}`)
+	const id = "ffffffff-9999-9999-9999-999999999999"
+	line := `{"type":"user","cwd":"` + jsonPath(project) + `","message":{"role":"user","content":"the one conversation"}}`
+	stale := writeTranscript(t, filepath.Join(home, "projects", projectSlug(worktree)), id, line)
+	live := writeTranscript(t, filepath.Join(home, "projects", projectSlug(project)), id, line, line, line)
+	touch(t, stale, time.Now().Add(-2*time.Hour))
+	touch(t, live, time.Now())
 
-	got, err := Conversations(worktree)
+	got, err := Conversations(project)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("the worktree listed %d conversations, want the one stored under it: %+v", len(got), got)
+		t.Fatalf("listed %d rows for one conversation: %+v", len(got), got)
 	}
-	if got[0].Summary != "in a worktree, implement password reset" {
-		t.Errorf("summary = %q", got[0].Summary)
-	}
-
-	got, err = Conversations(project)
-	if err != nil {
-		t.Fatalf("conversations: %v", err)
-	}
-	if len(got) != 1 || got[0].Summary != "work in the project itself" {
-		t.Fatalf("the project listed %+v, want only what is stored under it", got)
+	if got[0].Messages != 3 {
+		t.Errorf("the row has %d entries; the copy still being written to has 3", got[0].Messages)
 	}
 }

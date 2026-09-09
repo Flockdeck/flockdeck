@@ -139,7 +139,10 @@ func Conversations(cwd string) ([]Conversation, error) {
 
 	dir := filepath.Join(projects, projectSlug(cwd))
 	entries, derr := os.ReadDir(dir)
-	out := conversationsIn(dir, entries, cwd)
+	out := conversationsIn(dir, entries, cwd, func(recorded string) bool {
+		return ours(dir, recorded, cwd)
+	})
+	out = append(out, conversationsUnder(projects, cwd)...)
 	if len(out) == 0 {
 		found, err := findProjectDir(projects, cwd)
 		if err != nil {
@@ -159,8 +162,12 @@ func Conversations(cwd string) ([]Conversation, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read conversations in %s: %w", found, err)
 		}
-		out = conversationsIn(found, entries, cwd)
+		out = conversationsIn(found, entries, cwd, func(recorded string) bool {
+			return ours(found, recorded, cwd)
+		})
 	}
+
+	out = newestOfEach(out)
 
 	// Most recently used first, with the id breaking a tie so that two
 	// conversations started together do not swap places between refreshes.
@@ -173,6 +180,95 @@ func Conversations(cwd string) ([]Conversation, error) {
 	return out, nil
 }
 
+// conversationsUnder lists the conversations that ran in cwd but are stored
+// under a folder belonging to a directory inside it.
+//
+// That is what asking an agent to work in a worktree does. The session starts
+// in the project and Claude Code follows it into the worktree, so the
+// transcript is filed under the worktree while its entries record the project
+// it belongs to -- and the project's own folder never hears about it. Of the
+// 28 directories with history on this machine two have conversations stored
+// that way, and one of them is a megabyte of work that the project it was
+// done for could not offer. Delete the worktree afterwards, as one does, and
+// nothing can offer it at all.
+//
+// A directory inside cwd derives a folder whose name begins with cwd's own,
+// which is what these are found by. That also matches a sibling whose name
+// merely starts the same way, so each candidate is asked what its transcripts
+// record before it is read; the answer is the one the folder search already
+// keeps, so a folder that is nothing to do with us costs a couple of reads
+// once.
+func conversationsUnder(projects, cwd string) []Conversation {
+	entries, err := os.ReadDir(projects)
+	if err != nil {
+		return nil
+	}
+	prefix := projectSlug(cwd) + "-"
+
+	var out []Conversation
+	for _, e := range entries {
+		if !e.IsDir() || !hasFolderPrefix(e.Name(), prefix) {
+			continue
+		}
+		dir := filepath.Join(projects, e.Name())
+		mentions := false
+		for _, got := range folderRecords(dir) {
+			if sameDir(got, cwd) {
+				mentions = true
+				break
+			}
+		}
+		if !mentions {
+			continue
+		}
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		// Only what ran here. A transcript of the worktree's own work is the
+		// worktree's, and one that records nowhere at all was abandoned
+		// there rather than here.
+		out = append(out, conversationsIn(dir, files, cwd, func(recorded string) bool {
+			return recorded != "" && sameDir(recorded, cwd)
+		})...)
+	}
+	return out
+}
+
+// hasFolderPrefix reports whether a project folder's name begins with the one
+// derived from a directory, the way a folder for something inside it does.
+func hasFolderPrefix(name, prefix string) bool {
+	if len(name) < len(prefix) {
+		return false
+	}
+	if pathsIgnoreCase {
+		return strings.EqualFold(name[:len(prefix)], prefix)
+	}
+	return name[:len(prefix)] == prefix
+}
+
+// newestOfEach keeps one row per conversation.
+//
+// Resuming a conversation somewhere else copies its transcript under that
+// directory's folder and leaves the first one behind, so the same id can be
+// stored in more than one of the folders a listing draws from. The copy that
+// was written last is the one that has the conversation in it.
+func newestOfEach(all []Conversation) []Conversation {
+	seen := make(map[string]int, len(all))
+	out := all[:0]
+	for _, c := range all {
+		if i, ok := seen[c.ID]; ok {
+			if c.Modified.After(out[i].Modified) {
+				out[i] = c
+			}
+			continue
+		}
+		seen[c.ID] = len(out)
+		out = append(out, c)
+	}
+	return out
+}
+
 // describeReaders bounds how many transcripts are read at once. Reading a
 // folder of them is spent waiting on the disk far more than working, so
 // several at a time finish sooner than one after another; many more than
@@ -180,8 +276,9 @@ func Conversations(cwd string) ([]Conversation, error) {
 const describeReaders = 8
 
 // conversationsIn describes the transcripts in one project folder that belong
-// to cwd, in whatever order the folder was read.
-func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversation {
+// to cwd, in whatever order the folder was read. Which of them do is up to
+// the caller: it depends on how the folder was arrived at.
+func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func(recorded string) bool) []Conversation {
 	files := make([]os.FileInfo, 0, len(entries))
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -222,7 +319,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 			fresh[name] = facts[i]
 		}
 
-		if !ours(dir, facts[i].cwd, cwd) {
+		if !belongs(facts[i].cwd) {
 			continue
 		}
 
