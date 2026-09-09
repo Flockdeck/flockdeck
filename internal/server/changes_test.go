@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -408,6 +409,66 @@ func TestRemovingAWorktreeWithOpenPanesIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(repo); err != nil {
 		t.Fatalf("the worktree was removed anyway: %v", err)
+	}
+}
+
+// TestWorktreePanelDescribesEveryCheckout covers what the worktree panel is
+// built from: the checkouts, the branches on offer, and the base a new one
+// would start from. Nothing exercised it before the calls were made together.
+func TestWorktreePanelDescribesEveryCheckout(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	gitCmd(t, repo, "branch", "spare")
+	side := filepath.Join(t.TempDir(), "side")
+	gitCmd(t, repo, "worktree", "add", "-b", "side", side)
+
+	msg := collectWorktrees(repo)
+	if msg.Error != "" {
+		t.Fatalf("worktrees: %s", msg.Error)
+	}
+	if len(msg.Items) != 2 {
+		t.Fatalf("%d checkouts, want the main one and the new one: %+v", len(msg.Items), msg.Items)
+	}
+	if !msg.Items[0].Main {
+		t.Error("the first entry should be the main worktree")
+	}
+	if msg.Items[0].Branch != "main" || msg.Items[1].Branch != "side" {
+		t.Errorf("branches = %q and %q, want main and side", msg.Items[0].Branch, msg.Items[1].Branch)
+	}
+	if msg.DefaultBase != "main" {
+		t.Errorf("default base = %q, want main", msg.DefaultBase)
+	}
+	var names []string
+	for _, b := range msg.Branches {
+		names = append(names, b.Name)
+	}
+	sort.Strings(names)
+	if strings.Join(names, ",") != "main,side,spare" {
+		t.Errorf("branches offered = %v, want main, side and spare", names)
+	}
+	for _, b := range msg.Branches {
+		if b.Name == "spare" && b.CheckedIn != "" {
+			t.Errorf("spare is checked out at %q, but nothing has it", b.CheckedIn)
+		}
+		if b.Name == "side" && b.CheckedIn == "" {
+			t.Error("side is checked out in the new worktree and should say so")
+		}
+	}
+
+	// A directory that is not a repository is explained rather than passed
+	// git's own wording, which names parent directories nobody asked about.
+	outside := collectWorktrees(t.TempDir())
+	if !strings.Contains(outside.Error, "not a git repository") {
+		t.Errorf("error for a plain directory = %q", outside.Error)
+	}
+}
+
+// gitCmd runs git in dir and fails the test if it does not succeed.
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 }
 
