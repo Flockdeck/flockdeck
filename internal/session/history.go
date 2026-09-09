@@ -161,13 +161,17 @@ func Conversations(cwd string) ([]Conversation, error) {
 	return out, nil
 }
 
+// describeReaders bounds how many transcripts are read at once. Reading a
+// folder of them is spent waiting on the disk far more than working, so
+// several at a time finish sooner than one after another; many more than
+// this only queue up on the same disk.
+const describeReaders = 8
+
 // conversationsIn describes the transcripts in one project folder that belong
 // to cwd, in whatever order the folder was read.
 func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversation {
-	cached := cachedFacts(dir)
-	fresh := make(map[string]transcriptFacts, len(entries))
-
-	var out []Conversation
+	files := make([]os.FileInfo, 0, len(entries))
+	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
@@ -183,25 +187,37 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 		if info.Size() == 0 {
 			continue
 		}
-		facts := describeTranscript(filepath.Join(dir, e.Name()), info, cached[e.Name()])
-		fresh[e.Name()] = facts
+		names = append(names, e.Name())
+		files = append(files, info)
+	}
+
+	cached := cachedFacts(dir)
+	facts := make([]transcriptFacts, len(names))
+	readTranscripts(func(i int) {
+		facts[i] = describeTranscript(filepath.Join(dir, names[i]), files[i], cached[names[i]])
+	}, len(names))
+
+	fresh := make(map[string]transcriptFacts, len(names))
+	out := make([]Conversation, 0, len(names))
+	for i, name := range names {
+		fresh[name] = facts[i]
 
 		// A transcript that names a different directory is a neighbour's,
 		// sharing this folder because the two paths derive the same name.
 		// Offering it here would resume somebody else's work in this project;
 		// one that names nowhere is an abandoned session and belongs to
 		// whoever asks.
-		if facts.cwd != "" && !sameDir(facts.cwd, cwd) {
+		if facts[i].cwd != "" && !sameDir(facts[i].cwd, cwd) {
 			continue
 		}
 
 		c := Conversation{
-			ID:       strings.TrimSuffix(e.Name(), ".jsonl"),
+			ID:       strings.TrimSuffix(name, ".jsonl"),
 			Cwd:      cwd,
-			Modified: info.ModTime(),
-			Size:     info.Size(),
-			Summary:  facts.summary,
-			Messages: facts.entries(),
+			Modified: files[i].ModTime(),
+			Size:     files[i].Size(),
+			Summary:  facts[i].summary,
+			Messages: facts[i].entries(),
 		}
 		if c.Summary == "" {
 			c.Summary = "(no prompt recorded)"
@@ -209,7 +225,41 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 		out = append(out, c)
 	}
 	rememberFacts(dir, fresh)
+	if len(out) == 0 {
+		return nil
+	}
 	return out
+}
+
+// readTranscripts runs read over each of n transcripts, a few at a time.
+func readTranscripts(read func(i int), n int) {
+	if n <= 1 {
+		for i := 0; i < n; i++ {
+			read(i)
+		}
+		return
+	}
+	next := make(chan int, n)
+	for i := 0; i < n; i++ {
+		next <- i
+	}
+	close(next)
+
+	readers := describeReaders
+	if readers > n {
+		readers = n
+	}
+	var wg sync.WaitGroup
+	wg.Add(readers)
+	for r := 0; r < readers; r++ {
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				read(i)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // projectSlug reproduces the folder name Claude Code derives from a path.

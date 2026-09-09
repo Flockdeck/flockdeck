@@ -725,3 +725,47 @@ func TestConversationsSplitAFolderTwoProjectsShare(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationsDescribeEveryTranscriptCorrectly covers a folder large
+// enough to be read by several readers at once: every transcript has to come
+// back, and each row has to carry its own transcript's prompt and its own
+// count rather than a neighbour's.
+func TestConversationsDescribeEveryTranscriptCorrectly(t *testing.T) {
+	cwd, dir := historyFixture(t, "many")
+
+	const count = 60
+	for i := 0; i < count; i++ {
+		lines := []string{fmt.Sprintf(`{"type":"user","cwd":"%s","message":{"role":"user","content":"prompt number %d"}}`, jsonPath(cwd), i)}
+		for j := 0; j < i; j++ {
+			lines = append(lines, `{"type":"assistant","message":{"role":"assistant","content":"ok"}}`)
+		}
+		writeTranscript(t, dir, fmt.Sprintf("%08d-0000-0000-0000-000000000000", i), lines...)
+	}
+
+	for _, pass := range []string{"first listing", "refresh"} {
+		got, err := Conversations(cwd)
+		if err != nil {
+			t.Fatalf("%s: %v", pass, err)
+		}
+		if len(got) != count {
+			t.Fatalf("%s listed %d conversations, want %d", pass, len(got), count)
+		}
+		seen := map[string]bool{}
+		for _, c := range got {
+			var i int
+			if _, err := fmt.Sscanf(c.ID, "%08d-0000-0000-0000-000000000000", &i); err != nil {
+				t.Fatalf("%s: unexpected id %q", pass, c.ID)
+			}
+			if seen[c.ID] {
+				t.Errorf("%s: %s listed twice", pass, c.ID)
+			}
+			seen[c.ID] = true
+			if want := fmt.Sprintf("prompt number %d", i); c.Summary != want {
+				t.Errorf("%s: %s has summary %q, want %q", pass, c.ID, c.Summary, want)
+			}
+			if want := i + 1; c.Messages != want {
+				t.Errorf("%s: %s has %d entries, want %d", pass, c.ID, c.Messages, want)
+			}
+		}
+	}
+}
