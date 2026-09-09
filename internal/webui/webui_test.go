@@ -534,6 +534,50 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
 	t.Log(strings.TrimSpace(out))
 }
 
+// The palette is a text field with a list under it that the arrow keys walk
+// while the keyboard stays in the field. Nothing about that is visible to a
+// screen reader unless it is said: the field has to name the row.
+func TestThePaletteNamesTheCommandItIsOn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+
+const input = h.$("palette-input"), list = h.$("palette-list");
+assert.strictEqual(input.getAttribute("role"), "combobox");
+assert.strictEqual(input.getAttribute("aria-controls"), "palette-list");
+assert.strictEqual(list.getAttribute("role"), "listbox");
+
+const rows = list.children;
+assert.ok(rows.every((r) => r.getAttribute("role") === "option"), "every row is an option");
+assert.strictEqual(new Set(rows.map((r) => r.id)).size, rows.length, "the rows have distinct ids");
+
+const named = () => h.doc.getElementById(input.getAttribute("aria-activedescendant"));
+assert.ok(named() === rows[0], "the field does not name the row it starts on");
+assert.strictEqual(rows[0].getAttribute("aria-selected"), "true");
+assert.strictEqual(rows[1].getAttribute("aria-selected"), "false");
+
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.ok(named() === rows[2], "the field did not follow the arrow keys");
+assert.strictEqual(rows[2].getAttribute("aria-selected"), "true");
+assert.strictEqual(rows[0].getAttribute("aria-selected"), "false");
+assert.strictEqual(rows.filter((r) => r.getAttribute("aria-selected") === "true").length, 1,
+  "exactly one row is the current one");
+
+// The pointer moves it too, and it is the same claim either way.
+h.dispatch(rows[5], new h.Ev("mouseenter", {}));
+assert.ok(named() === rows[5], "the field did not follow the pointer");
+
+// Nothing matches: there is no row to name, so the field must not claim one.
+input.value = "zzzzzz no such command";
+input.oninput();
+assert.strictEqual(list.children.length, 1, "the empty note is all that is left");
+assert.ok(!input.hasAttribute("aria-activedescendant"),
+  "the field still names a row that is no longer there");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -1881,10 +1881,13 @@
     palRows = [];
     if (!palItems.length) {
       list.append(el("div", "pal-empty", "No matching command."));
+      markPaletteRow();
       return;
     }
     palItems.forEach((c, i) => {
       const row = el("div", "pal-row");
+      row.id = "pal-row-" + i;
+      row.setAttribute("role", "option");
       row.append(el("span", "pal-label", c.label));
       if (c.hint) row.append(el("span", "pal-hint", c.hint));
       row.onmouseenter = () => selectPaletteRow(i);
@@ -1906,11 +1909,21 @@
   }
 
   function markPaletteRow() {
-    palRows.forEach((row, i) => row.classList.toggle("sel", i === palIndex));
+    palRows.forEach((row, i) => {
+      const on = i === palIndex;
+      row.classList.toggle("sel", on);
+      row.setAttribute("aria-selected", String(on));
+    });
+    const sel = palRows[palIndex];
+    // The keyboard never leaves the field while the list is being walked, so
+    // it is the field that has to name the command currently picked out; a
+    // colour on a row says nothing to anyone who cannot see it.
+    const input = $("palette-input");
+    if (!sel) { input.removeAttribute("aria-activedescendant"); return; }
+    input.setAttribute("aria-activedescendant", sel.id);
     // The list is taller than the box it is in, so the highlight has to be
     // brought along or arrowing down walks it off the bottom and out of sight.
-    const sel = palRows[palIndex];
-    if (sel) sel.scrollIntoView({ block: "nearest" });
+    sel.scrollIntoView({ block: "nearest" });
   }
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
