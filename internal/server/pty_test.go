@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -734,4 +735,43 @@ func TestClosingAPaneReleasesItsTerminalSocket(t *testing.T) {
 		}
 		return
 	}
+}
+
+// TestTypingSurvivesABusyWorkspace covers the moment a new project opens.
+// Opening one runs on the workspace goroutine and takes as long as it takes to
+// start every agent in it, and it rearranges the window, so every pane already
+// on screen reports a new size at the same moment. If reporting a size means
+// waiting on that goroutine, nothing anyone types anywhere gets through until
+// the project has finished opening.
+func TestTypingSurvivesABusyWorkspace(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	pty := dialPTY(t, srv, paneID)
+	awaitOutput(t, pty, "echo pane_ready\r", "pane_ready")
+
+	// Occupy the workspace goroutine, as opening a project does, and back up
+	// the queue in front of it, as a window's worth of panes all reporting a
+	// new size does. That queue is not unbounded, and once it is full anything
+	// handing work to the workspace waits its turn.
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	defer close(release)
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(srv.cmds) < cap(srv.cmds) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.cmds) < cap(srv.cmds) {
+		t.Fatalf("could not fill the workspace queue: %d of %d", len(srv.cmds), cap(srv.cmds))
+	}
+
+	sendResize(t, pty, 90, 25)
+	awaitOutput(t, pty, "echo typed_through\r", "typed_through")
 }

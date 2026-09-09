@@ -90,7 +90,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// the pane has been restarted.
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
-	go s.readInput(ctx, cancel, conn, id, viewer, &live)
+	sizes := make(chan termSize, 1)
+	go s.applyResizes(ctx, id, sizes)
+	go s.readInput(ctx, cancel, conn, id, viewer, sizes, &live)
 	go keepalive(ctx, cancel, conn)
 
 	for {
@@ -172,7 +174,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, sizes chan termSize, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	for {
 		typ, data, err := conn.Read(ctx)
@@ -194,13 +196,36 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 		}
 		if ctl.Resize != nil {
 			cols, rows := viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
-			// Through the workspace rather than straight at the session, so
-			// the pane remembers the size the browser measured. It is the
-			// only place that measurement exists -- the server has no idea
-			// what the font metrics are -- and a restarted pane that does not
-			// have it starts its process at a conventional 80x24 and draws
-			// its first screen at the wrong width.
-			s.do(func() { s.ws.ResizePaneTerminal(id, cols, rows) })
+			// Handed on rather than applied here, and replacing whatever was
+			// waiting: applying it means reaching the workspace goroutine,
+			// which can be busy for seconds at a time opening a project, and
+			// waiting for it here would stop this window's keystrokes dead
+			// behind a measurement. Only the newest measurement is worth
+			// having, so a queue of them is not kept either.
+			select {
+			case <-sizes:
+			default:
+			}
+			sizes <- termSize{cols, rows}
+		}
+	}
+}
+
+// applyResizes records what this window has measured, on the goroutine that
+// owns the workspace.
+//
+// It goes through the workspace rather than straight at the session so the
+// pane remembers the size. That is the only place the measurement exists --
+// the server has no idea what the font metrics are -- and a pane started or
+// restarted without it runs its process at a conventional 80x24 and draws its
+// first screen at the wrong width.
+func (s *Server) applyResizes(ctx context.Context, id string, sizes <-chan termSize) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case sz := <-sizes:
+			s.do(func() { s.ws.ResizePaneTerminal(id, sz.cols, sz.rows) })
 		}
 	}
 }
