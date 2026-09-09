@@ -919,3 +919,38 @@ func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
 		t.Errorf("extracted %#v, want only the real task", got)
 	}
 }
+
+// The task becomes a command-line argument. Windows refuses a command line
+// past about thirty-two thousand characters, and what it says about that names
+// neither the task nor its length — so the length is checked here, where there
+// is something useful to say about it.
+func TestSpawnRefusesATaskTooLongToStartWith(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	_, err := ws.Spawn(parent, SpawnOptions{
+		Task: strings.Repeat("a", maxTaskBytes+1),
+		Kind: session.KindShell,
+	})
+	if err == nil {
+		t.Fatal("a task too long for a command line was accepted")
+	}
+	if !strings.Contains(err.Error(), "characters") {
+		t.Errorf("err = %v, want it to name the length", err)
+	}
+	// Nothing may be left behind by a spawn that was refused.
+	if n := len(ws.VisibleTabs()); n != 1 {
+		t.Errorf("tabs = %d, want the refused child to have opened none", n)
+	}
+
+	// A brief right up to the limit is still a brief.
+	if _, err := ws.Spawn(parent, SpawnOptions{
+		Task: strings.Repeat("a", maxTaskBytes),
+		Kind: session.KindShell,
+	}); err != nil {
+		t.Errorf("a task of exactly the limit was refused: %v", err)
+	}
+}

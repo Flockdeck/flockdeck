@@ -529,6 +529,20 @@ func isDecoration(line string) bool {
 	return letters*3 < len([]rune(line))
 }
 
+// maxTaskBytes bounds the opening prompt a child agent can be given.
+//
+// The task is handed to the agent as a command-line argument, and Windows will
+// not take a command line beyond about thirty-two thousand characters. Past
+// that the pane does not start at all, and what the user is shown is whatever
+// the operating system has to say about command lines — which names neither
+// the task nor the length as the problem. The same text is also written into
+// the saved layout, which is no place for a document.
+//
+// The limit is far above any brief anyone writes: the tasks a fan-out proposes
+// are capped at six hundred characters, and this is more than twenty times
+// that.
+const maxTaskBytes = 16 << 10
+
 // SpawnOptions describes a child agent to start.
 type SpawnOptions struct {
 	// Task is given to the agent as its opening prompt.
@@ -552,6 +566,9 @@ type SpawnOptions struct {
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell {
 		return "", fmt.Errorf("a task is required")
+	}
+	if len(o.Task) > maxTaskBytes {
+		return "", fmt.Errorf("the task is %d characters; a pane can be started with at most %d", len(o.Task), maxTaskBytes)
 	}
 	if o.Kind == session.KindClaude && !w.ClaudeAvailable() {
 		return "", fmt.Errorf("the `claude` CLI was not found on PATH")
