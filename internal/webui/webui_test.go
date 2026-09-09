@@ -1672,6 +1672,83 @@ h.click(n);   // so the case is not held open by the timer it has just started
 `)
 }
 
+// The Projects dialog is how a second project is opened and how you move
+// between them, and every one of those actions was a click handler on a div.
+func TestTheProjectsDialogAnswersTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 1 },
+  { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 2, working: 0 },
+] }));
+
+h.click(h.$("project-btn"));
+h.recv({ type: "recents", items: [
+  { root: "C:/old", name: "old", exists: true, open: false },
+  { root: "C:/gone", name: "gone", exists: false, open: false },
+] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
+  { name: "one", path: "C:/repos/one", isRepo: true },
+  { name: "two", path: "C:/repos/two", isRepo: false },
+] });
+
+const body = h.$("overlay-body");
+const goes = body.querySelectorAll("button.proj-go");
+assert.strictEqual(goes.length, 3, "two open projects and the one recent that still exists");
+
+// Everything the row said is part of what the button is called, so a reader
+// hears which project, where, and that two agents in it are waiting.
+const other = goes[1];
+assert.ok(other.textContent.includes("other"), "got: " + other.textContent);
+assert.ok(other.textContent.includes("C:/other"), "got: " + other.textContent);
+assert.ok(other.textContent.includes("2"), "the counts are outside the button: " + other.textContent);
+
+// Tab from the top of the dialog reaches them, and Enter switches project.
+let reached = false;
+for (let i = 0; i < 60 && !reached; i++) {
+  h.key({ key: "Tab" });
+  reached = goes.includes(h.doc.activeElement);
+}
+assert.ok(reached, "no amount of tabbing inside the dialog reaches a project");
+other.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/other" });
+assert.ok(h.$("overlay").hidden, "the dialog stayed open after switching project");
+
+// A recent project whose folder has gone is not a button that does nothing.
+h.click(h.$("project-btn"));
+h.recv({ type: "recents", items: [
+  { root: "C:/old", name: "old", exists: true, open: false },
+  { root: "C:/gone", name: "gone", exists: false, open: false },
+] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
+  { name: "one", path: "C:/repos/one", isRepo: true },
+  { name: "two", path: "C:/repos/two", isRepo: false },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.proj-row");
+const missing = rows.filter((r) => r.classList.contains("missing"))[0];
+assert.ok(missing, "the missing project is listed");
+assert.ok(!missing.querySelector("button.proj-go"), "a project that cannot be opened offers to open it");
+assert.ok(missing.querySelector("button.icon-btn"), "it can still be forgotten");
+
+// Looking inside a folder is the only way to reach one that is not listed, and
+// was reachable only with a pointer.
+const into = h.$("overlay-body").querySelectorAll("button.dir-into");
+assert.strictEqual(into.length, 2, "a button per folder");
+assert.ok(into[0].textContent.includes("one"), "got: " + into[0].textContent);
+into[1].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/repos/two" });
+
+// And the chip beside it still opens the folder as a project rather than
+// looking inside it.
+const open = h.$("overlay-body").querySelectorAll("div.dir-row")[0].querySelectorAll("button.chip")[0];
+assert.strictEqual(open.textContent, "Open");
+h.click(open);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "openProject", path: "C:/repos/one" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

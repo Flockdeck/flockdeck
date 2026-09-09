@@ -1737,12 +1737,18 @@
     const openSection = section("Open");
     open.forEach((p) => {
       const row = el("div", "proj-row" + (p.active ? " active" : ""));
-      const main = el("div", "proj-main");
-      main.append(el("div", "proj-name", p.name));
-      main.append(el("div", "proj-path", p.root));
-      row.append(main);
+      // The row's own action — switch to this project — is a real button
+      // wrapping everything that describes it, rather than a click handler on
+      // the row. A handler on a div cannot be tabbed to and does not answer
+      // Enter, and the icon buttons beside it could not have been nested
+      // inside something that claimed to be a button itself.
+      const go = el("button", "proj-go");
+      const main = el("span", "proj-main");
+      main.append(el("span", "proj-name", p.name));
+      main.append(el("span", "proj-path", p.root));
+      go.append(main);
 
-      const badge = el("div", "proj-badge");
+      const badge = el("span", "proj-badge");
       // The triangle and the disc are the marks the pane headers already use,
       // so they take the same copy; the label keeps the count the glyph hides.
       if (p.waiting) {
@@ -1758,15 +1764,16 @@
         badge.append(describe(n, TIPS.working), document.createTextNode(" "));
       }
       badge.append(document.createTextNode(p.tabs + (p.tabs === 1 ? " tab" : " tabs")));
-      row.append(badge);
+      go.append(badge);
+      go.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
+      row.append(go);
 
       // Splitting into the project already on screen is just an ordinary
       // split, so the button is offered on the others.
       if (!p.active) {
         const split = el("button", "icon-btn", "⊞");
         describe(split, TIPS.splitHere);
-        split.onclick = (ev) => {
-          ev.stopPropagation();
+        split.onclick = () => {
           send({ cmd: "splitPane", dir: "h", root: p.root });
           closeOverlay();
         };
@@ -1776,10 +1783,9 @@
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
         describe(close, "Close this project. The agents running in it stop.");
-        close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeProject", root: p.root }); };
+        close.onclick = () => send({ cmd: "closeProject", root: p.root });
         row.append(close);
       }
-      row.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
       openSection.append(row);
     });
     body.append(openSection);
@@ -1790,15 +1796,23 @@
       const rec = section("Recent");
       notOpen.slice(0, 8).forEach((r) => {
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
-        const main = el("div", "proj-main");
-        main.append(el("div", "proj-name", r.name));
-        main.append(el("div", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
-        row.append(main);
+        const main = el("span", "proj-main");
+        main.append(el("span", "proj-name", r.name));
+        main.append(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
+        // A project whose folder has gone cannot be opened, so it stays text
+        // rather than becoming a button that does nothing when it is pressed.
+        if (r.exists) {
+          const go = el("button", "proj-go");
+          go.append(main);
+          go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
+          row.append(go);
+        } else {
+          row.append(main);
+        }
         const forget = el("button", "icon-btn", "\u00d7");
         describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "forgetRecent", root: r.root }); };
+        forget.onclick = () => send({ cmd: "forgetRecent", root: r.root });
         row.append(forget);
-        if (r.exists) row.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
         rec.append(row);
       });
       body.append(rec);
@@ -1878,18 +1892,25 @@
     } else {
       b.entries.forEach((e) => {
         const row = el("div", "dir-row" + (e.isRepo ? " repo" : "") + (e.hidden ? " hidden-dir" : ""));
+        // Looking inside the folder is this row's own action, and the only way
+        // to reach anywhere that is not already on the list, so it is a button
+        // rather than a click handler on a div. Opening the folder as a
+        // project is the chip beside it, which is why neither can contain the
+        // other.
+        const into = el("button", "dir-into");
         // One glyph for a repository and another for a plain folder: the whole
         // distinction lives in the shape, so it has to be spelled out.
         const icon = el("span", "dir-icon", e.isRepo ? "\u25c6" : "\u25b8");
         icon.setAttribute("role", "img");
         icon.setAttribute("aria-label", e.isRepo ? "Git repository" : "Folder");
-        row.append(describe(icon, e.isRepo ? TIPS.repoFolder : TIPS.plainFolder));
-        row.append(el("span", "dir-name", e.name));
-        if (e.isRepo) row.append(el("span", "dir-repo", "git"));
+        into.append(describe(icon, e.isRepo ? TIPS.repoFolder : TIPS.plainFolder));
+        into.append(el("span", "dir-name", e.name));
+        if (e.isRepo) into.append(el("span", "dir-repo", "git"));
+        into.onclick = () => send({ cmd: "browse", path: e.path });
+        row.append(into);
         const openBtn = el("button", "chip", "Open");
-        openBtn.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "openProject", path: e.path }); closeOverlay(); };
+        openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
         row.append(openBtn);
-        row.onclick = () => send({ cmd: "browse", path: e.path });
         list.append(row);
       });
     }

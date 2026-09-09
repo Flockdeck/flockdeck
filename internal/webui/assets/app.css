@@ -150,6 +150,8 @@ body { display: flex; flex-direction: column; }
 .help-item:focus-visible,
 .rev-file:focus-visible,
 .agent-row:focus-visible,
+.proj-go:focus-visible,
+.dir-into:focus-visible,
 .places button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
@@ -429,14 +431,22 @@ textarea:focus-visible {
 }
 .proj-row {
   display: flex; align-items: center; gap: 10px; padding: 7px 8px;
-  border: 1px solid transparent; border-radius: var(--radius); cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius);
 }
 .proj-row:hover { background: #22262e; border-color: var(--line); }
 .proj-row.active { background: var(--bg-inset); border-color: var(--accent); }
 .proj-row.missing { opacity: .55; }
-.proj-main { flex: 1 1 auto; min-width: 0; }
-.proj-name { font-weight: 600; }
-.proj-path { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Switching to the project is a real button covering everything that describes
+ * it, so it takes the row's own layout and gives up every part of looking like
+ * a button. The buttons that are meant to look like buttons sit beside it. */
+.proj-go {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px;
+  background: transparent; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.proj-main { flex: 1 1 auto; min-width: 0; display: block; }
+.proj-name { display: block; font-weight: 600; }
+.proj-path { display: block; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-badge { font-size: 11px; color: var(--fg-dim); white-space: nowrap; }
 .proj-badge .waiting { color: var(--waiting); font-weight: 600; }
 .proj-badge .working { color: var(--working); }
@@ -453,8 +463,16 @@ textarea:focus-visible {
 .places button { font-size: 11px; padding: 3px 8px; }
 .dir-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .dir-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
   border-bottom: 1px solid var(--line);
+}
+/* Looking inside the folder, which is what most of the row is. Same shape as
+ * .proj-go and for the same reason: it has to be a button and must not look
+ * like one, because the chip beside it is the one that does. */
+.dir-into {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .dir-row:last-child { border-bottom: 0; }
 .dir-row:hover { background: #22262e; }
