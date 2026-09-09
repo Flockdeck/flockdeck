@@ -2,6 +2,7 @@ package server
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/jmwri/perch/internal/gitx"
 )
@@ -78,43 +79,56 @@ func repoRoot(dir string) string {
 // listChanges answers a request for what has changed in a working tree.
 func (s *Server) listChanges(c *controlClient, path string) {
 	dir := s.reviewDir(path)
-	go func() {
-		msg := changesMsg{Type: "changes", Cwd: dir}
-		if !gitx.Available() {
-			msg.Error = "git is not installed"
-			c.sendJSON(msg)
-			return
-		}
-		root, err := gitx.Root(dir)
-		if err != nil {
-			msg.Error = dir + " is not a git repository"
-			c.sendJSON(msg)
-			return
-		}
-		// The panel works in root-relative paths from here on, and echoes this
-		// back as the directory its later commands carry.
-		dir = root
-		msg.Cwd = dir
+	go func() { c.sendJSON(collectChanges(dir)) }()
+}
 
-		st := gitx.StatusOf(dir)
-		msg.Branch, msg.Upstream = st.Branch, st.Upstream
-		msg.Ahead, msg.Behind = st.Ahead, st.Behind
-		msg.HasRemote = gitx.HasRemote(dir)
+// collectChanges gathers everything the panel shows about one checkout.
+//
+// The branch summary, the remote list and the file list come from three
+// independent git commands -- five processes between them, since listing the
+// files is itself three. They are asked for together rather than one after
+// another: this runs on opening the panel and again after every commit, push,
+// pull and fetch, and on Windows the process starts are most of that wait.
+func collectChanges(dir string) changesMsg {
+	msg := changesMsg{Type: "changes", Cwd: dir}
+	if !gitx.Available() {
+		msg.Error = "git is not installed"
+		return msg
+	}
+	root, err := gitx.Root(dir)
+	if err != nil {
+		msg.Error = dir + " is not a git repository"
+		return msg
+	}
+	// The panel works in root-relative paths from here on, and echoes this
+	// back as the directory its later commands carry.
+	msg.Cwd = root
 
-		files, err := gitx.Changes(dir)
-		if err != nil {
-			msg.Error = err.Error()
-			c.sendJSON(msg)
-			return
-		}
-		for _, f := range files {
-			msg.Files = append(msg.Files, changeView{
-				Path: f.Path, Status: f.Status, Label: f.Label,
-				Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
-			})
-		}
-		c.sendJSON(msg)
-	}()
+	var (
+		st    gitx.Status
+		files []gitx.FileChange
+		ferr  error
+		wg    sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); st = gitx.StatusOf(root) }()
+	go func() { defer wg.Done(); files, ferr = gitx.Changes(root) }()
+	msg.HasRemote = gitx.HasRemote(root)
+	wg.Wait()
+
+	msg.Branch, msg.Upstream = st.Branch, st.Upstream
+	msg.Ahead, msg.Behind = st.Ahead, st.Behind
+	if ferr != nil {
+		msg.Error = ferr.Error()
+		return msg
+	}
+	for _, f := range files {
+		msg.Files = append(msg.Files, changeView{
+			Path: f.Path, Status: f.Status, Label: f.Label,
+			Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
+		})
+	}
+	return msg
 }
 
 // showDiff sends the diff of one file.
