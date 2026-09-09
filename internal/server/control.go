@@ -200,15 +200,16 @@ func (s *Server) snapshot() stateMsg {
 		Broadcast:       ws.Broadcast,
 		Waiting:         waiting,
 		Working:         working,
-		// The window walks these without checking them first, so an empty one
-		// has to arrive as an empty array. Closing a project's last tab leaves
-		// no visible tabs at all, and a nil slice would encode as null and take
-		// the interface down instead of showing its empty state.
-		Projects: []projectView{},
-		Tabs:     []tabView{},
-		Panes:    map[string]paneView{},
+		Panes:           map[string]paneView{},
 	}
-	for _, p := range ws.Projects() {
+	// These are sized rather than grown, and made rather than left nil: the
+	// window walks them without checking them first, so an empty one has to
+	// arrive as an empty array. Closing a project's last tab leaves no visible
+	// tabs at all, and a nil slice would encode as null and take the interface
+	// down instead of showing its empty state.
+	projects := ws.Projects()
+	msg.Projects = make([]projectView, 0, len(projects))
+	for _, p := range projects {
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
@@ -216,16 +217,27 @@ func (s *Server) snapshot() stateMsg {
 	}
 
 	// Only the active project's tabs are rendered; the rest keep running.
-	for _, t := range ws.VisibleTabs() {
+	tabs := ws.VisibleTabs()
+	msg.Tabs = make([]tabView, 0, len(tabs))
+	// The pane ids of the tab being encoded, reused from one tab to the next.
+	// They are collected on the way through the tree rather than asked for
+	// separately, since walking it again for them costs a slice per node.
+	var ids []string
+	for _, t := range tabs {
+		ids = ids[:0]
+		root := encodeNode(t.Tree, &ids)
 		msg.Tabs = append(msg.Tabs, tabView{
 			ID:        t.ID,
 			Title:     t.Title,
 			Focus:     t.Focus,
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
-			Root:      encodeNode(t.Tree),
+			Root:      root,
 		})
-		for _, id := range t.Tree.Panes() {
+		// Cleaning the tab's directory once rather than once per pane: it is
+		// the same answer every time round.
+		tabRoot := filepath.Clean(t.Root)
+		for _, id := range ids {
 			p := ws.Pane(id)
 			if p == nil {
 				continue
@@ -241,8 +253,11 @@ func (s *Server) snapshot() stateMsg {
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
 			}
-			if root := ws.RootOf(p.ID); root != "" && !strings.EqualFold(filepath.Clean(root), filepath.Clean(t.Root)) {
-				pv.Project = filepath.Base(root)
+			// The common case is a pane of the tab's own project, where the
+			// two are the same string and there is nothing to clean or fold.
+			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
+				!strings.EqualFold(filepath.Clean(paneRoot), tabRoot) {
+				pv.Project = filepath.Base(paneRoot)
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -258,7 +273,9 @@ func (s *Server) snapshot() stateMsg {
 	return msg
 }
 
-func encodeNode(n *layout.Node) *nodeView {
+// encodeNode turns a layout tree into what the window lays out, appending the
+// id of every pane it holds to panes on the way through, in tree order.
+func encodeNode(n *layout.Node, panes *[]string) *nodeView {
 	if n == nil {
 		return nil
 	}
@@ -269,14 +286,18 @@ func encodeNode(n *layout.Node) *nodeView {
 	out := &nodeView{ID: n.ID, Weight: w}
 	if n.IsLeaf() {
 		out.Pane = n.Pane
+		if n.Pane != "" {
+			*panes = append(*panes, n.Pane)
+		}
 		return out
 	}
 	out.Dir = "v"
 	if n.Dir == layout.Horizontal {
 		out.Dir = "h"
 	}
+	out.Children = make([]*nodeView, 0, len(n.Children))
 	for _, c := range n.Children {
-		out.Children = append(out.Children, encodeNode(c))
+		out.Children = append(out.Children, encodeNode(c, panes))
 	}
 	return out
 }

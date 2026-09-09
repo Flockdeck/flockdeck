@@ -1157,3 +1157,41 @@ func renameTab(t *testing.T, s *Server, id, title string) {
 	<-done
 	s.Wake()
 }
+
+// TestEncodeNodeCollectsExactlyThePaneIds pins the equivalence the snapshot now
+// relies on. The pane ids used to come from a second walk of the tree and are
+// now gathered on the way through the first, so they have to be the same ids in
+// the same order — including the skipping of a leaf that holds no pane, which a
+// split left half built can produce.
+func TestEncodeNodeCollectsExactlyThePaneIds(t *testing.T) {
+	inner := layout.NewSplit(layout.Vertical)
+	inner.Children = []*layout.Node{
+		layout.NewLeaf("b"),
+		layout.NewLeaf(""), // a leaf with no pane in it
+		layout.NewLeaf("c"),
+	}
+	root := layout.NewSplit(layout.Horizontal)
+	root.Children = []*layout.Node{layout.NewLeaf("a"), inner, layout.NewLeaf("d")}
+
+	var got []string
+	view := encodeNode(root, &got)
+
+	want := root.Panes()
+	if len(got) != len(want) {
+		t.Fatalf("collected %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("collected %v, want %v", got, want)
+		}
+	}
+
+	// A weight of zero comes back from a layout written before weights were
+	// recorded; sent on as zero it would lay the pane out with no width at all.
+	if view.Children[0].Weight != 1 {
+		t.Errorf("leaf weight = %v, want the default 1", view.Children[0].Weight)
+	}
+	if view.Dir != "h" || view.Children[1].Dir != "v" {
+		t.Errorf("split directions = %q and %q, want h and v", view.Dir, view.Children[1].Dir)
+	}
+}
