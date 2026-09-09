@@ -328,6 +328,41 @@ func TestRemoveWorktreeAlreadyDeleted(t *testing.T) {
 	}
 }
 
+// TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone covers what removing by
+// path can reach when the path is not a worktree at all.
+//
+// Removing a directory that is not there is answered with a prune, and a prune
+// takes the record of every worktree whose directory is missing -- an external
+// drive that is unplugged, a network share that is down. A path git has never
+// heard of must not be able to set that off, and it never removed anything, so
+// it should not report success either.
+func TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone(t *testing.T) {
+	repo := newRepo(t)
+	offline := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-offline")
+	if err := AddFrom(repo, offline, "offline", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(offline) })
+	// Stand in for a drive that is not mounted: the record is still good, the
+	// directory is simply not reachable at the moment.
+	if err := os.RemoveAll(offline); err != nil {
+		t.Fatal(err)
+	}
+
+	stranger := filepath.Join(t.TempDir(), "never-a-worktree")
+	if err := Remove(repo, stranger, false); err == nil {
+		t.Error("removing a path that is not a worktree should be refused")
+	}
+
+	wts, err := List(repo)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(wts) != 2 {
+		t.Errorf("the unrelated worktree's record was pruned: %d records left, want 2", len(wts))
+	}
+}
+
 // TestAddFromExistingBranchChecksItOut covers the "branch without a worktree"
 // shortcut.
 func TestAddFromExistingBranchChecksItOut(t *testing.T) {

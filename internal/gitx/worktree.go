@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -272,9 +273,22 @@ func branchExists(dir, branch string) bool {
 // usually disappear -- git refuses to remove a path that is not there. Pruning
 // the record it left behind is what the person pressing remove meant, and it
 // is the only thing left to do.
+//
+// That prune is why the path is checked against the repository's own list
+// first. It is not selective: it discards the record of every worktree whose
+// directory is missing, including one sitting on a drive that happens to be
+// unplugged. A path git has never heard of should not be able to set that off,
+// and reporting "removed" for it was a lie besides.
 func Remove(repoDir, path string, force bool) error {
 	if strings.TrimSpace(path) == "" {
 		return &gitError{"which worktree? no path was given"}
+	}
+	known, err := isWorktree(repoDir, path)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return &gitError{path + " is not a worktree of this repository"}
 	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return Prune(repoDir)
@@ -284,8 +298,36 @@ func Remove(repoDir, path string, force bool) error {
 		args = append(args, "--force")
 	}
 	args = append(args, path)
-	_, err := run(repoDir, args...)
+	_, err = run(repoDir, args...)
 	return err
+}
+
+// isWorktree reports whether path is one of the repository's registered
+// worktrees.
+func isWorktree(repoDir, path string) (bool, error) {
+	wts, err := List(repoDir)
+	if err != nil {
+		return false, err
+	}
+	for _, wt := range wts {
+		if samePath(wt.Path, path) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// samePath compares two paths as the file system would.
+//
+// The two reach here from different places -- one from git, the other from
+// whatever the window sent back -- so on Windows they can name the same
+// directory in different case, which a plain comparison calls different.
+func samePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // DefaultWorktreePath suggests where a new worktree for a branch should live:
