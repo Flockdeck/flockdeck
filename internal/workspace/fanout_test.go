@@ -872,3 +872,50 @@ func TestBranchNameForCutsOnACharacter(t *testing.T) {
 		}
 	}
 }
+
+// Chinese and Japanese put no spaces between their words, so a whole sentence
+// in either is one field. Reading that as a single word — a spinner frame, or
+// the tail of a wrapped row — cost those plans not some of their items but all
+// of them.
+func TestExtractTasksReadsPlansWithoutSpaces(t *testing.T) {
+	cases := map[string][]string{
+		"japanese": {
+			"ルーターを三つのファイルに分割する",
+			"コントロールソケットにタイムアウトを追加する",
+			"再接続経路のテストを追加する",
+		},
+		"chinese": {
+			"把路由拆分成三个文件",
+			"给控制套接字加上超时",
+			"为重连路径补测试",
+		},
+	}
+	plans := map[string]string{
+		"japanese": "計画は次のとおりです:\n\n- ルーターを三つのファイルに分割する\n" +
+			"- コントロールソケットにタイムアウトを追加する\n- 再接続経路のテストを追加する\n",
+		"chinese": "计划如下:\n\n- 把路由拆分成三个文件\n" +
+			"- 给控制套接字加上超时\n- 为重连路径补测试\n",
+	}
+	for name, want := range cases {
+		got := ExtractTasks(plans[name])
+		if len(got) != len(want) {
+			t.Errorf("%s: extracted %#v, want %#v", name, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: task %d = %q, want %q", name, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// The one-word rule still does its job everywhere it was doing it: a lone word
+// in a language written with spaces is not a task.
+func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
+	plan := "Here is the plan:\n- Perambulating\n- Add a timeout to the control socket\n"
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the real task", got)
+	}
+}

@@ -321,7 +321,13 @@ func isTask(s string) bool {
 	}
 	// A task is a phrase. One word is a spinner frame or the tail of a row that
 	// was wrapped away from its own beginning.
-	if len(strings.Fields(s)) < 2 {
+	//
+	// That is a rule about languages which separate their words with spaces.
+	// Chinese and Japanese do not, so an entire sentence in either is one field
+	// and the rule threw away every line of the plan rather than some of it.
+	// Where there are no words to count, length is the measure, and the minimum
+	// above is already it.
+	if len(strings.Fields(s)) < 2 && !spaceless(s) {
 		return false
 	}
 	// Something that opens on punctuation is the middle of a line, not a task.
@@ -357,6 +363,17 @@ func isTask(s string) bool {
 		}
 	}
 	return !isProgress(s)
+}
+
+// spaceless reports whether s is written in a script that does not put spaces
+// between its words, which is what makes counting them meaningless.
+func spaceless(s string) bool {
+	for _, r := range s {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai) {
+			return true
+		}
+	}
+	return false
 }
 
 // terminalChrome is what Claude Code's interface draws around what its agent
