@@ -431,3 +431,38 @@ func TestViewerSizesForgetsTheLastWindow(t *testing.T) {
 		t.Error("dropping a window twice asked for a resize")
 	}
 }
+
+// TestAQuietWindowThatStoppedListeningIsLetGo covers the connection that
+// nothing else notices. A terminal socket sits idle whenever the pane is quiet
+// or its process has ended, and while it does the server never writes to it,
+// so a window that went away without closing would hold the pane's
+// subscription and this connection for as long as the instance ran.
+func TestAQuietWindowThatStoppedListeningIsLetGo(t *testing.T) {
+	defer func(i, o time.Duration) { pingInterval, pingTimeout = i, o }(pingInterval, pingTimeout)
+	pingInterval, pingTimeout = 100*time.Millisecond, 300*time.Millisecond
+
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	// Dialled and then never read from, so the window never answers a ping --
+	// which is what a window whose reader has stopped looks like from here.
+	pty := dialPTY(t, srv, paneID)
+
+	time.Sleep(pingInterval + pingTimeout + 500*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for {
+		_, _, err := pty.Read(ctx)
+		if err == nil {
+			continue
+		}
+		// Our own deadline expiring is the failure: it means the socket is
+		// still there and the server is still holding everything behind it.
+		if ctx.Err() != nil {
+			t.Fatal("the server is still holding a socket the window stopped answering on")
+		}
+		return
+	}
+}

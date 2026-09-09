@@ -26,6 +26,14 @@ type ptyControl struct {
 // see whether the pane has been given a new one.
 const restartPoll = 400 * time.Millisecond
 
+// pingInterval is how often an idle terminal socket is checked, and
+// pingTimeout how long the answer is waited for. They are variables so a test
+// does not have to sit through half a minute of quiet.
+var (
+	pingInterval = 30 * time.Second
+	pingTimeout  = 10 * time.Second
+)
+
 // handlePTY streams one pane's terminal: process output down, keystrokes up.
 //
 // Bytes are passed through untouched in both directions. The browser runs the
@@ -73,6 +81,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
 	go s.readInput(ctx, cancel, conn, id, viewer, &live)
+	go keepalive(ctx, cancel, conn)
 
 	for {
 		subID, replay, out := sess.Subscribe()
@@ -106,6 +115,39 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		}
 		sess = next
 		live.Store(sess)
+	}
+}
+
+// keepalive holds a quiet socket to account.
+//
+// A terminal socket can be idle for a long time and still be perfectly
+// healthy: a pane waiting on its agent prints nothing, and one whose process
+// has exited is held open for as long as it takes someone to restart it. In
+// neither case does the server touch the connection, so a window that went
+// away without saying so -- killed, or with a reader wedged behind an input
+// write that will not complete -- is never found out, and the pane's
+// subscription, this connection and its poll of the workspace are held for as
+// long as the instance runs.
+//
+// A ping has to be answered by the window's own read loop, so it also tells
+// the difference between a window that is merely quiet and one that has
+// stopped listening.
+func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn) {
+	defer cancel()
+	tick := time.NewTicker(pingInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			pingCtx, done := context.WithTimeout(ctx, pingTimeout)
+			err := conn.Ping(pingCtx)
+			done()
+			if err != nil {
+				return
+			}
+		}
 	}
 }
 
