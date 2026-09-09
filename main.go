@@ -394,6 +394,10 @@ func run(opts options) error {
 // caller exits without repeating it.
 var errReported = errors.New("already reported")
 
+// errHelpAsked marks `spawn -h`: the usage has been printed and there is
+// nothing left to do, so the command succeeds rather than failing.
+var errHelpAsked = errors.New("usage shown")
+
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
 //
@@ -415,6 +419,35 @@ func paneEnv(name string) string {
 }
 
 func runSpawn(args []string) error {
+	req, err := parseSpawn(args)
+	if errors.Is(err, errHelpAsked) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	api := paneEnv("API")
+	token := paneEnv("TOKEN")
+	pane := paneEnv("PANE")
+	if api == "" || token == "" {
+		return fmt.Errorf("this only works inside a perch pane")
+	}
+
+	id, err := hooks.Spawn(api, token, pane, req)
+	if err != nil {
+		return err
+	}
+	fmt.Println("started agent", id)
+	return nil
+}
+
+// parseSpawn turns the arguments of `perch spawn` into the request to send.
+// It is separate from sending it so the parsing can be tested without an
+// instance to spawn into.
+//
+// An error of errReported means the flag set has already said what was wrong;
+// a nil request with a nil error means the caller asked for the usage.
+func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
@@ -427,39 +460,72 @@ func runSpawn(args []string) error {
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(orderSpawnArgs(args)); err != nil {
 		// `spawn -h` is the user asking for the usage they have just been
 		// given, not a failure to report on top of it.
 		if errors.Is(err, flag.ErrHelp) {
-			return nil
+			return hooks.SpawnRequest{}, errHelpAsked
 		}
-		return errReported
-	}
-
-	api := paneEnv("API")
-	token := paneEnv("TOKEN")
-	pane := paneEnv("PANE")
-	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a perch pane")
+		return hooks.SpawnRequest{}, errReported
 	}
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if task == "" && !*shell {
 		fs.Usage()
-		return fmt.Errorf("a task is required")
+		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
 	}
-
-	id, err := hooks.Spawn(api, token, pane, hooks.SpawnRequest{
+	return hooks.SpawnRequest{
 		Task:   task,
 		Branch: *worktree,
 		Split:  *split,
 		Shell:  *shell,
-	})
-	if err != nil {
-		return err
+	}, nil
+}
+
+// spawnFlagTakesValue names the flags `spawn` accepts, and says which of them
+// is followed by a value.
+var spawnFlagTakesValue = map[string]bool{
+	"worktree": true,
+	"split":    false,
+	"shell":    false,
+}
+
+// orderSpawnArgs moves the flags in front of the task.
+//
+// Go's flag package stops at the first argument that is not a flag, which for
+// this command is the task — so `perch spawn "watch the build" --split` parses
+// no flags at all and quietly folds "--split" into the task text. The agent
+// then gets a pane in a new tab, with a task ending in a word it did not
+// write, and nothing anywhere says why. Since the task is the one argument
+// that is never a flag, the two can be told apart wherever they appear.
+//
+// Anything after a bare "--" is task text, which is how a task whose own first
+// word begins with a dash is written.
+func orderSpawnArgs(args []string) []string {
+	var flags, task []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			task = append(task, args[i+1:]...)
+			break
+		}
+		// An unknown flag is still passed to the flag set rather than swallowed
+		// into the task: `-h` has to reach it, and a typo has to be reported
+		// rather than silently prepended to what the agent is asked to do.
+		if len(arg) > 1 && arg[0] == '-' {
+			flags = append(flags, arg)
+			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			if spawnFlagTakesValue[name] && !hasValue && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+			continue
+		}
+		task = append(task, arg)
 	}
-	fmt.Println("started agent", id)
-	return nil
+	// The separator keeps a task word that begins with a dash — which only
+	// reaches here after an explicit "--" — from being read as a flag again.
+	return append(flags, append([]string{"--"}, task...)...)
 }
 
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.
