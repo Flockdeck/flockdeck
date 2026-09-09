@@ -32,6 +32,16 @@ depending on guessing when the interface is ready.
 Every child is a normal pane. Watch it, type into it, and review and commit
 its work from **Changes**.
 
+## How many at once
+
+A fan-out will start at most **12** agents. Each one is a real Claude session
+in a real terminal, and past a dozen it is the machine rather than the plan
+that decides how well they run. If the list you have edited is longer, the
+first 12 are started and it says so; start the rest as a second fan-out once
+some of the first have finished.
+
+Blank lines in the box are not tasks and do not count towards it.
+
 ## When only some of them start
 
 A task that cannot be started does not cancel the others. Each one that fails

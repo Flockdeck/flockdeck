@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/workspace"
 )
 
@@ -391,5 +393,28 @@ func TestLocalBranchesFoldCase(t *testing.T) {
 	nameBranches(jobs, taken)
 	if strings.EqualFold(jobs[0].branch, base) {
 		t.Errorf("branch = %q, which differs from an existing branch only by case", jobs[0].branch)
+	}
+}
+
+// The cap is a number the user meets — a plan of twenty tasks starts twelve
+// agents and says so — and the help page states it. A page that names a
+// different limit than the one enforced is worse than one that names none,
+// because the user plans around it.
+func TestHelpNamesTheCapTheServerEnforces(t *testing.T) {
+	pages, err := help.Pages()
+	if err != nil {
+		t.Fatalf("help.Pages: %v", err)
+	}
+	var text string
+	for _, p := range pages {
+		if p.Slug == "fanout" {
+			text = p.Text
+		}
+	}
+	if text == "" {
+		t.Fatal("no fan-out help page")
+	}
+	if want := strconv.Itoa(workspace.MaxTasks); !strings.Contains(text, want) {
+		t.Errorf("the fan-out page does not name the cap of %s that the server enforces", want)
 	}
 }
