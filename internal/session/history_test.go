@@ -769,3 +769,45 @@ func TestConversationsDescribeEveryTranscriptCorrectly(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationsFindAFolderWhoseTranscriptsOpenWithBookkeeping covers what
+// a transcript actually starts with. Before the conversation there are
+// entries Claude Code writes for itself -- the mode, the permission mode, a
+// bridge record, a compaction summary -- and none of them names a directory,
+// so the entry that does can be a long way down. A folder Claude named
+// differently from the name derived here is found only by what its
+// transcripts record, and giving up too early hides the whole project.
+func TestConversationsFindAFolderWhoseTranscriptsOpenWithBookkeeping(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	cwd := filepath.Join(t.TempDir(), "renamed")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var lines []string
+	for i := 0; i < 25; i++ {
+		lines = append(lines, `{"type":"mode","mode":"normal"}`)
+	}
+	lines = append(lines,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"buried under the preamble"}}`)
+
+	// A folder whose name is not the one derived from the path, so the only
+	// way to it is what the transcript records.
+	writeTranscript(t, filepath.Join(home, "projects", "a-name-of-its-own"),
+		"eeeeeeee-1111-1111-1111-111111111111", lines...)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Summary != "buried under the preamble" {
+		t.Errorf("summary = %q", got[0].Summary)
+	}
+}

@@ -335,6 +335,17 @@ func sameDir(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
+// cwdScanLimit bounds how far into a transcript the working directory it
+// records is looked for.
+//
+// A transcript does not open with the conversation. It opens with Claude
+// Code's own bookkeeping -- the mode, the permission mode, a bridge record, a
+// compaction summary -- and none of those entries names a directory. Across
+// the transcripts on this machine the first entry that does was as far down
+// as the twenty-sixth, so the ten this used to look at wrote off one
+// transcript in twenty as saying nothing about where it ran.
+const cwdScanLimit = 60
+
 // transcriptCwd reads the working directory a transcript records.
 func transcriptCwd(path string) string {
 	f, err := os.Open(path)
@@ -343,7 +354,7 @@ func transcriptCwd(path string) string {
 	}
 	defer f.Close()
 	lines := newTranscriptReader(f)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < cwdScanLimit; i++ {
 		raw, ok := lines.next()
 		if !ok {
 			break
