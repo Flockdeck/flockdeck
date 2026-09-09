@@ -4,6 +4,13 @@
 //
 // It deliberately knows nothing about rendering or key bindings, so the layout
 // and session lifecycle can be exercised without a user interface.
+//
+// A tab belongs to a project and so does a pane, and the two need not agree: a
+// tab can show agents from more than one project side by side. The tab's
+// project decides which tab bar draws it. The pane's project decides what the
+// agent is told it is working in, whose summary counts it as waiting, and what
+// stops it when a project closes — so anything grouping panes by project asks
+// rootOf, never the tab the pane happens to sit on.
 package workspace
 
 import (
