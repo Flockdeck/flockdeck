@@ -151,10 +151,13 @@
 
   /** Live pane records, keyed by pane id. */
   const panes = new Map();
-  /** Rendered tab pages, in tab order. */
-  let tabPages = [];
-  /** Structure of the last render, so state pushes do not rebuild needlessly. */
-  let lastStructure = "";
+  /** The page each tab is drawn on, and the shape it was drawn with, both by
+   *  tab id. Keeping them per tab is what lets one tab change without the
+   *  others being taken apart. */
+  const tabPages = new Map();
+  const tabShapes = new Map();
+  /** The "no tabs open" placeholder, which is not a tab page. */
+  let emptyPage = null;
   /** Which tab is currently on screen, so a switch can be told from a redraw. */
   let shownTab = "";
   /** Which pane the keyboard was last handed to, so a new pane, a closed one
@@ -233,19 +236,7 @@
 
   function applyState(s) {
     state = s;
-    // Zoom changes which panes are on screen, so it belongs in the structural
-    // signature; while zoomed, so does the focused pane.
-    const structure = JSON.stringify(s.tabs.map((t) => ({
-      tree: structureOf(t.root),
-      zoom: t.zoom,
-      focus: t.zoom ? t.focus : "",
-    }))) + "|" + s.tabs.length;
-    let rebuilt = false;
-    if (structure !== lastStructure) {
-      lastStructure = structure;
-      rebuildLayout(s);
-      rebuilt = true;
-    }
+    const rebuilt = rebuildChangedTabs(s);
     applyWeights(s);
     showActiveTab(s, rebuilt);
     renderTabs(s);
@@ -276,13 +267,35 @@
 
   // ----------------------------------------------------------------- layout
 
-  function rebuildLayout(s) {
+  /** shapeOf is what a tab has to be redrawn for. Weights are left out so a
+   *  drag does not rebuild anything; zoom is in, because it changes which
+   *  panes are on screen, and while zoomed so is the focused pane. */
+  function shapeOf(tab) {
+    return JSON.stringify({
+      tree: structureOf(tab.root),
+      zoom: tab.zoom,
+      focus: tab.zoom ? tab.focus : "",
+    });
+  }
+
+  /** rebuildChangedTabs redraws the tabs whose shape has changed, leaves the
+   *  rest standing, and reports whether the tab on screen was one of them.
+   *
+   *  The panes survive a rebuild — they are kept in the registry and put back —
+   *  but being taken out of the document and returned is not nothing. A
+   *  terminal loses the selection in it, which is how output is copied out of
+   *  one, and anything part-typed through an input method. Rebuilding every tab
+   *  because one of them changed meant that fanning a plan out, which changes
+   *  another tab's shape once per agent it starts, did that to the pane you
+   *  were reading, several times in a row. */
+  function rebuildChangedTabs(s) {
     const host = $("workspace");
-    host.textContent = "";
-    tabPages = [];
-    splitNodes.clear();
 
     if (!s.tabs.length) {
+      host.textContent = "";
+      tabPages.clear();
+      tabShapes.clear();
+      splitNodes.clear();
       const empty = el("div", "empty");
       empty.append(el("p", null, "No tabs open."));
       const b = el("button", "chip primary", "New agent tab");
@@ -291,22 +304,43 @@
       h.onclick = () => openHelp("getting-started");
       empty.append(b, h);
       host.append(empty);
-      return;
+      emptyPage = empty;
+      return true;
     }
+    // The "no tabs" placeholder is not a tab page, so it goes by hand.
+    if (emptyPage) { emptyPage.remove(); emptyPage = null; }
 
-    s.tabs.forEach((tab) => {
-      const page = el("div", "tab-page");
-      if (tab.zoom && tab.focus) {
-        // A zoomed pane takes the whole tab. The others stay in the pane
-        // registry with their terminals and connections intact, simply
-        // detached from the document until the zoom is released.
-        page.append(ensurePane(tab.focus).wrap);
-      } else {
-        page.append(buildNode(tab.root, tab));
+    let activeRebuilt = false;
+    s.tabs.forEach((tab, i) => {
+      const shape = shapeOf(tab);
+      let page = tabPages.get(tab.id);
+      if (!page || tabShapes.get(tab.id) !== shape) {
+        if (page) page.remove();
+        page = el("div", "tab-page");
+        if (tab.zoom && tab.focus) {
+          // A zoomed pane takes the whole tab. The others stay in the pane
+          // registry with their terminals and connections intact, simply
+          // detached from the document until the zoom is released.
+          page.append(ensurePane(tab.focus).wrap);
+        } else {
+          page.append(buildNode(tab.root, tab));
+        }
+        tabPages.set(tab.id, page);
+        tabShapes.set(tab.id, shape);
+        if (tab.id === s.activeTab) activeRebuilt = true;
       }
-      host.append(page);
-      tabPages.push(page);
+      if (host.childNodes[i] !== page) host.insertBefore(page, host.childNodes[i] || null);
     });
+
+    for (const [id, page] of tabPages) {
+      if (s.tabs.some((t) => t.id === id)) continue;
+      page.remove();
+      tabPages.delete(id);
+      tabShapes.delete(id);
+    }
+    // Splits that went with a page that has been replaced.
+    for (const [id, node] of splitNodes) if (!node.isConnected) splitNodes.delete(id);
+    return activeRebuilt;
   }
 
   function buildNode(node, tab) {
@@ -501,9 +535,9 @@
   function showActiveTab(s, rebuilt) {
     let idx = s.tabs.findIndex((t) => t.id === s.activeTab);
     if (idx < 0) idx = 0;
-    tabPages.forEach((page, i) => { page.hidden = i !== idx; });
-    // A terminal cannot measure itself while hidden, so refit on reveal.
     const tab = s.tabs[idx];
+    for (const [id, page] of tabPages) page.hidden = !tab || id !== tab.id;
+    // A terminal cannot measure itself while hidden, so refit on reveal.
     if (!tab) { shownTab = ""; shownFocus = ""; return; }
     const ids = new Set();
     collectPanes(tab.root, ids);
@@ -515,11 +549,12 @@
     // the click that caused the switch left the focus on the tab button, and
     // the revealed terminal would ignore everything typed at it.
     //
-    // A rebuild needs the same treatment for a different reason: it empties
-    // the workspace and puts the panes back, which blurs whatever the
-    // keyboard was in. Splitting, closing, zooming and dragging all rebuild,
-    // so without this a fresh pane would arrive with nowhere to type and the
-    // pane you were in would go deaf.
+    // Rebuilding this tab needs the same treatment for a different reason: it
+    // takes the panes out of the document and puts them back, which blurs
+    // whatever the keyboard was in. Splitting, closing, zooming and dragging
+    // all rebuild, so without this a fresh pane would arrive with nowhere to
+    // type and the pane you were in would go deaf. A rebuild of some other
+    // tab leaves this one alone and is none of its business.
     const moved = tab.id !== shownTab || tab.focus !== shownFocus || rebuilt;
     shownTab = tab.id;
     shownFocus = tab.focus;

@@ -875,6 +875,69 @@ assert.strictEqual(input.getAttribute("aria-invalid"), "false");
 `)
 }
 
+// Fanning a plan out changes another tab's shape once per agent it starts.
+// Redrawing every tab for that took the pane being read out of the document
+// and put it back, which is what costs a terminal the selection in it.
+func TestOneTabChangingLeavesTheOthersStanding(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+const reading = { id: "t1", title: "reading", focus: "p1", root: leaf("n1", "p1") };
+const working = { id: "t2", title: "fan out", focus: "p2", root: leaf("n2", "p2") };
+const panesIn = { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "planner" }) };
+h.recv(fixture({ activeTab: "t1", tabs: [reading, working], panes: panesIn }));
+
+const page = h.doc.querySelector("div.tab-page");
+const wrap = h.doc.querySelector("div.pane");
+assert.ok(page && wrap, "the tab on screen was drawn");
+const settled = wrap.adoptions;
+
+// The other tab grows a pane, three times over, the way a fan-out does.
+for (let n = 2; n <= 4; n++) {
+  const kids = [];
+  for (let i = 1; i <= n; i++) {
+    panesIn["q" + i] = pane("q" + i, { name: "task " + i });
+    kids.push(leaf("m" + i, "q" + i));
+  }
+  h.recv(fixture({ activeTab: "t1",
+    tabs: [reading, { id: "t2", title: "fan out", focus: "q1", root: split("h", kids) }],
+    panes: panesIn }));
+  assert.ok(h.doc.querySelectorAll("div.tab-page")[0] === page,
+    "the tab on screen was rebuilt because another tab changed");
+  assert.strictEqual(wrap.adoptions, settled,
+    "the pane being read was taken out of the document and put back");
+}
+console.log("times the pane being read was taken out of the document and put back "
+  + "by three fan-out steps in another tab: " + (wrap.adoptions - settled));
+
+// The tab that changed did change: four panes in it now.
+h.recv(fixture({ activeTab: "t2",
+  tabs: [reading, { id: "t2", title: "fan out", focus: "q1", root: split("h",
+    [leaf("m1", "q1"), leaf("m2", "q2"), leaf("m3", "q3"), leaf("m4", "q4")]) }],
+  panes: panesIn }));
+const pages = h.doc.querySelectorAll("div.tab-page");
+assert.strictEqual(pages.length, 2, "a page per tab");
+assert.ok(pages[0].hidden && !pages[1].hidden, "the wrong page is on screen");
+assert.strictEqual(pages[1].querySelectorAll("div.pane").length, 4, "the fanned-out tab is not drawn");
+
+// And this tab's own shape still redraws it, and hands back the keyboard.
+h.recv(fixture({ activeTab: "t2",
+  tabs: [reading, { id: "t2", title: "fan out", focus: "q1", root: split("h",
+    [leaf("m1", "q1"), leaf("m2", "q2")]) }],
+  panes: { p1: panesIn.p1, q1: panesIn.q1, q2: panesIn.q2 } }));
+assert.strictEqual(h.doc.querySelectorAll("div.tab-page")[1].querySelectorAll("div.pane").length, 2);
+assert.ok(h.terms.filter((t) => !t.disposed).some((t) => t.focused), "no terminal has the keyboard");
+
+// The last tab closing leaves the placeholder, and opening one takes it away.
+h.recv(fixture({ activeTab: "", tabs: [], panes: {} }));
+assert.ok(h.doc.querySelector("div.empty"), "there is nothing to say the workspace is empty");
+assert.strictEqual(h.doc.querySelectorAll("div.tab-page").length, 0);
+h.recv(fixture({ activeTab: "t1", tabs: [reading], panes: { p1: panesIn.p1 } }));
+assert.ok(!h.doc.querySelector("div.empty"), "the placeholder was left behind under the new tab");
+assert.strictEqual(h.doc.querySelectorAll("div.tab-page").length, 1);
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -978,6 +1041,9 @@ class Element {
     if (typeof n === "string") n = new TextNode(n);
     if (n.parentElement) n.parentElement.removeChild(n);
     n.parentElement = this;
+    // Counted so a test can say whether an element was taken out of the
+    // document and put back, which is what costs a terminal its selection.
+    n.adoptions = (n.adoptions || 0) + 1;
     return n;
   }
   append(...kids) { kids.forEach((k) => this.childNodes.push(this._adopt(k))); }
