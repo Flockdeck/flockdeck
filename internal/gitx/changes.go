@@ -244,6 +244,15 @@ func looksBinary(data []byte) bool {
 // every refresh of the panel, and one of them can be a multi-gigabyte log or
 // model checkpoint that nobody wants held in memory to be counted.
 func countLines(path string) int {
+	// Only a regular file is opened. git lists a named pipe in a working
+	// tree as an untracked file like any other, and opening one blocks until
+	// somebody writes to it -- with no deadline here, that is the review
+	// panel waiting for good on a file nobody is going to write to. A
+	// symlink is skipped for a different reason: what git counts for one is
+	// the link itself, not whatever is on the other end of it.
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		return 0
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return 0
@@ -312,8 +321,23 @@ func Diff(dir, path string) (string, error) {
 		return "", &gitError{"not a path inside the working tree: " + path}
 	}
 	full := filepath.Join(dir, path)
-	if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
-		if untracked(dir, path) {
+	// Lstat, so a symlink is seen as a symlink rather than as whatever it
+	// points at. Anything that is neither a regular file nor a symlink -- a
+	// named pipe, a device -- is left to git below rather than opened here,
+	// where reading it could block until something else writes to it.
+	if fi, err := os.Lstat(full); err == nil && !fi.IsDir() && untracked(dir, path) {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			// git stores a symlink as the path it points at and shows that
+			// as the file's one line. Following it would print the contents
+			// of whatever is on the other end, which is not what was added
+			// and need not even be inside the working tree.
+			target, err := os.Readlink(full)
+			if err != nil {
+				return "", err
+			}
+			return renderAsAddition(path, target, 0), nil
+		}
+		if fi.Mode().IsRegular() {
 			// Only as much as the panel will show is read: a new file can be
 			// a gigabyte of generated output.
 			data, size, err := readCapped(full, maxDiffBytes+1)

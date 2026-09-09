@@ -277,6 +277,34 @@ func TestDiffIgnoresTheUsersDiffConfig(t *testing.T) {
 	}
 }
 
+// TestUntrackedSymlinkIsShownAsTheLink covers a new symlink in a working tree.
+//
+// git records a symlink as the path it points at, so that is what a diff of
+// one should show. Reading through it instead prints the contents of whatever
+// is on the other end, which is not what was added and need not be inside the
+// working tree at all -- node_modules/.bin and a checked-out framework are
+// both full of links leading elsewhere.
+func TestUntrackedSymlinkIsShownAsTheLink(t *testing.T) {
+	repo := newRepo(t)
+	private := t.TempDir()
+	write(t, private, "private.txt", "TOP SECRET\n")
+	elsewhere := filepath.Join(private, "private.txt")
+	if err := os.Symlink(elsewhere, filepath.Join(repo, "link")); err != nil {
+		t.Skipf("symlinks cannot be created here: %v", err)
+	}
+
+	diff, err := Diff(repo, "link")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.Contains(diff, "TOP SECRET") {
+		t.Errorf("the diff followed the link and printed what it points at:\n%s", diff)
+	}
+	if !strings.Contains(diff, "private.txt") {
+		t.Errorf("the diff does not show the link's target:\n%s", diff)
+	}
+}
+
 // TestChangesReportsAwkwardNames covers the names git quotes and escapes: a
 // path taken from its quoted form does not name a file that can be opened.
 func TestChangesReportsAwkwardNames(t *testing.T) {
