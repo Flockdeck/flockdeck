@@ -2193,3 +2193,39 @@ func TestResizeReachesTheSplitThatCanGive(t *testing.T) {
 		t.Error("a has nothing stacked with it, so there is no height to take")
 	}
 }
+
+// TestATabWithNoRoomAtAllGivesEveryPaneNothing covers the tab measured into a
+// box with no cells in it, which is what a window collapsed to nothing hands
+// down. A pane is owed a cell everywhere else, but there is no cell here to
+// give it, and a pane an inch outside a tab of no width would be worse than a
+// pane of no width: everything that answers a question about the screen —
+// which pane is left of this, what is under the pointer — would be answering
+// about somewhere the tab is not.
+func TestATabWithNoRoomAtAllGivesEveryPaneNothing(t *testing.T) {
+	for _, view := range []Rect{{X: 4, Y: 7, W: 0, H: 20}, {X: 4, Y: 7, W: 20, H: 0}, {X: 0, Y: 0, W: 0, H: 0}} {
+		root := NewLeaf("p0")
+		for i := 1; i < 5; i++ {
+			root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Dir(i%2))
+		}
+		root.Compute(view)
+
+		for _, l := range root.Leaves() {
+			r := l.Rect()
+			if r.W < 0 || r.H < 0 {
+				t.Errorf("view %+v: %s got %+v, which is less than nothing", view, l.Pane, r)
+			}
+			if r.X < view.X || r.Y < view.Y || r.X+r.W > view.X+view.W || r.Y+r.H > view.Y+view.H {
+				t.Errorf("view %+v: %s at %+v is outside it", view, l.Pane, r)
+			}
+		}
+		// And no arrow key sends the focus wandering off into it.
+		for _, d := range []Direction{Left, Right, Up, Down} {
+			if got := root.Neighbor("p2", d); got != "" {
+				t.Errorf("view %+v: %d of p2 = %q, want no answer at all", view, d, got)
+			}
+		}
+		if got := root.PaneAt(view.X, view.Y); got != "" {
+			t.Errorf("view %+v: the first cell resolves to %q, and there is no first cell", view, got)
+		}
+	}
+}
