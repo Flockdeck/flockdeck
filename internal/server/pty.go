@@ -266,6 +266,7 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 	// rather than hundreds, and the subscriber queue drains fast enough that
 	// the viewer is not dropped for falling behind in the middle of one.
 	var buf []byte
+	var sent time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -276,10 +277,11 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 				return true
 			}
 			var ended bool
-			buf, ended = coalesce(buf[:0], chunk, out)
+			buf, ended = coalesce(ctx, buf[:0], chunk, out, minFrameGap-time.Since(sent))
 			if err := writeChunk(ctx, conn, buf); err != nil {
 				return false
 			}
+			sent = time.Now()
 			if ended {
 				return true
 			}
@@ -287,20 +289,41 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 	}
 }
 
-// coalesceLimit bounds one frame. Merging is only worth doing up to the point
-// where the frame itself is the thing the window waits on: past this the
-// remainder goes out as the next frame, which the terminal draws just as
-// happily.
-const coalesceLimit = 256 << 10
+const (
+	// coalesceLimit bounds one frame. Merging is only worth doing up to the
+	// point where the frame itself is the thing the window waits on: past this
+	// the remainder goes out as the next frame, which the terminal draws just
+	// as happily.
+	coalesceLimit = 256 << 10
 
-// coalesce appends chunk, and whatever else the session has already queued, to
-// buf. It never waits for more: only output that has already been produced is
-// merged, so nothing is held back to see whether more arrives.
+	// minFrameGap is the closest together two frames for one pane are sent.
+	//
+	// Draining the queue only helps when there is a queue, and a pane that
+	// prints steadily and fast -- an agent streaming its answer a token at a
+	// time, a spinner, a progress bar -- never builds one on a loopback
+	// socket: each small write is delivered before the next arrives, so it
+	// costs a frame of its own. Hundreds a second reach the window, which
+	// cannot draw more than its display refreshes anyway, and every one of
+	// them is a parse and a render it does not need.
+	//
+	// So output arriving within this of the last frame waits for the rest of
+	// the gap and leaves with whatever else turns up. It is shorter than a
+	// refresh at any ordinary rate, so nothing is on screen later than it
+	// would have been; and a keystroke echoed into a quiet pane is not
+	// affected at all, because the gap has long since passed.
+	minFrameGap = 8 * time.Millisecond
+)
+
+// coalesce appends chunk, and whatever else is queued behind it, to buf.
+//
+// Everything already produced is taken without waiting. If wait is positive
+// and there is room left in the frame, it then gathers for that long, which is
+// what paces a pane printing faster than a window can draw.
 //
 // ended reports that the stream closed while draining, which the caller must
 // still act on -- after sending what was collected, since those bytes are the
 // last thing the process printed.
-func coalesce(buf, chunk []byte, out <-chan []byte) (data []byte, ended bool) {
+func coalesce(ctx context.Context, buf, chunk []byte, out <-chan []byte, wait time.Duration) (data []byte, ended bool) {
 	buf = append(buf, chunk...)
 	for len(buf) < coalesceLimit {
 		select {
@@ -310,6 +333,31 @@ func coalesce(buf, chunk []byte, out <-chan []byte) (data []byte, ended bool) {
 			}
 			buf = append(buf, next...)
 		default:
+			return gather(ctx, buf, out, wait)
+		}
+	}
+	return buf, false
+}
+
+// gather waits out the rest of the frame gap, collecting whatever the pane
+// prints meanwhile. A frame that is already full does not wait: volume is
+// dealt with by the size bound, and pacing is for frequency.
+func gather(ctx context.Context, buf []byte, out <-chan []byte, wait time.Duration) ([]byte, bool) {
+	if wait <= 0 || len(buf) >= coalesceLimit {
+		return buf, false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for len(buf) < coalesceLimit {
+		select {
+		case next, ok := <-out:
+			if !ok {
+				return buf, true
+			}
+			buf = append(buf, next...)
+		case <-timer.C:
+			return buf, false
+		case <-ctx.Done():
 			return buf, false
 		}
 	}

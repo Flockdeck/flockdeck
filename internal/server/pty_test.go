@@ -466,3 +466,65 @@ func TestAQuietWindowThatStoppedListeningIsLetGo(t *testing.T) {
 		return
 	}
 }
+
+// TestSteadyOutputIsPacedIntoFewerFrames is the case draining a backlog does
+// not cover: a pane printing steadily and fast never builds one on a loopback
+// socket, because each small write is delivered before the next arrives. Every
+// one used to cost a frame, and the window cannot draw more of them than its
+// display refreshes.
+func TestSteadyOutputIsPacedIntoFewerFrames(t *testing.T) {
+	const chunks, size = 400, 64
+	// Unbuffered, so the pane and the socket take turns: nothing queues up
+	// ahead of the reader, which is what makes this different from a burst.
+	out := make(chan []byte)
+	conn := streamPair(t, nil, out)
+
+	go func() {
+		defer close(out)
+		for i := range chunks {
+			out <- bytes.Repeat([]byte{byte('a' + i%26)}, size)
+		}
+	}()
+
+	start := time.Now()
+	got, frames := readAllFrames(t, conn)
+	elapsed := time.Since(start)
+
+	if len(got) != chunks*size {
+		t.Fatalf("got %d bytes, want %d", len(got), chunks*size)
+	}
+	// Pacing puts a ceiling on frames per second; anything near one frame per
+	// chunk means the stream was not paced at all.
+	ceiling := int(elapsed/minFrameGap) + 4
+	if frames > ceiling {
+		t.Errorf("%d chunks over %v arrived in %d frames, want at most %d",
+			chunks, elapsed, frames, ceiling)
+	}
+}
+
+// TestAQuietPaneIsNotPaced is the other half of pacing, and the half that
+// matters more: a pane that has not printed for a while must send what it
+// prints next straight away. This is the keystroke echo, and holding it for
+// even a frame gap would be felt in the typing.
+func TestAQuietPaneIsNotPaced(t *testing.T) {
+	const echoes = 5
+	out := make(chan []byte)
+	conn := streamPair(t, nil, out)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var spent time.Duration
+	for range echoes {
+		time.Sleep(2 * minFrameGap)
+		out <- []byte("x")
+		start := time.Now()
+		if _, _, err := conn.Read(ctx); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		spent += time.Since(start)
+	}
+	if spent >= echoes*minFrameGap {
+		t.Errorf("%d echoes into a quiet pane took %v in total, which is a frame gap (%v) each",
+			echoes, spent, minFrameGap)
+	}
+}
