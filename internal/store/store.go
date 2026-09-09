@@ -407,30 +407,60 @@ func syncDir(dir string) {
 	_ = f.Sync()
 }
 
-// renameWithRetry replaces dst with src, retrying briefly on failure.
+// A file another process is holding open is the one failure in this package
+// worth waiting out rather than reporting, so both the reads and the rename
+// keep trying for this long before they give up.
 //
-// On Windows replacing a file fails outright with a sharing violation while
-// anything else holds it open, and these files are opened constantly — by the
-// other instance saving at the same moment, and by the virus scanner
-// and search indexer that follow every write in the user's AppData directory.
-// Those holds last microseconds, so a few retries turn a lost save into a
-// slightly slower one. On other platforms the first attempt always decides it.
+// The budget is a length of time and not a count of tries, because what
+// decides it is how long somebody else keeps the file, not how many times we
+// ask. Backing off to a cap rather than doubling without one spends the same
+// second on many more attempts, which is what a sparse tail of long holds
+// needs. A second is a long time to spend on the way out; losing the layout is
+// worse, and a rename that is never going to work is a broken installation
+// that fails on every save anyway.
+const (
+	contentionBudget   = time.Second
+	contentionMaxDelay = 32 * time.Millisecond
+)
+
+// backOff waits before the next attempt and returns the next wait, doubling up
+// to the cap.
+func backOff(delay time.Duration) time.Duration {
+	time.Sleep(delay)
+	if delay *= 2; delay > contentionMaxDelay {
+		return contentionMaxDelay
+	}
+	return delay
+}
+
+// renameWithRetry replaces dst with src, waiting out anything holding dst.
+//
+// On Windows replacing a file fails outright while anything else has it open —
+// any handle at all, whatever sharing it asked for — and these files are
+// opened constantly: by the other instance saving or restoring at the same
+// moment, and by the virus scanner and search indexer that follow every write
+// in the user's AppData directory. On other platforms the first attempt always
+// decides it.
+//
+// Most holds are gone by the first retry. Measured with four writers on one
+// state directory, the tail reached eight tries, which was every try there
+// used to be: the saves just past it were not slow, they were lost, and a lost
+// save is a workspace the user does not get back.
 func renameWithRetry(src, dst string) error {
+	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
-	var err error
-	for attempt := 0; attempt < 8; attempt++ {
-		if err = os.Rename(src, dst); err == nil {
+	for {
+		err := os.Rename(src, dst)
+		if err == nil {
 			return nil
 		}
 		// A missing source is our own bug, not contention: retrying it would
 		// only turn an immediate error into a delayed one.
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) || time.Now().After(deadline) {
 			return err
 		}
-		time.Sleep(delay)
-		delay *= 2
+		delay = backOff(delay)
 	}
-	return err
 }
 
 // readState reads a state file, retrying briefly on a failure that means
@@ -448,20 +478,18 @@ func renameWithRetry(src, dst string) error {
 // contention, and are handed straight back. A sharing violation is neither of
 // those, so it is not caught by those two and does get retried.
 func readState(path string) ([]byte, error) {
+	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
-	var err error
-	for attempt := 0; attempt < 8; attempt++ {
-		var data []byte
-		if data, err = os.ReadFile(path); err == nil {
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil {
 			return data, nil
 		}
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || time.Now().After(deadline) {
 			return nil, err
 		}
-		time.Sleep(delay)
-		delay *= 2
+		delay = backOff(delay)
 	}
-	return nil, err
 }
 
 // hashRoot turns a path into a short stable filename component.

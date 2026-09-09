@@ -1813,7 +1813,8 @@ func TestStateFileNamesAreFixed(t *testing.T) {
 //
 // One instance already does several of these at once — the interface saves on
 // its own goroutine while the hook server touches projects on another — and
-// two instances do all of them. Nothing here may leave a file that the next
+// two instances do all of them. Four writers is more than that on purpose:
+// this is the corner where the retries have to hold up. Nothing here may leave a file that the next
 // start cannot read, and nothing may leave debris in the state directory: a
 // half-written layout is a workspace the user does not get back.
 func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
@@ -1836,7 +1837,7 @@ func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
 			t.Errorf("%s: %v", what, err)
 		}
 	}
-	for w := 0; w < 2; w++ {
+	for w := 0; w < 4; w++ {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
@@ -1903,5 +1904,66 @@ func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
 		if strings.HasSuffix(e.Name(), damagedSuffix) {
 			t.Errorf("%s was written badly enough that it had to be quarantined", e.Name())
 		}
+	}
+}
+
+// TestASaveWaitsOutAHoldOnTheFileItReplaces checks a save survives another
+// process keeping the file for longer than a moment.
+//
+// On Windows a rename cannot replace a file anything else has open, whatever
+// sharing either side asked for, so every read the other instance makes of a
+// layout stops this one saving it. Those holds are usually gone by the first
+// retry, but the tail is long, and past the end of the retries the save is not
+// slow — it is lost, and with it the tabs it was carrying.
+func TestASaveWaitsOutAHoldOnTheFileItReplaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows lets an open file stand in the way of the rename that replaces it")
+	}
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "layout.json")
+	if err := os.WriteFile(dst, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := filepath.Join(dir, "layout.json.tmp1")
+	if err := os.WriteFile(src, []byte("new"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// The other instance, reading the layout it is about to restore from.
+	held, err := os.Open(dst)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	const hold = 400 * time.Millisecond
+	go func() {
+		time.Sleep(hold)
+		held.Close()
+	}()
+
+	start := time.Now()
+	if err := renameWithRetry(src, dst); err != nil {
+		t.Fatalf("the save was lost to a %v hold on the file: %v", hold, err)
+	}
+	if waited := time.Since(start); waited < hold {
+		t.Errorf("the rename reported success after %v, but the file was held for %v", waited, hold)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "new" {
+		t.Errorf("file holds %q, %v; want the saved contents", got, err)
+	}
+}
+
+// TestARenameThatCannotWorkIsNotWaitedOut is the other side of the budget: a
+// failure that is not contention has to come back at once, or every save in a
+// broken state directory would sit out the whole budget before saying so.
+func TestARenameThatCannotWorkIsNotWaitedOut(t *testing.T) {
+	dir := t.TempDir()
+	start := time.Now()
+	err := renameWithRetry(filepath.Join(dir, "was-never-written"), filepath.Join(dir, "dst"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("renaming a source that is not there gave %v, want a not-exist error", err)
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
 	}
 }
