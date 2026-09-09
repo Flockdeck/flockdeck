@@ -1,5 +1,20 @@
 // Package layout models a tab's panes as a tree of splits and turns that tree
 // into concrete screen rectangles.
+//
+// Every operation here leaves the tree in the same shape, and the rest of the
+// package and its callers rely on that:
+//
+//   - a pane appears once, so closing it closes all of it and finding it finds
+//     the one the user is looking at;
+//   - a split holds two children or more, never one, so no divider is drawn
+//     with nothing on one side of it;
+//   - no split nests inside a split along its own axis, so three panes in a
+//     row share the row rather than one of them sharing it with a pair;
+//   - Compute tiles the box it is given exactly, leaving no cell to two panes
+//     and none to nobody, as long as there is a cell in it for each pane.
+//
+// A tree read back from a saved layout can arrive in other shapes, and the
+// operations cope with those rather than assuming them away.
 package layout
 
 import (
@@ -132,8 +147,11 @@ func (n *Node) weight() float64 {
 // Rect returns the rectangle assigned by the last Compute call.
 func (n *Node) Rect() Rect { return n.rect }
 
-// Leaves returns every leaf holding a pane, in left-to-right, top-to-bottom
-// tree order.
+// Leaves returns every leaf holding a pane, in tree order: each split's
+// children in the order they are laid out, and each of those in full before
+// the next one begins. That is not the order the tab reads in — a column
+// beside a tall pane comes out whole, before the pane to the right of its
+// top half.
 //
 // A split with no children left looks structurally like a leaf but names no
 // pane, which is what a tab emptied by a merge is holding. It is skipped, so
