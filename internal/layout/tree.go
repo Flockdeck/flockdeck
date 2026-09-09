@@ -256,73 +256,64 @@ func (n *Node) Compute(r Rect) {
 		total = 1
 	}
 
-	// Each child is measured to a running boundary rather than on its own, so
-	// the cells lost to truncation are spread one at a time across the row
-	// instead of piling up in the last child: ten equal panes in 105 columns
-	// come out ten and eleven wide, not nine of ten and one of fifteen.
+	// Everything below works along the split's own axis, so the box is named
+	// once here and the other axis is handed straight down to every child. A
+	// row spends a column on each rule between its panes; a stack needs none,
+	// because every pane draws a header row of its own.
+	box, boxSize, sep := r.Y, r.H, 0
 	if n.Dir == Horizontal {
-		seps := separatorWidth * (len(n.Children) - 1)
-		avail := r.W - seps
-		if avail < len(n.Children) {
-			avail = len(n.Children) // degenerate, but never negative
-		}
-		x := r.X
-		over := n.overrun(avail, total, tightest)
-		used, acc := 0, 0.0
-		for i, c := range n.Children {
-			acc += c.weight()
-			w := int(float64(avail)*acc/total) - used
-			if i == len(n.Children)-1 {
-				w = avail - used // absorb what is left over
-			}
-			if w < 1 {
-				w = 1
-			}
-			used += w
-			paid := w - 1
-			if paid > over {
-				paid = over
-			}
-			if paid > 0 {
-				w -= paid
-				over -= paid
-			}
-			x, w = fit(x, w, r.X, r.W)
-			c.Compute(Rect{X: x, Y: r.Y, W: w, H: r.H})
-			x += w + separatorWidth
-		}
-		return
+		box, boxSize, sep = r.X, r.W, separatorWidth
+	}
+	avail := boxSize - sep*(len(n.Children)-1)
+	if avail < len(n.Children) {
+		avail = len(n.Children) // degenerate, but never negative
 	}
 
-	avail := r.H
-	if avail < len(n.Children) {
-		avail = len(n.Children)
-	}
-	y := r.Y
 	over := n.overrun(avail, total, tightest)
+	at := box
 	used, acc := 0, 0.0
 	for i, c := range n.Children {
 		acc += c.weight()
-		h := int(float64(avail)*acc/total) - used
-		if i == len(n.Children)-1 {
-			h = avail - used
-		}
-		if h < 1 {
-			h = 1
-		}
-		used += h
-		paid := h - 1
-		if paid > over {
-			paid = over
-		}
-		if paid > 0 {
-			h -= paid
+		size := portion(avail, used, acc, total, i == len(n.Children)-1)
+		used += size
+
+		// Hand back what the row runs past the end of the box, from whichever
+		// panes have a cell to spare.
+		if paid := size - 1; paid > 0 && over > 0 {
+			if paid > over {
+				paid = over
+			}
+			size -= paid
 			over -= paid
 		}
-		y, h = fit(y, h, r.Y, r.H)
-		c.Compute(Rect{X: r.X, Y: y, W: r.W, H: h})
-		y += h
+
+		at, size = fit(at, size, box, boxSize)
+		if n.Dir == Horizontal {
+			c.Compute(Rect{X: at, Y: r.Y, W: size, H: r.H})
+		} else {
+			c.Compute(Rect{X: r.X, Y: at, W: r.W, H: size})
+		}
+		at += size + sep
 	}
+}
+
+// portion returns how many of avail cells the child whose weight brings the
+// running total to acc gets, given that used have been handed out already.
+//
+// Each child is measured to a running boundary rather than on its own, so the
+// cells lost to truncation are spread one at a time across the row instead of
+// piling up in the last child: ten equal panes in 105 columns come out ten and
+// eleven wide, not nine of ten and one of fifteen. The last child takes what
+// is left over, and no child is given less than the one cell a pane needs.
+func portion(avail, used int, acc, total float64, last bool) int {
+	size := int(float64(avail)*acc/total) - used
+	if last {
+		size = avail - used
+	}
+	if size < 1 {
+		size = 1
+	}
+	return size
 }
 
 // overrun returns how many cells a split's children run past a box of avail
@@ -347,14 +338,7 @@ func (n *Node) overrun(avail int, total, tightest float64) int {
 	used, acc := 0, 0.0
 	for i, c := range n.Children {
 		acc += c.weight()
-		size := int(float64(avail)*acc/total) - used
-		if i == len(n.Children)-1 {
-			size = avail - used
-		}
-		if size < 1 {
-			size = 1
-		}
-		used += size
+		used += portion(avail, used, acc, total, i == len(n.Children)-1)
 	}
 	return used - avail
 }
