@@ -1486,6 +1486,65 @@ assert.strictEqual(h.notifications.length, 2, "the window is in front and was in
 `)
 }
 
+// The Go side caps a diff at 400KB, which bounds the bytes and not the lines.
+// A generated file of short lines reaches that in a couple of hundred thousand
+// of them, and an element per line is drawn while the window does nothing else.
+func TestAHugeDiffDoesNotStopTheWindow(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+         files: [{ path: "package-lock.json", label: "M", added: 200000, removed: 0 }] });
+
+// A generated file. The worst the 400KB cap lets through is four times this
+// many lines; fifty thousand is enough to say whether they are all drawn and
+// leaves the test itself quick.
+const NL = String.fromCharCode(10);
+const lines = [];
+for (let i = 0; i < 50000; i++) lines.push(i % 2 ? "+a" : "-b");
+const text = lines.join(NL);
+
+const row = h.$("overlay-body").querySelector("div.rev-file");
+h.click(row);
+const before = h.made();
+const began = process.hrtime.bigint();
+h.recv({ type: "diff", cwd: "C:/repo", file: "package-lock.json", text: text });
+const ms = Number(process.hrtime.bigint() - began) / 1e6;
+const built = h.made() - before;
+console.log("a 50,000-line diff drew " + built + " elements in " + ms.toFixed(0) + "ms");
+assert.ok(built < 3100, "the whole diff was drawn: " + built + " elements");
+
+const panel = h.$("overlay-body").querySelector("div.rev-diff");
+assert.ok(panel.textContent.includes("more lines are not drawn"), "nothing says the diff was cut short");
+assert.ok(panel.children[0].classList.contains("del"), "the lines that were drawn are not coloured");
+assert.ok(panel.children[1].classList.contains("add"));
+
+// The rest is one press away for anyone who wants it.
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const shortLines = [];
+for (let i = 0; i < 3050; i++) shortLines.push(i % 2 ? "+a" : "-b");
+h.recv({ type: "diff", cwd: "C:/repo", file: "package-lock.json", text: shortLines.join(NL) });
+const some = h.$("overlay-body").querySelector("div.rev-diff");
+assert.strictEqual(some.children.filter((c) => c.tagName === "DIV").length, 3001,
+  "three thousand lines and the note");
+const more = some.querySelectorAll("button").filter((b) => b.textContent === "Show them")[0];
+assert.ok(more, "there is no way to see the rest");
+h.click(more);
+assert.strictEqual(some.children.length, 3050, "the rest was not drawn on request: " + some.children.length);
+assert.ok(!some.textContent.includes("more lines are not drawn"), "the note outlived the lines it was about");
+
+// An ordinary diff is drawn whole, with no note and no button.
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+h.recv({ type: "diff", cwd: "C:/repo", file: "package-lock.json",
+         text: ["@@ -1,2 +1,2 @@", "-was", "+is"].join(NL) });
+const small = h.$("overlay-body").querySelector("div.rev-diff");
+assert.strictEqual(small.children.length, 3, "a three-line diff drew " + small.children.length + " things");
+assert.ok(small.children[0].classList.contains("hunk"));
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

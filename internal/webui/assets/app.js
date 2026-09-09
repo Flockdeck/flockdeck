@@ -2571,17 +2571,41 @@
     else renderChanges();
   }
 
+  /** How many lines of a diff are drawn before the rest are offered rather than
+   *  built. The Go side caps a diff at 400KB, which bounds the bytes it sends
+   *  but says nothing about the lines: a generated file of short lines reaches
+   *  that in something like two hundred thousand of them, and an element per
+   *  line is then two hundred thousand elements built and laid out inside a
+   *  panel three hundred pixels tall, while the window does nothing else.
+   *  Three thousand is more than anyone reads in one panel. */
+  const DIFF_LINES = 3000;
+
   /** renderDiffInto colours a unified diff without a syntax highlighter. */
   function renderDiffInto(host, text) {
-    text.split("\n").forEach((line) => {
-      let cls = "";
-      if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
-      else if (line.startsWith("@@")) cls = "hunk";
-      else if (line.startsWith("+")) cls = "add";
-      else if (line.startsWith("-")) cls = "del";
-      else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
-      host.append(el("div", cls, line || " "));
-    });
+    const lines = text.split("\n");
+    const shown = Math.min(lines.length, DIFF_LINES);
+    for (let i = 0; i < shown; i++) host.append(diffLine(lines[i]));
+    if (shown === lines.length) return;
+
+    const rest = lines.length - shown;
+    const note = el("div", "meta", rest + " more lines are not drawn.");
+    const more = el("button", "chip", "Show them");
+    more.onclick = () => {
+      note.remove();
+      more.remove();
+      for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+    };
+    host.append(note, more);
+  }
+
+  function diffLine(line) {
+    let cls = "";
+    if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
+    else if (line.startsWith("@@")) cls = "hunk";
+    else if (line.startsWith("+")) cls = "add";
+    else if (line.startsWith("-")) cls = "del";
+    else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
+    return el("div", cls, line || " ");
   }
 
   // ---------------------------------------------------------------- agents
