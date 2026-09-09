@@ -818,6 +818,63 @@ assert.strictEqual(Number(h.doc.querySelector("div.split.v").style.flexGrow), 2,
 	t.Log(strings.TrimSpace(out))
 }
 
+// Find belongs to one pane, and with six on screen it has to be clear which —
+// and stay on it, because clicking into another one while the bar is up moves
+// the focus without meaning to move the search.
+func TestFindStaysOnThePaneItWasOpenedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [{ id: "t1", title: "pair", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "builder" }) },
+}));
+
+h.press("findInTerminal");
+assert.ok(!h.$("searchbar").hidden, "the find bar is up");
+assert.strictEqual(h.$("search-label").textContent, "Find in reviewer",
+  "the bar does not say which pane it is looking in");
+
+const [first, second] = h.searchers;
+h.$("search-input").value = "panic";
+h.key({ key: "Enter" });
+assert.deepStrictEqual(first.forward, ["panic"], "the wrong pane was searched");
+assert.deepStrictEqual(second.forward, [], "the other pane was searched too");
+
+// The pointer goes to the other pane, which moves the focus. The search does
+// not go with it.
+const panes = h.doc.querySelectorAll("div.pane");
+h.dispatch(panes[1], new h.Ev("mousedown", {}));
+h.recv(fixture({
+  tabs: [{ id: "t1", title: "pair", focus: "p2", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "builder" }) },
+}));
+h.$("search-input").focus();
+h.key({ key: "Enter", shiftKey: true });
+assert.deepStrictEqual(first.back, ["panic"], "the search left the pane it was opened for");
+assert.deepStrictEqual(second.back, [], "the search followed the focus to another pane");
+
+// Closing clears the marks off that pane, not off whichever has the focus.
+h.key({ key: "Escape" });
+assert.ok(h.$("searchbar").hidden, "the find bar is closed");
+assert.strictEqual(first.cleared, 1, "the searched pane was left marked up");
+
+// A word that is not there has to say so: nothing else on screen moves.
+h.press("findInTerminal");
+const input = h.$("search-input");
+input.value = "nowhere";
+second.hit = false;
+h.key({ key: "Enter" });
+assert.ok(input.classList.contains("nomatch"), "a search that found nothing looked like one that did");
+assert.strictEqual(input.getAttribute("aria-invalid"), "true");
+second.hit = true;
+h.key({ key: "Enter" });
+assert.ok(!input.classList.contains("nomatch"), "the mark stayed after a search that did find something");
+assert.strictEqual(input.getAttribute("aria-invalid"), "false");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1210,7 +1267,13 @@ class FakeTerm {
 }
 
 class FakeFit { fit() {} proposeDimensions() { return { cols: 80, rows: 24 }; } }
-class FakeSearch { findNext() { return true; } findPrevious() { return true; } clearDecorations() { this.cleared = (this.cleared || 0) + 1; } }
+const searchers = [];
+class FakeSearch {
+  constructor() { this.forward = []; this.back = []; this.cleared = 0; this.hit = true; searchers.push(this); }
+  findNext(q) { this.forward.push(q); return this.hit; }
+  findPrevious(q) { this.back.push(q); return this.hit; }
+  clearDecorations() { this.cleared++; }
+}
 class FakeWebgl { onContextLoss() {} dispose() {} }
 
 const observers = [];
@@ -1290,7 +1353,7 @@ function tabTo(doc, back) {
 // -------------------------------------------------------------------- boot
 
 function boot() {
-  sockets.length = 0; terms.length = 0; observers.length = 0;
+  sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
   const doc = new Doc();
   parseInto(fs.readFileSync(path.join(ASSETS, "index.html"), "utf8"), doc);
 
@@ -1339,7 +1402,7 @@ function boot() {
   vm.runInContext(src, ctx, { filename: "app.js" });
 
   const h = {
-    doc, win, sockets, terms, observers,
+    doc, win, sockets, terms, observers, searchers,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
     recv(msg) {

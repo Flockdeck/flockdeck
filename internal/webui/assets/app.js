@@ -1738,27 +1738,49 @@
 
   // ----------------------------------------------------------------- search
 
+  /** The pane the find bar was opened on. It is not always the focused one by
+   *  the time a search runs: clicking into another pane while the bar is up
+   *  moves the focus, and a search that followed it would jump to a pane the
+   *  user was not looking at and leave the first one marked for good, since
+   *  only the focused pane's marks were ever cleared. */
+  let searchPane = "";
+
   function openSearch() {
+    searchPane = focusedPaneId();
     $("searchbar").hidden = false;
+    // With six panes on screen, "Find" alone does not say where it is looking.
+    const v = state && state.panes ? state.panes[searchPane] : null;
+    $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
     const input = $("search-input");
     input.value = "";
+    noMatch(false);
     input.focus();
   }
   function closeSearch() {
     $("searchbar").hidden = true;
-    const p = panes.get(focusedPaneId());
+    const p = panes.get(searchPane);
     if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
+    searchPane = "";
     focusTerminal();
   }
   function runSearch(back) {
-    const p = panes.get(focusedPaneId());
+    const p = panes.get(searchPane);
     const q = $("search-input").value;
-    if (!p || !p.search || !q) return;
+    if (!p || !p.search || !q) { noMatch(false); return; }
     const opts = { decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
+    let found = false;
     try {
-      if (back) p.search.findPrevious(q, opts);
-      else p.search.findNext(q, opts);
+      found = back ? p.search.findPrevious(q, opts) : p.search.findNext(q, opts);
     } catch { /* the addon is optional */ }
+    // Nothing else changes when a search fails — the terminal sits where it
+    // was — so without this, pressing Enter on a word that is not there looks
+    // exactly like pressing Enter on one that is.
+    noMatch(!found);
+  }
+  function noMatch(on) {
+    const input = $("search-input");
+    input.classList.toggle("nomatch", on);
+    input.setAttribute("aria-invalid", String(on));
   }
 
   // --------------------------------------------------------- notifications

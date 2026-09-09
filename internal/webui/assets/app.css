@@ -691,6 +691,9 @@ kbd {
   border-radius: var(--radius); color: var(--fg); padding: 5px 9px; font: inherit;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
+/* A search that found nothing leaves the terminal exactly where it was, so the
+ * field has to be the thing that says so. */
+#searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); }
 
 /* ---------------------------------------------------------- command palette */
 
