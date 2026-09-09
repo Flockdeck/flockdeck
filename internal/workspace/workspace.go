@@ -134,6 +134,9 @@ type Workspace struct {
 	opening    map[string]bool
 	activeRoot string
 	activeTab  string
+	// lastTab remembers which tab each project was left on, so coming back to
+	// a project comes back to what you were doing in it.
+	lastTab map[string]string
 
 	selfExe     string
 	settingsDir string
@@ -546,10 +549,28 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 	return "", false
 }
 
-// focusFirstTabOf moves focus to a tab belonging to root, unless the focused
-// tab already does.
+// focusFirstTabOf moves focus to a tab of root, unless the focused tab already
+// belongs to it.
+//
+// Which tab depends on whether the project has been visited before. Landing on
+// the first tab every time is fine for a project of two and no help at all for
+// one of ten: switching to another project to look something up and coming
+// back would put you somewhere other than where you were working, with the
+// tab you had open still to find.
 func (w *Workspace) focusFirstTabOf(root string) {
-	if t := w.CurrentTab(); t != nil && t.Root == root {
+	if t := w.CurrentTab(); t != nil {
+		if t.Root == root {
+			return
+		}
+		// The project being left is noted on the way out, which is the only
+		// moment it is known which tab it is being left on.
+		if w.lastTab == nil {
+			w.lastTab = map[string]string{}
+		}
+		w.lastTab[t.Root] = t.ID
+	}
+	if t := w.Tab(w.lastTab[root]); t != nil && t.Root == root {
+		w.activeTab = t.ID
 		return
 	}
 	w.activeTab = ""

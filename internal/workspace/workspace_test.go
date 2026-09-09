@@ -420,3 +420,30 @@ func TestClosingAProjectSparesTheOtherProjectsAgents(t *testing.T) {
 		}
 	}
 }
+
+// TestComingBackToAProjectReturnsToItsLastTab covers switching away to look at
+// another project and back: with ten tabs open, being dropped on the first one
+// means finding your place again every time.
+func TestComingBackToAProjectReturnsToItsLastTab(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	working := ws.NewTab(session.KindShell, first, "the one you were on")
+	if ws.ActiveTabID() != working.ID {
+		t.Fatalf("a new tab should be focused; active = %q", ws.ActiveTabID())
+	}
+
+	ws.SelectProject(second)
+	ws.SelectProject(first)
+	if ws.ActiveTabID() != working.ID {
+		t.Errorf("came back to tab %q, want the one the project was left on", ws.CurrentTab().Title)
+	}
+
+	// A remembered tab that has since been closed falls back to what is there.
+	ws.SelectProject(second)
+	ws.CloseTab(working.ID)
+	ws.SelectProject(first)
+	tab := ws.CurrentTab()
+	if tab == nil || tab.Root != first {
+		t.Fatalf("no tab of the project is focused: %#v", tab)
+	}
+}
