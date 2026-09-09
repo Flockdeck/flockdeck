@@ -157,9 +157,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			jobs = append(jobs, &fanoutJob{task: task, cwd: baseCwd})
 		}
 		if len(jobs) == 0 {
-			// Every row was blank. A fan-out that says nothing at all reads as
-			// one that was accepted and quietly did the work somewhere.
-			c.notify("no tasks to start", true)
+			c.notify(fanoutSummary(0, 0))
 			return
 		}
 
@@ -229,21 +227,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			started++
 		}
 
-		if started > 0 {
-			word := "agents"
-			if started == 1 {
-				word = "agent"
-			}
-			// Each failure has already been reported on its own, but a fan-out
-			// opens a screenful of panes: without the count in the summary, a
-			// task that never started reads as one the user simply lost track
-			// of among the ones that did.
-			if failed > 0 {
-				c.notify(fmt.Sprintf("started %d %s, %d could not be started", started, word, failed), true)
-			} else {
-				c.notify(fmt.Sprintf("started %d %s", started, word), false)
-			}
-		}
+		c.notify(fanoutSummary(started, failed))
 		s.Wake()
 	}()
 }
@@ -324,6 +308,38 @@ func discardWorktree(repo, baseCwd string, j *fanoutJob) {
 		return
 	}
 	_ = gitx.Remove(repo, j.cwd, true)
+}
+
+// fanoutSummary is the line a fan-out closes on, and whether it is a failure.
+//
+// A fan-out opens a screenful of panes, so it has to account for itself at the
+// end. Each failure has already been reported on its own, but without a count
+// here a task that never started reads as one the user simply lost track of
+// among the ones that did — and a run that ends without saying anything at all
+// reads as one that was accepted and quietly did the work somewhere. That last
+// case is the one that was missing: when every task failed, the fan-out went
+// silent at exactly the point it had the most to say.
+func fanoutSummary(started, failed int) (string, bool) {
+	switch {
+	case started == 0 && failed == 0:
+		return "no tasks to start", true
+	case started == 0 && failed == 1:
+		return "the agent could not be started", true
+	case started == 0:
+		return fmt.Sprintf("none of the %d agents could be started", failed), true
+	case failed > 0:
+		return fmt.Sprintf("started %d %s, %d could not be started", started, agents(started), failed), true
+	default:
+		return fmt.Sprintf("started %d %s", started, agents(started)), false
+	}
+}
+
+// agents is "agent" or "agents", for a count that is read rather than parsed.
+func agents(n int) string {
+	if n == 1 {
+		return "agent"
+	}
+	return "agents"
 }
 
 // contextDeadline bounds how long a pane's SessionStart hook waits for its

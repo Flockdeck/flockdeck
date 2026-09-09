@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,4 +188,41 @@ func newTestRepo(t *testing.T) string {
 		}
 	}
 	return dir
+}
+
+// A fan-out has to account for itself: it opens a screenful of panes, and the
+// user cannot count them. The case that used to be silent is the one where
+// nothing started at all — which is when the summary matters most.
+func TestFanoutSummary(t *testing.T) {
+	cases := []struct {
+		started, failed int
+		want            string
+		wantErr         bool
+	}{
+		{3, 0, "started 3 agents", false},
+		{1, 0, "started 1 agent", false},
+		{2, 1, "started 2 agents, 1 could not be started", true},
+		{0, 1, "the agent could not be started", true},
+		{0, 4, "none of the 4 agents could be started", true},
+		{0, 0, "no tasks to start", true},
+	}
+	for _, c := range cases {
+		got, gotErr := fanoutSummary(c.started, c.failed)
+		if got != c.want || gotErr != c.wantErr {
+			t.Errorf("fanoutSummary(%d, %d) = %q,%v, want %q,%v",
+				c.started, c.failed, got, gotErr, c.want, c.wantErr)
+		}
+	}
+}
+
+// Whatever it says, it says something: an outcome the user is never told about
+// is the one that reads as an accepted fan-out that quietly did the work.
+func TestFanoutSummaryIsNeverSilent(t *testing.T) {
+	for started := 0; started < 4; started++ {
+		for failed := 0; failed < 4; failed++ {
+			if text, _ := fanoutSummary(started, failed); strings.TrimSpace(text) == "" {
+				t.Errorf("fanoutSummary(%d, %d) said nothing", started, failed)
+			}
+		}
+	}
 }
