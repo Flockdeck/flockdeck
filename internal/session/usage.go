@@ -45,6 +45,18 @@ type Usage struct {
 	Known bool
 }
 
+// procMetric is what the operating system says about one process.
+type procMetric struct {
+	// cpu is what it has used since it started.
+	cpu time.Duration
+	// rss is its resident memory.
+	rss uint64
+	// started is when it started, as an opaque figure that can only be
+	// compared with another from the same machine. It is here because a
+	// process's recorded parent is not proof of anything on its own.
+	started uint64
+}
+
 // instantCPU is the share of one core used over a single interval.
 func instantCPU(used, over time.Duration) float64 {
 	return 100 * used.Seconds() / over.Seconds()
@@ -96,22 +108,6 @@ func currentProcTable(now time.Time) *procTable {
 	return procs.table
 }
 
-// tree returns a process and its descendants, the root first.
-func (t *procTable) tree(root int) []int {
-	out := []int{root}
-	seen := map[int]bool{root: true}
-	for i := 0; i < len(out) && len(out) < maxTreeProcs; i++ {
-		for _, kid := range t.kids[out[i]] {
-			if seen[kid] {
-				continue
-			}
-			seen[kid] = true
-			out = append(out, kid)
-		}
-	}
-	return out
-}
-
 // Pid returns the process id of the pane's process, or zero when it has none.
 func (s *Session) Pid() int {
 	if s.cmd == nil || s.cmd.Process == nil {
@@ -155,31 +151,64 @@ func (s *Session) usageAsOf(now time.Time) Usage {
 		return s.usage
 	}
 
-	cpu := make(map[int]time.Duration, len(s.usageCPU)+4)
+	// The pane's own process is read first, because its start time is what
+	// says whether something claiming to be its child really is one.
+	read := make(map[int]procMetric, len(s.usageCPU)+4)
+	root, haveRoot := readMetrics(pid)
+	if haveRoot {
+		read[pid] = root
+	}
+
+	// Walk the tree from the parent map, reading each process as it is
+	// reached so that a subtree can be refused whole.
+	order := []int{pid}
+	seen := map[int]bool{pid: true}
+	for i := 0; i < len(order) && len(order) < maxTreeProcs; i++ {
+		for _, kid := range table.kids[order[i]] {
+			if seen[kid] {
+				continue
+			}
+			seen[kid] = true
+			m, ok := readMetrics(kid)
+			if !ok {
+				// The process went away between the table being built and
+				// being asked about, which for an agent's children is the
+				// ordinary case rather than an error. Its own children are
+				// still reached: the table is what says where they are.
+				order = append(order, kid)
+				continue
+			}
+			// A process cannot have started before the process that started
+			// it. One whose parent died, and whose parent's id was later given
+			// to this pane's process, is not a child of anything here -- and
+			// process ids come round again quickly on Windows. Counting it
+			// would put an unrelated program's memory on an agent's header,
+			// which is worse than showing nothing.
+			if haveRoot && m.started < root.started {
+				continue
+			}
+			read[kid] = m
+			order = append(order, kid)
+		}
+	}
+
 	var rss uint64
 	var delta time.Duration
-	count := 0
-	for _, p := range table.tree(pid) {
-		used, bytes, ok := readMetrics(p)
-		if !ok {
-			// The process went away between the table being built and being
-			// asked about, which for an agent's children is the ordinary case
-			// rather than an error.
-			continue
-		}
-		count++
-		rss += bytes
-		cpu[p] = used
+	cpu := make(map[int]time.Duration, len(read))
+	count := len(read)
+	for p, m := range read {
+		rss += m.rss
+		cpu[p] = m.cpu
 		// Summing the tree and subtracting the previous sum would go negative
 		// every time a child exited, because its share of the total leaves
 		// with it -- and an agent running tools exits children constantly.
 		// Accumulating per process instead only ever adds what was actually
 		// used, and counts a process first seen here from when it started,
 		// which is inside this interval.
-		if before, seen := s.usageCPU[p]; seen && used > before {
-			delta += used - before
+		if before, seen := s.usageCPU[p]; seen && m.cpu > before {
+			delta += m.cpu - before
 		} else if !seen {
-			delta += used
+			delta += m.cpu
 		}
 	}
 

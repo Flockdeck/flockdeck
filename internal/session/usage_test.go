@@ -10,9 +10,10 @@ import (
 
 // fakeProc is one process in a process table a test puts up.
 type fakeProc struct {
-	ppid int
-	cpu  time.Duration
-	rss  uint64
+	ppid    int
+	cpu     time.Duration
+	rss     uint64
+	started uint64
 	// gone marks a process that is in the table but has ended by the time it
 	// is asked for its figures, which is what an agent's children do
 	// constantly.
@@ -38,12 +39,12 @@ func fakeProcs(t *testing.T, table map[int]*fakeProc) *int {
 		}
 		return out
 	}
-	readMetrics = func(pid int) (time.Duration, uint64, bool) {
+	readMetrics = func(pid int) (procMetric, bool) {
 		p, ok := table[pid]
 		if !ok || p.gone {
-			return 0, 0, false
+			return procMetric{}, false
 		}
-		return p.cpu, p.rss, true
+		return procMetric{cpu: p.cpu, rss: p.rss, started: p.started}, true
 	}
 	resetProcTable()
 	return &builds
@@ -189,6 +190,32 @@ func TestUsageCPUDoesNotGoNegativeWhenAChildEnds(t *testing.T) {
 	}
 	if u.Procs != 1 {
 		t.Errorf("Procs = %d, want just the process that is left", u.Procs)
+	}
+}
+
+// TestUsageIgnoresAProcessOlderThanThePane covers a process id that has come
+// round again. Process ids are recycled quickly on Windows, and a process
+// whose parent has died goes on naming that dead parent, so a pane's process
+// can be handed an id some unrelated orphan still calls its own. Counting it
+// would put another program's memory on this agent's header -- and whole
+// subtrees of it, since the orphan's own children come along.
+func TestUsageIgnoresAProcessOlderThanThePane(t *testing.T) {
+	fakeProcs(t, map[int]*fakeProc{
+		100: {ppid: 1, rss: 10 << 20, started: 500},
+		// An orphan already running when this pane's process was given the id
+		// it still calls its parent, and a child of its own.
+		200: {ppid: 100, rss: 900 << 20, started: 400},
+		300: {ppid: 200, rss: 900 << 20, started: 450},
+		// A real child, started after the process that started it.
+		400: {ppid: 100, rss: 20 << 20, started: 600},
+	})
+
+	u := usagePane(100).usageAsOf(time.Now())
+	if u.Procs != 2 {
+		t.Errorf("Procs = %d, want the pane's process and its one real child", u.Procs)
+	}
+	if want := uint64(30 << 20); u.RSSBytes != want {
+		t.Errorf("RSSBytes = %d, want %d: a process older than the pane, and everything under it, is not the pane's", u.RSSBytes, want)
 	}
 }
 

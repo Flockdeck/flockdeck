@@ -56,33 +56,37 @@ func procParents() map[int]int {
 	return out
 }
 
-// procMetrics returns the CPU a process has used since it started and its
-// resident memory. ok is false once the process is gone, or when this one is
-// not allowed to ask about it.
-func procMetrics(pid int) (cpu time.Duration, rss uint64, ok bool) {
+// procMetrics returns what the operating system says about one process. ok is
+// false once it is gone, or when this process is not allowed to ask.
+func procMetrics(pid int) (procMetric, bool) {
 	// PROCESS_QUERY_LIMITED_INFORMATION is enough for both calls and is
 	// granted for processes a fuller query would be refused for.
 	const queryLimitedInformation = 0x1000
 	h, err := syscall.OpenProcess(queryLimitedInformation, false, uint32(pid))
 	if err != nil {
-		return 0, 0, false
+		return procMetric{}, false
 	}
 	defer syscall.CloseHandle(h)
 
 	var creation, exit, kernel, user syscall.Filetime
 	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
-		return 0, 0, false
+		return procMetric{}, false
 	}
-	// A file time counts hundreds of nanoseconds.
-	cpu = time.Duration(filetimeTicks(kernel)+filetimeTicks(user)) * 100 * time.Nanosecond
+	m := procMetric{
+		// A file time counts hundreds of nanoseconds.
+		cpu: time.Duration(filetimeTicks(kernel)+filetimeTicks(user)) * 100 * time.Nanosecond,
+		// The creation time is what says a process claiming this pane's
+		// process as its parent really is its child.
+		started: uint64(filetimeTicks(creation)),
+	}
 
 	var counters processMemoryCounters
 	counters.CB = uint32(unsafe.Sizeof(counters))
 	r, _, _ := procGetProcessMemoryInfo.Call(uintptr(h), uintptr(unsafe.Pointer(&counters)), uintptr(counters.CB))
 	if r != 0 {
-		rss = uint64(counters.WorkingSetSize)
+		m.rss = uint64(counters.WorkingSetSize)
 	}
-	return cpu, rss, true
+	return m, true
 }
 
 func filetimeTicks(f syscall.Filetime) int64 {
