@@ -864,14 +864,14 @@ func adjacent(from, r Rect, d Direction) bool {
 func TestNeighborAlwaysLandsOnAPaneThatIsThere(t *testing.T) {
 	dirs := []Direction{Left, Right, Up, Down}
 
-	for seed := int64(0); seed < 200; seed++ {
+	for seed := int64(0); seed < 2500; seed++ {
 		rnd := rand.New(rand.NewSource(seed))
 		root := NewLeaf("p0")
 		next := 1
 		for step := 0; step < 12; step++ {
 			panes := root.Panes()
 			victim := panes[rnd.Intn(len(panes))]
-			switch rnd.Intn(3) {
+			switch rnd.Intn(4) {
 			case 0:
 				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
 				next++
@@ -879,28 +879,72 @@ func TestNeighborAlwaysLandsOnAPaneThatIsThere(t *testing.T) {
 				root.Remove(victim)
 			case 2:
 				root.MovePane(victim, panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4)))
+			case 3:
+				// Dividers dragged hard against one end, which is what puts
+				// the panes of one row out of step with the row below it.
+				split := randomSplit(root, rnd)
+				if split == nil {
+					break
+				}
+				weights := make([]float64, len(split.Children))
+				for i := range weights {
+					weights[i] = math.Pow(10, rnd.Float64()*3-1.5)
+				}
+				split.SetChildWeights(weights)
 			}
 		}
 		root.Compute(Rect{X: 0, Y: 0, W: 997, H: 401})
+		if !roomFor(root) {
+			continue // no layout of this tab is right; see checkInvariants
+		}
 
 		for _, l := range root.Leaves() {
 			from := l.Rect()
 			for _, d := range dirs {
 				got := root.Neighbor(l.Pane, d)
+				against := []*Node(nil)
+				for _, other := range root.Leaves() {
+					if other != l && adjacent(from, other.Rect(), d) {
+						against = append(against, other)
+					}
+				}
 				if got == "" {
-					for _, other := range root.Leaves() {
-						if other != l && adjacent(from, other.Rect(), d) {
-							t.Fatalf("seed %d: nothing is %d of %s, but %s is against that edge", seed, d, l.Pane, other.Pane)
-						}
+					if len(against) > 0 {
+						t.Fatalf("seed %d: nothing is %d of %s, but %s is against that edge", seed, d, l.Pane, against[0].Pane)
 					}
 					continue
 				}
-				if r := root.Find(got).Rect(); !adjacent(from, r, d) {
-					t.Fatalf("seed %d: %d of %s at %+v is %s at %+v, which does not touch it", seed, d, l.Pane, from, got, r)
+				chosen := root.Find(got)
+				if len(against) == 0 {
+					// Nothing is against this edge — a rule between two other
+					// panes runs along it — so the nearest pane facing it is
+					// the best answer there is.
+					continue
+				}
+				if !adjacent(from, chosen.Rect(), d) {
+					t.Fatalf("seed %d: %d of %s at %+v is %s at %+v, which does not touch it", seed, d, l.Pane, from, got, chosen.Rect())
+				}
+				// Of the panes against that edge, the answer must be one of
+				// those sharing the most of it: that is the pane the user is
+				// looking at when they press the key.
+				mine := edgeShared(from, chosen.Rect(), d)
+				for _, other := range against {
+					if theirs := edgeShared(from, other.Rect(), d); theirs > mine {
+						t.Fatalf("seed %d: %d of %s chose %s facing %d of its edge, but %s faces %d",
+							seed, d, l.Pane, got, mine, other.Pane, theirs)
+					}
 				}
 			}
 		}
 	}
+}
+
+// edgeShared returns how much of the edge between from and r the two share.
+func edgeShared(from, r Rect, d Direction) int {
+	if d == Left || d == Right {
+		return overlap(r.Y, r.H, from.Y, from.H)
+	}
+	return overlap(r.X, r.W, from.X, from.W)
 }
 
 // TestNeighborNeedsGeometry covers being asked to move focus before anything
