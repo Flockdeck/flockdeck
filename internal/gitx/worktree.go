@@ -209,15 +209,6 @@ func CurrentBranch(dir string) string {
 	return strings.TrimSpace(out)
 }
 
-// Dirty reports whether the worktree has uncommitted changes.
-func Dirty(dir string) bool {
-	out, err := run(dir, "status", "--porcelain")
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(out) != ""
-}
-
 // List returns every worktree of the repository containing dir.
 func List(dir string) ([]Worktree, error) {
 	out, err := run(dir, "worktree", "list", "--porcelain")
@@ -276,23 +267,6 @@ func List(dir string) ([]Worktree, error) {
 		res[0].Main = true
 	}
 	return res, nil
-}
-
-// Add creates a worktree at path. When branch is non-empty it is created as a
-// new branch when it does not already exist, and checked out otherwise.
-func Add(repoDir, path, branch string) error {
-	args := []string{"worktree", "add"}
-	if branch != "" {
-		if branchExists(repoDir, branch) {
-			args = append(args, "--", path, branch)
-		} else {
-			args = append(args, "-b", branch, "--", path)
-		}
-	} else {
-		args = append(args, "--", path)
-	}
-	_, err := run(repoDir, args...)
-	return err
 }
 
 // BranchExists reports whether a local branch is already present.
