@@ -814,3 +814,43 @@ func TestResizeAfterReleaseDoesNotReachThePTY(t *testing.T) {
 		t.Errorf("write after release = %v; it should name the pane", err)
 	}
 }
+
+// TestAnsweringAPaneClearsAnInferredWait covers the whole of the bell
+// fallback, which is what a pane runs on when its lifecycle hooks are not
+// reporting. The bell rings again on the next question, not on this one being
+// answered, and the guess made from output leaves "waiting" alone on purpose,
+// so typing is the only thing that can end the wait. Without it a pane sits in
+// the count of agents needing you from its first question until it exits.
+func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindClaude
+	s.sawInput = true
+	s.status = StatusIdle
+	s.idleAfter = 40 * time.Millisecond
+
+	s.publish([]byte("may I run this?\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v, want waiting", st)
+	}
+
+	if err := s.WriteString("y\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after answering; the pane is no longer blocked on you", st)
+	}
+	waitForStatus(t, s, StatusIdle, 5*time.Second)
+
+	// A hook that says the pane is waiting knows better than the keyboard
+	// does: the next event will move it, and typing something the agent has
+	// not acted on yet must not clear the one status worth surfacing.
+	s.SetStatus(StatusWaiting, "")
+	if err := s.WriteString("hmm"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v; a hook outranks the keyboard", st)
+	}
+}

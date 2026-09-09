@@ -435,7 +435,26 @@ func (s *Session) Write(p []byte) (int, error) {
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
 	s.sawInput = true
+	// Typing is the answer to whatever the pane was blocked on, and where the
+	// bell is what put it there, typing is the only thing that can take it
+	// back out: the bell rings again on the next question, not on this one
+	// being answered, and the guess made from output deliberately leaves
+	// "waiting" alone. Without this a pane whose lifecycle hooks are not
+	// reporting stays in the count of agents needing you from the first
+	// question it ever asks until it exits.
+	answered := !s.hooksSeen && s.status == StatusWaiting
+	if answered {
+		s.status = StatusWorking
+		s.statusSince = time.Now()
+		if !s.settling {
+			s.settling = true
+			go s.settleIdle()
+		}
+	}
 	s.mu.Unlock()
+	if answered {
+		s.changed()
+	}
 	return s.pty.Write(p)
 }
 
