@@ -131,6 +131,11 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+	// The answer has to be on the wire before the shutdown starts. Quitting
+	// ends the process, and a reply still sitting in the connection's buffer
+	// dies with it -- leaving `perch -quit` to report a broken connection for
+	// a shutdown that in fact worked, and a script around it to retry or fail.
+	_ = http.NewResponseController(w).Flush()
 	go s.requestQuit()
 }
 

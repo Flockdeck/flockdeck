@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -192,5 +193,29 @@ func TestActingEndpointsNeedAPost(t *testing.T) {
 	}
 	if n := len(ws.Projects()); n != before {
 		t.Errorf("projects = %d, want %d — a GET opened one", n, before)
+	}
+}
+
+// TestQuitAnswersBeforeItActs covers `perch -quit`. Acting on the request ends
+// the process, so the reply has to have left the connection first; otherwise
+// the command reports a failure for a shutdown that worked.
+func TestQuitAnswersBeforeItActs(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	flushed := make(chan bool, 1)
+	srv.OnQuit = func() { flushed <- rec.Flushed }
+
+	srv.handleQuit(rec, httptest.NewRequest(http.MethodPost, "/quit?t="+srv.Token(), nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	select {
+	case ok := <-flushed:
+		if !ok {
+			t.Error("the shutdown started before the reply was flushed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("quit was not acted on")
 	}
 }
