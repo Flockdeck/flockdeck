@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // TestPaneContextIdentifiesThePane checks the basics an agent cannot work out
@@ -43,7 +43,7 @@ func TestPaneContextIdentifiesThePane(t *testing.T) {
 	}
 
 	text := c.Render()
-	for _, want := range []string{"agent-wrapper", `"lead"`, root} {
+	for _, want := range []string{"perch", `"lead"`, root} {
 		if !strings.Contains(text, want) {
 			t.Errorf("rendered context does not mention %q:\n%s", want, text)
 		}
@@ -492,7 +492,15 @@ func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 			t.Errorf("the spawn section does not mention %s", flag)
 		}
 	}
-	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "agent-wrapper spawn") {
+	// Naming a flag is not the same as saying what it does. Where a spawned
+	// pane lands is the part an agent cannot discover without reading this
+	// repository's source, which the agent in another project cannot do.
+	for _, said := range []string{"new tab", "beside you"} {
+		if !strings.Contains(text, said) {
+			t.Errorf("the spawn section never says where a pane lands: no %q", said)
+		}
+	}
+	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "perch spawn") {
 		t.Error("a shell pane should not be told to spawn agents")
 	}
 }

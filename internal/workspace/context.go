@@ -3,10 +3,11 @@ package workspace
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
-	"github.com/jmwri/agent-wrapper/internal/session"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // maxSiblings bounds how many other agents are named in a pane's context. A
@@ -63,7 +64,7 @@ type PaneContext struct {
 
 	OtherProjects []string
 
-	// CanSpawn reports whether `agent-wrapper spawn` will work from this pane.
+	// CanSpawn reports whether `perch spawn` will work from this pane.
 	CanSpawn bool
 }
 
@@ -184,6 +185,28 @@ func sameDir(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
+// underDir reports whether dir is base or sits inside it.
+//
+// Case is folded for the same reason sameDir folds it: the two paths arrive
+// from different places — one from a project as it was opened, the other from
+// git or from a directory picker — and on Windows they can name the same
+// directory in different case.
+func underDir(dir, base string) bool {
+	d, b := filepath.Clean(dir), filepath.Clean(base)
+	if runtime.GOOS == "windows" {
+		// Folded before the comparison, not after: filepath.Rel compares the
+		// two case sensitively, so folding its answer would be too late.
+		d, b = strings.ToLower(d), strings.ToLower(b)
+	}
+	rel, err := filepath.Rel(b, d)
+	if err != nil {
+		return false
+	}
+	// Only a leading path element of ".." means the way out; a directory
+	// genuinely named something like "..old" is inside the tree it sits in.
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // Render writes the context as the text handed to Claude at session start.
 //
 // It is prose rather than JSON because it is read by the model, and it is
@@ -194,7 +217,7 @@ func (c PaneContext) Render() string {
 	var b strings.Builder
 
 	b.WriteString("# Where you are running\n\n")
-	fmt.Fprintf(&b, "You are one agent inside **agent-wrapper**, a desktop application that runs "+
+	fmt.Fprintf(&b, "You are one agent inside **perch**, a desktop application that runs "+
 		"several Claude Code agents side by side in terminal panes. You are the agent in the pane "+
 		"named %q", c.PaneName)
 	if c.Tab != "" {
@@ -246,18 +269,29 @@ func (c PaneContext) Render() string {
 
 	if c.CanSpawn && !c.Shell {
 		b.WriteString("\n## Starting agents of your own\n\n" +
-			"You can hand work to further agents, which appear as panes beside you:\n\n" +
+			"You can hand work to further agents, which appear as panes of their own:\n\n" +
 			"```sh\n" +
-			"agent-wrapper spawn \"add tests for the parser\"\n" +
-			"agent-wrapper spawn --worktree fix-auth \"repair the token refresh\"\n" +
-			"agent-wrapper spawn --split \"watch the build\"\n" +
-			"agent-wrapper spawn --split --shell \"tail the build log\"\n" +
+			"perch spawn \"add tests for the parser\"\n" +
+			"perch spawn --worktree fix-auth \"repair the token refresh\"\n" +
+			"perch spawn --split \"watch the build\"\n" +
+			"perch spawn --split --shell \"tail the build log\"\n" +
 			"```\n\n" +
+			"What the flags do — the placement ones matter, because a pane put somewhere " +
+			"the user did not expect is one they have to go looking for:\n\n" +
+			"- No placement flag: the agent opens in a **new tab** of its own, titled after " +
+			"the task you gave it.\n" +
+			"- `--split`: the agent opens **beside you, in the tab you are in**. Splitting " +
+			"again adds a sibling to that same split rather than nesting inside it, so " +
+			"several `--split` calls gather the whole group in front of the user at once.\n" +
+			"- `--worktree <branch>`: the agent gets a git worktree and branch of its own, " +
+			"created from yours. Without it every agent shares this one working tree and " +
+			"will edit files under the others; use it whenever two of them would otherwise " +
+			"touch the same files.\n" +
+			"- `--shell`: a terminal rather than another conversation.\n\n" +
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
-			"yours, so the task you give it has to stand on its own. Use `--worktree` when two " +
-			"of them would otherwise edit the same files, and `--shell` when what you want " +
-			"beside you is a terminal rather than another conversation. Do this when the " +
-			"user asks for parallel work, not on your own initiative.\n")
+			"yours — not this context, not the task you were given, not what you have " +
+			"learned so far — so the task you give it has to stand on its own. Do this when " +
+			"the user asks for parallel work, not on your own initiative.\n")
 	}
 
 	b.WriteString("\n## The user's view\n\n" +
