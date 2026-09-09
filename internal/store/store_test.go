@@ -1238,3 +1238,70 @@ func TestDirNeverWritesOverStateAlreadySaved(t *testing.T) {
 		t.Errorf("the old directory should be left alone, not consumed: %v", err)
 	}
 }
+
+// TestDamagedLayoutIsKeptRatherThanOverwritten checks a layout that will not
+// parse survives the run that could not read it. Starting empty is fine;
+// starting empty and then saving over the only copy of the user's tabs is how
+// a single hand-edited typo turns into a workspace nobody can get back.
+func TestDamagedLayoutIsKeptRatherThanOverwritten(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/damaged")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	broken := []byte(`{"version":1,"tabs":[{"title":"work in progress"`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	if got, err := Load("/repo/damaged"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a damaged layout should restore nothing without failing", got, err)
+	}
+
+	// The run carries on and saves its empty workspace on the way out.
+	if err := Save("/repo/damaged", &State{}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged layout was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want the file exactly as it was: %q", kept, broken)
+	}
+}
+
+// TestDamagedLegacyLayoutIsKeptUnderItsOwnName checks the copy is made of the
+// file that was actually read. A layout still under the pre-normalization name
+// is read from there, so quarantining the name in use now would move nothing
+// and leave the damaged file to be found and rejected again every run.
+func TestDamagedLegacyLayoutIsKeptUnderItsOwnName(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("roots are only respelled on case-folding platforms")
+	}
+	isolateConfig(t)
+
+	root := filepath.Clean("/Repo/Legacy")
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	if old == "" {
+		t.Fatal("this root should have a distinct pre-normalization name")
+	}
+	if err := os.WriteFile(old, []byte("{ truncated"), 0o600); err != nil {
+		t.Fatalf("write legacy layout: %v", err)
+	}
+
+	if got, err := Load(root); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; want nothing restored and no error", got, err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the damaged legacy layout is still in place; it will be rejected again every run")
+	}
+	if _, err := os.Stat(old + damagedSuffix); err != nil {
+		t.Errorf("the damaged legacy layout was not kept: %v", err)
+	}
+}

@@ -236,7 +236,12 @@ func Load(root string) (*State, error) {
 	}
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
-		// A corrupt layout must never stop the app from starting.
+		// A corrupt layout must never stop the app from starting, but it must
+		// not be left where it is either: the run that starts empty saves over
+		// this very name on the way out, so the damaged file is the last copy
+		// of the user's tabs and this would be the moment it went for good.
+		// Moved aside it costs nothing and can still be repaired by hand.
+		quarantine(from(p, legacy))
 		return nil, nil
 	}
 	if s.Version != Version {
@@ -259,6 +264,28 @@ func Load(root string) (*State, error) {
 		_ = os.Rename(legacy, p)
 	}
 	return &s, nil
+}
+
+// from returns the file a layout was actually read from: the name in use now,
+// unless it came from the pre-normalization name.
+func from(current, legacy string) string {
+	if legacy != "" {
+		return legacy
+	}
+	return current
+}
+
+// damagedSuffix marks a layout that could not be understood. It is not
+// ".json", so nothing looks for it again, and it holds no ".tmp", so the sweep
+// leaves it alone: the point is that it is still there when someone goes
+// looking for the tabs that vanished.
+const damagedSuffix = ".damaged"
+
+// quarantine moves a layout out of the way, best effort. Only one damaged copy
+// is kept per project; a second one replacing the first is no loss, because a
+// file only becomes damaged again after a good one has been written over it.
+func quarantine(path string) {
+	_ = os.Rename(path, path+damagedSuffix)
 }
 
 // Save writes the state atomically so an interrupted write cannot leave a
