@@ -697,3 +697,41 @@ func paneSize(t *testing.T, srv *Server, id string) (cols, rows int) {
 		return 0, 0
 	}
 }
+
+// TestClosingAPaneReleasesItsTerminalSocket covers the end of a pane's life.
+// The socket outlives the process in the pane on purpose, so that a restart
+// can be picked up on it; a pane that has been closed is not coming back, and
+// holding its connection open would hold a goroutine and a poll of the
+// workspace for as long as the instance ran.
+func TestClosingAPaneReleasesItsTerminalSocket(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	st := nextState(t, ctl, nil)
+
+	// A second pane, so closing the first is an ordinary close rather than the
+	// last one going.
+	sendCmd(t, ctl, command{Cmd: "splitPane", Dir: "right", Kind: "shell"})
+	st = nextState(t, ctl, func(s stateMsg) bool {
+		r := s.Tabs[0].Root
+		return r != nil && len(r.Children) == 2
+	})
+	paneID := st.Tabs[0].Root.Children[0].Pane
+
+	pty := dialPTY(t, srv, paneID)
+	awaitOutput(t, pty, "echo pane_alive\r", "pane_alive")
+
+	sendCmd(t, ctl, command{Cmd: "closePane", ID: paneID})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	for {
+		_, _, err := pty.Read(ctx)
+		if err == nil {
+			continue
+		}
+		if ctx.Err() != nil {
+			t.Fatal("the terminal socket outlived the pane it was serving")
+		}
+		return
+	}
+}

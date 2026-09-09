@@ -216,19 +216,25 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 	tick := time.NewTicker(restartPoll)
 	defer tick.Stop()
 	for {
+		// Looking before waiting is what makes both answers prompt. A restart
+		// puts the new session in place and only then closes the old one, and
+		// the old one's output is drained for a moment after that, so by the
+		// time this is reached the replacement is usually already there. A
+		// pane that was closed rather than restarted is already gone too, and
+		// this connection has no reason to outlive it by a poll.
+		sess, ok := s.paneSession(id)
+		if !ok {
+			return nil
+		}
+		if sess != nil && sess != old {
+			return sess
+		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-s.closed:
 			return nil
 		case <-tick.C:
-			sess, ok := s.paneSession(id)
-			if !ok {
-				return nil
-			}
-			if sess != nil && sess != old {
-				return sess
-			}
 		}
 	}
 }
