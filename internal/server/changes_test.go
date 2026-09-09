@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -548,6 +549,37 @@ func TestPrunedSummarySaysWhatItDid(t *testing.T) {
 	}
 	if strings.Contains(prunedSummary(1), "records") {
 		t.Error("one record should not be described in the plural")
+	}
+}
+
+// TestChangesPanelStopsAtALimitAndSaysSo covers a working tree with more
+// changed files in it than a list of rows can usefully hold.
+func TestChangesPanelStopsAtALimitAndSaysSo(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	for i := 0; i < 5; i++ {
+		if err := os.WriteFile(filepath.Join(repo, fmt.Sprintf("f%d.txt", i)), []byte("new\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all := collectChangesUpTo(repo, 100)
+	if all.Error != "" {
+		t.Fatalf("changes: %s", all.Error)
+	}
+	if len(all.Files) != 5 || all.Omitted != 0 {
+		t.Fatalf("under the limit: %d files, %d omitted; want 5 and 0", len(all.Files), all.Omitted)
+	}
+
+	capped := collectChangesUpTo(repo, 2)
+	if len(capped.Files) != 2 {
+		t.Errorf("%d files sent, want the limit of 2", len(capped.Files))
+	}
+	if capped.Omitted != 3 {
+		t.Errorf("omitted = %d, want 3 -- a list cut short without saying so reads as a clean tree", capped.Omitted)
+	}
+	// The branch summary is still the whole tree's, not the part that fitted.
+	if capped.Branch != "main" {
+		t.Errorf("branch = %q, want main", capped.Branch)
 	}
 }
 

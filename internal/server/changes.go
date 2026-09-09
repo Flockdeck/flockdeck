@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -30,7 +31,10 @@ type changesMsg struct {
 	Behind    int          `json:"behind"`
 	HasRemote bool         `json:"hasRemote"`
 	Files     []changeView `json:"files"`
-	Error     string       `json:"error,omitempty"`
+	// Omitted counts the changed files left out of Files, which happens
+	// only on a checkout with more of them than a list can usefully hold.
+	Omitted int    `json:"omitted,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type diffMsg struct {
@@ -100,8 +104,26 @@ func treeRoot(dir string) (string, error) {
 // listChanges answers a request for what has changed in a working tree.
 func (s *Server) listChanges(c *controlClient, path string) {
 	dir := s.reviewDir(path)
-	go func() { c.sendJSON(collectChanges(dir)) }()
+	go func() {
+		msg := collectChanges(dir)
+		c.sendJSON(msg)
+		if msg.Omitted > 0 {
+			// Said out loud, because a list that stops at two thousand rows
+			// looks exactly like a working tree with two thousand changes in
+			// it, and the difference matters to someone about to commit.
+			c.notify(fmt.Sprintf("showing %d of %d changed files — the rest are left out to keep the list usable",
+				len(msg.Files), len(msg.Files)+msg.Omitted), false)
+		}
+	}()
 }
+
+// maxPanelFiles bounds how many entries the panel is sent.
+//
+// A checkout that has picked up a build directory nobody ignored can have
+// tens of thousands of changed files. Every one becomes a row the window
+// builds before it draws anything, so the panel stops being usable long
+// before the list stops being complete.
+const maxPanelFiles = 2000
 
 // collectChanges gathers everything the panel shows about one checkout.
 //
@@ -110,7 +132,11 @@ func (s *Server) listChanges(c *controlClient, path string) {
 // files is itself three. They are asked for together rather than one after
 // another: this runs on opening the panel and again after every commit, push,
 // pull and fetch, and on Windows the process starts are most of that wait.
-func collectChanges(dir string) changesMsg {
+func collectChanges(dir string) changesMsg { return collectChangesUpTo(dir, maxPanelFiles) }
+
+// collectChangesUpTo is collectChanges with the limit given, so a test can
+// reach it without a working tree full of thousands of files.
+func collectChangesUpTo(dir string, limit int) changesMsg {
 	msg := changesMsg{Type: "changes", Cwd: dir}
 	if !gitx.Available() {
 		msg.Error = "git is not installed"
@@ -142,6 +168,10 @@ func collectChanges(dir string) changesMsg {
 	if ferr != nil {
 		msg.Error = ferr.Error()
 		return msg
+	}
+	if len(files) > limit {
+		msg.Omitted = len(files) - limit
+		files = files[:limit]
 	}
 	for _, f := range files {
 		msg.Files = append(msg.Files, changeView{
