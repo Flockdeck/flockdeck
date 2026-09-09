@@ -226,3 +226,57 @@ func TestFanoutSummaryIsNeverSilent(t *testing.T) {
 		}
 	}
 }
+
+// Folder trust is carried over for each worktree, and only for the worktrees:
+// a task that never got one has nothing to trust, and the project itself is
+// already trusted or the box would not have been offered.
+func TestInheritTrustCoversEveryWorktree(t *testing.T) {
+	base := `C:\repo`
+	jobs := []*fanoutJob{
+		{task: "one", cwd: `C:\repo-one`},
+		{task: "two", err: errors.New("already checked out")},
+		{task: "three", cwd: `C:\repo-three`},
+		{task: "four", cwd: base},
+	}
+	var got []string
+	inheritTrust(jobs, base, func(from, to string) error {
+		if from != base {
+			t.Errorf("inherited from %q, want %q", from, base)
+		}
+		got = append(got, to)
+		return nil
+	}, func(text string) { t.Errorf("unexpected notice: %s", text) })
+
+	want := []string{`C:\repo-one`, `C:\repo-three`}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("trusted %q, want %q", got, want)
+	}
+}
+
+// The configuration is one file, so a failure to write it is about the file
+// rather than about a task. Saying so a dozen times would bury the fan-out's
+// own messages under copies of the same complaint.
+func TestInheritTrustReportsOneFailure(t *testing.T) {
+	jobs := []*fanoutJob{
+		{task: "one", cwd: "/wt/one"},
+		{task: "two", cwd: "/wt/two"},
+		{task: "three", cwd: "/wt/three"},
+	}
+	calls, notices := 0, 0
+	inheritTrust(jobs, "/repo", func(string, string) error {
+		calls++
+		return errors.New("permission denied")
+	}, func(text string) {
+		notices++
+		if !strings.Contains(text, "permission denied") {
+			t.Errorf("notice = %q, want the reason in it", text)
+		}
+	})
+
+	if calls != 1 {
+		t.Errorf("tried %d times after a failure, want 1", calls)
+	}
+	if notices != 1 {
+		t.Errorf("said it %d times, want once", notices)
+	}
+}

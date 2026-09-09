@@ -180,6 +180,10 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			makeWorktrees(jobs, func(branch string) (string, error) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
+			if trust {
+				inheritTrust(jobs, baseCwd, session.InheritTrust,
+					func(text string) { c.notify(text, true) })
+			}
 		}
 
 		started, failed := 0, 0
@@ -189,19 +193,6 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				failed++
 				continue
 			}
-			// A brand new worktree is a directory Claude has not seen, so it
-			// would stop and ask whether the folder is trusted before doing
-			// anything. Carrying over the answer already given for the project
-			// it was cut from is what the user asked for by ticking the box.
-			// Claude's configuration is one file, read and written whole, so
-			// this stays here rather than joining the parallel work above.
-			if worktrees && trust {
-				if err := session.InheritTrust(baseCwd, j.cwd); err != nil {
-					c.notify("could not carry over folder trust: "+err.Error(), true)
-					trust = false
-				}
-			}
-
 			res := make(chan error, 1)
 			s.do(func() {
 				_, err := s.ws.Spawn(parent, workspace.SpawnOptions{
@@ -340,6 +331,36 @@ func agents(n int) string {
 		return "agent"
 	}
 	return "agents"
+}
+
+// inheritTrust carries the project's folder trust over to the worktrees.
+//
+// A brand new worktree is a directory Claude Code has never seen, so it would
+// stop and ask whether the folder is trusted before doing any work — once per
+// child. Carrying over the answer already given for the project they were cut
+// from is what the user asked for by ticking the box.
+//
+// It happens here, after the worktrees exist and before the first agent does,
+// rather than between starting one agent and the next. Claude keeps that answer
+// in a single configuration file which it reads and writes whole, and so does
+// every agent as it starts: interleaved with the spawning, the last of a dozen
+// worktrees was being written while eleven agents were writing the same file
+// from a copy each of them read before it. Done in one pass up front, this is
+// the only writer there is.
+//
+// A failure stops the rest. It is a property of the configuration rather than
+// of any one worktree, so carrying on would bury the fan-out's own messages
+// under a dozen copies of the same complaint.
+func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to string) error, notify func(string)) {
+	for _, j := range jobs {
+		if j.err != nil || j.cwd == "" || j.cwd == baseCwd {
+			continue
+		}
+		if err := inherit(baseCwd, j.cwd); err != nil {
+			notify("could not carry over folder trust: " + err.Error())
+			return
+		}
+	}
 }
 
 // contextDeadline bounds how long a pane's SessionStart hook waits for its
