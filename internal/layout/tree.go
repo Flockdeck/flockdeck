@@ -48,8 +48,14 @@ func (r Rect) Contains(x, y int) bool {
 	return x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
 }
 
-func (r Rect) centerX() int { return r.X + r.W/2 }
-func (r Rect) centerY() int { return r.Y + r.H/2 }
+// centerX and centerY are doubled, so that a pane of an even number of cells
+// and one of an odd number can still be compared. Halving them first put the
+// middle of a 31-row pane half a row above where it is, which is enough to
+// decide a tie that should have been settled by tree order: two panes of the
+// same height, one above the other, beside one twice as tall are the same
+// distance from its middle, and the truncation handed it to the lower of them.
+func (r Rect) centerX() int { return 2*r.X + r.W }
+func (r Rect) centerY() int { return 2*r.Y + r.H }
 
 // separatorWidth is the single column drawn between horizontally adjacent
 // panes. Vertically stacked panes need no separator because each pane draws a

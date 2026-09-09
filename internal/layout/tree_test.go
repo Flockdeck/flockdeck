@@ -407,18 +407,27 @@ func TestSetChildWeightsRejectsWithoutMutating(t *testing.T) {
 // alignment cannot separate: two stacked panes beside one tall one. Whichever
 // pane wins, it has to be the same one every time, and the topmost is the one a
 // reader of the layout would expect.
+//
+// The tab is an odd number of rows tall on purpose. Halving each pane's height
+// to find its middle loses the half row of a pane an odd number of rows tall,
+// and the two stacked panes here are exactly that: the tie is real, and only
+// the rounding of the halves made one of them look nearer than the other.
 func TestNeighborBreaksTiesInTreeOrder(t *testing.T) {
-	// Layout:  a | c
-	//          b | c
+	// Layout:  a | c      a and b are 499 rows each, so the middle of each
+	//          b | c      falls half a row from a row boundary.
 	root := NewLeaf("a")
 	root.Split("a", "c", Horizontal)
 	root.Split("a", "b", Vertical)
-	root.Compute(Rect{X: 0, Y: 0, W: 1000, H: 1000})
+	root.Compute(Rect{X: 0, Y: 0, W: 1000, H: 998})
 
-	// a and b are equally far from c and equally misaligned with it.
 	a, b, c := root.Find("a").Rect(), root.Find("b").Rect(), root.Find("c").Rect()
-	if abs(a.centerY()-c.centerY()) != abs(b.centerY()-c.centerY()) {
-		t.Fatalf("this test needs a genuine tie, got %d and %d", a.centerY(), b.centerY())
+	if a.H != b.H || a.H%2 == 0 || a.Y+a.H != b.Y || a.Y != c.Y || a.H+b.H != c.H {
+		t.Fatalf("this test needs two stacked panes of the same odd height filling c's edge, got %+v %+v %+v", a, b, c)
+	}
+	// Two panes of the same height, one above the other, are the same distance
+	// from the middle of the pane they both face.
+	if x, y := abs(a.centerY()-c.centerY()), abs(b.centerY()-c.centerY()); x != y {
+		t.Errorf("a and b are %d and %d from the middle of c, want a genuine tie", x, y)
 	}
 
 	for i := 0; i < 50; i++ {
