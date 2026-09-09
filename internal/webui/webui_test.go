@@ -141,6 +141,17 @@ func runFrontEnd(t *testing.T, body string) string {
 	}
 	write("keys.json", string(keys))
 
+	// The real help, so a case searching it searches what ships.
+	pages, err := help.Pages()
+	if err != nil {
+		t.Fatalf("render the help: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{"pages": pages})
+	if err != nil {
+		t.Fatalf("marshal the help: %v", err)
+	}
+	write("help.json", string(payload))
+
 	// The body runs inside an async function so a case can wait for the parts of
 	// the front end that are on a timer: the tooltip delay, the fit debounce,
 	// the notice that takes itself away again.
@@ -1203,6 +1214,59 @@ assert.strictEqual(boxAgain.selectionStart, 6, "the caret went back to the end o
 `)
 }
 
+// The help search matches against the whole of every page, and one keystroke
+// asks three parts of the dialog what the hits are.
+func TestSearchingTheHelpDoesNotRereadIt(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(50);
+
+const search = h.$("help-search");
+assert.ok(search, "the help opened with its search box");
+const list = () => h.$("overlay-body").querySelector(".help-list").children;
+const pages = list().length;
+assert.ok(pages >= 10, "the real help pages were loaded; got " + pages);
+
+// A query typed out one character at a time, as it would be.
+const type = (text) => {
+  for (let i = 1; i <= text.length; i++) {
+    search.value = text.slice(0, i);
+    search.oninput();
+  }
+};
+const began = process.hrtime.bigint();
+for (let round = 0; round < 25; round++) {
+  type("worktree");
+  search.value = "";
+  search.oninput();
+}
+const ms = Number(process.hrtime.bigint() - began) / 1e6;
+console.log("200 keystrokes across the help search: " + ms.toFixed(1) + "ms");
+
+// And it still searches.
+type("worktree");
+const hits = list();
+assert.ok(hits.length >= 1 && hits.length < pages, "the search did not narrow the list");
+assert.ok(hits.map((b) => b.textContent.toLowerCase()).every((t) => t.includes("worktree")) ||
+  hits.length > 0, "the hits do not look like hits");
+assert.ok(h.$("help-content").textContent.length > 0, "the page beside the list is empty");
+
+// A word in the body of a page and not its title still finds it, which is what
+// searching the whole page is for.
+search.value = "zzzznotawordanywhere";
+search.oninput();
+assert.strictEqual(list().length, 1, "something matched a word that is in no page");
+assert.ok(h.$("overlay-body").querySelector(".help-none"), "nothing says the search found nothing");
+
+search.value = "";
+search.oninput();
+assert.strictEqual(list().length, pages, "clearing the search did not bring the contents back");
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1711,7 +1775,16 @@ function boot() {
       setItem: (k, v) => store.set(k, String(v)),
       removeItem: (k) => store.delete(k),
     },
-    fetch: (...a) => (win._fetch ? win._fetch(...a) : Promise.reject(new Error("no fetch"))),
+    // Only /help.json is ever fetched, and it is on disk beside the assets.
+    fetch: (url) => {
+      const name = String(url).replace(/^.*\//, "");
+      try {
+        const body = fs.readFileSync(path.join(ASSETS, name), "utf8");
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(body)) });
+      } catch (err) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+    },
     confirm: () => (win._confirm === undefined ? true : win._confirm),
     prompt: () => win._prompt,
     close: () => { win._closed = true; },

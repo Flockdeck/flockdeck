@@ -2807,6 +2807,11 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
       .then((data) => {
         helpPages = data.pages || [];
+        // The search matches against the whole of every page. Folding the case
+        // once here rather than on each keystroke is the difference between
+        // searching a few kilobytes and rebuilding them for every character.
+        helpPages.forEach((p) => { p.hay = (p.title + " " + p.text).toLowerCase(); });
+        helpHitsFor = null;
       })
       .catch((err) => {
         helpError = "The help pages could not be loaded (" + err.message + ").";
@@ -2916,17 +2921,29 @@
   /** helpMatches is the contents list, filtered by the search box. Each hit
    *  carries the piece of the page the words were found in, so the list
    *  answers "which page is this in" without opening each one. */
+  /** The hits for the search as it currently reads. One keystroke asks for
+   *  them from the contents list, from the page beside it and, on an arrow key,
+   *  from the key handler as well; there is one answer between them. */
+  let helpHits = null;
+  let helpHitsFor = null;
+
   function helpMatches() {
+    if (helpHitsFor === helpQuery && helpHits) return helpHits;
     const pages = helpPages || [];
     const q = helpQuery.trim().toLowerCase();
-    if (!q) return pages.map((p) => ({ page: p, snippet: "" }));
-    const words = q.split(/\s+/);
-    const out = [];
-    pages.forEach((p) => {
-      const hay = (p.title + " " + p.text).toLowerCase();
-      if (!words.every((w) => hay.includes(w))) return;
-      out.push({ page: p, snippet: snippetFor(p.text, words[0]) });
-    });
+    let out;
+    if (!q) {
+      out = pages.map((p) => ({ page: p, snippet: "" }));
+    } else {
+      const words = q.split(/\s+/);
+      out = [];
+      pages.forEach((p) => {
+        if (!words.every((w) => p.hay.includes(w))) return;
+        out.push({ page: p, snippet: snippetFor(p.text, words[0]) });
+      });
+    }
+    helpHitsFor = helpQuery;
+    helpHits = out;
     return out;
   }
 
