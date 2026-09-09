@@ -321,6 +321,45 @@ func TestWorktreeLifecycle(t *testing.T) {
 	}
 }
 
+// TestWorktreeArgumentsAreNotReadAsOptions covers the path and the starting
+// point, both of which arrive from the window and neither of which git tells
+// apart from one of its own flags.
+func TestWorktreeArgumentsAreNotReadAsOptions(t *testing.T) {
+	repo := newRepo(t)
+
+	// "--force" as a starting point is the dangerous shape: read as an option
+	// it is not refused, it is obeyed, and the worktree starts from HEAD with
+	// a forced checkout instead of from wherever was asked for.
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "from-a-flag", "--force")
+	if err == nil {
+		t.Error("a starting point named like an option should be refused, not obeyed")
+	}
+	if BranchExists(repo, "from-a-flag") {
+		t.Error("the branch was created from a starting point git never resolved")
+	}
+
+	// A path beginning with a dash is a path, awkward as it is.
+	if err := AddFrom(repo, "-dashed", "dashed", ""); err != nil {
+		t.Fatalf("a worktree at a dash-leading path: %v", err)
+	}
+	wts, err := List(repo)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var found bool
+	for _, wt := range wts {
+		if filepath.Base(wt.Path) == "-dashed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the worktree is not in the list: %+v", wts)
+	}
+	if err := Remove(repo, filepath.Join(repo, "-dashed"), true); err != nil {
+		t.Errorf("removing it again: %v", err)
+	}
+}
+
 // TestPathsAgreeAcrossCalls covers a Windows trap: git prints paths with
 // forward slashes, so a root or worktreepath taken verbatim never compares
 // equal to a path the rest of the program built with filepath.

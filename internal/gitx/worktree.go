@@ -284,12 +284,12 @@ func Add(repoDir, path, branch string) error {
 	args := []string{"worktree", "add"}
 	if branch != "" {
 		if branchExists(repoDir, branch) {
-			args = append(args, path, branch)
+			args = append(args, "--", path, branch)
 		} else {
-			args = append(args, "-b", branch, path)
+			args = append(args, "-b", branch, "--", path)
 		}
 	} else {
-		args = append(args, path)
+		args = append(args, "--", path)
 	}
 	_, err := run(repoDir, args...)
 	return err
@@ -334,7 +334,7 @@ func Remove(repoDir, path string, force bool) error {
 	if force {
 		args = append(args, "--force")
 	}
-	args = append(args, path)
+	args = append(args, "--", path)
 	_, err = run(repoDir, args...)
 	return err
 }

@@ -210,18 +210,23 @@ func Prune(repoDir string) error {
 // When branch names an existing local branch it is checked out; otherwise a new
 // branch is created, starting at base when one is given and at the current HEAD
 // when it is not.
+// The path and the starting point both arrive from the window, so they are put
+// after a "--": without it git reads anything beginning with a dash as one of
+// its own options. A base of "--force" was not refused, it was obeyed, and the
+// new worktree quietly started from HEAD with a force checkout instead of from
+// wherever the user had named.
 func AddFrom(repoDir, path, branch, base string) error {
 	args := []string{"worktree", "add"}
 	switch {
 	case branch == "":
-		args = append(args, "--detach", path)
+		args = append(args, "--detach", "--", path)
 		if base != "" {
 			args = append(args, base)
 		}
 	case branchExists(repoDir, branch):
-		args = append(args, path, branch)
+		args = append(args, "--", path, branch)
 	default:
-		args = append(args, "-b", branch, path)
+		args = append(args, "-b", branch, "--", path)
 		if base != "" {
 			args = append(args, base)
 		}
