@@ -1828,3 +1828,44 @@ func TestWeightsTooBigToCompareStillDivideTheBox(t *testing.T) {
 		}
 	}
 }
+
+// TestPanesWeightedAlikeGiveUpTheSameRoom covers who pays when a box cannot
+// hold what the weights ask for. The panes owed less than a cell are given one
+// anyway, and that has to come from the panes with room to spare; taking it
+// from whoever comes first leaves the earliest of them a single cell while the
+// pane weighted the same as it, further down, keeps almost everything.
+func TestPanesWeightedAlikeGiveUpTheSameRoom(t *testing.T) {
+	const n = 22
+	root := NewLeaf("p0")
+	for i := 1; i < n; i++ {
+		root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Vertical)
+	}
+	weights := make([]float64, n)
+	weights[0], weights[1] = 10, 10
+	for i := 2; i < n; i++ {
+		weights[i] = 0.001 // twenty panes owed a fortieth of a row each
+	}
+	if !root.SetChildWeights(weights) {
+		t.Fatal("weights refused")
+	}
+	root.Compute(Rect{X: 0, Y: 0, W: 20, H: 30})
+
+	leaves := root.Leaves()
+	first, second := leaves[0].Rect().H, leaves[1].Rect().H
+	if first != second {
+		t.Errorf("the two panes weighted 10 got %d and %d rows of 30", first, second)
+	}
+	if first < 2 {
+		t.Errorf("a pane weighted ten thousand times its neighbours got %d rows", first)
+	}
+	rows := 0
+	for _, l := range leaves {
+		if got := l.Rect().H; got < 1 {
+			t.Errorf("%s got %d rows", l.Pane, got)
+		}
+		rows += l.Rect().H
+	}
+	if rows != 30 {
+		t.Errorf("the panes cover %d rows of 30", rows)
+	}
+}

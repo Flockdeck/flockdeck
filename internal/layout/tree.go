@@ -269,22 +269,27 @@ func (n *Node) Compute(r Rect) {
 		avail = len(n.Children) // degenerate, but never negative
 	}
 
-	over := n.overrun(avail, total, tightest)
+	over, spare := n.overrun(avail, total, tightest)
 	at := box
 	used, acc := 0, 0.0
+	held, paid := 0, 0
 	for i, c := range n.Children {
 		acc += c.weight()
 		size := portion(avail, used, acc, total, i == len(n.Children)-1)
 		used += size
 
-		// Hand back what the row runs past the end of the box, from whichever
-		// panes have a cell to spare.
-		if paid := size - 1; paid > 0 && over > 0 {
-			if paid > over {
-				paid = over
-			}
-			size -= paid
-			over -= paid
+		// Hand back what the row runs past the end of the box. Each pane gives
+		// up a share of it in proportion to what it holds above the one cell it
+		// must keep, measured to a running boundary like the sizes themselves,
+		// so panes of the same size give up the same amount and the last cell
+		// of the debt still lands on somebody. Taking it from whoever came
+		// first instead left one pane a single cell while the pane weighted the
+		// same as it, further along the row, kept nine.
+		if over > 0 {
+			held += size - 1
+			give := over*held/spare - paid
+			size -= give
+			paid += give
 		}
 
 		at, size = fit(at, size, box, boxSize)
@@ -317,7 +322,9 @@ func portion(avail, used int, acc, total float64, last bool) int {
 }
 
 // overrun returns how many cells a split's children run past a box of avail
-// cells along its axis, tightest being the smallest weight among them.
+// cells along its axis, and how many they hold between them above the one cell
+// each pane must keep, which is what there is to take the overrun from.
+// tightest is the smallest weight among the children.
 //
 // A pane owed less than a whole cell is given one anyway, since a pane nobody
 // can see is worse than one a cell too wide. Several such panes in a row add
@@ -331,16 +338,18 @@ func portion(avail, used int, acc, total float64, last bool) int {
 // unless a pane really is owed less than a cell — which is what the smallest
 // weight answers, since the boundaries are floored and floor(a+s) - floor(a)
 // is at least 1 for any share s of a cell or more.
-func (n *Node) overrun(avail int, total, tightest float64) int {
+func (n *Node) overrun(avail int, total, tightest float64) (over, spare int) {
 	if float64(avail)*tightest/total >= 1 {
-		return 0
+		return 0, 0
 	}
 	used, acc := 0, 0.0
 	for i, c := range n.Children {
 		acc += c.weight()
 		used += portion(avail, used, acc, total, i == len(n.Children)-1)
 	}
-	return used - avail
+	// avail is never below the number of children, so there is always at least
+	// as much room above the floor as there is overrun to take back.
+	return used - avail, used - len(n.Children)
 }
 
 // fit pulls a child of size cells, laid out at at, back inside a box of
