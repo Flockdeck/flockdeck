@@ -390,6 +390,63 @@ assert.strictEqual(h.doc.title, "perch");
 	t.Log(strings.TrimSpace(out))
 }
 
+// The pane headers are the hottest part of the screen: one per agent, redrawn
+// from a push that arrives every time any of them says anything.
+func TestPaneHeadersOnlyRedrawWhatMoved(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+
+// Six agents, which is what this application is for.
+const six = { tabs: [{ id: "t1", title: "six", focus: "p0", root:
+  split("h", [leaf("n0", "p0"), leaf("n1", "p1"), leaf("n2", "p2"),
+              leaf("n3", "p3"), leaf("n4", "p4"), leaf("n5", "p5")]) }], panes: {} };
+for (let i = 0; i < 6; i++) {
+  six.panes["p" + i] = pane("p" + i, {
+    name: "agent " + i, branch: "work-" + i, status: "working",
+    detail: "reading", dirty: 3, untracked: 1, ahead: 2,
+  });
+}
+h.recv(fixture(six));
+
+const headers = h.doc.querySelectorAll("div.pane-header");
+assert.strictEqual(headers.length, 6, "six pane headers");
+const branch = h.doc.querySelector("span.pane-branch");
+assert.ok(branch.textContent.includes("work-0"), "got: " + branch.textContent);
+const marks = branch.parentElement.querySelector("span.pane-git");
+assert.ok(marks.getAttribute("aria-label").includes("3 changed"), "got: " + marks.getAttribute("aria-label"));
+const inside = branch.children[0];
+
+// Twenty pushes that say nothing new. This is what an idle moment looks like
+// while six agents are streaming output.
+const before = h.made();
+for (let i = 0; i < 20; i++) h.recv(fixture(six));
+const built = h.made() - before;
+console.log("elements built by twenty pushes with six unchanged panes: " + built);
+assert.strictEqual(built, 0, "the headers were redrawn " + built + " elements' worth for nothing");
+assert.ok(branch.children[0] === inside, "the branch was rebuilt under its own tooltip");
+
+// And the header still follows what does move.
+six.panes.p3 = pane("p3", { name: "agent 3", branch: "work-3", status: "waiting",
+                            detail: "may I edit main.go?", dirty: 4, untracked: 1, ahead: 2 });
+h.recv(fixture(six));
+const third = headers[3];
+assert.ok(third.querySelector("span.dot").classList.contains("waiting"), "the dot did not follow");
+assert.ok(third.querySelector("span.dot").getAttribute("aria-label").includes("Waiting"));
+assert.ok(third.querySelector("span.pane-detail").textContent === "may I edit main.go?",
+  "got: " + third.querySelector("span.pane-detail").textContent);
+assert.ok(third.querySelector("span.pane-git").getAttribute("aria-label").includes("4 changed"),
+  "got: " + third.querySelector("span.pane-git").getAttribute("aria-label"));
+
+// A branch is only rewritten when the branch changes.
+six.panes.p3 = pane("p3", { name: "agent 3", branch: "renamed", status: "waiting",
+                            detail: "may I edit main.go?", dirty: 4, untracked: 1, ahead: 2 });
+h.recv(fixture(six));
+assert.ok(third.querySelector("span.pane-branch").textContent.includes("renamed"),
+  "got: " + third.querySelector("span.pane-branch").textContent);
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

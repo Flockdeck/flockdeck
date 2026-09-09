@@ -883,7 +883,10 @@
     }
 
     p = { id, wrap, header, dot, name, project, branch, git, detail, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone };
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
+          // What each part of the header is currently showing. Empty to begin
+          // with, so the first push draws all of it.
+          shown: {} };
     panes.set(id, p);
 
     term.onData((data) => sendInput(p, data));
@@ -950,38 +953,69 @@
     }
   }
 
+  /* A status push carries the whole workspace and arrives every time any agent
+   * changes what it is doing or prints another line of detail, so with several
+   * running they are close to continuous. Almost none of a pane's header moves
+   * between two of them: the name never changes, the branch and the project
+   * hardly ever, the git counts only when a file is written. Redrawing all of
+   * it anyway meant building the branch, the git markers and the broadcast
+   * label from scratch several times a second per pane — and taking the
+   * elements a tooltip was anchored to away with them. So each part remembers
+   * what it is showing and is left alone until that differs.
+   */
   function updatePaneChrome(s) {
     const tab = activeTabOf(s);
     for (const [id, p] of panes) {
       const v = s.panes[id];
       if (!v) continue;
-      p.dot.className = "dot " + v.status;
-      // The dot is nothing but a coloured circle, so it has to say the whole
-      // sentence itself; the bare status word left the colour unexplained.
-      p.dot.setAttribute("role", "img");
-      p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
-      describe(p.dot, TIPS[v.status] || v.status);
-      p.name.textContent = v.name;
-      renderPaneProject(p, v);
-      renderPaneBranch(p, v);
-      p.detail.textContent = v.detail || "";
-      renderPaneGit(p, v);
-      // Membership is worth showing even when broadcast is off, otherwise the
-      // button that toggles it appears to do nothing at all.
-      p.cast.textContent = "";
-      if (v.broadcast) {
-        p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
-        describe(p.cast, s.broadcast
-          ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
-          : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
-      } else {
-        delete p.cast.dataset.tip;
+      const was = p.shown;
+
+      if (was.status !== v.status) {
+        was.status = v.status;
+        p.dot.className = "dot " + v.status;
+        // The dot is nothing but a coloured circle, so it has to say the whole
+        // sentence itself; the bare status word left the colour unexplained.
+        p.dot.setAttribute("role", "img");
+        p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
+        describe(p.dot, TIPS[v.status] || v.status);
       }
-      p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
-      p.actions.firstChild.classList.toggle("on", !!v.broadcast);
+      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; }
+
+      const project = v.project || "";
+      if (was.project !== project) { was.project = project; renderPaneProject(p, v); }
+
+      const branch = v.branch || "";
+      if (was.branch !== branch) { was.branch = branch; renderPaneBranch(p, v); }
+
+      const detail = v.detail || "";
+      if (was.detail !== detail) { was.detail = detail; p.detail.textContent = detail; }
+
+      const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
+      if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
+
+      const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
+      if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
+
       p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
       renderPaneOverlay(p, v);
     }
+  }
+
+  /** renderPaneCast says whether what is typed in the prompt bar reaches this
+   *  pane. Membership is worth showing even when broadcast is off, otherwise
+   *  the button that toggles it appears to do nothing at all. */
+  function renderPaneCast(p, v, s) {
+    p.cast.textContent = "";
+    if (v.broadcast) {
+      p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
+      describe(p.cast, s.broadcast
+        ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
+        : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
+    } else {
+      delete p.cast.dataset.tip;
+    }
+    p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
+    p.actions.firstChild.classList.toggle("on", !!v.broadcast);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
