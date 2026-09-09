@@ -53,6 +53,11 @@ var (
 	// stop to actually stop, and quitPoll how often it looks.
 	quitGrace = 15 * time.Second
 	quitPoll  = 100 * time.Millisecond
+
+	// openTimeout is how long handleOpen gives the workspace to take a project
+	// and say how it went. It is under the launch's own patience, so the
+	// launch always hears an answer rather than giving up on its own side.
+	openTimeout = 10 * time.Second
 )
 
 // handleHealth answers a probe from another launch of the binary.
@@ -135,14 +140,34 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no path", http.StatusBadRequest)
 		return
 	}
+	// One budget covers handing the work over and hearing how it went. Waiting
+	// to hand it over has no deadline of its own, and the queue in front of
+	// the workspace fills exactly when the workspace is slow, so counting only
+	// the second half let this run past the launch's own patience and answer
+	// nobody.
+	deadline := time.After(openTimeout)
 	errc := make(chan error, 1)
-	s.do(func() {
+	select {
+	case s.cmds <- func() {
 		err := s.ws.OpenProject(path)
 		if err == nil {
 			s.Wake()
 		}
 		errc <- err
-	})
+	}:
+	case <-s.closed:
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		return
+	case <-r.Context().Done():
+		return
+	case <-deadline:
+		// Nothing has been done at all -- the request never reached the
+		// workspace -- so say that rather than leave the launch to guess
+		// whether its project is about to open.
+		http.Error(w, "the instance is busy", http.StatusServiceUnavailable)
+		return
+	}
+
 	select {
 	case err := <-errc:
 		if err != nil {
@@ -154,8 +179,14 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	case <-r.Context().Done():
 		return
-	case <-time.After(10 * time.Second):
-		http.Error(w, "timed out", http.StatusGatewayTimeout)
+	case <-deadline:
+		// Taken, and still going. Reporting a failure for it was the wrong
+		// answer twice over: the project does open, a moment later, and the
+		// launch would meanwhile have refused to show a window onto it. The
+		// only thing lost by not waiting for the verdict is an error about the
+		// directory, and the launch has already checked that the directory is
+		// there before asking.
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

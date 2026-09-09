@@ -352,3 +352,78 @@ func TestProbeSurvivesABackedUpWorkspace(t *testing.T) {
 		t.Errorf("probe wrote off an instance that was only busy: %v", err)
 	}
 }
+
+// TestOpenIsAcceptedWhileTheWorkspaceIsSlow covers `perch -C dir` against an
+// instance that is busy. Opening a project can only fail on the directory, and
+// the launch has already checked that; taking longer than the wait is not a
+// failure, and reporting one refused to show a window onto a project that was
+// about to open anyway.
+func TestOpenIsAcceptedWhileTheWorkspaceIsSlow(t *testing.T) {
+	defer func(d time.Duration) { openTimeout = d }(openTimeout)
+	openTimeout = 300 * time.Millisecond
+
+	srv, ws := newTestServer(t)
+	other := t.TempDir()
+
+	release := make(chan struct{})
+	stop := sync.OnceFunc(func() { close(release) })
+	defer stop()
+	srv.do(func() { <-release })
+
+	// Queued behind the occupied goroutine, so no answer arrives in time.
+	if err := RequestOpen(srv.BaseURL(), srv.Token(), other); err != nil {
+		t.Fatalf("open was reported as a failure: %v", err)
+	}
+
+	stop()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(ws.Projects()) == 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("projects = %d, want the accepted one to have opened", len(ws.Projects()))
+}
+
+// TestOpenSaysSoWhenItCannotBeTakenAtAll separates the two ways a busy
+// instance can be busy. A request that never reached the workspace has not
+// been accepted, and telling the launch it has would have it open a window
+// onto a project that is never going to appear.
+func TestOpenSaysSoWhenItCannotBeTakenAtAll(t *testing.T) {
+	defer func(d time.Duration) { openTimeout = d }(openTimeout)
+	openTimeout = 300 * time.Millisecond
+
+	srv, ws := newTestServer(t)
+	before := len(ws.Projects())
+
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	defer close(release)
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(srv.cmds) < cap(srv.cmds) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.cmds) < cap(srv.cmds) {
+		t.Fatalf("could not fill the workspace queue: %d of %d", len(srv.cmds), cap(srv.cmds))
+	}
+
+	start := time.Now()
+	if err := RequestOpen(srv.BaseURL(), srv.Token(), t.TempDir()); err == nil {
+		t.Error("expected an instance too busy to take the request to say so")
+	}
+	// The answer has to come from the instance, inside its own budget, rather
+	// than from the launch giving up on its side with nothing to report.
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the launch waited %v for an answer, want one within the instance's budget", elapsed)
+	}
+	if n := len(ws.Projects()); n != before {
+		t.Errorf("projects = %d, want %d", n, before)
+	}
+}
