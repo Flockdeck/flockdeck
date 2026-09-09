@@ -558,11 +558,21 @@ func TestPruneRemovesStaleRecords(t *testing.T) {
 	if err := os.RemoveAll(wtPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := Prune(repo); err != nil {
+	pruned, err := Prune(repo)
+	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("prune reported %d records removed, want 1", pruned)
 	}
 	wts, _ := List(repo)
 	if len(wts) != 1 {
 		t.Errorf("expected the stale record to be pruned, got %d worktrees", len(wts))
+	}
+
+	// Pressing it again has nothing to do, and the count is how the panel
+	// knows to say so rather than claiming it cleaned something up.
+	if pruned, err := Prune(repo); err != nil || pruned != 0 {
+		t.Errorf("second prune = %d, %v; want nothing removed", pruned, err)
 	}
 }

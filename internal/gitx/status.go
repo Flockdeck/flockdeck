@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -199,10 +200,25 @@ func ListDetailed(dir string) ([]Worktree, error) {
 }
 
 // Prune removes administrative records for worktrees whose directories have
-// been deleted behind git's back.
-func Prune(repoDir string) error {
-	_, err := run(repoDir, "worktree", "prune")
-	return err
+// been deleted behind git's back, and reports how many went.
+//
+// The count is what lets the panel say whether the button it just offered
+// did anything. git names each record it removes on stderr, one to a line,
+// so they are counted as lines rather than looked for by the word they start
+// with -- which is translated when git is speaking anything but English.
+func Prune(repoDir string) (int, error) {
+	_, said, err := runCapture(context.Background(), commandTimeout, repoDir,
+		"worktree", "prune", "--verbose")
+	if err != nil {
+		return 0, err
+	}
+	var pruned int
+	for _, line := range strings.Split(said, "\n") {
+		if strings.TrimSpace(line) != "" {
+			pruned++
+		}
+	}
+	return pruned, nil
 }
 
 // AddFrom creates a worktree at path.

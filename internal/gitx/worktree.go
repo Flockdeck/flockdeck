@@ -328,7 +328,8 @@ func Remove(repoDir, path string, force bool) error {
 		return &gitError{path + " is not a worktree of this repository"}
 	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return Prune(repoDir)
+		_, err := Prune(repoDir)
+		return err
 	}
 	args := []string{"worktree", "remove"}
 	if force {

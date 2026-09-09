@@ -165,6 +165,21 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 	}
 }
 
+// prunedSummary says what pressing prune actually did.
+//
+// It reported success either way before, so a button pressed on a repository
+// with nothing stale in it said it had cleaned something up.
+func prunedSummary(n int) string {
+	switch n {
+	case 0:
+		return "nothing to prune — every worktree is where its record says it is"
+	case 1:
+		return "pruned 1 stale worktree record"
+	default:
+		return fmt.Sprintf("pruned %d stale worktree records", n)
+	}
+}
+
 // underPath reports whether cwd is base or inside it.
 //
 // The two paths reach here from different places -- one from git, the other
@@ -239,11 +254,12 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	go func() {
-		if err := gitx.Prune(root); err != nil {
+		pruned, err := gitx.Prune(root)
+		if err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
-		c.notify("pruned stale worktree records", false)
+		c.notify(prunedSummary(pruned), false)
 		s.listWorktrees(c)
 	}()
 }

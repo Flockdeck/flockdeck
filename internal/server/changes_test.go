@@ -531,6 +531,26 @@ func TestRepoRootAnswersWithoutGitWhereItCan(t *testing.T) {
 	}
 }
 
+// TestPrunedSummarySaysWhatItDid covers the wording of a button that used to
+// report success whether or not there was anything to clean up.
+func TestPrunedSummarySaysWhatItDid(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{0, "nothing to prune"},
+		{1, "pruned 1 stale worktree record"},
+		{3, "pruned 3 stale worktree records"},
+	} {
+		if got := prunedSummary(tc.n); !strings.Contains(got, tc.want) {
+			t.Errorf("prunedSummary(%d) = %q, want it to contain %q", tc.n, got, tc.want)
+		}
+	}
+	if strings.Contains(prunedSummary(1), "records") {
+		t.Error("one record should not be described in the plural")
+	}
+}
+
 // TestRemoteSummary pins what a window is told when git itself says little.
 func TestRemoteSummary(t *testing.T) {
 	cases := []struct {
