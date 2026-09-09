@@ -515,9 +515,11 @@ func renameWithRetry(src, dst string) error {
 // error is a project that restores no tabs, and the save on the way out then
 // writes that emptiness over the layout the user still had.
 //
-// A file that is not there and a file this user may not read are answers, not
-// contention, and are handed straight back. A sharing violation is neither of
-// those, so it is not caught by those two and does get retried.
+// Only a sharing violation is waited out. Every other failure — the file is
+// not there, it is a directory, this user may not read it — will be just as
+// true a second from now, and the recent list is read every time the project
+// picker opens: spending the budget on those would make the picker feel broken
+// rather than fail.
 func readState(path string) ([]byte, error) {
 	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
@@ -526,7 +528,7 @@ func readState(path string) ([]byte, error) {
 		if err == nil {
 			return data, nil
 		}
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || time.Now().After(deadline) {
+		if !heldByAnother(err) || time.Now().After(deadline) {
 			return nil, err
 		}
 		delay = backOff(delay)

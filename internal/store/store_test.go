@@ -2165,3 +2165,34 @@ func showTabs(tabs []Tab) string {
 	}
 	return string(b)
 }
+
+// TestAReadThatCannotWorkIsNotWaitedOut checks the retry budget is spent only
+// on contention.
+//
+// The recent list is read every time the project picker opens. A state
+// directory somebody has mangled — a directory standing where a file belongs —
+// would otherwise stall each of those reads for the whole budget, which is a
+// picker that feels broken rather than one that fails.
+func TestAReadThatCannotWorkIsNotWaitedOut(t *testing.T) {
+	dir := t.TempDir()
+	notAFile := filepath.Join(dir, "layout.json")
+	if err := os.Mkdir(notAFile, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := readState(notAFile); err == nil {
+		t.Fatal("reading a directory as a state file should have failed")
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
+	}
+
+	start = time.Now()
+	if _, err := readState(filepath.Join(dir, "was-never-written")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reading a file that is not there gave %v, want a not-exist error", err)
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v for a file that is simply not there", waited)
+	}
+}
