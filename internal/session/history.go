@@ -26,6 +26,11 @@ type Conversation struct {
 	Size     int64
 }
 
+// NoPrompt stands in for the summary of a conversation that says nothing
+// about itself: no prompt in its opening entries, and no name from Claude
+// Code either. It is a label for a row in a list, not a name for anything.
+const NoPrompt = "(no prompt recorded)"
+
 // summaryScanLimit bounds how much of a transcript is read looking for the
 // opening prompt. Transcripts can be very large and the first user message is
 // near the top.
@@ -229,7 +234,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 			Messages: facts[i].entries(),
 		}
 		if c.Summary == "" {
-			c.Summary = "(no prompt recorded)"
+			c.Summary = NoPrompt
 		}
 		out = append(out, c)
 	}

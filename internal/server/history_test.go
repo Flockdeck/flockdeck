@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmwri/perch/internal/session"
 )
 
 // listen waits for the next message of a type the window would receive.
@@ -197,6 +199,9 @@ func TestTitleForNamesATabAfterThePrompt(t *testing.T) {
 	}
 	if got := titleFor("", `C:\repos\app`); got != "app" {
 		t.Errorf("a conversation with no prompt should be named after its directory, got %q", got)
+	}
+	if got := titleFor(session.NoPrompt, `C:\repos\app`); got != "app" {
+		t.Errorf("a conversation that says nothing about itself should name its pane after the directory, got %q", got)
 	}
 	long := titleFor(strings.Repeat("a", 100), `C:\repos\app`)
 	if len([]rune(long)) != 25 {

@@ -186,6 +186,12 @@ func itoa(n int) string {
 // titleFor names a resumed tab after its opening prompt, which is far more
 // useful in a tab bar than a session id.
 func titleFor(summary, cwd string) string {
+	if summary == session.NoPrompt {
+		// The stand-in the history panel shows for a conversation that says
+		// nothing about itself. It reads as a row in a list; as the name of a
+		// pane it says even less than the directory does.
+		summary = ""
+	}
 	words := []rune(summary)
 	if len(words) == 0 {
 		return filepath.Base(cwd)
