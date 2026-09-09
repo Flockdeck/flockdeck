@@ -251,6 +251,9 @@ textarea:focus-visible {
 #tabs { position: relative; }
 #tabs.drop-end::after { right: 0; }
 #new-tab.drop-into { border-color: var(--accent); color: var(--accent); }
+/* The caret sits against the plus rather than beside it, so the two read as
+ * one control with a fast half and a slow half. */
+.caret-btn { margin-left: -6px; font-size: 10px; }
 
 .pane-header {
   display: flex;
@@ -296,6 +299,10 @@ textarea:focus-visible {
 
 .pane-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-branch { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The agent and model, in the branch's own weight: it answers the same sort of
+ * question the branch does — which of these six panes is the one I want — and
+ * neither is the pane's name. */
+.pane-agent { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Only a pane borrowed from another project carries this, so it is meant to
  * catch the eye: it is the one thing saying that the tab is not all one
  * project. It does not collapse, because a pane whose project has been
@@ -775,6 +782,47 @@ kbd {
 .pal-label { flex: 1 1 auto; }
 .pal-hint { color: var(--fg-dim); font-size: 11px; }
 .pal-empty { padding: 16px; color: var(--fg-dim); }
+
+/* ------------------------------------------------------------ agent picker */
+
+.pick-warn {
+  margin-bottom: 10px; padding: 8px 10px; border-radius: var(--radius);
+  border: 1px solid var(--waiting); color: var(--waiting); font-size: 12px;
+}
+.pick-filter {
+  width: 100%; background: var(--bg-inset); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--fg); padding: 9px 12px;
+  font-family: inherit; font-size: 14px; line-height: 1.4;
+}
+.pick-filter:focus { outline: none; border-color: var(--accent); }
+.pick-list { max-height: 50vh; overflow: auto; margin-top: 10px; }
+.pick-head {
+  padding: 10px 4px 4px; color: var(--fg-dim); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.pick-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
+}
+/* A model belongs to the agent above it, and the indent is the only thing
+ * saying so once the list is being walked from the keyboard. */
+.pick-row.model { padding-left: 30px; }
+.pick-row.sel { background: var(--accent); color: #06101f; }
+.pick-row.sel .pick-note, .pick-row.sel .pick-mark { color: #06101f; opacity: .8; }
+/* Greyed rather than hidden: somebody who has not installed an agent should
+ * still learn that Perch would run it, and what to install. */
+.pick-row.unavailable .pick-name { color: var(--fg-dim); }
+.pick-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-note { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
+.pick-mark {
+  font-size: 10px; font-weight: 600; letter-spacing: .02em;
+  padding: 1px 5px; border-radius: 3px; color: var(--fg); background: var(--line-strong);
+}
+.pick-foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px;
+  padding-top: 10px; border-top: 1px solid var(--line);
+}
+.pick-default { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; color: var(--fg-dim); }
 
 /* ------------------------------------------------------------------ notice */
 

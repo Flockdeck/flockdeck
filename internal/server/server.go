@@ -84,6 +84,16 @@ type Server struct {
 	// goroutine, which is what keeps it free of a lock of its own.
 	prefs store.Prefs
 
+	// The agent catalog as it was last built, which project it was built for,
+	// and when. Every snapshot carries it and snapshots are built ten times a
+	// second, while working it out means reading a file and searching PATH
+	// once per agent; agentProbeInterval is how long an answer stands. Like
+	// prefs, these are touched only on the workspace goroutine.
+	agents        agentCatalog
+	agentsRoot    string
+	agentsAt      time.Time
+	agentsProbing bool
+
 	// detached, when set, means the application should keep running after its
 	// last window closes so the agents carry on.
 	detached atomic.Bool

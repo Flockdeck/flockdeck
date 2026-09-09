@@ -156,7 +156,7 @@ func runFrontEnd(t *testing.T, body string) string {
 	// the front end that are on a timer: the tooltip delay, the fit debounce,
 	// the notice that takes itself away again.
 	write("case.js", "\"use strict\";\nconst assert = require(\"assert\");\n"+
-		"const { boot, fixture, pane, split, leaf } = require(\"./harness.js\");\n"+
+		"const { boot, fixture, catalog, pane, split, leaf } = require(\"./harness.js\");\n"+
 		"const h = boot();\n(async () => {\n"+body+
 		"\n})().catch((err) => { console.error(err); process.exitCode = 1; });\n")
 
@@ -1749,6 +1749,207 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "openProject", path: "C:/repos
 `)
 }
 
+// A tab of six agents may now be running six different things, and the header
+// is the only place that says which. It reads like the branch beside it because
+// it answers the same sort of question, and a shell is running neither an agent
+// nor a model and shows nothing at all.
+func TestThePaneHeaderNamesTheAgentAndModel(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+
+// One tab holding both panes, so the header of each is on screen at once.
+const both = (over) => fixture(Object.assign({
+  activeTab: "t1",
+  tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+           root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+}, over));
+
+const badges = () => h.$("workspace").querySelectorAll("span.pane-agent").map((n) => n.textContent);
+
+h.recv(both({ panes: {
+  p1: pane("p1", { agent: "claude", model: "sonnet" }),
+  p2: pane("p2", { kind: "shell", agent: "", model: "" }),
+} }));
+assert.deepStrictEqual(badges().sort(), ["", "claude · sonnet"],
+  "got: " + JSON.stringify(badges()));
+
+// A pane that was given no model runs whatever the agent is already set to,
+// and writing "claude · " would be saying nothing, twice.
+h.recv(both({ panes: {
+  p1: pane("p1", { agent: "claude", model: "" }),
+  p2: pane("p2", { kind: "shell", agent: "", model: "" }),
+} }));
+assert.deepStrictEqual(badges().sort(), ["", "claude"], "got: " + JSON.stringify(badges()));
+
+// And it follows a pane that changes model, since a restart may.
+h.recv(both({ panes: {
+  p1: pane("p1", { agent: "claude", model: "opus" }),
+  p2: pane("p2", { kind: "shell", agent: "", model: "" }),
+} }));
+assert.ok(badges().includes("claude · opus"), "got: " + JSON.stringify(badges()));
+`)
+}
+
+// Choosing an agent is the slow way round, so it is the whole catalog rather
+// than a menu: grouped by whether the machine has it, each agent opening onto
+// its models, and worked from the keyboard like every other overlay here.
+func TestTheAgentPickerIsWorkedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+h.click(h.$("new-tab-pick"));
+assert.ok(!h.$("overlay").hidden, "the picker did not open");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "refreshAgents" },
+  "the picker did not ask for a fresh probe as it opened");
+
+const body = h.$("overlay-body");
+const heads = body.querySelectorAll("div.pick-head").map((n) => n.textContent);
+assert.deepStrictEqual(heads, ["Installed", "Not installed"], "got: " + JSON.stringify(heads));
+
+// The filter has the keyboard from the moment it opens, and keeps it while the
+// list underneath is walked.
+const field = h.$("agent-filter");
+assert.ok(h.doc.activeElement === field, "the filter did not take the keyboard");
+
+const rows = () => h.$("agent-list").querySelectorAll("div.pick-row");
+assert.strictEqual(rows().length, 2, "one row per agent before either is opened");
+assert.ok(rows()[0].classList.contains("sel"), "nothing was picked out to begin with");
+assert.ok(rows()[0].querySelector("span.pick-mark"), "the default agent is not marked");
+assert.ok(rows()[1].classList.contains("unavailable"), "the agent this machine lacks is not greyed");
+assert.ok(rows()[1].textContent.includes("npm i -g @openai/codex"), "it does not say how to install it");
+
+// Right opens an agent onto its models; the arrows then walk those too.
+h.key({ key: "ArrowRight" });
+assert.strictEqual(rows().length, 5, "the models did not appear: " + rows().length);
+assert.ok(h.doc.activeElement === field, "walking the list took the keyboard off the filter");
+assert.strictEqual(field.getAttribute("aria-activedescendant"), rows()[0].id,
+  "the filter does not say which row is picked out");
+
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.ok(rows()[2].classList.contains("sel"), "the highlight did not move");
+assert.strictEqual(field.getAttribute("aria-activedescendant"), rows()[2].id);
+
+// Enter on a model starts a tab running that agent on that model.
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "newTab", kind: "agent", agent: "claude", model: "opus" });
+assert.ok(h.$("overlay").hidden, "the picker stayed open after choosing");
+`)
+}
+
+// The two fast paths must stay fast: the plus and the split binding start the
+// agent this project runs by default and say nothing about which that is, so
+// somebody who only ever runs Claude presses what they always pressed.
+func TestTheDefaultAgentStaysOneKeystroke(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+h.click(h.$("new-tab"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent" });
+
+h.press("splitRight");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "splitPane", id: "p1", dir: "h", kind: "agent" });
+
+h.press("newAgentTab");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent" });
+assert.ok(h.$("overlay").hidden, "the fast path opened the picker");
+`)
+}
+
+// An agent the machine does not have is listed so it can be discovered, and
+// picking it says why nothing started rather than opening a pane that dies.
+func TestAnAgentThatIsNotInstalledCannotBeStarted(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("new-tab-pick"));
+
+const rows = h.$("agent-list").querySelectorAll("div.pick-row");
+const before = h.commands().length;
+h.click(rows[1]);
+assert.strictEqual(h.commands().length, before, "a pane was started for an agent that is not there");
+assert.ok(!h.$("notice").hidden, "nothing was said about why");
+assert.ok(h.$("notice").textContent.includes("npm i -g @openai/codex"), "got: " + h.$("notice").textContent);
+assert.ok(!h.$("overlay").hidden, "the picker closed without doing anything");
+`)
+}
+
+// Making a choice the project's default is the difference between choosing
+// once and choosing every time, so it travels with the choice rather than
+// being a second dialog.
+func TestTheChoiceCanBecomeTheProjectDefault(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ agents: catalog({ project: { agent: "codex", model: "gpt-5" } }) }));
+h.click(h.$("new-tab-pick"));
+
+// The project's own answer overrides the overall one, and it is the row the
+// mark belongs on even though that agent is not installed here.
+const rows = () => h.$("agent-list").querySelectorAll("div.pick-row");
+assert.ok(!rows()[0].querySelector("span.pick-mark"), "the overall default was marked over the project's");
+assert.ok(rows()[1].querySelector("span.pick-mark"), "the project's own default is not marked");
+
+const tick = h.$("overlay-body").querySelector("label.pick-default").querySelector("input");
+assert.ok(tick, "there is nothing at the foot to make the choice the default");
+tick.checked = true;
+h.dispatch(tick, new h.Ev("change", { target: tick }));
+
+// Opening an agent onto its models and pressing Enter on the agent again
+// starts it on the model it names for itself, which is the short way through.
+h.key({ key: "ArrowRight" });
+h.key({ key: "Enter" });
+const sent = h.commands();
+assert.deepStrictEqual(sent[sent.length - 2],
+  { cmd: "setAgentDefault", agent: "claude", model: "" });
+assert.deepStrictEqual(sent[sent.length - 1],
+  { cmd: "newTab", kind: "agent", agent: "claude", model: "" });
+`)
+}
+
+// A status push arrives whenever any agent changes what it is doing, which with
+// six of them running is most of the time. Redrawing the picker on each one
+// would take the filter out from under whoever was typing into it.
+func TestAStatusPushDoesNotRedrawThePicker(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("new-tab-pick"));
+
+const field = h.$("agent-filter");
+field.value = "son";
+field.oninput();
+const rows = h.$("agent-list").querySelectorAll("div.pick-row");
+assert.strictEqual(rows.length, 1, "the filter matched more than the one agent whose model is Sonnet");
+
+// The arrows belong to the caret once there is text to move it through, so
+// they do not open an agent while the filter has something in it.
+h.key({ key: "ArrowRight" });
+assert.strictEqual(h.$("agent-list").querySelectorAll("div.pick-row").length, 1,
+  "right opened an agent instead of moving the caret in the filter");
+
+h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+
+assert.ok(h.$("agent-filter") === field, "the filter was rebuilt under the keyboard");
+assert.strictEqual(field.value, "son", "what was typed did not survive");
+const now = h.$("agent-list").querySelectorAll("div.pick-row");
+assert.ok(now[0] === rows[0], "the list was rebuilt for a push that changed no agent");
+
+// A catalog that really did change is another matter: an agent installed while
+// the dialog is open should appear in it.
+field.value = "";
+field.oninput();
+h.recv(fixture({ agents: catalog({ items: [
+  { id: "claude", name: "Claude Code", runner: "cli", available: true, defaultModel: "", models: [] },
+  { id: "codex", name: "Codex", runner: "cli", available: true, defaultModel: "gpt-5", models: [] },
+] }) }));
+const heads = h.$("overlay-body").querySelectorAll("div.pick-head").map((n) => n.textContent);
+assert.deepStrictEqual(heads, ["Installed"], "the newly installed agent is still in the other group");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -2179,9 +2380,25 @@ class FakeResizeObserver {
 /** pane is one entry of the state message's pane map. */
 function pane(id, over) {
   return Object.assign({
-    id: id, kind: "claude", name: "agent " + id, cwd: "C:/repo", branch: "main",
+    id: id, kind: "agent", agent: "claude", model: "", name: "agent " + id, cwd: "C:/repo", branch: "main",
     status: "idle", detail: "", broadcast: false,
     cols: 80, rows: 24, dirty: 0, untracked: 0, ahead: 0, behind: 0,
+  }, over || {});
+}
+
+/** catalog is the agent catalog every state push carries: one agent this
+ *  machine has and one it has not, which is the shape the picker groups by. */
+function catalog(over) {
+  return Object.assign({
+    items: [
+      { id: "claude", name: "Claude Code", runner: "cli", available: true, defaultModel: "",
+        models: [{ id: "", name: "Default", note: "whatever the CLI is set to" },
+                 { id: "opus", name: "Opus", note: "most capable" },
+                 { id: "sonnet", name: "Sonnet", note: "the everyday one" }] },
+      { id: "codex", name: "Codex", runner: "cli", available: false, defaultModel: "gpt-5",
+        install: "npm i -g @openai/codex", models: [{ id: "gpt-5", name: "GPT-5" }] },
+    ],
+    default: { agent: "claude", model: "" },
   }, over || {});
 }
 
@@ -2204,6 +2421,7 @@ function fixture(over) {
         root: { id: "n2", pane: "p2", weight: 1 } },
     ],
     panes: { p1: pane("p1"), p2: pane("p2") },
+    agents: catalog(),
   };
   return Object.assign(s, over || {});
 }
@@ -2382,5 +2600,5 @@ function boot() {
   return h;
 }
 
-module.exports = { boot, fixture, pane, split, leaf, Ev, Element, TextNode, dispatch };
+module.exports = { boot, fixture, catalog, pane, split, leaf, Ev, Element, TextNode, dispatch };
 `
