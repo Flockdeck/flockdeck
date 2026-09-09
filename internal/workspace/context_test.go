@@ -768,3 +768,26 @@ func TestAPaneBelowTheProjectRootIsNotAWorktree(t *testing.T) {
 		t.Errorf("the agent is not told where the project root is:\n%s", text)
 	}
 }
+
+// TestTheSpawnCommandIsQuotedWhenItHasToBe covers the paths an uninstalled
+// build actually sits at. Quoting on a space alone leaves the brackets in
+// "Program Files (x86)" for the shell to read as syntax, and an agent copying
+// the example gets a parse error rather than a helper.
+func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
+	cases := map[string]string{
+		"perch":                            "perch",
+		`C:\Program Files (x86)\perch.exe`: `"C:\Program Files (x86)\perch.exe"`,
+		`C:\tools\perch-2.1.exe`:           `C:\tools\perch-2.1.exe`,
+		`/usr/local/bin/perch`:             `/usr/local/bin/perch`,
+		`C:\build\perch(1).exe`:            `"C:\build\perch(1).exe"`,
+	}
+	for in, want := range cases {
+		if got := shellWord(in); got != want {
+			t.Errorf("shellWord(%q) = %q, want %q", in, got, want)
+		}
+		text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: in}.Render()
+		if !strings.Contains(text, want+" spawn ") {
+			t.Errorf("the examples do not run %s:\n%s", want, text)
+		}
+	}
+}

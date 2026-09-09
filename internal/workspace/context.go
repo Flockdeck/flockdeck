@@ -389,13 +389,28 @@ func (s Sibling) describe() string {
 	return b.String()
 }
 
-// shellWord quotes a command for the shell the examples are written for. The
-// path to a build that has not been installed routinely has a space in it.
+// shellWord quotes a command for the shell the examples are written for.
+//
+// The path to a build that has not been installed is full of characters a
+// shell reads as syntax rather than as part of a name: the space in "Program
+// Files", the brackets after it. Anything but what a bare path is made of is
+// quoted, rather than the space alone.
 func shellWord(s string) string {
-	if s == "" || !strings.ContainsAny(s, " 	") {
+	if s == "" || !strings.ContainsFunc(s, needsQuoting) {
 		return s
 	}
-	return "\"" + s + "\""
+	return `"` + s + `"`
+}
+
+// needsQuoting reports a character a shell would not read as part of a path.
+func needsQuoting(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	case r == '.', r == '_', r == '-', r == ':', r == '/', r == '\\':
+		return false
+	}
+	return true
 }
 
 // oneLine flattens a prompt onto a single line and shortens it to max runes,
