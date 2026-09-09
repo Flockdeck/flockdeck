@@ -775,6 +775,49 @@ assert.deepStrictEqual(panes(), [3, 1], "the weights from the Go side were not a
 `)
 }
 
+// The weights are written onto the panes from the layout tree on every push,
+// and every split in every tab had to be found in the document first.
+func TestApplyingWeightsDoesNotSearchTheDocument(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+
+// Three tabs of four panes: two projects' worth of agents, which is the shape
+// this is for.
+const tabs = [], panesIn = {};
+for (let t = 0; t < 3; t++) {
+  const kids = [];
+  for (let i = 0; i < 4; i++) {
+    const id = "p" + t + "-" + i;
+    panesIn[id] = pane(id, { name: "agent " + id });
+    kids.push(leaf("n" + t + "-" + i, id));
+  }
+  tabs.push({ id: "t" + t, title: "tab " + t, focus: "p" + t + "-0",
+              root: { id: "s" + t, dir: t % 2 ? "v" : "h", weight: 1, children: kids } });
+}
+h.recv(fixture({ activeTab: "t0", tabs: tabs, panes: panesIn }));
+
+const before = h.searched();
+for (let i = 0; i < 20; i++) h.recv(fixture({ activeTab: "t0", tabs: tabs, panes: panesIn }));
+const looked = h.searched() - before;
+console.log("elements examined by document searches during twenty pushes: " + looked);
+assert.strictEqual(looked, 0, "the document is still being searched on every push");
+
+// The weights still land, in every tab and not only the one on screen.
+tabs[2].root.children[1].weight = 4;
+h.recv(fixture({ activeTab: "t0", tabs: tabs, panes: panesIn }));
+const wrap = h.doc.querySelectorAll("div.pane").filter((p) => p.textContent.includes("agent p2-1"))[0];
+assert.ok(wrap, "the pane is there");
+assert.strictEqual(Number(wrap.style.flexGrow), 4, "the weight was not applied");
+
+// A split's own weight lands on the split, not only a pane's on a pane.
+tabs[1].root.weight = 2;
+h.recv(fixture({ activeTab: "t0", tabs: tabs, panes: panesIn }));
+assert.strictEqual(Number(h.doc.querySelector("div.split.v").style.flexGrow), 2,
+  "a split's weight was not applied, so its container is not being found");
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -968,9 +1011,14 @@ function dashed(k) { return String(k).replace(/[A-Z]/g, (c) => "-" + c.toLowerCa
 function camel(k) { return String(k).replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
 function stripTags(s) { return s.replace(/<[^>]*>/g, ""); }
 
+/** Every element a selector search looks at, counted so that a test can say
+ *  what searching the document costs. */
+let SEARCHED = 0;
+
 function walk(node, fn) {
   for (const k of node.childNodes.slice()) {
     if (k.nodeType !== 1) continue;
+    SEARCHED++;
     fn(k);
     walk(k, fn);
   }
@@ -1310,6 +1358,8 @@ function boot() {
     /** made counts every element ever built, so a test can say how much of the
      *  screen an action puts together again. */
     made() { return SERIAL; },
+    /** searched counts the elements every selector search has looked at. */
+    searched() { return SEARCHED; },
     /** bind presses the binding the action table gives for an action id. */
     press(actionID) {
       const k = h.keyTable().find((x) => x.id === actionID);

@@ -280,6 +280,7 @@
     const host = $("workspace");
     host.textContent = "";
     tabPages = [];
+    splitNodes.clear();
 
     if (!s.tabs.length) {
       const empty = el("div", "empty");
@@ -318,6 +319,7 @@
 
     const split = el("div", "split " + (node.dir === "h" ? "h" : "v"));
     split.dataset.node = node.id;
+    splitNodes.set(node.id, split);
     const kids = node.children || [];
     kids.forEach((child, i) => {
       if (i > 0) split.append(makeDivider(split, node));
@@ -351,8 +353,15 @@
     }
     (node.children || []).forEach(walkWeights);
   }
+  /** The split containers by node id, recorded as they are built. Weights are
+   *  applied on every state push, and every push arrives while agents are
+   *  working, so looking each one up used to mean a search of the whole
+   *  document — six panes deep in xterm's own elements — once per split. */
+  const splitNodes = new Map();
+
   function findSplit(id) {
-    return document.querySelector('.split[data-node="' + CSS.escape(id) + '"]');
+    const split = splitNodes.get(id);
+    return split && split.isConnected ? split : null;
   }
 
   /** panelsAround returns the two panels a divider sits between, and every
