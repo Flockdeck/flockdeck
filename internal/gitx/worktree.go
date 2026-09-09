@@ -50,7 +50,15 @@ func (w Worktree) Label() string {
 
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
-	out, _, err := runCapture(dir, args...)
+	out, _, err := runCapture(context.Background(), dir, args...)
+	return out, err
+}
+
+// runUntil is run for a command whose answer stops being wanted part way
+// through, so that cancelling ctx kills the process rather than leaving it to
+// finish work nobody will read.
+func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
+	out, _, err := runCapture(ctx, dir, args...)
 	return out, err
 }
 
@@ -60,7 +68,7 @@ func run(dir string, args ...string) (string, error) {
 // caller that shows the user only stdout shows them nothing at all: stderr
 // comes first because that is the order the two were written in.
 func runVerbose(dir string, args ...string) (string, error) {
-	out, errText, err := runCapture(dir, args...)
+	out, errText, err := runCapture(context.Background(), dir, args...)
 	if err != nil {
 		return "", err
 	}
@@ -83,8 +91,8 @@ func cleanProgress(s string) string {
 }
 
 // runCapture executes git in dir and returns stdout and stderr separately.
-func runCapture(dir string, args ...string) (string, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+func runCapture(parent context.Context, dir string, args ...string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(parent, commandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -103,6 +111,9 @@ func runCapture(dir string, args ...string) (string, string, error) {
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
+		}
+		if parent.Err() != nil {
+			return "", "", parent.Err()
 		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back

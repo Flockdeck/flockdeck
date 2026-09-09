@@ -173,6 +173,52 @@ func TestUntrackedCountingStopsAtTheLimit(t *testing.T) {
 	}
 }
 
+// TestLineCountsAreGivenUpOnAHugeDiff covers a working tree with more changed
+// files in it than anyone is going to read a "+12" beside.
+//
+// git has to read and diff every one of them to produce those numbers -- 20s
+// over a 10,000-file diff, against 139ms for the status call that lists the
+// same files -- so past the limit the numbers are abandoned and the list is
+// what the panel gets.
+func TestLineCountsAreGivenUpOnAHugeDiff(t *testing.T) {
+	repo := newRepo(t)
+	for i := 0; i < 4; i++ {
+		write(t, repo, fmt.Sprintf("f%d.txt", i), "one\n")
+	}
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "four files")
+	for i := 0; i < 4; i++ {
+		write(t, repo, fmt.Sprintf("f%d.txt", i), "one\ntwo\n")
+	}
+
+	under, err := changes(repo, 10)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(under) != 4 {
+		t.Fatalf("%d files, want 4: %+v", len(under), under)
+	}
+	for _, f := range under {
+		if f.Added != 1 {
+			t.Errorf("%s added = %d under the limit, want the count git gives", f.Path, f.Added)
+		}
+	}
+
+	over, err := changes(repo, 2)
+	if err != nil {
+		t.Fatalf("changes over the limit: %v", err)
+	}
+	if len(over) != 4 {
+		t.Errorf("%d files over the limit, want all 4 still listed", len(over))
+	}
+	for _, f := range over {
+		if f.Added != 0 || f.Removed != 0 {
+			t.Errorf("%s = +%d -%d over the limit, want the counting given up on",
+				f.Path, f.Added, f.Removed)
+		}
+	}
+}
+
 // TestDiffCoversTrackedAndUntracked checks both paths the panel needs.
 func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	repo := newRepo(t)

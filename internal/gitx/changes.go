@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -26,7 +27,11 @@ type FileChange struct {
 }
 
 // Changes lists the files that differ from HEAD, with line counts.
-func Changes(dir string) ([]FileChange, error) {
+func Changes(dir string) ([]FileChange, error) { return changes(dir, maxCounted) }
+
+// changes is Changes with the counting limit given, so a test can reach it
+// without writing a thousand files.
+func changes(dir string, limit int) ([]FileChange, error) {
 	// -z is what makes the names trustworthy: without it git quotes anything
 	// with a space, a quote or a non-ASCII character and escapes the bytes, so
 	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
@@ -35,18 +40,40 @@ func Changes(dir string) ([]FileChange, error) {
 	// None of the three calls needs an answer from the others, and each one is
 	// a process: run concurrently they cost one wait rather than three, which
 	// is what the panel notices on a checkout with a lot of changes in it.
+	//
+	// The numstats are cancellable because they are the expensive pair. git has
+	// to read and diff every changed file to produce them, which took 20s over
+	// a 10,000-file diff against 139ms for the status call that lists the same
+	// files. Once status has come back and said there are more files than
+	// anyone is going to read a "+12" beside, the two are killed where they
+	// stand rather than left to finish work that is about to be thrown away.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var (
 		staged, unstaged map[string]lineCount
 		wg               sync.WaitGroup
 	)
 	wg.Add(2)
 	// Line counts come from numstat, which status does not provide.
-	go func() { defer wg.Done(); staged = numstat(dir, true) }()
-	go func() { defer wg.Done(); unstaged = numstat(dir, false) }()
+	go func() { defer wg.Done(); staged = numstat(ctx, dir, true) }()
+	go func() { defer wg.Done(); unstaged = numstat(ctx, dir, false) }()
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	// One record per entry, plus one more for each rename's old name, so this
+	// runs a little ahead of the true count -- which is the safe direction for
+	// deciding that there are too many to bother counting.
+	tooMany := err == nil && strings.Count(out, "\x00") > limit
+	if tooMany {
+		cancel()
+	}
 	wg.Wait()
 	if err != nil {
 		return nil, err
+	}
+	if tooMany {
+		// A numstat small enough to have finished before the cancel reached it
+		// is thrown away all the same, so being over the limit means one thing
+		// however that race came out.
+		staged, unstaged = nil, nil
 	}
 
 	var files []FileChange
@@ -79,7 +106,7 @@ func Changes(dir string) ([]FileChange, error) {
 		}
 		files = append(files, fc)
 	}
-	countUntracked(dir, files, maxCounted)
+	countUntracked(dir, files, limit)
 	return files, nil
 }
 
@@ -121,13 +148,15 @@ func countUntracked(dir string, files []FileChange, limit int) {
 	wg.Wait()
 }
 
-// maxCounted bounds how many new files have their lines counted.
+// maxCounted bounds how many files have their lines counted, whether the
+// number comes from git or from reading a new file here.
 //
-// The count is a nicety -- a "+40" beside the name -- and it costs a whole
-// file read each. Reading them at once brought 20,000 of them down from 27s to
-// 6s, which is still seconds of the panel not appearing, for numbers on rows
-// nobody scrolls to. Past this many the file is still listed, without a count,
-// which is how a file with nothing added in it looks anyway.
+// The count is a nicety -- a "+40" beside the name -- and it is not cheap:
+// every untracked file is one to read to the end, and every tracked one is a
+// diff for git to compute. Reading 20,000 new files at once brought them down
+// from 27s to 6s, which is still seconds of the panel not appearing, for
+// numbers on rows nobody scrolls to. Past this many a file is still listed,
+// without a count, which is how a file with nothing added in it looks anyway.
 const maxCounted = 1000
 
 type lineCount struct{ added, removed int }
@@ -137,12 +166,12 @@ type lineCount struct{ added, removed int }
 // The keys have to match the names Changes reports, so this reads -z as well:
 // otherwise a quoted name never matches, and a rename is keyed under
 // "old => new", which matches nothing at all and left it counted as 0/0.
-func numstat(dir string, cached bool) map[string]lineCount {
+func numstat(ctx context.Context, dir string, cached bool) map[string]lineCount {
 	args := []string{"diff", "--numstat", "-z"}
 	if cached {
 		args = append(args, "--cached")
 	}
-	out, err := run(dir, args...)
+	out, err := runUntil(ctx, dir, args...)
 	if err != nil {
 		return nil
 	}
