@@ -42,10 +42,11 @@ closing it.
 direction. The neighbour is chosen by what is on screen rather than by tree
 order, so the opposite arrow always puts it back.
 
-The command palette carries the same moves and two more that dragging cannot
-express as easily: **Move this pane to tab: …** and **Merge tab into this
-one: …** for every open tab, and **Merge every tab into this one** for when
-the agents you want to watch together are scattered across all of them.
+The command palette carries the same moves, and [[action:movePaneToNewTab]]
+for the one dragging does by dropping a pane on `+`. It also has two that
+dragging cannot express as easily: **Move this pane to tab: …** and **Merge
+tab into this one: …** for every open tab, and [[action:mergeAllTabs]] for
+when the agents you want to watch together are scattered across all of them.
 
 Merging is the reverse of dropping a pane on `+`: what one splits apart, the
 other gathers back up.

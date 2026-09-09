@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // recv collects events delivered to a server.
@@ -74,12 +75,15 @@ func TestEmitWithoutStdin(t *testing.T) {
 }
 
 // TestBadTokenRejected checks that the loopback port cannot be driven by other
-// local processes.
+// local processes, and that a hook being turned away says so. A refusal that
+// reports nothing is indistinguishable from a hook that never ran, which is a
+// pane whose status quietly stops changing.
 func TestBadTokenRejected(t *testing.T) {
 	srv, r := newServer(t)
 
-	if _, err := Emit(nil, srv.Endpoint(), "not-the-token", "pane-3", "Stop"); err != nil {
-		t.Fatalf("emit returned a transport error: %v", err)
+	_, err := Emit(nil, srv.Endpoint(), "not-the-token", "pane-3", "Stop")
+	if err == nil {
+		t.Error("a rejected hook reported success")
 	}
 	select {
 	case e := <-r.ch:
@@ -171,8 +175,8 @@ func TestSessionStartSourceIsRead(t *testing.T) {
 // `spawn` subcommand, since it is the only thing the agent gets to read.
 func TestSpawnReportsRefusal(t *testing.T) {
 	srv, _ := newServer(t)
-	srv.SetSpawnHandler(func(SpawnRequest) (string, error) {
-		return "", errors.New("no such branch")
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("no such branch")
 	})
 
 	_, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "do a thing"})
@@ -197,9 +201,9 @@ func TestSpawnWithoutHandlerExplainsItself(t *testing.T) {
 func TestSpawnRejectsBadToken(t *testing.T) {
 	srv, _ := newServer(t)
 	called := make(chan struct{}, 1)
-	srv.SetSpawnHandler(func(SpawnRequest) (string, error) {
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
 		called <- struct{}{}
-		return "pane-x", nil
+		return SpawnResult{PaneID: "pane-x"}, nil
 	})
 
 	if _, err := Spawn(srv.BaseURL(), "not-the-token", "pane-1", SpawnRequest{Task: "x"}); err == nil {
@@ -217,19 +221,84 @@ func TestSpawnRejectsBadToken(t *testing.T) {
 func TestSpawnReturnsPaneID(t *testing.T) {
 	srv, _ := newServer(t)
 	var got SpawnRequest
-	srv.SetSpawnHandler(func(req SpawnRequest) (string, error) {
+	srv.SetSpawnHandler(func(req SpawnRequest) (SpawnResult, error) {
 		got = req
-		return "pane-9", nil
+		return SpawnResult{PaneID: "pane-9", Cwd: `C:\repo-fix-auth`}, nil
 	})
 
-	id, err := Spawn(srv.BaseURL(), srv.Token(), "parent-pane", SpawnRequest{Task: "review the docs", Split: true})
+	res, err := Spawn(srv.BaseURL(), srv.Token(), "parent-pane", SpawnRequest{Task: "review the docs", Split: true})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if id != "pane-9" {
-		t.Errorf("id = %q, want pane-9", id)
+	if res.PaneID != "pane-9" {
+		t.Errorf("id = %q, want pane-9", res.PaneID)
+	}
+	// The directory has to survive the round trip: with --worktree it is the
+	// one thing the caller could not have worked out for itself.
+	if res.Cwd != `C:\repo-fix-auth` {
+		t.Errorf("cwd = %q, want the directory the handler named", res.Cwd)
 	}
 	if got.Parent != "parent-pane" || got.Task != "review the docs" || !got.Split {
 		t.Errorf("handler saw %+v, want the request as sent", got)
+	}
+}
+
+// A PreToolUse payload carries the whole tool input, so a Write of a generated
+// file is megabytes of JSON. Reading a fixed slice of it leaves the payload
+// unparseable and loses the tool name, the directory and the prompt together —
+// which is the pane's status for that tool call.
+func TestEmitReadsALargeToolPayload(t *testing.T) {
+	srv, r := newServer(t)
+
+	big := strings.Repeat("x", 4<<20)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Write","cwd":"/repo","tool_input":{"content":"` + big + `"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-big", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.Tool != "Write" {
+		t.Errorf("tool = %q, want Write", got.Tool)
+	}
+	if got.Cwd != "/repo" {
+		t.Errorf("cwd = %q, want /repo", got.Cwd)
+	}
+}
+
+// A prompt with a pasted file in it is bigger than the body the server will
+// read, so forwarding it whole loses the event itself — and with it the change
+// of status that says the pane is working.
+func TestEmitClipsAHugePrompt(t *testing.T) {
+	srv, r := newServer(t)
+
+	prompt := "rewrite this: " + strings.Repeat("y", 2<<20)
+	stdin := strings.NewReader(`{"session_id":"s","prompt":"` + prompt + `"}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-prompt", "UserPromptSubmit"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.Event != "UserPromptSubmit" {
+		t.Errorf("event = %q, want UserPromptSubmit", got.Event)
+	}
+	if len(got.Prompt) > maxPromptBytes {
+		t.Errorf("prompt is %d bytes, want at most %d", len(got.Prompt), maxPromptBytes)
+	}
+	// What survives has to be the start of it: that is what names the tab.
+	if !strings.HasPrefix(got.Prompt, "rewrite this: ") {
+		t.Errorf("prompt = %.40q…, want it to open on the words the user typed", got.Prompt)
+	}
+}
+
+// clip must not cut a multi-byte character in half: what it produces is put in
+// a tab title and sent through JSON.
+func TestClipKeepsRunesWhole(t *testing.T) {
+	s := strings.Repeat("é", 8) // two bytes each
+	for n := 0; n <= len(s); n++ {
+		got := clip(s, n)
+		if len(got) > n {
+			t.Fatalf("clip(%d) is %d bytes", n, len(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("clip(%d) = %q, which is not valid UTF-8", n, got)
+		}
 	}
 }

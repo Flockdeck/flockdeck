@@ -11,10 +11,12 @@ one or several, split however you like.
 | [[key:newShellTab]] | A tab with a plain shell — no agent, no hooks |
 | [[key:splitRight]] | An agent beside the focused pane |
 | [[key:splitDown]] | An agent below the focused pane |
+| [[action:splitRightShell]] | A shell beside the focused pane |
 
 A shell pane is an ordinary terminal in the same directory. It is there for
 the `git`, `npm` or `go` command you want to run yourself while the agents
-work, and for watching a build.
+work, and for watching a build — which is why it can be split in beside an
+agent as well as opened in a tab of its own.
 
 ## Working in them
 
@@ -33,7 +35,7 @@ broadcast, restart, zoom, close. Double-click a tab to rename it.
 
 ## Restarting
 
-**Restart pane**, in the command palette and in the pane header, stops the
+[[action:restartPane]], in the command palette and in the pane header, stops the
 process and starts it again in the same directory — resuming the same
 conversation, because a pane and its conversation are one identity. Use it
 when an agent has wedged itself, not to clear the screen.

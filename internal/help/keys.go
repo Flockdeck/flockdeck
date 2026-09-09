@@ -1,5 +1,7 @@
 package help
 
+import "strings"
+
 // Every action the interface offers is described exactly once, here. The
 // command palette, the shortcut tables in the help pages and the README table
 // are all rendered from this list, so a binding cannot be changed in one of
@@ -95,6 +97,17 @@ var byID = func() map[string]Key {
 	}
 	return m
 }()
+
+// Name is the action as prose calls it: the label up to the dash that
+// introduces the gloss the palette needs and a sentence does not. "Detach —
+// close the window, leave agents running" is the palette entry; "Detach" is
+// what a page says.
+func (k Key) Name() string {
+	if i := strings.Index(k.Label, " — "); i > 0 {
+		return k.Label[:i]
+	}
+	return k.Label
+}
 
 // Lookup returns the action with the given id.
 func Lookup(id string) (Key, bool) {

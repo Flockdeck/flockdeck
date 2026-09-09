@@ -56,20 +56,11 @@ func main() {
 		return
 	}
 
-	var (
-		dir      = flag.String("C", ".", "directory to open the workspace on")
-		fresh    = flag.Bool("new", false, "ignore any saved layout and start with a single pane")
-		shell    = flag.Bool("shell", false, "open the first pane as a shell instead of an agent")
-		noWindow = flag.Bool("no-window", false, "do not open a window; print the URL and keep serving")
-		detach   = flag.Bool("detach", false, "keep running without a window; reattach later by running it again")
-		quit     = flag.Bool("quit", false, "stop a running instance and its agents")
-		solo     = flag.Bool("solo", false, "always start a new instance instead of attaching to a running one")
-		showVer  = flag.Bool("version", false, "print the version and exit")
-	)
-	flag.Usage = usage
-	flag.Parse()
+	var c cliFlags
+	fs := perchFlagSet(&c)
+	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
 
-	if *showVer {
+	if c.version {
 		fmt.Println("perch", version)
 		return
 	}
@@ -77,41 +68,63 @@ func main() {
 	// Anything left over is a mistyped flag or a subcommand that does not
 	// exist. Ignoring it would open a window on the current directory and
 	// leave the user believing `perch quit` had done something.
-	if flag.NArg() > 0 {
-		arg := flag.Arg(0)
+	if fs.NArg() > 0 {
+		arg := fs.Arg(0)
 		fmt.Fprintf(os.Stderr, "perch: unrecognised argument %q\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
 			fmt.Fprintf(os.Stderr, "To open that directory: perch -C %s\n", arg)
-		case flag.Lookup(arg) != nil:
+		case fs.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
 		}
 		fmt.Fprintln(os.Stderr)
-		usage()
+		fs.Usage()
 		os.Exit(2)
 	}
 	server.Version = version
 
-	if *quit {
+	if c.quit {
 		if err := quitRunning(); err != nil {
 			fail(err)
 		}
 		return
 	}
 
-	if err := run(options{
-		dir: *dir, fresh: *fresh, shell: *shell,
-		noWindow: *noWindow, detach: *detach, solo: *solo,
-	}); err != nil {
+	if err := run(c.options); err != nil {
 		fail(err)
 	}
 }
 
-func usage() {
-	out := flag.CommandLine.Output()
+// cliFlags are the top-level flags and where their values land. The two that
+// are acted on here rather than passed to run sit alongside the rest.
+type cliFlags struct {
+	options
+	quit    bool
+	version bool
+}
+
+// perchFlagSet defines the top-level command line. It is built here rather
+// than inline in main so that a test can walk the same set the program uses
+// and check the help documents it.
+func perchFlagSet(c *cliFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("perch", flag.ExitOnError)
+	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
+	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
+	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
+	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window; print the URL and keep serving")
+	fs.BoolVar(&c.detach, "detach", false, "keep running without a window; reattach later by running it again")
+	fs.BoolVar(&c.quit, "quit", false, "stop a running instance and its agents")
+	fs.BoolVar(&c.solo, "solo", false, "always start a new instance instead of attaching to a running one")
+	fs.BoolVar(&c.version, "version", false, "print the version and exit")
+	fs.Usage = func() { usage(fs) }
+	return fs
+}
+
+func usage(fs *flag.FlagSet) {
+	out := fs.Output()
 	fmt.Fprintf(out, "perch — run several Claude Code agents in tabs and split panes.\n\n")
 	fmt.Fprintf(out, "Usage:\n  perch [flags]\n\nFlags:\n")
-	flag.PrintDefaults()
+	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
@@ -161,8 +174,41 @@ func quitRunning() error {
 	if err := server.RequestQuit(base, inst.Token); err != nil {
 		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
 	}
+	// The request only asks. What follows it is saving every open project's
+	// layout and stopping a screenful of agent processes, and the instance is
+	// still listening the whole time — so `perch -quit && perch` used to find
+	// the old instance still answering and attach to one on its way out,
+	// opening a window onto agents that were in the middle of being killed.
+	// Saying "stopped" before it has is the same claim in words.
+	if !waitGone(func() bool { _, err := server.Probe(base, inst.Token); return err != nil }, quitWait) {
+		return fmt.Errorf("the instance at %s took the request but is still running", base)
+	}
 	fmt.Println("perch: stopped")
 	return nil
+}
+
+// quitWait is how long `-quit` waits for the instance to actually go. It is
+// longer than the deadline the instance puts on its own shutdown, so an
+// instance that gives up on a wedged pane is still gone before this gives up
+// on the instance.
+const quitWait = 20 * time.Second
+
+// quitPoll is how often the address is tried while waiting. A refused
+// connection on loopback comes back at once, so this costs nothing.
+const quitPoll = 100 * time.Millisecond
+
+// waitGone polls until gone reports true, or until within has passed.
+func waitGone(gone func() bool, within time.Duration) bool {
+	deadline := time.Now().Add(within)
+	for {
+		if gone() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(quitPoll)
+	}
 }
 
 // runningInstance returns the recorded instance if it is alive and answering.
@@ -206,6 +252,27 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		return fmt.Errorf("%w — open this URL manually:\n  %s", err, url)
 	}
 	return nil
+}
+
+// joinRunning reports the instance a launch should join, if there is one.
+//
+// A record that cannot be read is not the same as there being nothing to join,
+// and the difference matters here more than anywhere: carrying on starts a
+// second set of agents, which is the outcome the whole attach path exists to
+// prevent. The first set keeps running with no window showing it and a record
+// that has just been overwritten, so `perch -quit` will not find it either.
+//
+// Starting is still the right default — refusing would leave the application
+// unusable over a file the user has never heard of — but it is a guess, and
+// the guess is said out loud rather than made silently.
+func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string) {
+	inst, base, err := lookup()
+	if err != nil {
+		warn("could not tell whether one is already running (" + err.Error() +
+			"), so starting a new one; any agents already running still are")
+		return nil, ""
+	}
+	return inst, base
 }
 
 // startupOnlyFlags lists the flags that describe a fresh start, and so mean
@@ -252,7 +319,9 @@ func run(opts options) error {
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
-		if inst, base, err := runningInstance(); err == nil && inst != nil {
+		if inst, base := joinRunning(runningInstance, func(text string) {
+			fmt.Fprintln(os.Stderr, "perch:", text)
+		}); inst != nil {
 			// The flags that describe how to start up have nobody to apply
 			// to once we are joining agents that are already running. Say so:
 			// silently ignoring -new looks like the layout was kept on purpose.
@@ -312,16 +381,25 @@ func run(opts options) error {
 		select {
 		case closeOnce <- struct{}{}:
 			close(quit)
+			// Everything past this point closes panes and kills their
+			// processes. A pane whose process will not die must not be able to
+			// keep the whole application alive with its window already gone,
+			// so the orderly shutdown is given a deadline of its own. The
+			// process exits normally long before this fires; it only ever runs
+			// when the shutdown has wedged.
+			go func() {
+				time.Sleep(shutdownGrace)
+				forceQuit()
+			}()
 		default:
 		}
 	}
 
-	sigs := make(chan os.Signal, 1)
+	// Two deep, so a second interrupt arriving while the first is still being
+	// acted on is not dropped on the floor.
+	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt)
-	go func() {
-		<-sigs
-		stop()
-	}()
+	go interrupts(sigs, stop, forceQuit)
 
 	srv.OnQuit = stop
 	if opts.detach {
@@ -384,15 +462,63 @@ func run(opts options) error {
 
 	<-quit
 
-	if err := ws.SaveAll(); err != nil {
+	if err := shutdown(srv.Close, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "perch: could not save layout:", err)
 	}
 	return nil
 }
 
+// shutdown stops serving, and only then saves.
+//
+// The order is the whole of it. The workspace is not safe for concurrent use,
+// which is why the server funnels every read and write of it through a single
+// goroutine of its own — and that goroutine is still running commands from any
+// window that is still connected right up until the server is closed. Saving
+// first walks the tabs and the pane tree while that goroutine may be adding to
+// them, which is a race for the one piece of state the user would actually
+// notice losing.
+//
+// Closing first also loses nothing: what is being closed is the way in, and
+// everything it was serving is about to go.
+func shutdown(stopServing func() error, save func() error) error {
+	_ = stopServing()
+	return save()
+}
+
+// shutdownGrace bounds the orderly shutdown. It is generous: closing panes is
+// killing a handful of processes, which takes no time at all when it works.
+const shutdownGrace = 10 * time.Second
+
+// interrupts turns the interrupt signal into the two things it means.
+//
+// The first asks for an orderly stop, which saves the layout and shuts the
+// agents down. A second, arriving while that is still going, is the user
+// saying it has taken long enough — and it has to be acted on, because
+// signal.Notify has already taken Ctrl+C away from the runtime's own handler.
+// Without this the only way out of a wedged shutdown is to kill the process,
+// which is exactly the way to leave agent processes behind.
+func interrupts(sigs <-chan os.Signal, stop, force func()) {
+	<-sigs
+	stop()
+	<-sigs
+	force()
+}
+
+// forceQuit ends the process without waiting for the orderly shutdown to
+// finish. It is the last resort: a window that has gone and an application
+// that will not stop is worse than an abrupt exit.
+func forceQuit() {
+	fmt.Fprintln(os.Stderr, "perch: shutting down is taking too long — stopping now")
+	os.Exit(1)
+}
+
 // errReported marks an error the failing code has already printed, so the
 // caller exits without repeating it.
 var errReported = errors.New("already reported")
+
+// errHelpAsked marks `spawn -h`: the usage has been printed and there is
+// nothing left to do, so the command succeeds rather than failing.
+var errHelpAsked = errors.New("usage shown")
 
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
@@ -415,27 +541,13 @@ func paneEnv(name string) string {
 }
 
 func runSpawn(args []string) error {
-	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var (
-		worktree = fs.String("worktree", "", "branch name; the helper gets its own git worktree")
-		split    = fs.Bool("split", false, "place the helper beside this pane instead of in a new tab")
-		shell    = fs.Bool("shell", false, "start a shell instead of an agent")
-	)
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
-		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
-		fs.PrintDefaults()
+	req, err := parseSpawn(args)
+	if errors.Is(err, errHelpAsked) {
+		return nil
 	}
-	if err := fs.Parse(args); err != nil {
-		// `spawn -h` is the user asking for the usage they have just been
-		// given, not a failure to report on top of it.
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return errReported
+	if err != nil {
+		return err
 	}
-
 	api := paneEnv("API")
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
@@ -443,23 +555,132 @@ func runSpawn(args []string) error {
 		return fmt.Errorf("this only works inside a perch pane")
 	}
 
-	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if task == "" && !*shell {
-		fs.Usage()
-		return fmt.Errorf("a task is required")
-	}
-
-	id, err := hooks.Spawn(api, token, pane, hooks.SpawnRequest{
-		Task:   task,
-		Branch: *worktree,
-		Split:  *split,
-		Shell:  *shell,
-	})
+	res, err := hooks.Spawn(api, token, pane, req)
 	if err != nil {
 		return err
 	}
-	fmt.Println("started agent", id)
+	// Where it landed is the part the caller could not have worked out:
+	// --worktree names a branch, and which directory that becomes is the
+	// application's decision. Without it an agent that has just handed work to
+	// a helper has no way to go and look at what the helper did.
+	if res.Cwd != "" {
+		fmt.Println("started agent", res.PaneID, "in", res.Cwd)
+		return nil
+	}
+	fmt.Println("started agent", res.PaneID)
 	return nil
+}
+
+// parseSpawn turns the arguments of `perch spawn` into the request to send.
+// It is separate from sending it so the parsing can be tested without an
+// instance to spawn into.
+//
+// An error of errReported means the flag set has already said what was wrong;
+// a nil request with a nil error means the caller asked for the usage.
+func parseSpawn(args []string) (hooks.SpawnRequest, error) {
+	var f spawnFlags
+	fs := spawnFlagSet(&f)
+	if err := fs.Parse(orderSpawnArgs(fs, args)); err != nil {
+		// `spawn -h` is the user asking for the usage they have just been
+		// given, not a failure to report on top of it.
+		if errors.Is(err, flag.ErrHelp) {
+			return hooks.SpawnRequest{}, errHelpAsked
+		}
+		return hooks.SpawnRequest{}, errReported
+	}
+
+	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if task == "" && !f.shell {
+		fs.Usage()
+		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
+	}
+	return hooks.SpawnRequest{
+		Task:   task,
+		Branch: f.worktree,
+		Split:  f.split,
+		Shell:  f.shell,
+	}, nil
+}
+
+// spawnFlags are the flags of `perch spawn` and where their values land.
+type spawnFlags struct {
+	worktree string
+	split    bool
+	shell    bool
+}
+
+// spawnFlagSet defines the command line of `perch spawn`. It is built here
+// rather than inline so that the reordering, the parsing and the tests all
+// work from the one definition.
+func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
+	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
+	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
+		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
+// orderSpawnArgs moves the flags in front of the task.
+//
+// Go's flag package stops at the first argument that is not a flag, which for
+// this command is the task — so `perch spawn "watch the build" --split` parses
+// no flags at all and quietly folds "--split" into the task text. The agent
+// then gets a pane in a new tab, with a task ending in a word it did not
+// write, and nothing anywhere says why. Since the task is the one argument
+// that is never a flag, the two can be told apart wherever they appear.
+//
+// Anything after a bare "--" is task text, which is how a task whose own first
+// word begins with a dash is written.
+// Which flags take a value is read from fs rather than listed here, so a flag
+// added to the command later cannot have its value swallowed into the task by
+// a list nobody remembered to extend.
+func orderSpawnArgs(fs *flag.FlagSet, args []string) []string {
+	var flags, task []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			task = append(task, args[i+1:]...)
+			break
+		}
+		// An unknown flag is still passed to the flag set rather than swallowed
+		// into the task: `-h` has to reach it, and a typo has to be reported
+		// rather than silently prepended to what the agent is asked to do.
+		if len(arg) > 1 && arg[0] == '-' {
+			flags = append(flags, arg)
+			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			if !hasValue && takesValue(fs, name) && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+			continue
+		}
+		task = append(task, arg)
+	}
+	// The separator keeps a task word that begins with a dash — which only
+	// reaches here after an explicit "--" — from being read as a flag again.
+	return append(flags, append([]string{"--"}, task...)...)
+}
+
+// takesValue reports whether the named flag is followed by a value of its own.
+// A boolean is not: `-split true` is -split with the word "true" left over,
+// which for this command is the first word of the task.
+//
+// A flag the set does not define is answered no, so it is handed over alone
+// and reported as the unknown flag it is rather than quietly eating the word
+// after it.
+func takesValue(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
 }
 
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.

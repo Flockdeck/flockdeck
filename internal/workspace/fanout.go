@@ -249,7 +249,7 @@ func isPlanCue(line string) bool {
 // still a heading, and handing "Next steps" to an agent as its whole brief
 // tells it nothing at all.
 func isPlanHeading(line string) bool {
-	heading := strings.TrimSpace(strings.Trim(strings.ToLower(tidyTask(line)), "#*_:. "))
+	heading := trimLeadGlyph(strings.TrimSpace(strings.Trim(strings.ToLower(tidyTask(line)), "#*_:. ")))
 	for _, h := range planHeadings {
 		if heading == h {
 			return true
@@ -268,7 +268,48 @@ func tidyTask(s string) string {
 	// Emphasis written with one mark rather than two is left over at the ends.
 	// Kept, it makes the entry open on punctuation, and isTask reads that as
 	// the middle of a wrapped line and throws the whole task away.
-	return strings.Trim(s, "*_")
+	return trimLeadGlyph(strings.Trim(s, "*_"))
+}
+
+// trimLeadGlyph drops the decorative symbol an agent so often puts at the head
+// of a list entry — ✅, 🔧, ⚠️, 📝 and the rest of them.
+//
+// It is ornament, not part of the job. Left on, it makes the entry open on
+// something that is neither a letter nor a digit, which isTask reads as the
+// middle of a wrapped line and throws away whole — so a plan written in that
+// style yielded not a shortened list of tasks but none at all.
+//
+// Only a symbol standing on its own before a space goes. That keeps the
+// backtick an entry may legitimately open on, and leaves alone the rare line
+// where the symbol is what the line is about.
+func trimLeadGlyph(s string) string {
+	rest := s
+	trimmed := false
+	for {
+		r, n := utf8.DecodeRuneInString(rest)
+		if n == 0 || !isGlyphRune(r) {
+			break
+		}
+		rest = rest[n:]
+		trimmed = true
+	}
+	if !trimmed || !strings.HasPrefix(rest, " ") {
+		return s
+	}
+	return strings.TrimLeft(rest, " ")
+}
+
+// isGlyphRune reports whether r is one of the marks that make up a decorative
+// symbol: the symbol itself, and the selectors and joiners that dress it.
+//
+// Unicode's modifier symbols are deliberately left out. The backtick is one of
+// them, and an entry naming a function in backticks is a task like any other.
+func isGlyphRune(r rune) bool {
+	switch r {
+	case 0x200D, 0xFE0E, 0xFE0F: // zero-width joiner, variation selectors
+		return true
+	}
+	return unicode.Is(unicode.So, r) || unicode.Is(unicode.Mn, r)
 }
 
 // isTask reports whether a line reads as work rather than as the interface drawn
@@ -280,7 +321,13 @@ func isTask(s string) bool {
 	}
 	// A task is a phrase. One word is a spinner frame or the tail of a row that
 	// was wrapped away from its own beginning.
-	if len(strings.Fields(s)) < 2 {
+	//
+	// That is a rule about languages which separate their words with spaces.
+	// Chinese and Japanese do not, so an entire sentence in either is one field
+	// and the rule threw away every line of the plan rather than some of it.
+	// Where there are no words to count, length is the measure, and the minimum
+	// above is already it.
+	if len(strings.Fields(s)) < 2 && !spaceless(s) {
 		return false
 	}
 	// Something that opens on punctuation is the middle of a line, not a task.
@@ -316,6 +363,17 @@ func isTask(s string) bool {
 		}
 	}
 	return !isProgress(s)
+}
+
+// spaceless reports whether s is written in a script that does not put spaces
+// between its words, which is what makes counting them meaningless.
+func spaceless(s string) bool {
+	for _, r := range s {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Thai) {
+			return true
+		}
+	}
+	return false
 }
 
 // terminalChrome is what Claude Code's interface draws around what its agent
@@ -370,25 +428,80 @@ func listItem(line string) (string, bool) {
 			return trimCheckbox(strings.TrimPrefix(line, marker)), true
 		}
 	}
-	// "1. text", "2) text", "10 - text"
-	digits := 0
-	for digits < len(line) && line[digits] >= '0' && line[digits] <= '9' {
-		digits++
-	}
-	if digits > 0 && digits <= 3 && digits < len(line) {
-		// The separator is allowed one leading space, which is how a dash is
-		// written after a number: "10 - text" rather than "10- text".
-		rest := strings.TrimPrefix(line[digits:], " ")
-		for _, sep := range []string{". ", ") ", "- ", ": "} {
-			if strings.HasPrefix(rest, sep) {
-				return rest[len(sep):], true
-			}
-		}
+	// "1. text", "2) text", "10 - text", "(3) text"
+	if entry, ok := numberedItem(line); ok {
+		return entry, true
 	}
 	// "TODO: text"
 	for _, prefix := range []string{"TODO: ", "TODO ", "Task: "} {
 		if strings.HasPrefix(line, prefix) {
 			return line[len(prefix):], true
+		}
+	}
+	// "Task 2: text", "Step 3 — text"
+	return labelledItem(line)
+}
+
+// numberedItem strips a leading number and its separator.
+//
+// The parenthesised spelling is here for the same reason the other three are:
+// an agent numbering its plan writes "(1)" as readily as "1." or "1)", and a
+// plan written in the one form the reader did not know went through as no plan
+// at all. Only ")" closes a "(", so nothing else is read as a number in
+// brackets.
+func numberedItem(line string) (string, bool) {
+	rest := line
+	bracketed := strings.HasPrefix(rest, "(")
+	if bracketed {
+		rest = rest[1:]
+	}
+	digits := 0
+	for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+		digits++
+	}
+	if digits == 0 || digits > 3 || digits >= len(rest) {
+		return "", false
+	}
+	seps := []string{". ", ") ", "- ", ": "}
+	if bracketed {
+		seps = []string{") "}
+	}
+	// The separator is allowed one leading space, which is how a dash is
+	// written after a number: "10 - text" rather than "10- text".
+	tail := strings.TrimPrefix(rest[digits:], " ")
+	for _, sep := range seps {
+		if strings.HasPrefix(tail, sep) {
+			return tail[len(sep):], true
+		}
+	}
+	return "", false
+}
+
+// labelledItem strips a "Task 2:" or "Step 3:" label.
+//
+// An agent asked to lay out an order of work sometimes numbers its steps in
+// words instead of with a list marker, which leaves a plan with no list in it
+// for the extractor to find. The number is required: without it "Step through
+// the reconnect path" would be read as an instruction to do "through the
+// reconnect path".
+func labelledItem(line string) (string, bool) {
+	for _, word := range []string{"Task", "Step"} {
+		if !strings.HasPrefix(line, word+" ") {
+			continue
+		}
+		rest := strings.TrimLeft(line[len(word):], " ")
+		digits := 0
+		for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+			digits++
+		}
+		if digits == 0 || digits > 3 {
+			continue
+		}
+		rest = strings.TrimLeft(rest[digits:], " ")
+		for _, sep := range []string{": ", "- ", "— ", ". ", ") "} {
+			if strings.HasPrefix(rest, sep) {
+				return rest[len(sep):], true
+			}
 		}
 	}
 	return "", false
@@ -416,6 +529,20 @@ func isDecoration(line string) bool {
 	return letters*3 < len([]rune(line))
 }
 
+// maxTaskBytes bounds the opening prompt a child agent can be given.
+//
+// The task is handed to the agent as a command-line argument, and Windows will
+// not take a command line beyond about thirty-two thousand characters. Past
+// that the pane does not start at all, and what the user is shown is whatever
+// the operating system has to say about command lines — which names neither
+// the task nor the length as the problem. The same text is also written into
+// the saved layout, which is no place for a document.
+//
+// The limit is far above any brief anyone writes: the tasks a fan-out proposes
+// are capped at six hundred characters, and this is more than twenty times
+// that.
+const maxTaskBytes = 16 << 10
+
 // SpawnOptions describes a child agent to start.
 type SpawnOptions struct {
 	// Task is given to the agent as its opening prompt.
@@ -439,6 +566,9 @@ type SpawnOptions struct {
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell {
 		return "", fmt.Errorf("a task is required")
+	}
+	if len(o.Task) > maxTaskBytes {
+		return "", fmt.Errorf("the task is %d characters; a pane can be started with at most %d", len(o.Task), maxTaskBytes)
 	}
 	if o.Kind == session.KindClaude && !w.ClaudeAvailable() {
 		return "", fmt.Errorf("the `claude` CLI was not found on PATH")
@@ -565,113 +695,73 @@ func (w *Workspace) worktreeFor(cwd, branch string) (string, error) {
 	return path, nil
 }
 
-// FanOut starts one agent per task.
-//
-// It returns the panes it created and, separately, what went wrong for the
-// tasks it could not start: a worktree that could not be created for one task
-// should not silently cancel the rest.
-func (w *Workspace) FanOut(parentPaneID string, tasks []string, o SpawnOptions) ([]string, []error) {
-	var (
-		made []string
-		errs []error
-	)
-	// The cap counts the tasks actually attempted, not positions in the slice.
-	// The list arrives from a user who has been editing it, so it carries blank
-	// rows, and counting those would let a handful of empty lines stand in for
-	// agents that were never started.
-	attempted := 0
-	// Branch names are derived from the task text and then truncated, so two
-	// tasks that begin alike derive the same name — and worktreeFor reuses the
-	// worktree a branch already has, which would quietly put two agents in one
-	// checkout. Keep the names each fan-out hands out distinct.
-	used := map[string]bool{}
-	for _, task := range tasks {
-		task = strings.TrimSpace(task)
-		if task == "" {
-			continue
-		}
-		if attempted >= maxTasks {
-			errs = append(errs, fmt.Errorf("stopped after %d tasks", maxTasks))
-			break
-		}
-		attempted++
-		opts := o
-		opts.Task = task
-		opts.Title = summarisePrompt(task)
-		if o.Branch == autoBranch {
-			opts.Branch = distinctBranch(BranchNameFor(task), used)
-			used[opts.Branch] = true
-		}
-		id, err := w.Spawn(parentPaneID, opts)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", opts.Title, err))
-			continue
-		}
-		made = append(made, id)
-	}
-	return made, errs
-}
-
-// distinctBranch returns base, or base-2, base-3 and so on, until it names a
-// branch this fan-out has not already handed to a sibling.
-func distinctBranch(base string, used map[string]bool) string {
-	candidate := base
-	for i := 2; used[candidate]; i++ {
-		candidate = fmt.Sprintf("%s-%d", base, i)
-	}
-	return candidate
-}
-
-// autoBranch asks FanOut to derive a branch name per task.
-const autoBranch = "@auto"
-
-// AutoBranch is the marker callers pass to give every child its own worktree
-// on a branch named after its task.
-const AutoBranch = autoBranch
-
 // maxBranchName bounds the derived part of a branch name. A task description
 // is a sentence, and a branch that long is unreadable in `git branch`.
 const maxBranchName = 32
 
 // BranchNameFor derives a git branch name from a task description.
+//
+// Letters are letters in every script. Keeping only a-z threw away every
+// character of a task written in Cyrillic, Greek, Japanese or anything else,
+// which left nothing at all — so each of those tasks came out as the fallback
+// name, and a whole fan-out landed on agent/task, agent/task-2, agent/task-3,
+// naming nothing. git takes UTF-8 in a ref, and the worktree directory derived
+// from it keeps the same characters already.
 func BranchNameFor(task string) string {
 	var b strings.Builder
 	lastDash := true
+	written := 0
 	for _, r := range strings.ToLower(task) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			lastDash = false
 		default:
-			if !lastDash {
-				b.WriteByte('-')
-				lastDash = true
+			if lastDash {
+				continue
 			}
+			b.WriteByte('-')
+			lastDash = true
 		}
 		// One character past the limit, which is what tells a name that only
 		// just fits from one that was cut short.
-		if b.Len() > maxBranchName {
+		written++
+		if written > maxBranchName {
 			break
 		}
 	}
+	// Counted in characters rather than in bytes, because what the limit is for
+	// is a name that can be read in `git branch` — and because measuring in
+	// bytes would both halve a Cyrillic name and, worse, cut one in the middle
+	// of a character, handing git a ref that is not UTF-8 at all.
 	name := strings.Trim(b.String(), "-")
-	if len(name) > maxBranchName {
+	if r := []rune(name); len(r) > maxBranchName {
 		cut := maxBranchName
 		// A cut that lands inside a word backs up to the boundary before it, so
 		// the branch reads as words rather than as a fragment. A cut that lands
 		// on one is already where it should be, and backing up from there would
 		// throw away a word the name had room for.
-		if name[cut] != '-' {
-			if i := strings.LastIndex(name[:cut], "-"); i > 8 {
+		if r[cut] != '-' {
+			if i := lastDashBefore(r, cut); i > 8 {
 				cut = i
 			}
 		}
-		name = strings.Trim(name[:cut], "-")
+		name = strings.Trim(string(r[:cut]), "-")
 	}
 	if name == "" {
 		name = "task"
 	}
 	return "agent/" + name
+}
+
+// lastDashBefore reports the index of the last dash in r before cut, or -1.
+func lastDashBefore(r []rune, cut int) int {
+	for i := cut - 1; i >= 0; i-- {
+		if r[i] == '-' {
+			return i
+		}
+	}
+	return -1
 }
 
 // planTurns is how far back a fan-out looks for a plan. What the agent last

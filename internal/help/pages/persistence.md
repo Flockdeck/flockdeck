@@ -23,7 +23,7 @@ dying on restore.
 
 ## Detaching
 
-**Detach**, in the command palette, closes the window and leaves every agent
+[[action:detach]], in the command palette, closes the window and leaves every agent
 running.
 
 ```sh

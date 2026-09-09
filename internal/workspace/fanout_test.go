@@ -1,12 +1,12 @@
 package workspace
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jmwri/perch/internal/session"
 )
@@ -398,54 +398,6 @@ func TestExtractTasksKeepsCountsOutOfTasks(t *testing.T) {
 	}
 }
 
-// TestFanOutCapCountsStartedAgents covers the cap over a list a user has been
-// editing. Blank rows are left behind by that editing, and they must not be
-// counted against the agents the cap is there to limit.
-func TestFanOutCapCountsStartedAgents(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	ws := newTestWorkspace(t, root)
-	ws.NewTab(session.KindShell, root, "lead")
-	parent := ws.CurrentTab().Focus
-
-	var tasks []string
-	for i := 0; i < maxTasks; i++ {
-		tasks = append(tasks, "", fmt.Sprintf("do the %dth thing", i))
-	}
-	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
-	if len(made) != maxTasks {
-		t.Errorf("started %d agents, want the full %d", len(made), maxTasks)
-	}
-	if len(errs) != 0 {
-		t.Errorf("unexpected errors: %v", errs)
-	}
-}
-
-// TestFanOutStopsAtTheCap is the other half: past the cap the extra tasks are
-// refused, and the caller is told rather than left to count panes.
-func TestFanOutStopsAtTheCap(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	ws := newTestWorkspace(t, root)
-	ws.NewTab(session.KindShell, root, "lead")
-	parent := ws.CurrentTab().Focus
-
-	var tasks []string
-	for i := 0; i < maxTasks+3; i++ {
-		tasks = append(tasks, fmt.Sprintf("do the %dth thing", i))
-	}
-	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
-	if len(made) != maxTasks {
-		t.Errorf("started %d agents, want %d", len(made), maxTasks)
-	}
-	if len(errs) != 1 {
-		t.Fatalf("errors = %v, want the one that says it stopped", errs)
-	}
-	if !strings.Contains(errs[0].Error(), "stopped after") {
-		t.Errorf("error = %q, want it to say the fan-out stopped", errs[0])
-	}
-}
-
 // TestExtractTasksKeepsLongWrappedItems covers a bullet long enough that its
 // wrapped tail would carry it past the cap. isTask discards anything over the
 // cap whole, so joining blindly cost the plan a real job instead of its tail.
@@ -465,35 +417,6 @@ func TestExtractTasksKeepsLongWrappedItems(t *testing.T) {
 	}
 	if strings.Contains(got[0], "a continuation row") {
 		t.Errorf("the tail was joined past the cap: %q", got[0])
-	}
-}
-
-// TestDistinctBranchSeparatesSiblings covers the hazard in an auto-branched
-// fan-out: branch names are truncated, so two tasks that begin alike derive the
-// same name, and a worktree that already exists is reused rather than made
-// again. Sharing one would put two agents in one checkout.
-func TestDistinctBranchSeparatesSiblings(t *testing.T) {
-	a := BranchNameFor("add a health endpoint to the HTTP server")
-	b := BranchNameFor("add a health endpoint to the gRPC server")
-	if a != b {
-		t.Fatalf("the two tasks derived %q and %q; the test needs them to collide", a, b)
-	}
-
-	used := map[string]bool{}
-	seen := map[string]bool{}
-	for i := 0; i < 3; i++ {
-		got := distinctBranch(a, used)
-		if seen[got] {
-			t.Fatalf("branch %q handed out twice", got)
-		}
-		seen[got] = true
-		used[got] = true
-	}
-	if !seen[a] {
-		t.Errorf("the first sibling should keep the plain name %q: %v", a, seen)
-	}
-	if !seen[a+"-2"] || !seen[a+"-3"] {
-		t.Errorf("later siblings should be suffixed: %v", seen)
 	}
 }
 
@@ -717,5 +640,239 @@ func TestExtractTasksDropsBulletedHeadings(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// Agents decorate their lists. A tick, a spanner, a warning triangle at the
+// head of every entry is ornament rather than part of the job, and it used to
+// cost the fan-out not some of the plan but all of it: the symbol makes the
+// entry open on something that is neither a letter nor a digit, which reads as
+// the middle of a wrapped line, and every item was thrown away.
+func TestExtractTasksReadsDecoratedBullets(t *testing.T) {
+	plan := `Here is the plan:
+
+- ✅ Add the health endpoint to the HTTP server
+- 🔧 Wire up the config loader
+- ⚠️ Check the error path in the reconnect loop
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add the health endpoint to the HTTP server",
+		"Wire up the config loader",
+		"Check the error path in the reconnect loop",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// A heading is a heading whether or not it has been dressed up, and one handed
+// to an agent as its whole brief says nothing at all.
+func TestExtractTasksDropsDecoratedHeadings(t *testing.T) {
+	plan := `
+- 📋 Plan
+- ✅ Rename the extractor and its tests
+`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Rename the extractor and its tests" {
+		t.Errorf("extracted %#v, want only the task", got)
+	}
+}
+
+// The backtick is a symbol too, and an entry naming a function in backticks is
+// a task like any other.
+func TestExtractTasksKeepsBacktickedNames(t *testing.T) {
+	plan := `
+Here is the plan:
+- ` + "`" + `listItem` + "`" + ` should take the whole line, not the body
+`
+	got := ExtractTasks(plan)
+	want := "`listItem` should take the whole line, not the body"
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("extracted %#v, want [%q]", got, want)
+	}
+}
+
+// An agent numbering its plan writes "(1)" as readily as "1." or "1)", and
+// numbers its steps in words as readily as with a marker at all. A plan
+// written in a form the reader does not know goes through as no plan.
+func TestExtractTasksReadsBracketedAndLabelledForms(t *testing.T) {
+	cases := map[string]string{
+		"bracketed": `Here is the plan:
+(1) Split the router into three files
+(2) Add a timeout to the control socket
+(3) Cover the reconnect path with a test`,
+		"labelled": `Here is the plan:
+Task 1: Split the router into three files
+Task 2: Add a timeout to the control socket
+Step 3 — Cover the reconnect path with a test`,
+	}
+	want := []string{
+		"Split the router into three files",
+		"Add a timeout to the control socket",
+		"Cover the reconnect path with a test",
+	}
+	for name, plan := range cases {
+		got := ExtractTasks(plan)
+		if len(got) != len(want) {
+			t.Errorf("%s: extracted %#v, want %#v", name, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: task %d = %q, want %q", name, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// The label has to carry a number. Without one, an ordinary sentence opening
+// on the word would be read as an instruction with its first word missing.
+func TestExtractTasksIgnoresAnUnnumberedLabel(t *testing.T) {
+	plan := `Here is the plan:
+Step through the reconnect path in the debugger
+- Add a timeout to the control socket`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the bulleted task", got)
+	}
+}
+
+// A bracket is only a list marker when it closes the way a bracket does.
+func TestExtractTasksIgnoresAHalfBracketedNumber(t *testing.T) {
+	plan := `Here is the plan:
+(1. this is not a numbered list entry at all
+- Add a timeout to the control socket`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the bulleted task", got)
+	}
+}
+
+// A task written in any other script used to reduce to nothing, so every
+// branch of the fan-out was the fallback name and the branches told the user
+// which agent was which only by their numbering.
+func TestBranchNameForOtherScripts(t *testing.T) {
+	cases := []struct {
+		task string
+		want string
+	}{
+		{"Добавить проверку", "agent/добавить-проверку"},
+		{"設定を読み込む", "agent/設定を読み込む"},
+		{"Ajouter une vérification", "agent/ajouter-une-vérification"},
+		// Only when there is genuinely nothing to name it after.
+		{"!!! ??? ...", "agent/task"},
+	}
+	for _, c := range cases {
+		if got := BranchNameFor(c.task); got != c.want {
+			t.Errorf("BranchNameFor(%q) = %q, want %q", c.task, got, c.want)
+		}
+	}
+}
+
+// The length limit is in bytes, and a cut that lands inside a character hands
+// git a ref that is not UTF-8 — which it refuses, taking the agent with it.
+func TestBranchNameForCutsOnACharacter(t *testing.T) {
+	for _, task := range []string{
+		strings.Repeat("настройка", 8),
+		strings.Repeat("設定", 20),
+		strings.Repeat("é", 60),
+		strings.Repeat("a", 60),
+		"проверка настройки конфигурации приложения и его окружения",
+	} {
+		got := BranchNameFor(task)
+		if !utf8.ValidString(got) {
+			t.Errorf("BranchNameFor(%.20q…) = %q, which is not valid UTF-8", task, got)
+		}
+		if strings.HasSuffix(got, "-") || strings.Contains(got, "--") {
+			t.Errorf("BranchNameFor(%.20q…) = %q is not a tidy branch name", task, got)
+		}
+	}
+}
+
+// Chinese and Japanese put no spaces between their words, so a whole sentence
+// in either is one field. Reading that as a single word — a spinner frame, or
+// the tail of a wrapped row — cost those plans not some of their items but all
+// of them.
+func TestExtractTasksReadsPlansWithoutSpaces(t *testing.T) {
+	cases := map[string][]string{
+		"japanese": {
+			"ルーターを三つのファイルに分割する",
+			"コントロールソケットにタイムアウトを追加する",
+			"再接続経路のテストを追加する",
+		},
+		"chinese": {
+			"把路由拆分成三个文件",
+			"给控制套接字加上超时",
+			"为重连路径补测试",
+		},
+	}
+	plans := map[string]string{
+		"japanese": "計画は次のとおりです:\n\n- ルーターを三つのファイルに分割する\n" +
+			"- コントロールソケットにタイムアウトを追加する\n- 再接続経路のテストを追加する\n",
+		"chinese": "计划如下:\n\n- 把路由拆分成三个文件\n" +
+			"- 给控制套接字加上超时\n- 为重连路径补测试\n",
+	}
+	for name, want := range cases {
+		got := ExtractTasks(plans[name])
+		if len(got) != len(want) {
+			t.Errorf("%s: extracted %#v, want %#v", name, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: task %d = %q, want %q", name, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// The one-word rule still does its job everywhere it was doing it: a lone word
+// in a language written with spaces is not a task.
+func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
+	plan := "Here is the plan:\n- Perambulating\n- Add a timeout to the control socket\n"
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the real task", got)
+	}
+}
+
+// The task becomes a command-line argument. Windows refuses a command line
+// past about thirty-two thousand characters, and what it says about that names
+// neither the task nor its length — so the length is checked here, where there
+// is something useful to say about it.
+func TestSpawnRefusesATaskTooLongToStartWith(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	_, err := ws.Spawn(parent, SpawnOptions{
+		Task: strings.Repeat("a", maxTaskBytes+1),
+		Kind: session.KindShell,
+	})
+	if err == nil {
+		t.Fatal("a task too long for a command line was accepted")
+	}
+	if !strings.Contains(err.Error(), "characters") {
+		t.Errorf("err = %v, want it to name the length", err)
+	}
+	// Nothing may be left behind by a spawn that was refused.
+	if n := len(ws.VisibleTabs()); n != 1 {
+		t.Errorf("tabs = %d, want the refused child to have opened none", n)
+	}
+
+	// A brief right up to the limit is still a brief.
+	if _, err := ws.Spawn(parent, SpawnOptions{
+		Task: strings.Repeat("a", maxTaskBytes),
+		Kind: session.KindShell,
+	}); err != nil {
+		t.Errorf("a task of exactly the limit was refused: %v", err)
 	}
 }

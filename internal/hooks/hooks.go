@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Event is a lifecycle notification from one pane.
@@ -63,7 +64,7 @@ type Server struct {
 	on    func(Event)
 
 	mu        sync.RWMutex
-	onSpawn   func(SpawnRequest) (string, error)
+	onSpawn   func(SpawnRequest) (SpawnResult, error)
 	onContext func(sessionID string) string
 }
 
@@ -159,6 +160,35 @@ func (s *Server) Close() error {
 	return s.srv.Shutdown(ctx)
 }
 
+// maxHookPayload bounds what a hook will read from Claude Code.
+//
+// A PreToolUse payload carries the whole tool input, which for a Write is the
+// file being written and for an Edit is the text on both sides of it. A
+// megabyte is a size real work reaches, and a payload cut short is not a
+// payload with a field missing: the JSON no longer parses, so the tool name,
+// the directory and the source are lost together — which is the pane's status
+// for that tool call. This is a generous ceiling on something a subprocess
+// reads once and throws away.
+const maxHookPayload = 64 << 20
+
+// maxPromptBytes is how much of a prompt is worth carrying back. All the
+// receiving end does with it is name a tab after the first few words, and the
+// server that receives it reads a bounded body — so a prompt with a pasted
+// file in it would push the whole event past that limit and lose the event
+// along with the prompt, leaving the pane's status stuck on the turn before.
+const maxPromptBytes = 4 << 10
+
+// clip cuts s to at most n bytes, on a rune boundary.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // Emit is the client half, run inside the hook subprocess. It reads Claude's
 // hook JSON from stdin to pick up the tool name, then posts the event.
 //
@@ -168,16 +198,14 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 	p := payload{Event: Event{SessionID: sessionID, Event: event}, Token: token}
 
 	if stdin != nil {
-		if raw, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(raw) > 0 {
-			var cp claudePayload
-			if json.Unmarshal(raw, &cp) == nil {
-				p.Tool = cp.ToolName
-				p.Cwd = cp.Cwd
-				p.Prompt = cp.Prompt
-				p.Source = cp.Source
-				if p.Source == "" {
-					p.Source = cp.How
-				}
+		var cp claudePayload
+		if json.NewDecoder(io.LimitReader(stdin, maxHookPayload)).Decode(&cp) == nil {
+			p.Tool = cp.ToolName
+			p.Cwd = cp.Cwd
+			p.Prompt = clip(cp.Prompt, maxPromptBytes)
+			p.Source = cp.Source
+			if p.Source == "" {
+				p.Source = cp.How
 			}
 		}
 	}
@@ -198,6 +226,17 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 		return "", err
 	}
 	defer resp.Body.Close()
+	// A refusal is silent otherwise, and a hook that is being refused looks
+	// exactly like one that is not running: panes whose status simply stops
+	// changing. The caller only writes this to stderr, where Claude Code shows
+	// it under --debug, so saying so cannot disturb the session either.
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if text := strings.TrimSpace(string(msg)); text != "" {
+			return "", fmt.Errorf("the application refused the %s hook: %s", event, text)
+		}
+		return "", fmt.Errorf("the application refused the %s hook: %s", event, resp.Status)
+	}
 	var out reply
 	if resp.StatusCode == http.StatusOK {
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
@@ -212,23 +251,29 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 // `perch spawn`, which posts here using the address and token its pane
 // was given in its environment.
 type SpawnRequest struct {
-	Parent   string `json:"parent"`
-	Task     string `json:"task"`
-	Branch   string `json:"branch,omitempty"`
-	Split    bool   `json:"split,omitempty"`
-	Shell    bool   `json:"shell,omitempty"`
-	Token    string `json:"token"`
-	Response struct {
-		PaneID string `json:"paneId,omitempty"`
-	} `json:"-"`
+	Parent string `json:"parent"`
+	Task   string `json:"task"`
+	Branch string `json:"branch,omitempty"`
+	Split  bool   `json:"split,omitempty"`
+	Shell  bool   `json:"shell,omitempty"`
+	Token  string `json:"token"`
+}
+
+// SpawnResult is what the application answers a spawn with.
+type SpawnResult struct {
+	PaneID string `json:"paneId"`
+	// Cwd is where the new agent is working. It is worth saying back because
+	// the caller cannot work it out: --worktree asks for a branch, and which
+	// directory that becomes is the application's decision, not the caller's.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // BaseURL is the address panes call back on.
 func (s *Server) BaseURL() string { return "http://" + s.ln.Addr().String() }
 
 // SetSpawnHandler installs the function that starts a child agent. It returns
-// the new pane's id, or an error explaining why it could not.
-func (s *Server) SetSpawnHandler(fn func(SpawnRequest) (string, error)) {
+// the new pane and where it is working, or an error explaining why it could not.
+func (s *Server) SetSpawnHandler(fn func(SpawnRequest) (SpawnResult, error)) {
 	s.mu.Lock()
 	s.onSpawn = fn
 	s.mu.Unlock()
@@ -256,33 +301,34 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "spawning is not available", http.StatusServiceUnavailable)
 		return
 	}
-	id, err := fn(req)
+	res, err := fn(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"paneId": id})
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // Spawn is the client half, used by the `spawn` subcommand inside a pane.
-func Spawn(api, token, parent string, req SpawnRequest) (string, error) {
+func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	req.Token = token
 	req.Parent = parent
+	var none SpawnResult
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -291,18 +337,16 @@ func Spawn(api, token, parent string, req SpawnRequest) (string, error) {
 		// the status is all the caller has to go on, so never return an
 		// error that prints as nothing.
 		if text := strings.TrimSpace(string(msg)); text != "" {
-			return "", fmt.Errorf("%s", text)
+			return none, fmt.Errorf("%s", text)
 		}
-		return "", fmt.Errorf("the application refused: %s", resp.Status)
+		return none, fmt.Errorf("the application refused: %s", resp.Status)
 	}
-	var out struct {
-		PaneID string `json:"paneId"`
-	}
+	var out SpawnResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", fmt.Errorf("unreadable answer from the application: %w", err)
+		return none, fmt.Errorf("unreadable answer from the application: %w", err)
 	}
 	if out.PaneID == "" {
-		return "", fmt.Errorf("the application accepted the request but named no pane")
+		return none, fmt.Errorf("the application accepted the request but named no pane")
 	}
-	return out.PaneID, nil
+	return out, nil
 }
