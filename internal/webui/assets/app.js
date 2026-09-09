@@ -200,12 +200,12 @@
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
       else if (msg.type === "prefs") { prefs = msg.prefs || prefs; renderHints(); }
-      else if (msg.type === "worktrees") renderWorktrees(msg);
-      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") renderProjects(); }
-      else if (msg.type === "browse") { browseState = msg; if (dialog === "projects") renderProjects(); }
-      else if (msg.type === "conversations") renderHistory(msg);
-      else if (msg.type === "changes") renderChanges(msg);
-      else if (msg.type === "agents") renderAgents(msg);
+      else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
+      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "browse") { browseState = msg; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
+      else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
+      else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -1428,6 +1428,38 @@
     // take the keyboard off it a moment later.
     $("overlay-panel").focus();
   }
+  /** keepFocus redraws the dialog's body and puts the keyboard back on the
+   *  control it was on.
+   *
+   *  These dialogs are drawn whole from the reply that comes back, so pressing
+   *  Refresh, or Fetch, or Remove throws away the button that was pressed along
+   *  with everything else — and the keyboard with it, onto the body, with no way
+   *  back into the dialog but tabbing from the top. The control is found again
+   *  by what it is and what it says, which is how a person finds it too, and
+   *  the text caret is put back where it was for a field.
+   */
+  function keepFocus(draw) {
+    const body = $("overlay-body");
+    const was = document.activeElement;
+    const key = was && body.contains(was) ? identify(was) : "";
+    const at = was && was.selectionStart;
+    draw();
+    if (!key) return;
+    for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
+      if (identify(node) !== key) continue;
+      node.focus();
+      if (at != null && node.setSelectionRange) {
+        try { node.setSelectionRange(at, at); } catch { /* not that kind of field */ }
+      }
+      return;
+    }
+  }
+
+  /** identify is what makes a control the same control across a redraw. */
+  function identify(node) {
+    return [node.id, node.tagName, node.className, (node.textContent || "").trim()].join("|");
+  }
+
   function closeOverlay() {
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide");

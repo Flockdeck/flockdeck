@@ -1142,6 +1142,67 @@ assert.strictEqual(btns[7].scrolledTo, settled, "an ordinary push moves the stri
 `)
 }
 
+// These dialogs are drawn whole from the reply that comes back, so the button
+// that asked for the reply is thrown away by the answer to it.
+func TestADialogPutsTheKeyboardBackAfterARedraw(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+const trees = () => ({
+  type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, dirty: 1, untracked: 0, head: "abc1234" }],
+  branches: [{ name: "main", checkedIn: true }, { name: "spare", checkedIn: false }],
+});
+h.click(h.$("btn-worktrees"));
+h.recv(trees());
+
+const body = h.$("overlay-body");
+const refresh = body.querySelectorAll("button").filter((b) => b.textContent === "Refresh")[0];
+assert.ok(refresh, "the dialog has a Refresh button");
+refresh.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
+
+// The answer redraws the dialog, which destroys the button that was pressed.
+h.recv(trees());
+const again = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Refresh")[0];
+assert.ok(again !== refresh, "the dialog was not redrawn, so this proves nothing");
+assert.ok(h.doc.activeElement === again, "the keyboard was left outside the dialog by its own answer");
+
+// Pressing it again still works, which is the point.
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
+
+// The same in Changes, where the redraw comes from asking the remote.
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+const state = { type: "changes", cwd: "C:/repo", branch: "improve-webui", upstream: "origin/improve-webui",
+                hasRemote: true, ahead: 1, files: [{ path: "app.js", label: "M", added: 2, removed: 1 }] };
+h.recv(state);
+const fetch = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Fetch")[0];
+fetch.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "gitFetch", path: "C:/repo" });
+h.recv(state);
+const fetchAgain = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Fetch")[0];
+assert.ok(fetchAgain !== fetch, "the dialog was not redrawn");
+assert.ok(h.doc.activeElement === fetchAgain, "Fetch dropped the keyboard when its answer arrived");
+
+// A field keeps the caret where it was, not at the end.
+const box = h.$("commit-message");
+box.value = "webui: something";
+box.oninput();
+box.focus();
+box.setSelectionRange(6, 6);
+h.recv(state);
+const boxAgain = h.$("commit-message");
+assert.ok(boxAgain !== box, "the commit box was not redrawn");
+assert.ok(h.doc.activeElement === boxAgain, "the commit box lost the keyboard to a refresh");
+assert.strictEqual(boxAgain.selectionStart, 6, "the caret went back to the end of the message");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1330,6 +1391,7 @@ class Element {
   get offsetHeight() { return 20; }
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
   scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
+  setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
   setPointerCapture(id) { this.captured = id; }
   releasePointerCapture() { this.captured = undefined; }
 }
