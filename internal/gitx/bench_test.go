@@ -22,6 +22,20 @@ func benchRepo(b *testing.B, n int) string {
 	return repo
 }
 
+// BenchmarkDiff times clicking one file in the review panel.
+func BenchmarkDiff(b *testing.B) {
+	if !Available() {
+		b.Skip("git is not installed")
+	}
+	repo := benchRepo(b, 20)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Diff(repo, "tracked-000.txt"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkChanges times one refresh of the review panel's file list.
 func BenchmarkChanges(b *testing.B) {
 	if !Available() {

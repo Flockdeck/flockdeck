@@ -310,13 +310,18 @@ func Diff(dir, path string) (string, error) {
 	// reviewing "what changed" wants to see. Before the first commit there is
 	// no HEAD to name -- git fails with "bad revision" rather than treating it
 	// as empty -- and everything staged is the change.
-	against := "HEAD"
-	if !hasHead(dir) {
-		against = "--cached"
-	}
-	out, err := gitDiff(dir, against, "--", pathspec(path))
+	//
+	// Trying it and falling back costs one call in a repository that has a
+	// commit, where asking first cost two: this runs on every click in the
+	// file list. When the fallback fails as well the first failure is the one
+	// worth reporting, since a missing HEAD is not what went wrong.
+	out, err := gitDiff(dir, "HEAD", "--", pathspec(path))
 	if err != nil {
-		return "", err
+		staged, stagedErr := gitDiff(dir, "--cached", "--", pathspec(path))
+		if stagedErr != nil {
+			return "", err
+		}
+		out = staged
 	}
 	if strings.TrimSpace(out) == "" {
 		out, err = gitDiff(dir, "--", pathspec(path))
@@ -356,12 +361,6 @@ func gitDiff(dir string, args ...string) (string, error) {
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
 	return run(dir, argv...)
-}
-
-// hasHead reports whether the repository has a commit to compare against.
-func hasHead(dir string) bool {
-	_, err := run(dir, "rev-parse", "--verify", "--quiet", "HEAD")
-	return err == nil
 }
 
 // insideTree reports whether a repository-relative path stays within the tree.
