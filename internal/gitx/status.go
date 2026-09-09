@@ -253,8 +253,18 @@ func AddFrom(repoDir, path, branch, base string) error {
 
 // DefaultBase returns a sensible starting point for a new branch: the current
 // branch of the main worktree.
+//
+// A rebase in progress there has to be stepped around. It detaches HEAD while
+// it replays commits, so there is no current branch to offer and "HEAD" means
+// whichever commit the replay happens to be sitting on -- a starting point
+// nobody means, and one that will not exist as anything once the rebase
+// finishes. The branch being rebased still points at where it was before the
+// rebase started, which is a real place to branch from.
 func DefaultBase(repoDir string) string {
 	if b := CurrentBranch(repoDir); b != "" {
+		return b
+	}
+	if b := rebasingBranch(repoDir); b != "" {
 		return b
 	}
 	return "HEAD"

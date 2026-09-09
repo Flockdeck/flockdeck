@@ -202,11 +202,20 @@ func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
 		t.Errorf("branch = %q, want topic -- the branch being rebased", st.Branch)
 	}
 
+	// A new worktree started while the rebase is stopped must not be based on
+	// the commit the replay is sitting on, which is nowhere once it finishes.
+	if got := DefaultBase(repo); got != "topic" {
+		t.Errorf("default base = %q mid-rebase, want topic", got)
+	}
+
 	// A plain detached checkout has no branch to name, and must not borrow one.
 	gitRun(t, repo, "rebase", "--abort")
 	gitRun(t, repo, "checkout", "--detach", "main")
 	if st := StatusOf(repo); st.Branch != "" {
 		t.Errorf("branch = %q on a plain detached HEAD, want empty", st.Branch)
+	}
+	if got := DefaultBase(repo); got != "HEAD" {
+		t.Errorf("default base = %q when detached and not rebasing, want HEAD", got)
 	}
 }
 
