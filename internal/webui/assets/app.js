@@ -544,21 +544,32 @@
     link.href = ICONS[state];
   }
 
+  /** The counts the summary is currently showing. It is a live region, so
+   *  rewriting it is not free the way rewriting an ordinary element is: a
+   *  screen reader reads out whatever appears in it, and a status push arrives
+   *  every time any agent changes what it is doing. Left to rewrite itself
+   *  unconditionally it spoke the same tally over and over, which with several
+   *  agents running is continuously. */
+  let summaryShown = "";
+
   function renderSummary(s) {
-    const box = $("summary");
-    box.textContent = "";
-    // The button's own tooltip is set once from the action table, in
-    // describeChrome; re-titling it here would put a stale binding back.
-    // Each count says what its own glyph means: the button's tooltip explains
-    // where clicking leads, which is not the same question.
-    if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
-    if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
-    if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
-    const state = s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle");
-    document.title = s.waiting > 0
-      ? `▲ ${s.waiting} waiting · perch`
-      : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
-    setFavicon(state);
+    const shown = s.waiting + " " + s.working;
+    if (shown !== summaryShown) {
+      summaryShown = shown;
+      const box = $("summary");
+      box.textContent = "";
+      // The button's own tooltip is set once from the action table, in
+      // describeChrome; re-titling it here would put a stale binding back.
+      // Each count says what its own glyph means: the button's tooltip explains
+      // where clicking leads, which is not the same question.
+      if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
+      if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
+      if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
+      document.title = s.waiting > 0
+        ? `▲ ${s.waiting} waiting · perch`
+        : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
+      setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
+    }
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     renderProjectChip(s);
   }

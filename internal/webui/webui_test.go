@@ -347,6 +347,49 @@ console.log("elements built to show a diff: " + built);
 	t.Log(strings.TrimSpace(out))
 }
 
+// The tally of who is waiting and who is working is a live region, so putting
+// it back unchanged is not free: a screen reader reads out whatever appears
+// there, and a status push arrives every time any agent moves.
+func TestTheSummaryIsOnlySpokenWhenItChanges(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+const busy = { p1: pane("p1", { status: "waiting" }), p2: pane("p2", { status: "working" }) };
+h.recv(fixture({ waiting: 1, working: 1, panes: busy }));
+
+const box = h.$("summary");
+assert.strictEqual(box.getAttribute("aria-live"), "polite", "the summary is a live region");
+assert.ok(box.textContent.includes("1 waiting"), "got: " + box.textContent);
+assert.ok(box.textContent.includes("1 working"), "got: " + box.textContent);
+assert.strictEqual(h.doc.title, "▲ 1 waiting · perch");
+const first = box.children[0];
+
+// Ten pushes in which the agents keep talking but the tally does not move.
+const before = h.made();
+for (let i = 0; i < 10; i++) {
+  h.recv(fixture({ waiting: 1, working: 1, panes: {
+    p1: pane("p1", { status: "waiting", detail: "asking about file " + i }),
+    p2: pane("p2", { status: "working", detail: "line " + i }),
+  } }));
+  assert.ok(h.$("summary").children[0] === first,
+    "the tally was written again on push " + (i + 1) + ", so it is read out again");
+}
+console.log("elements built by ten pushes that did not change the tally: " + (h.made() - before));
+
+// It does still follow the state it is given.
+h.recv(fixture({ waiting: 0, working: 2, panes: {
+  p1: pane("p1", { status: "working" }), p2: pane("p2", { status: "working" }) } }));
+assert.ok(h.$("summary").children[0] !== first, "the tally did not follow the count");
+assert.ok(!box.textContent.includes("waiting"), "got: " + box.textContent);
+assert.ok(box.textContent.includes("2 working"), "got: " + box.textContent);
+assert.strictEqual(h.doc.title, "● 2 working · perch");
+
+h.recv(fixture({ waiting: 0, working: 0 }));
+assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
+assert.strictEqual(h.doc.title, "perch");
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
