@@ -342,6 +342,7 @@ func claudePane() *Session {
 		status:      StatusIdle,
 		statusSince: time.Now(),
 		sawInput:    true,
+		startedAt:   time.Now(),
 		// Long enough that nothing settles underneath a bell assertion.
 		idleAfter: time.Minute,
 		history:   newRing(4096),
@@ -388,12 +389,13 @@ func TestBellIsIgnoredOnceHooksReport(t *testing.T) {
 	}
 }
 
-// TestBellBeforeAnyInputIsNotAttention covers a pane nobody has spoken to yet:
-// Claude rings while it starts up, and a pane that announces it needs
-// attention before being asked anything is noise.
-func TestBellBeforeAnyInputIsNotAttention(t *testing.T) {
+// TestBellWhileStartingUpIsNotAttention covers a pane that has only just
+// opened: Claude rings while it starts up, and a pane that announces it needs
+// attention before anything has happened in it is noise.
+func TestBellWhileStartingUpIsNotAttention(t *testing.T) {
 	s := claudePane()
 	s.sawInput = false
+	s.startedAt = time.Now()
 
 	s.publish([]byte("welcome\x07"))
 	if st, _ := s.Status(); st == StatusWaiting {
@@ -749,5 +751,20 @@ func TestExitReleasesThePseudoTerminal(t *testing.T) {
 	case <-s.pumped:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the reader is still blocked on the pseudo-terminal after the pane exited")
+	}
+}
+
+// TestBellReachesAPaneNobodyHasTypedInto covers the two panes that are never
+// typed at: an agent spawned with its task on the command line, and a pane
+// restored from a saved layout. Both had no bell fallback at all, which is
+// what is left when a pane's lifecycle hooks do not report.
+func TestBellReachesAPaneNobodyHasTypedInto(t *testing.T) {
+	s := claudePane()
+	s.sawInput = false
+	s.startedAt = time.Now().Add(-time.Minute)
+
+	s.publish([]byte("may I run this?\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v; a pane past its startup should report the bell", st)
 	}
 }

@@ -38,6 +38,9 @@ const (
 	// runner between packages -- without leaving a pane that has genuinely
 	// finished claiming to be busy.
 	quietBeforeIdle = 3 * time.Second
+	// bellGrace is how long after a pane starts its bells are treated as part
+	// of starting up rather than a request for attention.
+	bellGrace = 5 * time.Second
 	// maxCols and maxRows bound a resize. The dimensions are measured by the
 	// browser and can be anything it cares to send, while a PTY allocates a
 	// cell for every one of them, so a figure no display could produce is
@@ -88,10 +91,12 @@ type Session struct {
 	// hooksSeen records that Claude lifecycle hooks have reported for this
 	// session, which makes them authoritative over the terminal bell.
 	hooksSeen bool
-	// sawInput records that the user has typed into this pane. Claude rings the
-	// bell while starting up, so without this a freshly opened pane would
-	// announce that it needs attention before anyone has spoken to it.
+	// sawInput records that the user has typed into this pane, and startedAt
+	// when it was launched. Claude rings the bell while starting up, so
+	// without one of the two a freshly opened pane would announce that it
+	// needs attention before anything has happened in it.
 	sawInput   bool
+	startedAt  time.Time
 	cols, rows int
 	// idleAfter is quietBeforeIdle, held per session so a test can shorten it.
 	idleAfter time.Duration
@@ -157,6 +162,7 @@ func Start(cfg Config) (*Session, error) {
 		name:        cfg.Name,
 		status:      StatusStarting,
 		statusSince: time.Now(),
+		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
 		idleAfter:   quietBeforeIdle,
@@ -243,7 +249,15 @@ func (s *Session) publish(chunk []byte) {
 		// and when a turn simply ends, so once lifecycle hooks are reporting
 		// they are the sole source of truth; letting the bell win would flip
 		// every completed turn to "waiting".
-		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && s.sawInput {
+		// A pane is past its startup either because somebody typed into it or
+		// because enough time has gone by. Waiting for the typing alone
+		// silenced this for the panes it matters most for: an agent spawned
+		// with its task on the command line is never typed at, and neither is
+		// a pane restored from a saved layout until the user gets to it, so a
+		// workspace of fifteen restored agents had no fallback at all if
+		// their lifecycle hooks did not report.
+		started := s.sawInput || time.Since(s.startedAt) > bellGrace
+		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && started {
 			// Claude rings again every time it nudges about the input it is
 			// still waiting for, so the clock only starts on the transition:
 			// restarting it on each bell is how a pane that has been blocked
