@@ -1569,3 +1569,106 @@ func TestNeighborIgnoresAPaneItDoesNotFace(t *testing.T) {
 		t.Errorf("up from d = %q, want a", got)
 	}
 }
+
+// TestClosingAPaneLeavesTheRestOfTheTabWhereItWas is the promise behind
+// closing one of several agents: the panes you were reading do not move under
+// you. Only the panes that shared the closed pane's slot grow into it.
+//
+// It is also what says the weights are shared out correctly when the split the
+// pane came out of collapses into its parent. Getting that scaling wrong does
+// not break any structural invariant — the tab still tiles — it just silently
+// resizes panes at the other end of the screen.
+func TestClosingAPaneLeavesTheRestOfTheTabWhereItWas(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 997, H: 401}
+	checked, worst := 0, 0
+
+	for seed := int64(0); seed < 400; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		next := 1
+		for step := 0; step < 10; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			switch rnd.Intn(4) {
+			case 0, 1:
+				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
+				next++
+			case 2:
+				root.MovePane(victim, panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4)))
+			case 3:
+				if s := randomSplit(root, rnd); s != nil {
+					weights := make([]float64, len(s.Children))
+					for i := range weights {
+						weights[i] = math.Pow(10, rnd.Float64()*3-1.5)
+					}
+					s.SetChildWeights(weights)
+				}
+			}
+		}
+		panes := root.Panes()
+		if len(panes) < 3 {
+			continue
+		}
+		root.Compute(view)
+		if !roomFor(root) {
+			continue
+		}
+
+		victim := panes[rnd.Intn(len(panes))]
+		parent, _ := root.parentOf(root.Find(victim))
+		if parent == nil {
+			continue
+		}
+		slot := parent.Rect()
+		// A split of two dissolves when one of them goes, and its panes move
+		// up into its parent. The row they land in then divides its own space
+		// rather than the slot's, and its dividers fall where that arithmetic
+		// puts them, so the panes beyond can shift by a cell or two. Anything
+		// more than rounding is the weights being shared out wrongly.
+		dissolves := len(parent.Children) == 2
+
+		before := map[string]Rect{}
+		for _, l := range root.Leaves() {
+			before[l.Pane] = l.Rect()
+		}
+		if !root.Remove(victim) {
+			t.Fatalf("seed %d: closing %s failed", seed, victim)
+		}
+		root.Compute(view)
+		if !roomFor(root) {
+			continue
+		}
+
+		for _, l := range root.Leaves() {
+			was, now := before[l.Pane], l.Rect()
+			inSlot := was.X >= slot.X && was.Y >= slot.Y &&
+				was.X+was.W <= slot.X+slot.W && was.Y+was.H <= slot.Y+slot.H
+			if inSlot {
+				continue // free to grow into the room the closed pane left
+			}
+			checked++
+			off := abs(now.X - was.X)
+			for _, v := range []int{abs(now.Y - was.Y), abs(now.W - was.W), abs(now.H - was.H)} {
+				if v > off {
+					off = v
+				}
+			}
+			if off > worst {
+				worst = off
+			}
+			limit := 0
+			if dissolves {
+				limit = 2
+			}
+			if off > limit {
+				t.Fatalf("seed %d: closing %s moved %s from %+v to %+v, %d cells away and outside the slot %+v",
+					seed, victim, l.Pane, was, now, off, slot)
+			}
+		}
+	}
+
+	if checked < 300 {
+		t.Fatalf("only %d panes lay outside a closed slot, too few to mean anything", checked)
+	}
+	t.Logf("%d panes outside a closed slot, worst shift %d cells", checked, worst)
+}
