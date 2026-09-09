@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
 	"github.com/jmwri/perch/internal/workspace"
 )
@@ -569,5 +571,155 @@ func TestSnapshotsSupersedeRatherThanQueue(t *testing.T) {
 		default:
 			t.Errorf("%q was pushed out of the queue by a snapshot", want)
 		}
+	}
+}
+
+// benchServer starts a workspace of shell panes behind a server, which is as
+// close as a benchmark can get to a window full of agents without needing the
+// claude CLI. The panes carry the git summaries a real one would.
+func benchServer(b *testing.B, panes int) *Server {
+	b.Helper()
+	dir := b.TempDir()
+	b.Setenv("APPDATA", dir)
+	b.Setenv("XDG_CONFIG_HOME", dir)
+	b.Setenv("HOME", dir)
+
+	ws, err := workspace.New(workspace.Options{Root: b.TempDir()})
+	if err != nil {
+		b.Fatalf("workspace: %v", err)
+	}
+	b.Cleanup(ws.Close)
+	ws.NewTab(session.KindShell, ws.ActiveRoot(), "bench")
+	for i := 1; i < panes; i++ {
+		ws.SplitPaneIn(layout.Horizontal, session.KindShell, "")
+	}
+	srv, err := New(ws)
+	if err != nil {
+		b.Fatalf("server: %v", err)
+	}
+	b.Cleanup(func() { _ = srv.Close() })
+	return srv
+}
+
+var snapshotSink stateMsg
+
+// BenchmarkSnapshot measures the cost paid on every wake. A session calls back
+// on every chunk of output it produces, so this runs at the debounce ceiling
+// whenever the agents are talking, and it runs on the goroutine that owns the
+// workspace and dispatches every command from every window.
+func BenchmarkSnapshot(b *testing.B) {
+	srv := benchServer(b, 12)
+	done := make(chan struct{})
+	srv.do(func() {
+		defer close(done)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			snapshotSink = srv.snapshot()
+		}
+		b.StopTimer()
+	})
+	<-done
+}
+
+var encodeSink []byte
+
+// BenchmarkSnapshotEncode measures the whole per-wake cost: the snapshot plus
+// the encoding that decides whether anything actually changed.
+func BenchmarkSnapshotEncode(b *testing.B) {
+	srv := benchServer(b, 12)
+	done := make(chan struct{})
+	srv.do(func() {
+		defer close(done)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			encodeSink, _ = json.Marshal(srv.snapshot())
+		}
+		b.StopTimer()
+	})
+	<-done
+	b.Logf("snapshot encodes to %d bytes", len(encodeSink))
+}
+
+// TestChangesReachTheWindowPromptly covers the latency a person actually sees.
+// Splitting, closing, zooming and switching tabs all show up only when the next
+// state arrives, so holding every change for the rate-limit interval puts that
+// interval on the end of every one of them. Only changes that follow a recent
+// broadcast should have to wait.
+func TestChangesReachTheWindowPromptly(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	// Timings on a loaded machine are noisy, so several are taken and the best
+	// one is judged: under a plain delay not one of them could beat the
+	// interval, however quiet the machine happened to be.
+	best := time.Hour
+	for i := 0; i < 8; i++ {
+		title := fmt.Sprintf("prompt %d", i)
+		start := time.Now()
+		sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: title})
+		if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+			return len(s.Tabs) == 1 && s.Tabs[0].Title == title
+		}); !ok {
+			t.Fatalf("the rename to %q was never broadcast", title)
+		}
+		if d := time.Since(start); d < best {
+			best = d
+		}
+		// Long enough that the next change starts from a quiet interval.
+		time.Sleep(4 * stateInterval)
+	}
+	if best >= stateInterval {
+		t.Errorf("the quickest of eight changes took %v, which is the whole %v interval: changes are being delayed rather than rate limited", best, stateInterval)
+	}
+	t.Logf("quickest change to reach the window: %v", best)
+
+	// The interval must still cap the rate, or a talkative agent would have
+	// the window rebuilding itself on every chunk of output it produces.
+	const burst = 40
+	var last string
+	for i := 0; i < burst; i++ {
+		last = fmt.Sprintf("burst %d", i)
+		sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: last})
+	}
+	sent := 0
+	for {
+		st, ok := r.stateWithin(10*time.Second, nil)
+		if !ok {
+			t.Fatalf("the last of %d changes was never broadcast", burst)
+		}
+		sent++
+		if len(st.Tabs) == 1 && st.Tabs[0].Title == last {
+			break
+		}
+	}
+	if sent > burst/2 {
+		t.Errorf("%d of %d changes were broadcast separately; they should be coalesced", sent, burst)
+	}
+	t.Logf("%d changes were coalesced into %d broadcasts", burst, sent)
+}
+
+// firstTabID reads the id of the first visible tab.
+func (s *Server) firstTabID(t *testing.T) string {
+	t.Helper()
+	done := make(chan string, 1)
+	s.do(func() {
+		if tabs := s.ws.VisibleTabs(); len(tabs) > 0 {
+			done <- tabs[0].ID
+			return
+		}
+		done <- ""
+	})
+	select {
+	case id := <-done:
+		if id == "" {
+			t.Fatal("no visible tabs")
+		}
+		return id
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out reading the tab list")
+		return ""
 	}
 }

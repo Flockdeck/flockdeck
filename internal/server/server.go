@@ -29,10 +29,9 @@ import (
 // and WebSocket requests do not have to repeat it in every URL.
 const tokenCookie = "perch_token"
 
-// stateDebounce coalesces bursts of session activity into a single state push.
-// Agents produce output continuously; the tab bar does not need to be rebuilt
-// for every chunk.
-const stateDebounce = 40 * time.Millisecond
+// stateInterval is the shortest gap between two state pushes. Agents produce
+// output continuously; the tab bar does not need to be rebuilt for every chunk.
+const stateInterval = 40 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
@@ -144,19 +143,31 @@ func (s *Server) Wake() {
 	}
 }
 
-// pushLoop coalesces change notifications into state broadcasts.
+// pushLoop turns change notifications into state broadcasts, at most one every
+// stateInterval.
+//
+// The interval is a rate limit rather than a delay: a change that arrives after
+// a quiet moment goes out at once, and only the ones treading on its heels wait
+// for it. Delaying every change instead put the interval on the end of every
+// split, close, zoom and tab switch, which is the part of the interface a
+// person is watching for. Nothing is lost by broadcasting early — dirty is a
+// single flag, so a change made during the wait is still pending afterwards and
+// gets a broadcast of its own.
 func (s *Server) pushLoop() {
+	var last time.Time
 	for {
 		select {
 		case <-s.closed:
 			return
 		case <-s.dirty:
-			// Wait out the rest of the burst before rebuilding the snapshot.
-			select {
-			case <-time.After(stateDebounce):
-			case <-s.closed:
-				return
+			if wait := stateInterval - time.Since(last); wait > 0 {
+				select {
+				case <-time.After(wait):
+				case <-s.closed:
+					return
+				}
 			}
+			last = time.Now()
 			s.broadcastState()
 		}
 	}
