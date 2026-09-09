@@ -295,39 +295,99 @@ func findProjectDir(projects, cwd string) (string, error) {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		if folderMentions(dir, cwd) {
-			return dir, nil
+		for _, got := range folderRecords(dir) {
+			if sameDir(got, cwd) {
+				return dir, nil
+			}
 		}
 	}
 	return "", nil
 }
 
-// folderMentions reports whether any of the first few transcripts in a
-// project folder records cwd as the directory it ran in.
+// probedFolders remembers which working directories each project folder's
+// transcripts named.
 //
-// One transcript that names the directory identifies the folder, but the
-// first file need not be that transcript: a session that was opened and
-// abandoned leaves one with nothing in it, and a folder can be shared with a
-// neighbouring directory whose path derives the same name. Look past those,
-// up to a handful, rather than writing the folder off on the first answer.
-func folderMentions(dir, cwd string) bool {
+// This is the answer to "where has this project been before", and it is asked
+// of every folder in turn, opening transcripts as it goes. It is asked most
+// often by the projects that will not find an answer: a new worktree, or a
+// project that has never been used here, has no folder of its own, so every
+// refresh of its empty history panel walks the lot. With ten agents in ten
+// worktrees that is the common case, not the rare one.
+//
+// What a folder's transcripts recorded cannot change while the folder holds
+// the transcripts it held, so the answer is kept against how many that was --
+// including the answer that a folder said nothing at all, which is the one
+// the empty projects keep asking for.
+//
+// How many, rather than when the folder was last written: Windows keeps a
+// second copy of a directory's timestamps in its parent, and that copy is
+// what a listing of the parent hands back, and it is not updated when a file
+// appears in the directory. A project whose first conversation had just been
+// recorded would go on being told it has no history.
+var probedFolders = struct {
+	sync.Mutex
+	dirs map[string]folderProbe
+}{dirs: make(map[string]folderProbe)}
+
+// folderProbe is what the transcripts a folder was opened at recorded, and
+// how many transcripts the folder held at the time.
+type folderProbe struct {
+	transcripts int
+	cwds        []string
+}
+
+// folderRecords returns the working directories the first few transcripts in
+// a project folder record, opening them only when the folder has gained or
+// lost a transcript since it was last looked at.
+func folderRecords(dir string) []string {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return nil
 	}
+	transcripts := 0
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".jsonl") {
+			transcripts++
+		}
+	}
+
+	probedFolders.Lock()
+	probe, ok := probedFolders.dirs[dir]
+	probedFolders.Unlock()
+	if ok && probe.transcripts == transcripts {
+		return probe.cwds
+	}
+
+	probe = folderProbe{transcripts: transcripts, cwds: probeFolder(dir, files)}
+	probedFolders.Lock()
+	probedFolders.dirs[dir] = probe
+	probedFolders.Unlock()
+	return probe.cwds
+}
+
+// probeFolder opens the first few transcripts in a project folder and returns
+// the working directories they record.
+//
+// One transcript that names a directory identifies the folder, but the first
+// file need not be that transcript: a session that was opened and abandoned
+// leaves one with nothing in it, and a folder can be shared with a
+// neighbouring directory whose path derives the same name. Look past those,
+// up to a handful, rather than writing the folder off on the first answer.
+func probeFolder(dir string, files []os.DirEntry) []string {
+	var cwds []string
 	tried := 0
 	for _, f := range files {
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 			continue
 		}
-		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" && sameDir(got, cwd) {
-			return true
+		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
+			cwds = append(cwds, got)
 		}
 		if tried++; tried >= cwdProbeLimit {
 			break
 		}
 	}
-	return false
+	return cwds
 }
 
 // sameDir compares two recorded working directories.

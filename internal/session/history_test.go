@@ -370,8 +370,12 @@ func TestConversationsReportAnUnreadableStateDirectory(t *testing.T) {
 // or a benchmark sees a first listing rather than a refresh.
 func forgetTranscripts() {
 	transcriptCache.Lock()
-	defer transcriptCache.Unlock()
 	transcriptCache.dirs = make(map[string]map[string]transcriptFacts)
+	transcriptCache.Unlock()
+
+	probedFolders.Lock()
+	defer probedFolders.Unlock()
+	probedFolders.dirs = make(map[string]folderProbe)
 }
 
 // historyFixture sets up a Claude state directory and returns a working
@@ -809,5 +813,84 @@ func TestConversationsFindAFolderWhoseTranscriptsOpenWithBookkeeping(t *testing.
 	}
 	if got[0].Summary != "buried under the preamble" {
 		t.Errorf("summary = %q", got[0].Summary)
+	}
+}
+
+// TestFolderRecordsAreKeptUntilTheFolderChanges covers the search for a
+// project folder Claude named differently from the name derived here. It is
+// the projects with no folder of their own -- a new worktree, a project never
+// used here -- that walk every folder and open transcripts in each, and they
+// do it on every refresh of a panel that will be empty either way. What a
+// folder's transcripts recorded cannot change while the folder holds the
+// transcripts it held, so the answer is kept until it gains or loses one.
+func TestFolderRecordsAreKeptUntilTheFolderChanges(t *testing.T) {
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	dir := filepath.Join(t.TempDir(), "a-project-folder")
+	writeTranscript(t, dir, "aaaaaaaa-2222-2222-2222-222222222222",
+		`{"type":"user","cwd":"`+jsonPath(`C:\first`)+`","message":{"role":"user","content":"one"}}`)
+
+	got := folderRecords(dir)
+	if len(got) != 1 || !sameDir(got[0], `C:\first`) {
+		t.Fatalf("probed %q, want the directory the transcript records", got)
+	}
+
+	// The same transcript, saying something else. Nothing about the folder
+	// has changed, so nothing should be opened again.
+	writeTranscript(t, dir, "aaaaaaaa-2222-2222-2222-222222222222",
+		`{"type":"user","cwd":"`+jsonPath(`C:\second`)+`","message":{"role":"user","content":"two"}}`)
+	if got := folderRecords(dir); len(got) != 1 || !sameDir(got[0], `C:\first`) {
+		t.Errorf("probed %q again; an unchanged folder should not be opened twice", got)
+	}
+
+	// A transcript appears, which is the one thing that can change the answer.
+	writeTranscript(t, dir, "bbbbbbbb-2222-2222-2222-222222222222",
+		`{"type":"user","cwd":"`+jsonPath(`C:\third`)+`","message":{"role":"user","content":"three"}}`)
+	got = folderRecords(dir)
+	if len(got) != 2 || !sameDir(got[0], `C:\second`) || !sameDir(got[1], `C:\third`) {
+		t.Errorf("probed %q; a folder that has gained a transcript should be read again", got)
+	}
+}
+
+// TestConversationsSeeAFolderThatFillsUp covers the other side of that: the
+// project with no history is the one that walks every folder, so its empty
+// answer is the one most worth keeping -- and the one that must not outlive
+// the first conversation the project has.
+func TestConversationsSeeAFolderThatFillsUp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	cwd := filepath.Join(t.TempDir(), "brand-new")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A folder that exists and holds nothing of ours, so the search comes
+	// back empty and is remembered as having done so.
+	dir := filepath.Join(home, "projects", "a-name-of-its-own")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("found %d conversations for a project with no history", len(got))
+	}
+
+	// The first session in the project records itself there.
+	writeTranscript(t, dir, "bbbbbbbb-2222-2222-2222-222222222222",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"the first one"}}`)
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "the first one" {
+		t.Fatalf("the conversation that appeared was not found: %+v", got)
 	}
 }
