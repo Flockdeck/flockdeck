@@ -175,8 +175,8 @@ func TestSessionStartSourceIsRead(t *testing.T) {
 // `spawn` subcommand, since it is the only thing the agent gets to read.
 func TestSpawnReportsRefusal(t *testing.T) {
 	srv, _ := newServer(t)
-	srv.SetSpawnHandler(func(SpawnRequest) (string, error) {
-		return "", errors.New("no such branch")
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("no such branch")
 	})
 
 	_, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "do a thing"})
@@ -201,9 +201,9 @@ func TestSpawnWithoutHandlerExplainsItself(t *testing.T) {
 func TestSpawnRejectsBadToken(t *testing.T) {
 	srv, _ := newServer(t)
 	called := make(chan struct{}, 1)
-	srv.SetSpawnHandler(func(SpawnRequest) (string, error) {
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
 		called <- struct{}{}
-		return "pane-x", nil
+		return SpawnResult{PaneID: "pane-x"}, nil
 	})
 
 	if _, err := Spawn(srv.BaseURL(), "not-the-token", "pane-1", SpawnRequest{Task: "x"}); err == nil {
@@ -221,17 +221,22 @@ func TestSpawnRejectsBadToken(t *testing.T) {
 func TestSpawnReturnsPaneID(t *testing.T) {
 	srv, _ := newServer(t)
 	var got SpawnRequest
-	srv.SetSpawnHandler(func(req SpawnRequest) (string, error) {
+	srv.SetSpawnHandler(func(req SpawnRequest) (SpawnResult, error) {
 		got = req
-		return "pane-9", nil
+		return SpawnResult{PaneID: "pane-9", Cwd: `C:\repo-fix-auth`}, nil
 	})
 
-	id, err := Spawn(srv.BaseURL(), srv.Token(), "parent-pane", SpawnRequest{Task: "review the docs", Split: true})
+	res, err := Spawn(srv.BaseURL(), srv.Token(), "parent-pane", SpawnRequest{Task: "review the docs", Split: true})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if id != "pane-9" {
-		t.Errorf("id = %q, want pane-9", id)
+	if res.PaneID != "pane-9" {
+		t.Errorf("id = %q, want pane-9", res.PaneID)
+	}
+	// The directory has to survive the round trip: with --worktree it is the
+	// one thing the caller could not have worked out for itself.
+	if res.Cwd != `C:\repo-fix-auth` {
+		t.Errorf("cwd = %q, want the directory the handler named", res.Cwd)
 	}
 	if got.Parent != "parent-pane" || got.Task != "review the docs" || !got.Split {
 		t.Errorf("handler saw %+v, want the request as sent", got)

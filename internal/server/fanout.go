@@ -377,7 +377,7 @@ func (s *Server) installSpawnHandler() {
 	if hookSrv == nil {
 		return
 	}
-	hookSrv.SetSpawnHandler(func(req hooks.SpawnRequest) (string, error) {
+	hookSrv.SetSpawnHandler(func(req hooks.SpawnRequest) (hooks.SpawnResult, error) {
 		// Work out where the child should run before touching the workspace.
 		done := make(chan string, 1)
 		s.do(func() {
@@ -394,13 +394,13 @@ func (s *Server) installSpawnHandler() {
 		select {
 		case cwd = <-done:
 		case <-s.closed:
-			return "", errShuttingDown
+			return hooks.SpawnResult{}, errShuttingDown
 		}
 
 		if req.Branch != "" {
 			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
 			if err != nil {
-				return "", err
+				return hooks.SpawnResult{}, err
 			}
 			cwd = path
 		}
@@ -428,12 +428,13 @@ func (s *Server) installSpawnHandler() {
 		select {
 		case r = <-res:
 		case <-s.closed:
-			return "", errShuttingDown
+			return hooks.SpawnResult{}, errShuttingDown
 		}
-		if r.err == nil {
-			s.Wake()
+		if r.err != nil {
+			return hooks.SpawnResult{}, r.err
 		}
-		return r.id, r.err
+		s.Wake()
+		return hooks.SpawnResult{PaneID: r.id, Cwd: cwd}, nil
 	})
 }
 

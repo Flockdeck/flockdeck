@@ -64,7 +64,7 @@ type Server struct {
 	on    func(Event)
 
 	mu        sync.RWMutex
-	onSpawn   func(SpawnRequest) (string, error)
+	onSpawn   func(SpawnRequest) (SpawnResult, error)
 	onContext func(sessionID string) string
 }
 
@@ -251,23 +251,29 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 // `perch spawn`, which posts here using the address and token its pane
 // was given in its environment.
 type SpawnRequest struct {
-	Parent   string `json:"parent"`
-	Task     string `json:"task"`
-	Branch   string `json:"branch,omitempty"`
-	Split    bool   `json:"split,omitempty"`
-	Shell    bool   `json:"shell,omitempty"`
-	Token    string `json:"token"`
-	Response struct {
-		PaneID string `json:"paneId,omitempty"`
-	} `json:"-"`
+	Parent string `json:"parent"`
+	Task   string `json:"task"`
+	Branch string `json:"branch,omitempty"`
+	Split  bool   `json:"split,omitempty"`
+	Shell  bool   `json:"shell,omitempty"`
+	Token  string `json:"token"`
+}
+
+// SpawnResult is what the application answers a spawn with.
+type SpawnResult struct {
+	PaneID string `json:"paneId"`
+	// Cwd is where the new agent is working. It is worth saying back because
+	// the caller cannot work it out: --worktree asks for a branch, and which
+	// directory that becomes is the application's decision, not the caller's.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // BaseURL is the address panes call back on.
 func (s *Server) BaseURL() string { return "http://" + s.ln.Addr().String() }
 
 // SetSpawnHandler installs the function that starts a child agent. It returns
-// the new pane's id, or an error explaining why it could not.
-func (s *Server) SetSpawnHandler(fn func(SpawnRequest) (string, error)) {
+// the new pane and where it is working, or an error explaining why it could not.
+func (s *Server) SetSpawnHandler(fn func(SpawnRequest) (SpawnResult, error)) {
 	s.mu.Lock()
 	s.onSpawn = fn
 	s.mu.Unlock()
@@ -295,33 +301,34 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "spawning is not available", http.StatusServiceUnavailable)
 		return
 	}
-	id, err := fn(req)
+	res, err := fn(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"paneId": id})
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // Spawn is the client half, used by the `spawn` subcommand inside a pane.
-func Spawn(api, token, parent string, req SpawnRequest) (string, error) {
+func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	req.Token = token
 	req.Parent = parent
+	var none SpawnResult
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -330,18 +337,16 @@ func Spawn(api, token, parent string, req SpawnRequest) (string, error) {
 		// the status is all the caller has to go on, so never return an
 		// error that prints as nothing.
 		if text := strings.TrimSpace(string(msg)); text != "" {
-			return "", fmt.Errorf("%s", text)
+			return none, fmt.Errorf("%s", text)
 		}
-		return "", fmt.Errorf("the application refused: %s", resp.Status)
+		return none, fmt.Errorf("the application refused: %s", resp.Status)
 	}
-	var out struct {
-		PaneID string `json:"paneId"`
-	}
+	var out SpawnResult
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", fmt.Errorf("unreadable answer from the application: %w", err)
+		return none, fmt.Errorf("unreadable answer from the application: %w", err)
 	}
 	if out.PaneID == "" {
-		return "", fmt.Errorf("the application accepted the request but named no pane")
+		return none, fmt.Errorf("the application accepted the request but named no pane")
 	}
-	return out.PaneID, nil
+	return out, nil
 }

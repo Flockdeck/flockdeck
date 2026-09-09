@@ -482,11 +482,19 @@ func runSpawn(args []string) error {
 		return fmt.Errorf("this only works inside a perch pane")
 	}
 
-	id, err := hooks.Spawn(api, token, pane, req)
+	res, err := hooks.Spawn(api, token, pane, req)
 	if err != nil {
 		return err
 	}
-	fmt.Println("started agent", id)
+	// Where it landed is the part the caller could not have worked out:
+	// --worktree names a branch, and which directory that becomes is the
+	// application's decision. Without it an agent that has just handed work to
+	// a helper has no way to go and look at what the helper did.
+	if res.Cwd != "" {
+		fmt.Println("started agent", res.PaneID, "in", res.Cwd)
+		return nil
+	}
+	fmt.Println("started agent", res.PaneID)
 	return nil
 }
 
