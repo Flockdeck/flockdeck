@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -820,16 +819,5 @@ var processAlive = func(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if runtime.GOOS == "windows" {
-		// Windows has no signals; FindProcess opens a handle to the process,
-		// so getting one at all is the answer.
-		p.Release()
-		return true
-	}
-	// Signal 0 is delivered to nothing and only checks the process exists.
-	return p.Signal(syscall.Signal(0)) == nil
+	return pidAlive(pid)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1402,5 +1403,47 @@ func TestLayoutFromAnotherSchemaVersionIsKept(t *testing.T) {
 	}
 	if string(kept) != string(future) {
 		t.Errorf("kept copy is %q, want %q", kept, future)
+	}
+}
+
+// TestProcessAliveSeesPastAHandleToAnExitedProcess checks the liveness test is
+// about the process and not about whether a handle to it can be opened.
+//
+// Windows keeps a process object for as long as anything holds a handle, so a
+// perch that exited long ago is still openable by whatever started it. Calling
+// that "running" is what leaves a stale instance record in place, and while it
+// is there every launch tries to attach to a server that is not listening and
+// then declines to clear the record standing in its way.
+func TestProcessAliveSeesPastAHandleToAnExitedProcess(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a handle held open past exit is a Windows lifetime rule")
+	}
+	cmd := exec.Command("cmd", "/c", "exit")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Deliberately not waited for: Wait is what closes the handle, and the
+	// handle is the whole point.
+	defer func() { _ = cmd.Wait() }()
+	pid := cmd.Process.Pid
+
+	deadline := time.Now().Add(10 * time.Second)
+	for processAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("pid %d still reads as running; it exited and only the open handle is keeping it answerable", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	runtime.KeepAlive(cmd)
+}
+
+// TestProcessAliveKnowsThisProcess is the other half: the test above would
+// pass just as well if liveness always said no.
+func TestProcessAliveKnowsThisProcess(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Error("this process reads as not running")
+	}
+	if processAlive(0) || processAlive(-1) {
+		t.Error("a process id that cannot name a process reads as running")
 	}
 }
