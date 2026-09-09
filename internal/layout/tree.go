@@ -211,9 +211,13 @@ func (n *Node) Compute(r Rect) {
 		return
 	}
 
-	total := 0.0
+	total, tightest := 0.0, math.Inf(1)
 	for _, c := range n.Children {
-		total += c.weight()
+		w := c.weight()
+		total += w
+		if w < tightest {
+			tightest = w
+		}
 	}
 	if total <= 0 {
 		total = 1
@@ -230,6 +234,7 @@ func (n *Node) Compute(r Rect) {
 			avail = len(n.Children) // degenerate, but never negative
 		}
 		x := r.X
+		over := n.overrun(avail, total, tightest)
 		used, acc := 0, 0.0
 		for i, c := range n.Children {
 			acc += c.weight()
@@ -240,28 +245,83 @@ func (n *Node) Compute(r Rect) {
 			if w < 1 {
 				w = 1
 			}
-			c.Compute(Rect{X: x, Y: r.Y, W: w, H: r.H})
 			used += w
+			paid := w - 1
+			if paid > over {
+				paid = over
+			}
+			if paid > 0 {
+				w -= paid
+				over -= paid
+			}
+			c.Compute(Rect{X: x, Y: r.Y, W: w, H: r.H})
 			x += w + separatorWidth
 		}
 		return
 	}
 
+	avail := r.H
+	if avail < len(n.Children) {
+		avail = len(n.Children)
+	}
 	y := r.Y
+	over := n.overrun(avail, total, tightest)
 	used, acc := 0, 0.0
 	for i, c := range n.Children {
 		acc += c.weight()
-		h := int(float64(r.H)*acc/total) - used
+		h := int(float64(avail)*acc/total) - used
 		if i == len(n.Children)-1 {
-			h = r.H - used
+			h = avail - used
 		}
 		if h < 1 {
 			h = 1
 		}
-		c.Compute(Rect{X: r.X, Y: y, W: r.W, H: h})
 		used += h
+		paid := h - 1
+		if paid > over {
+			paid = over
+		}
+		if paid > 0 {
+			h -= paid
+			over -= paid
+		}
+		c.Compute(Rect{X: r.X, Y: y, W: r.W, H: h})
 		y += h
 	}
+}
+
+// overrun returns how many cells a split's children run past a box of avail
+// cells along its axis, tightest being the smallest weight among them.
+//
+// A pane owed less than a whole cell is given one anyway, since a pane nobody
+// can see is worse than one a cell too wide. Several such panes in a row add
+// up, though, and what they add up to used to come off the end of the box: the
+// panes at that end were laid out beyond their own parent, over whatever the
+// split next to it had drawn, and a click or an arrow key landed in the wrong
+// one of them. Compute takes this back off the panes with cells to spare, so
+// the row fits whatever the weights are.
+//
+// Working it out means walking the children twice, so the walk is skipped
+// unless a pane really is owed less than a cell — which is what the smallest
+// weight answers, since the boundaries are floored and floor(a+s) - floor(a)
+// is at least 1 for any share s of a cell or more.
+func (n *Node) overrun(avail int, total, tightest float64) int {
+	if float64(avail)*tightest/total >= 1 {
+		return 0
+	}
+	used, acc := 0, 0.0
+	for i, c := range n.Children {
+		acc += c.weight()
+		size := int(float64(avail)*acc/total) - used
+		if i == len(n.Children)-1 {
+			size = avail - used
+		}
+		if size < 1 {
+			size = 1
+		}
+		used += size
+	}
+	return used - avail
 }
 
 // Separators returns the vertical rules between horizontally adjacent panes,

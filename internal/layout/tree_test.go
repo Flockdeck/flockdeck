@@ -1412,3 +1412,64 @@ func TestLookupsDoNotAllocate(t *testing.T) {
 		}
 	}
 }
+
+// TestComputeStaysInsideTheBoxWhenAWeightIsTiny covers a divider dragged hard
+// against one end. The pane on the losing side is then owed a fraction of a
+// cell, and every pane after it is owed the same; rounding each of them up to
+// the one cell a pane must have pushed the row past the edge of the tab it was
+// being measured into, so the panes on the end sat outside their own parent —
+// on top of whatever the neighbouring split had put there.
+func TestComputeStaysInsideTheBoxWhenAWeightIsTiny(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 61, H: 25}
+
+	row := NewLeaf("p0")
+	for i := 1; i < 5; i++ {
+		row.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Horizontal)
+	}
+	if !row.SetChildWeights([]float64{1000, 1, 1, 1, 1}) {
+		t.Fatal("could not skew the row")
+	}
+	row.Compute(view)
+
+	sum := 0
+	for _, l := range row.Leaves() {
+		r := l.Rect()
+		if r.W < 1 || r.H < 1 {
+			t.Errorf("pane %s got %+v, every pane needs a cell", l.Pane, r)
+		}
+		if r.X < view.X || r.X+r.W > view.X+view.W {
+			t.Errorf("pane %s at %+v hangs off a tab %d columns wide", l.Pane, r, view.W)
+		}
+		sum += r.W
+	}
+	if want := view.W - 4*separatorWidth; sum != want {
+		t.Errorf("panes cover %d columns, want %d", sum, want)
+	}
+
+	// The same for a stack, which is where it bites hardest: a column nested
+	// in a row has only its share of the height to divide, so it takes far
+	// less of a drag to run out of rows than to run out of columns.
+	col := NewLeaf("q0")
+	for i := 1; i < 4; i++ {
+		col.Split("q"+strconv.Itoa(i-1), "q"+strconv.Itoa(i), Vertical)
+	}
+	if !col.SetChildWeights([]float64{97, 1, 1, 1}) {
+		t.Fatal("could not skew the column")
+	}
+	col.Compute(Rect{X: 0, Y: 0, W: 20, H: 10})
+
+	sum = 0
+	for _, l := range col.Leaves() {
+		r := l.Rect()
+		if r.H < 1 {
+			t.Errorf("pane %s got %+v, every pane needs a row", l.Pane, r)
+		}
+		if r.Y < 0 || r.Y+r.H > 10 {
+			t.Errorf("pane %s at %+v hangs off a column 10 rows deep", l.Pane, r)
+		}
+		sum += r.H
+	}
+	if sum != 10 {
+		t.Errorf("panes cover %d rows, want 10", sum)
+	}
+}
