@@ -1567,3 +1567,50 @@ func TestTranscriptCacheForgetsTheFolderNobodyIsLookingAt(t *testing.T) {
 		t.Errorf("the cache holds %d folders, more than the %d it is bounded to", len(transcriptCache.dirs), cachedFolderLimit)
 	}
 }
+
+// FuzzDescribeATranscript throws damaged transcripts at the reading a listing
+// does. Everything here is a file something else is writing while this reads
+// it, and it is written by another program, on another schedule, in a format
+// this only borrows: an entry cut off mid-word, bytes that are not JSON at
+// all, a line that never ends. None of it may panic, hang, or come back with
+// a count that does not describe the file or a summary too long for a row.
+func FuzzDescribeATranscript(f *testing.F) {
+	f.Add(`{"type":"user","cwd":"C:\\x","message":{"role":"user","content":"hello"}}` + "\n")
+	f.Add(`{"type":"ai-title","aiTitle":"a name"}` + "\n" + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"blocks"}]}}` + "\n")
+	f.Add(`{"type":"user","message":{"role":"user","content":"<system-reminder>skip me</system-reminder>"}}` + "\n" + `{"broken`)
+	f.Add("\n\n\n")
+	f.Add("")
+	f.Add("{}\r\n{}\r\n")
+	f.Add(`{"type":"user","message":{"role":"user","content":` + strings.Repeat("[", 64))
+
+	f.Fuzz(func(t *testing.T, body string) {
+		counted := &countingReader{r: strings.NewReader(body), last: '\n'}
+		prompt, title, cwd := openingPrompt(counted)
+		drain(counted)
+		facts := transcriptFacts{
+			summary:  prompt,
+			title:    title,
+			cwd:      cwd,
+			newlines: counted.newlines,
+			partial:  counted.last != '\n',
+		}
+
+		// One entry per line, and a last line with no break after it is an
+		// entry that is still being written.
+		want := strings.Count(body, "\n")
+		if body != "" && !strings.HasSuffix(body, "\n") {
+			want++
+		}
+		if got := facts.entries(); got != want {
+			t.Fatalf("counted %d entries in %q, want %d", got, body, want)
+		}
+		for _, s := range []string{prompt, title} {
+			if len([]rune(s)) > 161 {
+				t.Fatalf("a row would be given %d runes to show: %q", len([]rune(s)), s)
+			}
+			if strings.ContainsAny(s, "\n\r\t") {
+				t.Fatalf("a row would be given something that is not one line: %q", s)
+			}
+		}
+	})
+}
