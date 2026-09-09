@@ -1159,8 +1159,32 @@ func TestClosingOrDraggingOnePaneLeavesTheRestInOrder(t *testing.T) {
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("seed %d: dragging %s onto %s left the others as %v, want %v", seed, victim, target, got, want)
 				}
+				// And it has to be on the side of the target it was dropped
+				// on, whatever the split it came out of did on the way.
+				root.Compute(Rect{X: 0, Y: 0, W: 401, H: 197})
+				if !roomFor(root) {
+					continue
+				}
+				if m, o := root.Find(victim).Rect(), root.Find(target).Rect(); !onEdge(m, o, edge) {
+					t.Fatalf("seed %d: dragged %s onto edge %d of %s, and it landed at %+v against %+v",
+						seed, victim, edge, target, m, o)
+				}
 			}
 		}
+	}
+}
+
+// onEdge reports whether dropped ended up on the given side of onto.
+func onEdge(dropped, onto Rect, edge Edge) bool {
+	switch edge {
+	case EdgeLeft:
+		return dropped.X+dropped.W <= onto.X
+	case EdgeRight:
+		return onto.X+onto.W <= dropped.X
+	case EdgeTop:
+		return dropped.Y+dropped.H <= onto.Y
+	default:
+		return onto.Y+onto.H <= dropped.Y
 	}
 }
 
