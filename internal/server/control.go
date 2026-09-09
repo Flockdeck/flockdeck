@@ -530,23 +530,6 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 
 func (c *controlClient) writeLoop(ctx context.Context) {
 	for {
-		// The queue goes first. It carries the key table and the preferences a
-		// window is given before anything else, which the palette and the
-		// first-run hints are drawn from, and the notices, which are the only
-		// place a refused worktree or a failed commit is ever reported. A
-		// snapshot supersedes the one before it and can wait a moment for
-		// them; neither of them can wait for it. Both are sent in bursts and
-		// then stop, so this cannot starve the state.
-		select {
-		case <-ctx.Done():
-			return
-		case data := <-c.out:
-			if !c.write(ctx, data) {
-				return
-			}
-			continue
-		default:
-		}
 		select {
 		case <-ctx.Done():
 			return
@@ -555,9 +538,35 @@ func (c *controlClient) writeLoop(ctx context.Context) {
 				return
 			}
 		case <-c.ready:
+			// Whatever was queued before this snapshot was handed over goes
+			// out before it. That is what puts the key table and the
+			// preferences in front of the first state, which the palette and
+			// the first-run hints are drawn from, and it keeps a notice — the
+			// only place a refused worktree or a failed commit is reported —
+			// from waiting behind the write of a snapshot that a newer one may
+			// supersede anyway. Neither arrives continuously, so the state
+			// cannot be starved by them.
+			if !c.drainQueue(ctx) {
+				return
+			}
 			if data := c.takeState(); data != nil && !c.write(ctx, data) {
 				return
 			}
+		}
+	}
+}
+
+// drainQueue writes everything already waiting in the queue, and reports
+// whether the connection is still usable.
+func (c *controlClient) drainQueue(ctx context.Context) bool {
+	for {
+		select {
+		case data := <-c.out:
+			if !c.write(ctx, data) {
+				return false
+			}
+		default:
+			return true
 		}
 	}
 }
