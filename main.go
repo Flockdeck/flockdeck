@@ -254,6 +254,27 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	return nil
 }
 
+// joinRunning reports the instance a launch should join, if there is one.
+//
+// A record that cannot be read is not the same as there being nothing to join,
+// and the difference matters here more than anywhere: carrying on starts a
+// second set of agents, which is the outcome the whole attach path exists to
+// prevent. The first set keeps running with no window showing it and a record
+// that has just been overwritten, so `perch -quit` will not find it either.
+//
+// Starting is still the right default — refusing would leave the application
+// unusable over a file the user has never heard of — but it is a guess, and
+// the guess is said out loud rather than made silently.
+func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string) {
+	inst, base, err := lookup()
+	if err != nil {
+		warn("could not tell whether one is already running (" + err.Error() +
+			"), so starting a new one; any agents already running still are")
+		return nil, ""
+	}
+	return inst, base
+}
+
 // startupOnlyFlags lists the flags that describe a fresh start, and so mean
 // nothing when the launch turns into attaching to a running instance.
 func startupOnlyFlags(opts options) []string {
@@ -298,7 +319,9 @@ func run(opts options) error {
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
-		if inst, base, err := runningInstance(); err == nil && inst != nil {
+		if inst, base := joinRunning(runningInstance, func(text string) {
+			fmt.Fprintln(os.Stderr, "perch:", text)
+		}); inst != nil {
 			// The flags that describe how to start up have nobody to apply
 			// to once we are joining agents that are already running. Say so:
 			// silently ignoring -new looks like the layout was kept on purpose.

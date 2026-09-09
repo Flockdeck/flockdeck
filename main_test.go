@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/perch/internal/store"
 )
 
 // The flags that describe a fresh start are dropped when a launch turns into
@@ -329,5 +330,46 @@ func TestWaitGoneReturnsAtOnce(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed >= quitPoll {
 		t.Errorf("took %s for an instance that had already gone", elapsed)
+	}
+}
+
+// A record of the running instance that cannot be read is not the same as
+// there being nothing running. Carrying on regardless starts a second set of
+// agents while the first keeps going with no window and no record to find it
+// by, so the guess has to be said out loud.
+func TestJoinRunningSaysWhenItCannotTell(t *testing.T) {
+	var warnings []string
+	inst, base := joinRunning(
+		func() (*store.Instance, string, error) { return nil, "", errors.New("unreadable") },
+		func(text string) { warnings = append(warnings, text) },
+	)
+	if inst != nil || base != "" {
+		t.Errorf("joined %v at %q on an unreadable record", inst, base)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", warnings)
+	}
+	if !strings.Contains(warnings[0], "unreadable") {
+		t.Errorf("warning = %q, want the reason in it", warnings[0])
+	}
+}
+
+// The two ordinary answers are silent: one to join, or nothing running.
+func TestJoinRunningIsQuietWhenItCanTell(t *testing.T) {
+	running := &store.Instance{URL: "http://127.0.0.1:1"}
+	inst, base := joinRunning(
+		func() (*store.Instance, string, error) { return running, running.URL, nil },
+		func(text string) { t.Errorf("unexpected warning: %s", text) },
+	)
+	if inst != running || base != running.URL {
+		t.Errorf("joined %v at %q, want the running instance", inst, base)
+	}
+
+	inst, base = joinRunning(
+		func() (*store.Instance, string, error) { return nil, "", nil },
+		func(text string) { t.Errorf("unexpected warning: %s", text) },
+	)
+	if inst != nil || base != "" {
+		t.Errorf("joined %v at %q when nothing was running", inst, base)
 	}
 }
