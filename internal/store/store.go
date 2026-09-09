@@ -7,6 +7,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
+	"sync"
 	"time"
 )
 
@@ -78,13 +79,45 @@ func Dir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
 	}
-	dir := adoptLegacyDir(base, filepath.Join(base, "perch"))
+	dir := stateDir(base)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
 	makePrivate(dir)
 	return dir, nil
 }
+
+// stateDir works out which directory this run keeps its state in, and having
+// worked it out once, keeps saying so.
+//
+// Every call into this package goes through Dir, and without this every one of
+// them also stats a directory belonging to a build the user stopped running
+// long ago: a fifth of a millisecond, on the path of every load and every
+// save, for a migration that can only ever happen once.
+//
+// Remembering the answer also pins it. Where the move could not be made the
+// old directory is used where it stands, and a second attempt later in the
+// same run could succeed and move the state out from under everything already
+// written to it. One run, one directory.
+var stateDir = func() func(base string) string {
+	var (
+		mu     sync.Mutex
+		under  string
+		chosen string
+	)
+	return func(base string) string {
+		mu.Lock()
+		defer mu.Unlock()
+		// Keyed on the base, because the tests move it: a remembered answer
+		// for somewhere else is no answer at all.
+		if chosen != "" && under == base {
+			return chosen
+		}
+		chosen = adoptLegacyDir(base, filepath.Join(base, "perch"))
+		under = base
+		return chosen
+	}
+}()
 
 // legacyDirName is the directory this state was kept in before the program was
 // renamed. It is looked at only when nothing has been saved under the name in
@@ -115,11 +148,28 @@ func adoptLegacyDir(base, dir string) string {
 	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
 		return dir
 	}
-	if err := os.Rename(old, dir); err != nil {
+	if err := renameDir(old, dir); err != nil {
+		// A second instance starting at the same moment can be part-way through
+		// this very move: it looked for the name in use now, found nothing, and
+		// got its rename in first. Ours then fails and the old directory is
+		// already gone. Handing back the old name there would have this run
+		// create it again, empty, and write every layout, the recent list and
+		// its own instance record into a directory nothing will ever adopt,
+		// because the name in use now exists and the old one is never looked at
+		// again. The two instances would not even find each other, each reading
+		// an instance record the other never wrote.
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
 		return old
 	}
 	return dir
 }
+
+// renameDir moves a directory. It is a variable so a test can stand in for the
+// instant between one instance finding nothing under the name in use now and
+// another moving the old directory onto it.
+var renameDir = os.Rename
 
 // makePrivate narrows a directory that was created before it was kept private,
 // or by a umask that let group and other in. Windows does not express
@@ -194,7 +244,7 @@ func readLegacy(root string) (string, []byte, error) {
 	if old == "" {
 		return "", nil, fs.ErrNotExist
 	}
-	data, err := os.ReadFile(old)
+	data, err := readState(old)
 	if err != nil {
 		return "", nil, err
 	}
@@ -221,7 +271,7 @@ func Load(root string) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(p)
+	data, err := readState(p)
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
@@ -236,10 +286,21 @@ func Load(root string) (*State, error) {
 	}
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
-		// A corrupt layout must never stop the app from starting.
+		// A corrupt layout must never stop the app from starting, but it must
+		// not be left where it is either: the run that starts empty saves over
+		// this very name on the way out, so the damaged file is the last copy
+		// of the user's tabs and this would be the moment it went for good.
+		// Moved aside it costs nothing and can still be repaired by hand.
+		quarantine(from(p, legacy))
 		return nil, nil
 	}
 	if s.Version != Version {
+		// Not damage but a layout from a build that numbered the format
+		// differently, most often a newer one the user has just stepped back
+		// from. It meets the same end as a damaged file, ignored now and
+		// written over on the way out, so it is kept for the same reason:
+		// going forward again is then a matter of moving one file back.
+		quarantine(from(p, legacy))
 		return nil, nil
 	}
 	// The filename is a hash of the root, so a file can only be the wrong one
@@ -259,6 +320,28 @@ func Load(root string) (*State, error) {
 		_ = os.Rename(legacy, p)
 	}
 	return &s, nil
+}
+
+// from returns the file a layout was actually read from: the name in use now,
+// unless it came from the pre-normalization name.
+func from(current, legacy string) string {
+	if legacy != "" {
+		return legacy
+	}
+	return current
+}
+
+// damagedSuffix marks a state file this build could not use. It is not
+// ".json", so nothing looks for it again, and it holds no ".tmp", so the sweep
+// leaves it alone: the point is that it is still there when someone goes
+// looking for what vanished.
+const damagedSuffix = ".damaged"
+
+// quarantine moves a state file out of the way, best effort. Only one copy is
+// kept per name; a second one replacing the first is no loss, because a file
+// only becomes unreadable again after a good one has been written over it.
+func quarantine(path string) {
+	_ = os.Rename(path, path+damagedSuffix)
 }
 
 // Save writes the state atomically so an interrupted write cannot leave a
@@ -289,6 +372,26 @@ func Save(root string, s *State) error {
 // a rename that reaches the disk ahead of the contents it names would leave an
 // empty file after a crash.
 func writeAtomic(path string, data []byte) error {
+	// A file already holding these bytes does not need writing. The save on the
+	// way out writes every open project's layout and the list of which ones
+	// were open, and all but the one project the user was actually working in
+	// are unchanged: for each of those this is a file creation, a flush to the
+	// device and a rename that buy nothing. It also takes away a chance for a
+	// second instance's save to be the one that loses, which is the reason
+	// ForgetRecent already declines to rewrite a list it did not change.
+	//
+	// The length is looked at before the contents. Reading a file that has
+	// changed since the last look is not free on Windows — it is the moment
+	// the virus scanner reads it too, and here that costs several times what
+	// the whole write does — while reading one that has not is served from the
+	// cache. A layout that has changed has nearly always changed length, so
+	// the stat sends those straight to the write and the read is paid almost
+	// only where it is about to save one.
+	if fi, err := os.Stat(path); err == nil && fi.Size() == int64(len(data)) {
+		if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+			return nil
+		}
+	}
 	dir, base := filepath.Split(path)
 	f, err := os.CreateTemp(dir, base+".tmp*")
 	if err != nil {
@@ -322,10 +425,18 @@ func writeAtomic(path string, data []byte) error {
 // Syncing the file only promises its contents are there; the rename that gives
 // them their name is a change to the directory, and on a crash before that
 // reaches disk the file reverts to the version before this write. Failures are
-// ignored: the rename has already happened, so the write did succeed, and the
-// call is not supported at all on Windows, where the file system journals the
-// rename regardless.
+// ignored: the rename has already happened, so the write did succeed.
+//
+// Windows is left out rather than left to fail. FlushFileBuffers wants a
+// handle opened for writing and a directory cannot be opened that way here, so
+// the call is refused every time — and it was still paid for on every write:
+// an open, a refusal and a close, a fifth of a millisecond each. The file
+// system journals the rename regardless, which is why there was nothing to
+// ask for in the first place.
 func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if dir == "" {
 		dir = "."
 	}
@@ -337,30 +448,91 @@ func syncDir(dir string) {
 	_ = f.Sync()
 }
 
-// renameWithRetry replaces dst with src, retrying briefly on failure.
+// A file another process is holding open is the one failure in this package
+// worth waiting out rather than reporting, so both the reads and the rename
+// keep trying for this long before they give up.
 //
-// On Windows replacing a file fails outright with a sharing violation while
-// anything else holds it open, and these files are opened constantly — by the
-// other instance saving at the same moment, and by the virus scanner
-// and search indexer that follow every write in the user's AppData directory.
-// Those holds last microseconds, so a few retries turn a lost save into a
-// slightly slower one. On other platforms the first attempt always decides it.
+// The budget is a length of time and not a count of tries, because what
+// decides it is how long somebody else keeps the file, not how many times we
+// ask. Backing off to a cap rather than doubling without one spends the same
+// second on many more attempts, which is what a sparse tail of long holds
+// needs. A second is a long time to spend on the way out; losing the layout is
+// worse, and a rename that is never going to work is a broken installation
+// that fails on every save anyway.
+const (
+	contentionBudget   = time.Second
+	contentionMaxDelay = 32 * time.Millisecond
+)
+
+// backOff waits before the next attempt and returns the next wait, doubling up
+// to the cap.
+func backOff(delay time.Duration) time.Duration {
+	time.Sleep(delay)
+	if delay *= 2; delay > contentionMaxDelay {
+		return contentionMaxDelay
+	}
+	return delay
+}
+
+// renameWithRetry replaces dst with src, waiting out anything holding dst.
+//
+// On Windows replacing a file fails outright while anything else has it open —
+// any handle at all, whatever sharing it asked for — and these files are
+// opened constantly: by the other instance saving or restoring at the same
+// moment, and by the virus scanner and search indexer that follow every write
+// in the user's AppData directory. On other platforms the first attempt always
+// decides it.
+//
+// Most holds are gone by the first retry. Measured with four writers on one
+// state directory, the tail reached eight tries, which was every try there
+// used to be: the saves just past it were not slow, they were lost, and a lost
+// save is a workspace the user does not get back.
 func renameWithRetry(src, dst string) error {
+	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
-	var err error
-	for attempt := 0; attempt < 8; attempt++ {
-		if err = os.Rename(src, dst); err == nil {
+	for {
+		err := os.Rename(src, dst)
+		if err == nil {
 			return nil
 		}
 		// A missing source is our own bug, not contention: retrying it would
 		// only turn an immediate error into a delayed one.
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) || time.Now().After(deadline) {
 			return err
 		}
-		time.Sleep(delay)
-		delay *= 2
+		delay = backOff(delay)
 	}
-	return err
+}
+
+// readState reads a state file, retrying briefly on a failure that means
+// somebody else has the file open rather than that there is nothing to read.
+//
+// Windows refuses an open with a sharing violation while another process is
+// part-way through replacing the file. That is the same contention
+// renameWithRetry deals with from the writing side, and no reader here was
+// ready for it. Under two instances saving at once, around one read in thirty
+// fails this way, and what it costs is not a slow read: Load returning an
+// error is a project that restores no tabs, and the save on the way out then
+// writes that emptiness over the layout the user still had.
+//
+// Only a sharing violation is waited out. Every other failure — the file is
+// not there, it is a directory, this user may not read it — will be just as
+// true a second from now, and the recent list is read every time the project
+// picker opens: spending the budget on those would make the picker feel broken
+// rather than fail.
+func readState(path string) ([]byte, error) {
+	deadline := time.Now().Add(contentionBudget)
+	delay := time.Millisecond
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if !heldByAnother(err) || time.Now().After(deadline) {
+			return nil, err
+		}
+		delay = backOff(delay)
+	}
 }
 
 // hashRoot turns a path into a short stable filename component.
@@ -386,11 +558,22 @@ func hashString(s string) string {
 // closed, and returns how many it deleted: generated per-session settings, and
 // the temporaries of writes that never reached their rename.
 //
-// Files are only removed once they are older than maxAge, because a second
-// instance may be running concurrently and neither its panes' settings nor a
-// write it is part-way through must be pulled out from under it. Normal
-// shutdown deletes both as it goes, so anything this finds is genuinely
-// orphaned.
+// Files are only removed once they are older than maxAge. Normal shutdown
+// deletes both as it goes, so what is left after that is orphaned.
+//
+// Age settles it for a temporary: a write is a few milliseconds, so nothing
+// part-way through is a day old. It does not settle it for a pane's settings.
+// Those are written once when the pane starts and never touched again, so an
+// agent that has been running since yesterday has a settings file that looks a
+// day abandoned — and deleting it takes the hooks out from under a pane that
+// is still working, which is how perch knows whether that agent is waiting on
+// its user. Whether they are in use is not a question about the file, so it is
+// asked of the instance instead: while another one is running, its panes keep
+// their settings and only the temporaries go.
+//
+// That case is `perch -solo`, which is the one way to get a second instance
+// past a first that is still answering — including one left detached with its
+// agents still going, which is exactly the run with the most to lose.
 func SweepSessions(maxAge time.Duration) (int, error) {
 	// Without an age there is nothing separating an orphan from a file a
 	// running instance wrote a moment ago, and the sweep would delete the live
@@ -409,6 +592,10 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 	// instance keeps has ".tmp" anywhere in its name.
 	isTemp := func(name string) bool { return strings.Contains(name, ".tmp") }
 
+	if rivalRunning() {
+		isSettings = func(string) bool { return false }
+	}
+
 	// Both directories are swept whatever happens to either. They fill up
 	// independently, so giving up on the second because the first could not be
 	// reached would leave its orphans there for good.
@@ -424,6 +611,21 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 		firstErr = err
 	}
 	return removed + n, firstErr
+}
+
+// rivalRunning reports whether another instance is recorded and still running.
+//
+// A record left by a run that crashed names a process that is gone, and that
+// answers no, which is right: nothing is holding those files. A record we
+// cannot read at all also answers no, which is the same answer the sweep gave
+// before there was a question, and the worst it costs is a settings file a
+// running agent would have liked to keep.
+func rivalRunning() bool {
+	inst, err := LoadInstance()
+	if err != nil || inst == nil || inst.PID == os.Getpid() {
+		return false
+	}
+	return processAlive(inst.PID)
 }
 
 // sweepDir deletes the matching files in a directory that were last written
@@ -485,7 +687,7 @@ func Recents() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, recentsFile))
+	data, err := readState(filepath.Join(dir, recentsFile))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -495,6 +697,12 @@ func Recents() ([]Project, error) {
 	var list []Project
 	if json.Unmarshal(data, &list) != nil {
 		// A damaged list is not worth failing over; it is only a convenience.
+		// It is still moved aside, because the next project the user opens
+		// rewrites this file from what was read, and what was read is nothing:
+		// every directory they have ever opened, replaced by the one in front
+		// of them. The file is a plain list of paths, so the kept copy is
+		// something they can read and put back by hand.
+		quarantine(filepath.Join(dir, recentsFile))
 		return nil, nil
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].LastUsed.After(list[j].LastUsed) })
@@ -612,7 +820,7 @@ func LoadSession() (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, sessionFile))
+	data, err := readState(filepath.Join(dir, sessionFile))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -621,7 +829,12 @@ func LoadSession() (*Session, error) {
 	}
 	var s Session
 	if json.Unmarshal(data, &s) != nil {
-		return nil, nil // a damaged session must not stop startup
+		// A damaged session must not stop startup, and must not be lost to the
+		// save on the way out either: it names every project that was open,
+		// which is the one record of a workspace spread over several
+		// directories.
+		quarantine(filepath.Join(dir, sessionFile))
+		return nil, nil
 	}
 	return tidySession(&s), nil
 }
@@ -714,7 +927,7 @@ func LoadInstance() (*Instance, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readState(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -776,16 +989,5 @@ var processAlive = func(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if runtime.GOOS == "windows" {
-		// Windows has no signals; FindProcess opens a handle to the process,
-		// so getting one at all is the answer.
-		p.Release()
-		return true
-	}
-	// Signal 0 is delivered to nothing and only checks the process exists.
-	return p.Signal(syscall.Signal(0)) == nil
+	return pidAlive(pid)
 }

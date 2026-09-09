@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -1236,5 +1238,961 @@ func TestDirNeverWritesOverStateAlreadySaved(t *testing.T) {
 	}
 	if _, err := os.Stat(old); err != nil {
 		t.Errorf("the old directory should be left alone, not consumed: %v", err)
+	}
+}
+
+// TestDamagedLayoutIsKeptRatherThanOverwritten checks a layout that will not
+// parse survives the run that could not read it. Starting empty is fine;
+// starting empty and then saving over the only copy of the user's tabs is how
+// a single hand-edited typo turns into a workspace nobody can get back.
+func TestDamagedLayoutIsKeptRatherThanOverwritten(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/damaged")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	broken := []byte(`{"version":1,"tabs":[{"title":"work in progress"`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	if got, err := Load("/repo/damaged"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a damaged layout should restore nothing without failing", got, err)
+	}
+
+	// The run carries on and saves its empty workspace on the way out.
+	if err := Save("/repo/damaged", &State{}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged layout was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want the file exactly as it was: %q", kept, broken)
+	}
+}
+
+// TestDamagedLegacyLayoutIsKeptUnderItsOwnName checks the copy is made of the
+// file that was actually read. A layout still under the pre-normalization name
+// is read from there, so quarantining the name in use now would move nothing
+// and leave the damaged file to be found and rejected again every run.
+func TestDamagedLegacyLayoutIsKeptUnderItsOwnName(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("roots are only respelled on case-folding platforms")
+	}
+	isolateConfig(t)
+
+	root := filepath.Clean("/Repo/Legacy")
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	if old == "" {
+		t.Fatal("this root should have a distinct pre-normalization name")
+	}
+	if err := os.WriteFile(old, []byte("{ truncated"), 0o600); err != nil {
+		t.Fatalf("write legacy layout: %v", err)
+	}
+
+	if got, err := Load(root); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; want nothing restored and no error", got, err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the damaged legacy layout is still in place; it will be rejected again every run")
+	}
+	if _, err := os.Stat(old + damagedSuffix); err != nil {
+		t.Errorf("the damaged legacy layout was not kept: %v", err)
+	}
+}
+
+// TestDamagedRecentsAreKeptBeforeTheListIsRebuilt checks the projects file
+// survives the open that could not read it. TouchRecent rewrites the whole
+// list from what it read, and what it read is nothing, so without this the
+// first project opened after the damage is the only one the user has ever
+// opened as far as the picker is concerned.
+func TestDamagedRecentsAreKeptBeforeTheListIsRebuilt(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, recentsFile)
+	broken := []byte(`[{"root":"/repo/one"},{"root":"/repo/two"}`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write projects: %v", err)
+	}
+
+	if got, err := Recents(); err != nil || got != nil {
+		t.Fatalf("Recents = %v, %v; a damaged list should read as empty without failing", got, err)
+	}
+	if err := TouchRecent("/repo/three"); err != nil {
+		t.Fatalf("touch recent: %v", err)
+	}
+
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged project list was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want %q", kept, broken)
+	}
+	// The list itself carries on from empty, as it always has.
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 1 || !sameRoot(list[0].Root, "/repo/three") {
+		t.Errorf("recents = %v, want just the project that was opened", list)
+	}
+}
+
+// TestDamagedSessionIsKept checks the record of which projects were open
+// survives a run that could not read it, since the save on the way out
+// replaces it with whatever this run happened to have open.
+func TestDamagedSessionIsKept(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, sessionFile)
+	broken := []byte(`{"open":["/repo/a","/repo/b"`)
+	if err := os.WriteFile(p, broken, 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+
+	if got, err := LoadSession(); err != nil || got != nil {
+		t.Fatalf("LoadSession = %v, %v; want nothing restored and no error", got, err)
+	}
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the damaged session was not kept: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Errorf("kept copy is %q, want %q", kept, broken)
+	}
+}
+
+// TestLayoutFromAnotherSchemaVersionIsKept checks stepping back to an older
+// build does not destroy the layout the newer one saved. The older build
+// cannot read it and must not restore from it, but the save on the way out
+// lands on the same name, so ignoring it in place means deleting it.
+func TestLayoutFromAnotherSchemaVersionIsKept(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/newer")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	future := []byte(`{"version":` + fmt.Sprint(Version+1) + `,"tabs":[{"title":"from a later build"}]}`)
+	if err := os.WriteFile(p, future, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	if got, err := Load("/repo/newer"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a layout from another schema version should restore nothing", got, err)
+	}
+	if err := Save("/repo/newer", &State{}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	kept, err := os.ReadFile(p + damagedSuffix)
+	if err != nil {
+		t.Fatalf("the newer layout was not kept: %v", err)
+	}
+	if string(kept) != string(future) {
+		t.Errorf("kept copy is %q, want %q", kept, future)
+	}
+}
+
+// TestProcessAliveSeesPastAHandleToAnExitedProcess checks the liveness test is
+// about the process and not about whether a handle to it can be opened.
+//
+// Windows keeps a process object for as long as anything holds a handle, so a
+// perch that exited long ago is still openable by whatever started it. Calling
+// that "running" is what leaves a stale instance record in place, and while it
+// is there every launch tries to attach to a server that is not listening and
+// then declines to clear the record standing in its way.
+func TestProcessAliveSeesPastAHandleToAnExitedProcess(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a handle held open past exit is a Windows lifetime rule")
+	}
+	cmd := exec.Command("cmd", "/c", "exit")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Deliberately not waited for: Wait is what closes the handle, and the
+	// handle is the whole point.
+	defer func() { _ = cmd.Wait() }()
+	pid := cmd.Process.Pid
+
+	deadline := time.Now().Add(10 * time.Second)
+	for processAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("pid %d still reads as running; it exited and only the open handle is keeping it answerable", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	runtime.KeepAlive(cmd)
+}
+
+// TestProcessAliveKnowsThisProcess is the other half: the test above would
+// pass just as well if liveness always said no.
+func TestProcessAliveKnowsThisProcess(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Error("this process reads as not running")
+	}
+	if processAlive(0) || processAlive(-1) {
+		t.Error("a process id that cannot name a process reads as running")
+	}
+}
+
+// TestConfigDirFollowsTheInstanceThatWonTheUpgrade checks the run that loses
+// the race to rename the old state directory ends up in the same place as the
+// run that won it.
+//
+// Two instances starting together on the first run after the rename both find
+// nothing under the name in use now and both try the move. One succeeds. The
+// loser's rename fails with the source already gone, and if it carries on
+// under the old name it creates that directory again, empty, and writes its
+// layouts, its recent projects and its instance record into somewhere nothing
+// will ever adopt — including the other instance, which is looking for a
+// record it will not find.
+func TestConfigDirFollowsTheInstanceThatWonTheUpgrade(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create legacy dir: %v", err)
+	}
+	saved := []byte(`[{"root":"/repo/kept"}]`)
+	if err := os.WriteFile(filepath.Join(old, recentsFile), saved, 0o600); err != nil {
+		t.Fatalf("write legacy state: %v", err)
+	}
+
+	// The other instance, getting its move in between our look and our rename.
+	real := renameDir
+	t.Cleanup(func() { renameDir = real })
+	renameDir = func(from, to string) error {
+		if err := real(from, to); err != nil {
+			return err
+		}
+		return errors.New("the other instance moved it first")
+	}
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	want := filepath.Join(base, "perch")
+	if dir != want {
+		t.Fatalf("state dir is %s, want %s: this run would write where nothing looks", dir, want)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, recentsFile))
+	if err != nil {
+		t.Fatalf("the moved state is not in the directory being used: %v", err)
+	}
+	if string(got) != string(saved) {
+		t.Errorf("recents = %q, want %q", got, saved)
+	}
+}
+
+// modTime is the file's own record of when it was last written, used below to
+// tell a write that did not happen from one that wrote the same bytes again.
+func modTime(t *testing.T, path string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return fi.ModTime()
+}
+
+// TestSaveSkipsAFileThatAlreadyHoldsIt checks a save with nothing to say does
+// not touch the file. Quitting saves every open project, and all but the one
+// the user was working in are unchanged; each of those was a file creation, a
+// flush to the device and a rename, and each was also a chance for a second
+// instance's save to be the one that lost.
+func TestSaveSkipsAFileThatAlreadyHoldsIt(t *testing.T) {
+	isolateConfig(t)
+
+	st := &State{Tabs: []Tab{{Title: "alpha", Root: &Node{Pane: &Pane{ID: "1", Kind: "claude", Cwd: "/repo/a"}}}}}
+	if err := Save("/repo/a", st); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	if err := Save("/repo/a", st); err != nil {
+		t.Fatalf("save again: %v", err)
+	}
+	if got := modTime(t, p); !got.Equal(old) {
+		t.Errorf("the file was written again (mtime %v, want %v); nothing about it had changed", got, old)
+	}
+}
+
+// TestSaveStillWritesWhenTheLengthIsUnchanged checks the shortcut is a
+// shortcut and not a way to lose a save. The length is only a filter on
+// whether the bytes are worth comparing; a tab switch changes an index and not
+// a single character of the file's size.
+func TestSaveStillWritesWhenTheLengthIsUnchanged(t *testing.T) {
+	isolateConfig(t)
+
+	st := &State{Tabs: []Tab{{Title: "alpha"}, {Title: "bravo"}, {Title: "charlie"}}}
+	if err := Save("/repo/b", st); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/b")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	before, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	st.Active = 2
+	if err := Save("/repo/b", st); err != nil {
+		t.Fatalf("save again: %v", err)
+	}
+	after, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("this case is meant to keep the file the same length: %d then %d", len(before), len(after))
+	}
+	got, err := Load("/repo/b")
+	if err != nil || got == nil {
+		t.Fatalf("Load = %v, %v", got, err)
+	}
+	if got.Active != 2 {
+		t.Errorf("active tab is %d, want 2: the save was skipped over a file of the same length", got.Active)
+	}
+}
+
+// TestSaveReplacesAFileOfTheSameLengthThatIsNotOurs is the same guard from the
+// other side: a file left by something else that happens to be the same size
+// must still be replaced, not mistaken for what we were about to write.
+func TestSaveReplacesAFileOfTheSameLengthThatIsNotOurs(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, sessionFile)
+
+	want := &Session{Open: []string{"/repo/a"}, Active: "/repo/a"}
+	if err := SaveSession(want); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	good, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Same number of bytes, different ones: a run of spaces where the file was.
+	if err := os.WriteFile(p, []byte(strings.Repeat(" ", len(good))), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := SaveSession(want); err != nil {
+		t.Fatalf("save session again: %v", err)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(good) {
+		t.Errorf("the file was left as %q; a save must replace what it did not write", got)
+	}
+}
+
+// benchState builds a layout the size of a workspace someone actually runs:
+// eight tabs of six agents each.
+func benchState(tabs, panes int) *State {
+	st := &State{}
+	for t := 0; t < tabs; t++ {
+		root := &Node{Dir: "h"}
+		for p := 0; p < panes; p++ {
+			root.Children = append(root.Children, &Node{Pane: &Pane{
+				ID:   fmt.Sprintf("%d-%d-9f6a1c34-2b7e-4d51-8a0c", t, p),
+				Kind: "claude", Cwd: "/repo/project/sub", Name: "agent",
+				Task: "keep the build green",
+			}})
+		}
+		st.Tabs = append(st.Tabs, Tab{Title: fmt.Sprintf("tab %d", t), Root: root})
+	}
+	return st
+}
+
+func benchIsolate(b *testing.B) {
+	dir := b.TempDir()
+	b.Setenv("APPDATA", dir)
+	b.Setenv("XDG_CONFIG_HOME", dir)
+	b.Setenv("HOME", dir)
+}
+
+// BenchmarkRunSavesUnchangedLayout is what a run does to a project the user
+// did not touch: read the layout at startup, write it on the way out. Quitting
+// with several projects open does this for every one of them.
+func BenchmarkRunSavesUnchangedLayout(b *testing.B) {
+	benchIsolate(b)
+	st := benchState(8, 6)
+	if err := Save("/repo/project", st); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Load("/repo/project"); err != nil {
+			b.Fatal(err)
+		}
+		if err := Save("/repo/project", st); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkRunSavesChangedLayout is the same for the project that did change,
+// and is here to show what the comparison costs when it cannot save the write.
+func BenchmarkRunSavesChangedLayout(b *testing.B) {
+	benchIsolate(b)
+	st := benchState(8, 6)
+	if err := Save("/repo/project", st); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Load("/repo/project"); err != nil {
+			b.Fatal(err)
+		}
+		st.Active = 1 + i%7
+		if err := Save("/repo/project", st); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// TestLayoutFileNamesAreFixed pins the name a project's layout is saved under.
+//
+// The name is a hash of the root, so every part of taking it — cleaning the
+// path, folding its case, the hash itself, the prefix and extension around it
+// — is load-bearing in a way nothing else in the package is. Change any of
+// them and the application looks up a name nothing was ever written to, finds
+// nothing, and opens an empty workspace beside the layout it should have
+// restored. That has happened once already; legacyPath exists to carry that
+// change's victims across.
+//
+// So these values are not an implementation detail to be updated when the test
+// goes red. A failure here means every saved layout in the world has just been
+// orphaned, and the change needs a migration beside it.
+func TestLayoutFileNamesAreFixed(t *testing.T) {
+	// The hash on its own, checked everywhere so a platform that never sees
+	// the paths below still catches a change to it.
+	for _, c := range []struct{ in, want string }{
+		{"", "cbf29ce484222325"},
+		{".", "af63a34c86018bb1"},
+		{"/home/user/repo", "96e5ae60e8caf52a"},
+		{`c:\users\jim\repo`, "194e567d812290d0"},
+		{"/users/jim/repo", "ed058ea066c6eec6"},
+		{"/Users/Jim/repo", "1fb07467504dc246"},
+		{`C:\Users\Jim\repo`, "baed5f9e244c96f0"},
+	} {
+		if got := hashString(c.in); got != c.want {
+			t.Errorf("hashString(%q) = %s, want %s: every saved layout has just been orphaned", c.in, got, c.want)
+		}
+	}
+
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	// The whole name, for roots spelled the way that platform spells them.
+	// The alternative spellings are the ones the picker, the command line and
+	// the saved session actually produce, and every one of them has to reach
+	// the same file. The filesystem root is in there because it is the one
+	// path where tidying a trailing separator away changes what is left.
+	var root, want string
+	var also []string
+	switch runtime.GOOS {
+	case "windows":
+		root, want = `C:\Users\Jim\repo`, "layout-194e567d812290d0.json"
+		also = []string{`c:\users\jim\repo\`, `C:/Users/Jim/./repo`}
+	case "darwin":
+		root, want = "/Users/Jim/repo", "layout-ed058ea066c6eec6.json"
+		also = []string{"/users/jim/repo/", "/Users/Jim/./repo"}
+	default:
+		root, want = "/home/user/repo", "layout-96e5ae60e8caf52a.json"
+		also = []string{"/home/user/repo/", "/home/user/./repo"}
+	}
+	for _, spelling := range append([]string{root}, also...) {
+		got, err := path(spelling)
+		if err != nil {
+			t.Fatalf("path: %v", err)
+		}
+		if got != filepath.Join(dir, want) {
+			t.Errorf("path(%q) = %s, want %s", spelling, got, filepath.Join(dir, want))
+		}
+	}
+
+	// The filesystem root, whose separator is not a trailing one to be tidied
+	// away: strip it and the name changes.
+	fsRoot, fsWant := "/", "layout-af63a24c860189fe.json"
+	if runtime.GOOS == "windows" {
+		fsRoot, fsWant = `C:`+`\`, "layout-f696dd190d7d304c.json"
+	}
+	if got, err := path(fsRoot); err != nil || got != filepath.Join(dir, fsWant) {
+		t.Errorf("path(%q) = %s, %v, want %s", fsRoot, got, err, filepath.Join(dir, fsWant))
+	}
+
+	// And the name the same root was saved under before it was folded, which
+	// is what Load falls back to. Where case is not folded there is no second
+	// name to fall back to and there never was.
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if old != filepath.Join(dir, "layout-baed5f9e244c96f0.json") {
+			t.Errorf("legacyPath(%q) = %s, want layout-baed5f9e244c96f0.json", root, old)
+		}
+	case "darwin":
+		if old != filepath.Join(dir, "layout-1fb07467504dc246.json") {
+			t.Errorf("legacyPath(%q) = %s, want layout-1fb07467504dc246.json", root, old)
+		}
+	default:
+		if old != "" {
+			t.Errorf("legacyPath(%q) = %s, want no fallback name on a platform that does not fold case", root, old)
+		}
+	}
+}
+
+// TestStateFileNamesAreFixed pins the names of the files that are not per
+// project. They are looked up by name across releases in exactly the same way
+// a layout is, and renaming one silently starts the user again from nothing.
+func TestStateFileNamesAreFixed(t *testing.T) {
+	for _, c := range [][2]string{
+		{recentsFile, "projects.json"},
+		{sessionFile, "session.json"},
+		{instanceFile, "instance.json"},
+		{prefsFile, "prefs.json"},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("state file is named %q, want %q", c[0], c[1])
+		}
+	}
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	if dir != filepath.Join(base, "perch") {
+		t.Errorf("state dir is %s, want %s", dir, filepath.Join(base, "perch"))
+	}
+}
+
+// TestEverythingAtOnceLeavesEveryFileReadable runs the whole package against
+// itself: layouts being saved and loaded, the project list being touched and
+// forgotten, the session and the instance record being rewritten, and the
+// sweep walking the same directory while all of it happens.
+//
+// One instance already does several of these at once — the interface saves on
+// its own goroutine while the hook server touches projects on another — and
+// two instances do all of them. Four writers is more than that on purpose:
+// this is the corner where the retries have to hold up. Nothing here may leave a file that the next
+// start cannot read, and nothing may leave debris in the state directory: a
+// half-written layout is a workspace the user does not get back.
+func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	roots := []string{"/repo/one", "/repo/two", "/repo/three"}
+	for _, root := range roots {
+		if err := Save(root, &State{Tabs: []Tab{{Title: "seed"}}}); err != nil {
+			t.Fatalf("seed %s: %v", root, err)
+		}
+	}
+
+	const rounds = 40
+	var wg sync.WaitGroup
+	fail := func(what string, err error) {
+		if err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				root := roots[(w+i)%len(roots)]
+				st := &State{Active: i % 3}
+				for tab := 0; tab <= i%4; tab++ {
+					st.Tabs = append(st.Tabs, Tab{
+						Title: fmt.Sprintf("w%d-%d", w, tab),
+						Root:  &Node{Pane: &Pane{ID: fmt.Sprintf("%d-%d", w, tab), Kind: "claude", Cwd: root}},
+					})
+				}
+				fail("save layout", Save(root, st))
+				if _, err := Load(root); err != nil {
+					t.Errorf("load layout: %v", err)
+				}
+				fail("touch recent", TouchRecent(fmt.Sprintf("/repo/p%d", i%7)))
+				fail("forget recent", ForgetRecent(fmt.Sprintf("/repo/p%d", (i+3)%7)))
+				if _, err := Recents(); err != nil {
+					t.Errorf("recents: %v", err)
+				}
+				fail("save session", SaveSession(&Session{Open: roots, Active: root}))
+				if _, err := LoadSession(); err != nil {
+					t.Errorf("load session: %v", err)
+				}
+				fail("save instance", SaveInstance(&Instance{PID: os.Getpid(), URL: "http://127.0.0.1:1/", Started: time.Now()}))
+				if _, err := LoadInstance(); err != nil {
+					t.Errorf("load instance: %v", err)
+				}
+				// The sweep another instance runs at startup, walking the same
+				// directory these writes are landing in.
+				if _, err := SweepSessions(time.Hour); err != nil {
+					t.Errorf("sweep: %v", err)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	for _, root := range roots {
+		st, err := Load(root)
+		if err != nil {
+			t.Errorf("load %s afterwards: %v", root, err)
+			continue
+		}
+		if st == nil {
+			t.Errorf("layout for %s is no longer readable", root)
+		}
+	}
+	if _, err := Recents(); err != nil {
+		t.Errorf("recents afterwards: %v", err)
+	}
+	if sess, err := LoadSession(); err != nil || sess == nil {
+		t.Errorf("session afterwards: %v, %v", sess, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("temporary file %s was left behind", e.Name())
+		}
+		if strings.HasSuffix(e.Name(), damagedSuffix) {
+			t.Errorf("%s was written badly enough that it had to be quarantined", e.Name())
+		}
+	}
+}
+
+// TestASaveWaitsOutAHoldOnTheFileItReplaces checks a save survives another
+// process keeping the file for longer than a moment.
+//
+// On Windows a rename cannot replace a file anything else has open, whatever
+// sharing either side asked for, so every read the other instance makes of a
+// layout stops this one saving it. Those holds are usually gone by the first
+// retry, but the tail is long, and past the end of the retries the save is not
+// slow — it is lost, and with it the tabs it was carrying.
+func TestASaveWaitsOutAHoldOnTheFileItReplaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows lets an open file stand in the way of the rename that replaces it")
+	}
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "layout.json")
+	if err := os.WriteFile(dst, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	src := filepath.Join(dir, "layout.json.tmp1")
+	if err := os.WriteFile(src, []byte("new"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// The other instance, reading the layout it is about to restore from.
+	held, err := os.Open(dst)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	const hold = 400 * time.Millisecond
+	go func() {
+		time.Sleep(hold)
+		held.Close()
+	}()
+
+	start := time.Now()
+	if err := renameWithRetry(src, dst); err != nil {
+		t.Fatalf("the save was lost to a %v hold on the file: %v", hold, err)
+	}
+	if waited := time.Since(start); waited < hold {
+		t.Errorf("the rename reported success after %v, but the file was held for %v", waited, hold)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "new" {
+		t.Errorf("file holds %q, %v; want the saved contents", got, err)
+	}
+}
+
+// TestARenameThatCannotWorkIsNotWaitedOut is the other side of the budget: a
+// failure that is not contention has to come back at once, or every save in a
+// broken state directory would sit out the whole budget before saying so.
+func TestARenameThatCannotWorkIsNotWaitedOut(t *testing.T) {
+	dir := t.TempDir()
+	start := time.Now()
+	err := renameWithRetry(filepath.Join(dir, "was-never-written"), filepath.Join(dir, "dst"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("renaming a source that is not there gave %v, want a not-exist error", err)
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
+	}
+}
+
+// TestTheStateDirectoryIsDecidedOnceARun checks a run that had to fall back to
+// the directory the old name points at stays there.
+//
+// The move to the name in use now can fail for a reason that goes away —
+// a file a detached instance still holds open, on Windows — and looking again
+// later would then succeed and rename the directory out from under everything
+// that had already been handed its old path. The settings directory each agent
+// is launched with is worked out once at startup and kept; move it half way
+// through the run and every agent afterwards writes into a tree nothing looks
+// at again.
+func TestTheStateDirectoryIsDecidedOnceARun(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create legacy dir: %v", err)
+	}
+
+	real := renameDir
+	t.Cleanup(func() { renameDir = real })
+	refused := false
+	renameDir = func(from, to string) error {
+		if !refused {
+			refused = true
+			return errors.New("held open by a detached instance")
+		}
+		return real(from, to)
+	}
+
+	first, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	if first != old {
+		t.Fatalf("state dir is %s, want the old name %s while the move cannot be made", first, old)
+	}
+	// Whatever the run hands out now is held for as long as it runs.
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+
+	again, err := Dir()
+	if err != nil {
+		t.Fatalf("dir again: %v", err)
+	}
+	if again != first {
+		t.Errorf("the run moved from %s to %s part way through; every path already handed out points into the first", first, again)
+	}
+	if _, err := os.Stat(sessions); err != nil {
+		t.Errorf("the settings directory handed out earlier is gone: %v", err)
+	}
+}
+
+// TestSweepLeavesARunningInstancesSettingsAlone checks the sweep does not pull
+// the hook settings out from under agents that are still going.
+//
+// A pane's settings are written when it starts and never touched again, so an
+// agent working since yesterday has a file that looks a day abandoned. `perch
+// -solo` starts a second instance beside a first that is still answering — the
+// one left detached with its agents running among them — and its sweep was
+// deleting exactly those files. Temporaries are a different matter: no write
+// is a day long, so an old one is nobody's.
+func TestSweepLeavesARunningInstancesSettingsAlone(t *testing.T) {
+	isolateConfig(t)
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+	state, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	settings := filepath.Join(sessions, "9f6a1c34-2b7e.settings.json")
+	temp := filepath.Join(state, "layout-abc.json.tmp99")
+	old := time.Now().Add(-48 * time.Hour)
+	for _, p := range []string{settings, temp} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatalf("age %s: %v", p, err)
+		}
+	}
+
+	// Another instance, running, that is not us.
+	if err := SaveInstance(&Instance{PID: os.Getpid() + 1, URL: "http://127.0.0.1:1/", Started: old}); err != nil {
+		t.Fatalf("save instance: %v", err)
+	}
+	alive := processAlive
+	t.Cleanup(func() { processAlive = alive })
+	processAlive = func(pid int) bool { return pid == os.Getpid()+1 }
+
+	if _, err := SweepSessions(24 * time.Hour); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(settings); err != nil {
+		t.Errorf("the running instance's pane lost its hook settings: %v", err)
+	}
+	if _, err := os.Stat(temp); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("an abandoned temporary was kept; no write is a day long")
+	}
+
+	// Once nothing else is running, the settings go too.
+	processAlive = func(int) bool { return false }
+	if _, err := SweepSessions(24 * time.Hour); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(settings); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("settings with nobody left to want them were kept")
+	}
+}
+
+// TestEveryFieldSurvivesTheRoundTrip checks a layout comes back exactly as it
+// went in, field for field.
+//
+// The tests beside this one pick out the parts they are about, which is what
+// lets a field be added to the schema, written by the workspace, and quietly
+// dropped on the way through here without anything going red. This one
+// compares the whole thing, so a field that stops surviving is a failure
+// whether or not anybody thought to check it: the tab holding an agent
+// borrowed from another project, the prompt a spawned pane was given, the
+// exact share of the window a split was dragged to.
+func TestEveryFieldSurvivesTheRoundTrip(t *testing.T) {
+	isolateConfig(t)
+
+	want := &State{
+		Active: 2,
+		Tabs: []Tab{
+			{
+				Title: "api & \"docs\" <\\>",
+				Focus: "pane-2",
+				Root: &Node{
+					Dir:    "h",
+					Weight: 1.0 / 3.0, // needs every digit of a float64 to come back
+					Children: []*Node{
+						{Pane: &Pane{
+							ID: "pane-1", Kind: "claude", Cwd: `C:\repo\ünïcode`,
+							Name: "worker", Task: "fix the parser\nthen the lexer",
+							Root: `C:\other\project`,
+						}, Weight: 0.7},
+						{
+							Dir:    "v",
+							Weight: 2.0 / 3.0,
+							Children: []*Node{
+								{Pane: &Pane{ID: "pane-2", Kind: "shell", Cwd: "/repo/a/sub"}},
+								{Dir: "h", Children: []*Node{
+									{Pane: &Pane{ID: "pane-3", Kind: "claude", Cwd: "/repo/a"}, Weight: 0.25},
+								}},
+							},
+						},
+					},
+				},
+			},
+			{Title: "docs", Root: &Node{Pane: &Pane{ID: "pane-4", Kind: "claude", Cwd: "/repo/a"}}},
+			{Root: &Node{Pane: &Pane{ID: "pane-5", Kind: "shell", Cwd: "/repo/a"}}},
+		},
+	}
+	// Save fills in the version and the root on the struct it is handed, so
+	// what goes in is noted before it does.
+	before := *want
+
+	if err := Save("/repo/a", want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := Load("/repo/a")
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(got.Tabs, before.Tabs) {
+		t.Errorf("tabs came back different\n got %s\nwant %s", showTabs(got.Tabs), showTabs(before.Tabs))
+	}
+	if got.Active != before.Active {
+		t.Errorf("active tab %d, want %d", got.Active, before.Active)
+	}
+	if got.Version != Version {
+		t.Errorf("version %d, want %d", got.Version, Version)
+	}
+	if !sameRoot(got.Root, "/repo/a") {
+		t.Errorf("root %q, want /repo/a", got.Root)
+	}
+}
+
+// showTabs renders tabs for a failure message; the structs are trees of
+// pointers and print as addresses otherwise.
+func showTabs(tabs []Tab) string {
+	b, err := json.MarshalIndent(tabs, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%+v", tabs)
+	}
+	return string(b)
+}
+
+// TestAReadThatCannotWorkIsNotWaitedOut checks the retry budget is spent only
+// on contention.
+//
+// The recent list is read every time the project picker opens. A state
+// directory somebody has mangled — a directory standing where a file belongs —
+// would otherwise stall each of those reads for the whole budget, which is a
+// picker that feels broken rather than one that fails.
+func TestAReadThatCannotWorkIsNotWaitedOut(t *testing.T) {
+	dir := t.TempDir()
+	notAFile := filepath.Join(dir, "layout.json")
+	if err := os.Mkdir(notAFile, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := readState(notAFile); err == nil {
+		t.Fatal("reading a directory as a state file should have failed")
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
+	}
+
+	start = time.Now()
+	if _, err := readState(filepath.Join(dir, "was-never-written")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reading a file that is not there gave %v, want a not-exist error", err)
+	}
+	if waited := time.Since(start); waited > contentionBudget/2 {
+		t.Errorf("it waited %v for a file that is simply not there", waited)
 	}
 }
