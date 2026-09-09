@@ -241,6 +241,7 @@ func checkWorkspace(t *testing.T, w *Workspace, roots map[string]string, hist []
 // TestMovesKeepTheWorkspaceCoherent rearranges a workspace at random and
 // checks after every step that it is still one the interface could draw.
 func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
+	isolateConfig(t)
 	edges := []layout.Edge{layout.EdgeLeft, layout.EdgeRight, layout.EdgeTop, layout.EdgeBottom}
 	dirs := []layout.Dir{layout.Horizontal, layout.Vertical}
 	towards := []layout.Direction{layout.Left, layout.Right, layout.Up, layout.Down}
@@ -248,8 +249,15 @@ func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
 	for seed := int64(0); seed < 200; seed++ {
 		rnd := rand.New(rand.NewSource(seed))
 		w := benchWorkspace(2, 3, 3)
+		w.settingsDir = t.TempDir()
 		roots := map[string]string{}
 		for id, p := range w.panes {
+			// Some of them belong to the other project, so the moves are
+			// shuffling tabs that hold each other's agents rather than tabs
+			// that each hold their own.
+			if rnd.Intn(4) == 0 {
+				p.Root = w.openRoots[rnd.Intn(len(w.openRoots))]
+			}
 			roots[id] = p.Root
 		}
 		var hist []string
@@ -263,7 +271,7 @@ func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
 			tab := func() *Tab { return w.Tabs[rnd.Intn(len(w.Tabs))] }
 			note := func(format string, args ...any) { hist = append(hist, fmt.Sprintf(format, args...)) }
 
-			switch rnd.Intn(12) {
+			switch rnd.Intn(13) {
 			case 0:
 				a, b, e := pane(), pane(), edges[rnd.Intn(len(edges))]
 				note("MovePane(%s, %s, %v)", a, b, e)
@@ -310,6 +318,18 @@ func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
 			case 11:
 				note("ToggleZoom() in %s", w.activeTab)
 				w.ToggleZoom()
+			case 12:
+				if len(w.openRoots) < 2 {
+					break
+				}
+				closing := w.openRoots[rnd.Intn(len(w.openRoots))]
+				note("CloseProject(%s)", closing)
+				w.CloseProject(closing)
+				for id := range roots {
+					if _, running := w.panes[id]; !running {
+						delete(roots, id)
+					}
+				}
 			}
 			checkWorkspace(t, w, roots, hist)
 		}
