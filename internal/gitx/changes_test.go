@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestChangesReportsWhatMoved covers the review panel's file list.
@@ -762,6 +763,53 @@ func TestUpstreamOfAgreesWithStatus(t *testing.T) {
 	gitRun(t, repo, "checkout", "-b", "solo")
 	if got := UpstreamOf(repo); got != "" {
 		t.Errorf("upstream = %q on a branch that tracks nothing", got)
+	}
+}
+
+// TestRemoteCommandsGetTheLongerDeadline checks that push, pull and fetch are
+// not held to the deadline meant for reading the local repository, and that
+// reading the local repository is not held to theirs.
+func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
+	repo := newRepo(t)
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	gitRun(t, repo, "remote", "add", "origin", origin)
+
+	if networkTimeout <= commandTimeout {
+		t.Errorf("network deadline %s is no longer than the local one %s",
+			networkTimeout, commandTimeout)
+	}
+
+	// Shortening it to nothing is how the deadline a command actually ran
+	// under can be read back out of the message it fails with.
+	restore := networkTimeout
+	t.Cleanup(func() { networkTimeout = restore })
+	networkTimeout = time.Nanosecond
+
+	for _, tc := range []struct {
+		name string
+		run  func() (string, error)
+	}{
+		{"fetch", func() (string, error) { return Fetch(repo) }},
+		{"pull", func() (string, error) { return Pull(repo) }},
+	} {
+		_, err := tc.run()
+		if err == nil {
+			t.Errorf("%s: expected the shortened deadline to stop it", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "gave up after 1ns") {
+			t.Errorf("%s did not run under the network deadline: %v", tc.name, err)
+		}
+	}
+
+	// Nothing local borrows it, or every pane header would stop working.
+	if got := StatusOf(repo).Branch; got != "main" {
+		t.Errorf("branch = %q; a status call should be unaffected", got)
 	}
 }
 

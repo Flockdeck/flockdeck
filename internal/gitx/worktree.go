@@ -19,9 +19,22 @@ import (
 	"unicode"
 )
 
-// commandTimeout bounds every git invocation so a hung command cannot freeze
-// the UI thread.
+// commandTimeout bounds a git invocation that only reads the local repository,
+// so a hung command cannot freeze the UI thread.
 const commandTimeout = 20 * time.Second
+
+// networkTimeout bounds push, pull and fetch instead.
+//
+// Twenty seconds is nothing to a command that talks to a remote: a first push
+// of a branch with any history behind it, a fetch of a repository nobody has
+// cloned recently, or any of it over a link that is having a bad day. Killing
+// those part way through and reporting a hang is worse than waiting, and
+// nothing is waiting on them -- they run off the UI thread and tell the panel
+// when they are done. Asking for a password is already refused outright, so
+// the hang these guard against cannot happen here in the first place.
+//
+// It is a variable so a test can shorten it; nothing else assigns to it.
+var networkTimeout = 10 * time.Minute
 
 // Worktree is one entry from `git worktree list`.
 type Worktree struct {
@@ -50,7 +63,7 @@ func (w Worktree) Label() string {
 
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
-	out, _, err := runCapture(context.Background(), dir, args...)
+	out, _, err := runCapture(context.Background(), commandTimeout, dir, args...)
 	return out, err
 }
 
@@ -58,17 +71,19 @@ func run(dir string, args ...string) (string, error) {
 // through, so that cancelling ctx kills the process rather than leaving it to
 // finish work nobody will read.
 func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
-	out, _, err := runCapture(ctx, dir, args...)
+	out, _, err := runCapture(ctx, commandTimeout, dir, args...)
 	return out, err
 }
 
-// runVerbose returns what git said on both streams.
+// runVerbose returns what git said on both streams, under the network deadline.
 //
 // push, pull and fetch write their progress and their summary to stderr, so a
 // caller that shows the user only stdout shows them nothing at all: stderr
-// comes first because that is the order the two were written in.
+// comes first because that is the order the two were written in. They are also
+// the only commands here that talk to anything outside the machine, which is
+// why they are the ones given the longer deadline.
 func runVerbose(dir string, args ...string) (string, error) {
-	out, errText, err := runCapture(context.Background(), dir, args...)
+	out, errText, err := runCapture(context.Background(), networkTimeout, dir, args...)
 	if err != nil {
 		return "", err
 	}
@@ -91,8 +106,8 @@ func cleanProgress(s string) string {
 }
 
 // runCapture executes git in dir and returns stdout and stderr separately.
-func runCapture(parent context.Context, dir string, args ...string) (string, string, error) {
-	ctx, cancel := context.WithTimeout(parent, commandTimeout)
+func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -110,7 +125,7 @@ func runCapture(parent context.Context, dir string, args ...string) (string, str
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
+			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
 		}
 		if parent.Err() != nil {
 			return "", "", parent.Err()
