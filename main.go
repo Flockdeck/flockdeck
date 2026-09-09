@@ -12,12 +12,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/appwindow"
 	"github.com/jmwri/perch/internal/hooks"
 	"github.com/jmwri/perch/internal/server"
@@ -55,6 +60,13 @@ func main() {
 		}
 		return
 	}
+	// `agents` prints the catalog. It is a subcommand rather than a flag
+	// because it answers a question instead of changing how a run starts, and
+	// because it is the only place to find out what an -agent name may be.
+	if len(os.Args) > 1 && os.Args[1] == "agents" {
+		printAgents(os.Stdout)
+		return
+	}
 
 	var c cliFlags
 	fs := perchFlagSet(&c)
@@ -79,6 +91,12 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr)
 		fs.Usage()
+		os.Exit(2)
+	}
+	// An agent the catalog does not have is worth two lines here rather than a
+	// window full of panes that will not start.
+	if err := checkAgent(c.agent, ""); err != nil {
+		fmt.Fprintln(os.Stderr, "perch:", err)
 		os.Exit(2)
 	}
 	server.Version = version
@@ -109,6 +127,7 @@ type cliFlags struct {
 func perchFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("perch", flag.ExitOnError)
 	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
+	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; perch agents lists them")
 	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
 	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
 	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window; print the URL and keep serving")
@@ -126,9 +145,11 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  perch [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] <task>\n")
+	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run perch spawn -h for what the flags do\n")
+	fmt.Fprintf(out, "  agents\n")
+	fmt.Fprintf(out, "        list the agents perch can run, with their models\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
@@ -152,6 +173,7 @@ func fail(err error) {
 // options are the settings run needs.
 type options struct {
 	dir      string
+	agent    string
 	fresh    bool
 	shell    bool
 	noWindow bool
@@ -285,6 +307,9 @@ func startupOnlyFlags(opts options) []string {
 	if opts.shell {
 		out = append(out, "-shell")
 	}
+	if opts.agent != "" {
+		out = append(out, "-agent")
+	}
 	if opts.detach {
 		out = append(out, "-detach")
 	}
@@ -297,6 +322,14 @@ func plural(n int, one, many string) string {
 	}
 	return many
 }
+
+// useAgent tells the workspace which agent a new pane starts as for the rest
+// of this run, which is what -agent asks for.
+//
+// The workspace is another task's file in this work, so until that lands this
+// does nothing beyond the name having been checked; the merge is this one
+// function body.
+var useAgent = func(ws *workspace.Workspace, agentID string) {}
 
 // run starts the workspace, serves it and shows the window.
 func run(opts options) error {
@@ -339,6 +372,10 @@ func run(opts options) error {
 		return err
 	}
 	defer ws.Close()
+
+	if opts.agent != "" {
+		useAgent(ws, opts.agent)
+	}
 
 	// Build the initial workspace before the server exists. Once it is
 	// running, every access to the workspace has to go through its owner
@@ -594,17 +631,37 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		fs.Usage()
 		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
 	}
-	return hooks.SpawnRequest{
+	// A shell pane runs no agent, so an agent named alongside -shell is a
+	// contradiction rather than a choice, and dropping it quietly would leave
+	// the caller believing it had asked for something.
+	if f.shell && (f.agent != "" || f.model != "") {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, so it cannot also take -agent or -model")
+	}
+	if err := checkAgent(f.agent, f.model); err != nil {
+		return hooks.SpawnRequest{}, err
+	}
+	return withAgent(hooks.SpawnRequest{
 		Task:   task,
 		Branch: f.worktree,
 		Split:  f.split,
 		Shell:  f.shell,
-	}, nil
+	}, f.agent, f.model), nil
 }
+
+// withAgent puts the agent and model `perch spawn` was given on the request it
+// sends.
+//
+// They are two more fields on hooks.SpawnRequest, which is another task's file
+// in this work. Until that lands this drops them, so the flags are parsed and
+// checked against the catalog but the helper still starts as the default
+// agent; the merge is this one function body.
+var withAgent = func(req hooks.SpawnRequest, agentID, model string) hooks.SpawnRequest { return req }
 
 // spawnFlags are the flags of `perch spawn` and where their values land.
 type spawnFlags struct {
 	worktree string
+	agent    string
+	model    string
 	split    bool
 	shell    bool
 }
@@ -618,6 +675,8 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
+	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; perch agents lists them")
+	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
@@ -681,6 +740,231 @@ func takesValue(fs *flag.FlagSet, name string) bool {
 	}
 	b, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return !ok || !b.IsBoolFlag()
+}
+
+// printAgents writes the catalog: the agents Perch can run, the models each
+// one offers, and -- for one this machine does not have -- the line that says
+// how to get it.
+//
+// An agent that is not installed is listed rather than left out, because
+// somebody who has never installed Codex should still be able to learn from
+// here that Perch would run it.
+func printAgents(w io.Writer) {
+	specs, defaultID := agentCatalog()
+	fmt.Fprintf(w, "Agents perch can run.\n\n")
+	for _, s := range specs {
+		// A hidden entry is one somebody has taken out of the picker in their
+		// own agents.json, and this is the picker in another form.
+		if s.Hidden {
+			continue
+		}
+		notes := []string{"not installed"}
+		if agentAvailable(s) {
+			notes = []string{"installed"}
+		}
+		if s.ID == defaultID {
+			notes = append(notes, "default")
+		}
+		fmt.Fprintf(w, "%s - %s  [%s]\n", s.ID, agentName(s), strings.Join(notes, ", "))
+		fmt.Fprintf(w, "  models: %s\n", modelSummary(s))
+		// The install line answers the state just printed, so it is only worth
+		// the room when that state is "not installed".
+		if s.Install != "" && !agentAvailable(s) {
+			fmt.Fprintf(w, "  install: %s\n", s.Install)
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "Choose one for a whole run with `perch -agent <id>`, or for a single\n")
+	fmt.Fprintf(w, "helper with `perch spawn --agent <id> --model <model> <task>`.\n")
+}
+
+// agentName is what to call an agent in a message, falling back to its id for
+// an entry in somebody's agents.json that was never given a name.
+func agentName(s agent.Spec) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	return s.ID
+}
+
+// modelSummary describes the models an agent offers, in one line.
+//
+// A model with an empty id is the entry meaning "leave the choice alone",
+// which reads as nothing at all in a list of names, so it is spelled out
+// instead. An agent with no models listed takes whatever it is given, which is
+// how a local endpoint whose models depend on what is loaded is written.
+func modelSummary(s agent.Spec) string {
+	ids := modelIDs(s)
+	unset := false
+	for _, m := range s.Models {
+		if m.ID == "" {
+			unset = true
+		}
+	}
+	switch {
+	case len(ids) == 0:
+		return "whatever you ask it for"
+	case unset:
+		return strings.Join(ids, ", ") + ", or none for whatever it is already set to"
+	}
+	return strings.Join(ids, ", ")
+}
+
+// modelIDs are the models an agent names, without the empty one.
+func modelIDs(s agent.Spec) []string {
+	var out []string
+	for _, m := range s.Models {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// agentIDs are the ids of every agent the picker would show.
+func agentIDs(specs []agent.Spec) []string {
+	var out []string
+	for _, s := range specs {
+		if !s.Hidden {
+			out = append(out, s.ID)
+		}
+	}
+	return out
+}
+
+// findSpec looks an agent up by id.
+func findSpec(specs []agent.Spec, id string) (agent.Spec, bool) {
+	for _, s := range specs {
+		if s.ID == id && !s.Hidden {
+			return s, true
+		}
+	}
+	return agent.Spec{}, false
+}
+
+// offersModel reports whether an agent can be asked for a model.
+//
+// An empty model is the choice not having been made, which every agent accepts
+// -- a CLI then keeps whatever it was configured with. One that lists no
+// models takes whatever it is given, so there is nothing there to be wrong
+// either.
+func offersModel(s agent.Spec, model string) bool {
+	if model == "" || len(s.Models) == 0 {
+		return true
+	}
+	for _, m := range s.Models {
+		if m.ID == model {
+			return true
+		}
+	}
+	return false
+}
+
+// checkAgent checks an agent and a model named on the command line against the
+// catalog, and says what is on offer when one of them is not in it.
+//
+// It is checked here rather than where the pane is started because this is the
+// only place with somewhere to print to. A misspelt agent that gets that far
+// is a pane that never starts, in a window that is already open, with the
+// reason nowhere at all.
+//
+// A model given without an agent is checked against the whole catalog rather
+// than against any one entry, because which agent it will belong to is the
+// project's default and is not known until the pane is made. That still
+// catches the typo, which is the point of checking at all.
+func checkAgent(id, model string) error {
+	specs, _ := agentCatalog()
+	if id != "" {
+		spec, ok := findSpec(specs, id)
+		if !ok {
+			return fmt.Errorf("no agent called %q; perch can run %s (run `perch agents` for what each of them offers)",
+				id, strings.Join(agentIDs(specs), ", "))
+		}
+		if !offersModel(spec, model) {
+			return fmt.Errorf("%s has no model called %q; it offers %s",
+				spec.ID, model, strings.Join(modelIDs(spec), ", "))
+		}
+		return nil
+	}
+	if model == "" {
+		return nil
+	}
+	for _, s := range specs {
+		if !s.Hidden && offersModel(s, model) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no agent offers a model called %q; run `perch agents` to see what each of them does", model)
+}
+
+// agentCatalog is how the command line reaches the catalog: the agents Perch
+// can run -- the built-in ones overlaid with the user's agents.json -- and the
+// id of the one a pane takes when nothing has been chosen.
+//
+// It is a variable so a test can hand it a catalog of its own, and because the
+// catalog itself is another task's file in this work. Until that lands it
+// answers with the one agent Perch has always run, so that the command line
+// can be finished and checked against something real; the merge repoints this
+// at internal/agent and deletes what is below it.
+var agentCatalog = func() ([]agent.Spec, string) { return []agent.Spec{claudeSpec}, claudeSpec.ID }
+
+// claudeSpec is the catalog Perch has always had: one entry. Only the fields
+// the command line itself reads are here -- the argument lists, the
+// capabilities and the environment it strips belong with the real catalog.
+var claudeSpec = agent.Spec{
+	ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
+	Models: []agent.Model{
+		{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
+		{ID: "opus", Name: "Opus", Note: "most capable"},
+		{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
+		{ID: "haiku", Name: "Haiku", Note: "fastest"},
+	},
+	Install: "https://claude.com/claude-code",
+}
+
+// agentAvailable reports whether an agent could actually be started here.
+var agentAvailable = installedAgent
+
+// installedAgent is availability as far as the command line can tell on its
+// own: a CLI has to be on PATH, and an API needs a key in the environment or
+// an endpoint on this machine that wants none.
+//
+// The catalog's own answer also looks in Perch's key store, which is another
+// task's file in this work; until that lands an API agent whose key lives only
+// there is listed as not installed, which understates what Perch can do rather
+// than promising something that will not start.
+func installedAgent(s agent.Spec) bool {
+	if s.Runner == agent.RunnerAPI {
+		for _, name := range s.API.KeyEnv {
+			if os.Getenv(name) != "" {
+				return true
+			}
+		}
+		return loopbackEndpoint(s.API.BaseURL)
+	}
+	if s.Exe == "" {
+		return false
+	}
+	_, err := exec.LookPath(s.Exe)
+	return err == nil
+}
+
+// loopbackEndpoint reports whether a base URL points at this machine, which is
+// how an endpoint that wants no key -- Ollama, LM Studio, a gateway of one's
+// own -- is told from a vendor's.
+func loopbackEndpoint(base string) bool {
+	if base == "" {
+		return false
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	if u.Hostname() == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(u.Hostname())
+	return ip != nil && ip.IsLoopback()
 }
 
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.
