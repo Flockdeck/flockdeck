@@ -64,8 +64,25 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if !s.requireURLToken(w, r) {
 		return
 	}
+	// One budget covers handing the question over and getting the answer
+	// back. Handing it over is posted here rather than through s.do because
+	// that waits without a deadline, and the queue in front of the workspace
+	// is exactly what fills up while the workspace is slow -- so the one
+	// endpoint whose whole job is to answer within a moment was the one that
+	// could not answer at all.
+	deadline := time.After(healthTimeout)
 	done := make(chan int, 1)
-	s.do(func() { done <- len(s.ws.Projects()) })
+	select {
+	case s.cmds <- func() { done <- len(s.ws.Projects()) }:
+	case <-s.closed:
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		return
+	case <-r.Context().Done():
+		return
+	case <-deadline:
+		s.notReady(w)
+		return
+	}
 
 	var projects int
 	select {
@@ -75,24 +92,30 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	case <-r.Context().Done():
 		return
-	case <-time.After(healthTimeout):
-		// The port is still answering but the workspace behind it is not.
-		// Reporting a made-up project count would tell the second launch to
-		// hand its directory to an instance that cannot open it, and the
-		// window it expected would never appear. So this fails -- but it
-		// still says who it is, so the launch can wait for the workspace to
-		// come back instead of writing the instance off.
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(healthMsg{
-			App: "perch", Version: Version, PID: pid(),
-		})
+	case <-deadline:
+		s.notReady(w)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
 		App: "perch", Version: Version, PID: pid(), Projects: projects, Ready: true,
+	})
+}
+
+// notReady answers a probe the workspace could not be reached for.
+//
+// The port is still answering but the workspace behind it is not. Reporting a
+// made-up project count would tell the second launch to hand its directory to
+// an instance that cannot open it, and the window it expected would never
+// appear. So this fails -- but it still says who it is, so the launch can wait
+// for the workspace to come back rather than write the instance off and start
+// a rival set of agents.
+func (s *Server) notReady(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(healthMsg{
+		App: "perch", Version: Version, PID: pid(),
 	})
 }
 

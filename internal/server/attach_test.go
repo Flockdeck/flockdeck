@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -310,4 +311,44 @@ func sendWithCookie(t *testing.T, method, url, token string) *http.Response {
 	}
 	resp.Body.Close()
 	return resp
+}
+
+// TestProbeSurvivesABackedUpWorkspace is the case the busy-instance grace did
+// not reach on its own. Opening a project holds the workspace goroutine and
+// fills the queue in front of it, and while that queue is full nothing can
+// hand work over at all -- including the health endpoint, whose whole job is
+// to answer within a moment. Without an answer the launch has nothing to wait
+// for: it declares the record stale and starts a rival set of agents.
+func TestProbeSurvivesABackedUpWorkspace(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	stop := sync.OnceFunc(func() { close(release) })
+	defer stop()
+
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(srv.cmds) < cap(srv.cmds) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.cmds) < cap(srv.cmds) {
+		t.Fatalf("could not fill the workspace queue: %d of %d", len(srv.cmds), cap(srv.cmds))
+	}
+
+	// Held for longer than one probe waits, and freed well inside the grace a
+	// probe gives a busy instance.
+	go func() {
+		time.Sleep(probeTimeout + 500*time.Millisecond)
+		stop()
+	}()
+
+	if _, err := Probe(srv.BaseURL(), srv.Token()); err != nil {
+		t.Errorf("probe wrote off an instance that was only busy: %v", err)
+	}
 }
