@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/perch/internal/hooks"
 )
@@ -141,5 +143,34 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s: parseSpawn(%q) = %+v, want %+v", c.name, c.args, got, c.want)
 		}
+	}
+}
+
+// One Ctrl+C asks for an orderly stop. A second, arriving while that is still
+// going, has to be acted on: signal.Notify has taken the key away from the
+// runtime, so nothing else will.
+func TestInterruptsForceQuitOnTheSecond(t *testing.T) {
+	sigs := make(chan os.Signal, 2)
+	stopped := make(chan struct{})
+	forced := make(chan struct{})
+	go interrupts(sigs, func() { close(stopped) }, func() { close(forced) })
+
+	sigs <- os.Interrupt
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("the first interrupt did not ask for a stop")
+	}
+	select {
+	case <-forced:
+		t.Fatal("the first interrupt forced a quit")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	sigs <- os.Interrupt
+	select {
+	case <-forced:
+	case <-time.After(time.Second):
+		t.Fatal("the second interrupt was ignored")
 	}
 }

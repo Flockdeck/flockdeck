@@ -312,16 +312,25 @@ func run(opts options) error {
 		select {
 		case closeOnce <- struct{}{}:
 			close(quit)
+			// Everything past this point closes panes and kills their
+			// processes. A pane whose process will not die must not be able to
+			// keep the whole application alive with its window already gone,
+			// so the orderly shutdown is given a deadline of its own. The
+			// process exits normally long before this fires; it only ever runs
+			// when the shutdown has wedged.
+			go func() {
+				time.Sleep(shutdownGrace)
+				forceQuit()
+			}()
 		default:
 		}
 	}
 
-	sigs := make(chan os.Signal, 1)
+	// Two deep, so a second interrupt arriving while the first is still being
+	// acted on is not dropped on the floor.
+	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt)
-	go func() {
-		<-sigs
-		stop()
-	}()
+	go interrupts(sigs, stop, forceQuit)
 
 	srv.OnQuit = stop
 	if opts.detach {
@@ -388,6 +397,33 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "perch: could not save layout:", err)
 	}
 	return nil
+}
+
+// shutdownGrace bounds the orderly shutdown. It is generous: closing panes is
+// killing a handful of processes, which takes no time at all when it works.
+const shutdownGrace = 10 * time.Second
+
+// interrupts turns the interrupt signal into the two things it means.
+//
+// The first asks for an orderly stop, which saves the layout and shuts the
+// agents down. A second, arriving while that is still going, is the user
+// saying it has taken long enough — and it has to be acted on, because
+// signal.Notify has already taken Ctrl+C away from the runtime's own handler.
+// Without this the only way out of a wedged shutdown is to kill the process,
+// which is exactly the way to leave agent processes behind.
+func interrupts(sigs <-chan os.Signal, stop, force func()) {
+	<-sigs
+	stop()
+	<-sigs
+	force()
+}
+
+// forceQuit ends the process without waiting for the orderly shutdown to
+// finish. It is the last resort: a window that has gone and an application
+// that will not stop is worse than an abrupt exit.
+func forceQuit() {
+	fmt.Fprintln(os.Stderr, "perch: shutting down is taking too long — stopping now")
+	os.Exit(1)
 }
 
 // errReported marks an error the failing code has already printed, so the
