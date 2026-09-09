@@ -137,13 +137,13 @@ func (w *Workspace) restoreProject(root string) int {
 		return 0
 	}
 
-	branches := branchesOf(paneDirs(st))
+	r := &restoring{branches: branchesOf(paneDirs(st))}
 	added := 0
 	// nearest is the last tab restored at or before the saved active one, so a
 	// tab that cannot be restored hands the window over to its neighbour.
 	var firstTab, activeTab, nearest string
 	for i, t := range st.Tabs {
-		tree := w.decodeNode(t.Root, root, branches)
+		tree := w.decodeNode(t.Root, root, r)
 		if tree == nil {
 			continue
 		}
@@ -176,6 +176,7 @@ func (w *Workspace) restoreProject(root string) int {
 		}
 		added++
 	}
+	w.launch(r.waiting)
 	if added == 0 {
 		return 0
 	}
@@ -322,10 +323,69 @@ func branchesOf(dirs []string) map[string]string {
 	return out
 }
 
-// decodeNode rebuilds a layout subtree, starting a session for every pane.
-// branches holds the git branch of every directory the subtree puts a pane in,
-// worked out ahead of time so the restore does not stop for each one.
-func (w *Workspace) decodeNode(n *store.Node, tabRoot string, branches map[string]string) *layout.Node {
+// restoring is what one restore carries down through the tree: the branch of
+// every directory it will use, and the panes it has built and not yet started.
+type restoring struct {
+	branches map[string]string
+	waiting  []*Pane
+}
+
+// paneLaunches is how many panes are started at once. They are processes, and
+// they are all going to be started either way; the bound is there so a window
+// coming back with thirty agents does not ask the machine for thirty terminals
+// in the same instant.
+const paneLaunches = 8
+
+// launch starts every pane a restore built.
+//
+// Starting one costs about 170ms on this machine — a settings file, a look for
+// the conversation to resume, and a terminal — and they were started one after
+// another as the tree was read. Twenty agents meant three and a half seconds
+// in which the window had nothing to show. Nothing about one start depends on
+// another, so they go together.
+//
+// This is safe to do here and nowhere else. The server funnels every read and
+// write of the workspace through one goroutine, and that goroutine is the one
+// waiting below: while it waits, nothing else reads a pane's error or session,
+// and each worker only ever touches the pane it was given. The hook server's
+// goroutine can look up a pane, but it takes the lock and it gives up on one
+// with no session yet, which is what a pane about to be started has.
+func (w *Workspace) launch(panes []*Pane) {
+	if len(panes) == 0 {
+		return
+	}
+	if len(panes) == 1 {
+		w.startPane(panes[0], panes[0].Kind == session.KindClaude)
+		return
+	}
+	queue := make(chan *Pane)
+	var wg sync.WaitGroup
+	workers := paneLaunches
+	if len(panes) < workers {
+		workers = len(panes)
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for p := range queue {
+				// Resuming reattaches the pane to the same Claude conversation
+				// it had before, which is the point of persisting pane ids as
+				// session UUIDs.
+				w.startPane(p, p.Kind == session.KindClaude)
+			}
+		}()
+	}
+	for _, p := range panes {
+		queue <- p
+	}
+	close(queue)
+	wg.Wait()
+}
+
+// decodeNode rebuilds a layout subtree, building a pane for every leaf and
+// noting it down to be launched once the whole layout has been read.
+func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *layout.Node {
 	if n == nil {
 		return nil
 	}
@@ -347,7 +407,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, branches map[strin
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Cwd)
 		}
-		p.Branch = branches[p.Cwd]
+		p.Branch = r.branches[p.Cwd]
 		// A borrowed pane names a project that may not be open yet. Restoring
 		// the window as it was left means opening it: the alternative is a
 		// pane belonging to nothing, which nothing would stop when its project
@@ -369,9 +429,12 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, branches map[strin
 		if duplicate {
 			return nil
 		}
-		// Resuming reattaches the pane to the same Claude conversation it had
-		// before, which is the point of persisting pane ids as session UUIDs.
-		w.startPane(p, p.Kind == session.KindClaude)
+		// Launching is left until the whole layout has been read, so every
+		// pane can be started at once rather than the next one waiting on the
+		// last. Every pane noted here reaches a tab: a leaf is only noted once
+		// it is going to be used, and a split that loses every child had no
+		// child to note.
+		r.waiting = append(r.waiting, p)
 
 		leaf := layout.NewLeaf(p.ID)
 		if n.Weight > 0 {
@@ -388,7 +451,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, branches map[strin
 		node.Weight = n.Weight
 	}
 	for _, c := range n.Children {
-		if dec := w.decodeNode(c, tabRoot, branches); dec != nil {
+		if dec := w.decodeNode(c, tabRoot, r); dec != nil {
 			node.Children = append(node.Children, dec)
 		}
 	}

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
 	"github.com/jmwri/perch/internal/store"
@@ -1076,5 +1078,71 @@ func TestRestoreAsksForEveryBranchAtOnce(t *testing.T) {
 	t.Logf("%d directories: one at a time %v, together %v", len(dirs), oneAtATime, atOnce)
 	if atOnce > oneAtATime {
 		t.Errorf("asking together took %v, longer than asking one at a time (%v)", atOnce, oneAtATime)
+	}
+}
+
+// TestRestoreStartsEveryPaneAtOnce checks a restore launches its panes
+// together rather than one after another, and that every one of them comes up.
+//
+// Starting a pane costs about 170ms on this machine — a settings file, a look
+// for the conversation to resume, and a terminal — and they used to be started
+// as the tree was read, so a window coming back with twenty agents spent three
+// and a half seconds showing nothing.
+func TestRestoreStartsEveryPaneAtOnce(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	const panes = 8
+	saved := &store.State{}
+	for i := 0; i < panes; i++ {
+		saved.Tabs = append(saved.Tabs, store.Tab{
+			Title: fmt.Sprint("tab", i),
+			Root:  &store.Node{Pane: &store.Pane{ID: uuid.NewString(), Kind: "shell", Cwd: root}},
+		})
+	}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	start := time.Now()
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	together := time.Since(start)
+
+	if len(ws.VisibleTabs()) != panes {
+		t.Fatalf("restored %d tabs, want %d", len(ws.VisibleTabs()), panes)
+	}
+	for _, tab := range ws.VisibleTabs() {
+		for _, id := range tab.Tree.Panes() {
+			p := ws.Pane(id)
+			if p == nil {
+				t.Fatalf("pane %s is not in the workspace", id)
+			}
+			if p.Err != nil {
+				t.Errorf("pane %s did not start: %v", id, p.Err)
+			}
+			if p.Sess == nil {
+				t.Errorf("pane %s has no session", id)
+			}
+		}
+	}
+
+	// What the same work costs one at a time, for the same panes on the same
+	// machine, so the comparison is not against a number written down once.
+	oneAtATime := time.Now()
+	for i := 0; i < panes; i++ {
+		p := &Pane{ID: uuid.NewString(), Kind: session.KindShell, Cwd: root, Name: "x", Root: root}
+		ws.mu.Lock()
+		ws.panes[p.ID] = p
+		ws.mu.Unlock()
+		ws.startPane(p, false)
+	}
+	serial := time.Since(oneAtATime)
+
+	t.Logf("%d panes: restored together in %v, started one at a time in %v", panes, together, serial)
+	if together > serial {
+		t.Errorf("restoring %d panes took %v, longer than starting them one at a time (%v)", panes, together, serial)
 	}
 }
