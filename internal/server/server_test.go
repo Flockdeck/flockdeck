@@ -732,7 +732,7 @@ func TestChangesReachTheWindowPromptly(t *testing.T) {
 			best = d
 		}
 		// Long enough that the next change starts from a quiet interval.
-		time.Sleep(4 * stateInterval)
+		time.Sleep(2 * stateInterval)
 	}
 	if best >= stateInterval {
 		t.Errorf("the quickest of eight changes took %v, which is the whole %v interval: changes are being delayed rather than rate limited", best, stateInterval)

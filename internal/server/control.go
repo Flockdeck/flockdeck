@@ -370,9 +370,14 @@ func parseDirection(s string) layout.Direction {
 // not terminal output. Re-sending an identical one costs a frame per window
 // and, on the far side, a parse and a full re-render of the tab bar, every
 // pane header and the summary. Comparing the encoded bytes is far cheaper
-// than either, and skipping the send cannot leave a window behind, since
-// lastState is by definition what every window already holds and one that
-// connected later was handed a snapshot of its own that is at least as new.
+// than either.
+//
+// Skipping the send cannot leave a window behind, because lastState either
+// describes what every window holds or is empty. It is set only here, by the
+// broadcast that put it in front of all of them at once, and it is emptied
+// whenever a window connects — which is what covers the gap where no window
+// was open and nothing was broadcast, and the window that then arrived was
+// handed a snapshot of its own that this never saw.
 func (s *Server) broadcastState() {
 	// Nobody to tell. A detached run sits like this for hours while the agents
 	// carry on producing output, and every chunk of it wakes the server:

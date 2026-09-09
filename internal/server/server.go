@@ -60,8 +60,9 @@ type Server struct {
 	clients map[*controlClient]struct{}
 
 	// lastState is the encoded snapshot that was last broadcast, kept so an
-	// unchanged one is not sent again. It is touched only from broadcastState,
-	// which runs on the workspace goroutine.
+	// unchanged one is not sent again. broadcastState sets it and a window
+	// connecting empties it, both on the workspace goroutine, which is what
+	// keeps it free of a lock of its own.
 	lastState []byte
 
 	// cmds serialises every access to the workspace, which is not safe for
