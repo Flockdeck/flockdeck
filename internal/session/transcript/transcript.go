@@ -1,0 +1,159 @@
+// Package transcript reads what agents said.
+//
+// Every agent that keeps a record of its conversations keeps it somewhere of
+// its own and in a shape of its own, and three parts of Perch want to read it:
+// restoring a layout, which resumes a conversation only when there is one to
+// resume; the history overlay, which lists them; and a fan-out, which takes
+// the plan an agent just wrote out of its last few replies rather than off the
+// screen. Each of those asks a Reader, so an agent Perch has never heard of
+// costs them nothing: it gets the null reader and they all cope.
+package transcript
+
+import (
+	"os"
+	"sort"
+	"time"
+
+	"github.com/jmwri/perch/internal/agent"
+)
+
+// Conversation is a stored conversation that can be resumed.
+type Conversation struct {
+	// ID is the session id, which is also the transcript's file name and what
+	// the agent is given to reattach to it.
+	ID string
+	// Agent is the id of the agent that held the conversation. The history
+	// overlay draws several agents' conversations in one list, and which agent
+	// a row belongs to decides what happens when it is opened, so a row that
+	// does not say is a row that cannot be resumed correctly.
+	Agent   string
+	Cwd     string
+	Summary string
+	// Title is the name the agent gave the conversation, when it gave it one.
+	// It is what the summary falls back to, and what tells apart conversations
+	// that were opened with the same prompt.
+	Title    string
+	Modified time.Time
+	Messages int
+	Size     int64
+}
+
+// NoPrompt stands in for the summary of a conversation that says nothing
+// about itself: no prompt in its opening entries, and no name from the agent
+// either. It is a label for a row in a list, not a name for anything.
+const NoPrompt = "(no prompt recorded)"
+
+// Reader finds and reads one agent's stored conversations.
+type Reader interface {
+	Path(spec agent.Spec, sessionID string) string // "" when unknown
+	Replies(spec agent.Spec, sessionID string, n int) []string
+	Conversations(spec agent.Spec, cwd string) ([]Conversation, error)
+}
+
+// For returns the reader for an agent.
+//
+// An agent that does not record what it said, or records it somewhere nobody
+// here knows how to read, gets the null reader rather than a guess. Inventing
+// a path for it would be worse than admitting there is none: a fan-out would
+// draw its plan from a file that is not the conversation, and a restored pane
+// would be told to resume something that is not there and die on the spot.
+func For(spec agent.Spec) Reader {
+	if !spec.Caps.Transcript {
+		return Null{}
+	}
+	// Every API agent is the same program -- Perch's own chat client -- so the
+	// shape of its record is the same whichever endpoint it was talking to.
+	if spec.Runner == agent.RunnerAPI {
+		return Chat{}
+	}
+	if r, ok := readers[spec.ID]; ok {
+		return r
+	}
+	return Null{}
+}
+
+// readers are the CLI agents whose stored conversations Perch can read, by id.
+// A CLI claiming Caps.Transcript that is not in here is one whose format
+// nobody has written a reader for yet, and it is treated as having none.
+var readers = map[string]Reader{
+	"claude": Claude{},
+}
+
+// Null is the reader for an agent that records nothing Perch can read.
+//
+// It answers every question with "there is none", which is the answer each
+// caller already has to cope with: a Claude pane that has not been prompted
+// yet has no transcript either, so nothing downstream is new code.
+type Null struct{}
+
+func (Null) Path(agent.Spec, string) string                           { return "" }
+func (Null) Replies(agent.Spec, string, int) []string                 { return nil }
+func (Null) Conversations(agent.Spec, string) ([]Conversation, error) { return nil, nil }
+
+// Exists reports whether an agent has a stored conversation worth resuming.
+//
+// The file existing is not enough. A session interrupted before it recorded
+// anything leaves an empty one behind, and an agent asked to resume that
+// refuses and exits -- which, on a restored layout, is every such pane dying
+// at once.
+func Exists(spec agent.Spec, sessionID string) bool {
+	if !spec.Caps.Resume {
+		return false
+	}
+	path := For(spec).Path(spec, sessionID)
+	if path == "" {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.Size() > 0
+}
+
+// Agents is the catalog the history overlay lists conversations for.
+//
+// It is a variable rather than a call into the catalog because a reader has no
+// business depending on the picker: whoever assembles the catalog points this
+// at it. Until something does, it is Claude alone -- which is every stored
+// conversation anybody upgrading to this build has.
+var Agents = func() []agent.Spec {
+	return []agent.Spec{{ID: "claude", Name: "Claude Code", Caps: agent.Caps{Transcript: true, Resume: true}}}
+}
+
+// All lists the stored conversations of every given agent for a working
+// directory, most recently used first, each labelled with the agent that held
+// it.
+//
+// The error is the first an agent reported, and it comes back beside whatever
+// the others found: one agent whose store cannot be read is a thing to say,
+// not a reason to tell somebody that the conversations they know they had are
+// gone.
+func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
+	var out []Conversation
+	var first error
+	for _, spec := range specs {
+		found, err := For(spec).Conversations(spec, cwd)
+		if err != nil && first == nil {
+			first = err
+		}
+		out = append(out, found...)
+	}
+	// Across agents as within one: most recently used first, with the id
+	// breaking a tie so that two conversations started together do not swap
+	// places between refreshes.
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Modified.Equal(out[j].Modified) {
+			return out[i].Modified.After(out[j].Modified)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, first
+}
+
+// label puts the agent's id on every row a reader found. Readers are written
+// against one agent's storage and have no reason to care which entry in the
+// catalog sent them there, so they are spared remembering to do it.
+func label(id string, convs []Conversation) []Conversation {
+	for i := range convs {
+		convs[i].Agent = id
+	}
+	return convs
+}

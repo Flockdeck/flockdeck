@@ -1,4 +1,4 @@
-package session
+package transcript
 
 import (
 	"path/filepath"
@@ -34,7 +34,7 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"You are welcome."}]}}`,
 	)
 
-	got := RecentReplies(id, 4)
+	got := claudeReplies(id, 4)
 	if len(got) != 2 {
 		t.Fatalf("read %d turns, want 2: %#v", len(got), got)
 	}
@@ -59,7 +59,7 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 
 	// A tool result must not split a turn: everything said in reply to one
 	// prompt belongs together.
-	if n := len(RecentReplies(id, 1)); n != 1 {
+	if n := len(claudeReplies(id, 1)); n != 1 {
 		t.Errorf("asked for 1 turn, got %d", n)
 	}
 }
@@ -68,10 +68,10 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 // has not said anything yet.
 func TestRecentRepliesWithoutATranscript(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "does-not-exist"))
-	if got := RecentReplies("11111111-2222-3333-4444-555555555555", 4); got != nil {
+	if got := claudeReplies("11111111-2222-3333-4444-555555555555", 4); got != nil {
 		t.Errorf("RecentReplies = %#v, want nothing", got)
 	}
-	if got := RecentReplies("", 4); got != nil {
+	if got := claudeReplies("", 4); got != nil {
 		t.Errorf("RecentReplies with no session = %#v, want nothing", got)
 	}
 }
@@ -84,7 +84,7 @@ func TestRecentRepliesSkipsUnparseableLines(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the thing"}]}}`,
 		`{"type":"assistant","message":{"role":"assist`,
 	)
-	got := RecentReplies(id, 4)
+	got := claudeReplies(id, 4)
 	if len(got) != 1 || !strings.Contains(got[0], "Do the thing") {
 		t.Errorf("RecentReplies = %#v", got)
 	}
@@ -105,7 +105,7 @@ func TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the second thing"}]}}`,
 	)
 
-	got := RecentReplies(id, 4)
+	got := claudeReplies(id, 4)
 	if len(got) != 1 {
 		t.Fatalf("read %d turns, want 1: %#v", len(got), got)
 	}
@@ -138,10 +138,10 @@ func TestTranscriptPathPrefersTheLiveCopy(t *testing.T) {
 	touch(t, stale, now.Add(-24*time.Hour))
 	touch(t, live, now)
 
-	if got := TranscriptPath(id); got != live {
+	if got := claudePath(id); got != live {
 		t.Errorf("TranscriptPath = %q, want the most recently written copy %q", got, live)
 	}
-	got := RecentReplies(id, 1)
+	got := claudeReplies(id, 1)
 	if len(got) != 1 || !strings.Contains(got[0], "live answer") {
 		t.Errorf("RecentReplies read the stale transcript: %#v", got)
 	}
