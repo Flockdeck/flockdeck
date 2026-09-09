@@ -59,9 +59,16 @@ type PaneContext struct {
 	ProjectName string
 	Cwd         string
 	Branch      string
-	// Worktree reports that the pane works in a checkout of its own rather
-	// than in the project root, which is what fan-out gives each child.
+	// Worktree reports that the pane works in a checkout of its own — a
+	// directory outside the project altogether, which is what fan-out gives
+	// each child, since Perch puts a worktree beside the repository it came
+	// from rather than inside it.
 	Worktree bool
+	// Subdirectory reports a working directory below the project root: the
+	// same checkout, a directory or two down. It is not a worktree, and an
+	// agent told that it is one is told to keep out of the rest of its own
+	// repository.
+	Subdirectory bool
 
 	// Task is the opening prompt the pane was spawned with, when it was
 	// started by a fan-out or by another agent rather than by hand. Which of
@@ -127,7 +134,10 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			break
 		}
 	}
-	c.Worktree = c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot)
+	if c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot) {
+		c.Subdirectory = underDir(c.Cwd, c.ProjectRoot)
+		c.Worktree = !c.Subdirectory
+	}
 
 	// The list is cut short in a busy project, so what it keeps matters more
 	// than the order it keeps it in. An agent working in the reader's own
@@ -268,6 +278,10 @@ func (c PaneContext) Render() string {
 	if c.Worktree {
 		fmt.Fprintf(&b, "- This is a separate git worktree, not the project root (`%s`). "+
 			"Work here; do not edit files under another checkout.\n", c.ProjectRoot)
+	}
+	if c.Subdirectory {
+		fmt.Fprintf(&b, "- The project root is `%s`; you are working in a directory "+
+			"below it, in the same checkout.\n", c.ProjectRoot)
 	}
 	if c.TabPanes > 1 {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)

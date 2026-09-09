@@ -729,3 +729,42 @@ func TestTheOwnTaskIsKeptWholeWhereASiblingsIsSummarised(t *testing.T) {
 		t.Errorf("a sibling's task is missing entirely:\n%s", sib)
 	}
 }
+
+// TestAPaneBelowTheProjectRootIsNotAWorktree covers a project opened above the
+// checkout an agent works in — a directory of repositories opened as one
+// project, or a tab opened on a subdirectory. The agent shares the project's
+// checkout; being told it has a worktree of its own tells it to keep out of
+// the rest of its own repository.
+func TestAPaneBelowTheProjectRootIsNotAWorktree(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	below := filepath.Join(root, "services", "api")
+	if err := os.MkdirAll(below, 0o755); err != nil {
+		t.Fatalf("make subdirectory: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, below, "api")
+
+	c, ok := ws.PaneContext(ws.CurrentTab().Focus)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if c.ProjectRoot != root {
+		t.Fatalf("project root = %q, want %q", c.ProjectRoot, root)
+	}
+	if c.Worktree {
+		t.Error("a directory inside the project is not a checkout of its own")
+	}
+	if !c.Subdirectory {
+		t.Error("the context does not record that the pane works below the project root")
+	}
+
+	text := c.Render()
+	if strings.Contains(text, "separate git worktree") {
+		t.Errorf("the agent is told it has a worktree it does not have:\n%s", text)
+	}
+	if !strings.Contains(text, "in the same checkout") {
+		t.Errorf("the agent is not told where the project root is:\n%s", text)
+	}
+}
