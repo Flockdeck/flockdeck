@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -2083,4 +2084,84 @@ func TestSweepLeavesARunningInstancesSettingsAlone(t *testing.T) {
 	if _, err := os.Stat(settings); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("settings with nobody left to want them were kept")
 	}
+}
+
+// TestEveryFieldSurvivesTheRoundTrip checks a layout comes back exactly as it
+// went in, field for field.
+//
+// The tests beside this one pick out the parts they are about, which is what
+// lets a field be added to the schema, written by the workspace, and quietly
+// dropped on the way through here without anything going red. This one
+// compares the whole thing, so a field that stops surviving is a failure
+// whether or not anybody thought to check it: the tab holding an agent
+// borrowed from another project, the prompt a spawned pane was given, the
+// exact share of the window a split was dragged to.
+func TestEveryFieldSurvivesTheRoundTrip(t *testing.T) {
+	isolateConfig(t)
+
+	want := &State{
+		Active: 2,
+		Tabs: []Tab{
+			{
+				Title: "api & \"docs\" <\\>",
+				Focus: "pane-2",
+				Root: &Node{
+					Dir:    "h",
+					Weight: 1.0 / 3.0, // needs every digit of a float64 to come back
+					Children: []*Node{
+						{Pane: &Pane{
+							ID: "pane-1", Kind: "claude", Cwd: `C:\repo\ünïcode`,
+							Name: "worker", Task: "fix the parser\nthen the lexer",
+							Root: `C:\other\project`,
+						}, Weight: 0.7},
+						{
+							Dir:    "v",
+							Weight: 2.0 / 3.0,
+							Children: []*Node{
+								{Pane: &Pane{ID: "pane-2", Kind: "shell", Cwd: "/repo/a/sub"}},
+								{Dir: "h", Children: []*Node{
+									{Pane: &Pane{ID: "pane-3", Kind: "claude", Cwd: "/repo/a"}, Weight: 0.25},
+								}},
+							},
+						},
+					},
+				},
+			},
+			{Title: "docs", Root: &Node{Pane: &Pane{ID: "pane-4", Kind: "claude", Cwd: "/repo/a"}}},
+			{Root: &Node{Pane: &Pane{ID: "pane-5", Kind: "shell", Cwd: "/repo/a"}}},
+		},
+	}
+	// Save fills in the version and the root on the struct it is handed, so
+	// what goes in is noted before it does.
+	before := *want
+
+	if err := Save("/repo/a", want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := Load("/repo/a")
+	if err != nil || got == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reflect.DeepEqual(got.Tabs, before.Tabs) {
+		t.Errorf("tabs came back different\n got %s\nwant %s", showTabs(got.Tabs), showTabs(before.Tabs))
+	}
+	if got.Active != before.Active {
+		t.Errorf("active tab %d, want %d", got.Active, before.Active)
+	}
+	if got.Version != Version {
+		t.Errorf("version %d, want %d", got.Version, Version)
+	}
+	if !sameRoot(got.Root, "/repo/a") {
+		t.Errorf("root %q, want /repo/a", got.Root)
+	}
+}
+
+// showTabs renders tabs for a failure message; the structs are trees of
+// pointers and print as addresses otherwise.
+func showTabs(tabs []Tab) string {
+	b, err := json.MarshalIndent(tabs, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%+v", tabs)
+	}
+	return string(b)
 }
