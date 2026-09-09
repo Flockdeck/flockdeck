@@ -623,3 +623,40 @@ func BenchmarkPublish(b *testing.B) {
 		s.publish(chunk)
 	}
 }
+
+// TestConcurrentResizesLeaveThePaneTheSizeItReports covers two resizes in
+// flight at once, which is the ordinary case: the browser measures a pane on
+// every layout change, so one arrives on the terminal socket while another
+// comes from the layout.
+func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
+	f := newFakePTY()
+	// The narrower resize takes longer to apply, so an unordered second one
+	// overtakes it inside the pseudo-terminal.
+	f.resizeDelay = func(cols int) time.Duration {
+		if cols == 100 {
+			return 150 * time.Millisecond
+		}
+		return 0
+	}
+	s := fakeSession(f)
+	t.Cleanup(func() { _ = f.Close() })
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.Resize(100, 24)
+	}()
+	// Long enough for the slow resize to be under way, short enough that it
+	// has not finished.
+	time.Sleep(30 * time.Millisecond)
+	s.Resize(120, 40)
+	<-done
+
+	if got, want := f.lastApplied(), [2]int{120, 40}; got != want {
+		t.Errorf("the pane was left at %v, want %v", got, want)
+	}
+	cols, rows := s.Size()
+	if applied := f.lastApplied(); applied != [2]int{cols, rows} {
+		t.Errorf("session reports %dx%d but the pane is %v", cols, rows, applied)
+	}
+}

@@ -105,6 +105,11 @@ type Session struct {
 	subs    map[int]chan []byte
 	nextSub int
 
+	// resizeMu orders resizes. It is separate from mu because applying one is
+	// a call into the PTY, which must not be made while the reader is blocked
+	// out of publishing.
+	resizeMu sync.Mutex
+
 	// pumped is closed once the PTY reader has seen the end of the output.
 	pumped chan struct{}
 
@@ -451,6 +456,17 @@ func (s *Session) Resize(cols, rows int) {
 		return
 	}
 	cols, rows = clampSize(cols, rows)
+
+	// Recording the size and applying it have to happen as one step. The
+	// browser measures a pane on every layout change, so two resizes are
+	// routinely in flight at once -- one from the terminal socket, one from
+	// the layout -- and if the second overtakes the first inside the PTY call
+	// the pane is left the size of the resize that lost, while the session and
+	// the saved layout both report the size of the one that won. Nothing
+	// corrects that until somebody drags the divider again.
+	s.resizeMu.Lock()
+	defer s.resizeMu.Unlock()
+
 	s.mu.Lock()
 	if s.cols == cols && s.rows == rows {
 		s.mu.Unlock()
