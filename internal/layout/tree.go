@@ -106,10 +106,25 @@ func (n *Node) SetChildWeights(weights []float64) bool {
 // IsLeaf reports whether the node holds a pane rather than children.
 func (n *Node) IsLeaf() bool { return len(n.Children) == 0 }
 
+// maxWeight is the largest share a node is given when the box is divided.
+//
+// A weight only means anything next to its siblings, and a pane a trillionth
+// the size of the one beside it is a pane nobody can see on any screen. Past
+// that the numbers stop being comparable at all: weights near what a float can
+// hold overflow when they are added up or scaled to the width of the box, and
+// the arithmetic then hands the whole row to whichever pane the resulting
+// nonsense happens to favour — two panes weighted alike came out one column
+// and ninety-eight. Weights that large do not come from a drag, but they can
+// come out of a layout file, and the tree has to survive one.
+const maxWeight = 1e12
+
 // weight returns the node's effective weight.
 func (n *Node) weight() float64 {
 	if n.Weight <= 0 {
 		return 1
+	}
+	if n.Weight > maxWeight {
+		return maxWeight
 	}
 	return n.Weight
 }

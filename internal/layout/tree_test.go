@@ -1793,3 +1793,38 @@ func TestDeeplyNestedSplitsStayInsideTheTab(t *testing.T) {
 		}
 	}
 }
+
+// TestWeightsTooBigToCompareStillDivideTheBox covers weights that arrive from
+// a layout file rather than from a divider: nothing stops one being written as
+// a number near the largest a float can hold. Adding those up, or scaling them
+// to the width of a tab, runs off the end of what a float can represent, and
+// the arithmetic that follows is not merely imprecise — it is not about the
+// weights at all.
+func TestWeightsTooBigToCompareStillDivideTheBox(t *testing.T) {
+	cases := []struct {
+		weights []float64
+		want    []int // roughly, in columns of a hundred
+	}{
+		{[]float64{1e308, 1}, []int{98, 1}},
+		{[]float64{1, 1e308}, []int{1, 98}},
+		{[]float64{math.MaxFloat64, math.MaxFloat64}, []int{49, 50}},
+		{[]float64{math.MaxFloat64, math.MaxFloat64, math.MaxFloat64}, []int{32, 33, 33}},
+	}
+
+	for _, c := range cases {
+		root := NewLeaf("p0")
+		for i := 1; i < len(c.weights); i++ {
+			root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Horizontal)
+		}
+		if !root.SetChildWeights(c.weights) {
+			t.Fatalf("%v refused", c.weights)
+		}
+		root.Compute(Rect{X: 0, Y: 0, W: 100, H: 10})
+
+		for i, l := range root.Leaves() {
+			if got := l.Rect().W; got != c.want[i] {
+				t.Errorf("weights %v: pane %d got %d columns of 100, want %d", c.weights, i, got, c.want[i])
+			}
+		}
+	}
+}
