@@ -1984,25 +1984,48 @@
   const lastStatus = new Map();
 
   function notifyAttention(s) {
+    const fresh = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
       const before = lastStatus.get(id);
       lastStatus.set(id, v.status);
+      // Never on the first sighting of a pane: arriving at a workspace where
+      // three agents are already waiting is not news that they just stopped.
       if (v.status !== "waiting" || before === "waiting" || before === undefined) continue;
-      // Only when the window is not in front: otherwise the tab marker is
-      // enough and a toast would be noise.
-      if (document.hasFocus() && !document.hidden) continue;
-      showNotification(v.name + " needs you", (v.branch ? v.branch + " — " : "") + "waiting for input");
+      fresh.push({ id, name: v.name, branch: v.branch });
     }
     for (const id of [...lastStatus.keys()]) {
       if (!s.panes || !s.panes[id]) lastStatus.delete(id);
     }
+    // Only when the window is not in front: otherwise the marker on the tab is
+    // enough and a notification would be noise.
+    if (!fresh.length || (document.hasFocus() && !document.hidden)) return;
+
+    // One notification for however many stopped at once. They all carry the
+    // same tag, so several sent together replace each other on the desktop and
+    // only the last survives — and a plan fanned out into six agents is six of
+    // them reaching the same permission question within a second of each
+    // other, of which you would have been told about exactly one, chosen by
+    // whatever order the panes happened to arrive in.
+    const one = fresh.length === 1;
+    showNotification(
+      one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
+      one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
+          : fresh.map((f) => f.name).join(", "),
+      fresh[0].id);
   }
 
-  function showNotification(title, body) {
+  function showNotification(title, body, paneID) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
       const n = new Notification(title, { body, tag: "perch" });
-      n.onclick = () => { window.focus(); n.close(); };
+      n.onclick = () => {
+        window.focus();
+        // Raising the window in front of whichever tab happened to be on
+        // screen does not answer the question. The pane that asked it does,
+        // and it may well be on a tab that is not the one showing.
+        if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
+        n.close();
+      };
     } catch { /* notifications are best effort */ }
   }
 

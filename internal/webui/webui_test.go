@@ -1430,6 +1430,62 @@ assert.ok(h.$("summary").textContent.includes("1 waiting"), "got: " + h.$("summa
 `)
 }
 
+// A plan fanned out into six agents is six of them reaching the same
+// permission question within a second of each other. They all carry one tag,
+// so sending six notifications shows one, chosen by pane order.
+func TestOneNotificationForTheAgentsThatStoppedTogether(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.doc._hasFocus = false;   // the window is behind something else
+
+const state = (statuses) => {
+  const kids = [], panes = {};
+  statuses.forEach((st, i) => {
+    panes["q" + i] = pane("q" + i, { name: "task " + i, branch: "task-" + i, status: st });
+    kids.push(leaf("m" + i, "q" + i));
+  });
+  return fixture({
+    tabs: [{ id: "t9", title: "fan out", focus: "q0", root: split("h", kids) }],
+    panes: panes, waiting: statuses.filter((s) => s === "waiting").length,
+  });
+};
+
+// Arriving at a workspace where agents are already working is not news.
+h.recv(state(["working", "working", "working"]));
+assert.strictEqual(h.notifications.length, 0, "the first sighting of a pane was announced");
+
+// Three of them hit a permission question at once.
+h.recv(state(["waiting", "waiting", "waiting"]));
+assert.strictEqual(h.notifications.length, 1,
+  "one notification for the lot, not " + h.notifications.length + " that overwrite each other");
+const all = h.notifications[0];
+assert.strictEqual(all.title, "3 agents need you", "got: " + all.title);
+["task 0", "task 1", "task 2"].forEach((n) =>
+  assert.ok(all.body.includes(n), "the notification does not name " + n + ": " + all.body));
+
+// Clicking it goes to the agent that asked, not merely to the window.
+all.onclick();
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", node: "t9", id: "q0" });
+
+// Staying blocked is not news either.
+h.recv(state(["waiting", "waiting", "waiting"]));
+assert.strictEqual(h.notifications.length, 1, "the same agents were announced again");
+
+// One is answered and then asks something else: it is named on its own.
+h.recv(state(["working", "waiting", "waiting"]));
+h.recv(state(["waiting", "waiting", "waiting"]));
+assert.strictEqual(h.notifications.length, 2);
+assert.strictEqual(h.notifications[1].title, "task 0 needs you");
+assert.ok(h.notifications[1].body.includes("task-0"), "got: " + h.notifications[1].body);
+
+// With the window in front, the marker on the tab is enough.
+h.doc._hasFocus = true;
+h.recv(state(["working", "working", "working"]));
+h.recv(state(["waiting", "waiting", "waiting"]));
+assert.strictEqual(h.notifications.length, 2, "the window is in front and was interrupted anyway");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1835,6 +1891,14 @@ class FakeSearch {
 }
 class FakeWebgl { onContextLoss() {} dispose() {} }
 
+const notifications = [];
+class FakeNotification {
+  constructor(title, opts) { this.title = title; Object.assign(this, opts || {}); notifications.push(this); }
+  close() { this.closed = true; }
+  static requestPermission() { return Promise.resolve(FakeNotification.permission); }
+}
+FakeNotification.permission = "granted";
+
 const observers = [];
 class FakeResizeObserver {
   constructor(fn) { this.fn = fn; this.targets = []; this.disconnected = false; observers.push(this); }
@@ -1913,6 +1977,7 @@ function tabTo(doc, back) {
 
 function boot() {
   sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
+  notifications.length = 0;
   const doc = new Doc();
   parseInto(fs.readFileSync(path.join(ASSETS, "index.html"), "utf8"), doc);
 
@@ -1930,6 +1995,7 @@ function boot() {
     // app.js asks whether something is an element before walking up from it,
     // and builds a bare click event in one place.
     Element: Element, Event: Ev,
+    Notification: FakeNotification,
     CSS: { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") },
     TextEncoder, TextDecoder, console,
     setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
@@ -1970,7 +2036,7 @@ function boot() {
   vm.runInContext(src, ctx, { filename: "app.js" });
 
   const h = {
-    doc, win, sockets, terms, observers, searchers,
+    doc, win, sockets, terms, observers, searchers, notifications,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
     /** controls lists every control socket the page has opened, in order. */
