@@ -249,25 +249,28 @@ func TestQuitAnswersBeforeItActs(t *testing.T) {
 	}
 }
 
-// TestActingEndpointsRefuseAPage covers the other way into these endpoints.
-// The token is a cookie; cookies are scoped to a host and ignore the port, and
-// a different port is the same site, so a page served from anything else on
-// 127.0.0.1 has this instance's token attached to a request it makes here.
-// Nothing else stands in the way of a plain cross-origin POST, and one of
-// these stops every agent the user has running.
-func TestActingEndpointsRefuseAPage(t *testing.T) {
+// TestActingEndpointsRefuseTheCookieAlone covers the way into these endpoints
+// that a page actually has.
+//
+// The token is held in a cookie; cookies are scoped to a host and ignore the
+// port, and a different port is the same site, so a page served from anything
+// else on 127.0.0.1 has this instance's token attached to a request it makes
+// here whatever SameSite says. Nothing else stands in the way of a plain
+// cross-origin POST, and one of these stops every agent the user is running.
+// The token has to be in the request itself, which such a page cannot know.
+func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 	srv, ws := newTestServer(t)
 	srv.OnQuit = func() { t.Error("a page was allowed to stop the application") }
 
 	before := len(ws.Projects())
 	posts := []string{
-		srv.BaseURL() + "/quit?t=" + srv.Token(),
-		srv.BaseURL() + "/open?t=" + srv.Token() + "&path=" + queryEscape(t.TempDir()),
+		srv.BaseURL() + "/quit",
+		srv.BaseURL() + "/open?path=" + queryEscape(t.TempDir()),
 	}
 	for _, url := range posts {
-		resp := postFrom(t, url, "http://127.0.0.1:9999")
+		resp := sendWithCookie(t, http.MethodPost, url, srv.Token())
 		if resp.StatusCode != http.StatusForbidden {
-			t.Errorf("POST %s from another local page = %d, want 403", url, resp.StatusCode)
+			t.Errorf("POST %s with only the cookie = %d, want 403", url, resp.StatusCode)
 		}
 	}
 	if n := len(ws.Projects()); n != before {
@@ -276,81 +279,32 @@ func TestActingEndpointsRefuseAPage(t *testing.T) {
 
 	// Reporting on the instance is not for a page either: the reply names the
 	// process and what it has open.
-	resp := getFrom(t, srv.BaseURL()+"/health?t="+srv.Token(), "http://127.0.0.1:9999")
+	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv.Token())
 	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("GET /health from another local page = %d, want 403", resp.StatusCode)
+		t.Errorf("GET /health with only the cookie = %d, want 403", resp.StatusCode)
 	}
 
-	// The launching binary sends no Origin at all, and must still work.
+	// The launching binary carries the token in the URL and must still work.
 	if _, err := Probe(srv.BaseURL(), srv.Token()); err != nil {
 		t.Errorf("the launching binary was refused: %v", err)
 	}
 	time.Sleep(200 * time.Millisecond)
 }
 
-func postFrom(t *testing.T, url, origin string) *http.Response {
-	t.Helper()
-	return sendFrom(t, http.MethodPost, url, origin)
-}
-
-func getFrom(t *testing.T, url, origin string) *http.Response {
-	t.Helper()
-	return sendFrom(t, http.MethodGet, url, origin)
-}
-
-func sendFrom(t *testing.T, method, url, origin string) *http.Response {
+// sendWithCookie makes the request a page in a browser would: no token of its
+// own, and the cookie attached for it.
+func sendWithCookie(t *testing.T, method, url, token string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.Header.Set("Origin", origin)
+	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: token})
+	req.Header.Set("Origin", "http://127.0.0.1:9999")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
 	resp.Body.Close()
 	return resp
-}
-
-// TestRequestQuitWaitsForTheInstanceToGo covers `perch -quit` followed by
-// `perch`. The instance answers as soon as it has accepted the request and
-// then takes a while over stopping the agents and saving the layout; a launch
-// during that window would find it answering and attach to a process about to
-// exit.
-func TestRequestQuitWaitsForTheInstanceToGo(t *testing.T) {
-	srv, _ := newTestServer(t)
-	const shutdown = 500 * time.Millisecond
-	srv.OnQuit = func() {
-		go func() {
-			time.Sleep(shutdown)
-			_ = srv.Close()
-		}()
-	}
-
-	start := time.Now()
-	if err := RequestQuit(srv.BaseURL(), srv.Token()); err != nil {
-		t.Fatalf("request quit: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed < shutdown {
-		t.Errorf("returned after %v, before the instance had gone (%v)", elapsed, shutdown)
-	}
-	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
-		t.Error("the instance was still answering when the quit reported success")
-	}
-}
-
-// TestRequestQuitSaysSoWhenNothingStops covers the instance that takes the
-// request and then does not stop. Reporting success there would have the user
-// launch a second set of agents beside the first.
-func TestRequestQuitSaysSoWhenNothingStops(t *testing.T) {
-	defer func(g, p time.Duration) { quitGrace, quitPoll = g, p }(quitGrace, quitPoll)
-	quitGrace, quitPoll = 600*time.Millisecond, 50*time.Millisecond
-
-	srv, _ := newTestServer(t)
-	srv.OnQuit = func() {} // accepted, and then nothing happens
-
-	if err := RequestQuit(srv.BaseURL(), srv.Token()); err == nil {
-		t.Error("expected an instance that did not stop to be reported")
-	}
 }

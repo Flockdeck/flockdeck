@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -61,7 +59,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !requireNotAPage(w, r) {
+	if !s.requireURLToken(w, r) {
 		return
 	}
 	done := make(chan int, 1)
@@ -104,7 +102,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !requirePost(w, r) || !requireNotAPage(w, r) {
+	if !requirePost(w, r) || !s.requireURLToken(w, r) {
 		return
 	}
 	path := r.URL.Query().Get("path")
@@ -138,28 +136,28 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// requireNotAPage rejects a request made by a page in a browser.
+// requireURLToken insists on the token in the request itself, rather than
+// accepting the cookie the page holds.
 //
 // These three endpoints are for another launch of the binary: they report on
 // the instance, hand it a project, or shut it down. The window's own page
-// never calls any of them, and it matters that nothing else can. The token
-// they are gated on is held in a cookie, cookies are scoped to a host and take
-// no notice of the port, and a different port is not a different site -- so a
-// page served from anything else on 127.0.0.1 or localhost has this
-// instance's token attached to a request it makes here, and SameSite does not
-// hold it back. A plain cross-origin POST needs no permission to be sent; that
-// its reply cannot be read is no comfort when the request itself stops every
-// agent the user has running.
+// never calls any of them, and it matters that nothing else can. A cookie is
+// no evidence of who is asking: cookies are scoped to a host and take no
+// notice of the port, and a different port is not a different site, so
+// anything else served from 127.0.0.1 or localhost -- the user's own dev
+// server, or anything that can be made to serve a page from one -- had this
+// instance's token attached to any request it chose to make here, with
+// SameSite doing nothing to hold it back. A plain cross-origin POST needs no
+// permission to be sent, and that its reply cannot be read is no comfort when
+// the request itself stops every agent the user is running.
 //
-// A browser announces itself by sending Origin. Nothing without one is a page,
-// and a page from this server's own address is allowed in case one ever has
-// reason to call these.
-func requireNotAPage(w http.ResponseWriter, r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, r.Host) {
+// The token in the URL is evidence, because a page from somewhere else does
+// not have it and cannot read it: not from this server's replies, which are
+// another origin to it, and not from the cookie, which is HttpOnly. The
+// launching binary has it from the instance record and already sends it this
+// way.
+func (s *Server) requireURLToken(w http.ResponseWriter, r *http.Request) bool {
+	if t := r.URL.Query().Get("t"); t != "" && s.tokenMatches(t) {
 		return true
 	}
 	http.Error(w, "forbidden", http.StatusForbidden)
@@ -188,7 +186,7 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !requirePost(w, r) || !requireNotAPage(w, r) {
+	if !requirePost(w, r) || !s.requireURLToken(w, r) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
