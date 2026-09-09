@@ -577,12 +577,20 @@
   /** renderProjectChip labels the switcher with the active project. */
   function renderProjectChip(s) {
     const active = (s.projects || []).find((p) => p.active);
-    $("project-name").textContent = active ? active.name : "project";
-    $("project-btn").title = active ? active.root : "Projects";
+    const name = active ? active.name : "project";
+    if ($("project-name").textContent !== name) $("project-name").textContent = name;
+    // The path goes into the same bubble as what the button does and the key
+    // that does it, rather than into a title of its own. A title is taken over
+    // as the tooltip the first time an element is hovered, so writing one here
+    // replaced the button's description with a bare path and took the binding
+    // away with it — the one thing the action table exists to prevent.
+    const btn = $("project-btn");
+    const tip = actionTip("projects", active ? active.root : "");
+    if (btn.dataset.tip !== tip) describe(btn, tip);
     // Highlight when another project needs attention, so switching away does
     // not hide the fact that an agent there is blocked.
     const elsewhere = (s.projects || []).some((p) => !p.active && p.waiting > 0);
-    $("project-btn").classList.toggle("attention", elsewhere);
+    btn.classList.toggle("attention", elsewhere);
   }
 
   // ------------------------------------------------- rearranging the layout
@@ -1745,11 +1753,10 @@
    *  table instead, once it has arrived. */
   function describeChrome() {
     const label = (id, node, extra) => {
-      const k = keyTable.find((x) => x.id === id);
-      if (!node || !k) return;
-      describe(node, k.label + (k.keys ? " (" + k.keys + ")" : "") + (extra ? " — " + extra : ""));
+      if (node && keyTable.some((k) => k.id === id)) describe(node, actionTip(id, extra));
     };
-    label("projects", $("project-btn"));
+    // The project switcher is not in this list: its bubble names the project
+    // as well, so renderProjectChip writes it as the project changes.
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("agents", $("summary"));
     label("toggleBroadcast", $("btn-broadcast"));
@@ -1757,6 +1764,15 @@
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("help", $("btn-help"));
+  }
+
+  /** actionTip is the copy for a control that runs an action: what it does and
+   *  the key that does it, both taken from the table, and whatever else this
+   *  particular control has to say. */
+  function actionTip(id, extra) {
+    const k = keyTable.find((x) => x.id === id);
+    if (!k) return extra || "";
+    return k.label + (k.keys ? " (" + k.keys + ")" : "") + (extra ? " — " + extra : "");
   }
 
   /** runAction runs one action by id, asking first where the table says the

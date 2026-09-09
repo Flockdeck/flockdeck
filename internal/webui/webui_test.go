@@ -447,6 +447,49 @@ assert.ok(third.querySelector("span.pane-branch").textContent.includes("renamed"
 	t.Log(strings.TrimSpace(out))
 }
 
+// A title attribute is taken over as the tooltip the first time an element is
+// hovered, so writing one onto a button that already has a description
+// replaces it — and every description here carries the key that runs the
+// action, which is the one thing the key table exists to keep from drifting.
+func TestTheProjectChipKeepsItsBinding(t *testing.T) {
+	runFrontEnd(t, `
+const keys = h.hello();
+const projects = [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 1 },
+  { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 1, working: 0 },
+];
+h.recv(fixture({ projects: projects }));
+
+const btn = h.$("project-btn");
+const k = keys.find((x) => x.id === "projects");
+assert.ok(k && k.keys, "the action table gives this a binding");
+assert.strictEqual(h.$("project-name").textContent, "repo");
+assert.ok(btn.classList.contains("attention"), "the other project is blocked and the chip does not say so");
+
+const says = () => btn.dataset.tip || "";
+assert.ok(says().includes(k.label), "the chip does not say what it does: " + says());
+assert.ok(says().includes(k.keys), "the chip does not say which key opens it: " + says());
+assert.ok(says().includes("C:/repo"), "the chip does not name the project: " + says());
+
+// Hovering is what adopts a title, so it is what would lose the binding.
+h.dispatch(btn, new h.Ev("pointerover", { pointerType: "mouse" }));
+assert.ok(says().includes(k.keys), "hovering took the binding off the chip: " + says());
+assert.ok(!btn.hasAttribute("title"), "a title here would be adopted and replace the description");
+
+// And another push does not put it back.
+h.recv(fixture({ projects: projects }));
+assert.ok(says().includes(k.keys), "a push took the binding off the chip: " + says());
+
+// Switching project follows.
+projects[0].active = false;
+projects[1].active = true;
+h.recv(fixture({ projects: projects }));
+assert.strictEqual(h.$("project-name").textContent, "other");
+assert.ok(says().includes("C:/other"), "the chip did not follow the project: " + says());
+assert.ok(!btn.classList.contains("attention"), "the blocked project is the one on screen now");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -927,6 +970,9 @@ function boot() {
     SearchAddon: { SearchAddon: FakeSearch },
     WebglAddon: { WebglAddon: FakeWebgl },
     ResizeObserver: FakeResizeObserver,
+    // app.js asks whether something is an element before walking up from it,
+    // and builds a bare click event in one place.
+    Element: Element, Event: Ev,
     CSS: { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") },
     TextEncoder, TextDecoder, console,
     setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
