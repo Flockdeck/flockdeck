@@ -292,6 +292,61 @@ for (let i = 0; i < 10; i++) {
 `)
 }
 
+// Reviewing a working tree means clicking through the files that changed while
+// writing the commit message for them. Redrawing the whole dialog to show one
+// diff took the box being typed into away with it.
+func TestPickingAFileLeavesTheCommitMessageAlone(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+const files = [];
+for (let i = 0; i < 40; i++) {
+  files.push({ path: "internal/pkg/file" + i + ".go", label: "M", added: i, removed: i % 3 });
+}
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "improve-webui", upstream: "origin/improve-webui",
+         hasRemote: true, ahead: 2, behind: 0, files: files });
+
+const box = h.$("commit-message");
+assert.ok(box, "the commit box is there");
+box.value = "webui: a message being written";
+box.oninput();
+box.focus();
+box.selectionStart = box.selectionEnd = 6;
+
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+assert.strictEqual(rows.length, 40, "a row per changed file");
+
+const before = h.made();
+h.click(rows[7]);
+const NL = String.fromCharCode(10);
+h.recv({ type: "diff", cwd: "C:/repo", file: "internal/pkg/file7.go",
+         text: ["@@ -1,2 +1,2 @@", "-old", "+new"].join(NL) });
+const built = h.made() - before;
+
+assert.ok(h.$("commit-message") === box, "the commit box was replaced");
+assert.ok(h.doc.activeElement === box, "the commit box lost the keyboard");
+assert.strictEqual(box.value, "webui: a message being written", "the message was lost");
+assert.strictEqual(box.selectionStart, 6, "the caret moved");
+
+// The file really was chosen, and the diff really did arrive.
+assert.ok(rows[7].classList.contains("sel"), "the chosen row is not marked");
+assert.ok(!rows[0].classList.contains("sel"), "an old marking was left behind");
+const diff = h.$("overlay-body").querySelector("div.rev-diff");
+assert.ok(diff.textContent.includes("+new"), "the diff was not drawn");
+
+// Choosing another file marks that one instead.
+h.click(rows[9]);
+assert.ok(!rows[7].classList.contains("sel"), "the previous row is still marked");
+assert.ok(rows[9].classList.contains("sel"), "the new row is not marked");
+assert.ok(h.doc.activeElement === box, "the second pick took the keyboard");
+
+console.log("elements built to show a diff: " + built);
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -818,6 +873,9 @@ function boot() {
       return keys;
     },
     keyTable() { return JSON.parse(fs.readFileSync(path.join(ASSETS, "keys.json"), "utf8")); },
+    /** made counts every element ever built, so a test can say how much of the
+     *  screen an action puts together again. */
+    made() { return SERIAL; },
     /** bind presses the binding the action table gives for an action id. */
     press(actionID) {
       const k = h.keyTable().find((x) => x.id === actionID);

@@ -1910,6 +1910,11 @@
   let changes = null;
   let selectedFile = null;
   let diffText = "";
+  /** The two parts of the dialog that change on their own: the file rows, so
+   *  the chosen one can be marked, and the panel the diff is drawn in. Picking
+   *  a file and the diff coming back leave the rest of the page alone — above
+   *  all the commit message, which is being typed into. */
+  let changeView = null;
 
   /** openChanges reviews a working tree: which files an agent touched, what it
    *  did to them, and committing or pushing the result without dropping to a
@@ -1926,6 +1931,7 @@
   }
 
   function renderChanges(msg) {
+    changeView = null;
     if (msg) {
       changes = msg;
       // Keep the selection if that file is still in the list.
@@ -2000,6 +2006,7 @@
       // --- file list and diff ---------------------------------------------
       const split = el("div", "rev-body");
       const list = el("div", "rev-files");
+      const rows = new Map();
       files.forEach((f) => {
         const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
         row.append(el("span", "rev-kind", f.label));
@@ -2021,22 +2028,17 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        row.onclick = () => {
-          selectedFile = f.path;
-          diffText = "";
-          renderChanges();
-          send({ cmd: "diff", path: m.cwd, text: f.path });
-        };
+        row.onclick = () => selectChangedFile(f.path, m.cwd);
+        rows.set(f.path, row);
         list.append(row);
       });
       split.append(list);
 
       const diff = el("div", "rev-diff");
-      if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
-      else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
-      else renderDiffInto(diff, diffText);
       split.append(diff);
       body.append(split);
+      changeView = { rows, diff };
+      fillDiff();
 
       // --- commit -----------------------------------------------------------
       const commit = el("div", "rev-commit");
@@ -2071,10 +2073,40 @@
 
   let commitDraft = "";
 
+  /** selectChangedFile shows one file's diff. Only the marking on the rows and
+   *  the diff panel change: rebuilding the dialog would take the commit box
+   *  away from under the caret, and the message half-written in it with the
+   *  caret. */
+  function selectChangedFile(path, cwd) {
+    if (selectedFile === path) return;
+    selectedFile = path;
+    diffText = "";
+    markSelectedFile();
+    fillDiff();
+    send({ cmd: "diff", path: cwd, text: path });
+  }
+
+  function markSelectedFile() {
+    if (!changeView) return;
+    for (const [path, row] of changeView.rows) row.classList.toggle("sel", path === selectedFile);
+  }
+
+  /** fillDiff draws whatever the diff panel should be showing now. */
+  function fillDiff() {
+    if (!changeView) return;
+    const diff = changeView.diff;
+    diff.textContent = "";
+    if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
+    else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
+    else renderDiffInto(diff, diffText);
+    diff.scrollTop = 0;
+  }
+
   function showDiff(msg) {
     if (msg.file !== selectedFile) return; // a stale reply for another file
     diffText = msg.error ? msg.error : msg.text;
-    renderChanges();
+    if (changeView) fillDiff();
+    else renderChanges();
   }
 
   /** renderDiffInto colours a unified diff without a syntax highlighter. */
