@@ -1075,6 +1075,73 @@ assert.ok(!/\.pane\[data-status="waiting"\] *\{[^}]*border-color/.test(css),
 `)
 }
 
+// The strip is as wide as the bar and scrolls when there are more tabs than
+// fit, which with a dozen agents open is most of the time.
+func TestTheTabStripCanBeWalked(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const many = (active) => {
+  const tabs = [], panes = {};
+  for (let i = 0; i < 10; i++) {
+    panes["p" + i] = pane("p" + i, { name: "agent " + i });
+    tabs.push({ id: "t" + i, title: "agent " + i, focus: "p" + i, root: leaf("n" + i, "p" + i) });
+  }
+  return fixture({ activeTab: active, tabs: tabs, panes: panes });
+};
+h.recv(many("t0"));
+
+const bar = h.$("tabs");
+const btns = bar.children;
+assert.strictEqual(btns.length, 10);
+
+// One stop for the strip, not two per tab.
+assert.strictEqual(btns[0].tabIndex, 0, "the current tab is not the stop");
+assert.ok(btns.slice(1).every((b) => b.tabIndex === -1),
+  "every tab is a stop on the way through the window");
+assert.ok(btns.slice(1).every((b) => b.querySelector(".close").tabIndex === -1),
+  "every close button is a stop too");
+
+// Tab from the project chip reaches the strip once and leaves it once.
+h.$("project-btn").focus();
+h.key({ key: "Tab" });
+assert.ok(h.doc.activeElement === btns[0], "Tab did not reach the current tab");
+h.key({ key: "Tab" });
+assert.ok(h.doc.activeElement === btns[0].querySelector(".close"), "its close button follows it");
+h.key({ key: "Tab" });
+assert.ok(!btns.includes(h.doc.activeElement), "Tab is still walking the tabs one at a time");
+
+// The arrows walk the strip and bring each into view without switching agent.
+btns[0].focus();
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === btns[1], "the right arrow did not move along the strip");
+assert.ok(btns[1].scrolledTo > 0, "the tab was moved to but not brought into view");
+assert.strictEqual(h.commands().filter((c) => c.cmd === "selectTab").length, 0,
+  "arrowing past a tab switched to it, so walking the strip visits every agent");
+h.key({ key: "End" });
+assert.ok(h.doc.activeElement === btns[9], "End did not go to the last tab");
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === btns[0], "the strip does not wrap");
+h.key({ key: "Home" });
+assert.ok(h.doc.activeElement === btns[0]);
+
+// Enter on the tab the focus is on is what switches to it.
+h.key({ key: "ArrowRight" });
+h.key({ key: "ArrowRight" });
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
+
+// Switching by any means brings the new tab into view; a status push does not
+// move the strip.
+const was = btns[7].scrolledTo || 0;
+h.recv(many("t7"));
+assert.ok(btns[7].scrolledTo > was, "switching to a tab off the end did not scroll to it");
+assert.strictEqual(btns[7].tabIndex, 0, "the stop did not move with the current tab");
+const settled = btns[7].scrolledTo;
+for (let i = 0; i < 5; i++) h.recv(many("t7"));
+assert.strictEqual(btns[7].scrolledTo, settled, "an ordinary push moves the strip under the pointer");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1655,6 +1722,12 @@ function boot() {
       if (at && at.nodeType === 1) dispatch(at, ev);
       else win.dispatchEvent(ev);
       if (ev.key === "Tab" && !ev.defaultPrevented) tabTo(doc, ev.shiftKey);
+      // A button pressed with Enter or Space is clicked, which is the browser's
+      // doing rather than the page's.
+      if ((ev.key === "Enter" || ev.key === " ") && !ev.defaultPrevented &&
+          at && at.tagName === "BUTTON" && !at.disabled) {
+        dispatch(at, new Ev("click", { target: at }));
+      }
       return ev;
     },
     Ev, dispatch,

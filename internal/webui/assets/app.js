@@ -580,6 +580,8 @@
    *  pulls the element out from under a tooltip that was about to open. So the
    *  buttons outlive the pushes and only what changed is written. */
   const tabNodes = new Map();
+  /** The tab the strip was last scrolled to. */
+  let scrolledTab = "";
 
   function renderTabs(s) {
     // Rebuilding the strip would destroy the element a drag is holding, and
@@ -596,6 +598,12 @@
       node.btn.setAttribute("aria-selected", String(active));
       node.btn.classList.toggle("attention", !!tab.attention);
       setAttention(node, !!tab.attention);
+      // One stop on the way through the window rather than two per tab. With
+      // a dozen agents open, tabbing past the strip to reach the terminal
+      // behind it took twenty-four presses; the arrow keys walk it instead,
+      // which is what a tab strip is expected to answer to anyway.
+      const stop = active ? 0 : -1;
+      if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
       if (bar.childNodes[i] !== node.btn) bar.insertBefore(node.btn, bar.childNodes[i] || null);
     });
     for (const [id, node] of tabNodes) {
@@ -603,6 +611,37 @@
       node.btn.remove();
       tabNodes.delete(id);
     }
+    // The strip is only as wide as the bar and scrolls when there are more
+    // tabs than fit, so switching to one that is off the end has to bring it
+    // into view — otherwise walking the tabs from the keyboard or the palette
+    // moves to a tab that cannot be seen. Only when the tab actually changes,
+    // so an ordinary status push never moves the strip under the pointer.
+    if (s.activeTab !== scrolledTab) {
+      scrolledTab = s.activeTab;
+      const node = tabNodes.get(s.activeTab);
+      if (node) node.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+
+  /** tabStripKey walks the strip with the arrow keys. Moving the focus does not
+   *  switch tab: switching means switching agent, and arrowing past four of
+   *  them to reach the fifth should not visit all four on the way. */
+  function tabStripKey(ev, id) {
+    const tabs = state ? state.tabs : [];
+    const at = tabs.findIndex((t) => t.id === id);
+    if (at < 0 || !tabs.length) return;
+    let to;
+    if (ev.key === "ArrowRight") to = (at + 1) % tabs.length;
+    else if (ev.key === "ArrowLeft") to = (at - 1 + tabs.length) % tabs.length;
+    else if (ev.key === "Home") to = 0;
+    else if (ev.key === "End") to = tabs.length - 1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const node = tabNodes.get(tabs[to].id);
+    if (!node) return;
+    node.btn.focus();
+    node.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   /** tabNode returns the button for a tab, making it the first time. Every
@@ -625,6 +664,7 @@
       else send({ cmd: "selectTab", id });
     };
     btn.ondblclick = () => renameTab(id);
+    btn.onkeydown = (ev) => tabStripKey(ev, id);
     makeTabDraggable(id, btn);
     node = { btn, label, close, attn: null };
     tabNodes.set(id, node);
