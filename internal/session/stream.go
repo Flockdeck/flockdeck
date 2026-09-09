@@ -197,11 +197,21 @@ func stripANSI(p []byte) string {
 		if n < 1 {
 			n = 1
 		}
-		if len(out)-n < lineStart {
-			out = out[:lineStart]
-			return
+		for ; n > 0; n-- {
+			if len(out) <= lineStart {
+				return
+			}
+			// A terminal moves by cells, not by bytes, and the spinners these
+			// moves are used to draw are made of braille and box-drawing
+			// characters three bytes wide. Taking one byte off the end of one
+			// leaves a fragment of a character behind, which is not text at
+			// all: the rest of the reading comes back as invalid UTF-8.
+			i := len(out) - 1
+			for i > lineStart && out[i]&0xc0 == 0x80 {
+				i--
+			}
+			out = out[:i]
 		}
-		out = out[:len(out)-n]
 	}
 
 	state := scanNormal

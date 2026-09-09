@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestRingKeepsMostRecentBytes(t *testing.T) {
@@ -155,11 +156,23 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"cursor left moves back over what it wrote", "100%\x1b[4D 50%", " 50%"},
 		{"cursor left stops at the start of its line", "ab\x1b[9Dcd", "cd"},
 		{"an unparameterised cursor left is one place", "abx\x1b[Dy", "aby"},
+		// The moves count cells, and the spinners drawn with them are made of
+		// characters three bytes wide. Stepping back a byte at a time leaves a
+		// fragment of one behind, and the reading is no longer text.
+		{"backspace steps back over a whole character", "⠁x\b\b⠂", "⠂"},
+		{"cursor left steps back over whole characters", "⠋⠙\x1b[2D⠹", "⠹"},
 		{"plain", "nothing to strip", "nothing to strip"},
 	}
 	for _, c := range cases {
-		if got := stripANSI([]byte(c.in)); got != c.want {
+		got := stripANSI([]byte(c.in))
+		if got != c.want {
 			t.Errorf("%s: stripANSI(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+		// Whatever it recovers has to be text. A cut through the middle of a
+		// character is not shown as a wrong letter, it is shown as a
+		// replacement glyph in the middle of a sentence.
+		if !utf8.ValidString(got) {
+			t.Errorf("%s: stripANSI(%q) = %q, which is not valid UTF-8", c.name, c.in, got)
 		}
 	}
 }
