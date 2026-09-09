@@ -215,6 +215,83 @@ assert.deepStrictEqual(last, { cmd: "closeTab", id: "t2" });
 `)
 }
 
+// A dialog covers the window and nothing behind it can be used, but Tab does
+// not know that on its own: it walks out of the dialog and into the terminal
+// underneath, where the next thing typed reaches an agent rather than the box
+// that appeared to have the keyboard.
+func TestTheKeyboardStaysInsideADialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+h.click(h.$("btn-worktrees"));
+h.recv({
+  type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, dirty: 2, untracked: 1,
+            ahead: 1, head: "abc1234", upstream: "origin/main", panes: 1 },
+          { label: "fix-auth", path: "C:/fix-auth", dirty: 0, untracked: 0, head: "def5678" }],
+  branches: [{ name: "main", checkedIn: true }, { name: "fix-auth", checkedIn: true },
+             { name: "spare", checkedIn: false }],
+});
+
+const overlay = h.$("overlay"), panel = h.$("overlay-panel");
+assert.ok(!overlay.hidden, "the worktrees dialog is open");
+const inside = () => panel === h.doc.activeElement || panel.contains(h.doc.activeElement);
+assert.ok(inside(), "opening the dialog left the keyboard outside it");
+
+// Round and round, both ways, without ever leaving.
+const stops = new Set();
+for (let i = 0; i < 60; i++) {
+  h.key({ key: "Tab" });
+  assert.ok(inside(), "Tab left the dialog after " + (i + 1) + " presses");
+  stops.add(h.doc.activeElement.serial);
+}
+assert.ok(stops.size > 5, "Tab is not moving inside the dialog; it found " + stops.size + " stops");
+for (let i = 0; i < 60; i++) {
+  h.key({ key: "Tab", shiftKey: true });
+  assert.ok(inside(), "Shift+Tab left the dialog after " + (i + 1) + " presses");
+}
+
+// Nothing the dialog is not showing is a stop on the way round: the branch
+// chips of a section it did not draw, or a button on the bar behind it.
+h.key({ key: "Escape" });
+assert.ok(overlay.hidden, "Escape did not close the dialog");
+
+// The palette takes the window over in the same way.
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [] });
+h.key({ key: "Escape" });
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette is open");
+const box = h.$("palette-box");
+for (let i = 0; i < 30; i++) {
+  h.key({ key: "Tab" });
+  assert.ok(box === h.doc.activeElement || box.contains(h.doc.activeElement),
+    "Tab left the palette after " + (i + 1) + " presses");
+}
+`)
+}
+
+// The window losing the Go process behind it is the one dialog that arrives
+// without being asked for, over a terminal that has the keyboard.
+func TestTheReconnectButtonTakesTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.ok(h.terms[0].focused, "a terminal has the keyboard to begin with");
+
+h.control.close();
+assert.ok(!h.$("disconnected").hidden, "the disconnected dialog is up");
+assert.ok(h.doc.activeElement === h.$("retry"), "the reconnect button did not take the keyboard");
+
+const panel = h.$("disconnected").querySelector(".panel");
+for (let i = 0; i < 10; i++) {
+  h.key({ key: "Tab" });
+  assert.ok(panel.contains(h.doc.activeElement), "Tab left the disconnected dialog");
+}
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -296,6 +373,9 @@ class Element {
 
   get title() { return this.attributes.get("title") || ""; }
   set title(v) { this.attributes.set("title", String(v)); }
+
+  get tabIndex() { return Number(this.attributes.get("tabindex") || 0); }
+  set tabIndex(v) { this.attributes.set("tabindex", String(v)); }
 
   setAttribute(n, v) { this.attributes.set(n, String(v)); if (n === "id") this.ownerDocument._index(this); }
   getAttribute(n) { return this.attributes.has(n) ? this.attributes.get(n) : null; }
@@ -650,6 +730,30 @@ function split(dir, children) {
 /** leaf is a node holding one pane. */
 function leaf(id, paneID) { return { id: id, pane: paneID, weight: 1 }; }
 
+// --------------------------------------------------------------------- tab
+
+/* Tab moves the focus unless the page says otherwise, and a dialog that means
+ * to keep the keyboard has to say otherwise. Without this here there would be
+ * nothing for a trap to prevent, and a broken one would look fine. */
+const TAB_STOPS = "button, input, textarea, select, a, [tabindex]";
+
+function tabbable(doc) {
+  return doc.documentElement.querySelectorAll(TAB_STOPS).filter((n) => {
+    if (n.disabled || n.getAttribute("tabindex") === "-1") return false;
+    for (let p = n; p; p = p.parentElement) if (p.hidden) return false;
+    return true;
+  });
+}
+
+function tabTo(doc, back) {
+  const all = tabbable(doc);
+  if (!all.length) return;
+  const at = all.indexOf(doc.activeElement);
+  doc._focus(at < 0
+    ? (back ? all[all.length - 1] : all[0])
+    : all[(at + (back ? -1 : 1) + all.length) % all.length]);
+}
+
 // -------------------------------------------------------------------- boot
 
 function boot() {
@@ -735,6 +839,7 @@ function boot() {
       const ev = new Ev("keydown", Object.assign({ key: "", ctrlKey: false, shiftKey: false, altKey: false }, init));
       ev.target = doc.activeElement;
       win.dispatchEvent(ev);
+      if (ev.key === "Tab" && !ev.defaultPrevented) tabTo(doc, ev.shiftKey);
       return ev;
     },
     Ev, dispatch,

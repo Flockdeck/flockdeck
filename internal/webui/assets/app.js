@@ -215,6 +215,9 @@
     control.onclose = () => {
       if (detaching) return; // the window is on its way out
       $("disconnected").hidden = false;
+      // Nothing behind this can be used and the terminal it is covering has
+      // the keyboard, so typing would go nowhere until the pointer was used.
+      $("retry").focus();
       reconnectTimer = setTimeout(connectControl, 1500);
     };
     control.onerror = () => control.close();
@@ -1100,6 +1103,54 @@
     return !!(a && a.closest && a.closest("#overlay, #palette, #promptbar, #searchbar"));
   }
 
+  /* A modal covers the window and nothing behind it can be used — but the Tab
+   * key does not know that. Left alone it walks out of the dialog and into the
+   * terminal underneath, where the box that appeared to have the keyboard no
+   * longer does and the next thing typed is delivered to an agent. So Tab is
+   * kept inside whichever of the three is on screen, and opening one puts the
+   * keyboard in it to begin with.
+   */
+
+  /** FOCUSABLE names everything Tab can land on. Disabled controls and
+   *  anything a dialog has hidden are filtered out afterwards. */
+  const FOCUSABLE = "button, input, textarea, select, a[href], [tabindex]";
+
+  /** modalRoot is the panel of the dialog that has taken the window over, if
+   *  one has. The prompt and find bars are strips rather than modals: they
+   *  leave the panes visible and usable, so Tab may leave them. */
+  function modalRoot() {
+    if (!$("disconnected").hidden) return $("disconnected").querySelector(".panel");
+    if (!$("palette").hidden) return $("palette-box");
+    if (!$("overlay").hidden) return $("overlay-panel");
+    return null;
+  }
+
+  function focusablesIn(root) {
+    return [...root.querySelectorAll(FOCUSABLE)].filter((n) => {
+      if (n.disabled || n.getAttribute("tabindex") === "-1") return false;
+      for (let p = n; p && p !== root.parentElement; p = p.parentElement) if (p.hidden) return false;
+      return true;
+    });
+  }
+
+  /** trapTab moves the focus on itself and reports that it has, so the key
+   *  never reaches the browser's own idea of what follows this element. */
+  function trapTab(e) {
+    const root = modalRoot();
+    if (!root) return false;
+    e.preventDefault();
+    const items = focusablesIn(root);
+    if (!items.length) { root.focus(); return true; }
+    const at = items.indexOf(document.activeElement);
+    // Focus that has fallen outside — onto the body, because the dialog
+    // redrew — comes back in at whichever end it was heading for.
+    const next = at < 0
+      ? (e.shiftKey ? items[items.length - 1] : items[0])
+      : items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length];
+    next.focus();
+    return true;
+  }
+
   // --------------------------------------------------------------- overlays
 
   /** openOverlay shows the dialog panel. `page` names the help page that
@@ -1120,6 +1171,10 @@
       $("overlay-head").insertBefore(b, $("overlay-close"));
     }
     $("overlay").hidden = false;
+    // The dialog names itself through its heading, so landing here is what
+    // announces which one opened; the pages that have a field of their own
+    // take the keyboard off it a moment later.
+    $("overlay-panel").focus();
   }
   function closeOverlay() {
     $("overlay").hidden = true;
@@ -2505,6 +2560,7 @@
   // -------------------------------------------------------------- shortcuts
 
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
     if (!$("searchbar").hidden && document.activeElement === $("search-input")) {
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
