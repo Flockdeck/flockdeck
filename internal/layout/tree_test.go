@@ -1672,3 +1672,73 @@ func TestClosingAPaneLeavesTheRestOfTheTabWhereItWas(t *testing.T) {
 	}
 	t.Logf("%d panes outside a closed slot, worst shift %d cells", checked, worst)
 }
+
+// TestComputeFillsAnyBoxWithAnyWeights states Compute's contract directly:
+// whatever the weights and whatever the box, the children of a split tile it
+// exactly, in order, and every one of them gets a cell. The random editing
+// test reaches this through whole trees at one size; this reaches every size
+// and every ratio, including the boxes too small to hold the panes at all.
+func TestComputeFillsAnyBoxWithAnyWeights(t *testing.T) {
+	rnd := rand.New(rand.NewSource(7))
+
+	for i := 0; i < 20000; i++ {
+		n := 2 + rnd.Intn(8)
+		dir := Dir(rnd.Intn(2))
+		root := NewLeaf("p0")
+		for j := 1; j < n; j++ {
+			root.Split("p"+strconv.Itoa(j-1), "p"+strconv.Itoa(j), dir)
+		}
+		weights := make([]float64, n)
+		for j := range weights {
+			weights[j] = math.Pow(10, rnd.Float64()*8-4)
+		}
+		if !root.SetChildWeights(weights) {
+			t.Fatalf("case %d: weights %v refused", i, weights)
+		}
+
+		box := Rect{X: 3, Y: 5, W: 1 + rnd.Intn(60), H: 1 + rnd.Intn(60)}
+		root.Compute(box)
+
+		// A box with fewer cells than panes cannot be tiled; every pane still
+		// gets its cell, and that is the whole promise there.
+		room := box.H
+		if dir == Horizontal {
+			room = box.W - separatorWidth*(n-1)
+		}
+
+		pos, end := box.Y, box.Y+box.H
+		if dir == Horizontal {
+			pos, end = box.X, box.X+box.W
+		}
+		for j, c := range root.Children {
+			r := c.Rect()
+			at, size := r.Y, r.H
+			if dir == Horizontal {
+				at, size = r.X, r.W
+			}
+			if size < 1 {
+				t.Fatalf("case %d: pane %d of %d in %+v got %d cells", i, j, n, box, size)
+			}
+			if at != pos {
+				t.Fatalf("case %d: pane %d of %d in %+v starts at %d, want %d", i, j, n, box, at, pos)
+			}
+			pos += size
+			if dir == Horizontal && j < n-1 {
+				pos += separatorWidth
+			}
+			// The cross axis is handed straight down.
+			if dir == Horizontal && (r.Y != box.Y || r.H != box.H) {
+				t.Fatalf("case %d: pane %d got %+v across a box of %+v", i, j, r, box)
+			}
+			if dir == Vertical && (r.X != box.X || r.W != box.W) {
+				t.Fatalf("case %d: pane %d got %+v across a box of %+v", i, j, r, box)
+			}
+		}
+		if room >= n && pos != end {
+			t.Fatalf("case %d: %d panes weighted %v end at %d in %+v, want %d", i, n, weights, pos, box, end)
+		}
+		if room < n && pos-end > n-room {
+			t.Fatalf("case %d: %d panes in %d cells run to %d, further than the %d they are owed", i, n, room, pos, n)
+		}
+	}
+}
