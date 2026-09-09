@@ -249,7 +249,7 @@ func isPlanCue(line string) bool {
 // still a heading, and handing "Next steps" to an agent as its whole brief
 // tells it nothing at all.
 func isPlanHeading(line string) bool {
-	heading := strings.TrimSpace(strings.Trim(strings.ToLower(tidyTask(line)), "#*_:. "))
+	heading := trimLeadGlyph(strings.TrimSpace(strings.Trim(strings.ToLower(tidyTask(line)), "#*_:. ")))
 	for _, h := range planHeadings {
 		if heading == h {
 			return true
@@ -268,7 +268,48 @@ func tidyTask(s string) string {
 	// Emphasis written with one mark rather than two is left over at the ends.
 	// Kept, it makes the entry open on punctuation, and isTask reads that as
 	// the middle of a wrapped line and throws the whole task away.
-	return strings.Trim(s, "*_")
+	return trimLeadGlyph(strings.Trim(s, "*_"))
+}
+
+// trimLeadGlyph drops the decorative symbol an agent so often puts at the head
+// of a list entry — ✅, 🔧, ⚠️, 📝 and the rest of them.
+//
+// It is ornament, not part of the job. Left on, it makes the entry open on
+// something that is neither a letter nor a digit, which isTask reads as the
+// middle of a wrapped line and throws away whole — so a plan written in that
+// style yielded not a shortened list of tasks but none at all.
+//
+// Only a symbol standing on its own before a space goes. That keeps the
+// backtick an entry may legitimately open on, and leaves alone the rare line
+// where the symbol is what the line is about.
+func trimLeadGlyph(s string) string {
+	rest := s
+	trimmed := false
+	for {
+		r, n := utf8.DecodeRuneInString(rest)
+		if n == 0 || !isGlyphRune(r) {
+			break
+		}
+		rest = rest[n:]
+		trimmed = true
+	}
+	if !trimmed || !strings.HasPrefix(rest, " ") {
+		return s
+	}
+	return strings.TrimLeft(rest, " ")
+}
+
+// isGlyphRune reports whether r is one of the marks that make up a decorative
+// symbol: the symbol itself, and the selectors and joiners that dress it.
+//
+// Unicode's modifier symbols are deliberately left out. The backtick is one of
+// them, and an entry naming a function in backticks is a task like any other.
+func isGlyphRune(r rune) bool {
+	switch r {
+	case 0x200D, 0xFE0E, 0xFE0F: // zero-width joiner, variation selectors
+		return true
+	}
+	return unicode.Is(unicode.So, r) || unicode.Is(unicode.Mn, r)
 }
 
 // isTask reports whether a line reads as work rather than as the interface drawn

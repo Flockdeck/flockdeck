@@ -719,3 +719,58 @@ func TestExtractTasksDropsBulletedHeadings(t *testing.T) {
 		}
 	}
 }
+
+// Agents decorate their lists. A tick, a spanner, a warning triangle at the
+// head of every entry is ornament rather than part of the job, and it used to
+// cost the fan-out not some of the plan but all of it: the symbol makes the
+// entry open on something that is neither a letter nor a digit, which reads as
+// the middle of a wrapped line, and every item was thrown away.
+func TestExtractTasksReadsDecoratedBullets(t *testing.T) {
+	plan := `Here is the plan:
+
+- ✅ Add the health endpoint to the HTTP server
+- 🔧 Wire up the config loader
+- ⚠️ Check the error path in the reconnect loop
+`
+	got := ExtractTasks(plan)
+	want := []string{
+		"Add the health endpoint to the HTTP server",
+		"Wire up the config loader",
+		"Check the error path in the reconnect loop",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("extracted %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// A heading is a heading whether or not it has been dressed up, and one handed
+// to an agent as its whole brief says nothing at all.
+func TestExtractTasksDropsDecoratedHeadings(t *testing.T) {
+	plan := `
+- 📋 Plan
+- ✅ Rename the extractor and its tests
+`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Rename the extractor and its tests" {
+		t.Errorf("extracted %#v, want only the task", got)
+	}
+}
+
+// The backtick is a symbol too, and an entry naming a function in backticks is
+// a task like any other.
+func TestExtractTasksKeepsBacktickedNames(t *testing.T) {
+	plan := `
+Here is the plan:
+- ` + "`" + `listItem` + "`" + ` should take the whole line, not the body
+`
+	got := ExtractTasks(plan)
+	want := "`listItem` should take the whole line, not the body"
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("extracted %#v, want [%q]", got, want)
+	}
+}
