@@ -36,7 +36,16 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		}
 		done <- cwd
 	})
-	dir := <-done
+	// A request handed to a workspace that has already stopped is never run,
+	// so waiting on its answer waits for good. This runs on the goroutine
+	// that reads the window's socket, and that goroutine wedged is a window
+	// that cannot be closed and a shutdown that does not finish.
+	var dir string
+	select {
+	case dir = <-done:
+	case <-s.closed:
+		return
+	}
 
 	go func() {
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
@@ -62,7 +71,9 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 	}()
 }
 
-// openConversationIDs reports which conversations already have a pane.
+// openConversationIDs reports which conversations already have a pane. On a
+// workspace that has stopped it reports none, which is what a list nobody
+// will see needs it to be.
 func (s *Server) openConversationIDs() map[string]bool {
 	done := make(chan map[string]bool, 1)
 	s.do(func() {
@@ -74,7 +85,12 @@ func (s *Server) openConversationIDs() map[string]bool {
 		}
 		done <- ids
 	})
-	return <-done
+	select {
+	case ids := <-done:
+		return ids
+	case <-s.closed:
+		return nil
+	}
 }
 
 // resumeConversation opens a stored conversation in a new tab.
