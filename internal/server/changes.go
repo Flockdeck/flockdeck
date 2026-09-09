@@ -80,15 +80,21 @@ func (s *Server) reviewDir(path string) string {
 // free to look for, where asking git costs a process, on every click in the
 // file list and on every commit.
 func repoRoot(dir string) string {
-	if dir != "" {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-	}
-	if root, err := gitx.Root(dir); err == nil {
+	if root, err := treeRoot(dir); err == nil {
 		return root
 	}
 	return dir
+}
+
+// treeRoot is repoRoot for the caller that needs to know when there is no
+// working tree at all rather than carry on with the directory it was given.
+func treeRoot(dir string) (string, error) {
+	if dir != "" {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir, nil
+		}
+	}
+	return gitx.Root(dir)
 }
 
 // listChanges answers a request for what has changed in a working tree.
@@ -110,7 +116,7 @@ func collectChanges(dir string) changesMsg {
 		msg.Error = "git is not installed"
 		return msg
 	}
-	root, err := gitx.Root(dir)
+	root, err := treeRoot(dir)
 	if err != nil {
 		msg.Error = noRepoReason(dir)
 		return msg
