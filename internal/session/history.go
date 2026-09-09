@@ -194,14 +194,22 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 
 	cached := cachedFacts(dir)
 	facts := make([]transcriptFacts, len(names))
+	read := make([]bool, len(names))
 	readTranscripts(func(i int) {
-		facts[i] = describeTranscript(filepath.Join(dir, names[i]), files[i], cached[names[i]])
+		facts[i], read[i] = describeTranscript(filepath.Join(dir, names[i]), files[i], cached[names[i]])
 	}, len(names))
 
 	fresh := make(map[string]transcriptFacts, len(names))
 	out := make([]Conversation, 0, len(names))
 	for i, name := range names {
-		fresh[name] = facts[i]
+		// A transcript that could not be opened is remembered as nothing at
+		// all, so the next listing tries again rather than showing an empty
+		// description of it until the file happens to change. It is still
+		// listed: it was in the folder a moment ago, and a row that fails to
+		// resume is a smaller wrong than a conversation gone missing.
+		if read[i] {
+			fresh[name] = facts[i]
+		}
 
 		// A transcript that names a different directory is a neighbour's,
 		// sharing this folder because the two paths derive the same name.
@@ -450,22 +458,24 @@ func transcriptCwd(path string) string {
 // working right now grows between the two, and counting to the end of it
 // would count entries the recorded size does not cover -- which the next
 // refresh, resuming from that size, would then count again.
-func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) transcriptFacts {
+func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (transcriptFacts, bool) {
 	now := transcriptFacts{modTime: info.ModTime(), size: info.Size()}
 	if prev.size == now.size && prev.modTime.Equal(now.modTime) {
-		return prev
+		return prev, true
 	}
 
 	f, err := os.Open(path)
 	if err != nil {
-		return now
+		// Deleted since the folder was read, or locked by something else.
+		// Either way nothing has been learned about it.
+		return now, false
 	}
 	defer f.Close()
 
 	tail := now.size
 	if grown := prev.size > 0 && now.size > prev.size; grown {
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
-			return now
+			return now, false
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
 		tail = now.size - prev.size
@@ -478,14 +488,14 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 			now.summary = title
 		}
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return now
+			return now, false
 		}
 	}
 
 	n, partial := countNewlines(io.LimitReader(f, tail))
 	now.newlines += n
 	now.partial = partial
-	return now
+	return now, true
 }
 
 // openingPrompt reads the first thing the user asked, the name Claude Code

@@ -965,7 +965,10 @@ func TestDescribeTranscriptCountsOnlyWhatItWasToldAbout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	facts := describeTranscript(path, listed, transcriptFacts{})
+	facts, ok := describeTranscript(path, listed, transcriptFacts{})
+	if !ok {
+		t.Fatal("the transcript should have been read")
+	}
 	if facts.entries() != 3 {
 		t.Errorf("counted %d entries, want the 3 the listing knew about", facts.entries())
 	}
@@ -975,7 +978,58 @@ func TestDescribeTranscriptCountsOnlyWhatItWasToldAbout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := describeTranscript(path, grown, facts); got.entries() != 5 {
+	if got, _ := describeTranscript(path, grown, facts); got.entries() != 5 {
 		t.Errorf("counted %d entries after the transcript grew, want 5", got.entries())
+	}
+}
+
+// TestConversationsForgetATranscriptTheyCouldNotRead covers the gap between
+// reading the folder and reading the files in it. Claude Code deletes old
+// transcripts, and a file can go -- or be held by something else -- in
+// between. Remembering that as a conversation with nothing in it leaves the
+// row saying nothing for as long as the file's size and date stay put, which
+// for a transcript nobody is writing to is for good.
+func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
+	cwd, dir := historyFixture(t, "vanishing")
+
+	line := `{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"still here"}}`
+	path := writeTranscript(t, dir, "aaaaaaaa-5555-5555-5555-555555555555", line)
+	kept, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Gone between the folder being read and the file being opened.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	got := conversationsIn(dir, entries, cwd)
+	if len(got) != 1 {
+		t.Fatalf("listed %d conversations; the folder held one when it was read", len(got))
+	}
+	if n := len(cachedFacts(dir)); n != 0 {
+		t.Errorf("remembered %d transcripts; one that could not be read has nothing to remember", n)
+	}
+
+	// Back, exactly as it was: same contents, same size, same date.
+	if err := os.WriteFile(path, kept, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, path, listed.ModTime())
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "still here" {
+		t.Fatalf("the transcript was not read again: %+v", got)
 	}
 }
