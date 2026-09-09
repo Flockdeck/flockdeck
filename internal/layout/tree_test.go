@@ -490,8 +490,17 @@ func TestSplitAndInsertRefuseADuplicatePane(t *testing.T) {
 	if root.InsertBeside("a", "b", EdgeRight) {
 		t.Error("inserting a pane that is already in the tree should be refused")
 	}
+	if root.InsertBeside("a", "", EdgeRight) {
+		t.Error("inserting a pane with no id should be refused")
+	}
 	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("panes = %v, want the refused calls to have changed nothing", got)
+	}
+	// A leaf naming no pane is not in that list, so the row itself has to be
+	// looked at: an empty one would sit there taking its share of the width
+	// and drawing nothing.
+	if len(root.Children) != 2 {
+		t.Fatalf("the row holds %d slots for 2 panes", len(root.Children))
 	}
 
 	// A move is still a move: the pane is detached first, so it can go back in.
