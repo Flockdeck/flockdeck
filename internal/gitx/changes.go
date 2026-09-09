@@ -260,12 +260,12 @@ func Diff(dir, path string) (string, error) {
 	if !hasHead(dir) {
 		against = "--cached"
 	}
-	out, err := run(dir, "diff", against, "--", pathspec(path))
+	out, err := gitDiff(dir, against, "--", pathspec(path))
 	if err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(out) == "" {
-		out, err = run(dir, "diff", "--", pathspec(path))
+		out, err = gitDiff(dir, "--", pathspec(path))
 		if err != nil {
 			return "", err
 		}
@@ -282,6 +282,27 @@ func Diff(dir, path string) (string, error) {
 // the diff of the second alongside it. ":(literal)" turns matching off, and
 // stops a name that begins with a colon being read as magic in its own right.
 func pathspec(path string) string { return ":(literal)" + path }
+
+// diffFlags pin git's diff output to the shape the panel reads, whatever the
+// user keeps in their config.
+//
+// "color.ui = always" is what people set when they want colour through a pager,
+// and git obeys it here too even though nothing is attached to a terminal: the
+// panel then shows the escape sequences as text and colours nothing, because no
+// line begins with a "+" any more. "diff.external" replaces the diff wholesale
+// with the output of some other program. "diff.mnemonicPrefix" and
+// "diff.noprefix" rename or drop the "a/" and "b/" that an untracked file's
+// rendering writes by hand, leaving the two sources of diff text unalike.
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"}
+
+// gitDiff runs a diff with those flags ahead of the caller's arguments.
+func gitDiff(dir string, args ...string) (string, error) {
+	argv := make([]string, 0, len(diffFlags)+len(args)+1)
+	argv = append(argv, "diff")
+	argv = append(argv, diffFlags...)
+	argv = append(argv, args...)
+	return run(dir, argv...)
+}
 
 // hasHead reports whether the repository has a commit to compare against.
 func hasHead(dir string) bool {

@@ -138,6 +138,34 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	}
 }
 
+// TestDiffIgnoresTheUsersDiffConfig covers the settings that change what git
+// prints, which the panel has no way to recognise once it arrives.
+func TestDiffIgnoresTheUsersDiffConfig(t *testing.T) {
+	repo := newRepo(t)
+
+	// Every one of these is a setting somebody really keeps: colour through a
+	// pager, an external diff tool, and prefixes other than "a/" and "b/".
+	gitRun(t, repo, "config", "color.ui", "always")
+	gitRun(t, repo, "config", "diff.mnemonicPrefix", "true")
+	gitRun(t, repo, "config", "diff.external", "cmd-that-does-not-exist")
+
+	write(t, repo, "README.md", "hello\na second line\n")
+
+	diff, err := Diff(repo, "README.md")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.ContainsRune(diff, 0x1b) {
+		t.Errorf("diff carries ANSI escapes, which the panel renders as text:\n%q", diff)
+	}
+	if !strings.Contains(diff, "+a second line") {
+		t.Errorf("added line is not marked as an addition:\n%s", diff)
+	}
+	if !strings.Contains(diff, "--- a/README.md") || !strings.Contains(diff, "+++ b/README.md") {
+		t.Errorf("diff does not use the a/ and b/ prefixes:\n%s", diff)
+	}
+}
+
 // TestChangesReportsAwkwardNames covers the names git quotes and escapes: a
 // path taken from its quoted form does not name a file that can be opened.
 func TestChangesReportsAwkwardNames(t *testing.T) {
