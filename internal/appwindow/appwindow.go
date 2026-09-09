@@ -1,0 +1,160 @@
+// Package appwindow opens the user interface in its own window.
+//
+// A Chromium-based browser in "app mode" gives a chromeless window with no
+// tabs, address bar or bookmarks, which reads as a native application window
+// while keeping the whole program a single dependency-free binary. If no such
+// browser is available the page is opened in the default browser instead.
+package appwindow
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+// BrowserEnv names a specific browser binary to use, overriding the search.
+const BrowserEnv = "AGENT_WRAPPER_BROWSER"
+
+// ErrNoBrowser is returned when nothing could be found to display the UI.
+var ErrNoBrowser = errors.New("no browser found to display the interface")
+
+// Window is a running UI window.
+type Window struct {
+	cmd *exec.Cmd
+	// AppMode reports whether the window is a dedicated app window rather than
+	// a tab in the user's ordinary browser.
+	AppMode bool
+	// Program is the browser that was launched, for diagnostics.
+	Program string
+}
+
+// Wait blocks until an app-mode window is closed. It returns immediately for a
+// tab opened in the default browser, whose lifetime cannot be observed.
+func (w *Window) Wait() error {
+	if w == nil || w.cmd == nil || !w.AppMode {
+		return nil
+	}
+	return w.cmd.Wait()
+}
+
+// Close terminates an app-mode window.
+func (w *Window) Close() {
+	if w != nil && w.cmd != nil && w.cmd.Process != nil {
+		_ = w.cmd.Process.Kill()
+	}
+}
+
+// Open displays url in a window. profileDir holds the browser profile used for
+// app mode, keeping it separate from the user's own browsing profile so the
+// window opens clean and does not disturb their session.
+func Open(url, profileDir string) (*Window, error) {
+	if prog := os.Getenv(BrowserEnv); prog != "" {
+		path, err := exec.LookPath(prog)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%q: %w", BrowserEnv, prog, err)
+		}
+		return startAppMode(path, url, profileDir)
+	}
+	if path := findBrowser(); path != "" {
+		if w, err := startAppMode(path, url, profileDir); err == nil {
+			return w, nil
+		}
+	}
+	// Better an ordinary tab than no interface at all.
+	if err := openDefaultBrowser(url); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNoBrowser, err)
+	}
+	return &Window{AppMode: false, Program: "default browser"}, nil
+}
+
+// startAppMode launches a chromeless window pointed at url.
+func startAppMode(path, url, profileDir string) (*Window, error) {
+	args := []string{
+		"--app=" + url,
+		"--user-data-dir=" + profileDir,
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-features=Translate,MediaRouter",
+		"--window-size=1440,900",
+	}
+	cmd := exec.Command(path, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start %s: %w", path, err)
+	}
+	return &Window{cmd: cmd, AppMode: true, Program: path}, nil
+}
+
+// candidates lists the browsers to try, in preference order, for this platform.
+func candidates() []string {
+	switch runtime.GOOS {
+	case "windows":
+		var out []string
+		for _, base := range []string{
+			os.Getenv("ProgramFiles"),
+			os.Getenv("ProgramFiles(x86)"),
+			os.Getenv("LocalAppData"),
+		} {
+			if base == "" {
+				continue
+			}
+			out = append(out,
+				filepath.Join(base, `Google\Chrome\Application\chrome.exe`),
+				filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`),
+				filepath.Join(base, `BraveSoftware\Brave-Browser\Application\brave.exe`),
+			)
+		}
+		return append(out, "chrome.exe", "msedge.exe")
+
+	case "darwin":
+		return []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+		}
+
+	default:
+		return []string{
+			"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+			"microsoft-edge", "brave-browser", "vivaldi",
+		}
+	}
+}
+
+// findBrowser returns the first available browser, or "".
+func findBrowser() string {
+	for _, c := range candidates() {
+		if strings.ContainsAny(c, `/\`) {
+			if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+				return c
+			}
+			continue
+		}
+		if path, err := exec.LookPath(c); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// openDefaultBrowser hands the URL to the desktop's own handler.
+func openDefaultBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// `start` needs a title argument before the URL, and cmd.exe treats &
+		// specially, so the URL is quoted.
+		cmd = exec.Command("cmd", "/c", "start", "", url)
+	case "darwin":
+		cmd = exec.Command("/usr/bin/open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	return cmd.Start()
+}
