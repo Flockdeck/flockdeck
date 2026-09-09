@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -78,13 +79,45 @@ func Dir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
 	}
-	dir := adoptLegacyDir(base, filepath.Join(base, "perch"))
+	dir := stateDir(base)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
 	makePrivate(dir)
 	return dir, nil
 }
+
+// stateDir works out which directory this run keeps its state in, and having
+// worked it out once, keeps saying so.
+//
+// Every call into this package goes through Dir, and without this every one of
+// them also stats a directory belonging to a build the user stopped running
+// long ago: a fifth of a millisecond, on the path of every load and every
+// save, for a migration that can only ever happen once.
+//
+// Remembering the answer also pins it. Where the move could not be made the
+// old directory is used where it stands, and a second attempt later in the
+// same run could succeed and move the state out from under everything already
+// written to it. One run, one directory.
+var stateDir = func() func(base string) string {
+	var (
+		mu     sync.Mutex
+		for_   string
+		chosen string
+	)
+	return func(base string) string {
+		mu.Lock()
+		defer mu.Unlock()
+		// Keyed on the base, because the tests move it: a remembered answer
+		// for somewhere else is no answer at all.
+		if chosen != "" && for_ == base {
+			return chosen
+		}
+		chosen = adoptLegacyDir(base, filepath.Join(base, "perch"))
+		for_ = base
+		return chosen
+	}
+}()
 
 // legacyDirName is the directory this state was kept in before the program was
 // renamed. It is looked at only when nothing has been saved under the name in

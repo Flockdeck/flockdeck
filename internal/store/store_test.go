@@ -1967,3 +1967,60 @@ func TestARenameThatCannotWorkIsNotWaitedOut(t *testing.T) {
 		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
 	}
 }
+
+// TestTheStateDirectoryIsDecidedOnceARun checks a run that had to fall back to
+// the directory the old name points at stays there.
+//
+// The move to the name in use now can fail for a reason that goes away —
+// a file a detached instance still holds open, on Windows — and looking again
+// later would then succeed and rename the directory out from under everything
+// that had already been handed its old path. The settings directory each agent
+// is launched with is worked out once at startup and kept; move it half way
+// through the run and every agent afterwards writes into a tree nothing looks
+// at again.
+func TestTheStateDirectoryIsDecidedOnceARun(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create legacy dir: %v", err)
+	}
+
+	real := renameDir
+	t.Cleanup(func() { renameDir = real })
+	refused := false
+	renameDir = func(from, to string) error {
+		if !refused {
+			refused = true
+			return errors.New("held open by a detached instance")
+		}
+		return real(from, to)
+	}
+
+	first, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	if first != old {
+		t.Fatalf("state dir is %s, want the old name %s while the move cannot be made", first, old)
+	}
+	// Whatever the run hands out now is held for as long as it runs.
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+
+	again, err := Dir()
+	if err != nil {
+		t.Fatalf("dir again: %v", err)
+	}
+	if again != first {
+		t.Errorf("the run moved from %s to %s part way through; every path already handed out points into the first", first, again)
+	}
+	if _, err := os.Stat(sessions); err != nil {
+		t.Errorf("the settings directory handed out earlier is gone: %v", err)
+	}
+}
