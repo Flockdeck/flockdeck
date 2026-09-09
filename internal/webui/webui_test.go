@@ -1319,6 +1319,76 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
 `)
 }
 
+// These dialogs are drawn whole from each reply, so anything half-typed into
+// one of them went with the next redraw — and the redraws come from the other
+// buttons in the same dialog.
+func TestADialogKeepsWhatWasTypedIntoIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+
+const trees = () => ({
+  type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, head: "abc1234" },
+          { label: "spare", path: "C:/spare", head: "def5678" }],
+  branches: [{ name: "main", checkedIn: true }],
+});
+h.click(h.$("btn-worktrees"));
+h.recv(trees());
+
+const branch = h.$("wt-branch"), base = h.$("wt-base");
+assert.strictEqual(base.value, "main", "the base starts at what the Go side suggested");
+branch.value = "fix-au";
+branch.oninput();
+branch.focus();
+branch.setSelectionRange(6, 6);
+base.value = "origin/main";
+base.oninput();
+
+// Removing a worktree redraws the dialog around the form.
+h.recv(trees());
+assert.ok(h.$("wt-branch") !== branch, "the dialog was not redrawn, so this proves nothing");
+assert.strictEqual(h.$("wt-branch").value, "fix-au", "the branch name being typed was thrown away");
+assert.strictEqual(h.$("wt-base").value, "origin/main", "the base was reset to the suggestion");
+assert.ok(h.doc.activeElement === h.$("wt-branch"), "the field lost the keyboard");
+assert.strictEqual(h.$("wt-branch").selectionStart, 6, "the caret moved");
+
+// Creating the worktree empties the field, and it stays empty.
+h.$("wt-branch").value = "fix-auth";
+h.$("wt-branch").oninput();
+h.click(h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Create")[0]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "origin/main" });
+h.recv(trees());
+assert.strictEqual(h.$("wt-branch").value, "", "the branch name came back after being used");
+
+// Closing the dialog forgets the draft; it belongs to this visit to it.
+h.key({ key: "Escape" });
+h.click(h.$("btn-worktrees"));
+h.recv(trees());
+assert.strictEqual(h.$("wt-base").value, "main", "an old base outlived the dialog it was typed into");
+
+// The folder browser keeps a path being typed, and gives way once the browser
+// has actually been sent somewhere.
+h.key({ key: "Escape" });
+h.click(h.$("project-btn"));
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", entries: [
+  { name: "one", path: "C:/repos/one", isRepo: true }], places: [] });
+h.recv({ type: "recents", items: [{ root: "C:/old", name: "old", exists: true, open: false }] });
+
+const box = h.$("overlay-body").querySelector("div.browse-bar").querySelector("input");
+assert.strictEqual(box.value, "C:/repos");
+box.value = "C:/repos/hal";
+box.oninput();
+h.recv({ type: "recents", items: [] });
+const boxAgain = h.$("overlay-body").querySelector("div.browse-bar").querySelector("input");
+assert.strictEqual(boxAgain.value, "C:/repos/hal", "the path being typed was thrown away by an unrelated push");
+
+h.recv({ type: "browse", path: "C:/elsewhere", parent: "C:/", entries: [], places: [] });
+const boxLast = h.$("overlay-body").querySelector("div.browse-bar").querySelector("input");
+assert.strictEqual(boxLast.value, "C:/elsewhere", "the box did not follow the browser to where it went");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -171,6 +171,8 @@
   let dialog = null;
   let recents = [];
   let browseState = null;
+  /** A path typed into the folder browser and not yet gone to. */
+  let browseDraft = null;
   /** The actions this application offers, sent by the Go side on connect.
    *  The palette, the keyboard and the help pages are all drawn from it, so a
    *  binding cannot be changed in one of them and left stale in the others. */
@@ -202,7 +204,7 @@
       else if (msg.type === "prefs") { prefs = msg.prefs || prefs; renderHints(); }
       else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
       else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
-      else if (msg.type === "browse") { browseState = msg; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
@@ -1502,11 +1504,17 @@
   // ------------------------------------------------------------- worktrees
 
   let worktrees = null;
+  /** What has been typed into the new-worktree form. The dialog is drawn whole
+   *  from each reply, so without this a branch name half-typed when a worktree
+   *  was removed, or Refresh was pressed, went with the redraw. It is kept for
+   *  as long as the dialog is open and no longer. */
+  let wtDraft = { branch: "", base: "" };
 
   function renderWorktrees(msg) {
     if (msg) worktrees = msg;
     if ($("overlay").hidden || dialog !== "worktrees") {
       dialog = "worktrees";
+      wtDraft = { branch: "", base: "" };
       openOverlay("Worktrees", "worktrees");
     }
     const m = worktrees || {};
@@ -1612,9 +1620,12 @@
     const branch = el("input");
     branch.placeholder = "Branch name, e.g. fix-auth";
     branch.id = "wt-branch";
+    branch.value = wtDraft.branch;
+    branch.oninput = () => { wtDraft.branch = branch.value; };
     const base = el("input");
     base.placeholder = "Base";
-    base.value = m.defaultBase || "";
+    base.value = wtDraft.base || m.defaultBase || "";
+    base.oninput = () => { wtDraft.base = base.value; };
     base.id = "wt-base";
     base.title = "The commit or branch the new branch starts from";
     base.setAttribute("list", "wt-bases");
@@ -1632,6 +1643,7 @@
       if (!branch.value.trim()) return;
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
+      wtDraft.branch = "";
     };
     go.onclick = submit;
     branch.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
@@ -1671,6 +1683,7 @@
 
   function openProjects() {
     dialog = "projects";
+    browseDraft = null;
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -1791,7 +1804,11 @@
     up.disabled = !b || !b.parent;
     up.onclick = () => send({ cmd: "browse", path: b.parent });
     const path = el("input");
-    path.value = b ? b.path : "";
+    // A path being typed survives a redraw of the dialog — dropping a project
+    // from the recent list redraws it — and gives way to wherever the browser
+    // has actually been sent, which is what arriving somewhere new means.
+    path.value = browseDraft !== null ? browseDraft : (b ? b.path : "");
+    path.oninput = () => { browseDraft = path.value; };
     path.placeholder = "Type or paste a path, then press Enter";
     path.onkeydown = (ev) => {
       if (ev.key !== "Enter") return;
