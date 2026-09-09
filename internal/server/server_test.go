@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"path/filepath"
@@ -1251,5 +1252,43 @@ func TestEncodeNodeCollectsExactlyThePaneIds(t *testing.T) {
 	}
 	if view.Dir != "h" || view.Children[1].Dir != "v" {
 		t.Errorf("split directions = %q and %q, want h and v", view.Dir, view.Children[1].Dir)
+	}
+}
+
+// TestABadWeightCannotSilenceTheWindows covers the one value in the snapshot
+// that can stop it being a snapshot at all. Weights are floats, and the layout
+// divides and multiplies them when splits collapse into one another, so a set
+// far enough apart can arrive at an infinity or a NaN. encoding/json refuses to
+// write either, and a state message that will not encode is not sent — not this
+// one, and not any after it, since the same number is still there. Every window
+// would stop being updated for good, without a word.
+func TestABadWeightCannotSilenceTheWindows(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		done := make(chan struct{})
+		srv.do(func() {
+			defer close(done)
+			if tab := srv.ws.Tab(id); tab != nil {
+				tab.Tree.Weight = bad
+			}
+		})
+		<-done
+
+		title := fmt.Sprintf("after %v", bad)
+		sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: title})
+		st, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+			return len(s.Tabs) == 1 && s.Tabs[0].Title == title
+		})
+		if !ok {
+			t.Fatalf("a weight of %v stopped the windows being updated", bad)
+		}
+		if w := st.Tabs[0].Root.Weight; w != 1 {
+			t.Errorf("weight of %v was sent on as %v, want the default 1", bad, w)
+		}
 	}
 }

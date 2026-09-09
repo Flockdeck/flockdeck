@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -279,8 +280,16 @@ func encodeNode(n *layout.Node, panes *[]string) *nodeView {
 	if n == nil {
 		return nil
 	}
+	// A weight that is not a usable number is replaced rather than passed on,
+	// with the same test the layout applies to one arriving from a drag. Zero
+	// is what a layout written before weights were recorded reads back as, and
+	// a pane laid out with no width at all is worse than one given an even
+	// share. A NaN or an infinity is worse again, and in a way that has nothing
+	// to do with the layout: encoding/json will not write one, so the whole
+	// state message fails to encode and every window stops being updated —
+	// silently, for good, with no way back but restarting.
 	w := n.Weight
-	if w <= 0 {
+	if w <= 0 || math.IsNaN(w) || math.IsInf(w, 0) {
 		w = 1
 	}
 	out := &nodeView{ID: n.ID, Weight: w}
