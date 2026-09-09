@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // Writing out a working tree is the slowest thing a fan-out does, and a
@@ -278,5 +279,68 @@ func TestInheritTrustReportsOneFailure(t *testing.T) {
 	}
 	if notices != 1 {
 		t.Errorf("said it %d times, want once", notices)
+	}
+}
+
+// The cap is the only thing standing between an edited list and a machine
+// asked to run a Claude session per line of it. The proposed list was capped,
+// but the user edits it before anything starts.
+func TestPlanJobsStopsAtTheCap(t *testing.T) {
+	var tasks []string
+	for i := 0; i < workspace.MaxTasks+5; i++ {
+		tasks = append(tasks, fmt.Sprintf("task %d", i))
+	}
+	jobs, capped := planJobs(tasks, "/repo")
+	if !capped {
+		t.Error("a list past the cap was not reported as capped")
+	}
+	if len(jobs) != workspace.MaxTasks {
+		t.Errorf("planned %d agents, want the cap of %d", len(jobs), workspace.MaxTasks)
+	}
+
+	// Exactly the cap is not over it.
+	if _, capped := planJobs(tasks[:workspace.MaxTasks], "/repo"); capped {
+		t.Error("a list of exactly the cap was reported as capped")
+	}
+}
+
+// The cap counts the tasks actually taken, not positions in the list. The list
+// comes from a box the user has been editing, so it is full of empty rows, and
+// counting those lets a few blank lines stand in for agents never started.
+func TestPlanJobsIgnoresBlankRows(t *testing.T) {
+	// More blank rows before the first real task than the cap allows agents,
+	// which is what a counted-by-position cap turns into no agents at all.
+	tasks := make([]string, 0, 40)
+	for i := 0; i < workspace.MaxTasks+3; i++ {
+		tasks = append(tasks, "")
+	}
+	tasks = append(tasks, "  split the router	", "", "add a timeout", "   ")
+	for i := 0; i < 20; i++ {
+		tasks = append(tasks, "")
+	}
+	jobs, capped := planJobs(tasks, `C:epo`)
+	if capped {
+		t.Error("blank rows were counted towards the cap")
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("planned %d agents, want 2: %#v", len(jobs), jobs)
+	}
+	// In the order of the plan, trimmed, and all starting in the project.
+	for i, want := range []string{"split the router", "add a timeout"} {
+		if jobs[i].task != want {
+			t.Errorf("task %d = %q, want %q", i, jobs[i].task, want)
+		}
+		if jobs[i].cwd != `C:epo` {
+			t.Errorf("task %d starts in %q, want the project", i, jobs[i].cwd)
+		}
+	}
+}
+
+// A list of nothing but blank rows is not a fan-out of nought agents, it is a
+// fan-out that has to say so.
+func TestPlanJobsOnAnEmptyList(t *testing.T) {
+	jobs, capped := planJobs([]string{"", "   ", ""}, "/repo")
+	if len(jobs) != 0 || capped {
+		t.Errorf("planJobs on blank rows = %d jobs, capped=%v; want none and not capped", len(jobs), capped)
 	}
 }

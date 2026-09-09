@@ -139,22 +139,9 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		}
 		baseCwd := in.cwd
 
-		// The blank rows and the cap are settled before anything is created.
-		// The list arrives from a user who has been editing it, so it carries
-		// empty lines, and every row left becomes an agent with a terminal of
-		// its own — the proposed list was capped, but nothing between there and
-		// here held the edited one to a size the machine can actually run.
-		jobs := make([]*fanoutJob, 0, len(tasks))
-		for _, task := range tasks {
-			task = strings.TrimSpace(task)
-			if task == "" {
-				continue
-			}
-			if len(jobs) >= workspace.MaxTasks {
-				c.notify(fmt.Sprintf("stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
-				break
-			}
-			jobs = append(jobs, &fanoutJob{task: task, cwd: baseCwd})
+		jobs, capped := planJobs(tasks, baseCwd)
+		if capped {
+			c.notify(fmt.Sprintf("stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
 		}
 		if len(jobs) == 0 {
 			c.notify(fanoutSummary(0, 0))
@@ -221,6 +208,31 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		c.notify(fanoutSummary(started, failed))
 		s.Wake()
 	}()
+}
+
+// planJobs turns the edited task list into the jobs a fan-out will run, and
+// reports whether it stopped at the cap.
+//
+// The blank rows and the cap are settled here, before anything is created. The
+// list arrives from a user who has been editing it, so it carries empty lines —
+// and the cap has to count the tasks actually taken rather than positions in
+// the slice, or a handful of empty rows stands in for agents that were never
+// started. Every row that is left becomes an agent with a terminal of its own:
+// the list the extractor proposed was capped, but nothing between there and
+// here held the edited one to a size the machine can actually run.
+func planJobs(tasks []string, cwd string) ([]*fanoutJob, bool) {
+	jobs := make([]*fanoutJob, 0, len(tasks))
+	for _, task := range tasks {
+		task = strings.TrimSpace(task)
+		if task == "" {
+			continue
+		}
+		if len(jobs) >= workspace.MaxTasks {
+			return jobs, true
+		}
+		jobs = append(jobs, &fanoutJob{task: task, cwd: cwd})
+	}
+	return jobs, false
 }
 
 // fanoutJob is one task of a fan-out, and where its agent will run.
