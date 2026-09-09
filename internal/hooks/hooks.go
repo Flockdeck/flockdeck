@@ -1,10 +1,18 @@
-// Package hooks carries Claude Code lifecycle events from panes back to Perch.
+// Package hooks carries agents' lifecycle events from panes back to Perch.
 //
-// Each Claude pane is launched with a generated --settings file registering
-// command hooks that re-invoke this binary in `hook` mode. Those invocations
-// POST to a loopback server Perch runs, which is how a pane's status
-// ("working", "waiting on you", "idle") is known accurately rather than being
-// guessed from screen scraping.
+// Claude Code is the case this was written for: its panes are launched with a
+// generated --settings file registering command hooks that re-invoke this
+// binary in `hook` mode, and those invocations POST to a loopback server Perch
+// runs, which is how a pane's status ("working", "waiting on you", "idle") is
+// known accurately rather than being guessed from screen scraping. It is not
+// the only case. The protocol is the event names below and nothing else, so
+// any agent that can report its own lifecycle — including Perch's own chat
+// client, which speaks straight to a model API — reports it here, and the rest
+// of the application never learns there was more than one kind of pane.
+//
+// An agent that reports nothing is not left in the dark: its status is
+// inferred from what the pane prints, and the briefing this server hands back
+// on SessionStart is put in front of its opening prompt instead.
 package hooks
 
 import (
@@ -68,14 +76,23 @@ type Server struct {
 	onContext func(sessionID string) string
 }
 
-// SessionStart is the lifecycle event a pane's Claude session fires as it
-// starts, resumes or is compacted. It is the one event whose reply matters:
-// the response body carries the text describing the pane the session is
-// running in, which the hook then prints for Claude to read.
+// SessionStart is the lifecycle event a pane's agent fires as it starts,
+// resumes or is compacted. It is the one event whose reply matters: the
+// response body carries the text describing the pane the session is running
+// in, which the hook then prints for the agent to read.
+//
+// Answering it is the better of the two ways a briefing is delivered, and the
+// reason is the compaction: a briefing put in front of an opening prompt is
+// summarised away with everything else that was said early on, where this one
+// is asked for again and returned afresh.
 const SessionStart = "SessionStart"
 
 // SetContextHandler installs the function that describes a pane to the agent
 // running in it. Returning an empty string leaves the session as it was.
+//
+// It serves only the agents that fire hooks. An agent that fires none is
+// briefed through its opening prompt, which is built from the same
+// description and never reaches this server.
 func (s *Server) SetContextHandler(fn func(sessionID string) string) {
 	s.mu.Lock()
 	s.onContext = fn
@@ -192,8 +209,14 @@ func clip(s string, n int) string {
 // Emit is the client half, run inside the hook subprocess. It reads Claude's
 // hook JSON from stdin to pick up the tool name, then posts the event.
 //
+// What it returns is the pane briefing, and only a SessionStart is answered
+// with one: the caller prints it for the agent to read. An agent reporting its
+// own lifecycle rather than being wrapped in a hook command — Perch's chat
+// client does — calls this with a nil stdin and shows what comes back the same
+// way.
+//
 // It is deliberately forgiving: a hook that fails must never block or break
-// the Claude session it is reporting on.
+// the session it is reporting on.
 func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, error) {
 	p := payload{Event: Event{SessionID: sessionID, Event: event}, Token: token}
 

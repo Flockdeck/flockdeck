@@ -6,7 +6,9 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/session"
 )
@@ -37,6 +39,13 @@ type Sibling struct {
 	Status string
 	Shell  bool
 	Task   string
+	// Agent and Model are what the pane is running: the agent's id and the
+	// model it was asked for, as the pane header shows them. Which agent is in
+	// the next pane changes what is worth asking of it — a plan is worth
+	// handing to one, a mechanical edit to another — and neither is anything
+	// the reader can work out from a directory and a branch.
+	Agent string
+	Model string
 	// SameCheckout marks a pane working in the reader's own directory. It is
 	// the one fact in the list that changes what the agent should do, and it
 	// is easy to miss when it has to be read off two long paths.
@@ -84,6 +93,13 @@ type PaneContext struct {
 
 	OtherProjects []string
 
+	// Taken is when the snapshot was made. It is written out only for an agent
+	// briefed through its opening prompt, because that briefing arrives once
+	// and is never replaced: everything below it is true of the moment the
+	// pane started and of no moment after, and an agent that is not told so
+	// will read a list of other agents that has since changed as current.
+	Taken time.Time
+
 	// CanSpawn reports whether spawning helpers will work from this pane.
 	CanSpawn bool
 	// SpawnCommand is how Perch itself is run from inside the pane: the name
@@ -110,6 +126,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		Cwd:          p.Cwd,
 		Branch:       p.Branch,
 		Task:         p.Task,
+		Taken:        time.Now(),
 		CanSpawn:     w.hookSrv != nil,
 		SpawnCommand: w.spawnCmd,
 	}
@@ -171,6 +188,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			if st == session.StatusExited {
 				continue
 			}
+			sibAgent, sibModel := paneAgent(sib)
 			s := Sibling{
 				Name:         sib.Name,
 				Tab:          t.Title,
@@ -179,6 +197,8 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				Status:       st.String(),
 				Shell:        sib.Kind == session.KindShell,
 				Task:         sib.Task,
+				Agent:        sibAgent,
+				Model:        sibModel,
 				SameCheckout: sameDir(sib.Cwd, c.Cwd),
 			}
 			switch onOwnTab := own != nil && t.ID == own.ID; {
@@ -210,6 +230,45 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 
 	return c, true
 }
+
+// OpeningPrompt is what the agent in a pane should be started with: the task
+// it was given, with the briefing in front of it when the agent has no hooks
+// to answer.
+//
+// Starting a pane calls this instead of passing the task straight through,
+// because the briefing is the same one the hook returns and there is nowhere
+// else for it to go for an agent that cannot be asked. Any other mode gets the
+// task untouched: an agent with hooks is briefed when it fires its first one,
+// and one asking for no context has said so.
+//
+// It is called on the goroutine that owns the workspace, like every other read
+// of it.
+func (w *Workspace) OpeningPrompt(paneID, task string, mode agent.ContextMode) string {
+	if mode != agent.ContextPrompt {
+		return task
+	}
+	c, ok := w.PaneContext(paneID)
+	if !ok {
+		// The pane is not in the workspace yet or is already gone. Either way
+		// the agent still has work to do, and a task with no briefing is far
+		// better than a briefing with no task.
+		return task
+	}
+	// The task as the caller has it, rather than as the pane recorded it: a
+	// pane started by hand has no Task at all, and one restarted has the task
+	// it was spawned with long after the prompt it is being given now.
+	c.Task = task
+	return c.OpeningPrompt()
+}
+
+// paneAgent names the agent and the model a pane is running.
+//
+// It is a shim, and a temporary one: the two values belong on Pane, which is
+// declared in a file this change does not own, so the briefing is written to
+// read them from here and the body becomes `return p.Agent, p.Model` the
+// moment the fields exist. Empty strings until then leave a sibling described
+// exactly as it is described today.
+func paneAgent(*Pane) (agentID, model string) { return "", "" }
 
 // tabOf returns the tab containing a pane, or nil.
 func (w *Workspace) tabOf(paneID string) *Tab {
@@ -250,18 +309,50 @@ func underDir(dir, base string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// Render writes the context as the text handed to Claude at session start.
+// Render writes the context as the text handed to an agent at session start,
+// in answer to its own lifecycle hook.
 //
 // It is prose rather than JSON because it is read by the model, and it is
 // deliberately specific about the two things an agent cannot work out for
 // itself: that its conversation is private to one pane among several, and that
 // the other panes may be editing other checkouts of the same repository.
-func (c PaneContext) Render() string {
+func (c PaneContext) Render() string { return c.render(false) }
+
+// OpeningPrompt is what an agent with no hooks to answer is started with: the
+// same briefing, fenced, and then the task.
+//
+// The fence is there so the two can be told apart. Everything inside it is
+// Perch describing the pane; everything after it is what the user asked for,
+// and an agent that reads the first as part of the second sets about
+// documenting the window instead of doing the work. A pane started with no
+// task gets the block on its own, which is still worth sending: knowing which
+// checkout it has and who else is in the repository changes what the agent
+// does with the first thing the user types.
+func (c PaneContext) OpeningPrompt() string {
+	var b strings.Builder
+	b.WriteString("<perch-context>\n")
+	b.WriteString(strings.TrimRight(c.render(true), "\n"))
+	b.WriteString("\n</perch-context>\n")
+	// The task follows whole and unsummarised, which is why the block above
+	// leaves out the line that repeats it back: a briefing that quotes the
+	// first thousand characters of an instruction printed in full two lines
+	// below is a second, shorter copy for the agent to disagree with.
+	if task := strings.TrimSpace(c.Task); task != "" {
+		b.WriteString("\n" + task + "\n")
+	}
+	return b.String()
+}
+
+// render writes the briefing. viaPrompt says it is going in front of an
+// opening prompt rather than back down a lifecycle hook, which changes two
+// things: the briefing has to admit that it will never be refreshed, and it
+// must not describe a status Perch reads from hooks the agent does not have.
+func (c PaneContext) render(viaPrompt bool) string {
 	var b strings.Builder
 
 	b.WriteString("# Where you are running\n\n")
 	fmt.Fprintf(&b, "You are one agent inside **Perch**, a desktop application that runs "+
-		"several Claude Code agents side by side in terminal panes. You are the agent in the pane "+
+		"several coding agents side by side in terminal panes. You are the agent in the pane "+
 		"named %q", c.PaneName)
 	if c.Tab != "" {
 		fmt.Fprintf(&b, ", in the tab %q", c.Tab)
@@ -270,6 +361,16 @@ func (c PaneContext) Render() string {
 		fmt.Fprintf(&b, ", in the project %q", c.ProjectName)
 	}
 	b.WriteString(".\n\n")
+
+	if viaPrompt {
+		b.WriteString("Everything below was true when this pane started")
+		if !c.Taken.IsZero() {
+			fmt.Fprintf(&b, ", at %s", c.Taken.Format("2006-01-02 15:04 MST"))
+		}
+		b.WriteString(". You are briefed once, here: none of it is sent again or brought " +
+			"up to date, so the other agents listed may since have finished, moved on, or been " +
+			"joined by others.\n\n")
+	}
 
 	b.WriteString("## This pane\n\n")
 	fmt.Fprintf(&b, "- Working directory: `%s`\n", c.Cwd)
@@ -287,7 +388,7 @@ func (c PaneContext) Render() string {
 	if c.TabPanes > 1 {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
 	}
-	if c.Task != "" {
+	if c.Task != "" && !viaPrompt {
 		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task, ownTaskLimit))
 	}
 	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
@@ -308,13 +409,22 @@ func (c PaneContext) Render() string {
 		}
 		b.WriteString("\nIf more than one of you is working in the same checkout, expect files to " +
 			"change under you and re-read before editing.\n")
+		if c.siblingAgentsNamed() {
+			// Perch runs whichever coding agents the user has, and they are not
+			// interchangeable. Where the pane says which one it is, the reader
+			// can pitch what it asks of it — and can stop assuming the pane next
+			// door works the way it does.
+			b.WriteString("\nWhere an agent and a model are named, that is what the pane is " +
+				"running. They differ in what they are good at and in what they can reach, so it " +
+				"is worth knowing which one you would be asking.\n")
+		}
 	}
 	if len(c.OtherProjects) > 0 {
 		fmt.Fprintf(&b, "\nOther projects are open in the same window (%s); their agents are not "+
 			"working on this one.\n", strings.Join(c.OtherProjects, ", "))
 	}
 
-	writeCapabilities(&b)
+	writeCapabilities(&b, !viaPrompt)
 
 	if c.CanSpawn && !c.Shell {
 		// The examples name the command that will actually run here. A copy
@@ -374,19 +484,37 @@ func (c PaneContext) Render() string {
 // The shortcuts are not written out by hand. They come from the one table the
 // command palette and the help pages are drawn from, so a rebinding cannot be
 // made there and left stale here.
-func writeCapabilities(b *strings.Builder) {
+//
+// hooked says the agent reports its own lifecycle to Perch. Where it does not,
+// the status paragraph has to describe the fallback instead: telling an agent
+// that its state is read from hooks it never fires, out of a settings file it
+// was never given, is telling it its questions are noticed when they may not
+// be.
+func writeCapabilities(b *strings.Builder, hooked bool) {
 	b.WriteString("\n## What Perch can do\n\n" +
 		"Some of this changes how you should work; the rest is here so that a user who asks " +
 		"how to do something gets an answer from you.\n\n")
 
-	fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
-		"is started with a generated `--settings` file registering Claude Code's lifecycle "+
-		"hooks — your own settings, hooks and permissions still apply on top — and Perch reads "+
-		"your state from those rather than from your output: green while you work, amber while "+
-		"you wait on the user, grey between turns, red once the process exits. A pane that is "+
-		"waiting marks its tab and the window title, and raises a desktop notification when the "+
-		"window is not in front. The pane header names the tool you are running while it runs. "+
-		"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
+	if hooked {
+		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
+			"is started with a generated `--settings` file registering Claude Code's lifecycle "+
+			"hooks — your own settings, hooks and permissions still apply on top — and Perch reads "+
+			"your state from those rather than from your output: green while you work, amber while "+
+			"you wait on the user, grey between turns, red once the process exits. A pane that is "+
+			"waiting marks its tab and the window title, and raises a desktop notification when the "+
+			"window is not in front. The pane header names the tool you are running while it runs. "+
+			"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
+	} else {
+		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is worth it.** You report no "+
+			"lifecycle events to Perch, so it colours this pane from what it prints and how long it "+
+			"has been quiet: green while you work, amber when what you last printed reads as a "+
+			"question, grey between turns, red once the process exits. A pane that is waiting marks "+
+			"its tab and the window title, and raises a desktop notification when the window is not "+
+			"in front, so a question does reach the user even when they are looking elsewhere — but "+
+			"it is read off your output rather than told to Perch, so ask plainly, on a line of its "+
+			"own, and wait for an answer rather than assuming one. %s reaches any pane in any open "+
+			"project from anywhere.\n\n", how("agents"))
+	}
 
 	fmt.Fprintf(b, "**Fan out turns your own output into agents.** %s reads the list your last "+
 		"message ends with, hands the user an editable copy of it, and starts one agent per "+
@@ -507,6 +635,8 @@ func (s Sibling) describe() string {
 	}
 	if s.Shell {
 		b.WriteString(" (a shell, not an agent)")
+	} else if label := agentLabel(s.Agent, s.Model); label != "" {
+		fmt.Fprintf(&b, " running %s", label)
 	}
 	if s.Branch != "" {
 		fmt.Fprintf(&b, " on branch `%s`", s.Branch)
@@ -525,6 +655,29 @@ func (s Sibling) describe() string {
 		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task, siblingTaskLimit))
 	}
 	return b.String()
+}
+
+// agentLabel names an agent and its model the way the pane header does —
+// `claude · sonnet`, `codex · gpt-5` — so that the agent reading about a
+// sibling and the user looking at it are told the same thing in the same
+// words. A model the agent was not asked for is not invented: an empty one
+// means whatever that CLI is configured with, which is not Perch's to report.
+func agentLabel(agentID, model string) string {
+	if agentID == "" || model == "" {
+		return agentID
+	}
+	return agentID + " · " + model
+}
+
+// siblingAgentsNamed reports whether any sibling says what it is running, so
+// the note explaining the labels is written only where there are labels.
+func (c PaneContext) siblingAgentsNamed() bool {
+	for _, s := range c.Siblings {
+		if !s.Shell && s.Agent != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // shellWord quotes a command for the shell the examples are written for.
