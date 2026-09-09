@@ -55,9 +55,14 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"127.0.0.1:*", "localhost:*"},
-	})
+	// No origin patterns: the default is that the page opening this socket
+	// must have come from this server's own address, and no wider allowance
+	// is wanted. Cookies are shared across the ports of a host and a WebSocket
+	// is not subject to CORS, so anything else served from 127.0.0.1 or
+	// localhost -- the user's own dev server, or anything that can be made to
+	// serve a page from one -- had the token attached to a socket it opened
+	// here, and could then type into every agent.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}

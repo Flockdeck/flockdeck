@@ -528,3 +528,86 @@ func TestAQuietPaneIsNotPaced(t *testing.T) {
 			echoes, spent, minFrameGap)
 	}
 }
+
+// dialPTYFrom opens a terminal socket the way a page served from origin would,
+// carrying a token as the browser would carry the cookie. host is the address
+// the page's own script would reach the server on, which for a real page is
+// the one it was loaded from.
+func dialPTYFrom(t *testing.T, srv *Server, paneID, origin, host string) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h := http.Header{}
+	h.Set("Origin", origin)
+	return websocket.Dial(ctx,
+		"ws://"+host+"/ws/pty?t="+srv.Token()+"&id="+paneID,
+		&websocket.DialOptions{HTTPHeader: h})
+}
+
+// TestTerminalSocketOnlyAnswersItsOwnPage covers who is allowed to type into
+// the agents.
+//
+// Cookies are shared across ports on a host, so anything else served from
+// 127.0.0.1 or localhost -- the user's own dev server, or anything that can be
+// made to serve a page from one -- has the token attached to a WebSocket it
+// opens here, and WebSocket is not subject to CORS. Only the page this server
+// served may open a terminal socket.
+func TestTerminalSocketOnlyAnswersItsOwnPage(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	for _, origin := range []string{
+		"http://127.0.0.1:9999",
+		"http://localhost:9999",
+		"https://example.com",
+	} {
+		conn, resp, err := dialPTYFrom(t, srv, paneID, origin, srv.Addr())
+		if err == nil {
+			conn.CloseNow()
+			t.Errorf("a page served from %s was allowed to open a terminal socket", origin)
+			continue
+		}
+		if resp != nil && resp.StatusCode != http.StatusForbidden {
+			t.Errorf("dial from %s = %d, want 403", origin, resp.StatusCode)
+		}
+	}
+
+	// The window's own page must still be able to, whichever of the loopback
+	// names it was opened under: its script builds the socket's address from
+	// the one it was loaded from, so the two always agree.
+	for _, host := range []string{srv.Addr(), "localhost:" + port(srv.Addr())} {
+		conn, _, err := dialPTYFrom(t, srv, paneID, "http://"+host, host)
+		if err != nil {
+			t.Errorf("the window's own page was refused at %s: %v", host, err)
+			continue
+		}
+		conn.CloseNow()
+	}
+}
+
+// TestTerminalSocketNeedsTheToken keeps any other local process from typing
+// into the agents.
+func TestTerminalSocketNeedsTheToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, resp, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/pty?t=nope&id="+paneID, nil)
+	if err == nil {
+		conn.CloseNow()
+		t.Fatal("a terminal socket was opened without the token")
+	}
+	if resp != nil && resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func port(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[i+1:]
+	}
+	return addr
+}
