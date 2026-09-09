@@ -104,6 +104,14 @@ type paneView struct {
 	Untracked int    `json:"untracked"`
 	Ahead     int    `json:"ahead"`
 	Behind    int    `json:"behind"`
+
+	// What the pane's process and everything it has spawned are costing the
+	// machine. Left out when there is nothing to report -- a pane with no
+	// process, or a platform that cannot say -- so that the header shows
+	// nothing rather than a figure of zero.
+	CPU   float64 `json:"cpu,omitempty"`
+	RSS   uint64  `json:"rss,omitempty"`
+	Procs int     `json:"procs,omitempty"`
 }
 
 type noticeMsg struct {
@@ -172,6 +180,13 @@ func (s *Server) snapshot() stateMsg {
 		})
 	}
 
+	// Reading a pane's process tree is the one part of building this that
+	// costs anything, so it is left undone while no window is open to read the
+	// answer, the same way the branch labels are. The session package takes
+	// one reading of the process table every few seconds and shares it between
+	// every pane, so this does not get dearer as panes are opened.
+	sampleUsage := s.ClientCount() > 0
+
 	// Only the active project's tabs are rendered; the rest keep running.
 	for _, t := range ws.VisibleTabs() {
 		msg.Tabs = append(msg.Tabs, tabView{
@@ -206,6 +221,10 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
+				if sampleUsage {
+					u := p.Sess.Usage()
+					pv.CPU, pv.RSS, pv.Procs = u.CPUPercent, u.RSSBytes, u.Procs
+				}
 			}
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind

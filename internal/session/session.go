@@ -105,6 +105,13 @@ type Session struct {
 	// chunk it prints.
 	settling bool
 
+	// usage is the last reading of what the pane's process tree costs, usageAt
+	// is the process table it was taken from, and usageCPU is how much CPU each
+	// process in the tree had used by then.
+	usage    Usage
+	usageAt  time.Time
+	usageCPU map[int]time.Duration
+
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
 	subs    map[int]chan []byte
