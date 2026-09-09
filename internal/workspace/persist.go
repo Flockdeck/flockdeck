@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -127,12 +128,13 @@ func (w *Workspace) restoreProject(root string) int {
 		return 0
 	}
 
+	branches := branchesOf(paneDirs(st))
 	added := 0
 	// nearest is the last tab restored at or before the saved active one, so a
 	// tab that cannot be restored hands the window over to its neighbour.
 	var firstTab, activeTab, nearest string
 	for i, t := range st.Tabs {
-		tree := w.decodeNode(t.Root, root)
+		tree := w.decodeNode(t.Root, root, branches)
 		if tree == nil {
 			continue
 		}
@@ -241,8 +243,80 @@ func (w *Workspace) ensureProjectOpen(root string) {
 	w.restoreProject(root)
 }
 
+// paneDirs lists, once each, the directories a saved layout puts panes in.
+func paneDirs(st *store.State) []string {
+	seen := map[string]bool{}
+	var dirs []string
+	var walk func(n *store.Node)
+	walk = func(n *store.Node) {
+		if n == nil {
+			return
+		}
+		if n.Pane != nil {
+			if d := n.Pane.Cwd; d != "" && !seen[d] {
+				seen[d] = true
+				dirs = append(dirs, d)
+			}
+			return
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	for _, t := range st.Tabs {
+		walk(t.Root)
+	}
+	return dirs
+}
+
+// branchLookups is how many branches are asked for at once. Each one is a git
+// process, so this is not about CPU: it is about not queueing twenty process
+// starts behind each other while the window has nothing to draw.
+const branchLookups = 8
+
+// branchesOf works out which branch each directory is on.
+//
+// Every answer costs a git process, and starting one on Windows takes about
+// 80ms on the machine this was measured on. Asked one after another, a window
+// coming back with twenty agents spent a second and a half of its startup
+// waiting for them before anything was drawn. Nothing about them depends on
+// anything else, so they are asked together.
+func branchesOf(dirs []string) map[string]string {
+	out := make(map[string]string, len(dirs))
+	if len(dirs) == 0 {
+		return out
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	queue := make(chan string)
+	workers := branchLookups
+	if len(dirs) < workers {
+		workers = len(dirs)
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for dir := range queue {
+				branch := branchOf(dir)
+				mu.Lock()
+				out[dir] = branch
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, dir := range dirs {
+		queue <- dir
+	}
+	close(queue)
+	wg.Wait()
+	return out
+}
+
 // decodeNode rebuilds a layout subtree, starting a session for every pane.
-func (w *Workspace) decodeNode(n *store.Node, tabRoot string) *layout.Node {
+// branches holds the git branch of every directory the subtree puts a pane in,
+// worked out ahead of time so the restore does not stop for each one.
+func (w *Workspace) decodeNode(n *store.Node, tabRoot string, branches map[string]string) *layout.Node {
 	if n == nil {
 		return nil
 	}
@@ -264,7 +338,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string) *layout.Node {
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Cwd)
 		}
-		p.Branch = branchOf(p.Cwd)
+		p.Branch = branches[p.Cwd]
 		// A borrowed pane names a project that may not be open yet. Restoring
 		// the window as it was left means opening it: the alternative is a
 		// pane belonging to nothing, which nothing would stop when its project
@@ -305,7 +379,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string) *layout.Node {
 		node.Weight = n.Weight
 	}
 	for _, c := range n.Children {
-		if dec := w.decodeNode(c, tabRoot); dec != nil {
+		if dec := w.decodeNode(c, tabRoot, branches); dec != nil {
 			node.Children = append(node.Children, dec)
 		}
 	}

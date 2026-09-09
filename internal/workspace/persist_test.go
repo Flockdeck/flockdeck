@@ -2,11 +2,14 @@ package workspace
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
@@ -999,5 +1002,79 @@ func TestSaveKeepsEachProjectsOwnActiveTab(t *testing.T) {
 	}
 	if current.Title != "gamma" {
 		t.Errorf("tab on screen = %q, want the one that project was left on", current.Title)
+	}
+}
+
+// TestBranchesAreLookedUpTogether checks the branch of every directory a
+// restore is about to use is worked out at once rather than one pane at a
+// time, and that asking together gives the same answers as asking in turn.
+//
+// Each answer is a git process. On this machine one costs about 80ms, so a
+// window coming back with twenty agents spent a second and a half of its
+// startup on them, in a row, with nothing on screen.
+func TestBranchesAreLookedUpTogether(t *testing.T) {
+	repo := t.TempDir()
+	if err := exec.Command("git", "-C", repo, "init", "-b", "trunk").Run(); err != nil {
+		t.Skipf("git is not usable here: %v", err)
+	}
+	notARepo := t.TempDir()
+	dirs := []string{repo, notARepo, repo} // the repeat must not be asked twice
+
+	got := branchesOf(dirs)
+	if got[repo] != "trunk" {
+		t.Errorf("branch of the repository is %q, want trunk", got[repo])
+	}
+	if got[notARepo] != "" {
+		t.Errorf("branch of a directory that is not a repository is %q, want empty", got[notARepo])
+	}
+	if len(got) != 2 {
+		t.Errorf("looked up %d directories, want 2: the repeated one should be asked about once", len(got))
+	}
+
+	// The same answers, one at a time.
+	for _, dir := range dirs {
+		if want := branchOf(dir); got[dir] != want {
+			t.Errorf("branch of %s together = %q, one at a time = %q", dir, got[dir], want)
+		}
+	}
+}
+
+// TestRestoreAsksForEveryBranchAtOnce checks the concurrency reaches the
+// restore rather than only living in a helper nothing calls that way.
+func TestRestoreAsksForEveryBranchAtOnce(t *testing.T) {
+	repo := t.TempDir()
+	if err := exec.Command("git", "-C", repo, "init", "-b", "trunk").Run(); err != nil {
+		t.Skipf("git is not usable here: %v", err)
+	}
+	st := &store.State{}
+	for i := 0; i < 6; i++ {
+		st.Tabs = append(st.Tabs, store.Tab{
+			Root: &store.Node{Dir: "h", Children: []*store.Node{
+				{Pane: &store.Pane{ID: fmt.Sprint("a", i), Kind: "shell", Cwd: repo}},
+				{Pane: &store.Pane{ID: fmt.Sprint("b", i), Kind: "shell", Cwd: t.TempDir()}},
+			}},
+		})
+	}
+	dirs := paneDirs(st)
+	if len(dirs) != 7 {
+		t.Fatalf("paneDirs found %d directories, want 7: one repository shared by six tabs and six of their own", len(dirs))
+	}
+
+	serial := time.Now()
+	for _, dir := range dirs {
+		_ = branchOf(dir)
+	}
+	oneAtATime := time.Since(serial)
+
+	together := time.Now()
+	branches := branchesOf(dirs)
+	atOnce := time.Since(together)
+
+	if len(branches) != len(dirs) {
+		t.Fatalf("got %d branches for %d directories", len(branches), len(dirs))
+	}
+	t.Logf("%d directories: one at a time %v, together %v", len(dirs), oneAtATime, atOnce)
+	if atOnce > oneAtATime {
+		t.Errorf("asking together took %v, longer than asking one at a time (%v)", atOnce, oneAtATime)
 	}
 }
