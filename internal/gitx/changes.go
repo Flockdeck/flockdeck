@@ -32,11 +32,6 @@ func Changes(dir string) ([]FileChange, error) { return changes(dir, maxCounted)
 // changes is Changes with the counting limit given, so a test can reach it
 // without writing a thousand files.
 func changes(dir string, limit int) ([]FileChange, error) {
-	// -z is what makes the names trustworthy: without it git quotes anything
-	// with a space, a quote or a non-ASCII character and escapes the bytes, so
-	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
-	// It also puts a rename's old name in its own record rather than writing
-	// "old -> new", which a file genuinely called "a -> b" was mistaken for.
 	// None of the three calls needs an answer from the others, and each one is
 	// a process: run concurrently they cost one wait rather than three, which
 	// is what the panel notices on a checkout with a lot of changes in it.
@@ -57,6 +52,11 @@ func changes(dir string, limit int) ([]FileChange, error) {
 	// Line counts come from numstat, which status does not provide.
 	go func() { defer wg.Done(); staged = numstat(ctx, dir, true) }()
 	go func() { defer wg.Done(); unstaged = numstat(ctx, dir, false) }()
+	// -z is what makes the names trustworthy: without it git quotes anything
+	// with a space, a quote or a non-ASCII character and escapes the bytes, so
+	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
+	// It also puts a rename's old name in its own record rather than writing
+	// "old -> new", which a file genuinely called "a -> b" was mistaken for.
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
 	// One record per entry, plus one more for each rename's old name, so this
 	// runs a little ahead of the true count -- which is the safe direction for
