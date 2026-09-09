@@ -490,6 +490,50 @@ assert.ok(!btn.classList.contains("attention"), "the blocked project is the one 
 `)
 }
 
+// The palette is the one place every action can be reached from, so it is long
+// enough to scroll and long enough that rebuilding it is not free.
+func TestThePaletteMovesItsHighlightWithoutRebuilding(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette is open");
+
+const list = h.$("palette-list");
+const rows = list.children;
+assert.ok(rows.length > 20, "the palette lists the actions; got " + rows.length);
+assert.ok(rows[0].classList.contains("sel"), "the first row starts highlighted");
+
+// Arrowing down moves the highlight and brings it with it.
+const before = h.made();
+for (let i = 0; i < 15; i++) h.key({ key: "ArrowDown" });
+console.log("elements built by fifteen presses of the down arrow: " + (h.made() - before));
+assert.ok(list.children[15] === rows[15], "the list was built again to move the highlight");
+assert.ok(rows[15].classList.contains("sel"), "the highlight did not move");
+assert.ok(!rows[0].classList.contains("sel"), "the old highlight was left behind");
+assert.ok(rows[15].scrolledTo > 0, "the highlight was moved out of sight rather than scrolled to");
+
+// A pointer crossing the list is the same move, once per row.
+const crossing = h.made();
+for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mouseenter", {}));
+console.log("elements built by a pointer crossing ten rows: " + (h.made() - crossing));
+assert.ok(rows[9].classList.contains("sel"), "the pointer did not move the highlight");
+assert.ok(list.children[9] === rows[9], "the row under the pointer was replaced");
+
+// Enter runs whatever is highlighted, and typing narrows the list.
+h.$("palette-input").value = "worktree";
+h.$("palette-input").oninput();
+const hits = list.children;
+assert.ok(hits.length >= 1 && hits.length < rows.length, "the search did not narrow the list");
+assert.ok(hits[0].classList.contains("sel"), "the first hit is highlighted");
+assert.ok(hits[0].textContent.toLowerCase().includes("worktree"), "got: " + hits[0].textContent);
+h.key({ key: "Enter" });
+assert.ok(h.$("palette").hidden, "Enter did not close the palette");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -674,7 +718,7 @@ class Element {
   get offsetWidth() { return 100; }
   get offsetHeight() { return 20; }
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
-  scrollIntoView() {}
+  scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
 }
 
 function dashed(k) { return String(k).replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()); }

@@ -1819,6 +1819,9 @@
 
   let palItems = [];
   let palIndex = 0;
+  /** The rows on screen, so moving the highlight can move the highlight
+   *  rather than building the list again. */
+  let palRows = [];
 
   function paletteCommands() {
     const s = state || {};
@@ -1875,23 +1878,44 @@
 
     const list = $("palette-list");
     list.textContent = "";
+    palRows = [];
     if (!palItems.length) {
       list.append(el("div", "pal-empty", "No matching command."));
       return;
     }
     palItems.forEach((c, i) => {
-      const row = el("div", "pal-row" + (i === palIndex ? " sel" : ""));
+      const row = el("div", "pal-row");
       row.append(el("span", "pal-label", c.label));
       if (c.hint) row.append(el("span", "pal-hint", c.hint));
-      row.onmouseenter = () => { palIndex = i; renderPalette(); };
+      row.onmouseenter = () => selectPaletteRow(i);
       row.onclick = () => { closePalette(); c.run(); };
+      palRows.push(row);
       list.append(row);
     });
+    markPaletteRow();
+  }
+
+  /** selectPaletteRow moves the highlight. Building the list again to move it
+   *  destroyed the row the pointer was resting on, so a mouse crossing the
+   *  palette rebuilt every row in it for each row it passed; and forty rows
+   *  were assembled for each press of an arrow key. */
+  function selectPaletteRow(i) {
+    if (i === palIndex || i < 0 || i >= palRows.length) return;
+    palIndex = i;
+    markPaletteRow();
+  }
+
+  function markPaletteRow() {
+    palRows.forEach((row, i) => row.classList.toggle("sel", i === palIndex));
+    // The list is taller than the box it is in, so the highlight has to be
+    // brought along or arrowing down walks it off the bottom and out of sight.
+    const sel = palRows[palIndex];
+    if (sel) sel.scrollIntoView({ block: "nearest" });
   }
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); palIndex = Math.min(palIndex + 1, palItems.length - 1); renderPalette(); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); palIndex = Math.max(palIndex - 1, 0); renderPalette(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); selectPaletteRow(Math.min(palIndex + 1, palRows.length - 1)); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); selectPaletteRow(Math.max(palIndex - 1, 0)); return; }
     if (e.key === "Enter") {
       e.preventDefault();
       const c = palItems[palIndex];
