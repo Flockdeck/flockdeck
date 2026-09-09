@@ -1274,3 +1274,50 @@ func TestConversationsPickUpAPromptWrittenAfterTheFirstLook(t *testing.T) {
 		t.Errorf("summary = %q, want the prompt to replace the generated name", got)
 	}
 }
+
+// TestConversationsOfferAConversationThatMovedIntoAWorktree covers what this
+// application does to a session: it is started in a project and told to work
+// in a worktree of it, and Claude Code follows. The transcript is stored
+// under the worktree it ended in, while its entries record the directory it
+// began in. That folder is the only place `claude --resume` will find it, so
+// the worktree's history panel is the only place it can be offered -- and it
+// is a real conversation, an hour of somebody's work, not a stray.
+func TestConversationsOfferAConversationThatMovedIntoAWorktree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	project := filepath.Join(t.TempDir(), "flipping")
+	worktree := filepath.Join(project, ".claude-worktrees", "password-reset")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stored under the worktree, recording the project it was started in.
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(worktree)), "aaaaaaaa-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"in a worktree, implement password reset"}}`)
+	// The project's own folder, so its listing has rows of its own and does
+	// not go looking through other folders.
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(project)), "bbbbbbbb-9999-9999-9999-999999999999",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"work in the project itself"}}`)
+
+	got, err := Conversations(worktree)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("the worktree listed %d conversations, want the one stored under it: %+v", len(got), got)
+	}
+	if got[0].Summary != "in a worktree, implement password reset" {
+		t.Errorf("summary = %q", got[0].Summary)
+	}
+
+	got, err = Conversations(project)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "work in the project itself" {
+		t.Fatalf("the project listed %+v, want only what is stored under it", got)
+	}
+}

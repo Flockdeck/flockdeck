@@ -222,12 +222,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 			fresh[name] = facts[i]
 		}
 
-		// A transcript that names a different directory is a neighbour's,
-		// sharing this folder because the two paths derive the same name.
-		// Offering it here would resume somebody else's work in this project;
-		// one that names nowhere is an abandoned session and belongs to
-		// whoever asks.
-		if facts[i].cwd != "" && !sameDir(facts[i].cwd, cwd) {
+		if !ours(dir, facts[i].cwd, cwd) {
 			continue
 		}
 
@@ -249,6 +244,31 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string) []Conversati
 		return nil
 	}
 	return out
+}
+
+// ours reports whether a transcript in a project folder is this directory's
+// to offer, given the directory the transcript records.
+//
+// Everything in a folder is resumable from the path that folder is derived
+// from: that folder is where Claude Code looks for a conversation to resume.
+// So a transcript recording some other directory is still ours when that
+// directory would derive a folder of its own. It is a conversation that
+// started there and moved here -- which is what a session that begins in a
+// project and then goes to work in a worktree of it looks like, and it is
+// stored here and nowhere else, so here is the only place it can be offered.
+//
+// What is not ours is a transcript recording a directory that would derive
+// this very folder and is not this one. "my-app" and "my_app" mangle to the
+// same name and their conversations pile up together; offering one the
+// other's is offering to resume somebody else's work in the wrong tree.
+//
+// A transcript that records nowhere is an abandoned session and belongs to
+// whoever asks.
+func ours(dir, recorded, cwd string) bool {
+	if recorded == "" || sameDir(recorded, cwd) {
+		return true
+	}
+	return projectSlug(recorded) != filepath.Base(dir)
 }
 
 // readTranscripts runs read over each of n transcripts, a few at a time.
