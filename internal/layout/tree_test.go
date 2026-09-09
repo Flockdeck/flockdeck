@@ -2121,3 +2121,75 @@ func TestAWeightThatIsNotANumberIsAnEqualShare(t *testing.T) {
 		}
 	}
 }
+
+// TestResizeTakesTheRoomFromTheNextPaneAlong pins which pane pays. Growing a
+// pane in the middle of a row has to move the divider on its right, leaving
+// everything to its left where it was; taking the room from the pane before it
+// instead would grow the right pane just as much while sliding the whole row
+// under the user's hands.
+func TestResizeTakesTheRoomFromTheNextPaneAlong(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Horizontal)
+	view := Rect{X: 0, Y: 0, W: 300, H: 10}
+	root.Compute(view)
+	was := [3]Rect{root.Find("a").Rect(), root.Find("b").Rect(), root.Find("c").Rect()}
+
+	if !root.Resize("b", Horizontal, 0.5) {
+		t.Fatal("growing the middle pane failed")
+	}
+	root.Compute(view)
+	a, b, c := root.Find("a").Rect(), root.Find("b").Rect(), root.Find("c").Rect()
+
+	if a != was[0] {
+		t.Errorf("the pane before it went from %+v to %+v, want it left alone", was[0], a)
+	}
+	if b.W <= was[1].W {
+		t.Errorf("the pane being grown went from %d to %d columns", was[1].W, b.W)
+	}
+	if c.W >= was[2].W {
+		t.Errorf("the pane after it went from %d to %d columns, want it to have paid", was[2].W, c.W)
+	}
+}
+
+// TestResizeReachesTheSplitThatCanGive covers a pane with no sibling on the
+// axis being resized: the pane below it cannot give it width, so the width has
+// to come from the column the two of them are in.
+func TestResizeReachesTheSplitThatCanGive(t *testing.T) {
+	// Layout:  a | b
+	//          a | c
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Vertical)
+	view := Rect{X: 0, Y: 0, W: 300, H: 20}
+	root.Compute(view)
+	wasA, wasB, wasC := root.Find("a").Rect().W, root.Find("b").Rect().W, root.Find("c").Rect().W
+
+	if !root.Resize("b", Horizontal, 0.5) {
+		t.Fatal("growing a pane nested in a column failed")
+	}
+	root.Compute(view)
+	a, b, c := root.Find("a").Rect().W, root.Find("b").Rect().W, root.Find("c").Rect().W
+
+	if b <= wasB {
+		t.Errorf("b went from %d to %d columns, want it wider", wasB, b)
+	}
+	if a >= wasA {
+		t.Errorf("a went from %d to %d columns, want it to have paid", wasA, a)
+	}
+	// c shares b's column, so it moved with it rather than being squeezed.
+	if c != b || c-wasC != b-wasB {
+		t.Errorf("c went from %d to %d columns while b went from %d to %d; they share a column",
+			wasC, c, wasB, b)
+	}
+
+	// b and c are stacked, so height is theirs to trade between them.
+	if !root.Resize("b", Vertical, 0.5) {
+		t.Error("b should be able to take height from c")
+	}
+	// a is the full height of the tab and nothing is stacked with it, so there
+	// is no height anywhere for it to take.
+	if root.Resize("a", Vertical, 0.5) {
+		t.Error("a has nothing stacked with it, so there is no height to take")
+	}
+}
