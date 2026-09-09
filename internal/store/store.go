@@ -102,7 +102,7 @@ func Dir() (string, error) {
 var stateDir = func() func(base string) string {
 	var (
 		mu     sync.Mutex
-		for_   string
+		under  string
 		chosen string
 	)
 	return func(base string) string {
@@ -110,11 +110,11 @@ var stateDir = func() func(base string) string {
 		defer mu.Unlock()
 		// Keyed on the base, because the tests move it: a remembered answer
 		// for somewhere else is no answer at all.
-		if chosen != "" && for_ == base {
+		if chosen != "" && under == base {
 			return chosen
 		}
 		chosen = adoptLegacyDir(base, filepath.Join(base, "perch"))
-		for_ = base
+		under = base
 		return chosen
 	}
 }()
@@ -425,10 +425,18 @@ func writeAtomic(path string, data []byte) error {
 // Syncing the file only promises its contents are there; the rename that gives
 // them their name is a change to the directory, and on a crash before that
 // reaches disk the file reverts to the version before this write. Failures are
-// ignored: the rename has already happened, so the write did succeed, and the
-// call is not supported at all on Windows, where the file system journals the
-// rename regardless.
+// ignored: the rename has already happened, so the write did succeed.
+//
+// Windows is left out rather than left to fail. FlushFileBuffers wants a
+// handle opened for writing and a directory cannot be opened that way here, so
+// the call is refused every time — and it was still paid for on every write:
+// an open, a refusal and a close, a fifth of a millisecond each. The file
+// system journals the rename regardless, which is why there was nothing to
+// ask for in the first place.
 func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if dir == "" {
 		dir = "."
 	}
