@@ -100,6 +100,7 @@ func rememberFacts(dir string, facts map[string]transcriptFacts) {
 type transcriptLine struct {
 	Type    string `json:"type"`
 	Cwd     string `json:"cwd"`
+	AiTitle string `json:"aiTitle"`
 	Message struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
@@ -461,7 +462,13 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
 	} else {
-		now.summary, now.cwd = openingPrompt(f)
+		var title string
+		now.summary, title, now.cwd = openingPrompt(f)
+		if now.summary == "" {
+			// Nothing was typed here that a person would recognise the
+			// conversation by, but Claude Code may have named it.
+			now.summary = title
+		}
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return now
 		}
@@ -473,13 +480,15 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 	return now
 }
 
-// openingPrompt reads the first thing the user asked and the working
-// directory the transcript records, looking only at the opening entries.
+// openingPrompt reads the first thing the user asked, the name Claude Code
+// gave the conversation, and the working directory the transcript records,
+// looking only at the opening entries.
 //
-// The two come back together because they are found in the same walk: every
+// All three come back together because they are found in the same walk: every
 // entry carries the directory, so the one holding the prompt almost always
-// carries it too, and reading it costs nothing extra.
-func openingPrompt(r io.Reader) (prompt, cwd string) {
+// carries it too, and the name is written near the top, so reading them costs
+// nothing extra.
+func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 	lines := newTranscriptReader(r)
 	for i := 0; i < summaryScanLimit; i++ {
 		raw, ok := lines.next()
@@ -493,14 +502,22 @@ func openingPrompt(r io.Reader) (prompt, cwd string) {
 		if cwd == "" {
 			cwd = line.Cwd
 		}
+		if line.Type == "ai-title" {
+			// Claude Code renames a conversation as it goes, so the last name
+			// it settled on is the one that describes it.
+			if named := firstPrompt(line.AiTitle); named != "" {
+				title = named
+			}
+			continue
+		}
 		if line.Type != "user" || line.Message.Role != "user" {
 			continue
 		}
 		if text := contentText(line.Message.Content); text != "" {
-			return text, cwd
+			return text, title, cwd
 		}
 	}
-	return "", cwd
+	return "", title, cwd
 }
 
 // countNewlines counts the line breaks in what is left of a reader, and

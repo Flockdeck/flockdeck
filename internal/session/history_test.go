@@ -894,3 +894,42 @@ func TestConversationsSeeAFolderThatFillsUp(t *testing.T) {
 		t.Fatalf("the conversation that appeared was not found: %+v", got)
 	}
 }
+
+// TestConversationsFallBackToTheNameClaudeGaveIt covers the rows that could
+// say nothing about themselves. A session that was opened and never prompted
+// leaves a transcript holding only the name Claude Code gave it, and a row
+// reading "(no prompt recorded)" next to a date is not something anyone can
+// pick out of a list. The name is right there in the file.
+func TestConversationsFallBackToTheNameClaudeGaveIt(t *testing.T) {
+	cwd, dir := historyFixture(t, "named")
+
+	// Opened, named, never used.
+	writeTranscript(t, dir, "aaaaaaaa-3333-3333-3333-333333333333",
+		`{"type":"ai-title","aiTitle":"login-success","sessionId":"aaaaaaaa-3333-3333-3333-333333333333"}`,
+		`{"type":"agent-name","agentName":"login-success"}`)
+
+	// Named, then used: what the person typed wins, and a name Claude
+	// settled on later does not overwrite it.
+	writeTranscript(t, dir, "bbbbbbbb-3333-3333-3333-333333333333",
+		`{"type":"ai-title","aiTitle":"Some generated title"}`,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"what I actually asked"}}`,
+		`{"type":"ai-title","aiTitle":"A better generated title"}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d conversations, want 2", len(got))
+	}
+	byID := map[string]string{}
+	for _, c := range got {
+		byID[c.ID] = c.Summary
+	}
+	if got := byID["aaaaaaaa-3333-3333-3333-333333333333"]; got != "login-success" {
+		t.Errorf("summary = %q, want the name Claude Code gave the conversation", got)
+	}
+	if got := byID["bbbbbbbb-3333-3333-3333-333333333333"]; got != "what I actually asked" {
+		t.Errorf("summary = %q, want the prompt rather than the generated name", got)
+	}
+}
