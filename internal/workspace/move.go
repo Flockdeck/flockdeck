@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
 )
 
 // Rearranging panes moves live sessions between positions and between tabs.
@@ -155,16 +154,11 @@ func (w *Workspace) MovePaneToNewTab(paneID string) error {
 	if src.Tree.Count() <= 1 {
 		return fmt.Errorf("that pane already has a tab to itself")
 	}
-	// A tab named after its directory tells the user nothing once several are
-	// open, and a pane is pulled out into its own tab precisely when several
-	// are. What the agent was spawned to do names it far better; failing that,
-	// leave the tab open to being named by the next thing it is asked, exactly
-	// as a tab created from scratch would be.
+	// The tab stays with the project the pane was pulled out of, which is the
+	// tab bar the user is looking at, whatever project the agent itself
+	// belongs to.
 	root := src.Root
-	title, auto := summarisePrompt(p.Task), false
-	if title == "" {
-		title, auto = p.Name, p.Kind == session.KindClaude
-	}
+	title, auto := paneTabTitle(p)
 
 	w.detachPane(paneID)
 	t := &Tab{

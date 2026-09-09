@@ -464,12 +464,23 @@ func (w *Workspace) CloseProject(root string) {
 	_ = w.SaveProject(root)
 
 	kept := make([]*Tab, 0, len(w.Tabs))
+	// Tabs made to hold agents that were being shown here but belong to a
+	// project that stays open. They are appended once the surviving tabs are
+	// known, so they come out last among their own project's tabs.
+	var rescued []*Tab
 	for _, t := range w.Tabs {
 		if t.Root == root {
-			// The tab goes, and everything drawn on it goes with it —
-			// including a pane borrowed from another project, which would
-			// otherwise be left running with nowhere to be shown.
+			// The tab goes, and this project's agents go with it. One borrowed
+			// from a project that is still open is not this project's to stop:
+			// closing a window onto an agent is not the same as ending it, so
+			// it is given a tab of its own back in the project it works in.
 			for _, id := range t.Tree.Panes() {
+				if home := w.rootOf(id); !sameDir(home, root) && w.isOpen(home) {
+					if moved := w.tabHolding(id, home); moved != nil {
+						rescued = append(rescued, moved)
+						continue
+					}
+				}
 				w.destroyPane(id)
 			}
 			continue
@@ -496,7 +507,7 @@ func (w *Workspace) CloseProject(root string) {
 		}
 		kept = append(kept, t)
 	}
-	w.Tabs = kept
+	w.Tabs = append(kept, rescued...)
 
 	roots := make([]string, 0, len(w.openRoots))
 	for _, r := range w.openRoots {
@@ -640,6 +651,38 @@ func summarisePrompt(prompt string) string {
 		}
 	}
 	return strings.TrimSpace(string(r[:cut])) + "…"
+}
+
+// tabHolding builds a tab in project root holding a single pane, named the way
+// a pane pulled out into a tab of its own is named.
+func (w *Workspace) tabHolding(paneID, root string) *Tab {
+	p := w.Pane(paneID)
+	if p == nil {
+		return nil
+	}
+	title, auto := paneTabTitle(p)
+	return &Tab{
+		ID:        uuid.NewString(),
+		Root:      root,
+		Title:     title,
+		Tree:      layout.NewLeaf(paneID),
+		Focus:     paneID,
+		AutoTitle: auto,
+	}
+}
+
+// paneTabTitle names a tab that exists to hold one pane.
+//
+// A tab named after its directory tells the user nothing once several are
+// open, and a pane ends up alone in a tab precisely when several are. What the
+// agent was spawned to do names it far better; failing that, leave the tab
+// open to being named by the next thing it is asked, exactly as a tab created
+// from scratch would be.
+func paneTabTitle(p *Pane) (title string, auto bool) {
+	if title = summarisePrompt(p.Task); title != "" {
+		return title, false
+	}
+	return p.Name, p.Kind == session.KindClaude
 }
 
 // Pane returns the pane with the given id.

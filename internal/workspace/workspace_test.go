@@ -371,3 +371,52 @@ func TestRemovingOnePaneFromTheDefaultKeepsTheRest(t *testing.T) {
 		t.Errorf("%d other panes are still selected, want the one that was not deselected", others)
 	}
 }
+
+// TestClosingAProjectSpareTheOtherProjectsAgents covers closing the project
+// whose tab was only lending the space: the agent shown there belongs to a
+// project that is still open, and closing a window onto an agent is not the
+// same as ending it.
+func TestClosingAProjectSparesTheOtherProjectsAgents(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+
+	borrowed := borrowedPane(t, ws, ws.CurrentTab())
+	if borrowed == nil {
+		t.Fatal("no pane of the second project on the first project's tab")
+	}
+	host := ""
+	for _, id := range ws.CurrentTab().Tree.Panes() {
+		if id != borrowed.ID {
+			host = id
+		}
+	}
+	if host == "" {
+		t.Fatal("the tab has no pane of its own project")
+	}
+
+	ws.CloseProject(first)
+
+	if ws.Pane(borrowed.ID) == nil {
+		t.Fatal("the agent was stopped along with a project it does not belong to")
+	}
+	if !borrowed.Alive() {
+		t.Error("the rescued agent's process was killed")
+	}
+	tab := ws.tabOf(borrowed.ID)
+	if tab == nil {
+		t.Fatal("the rescued agent is on no tab")
+	}
+	if !sameDir(tab.Root, second) {
+		t.Errorf("the rescued agent's tab belongs to %q, want its own project %q", tab.Root, second)
+	}
+	// The closed project's own agent is gone, and so is every tab of it.
+	if ws.Pane(host) != nil {
+		t.Error("the closed project's own agent is still running")
+	}
+	for _, other := range ws.Tabs {
+		if sameDir(other.Root, first) {
+			t.Errorf("tab %q of the closed project is still open", other.Title)
+		}
+	}
+}
