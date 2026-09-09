@@ -116,6 +116,47 @@ func path(root string) (string, error) {
 	return filepath.Join(dir, "layout-"+hashRoot(root)+".json"), nil
 }
 
+// legacyPath returns the layout file a root was saved under before roots were
+// normalized on their way into the hash. Those builds hashed the root exactly
+// as it was spelled, so on the platforms that fold case the upgrade moved the
+// file name out from under every saved layout: the app looked up a name
+// nothing had ever been written to, found nothing, and opened an empty
+// workspace while the layout it should have restored sat beside it under the
+// old name.
+//
+// It returns "" where the two names cannot differ, which is every platform
+// that does not fold case and every root already spelled in normal form.
+func legacyPath(root string) (string, error) {
+	clean := filepath.Clean(root)
+	if clean == normalizeRoot(root) {
+		return "", nil
+	}
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "layout-"+hashString(clean)+".json"), nil
+}
+
+// readLegacy returns the contents of a layout saved under the
+// pre-normalization name, along with the path it was read from so the caller
+// can adopt it once it has been checked. A missing file is the ordinary case:
+// it simply means nothing was saved under the old name either.
+func readLegacy(root string) (string, []byte, error) {
+	old, err := legacyPath(root)
+	if err != nil {
+		return "", nil, err
+	}
+	if old == "" {
+		return "", nil, fs.ErrNotExist
+	}
+	data, err := os.ReadFile(old)
+	if err != nil {
+		return "", nil, err
+	}
+	return old, data, nil
+}
+
 // normalizeRoot puts a workspace path into the one form used for comparing and
 // hashing roots. Roots reach us from a directory picker, the command line and
 // saved state, so the same project can arrive as "C:\Repo\App\" one run and
@@ -137,6 +178,12 @@ func Load(root string) (*State, error) {
 		return nil, err
 	}
 	data, err := os.ReadFile(p)
+	// Nothing under the name in use now may only mean this layout was last
+	// saved by a build that named it differently.
+	legacy := ""
+	if errors.Is(err, fs.ErrNotExist) {
+		legacy, data, err = readLegacy(root)
+	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -158,6 +205,14 @@ func Load(root string) (*State, error) {
 	// have nothing to check and are taken as they are.
 	if s.Root != "" && !sameRoot(s.Root, root) {
 		return nil, nil
+	}
+	// Only once the layout has been shown to be this project's is the old file
+	// moved to the name in use now, so a rejected one is left where it is
+	// rather than being renamed over this project's name. Moving it is best
+	// effort: a layout that cannot be renamed has still been read, and failing
+	// to tidy the old file away matters far less than losing the tabs it holds.
+	if legacy != "" {
+		_ = os.Rename(legacy, p)
 	}
 	return &s, nil
 }
@@ -266,15 +321,18 @@ func renameWithRetry(src, dst string) error {
 
 // hashRoot turns a path into a short stable filename component.
 func hashRoot(root string) string {
-	root = normalizeRoot(root)
-	// FNV-1a, inlined to keep the dependency surface small.
+	return hashString(normalizeRoot(root))
+}
+
+// hashString is FNV-1a, inlined to keep the dependency surface small.
+func hashString(s string) string {
 	const (
 		offset = 14695981039346656037
 		prime  = 1099511628211
 	)
 	h := uint64(offset)
-	for i := 0; i < len(root); i++ {
-		h ^= uint64(root[i])
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
 		h *= prime
 	}
 	return fmt.Sprintf("%016x", h)

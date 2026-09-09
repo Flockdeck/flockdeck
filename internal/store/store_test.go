@@ -2,7 +2,9 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1015,5 +1017,143 @@ func TestSameRootDecidesWhatCountsAsOneProject(t *testing.T) {
 	name := "layout-" + hashRoot(a) + ".json"
 	if len(name) != len("layout-")+16+len(".json") {
 		t.Errorf("layout file %q is not the expected layout-<16 hex>.json", name)
+	}
+}
+
+// skipUnlessRootsFold skips a test on the platforms where a root is hashed
+// exactly as it is spelled, and so where the old and new layout names can
+// never differ.
+func skipUnlessRootsFold(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("roots are only folded where the filesystem folds case")
+	}
+}
+
+// writeLayoutAt saves a state directly to a named file, standing in for a
+// build that named layouts differently from the one under test.
+func writeLayoutAt(t *testing.T, path string, s *State) {
+	t.Helper()
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		t.Fatalf("encode layout: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+}
+
+// TestLoadAdoptsALayoutSavedUnderTheOldName covers the upgrade that started
+// normalizing roots before hashing them. That changed the file name every
+// layout was stored under, so without this the first run of the new build
+// opens an empty workspace and the real one is never looked at again.
+func TestLoadAdoptsALayoutSavedUnderTheOldName(t *testing.T) {
+	isolateConfig(t)
+	skipUnlessRootsFold(t)
+
+	root := filepath.Join(t.TempDir(), "Repo", "App")
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	if old == "" {
+		t.Fatal("root is already in normal form, so it cannot exercise the old name")
+	}
+	current, err := path(root)
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	if old == current {
+		t.Fatal("old and new names match, so there is no upgrade to test")
+	}
+	writeLayoutAt(t, old, &State{
+		Version: Version,
+		Root:    filepath.Clean(root),
+		Tabs:    []Tab{{Title: "last night"}},
+	})
+
+	got, err := Load(root)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got == nil {
+		t.Fatal("upgrading lost the saved layout")
+	}
+	if len(got.Tabs) != 1 || got.Tabs[0].Title != "last night" {
+		t.Errorf("restored %+v, want the single tab that was saved", got.Tabs)
+	}
+
+	// The layout is moved rather than copied, so the next save writes to one
+	// file and a later run does not have two to choose between.
+	if _, err := os.Stat(current); err != nil {
+		t.Errorf("layout was not moved to the name in use now: %v", err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("layout under the old name = %v, want it moved away", err)
+	}
+}
+
+// TestLoadPrefersTheNameInUseNow checks the migration cannot undo later work:
+// once the new build has saved, that is the layout, and a stale file left
+// under the old name must not come back.
+func TestLoadPrefersTheNameInUseNow(t *testing.T) {
+	isolateConfig(t)
+	skipUnlessRootsFold(t)
+
+	root := filepath.Join(t.TempDir(), "Repo", "App")
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	writeLayoutAt(t, old, &State{
+		Version: Version,
+		Root:    filepath.Clean(root),
+		Tabs:    []Tab{{Title: "stale"}},
+	})
+	if err := Save(root, &State{Tabs: []Tab{{Title: "current"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := Load(root)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got == nil || len(got.Tabs) != 1 || got.Tabs[0].Title != "current" {
+		t.Fatalf("restored %+v, want the layout saved under the name in use now", got)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("file under the old name = %v, want it left untouched", err)
+	}
+}
+
+// TestLoadLeavesAnotherProjectsLegacyLayoutAlone checks the root recorded in a
+// layout is still what decides whether it is this project's, on the migration
+// path too. A file reached only through a hash collision must be neither
+// restored nor renamed over this project's name, which would lose it for the
+// project it really belongs to.
+func TestLoadLeavesAnotherProjectsLegacyLayoutAlone(t *testing.T) {
+	isolateConfig(t)
+	skipUnlessRootsFold(t)
+
+	root := filepath.Join(t.TempDir(), "Repo", "App")
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	writeLayoutAt(t, old, &State{
+		Version: Version,
+		Root:    filepath.Clean(filepath.Join(t.TempDir(), "Other", "Project")),
+		Tabs:    []Tab{{Title: "someone else's"}},
+	})
+
+	got, err := Load(root)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != nil {
+		t.Errorf("restored %+v, want nothing for a layout belonging to another root", got)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("other project's layout = %v, want it left where it was", err)
 	}
 }
