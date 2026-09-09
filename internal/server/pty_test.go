@@ -23,7 +23,9 @@ func streamPair(t *testing.T, replay []byte, out <-chan []byte) *websocket.Conn 
 			return
 		}
 		defer conn.CloseNow()
-		streamOutput(r.Context(), conn, replay, out)
+		if streamOutput(r.Context(), conn, replay, out) {
+			_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
+		}
 	}))
 	t.Cleanup(srv.Close)
 
@@ -226,4 +228,74 @@ func BenchmarkStreamBurst(b *testing.B) {
 			b.ReportMetric(float64(frames)/float64(b.N), "frames/op")
 		})
 	}
+}
+
+// dialPTY opens an authorised terminal socket for a pane.
+func dialPTY(t *testing.T, srv *Server, paneID string) *websocket.Conn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx,
+		"ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+paneID, nil)
+	if err != nil {
+		t.Fatalf("dial pty: %v", err)
+	}
+	conn.SetReadLimit(16 << 20)
+	t.Cleanup(func() { conn.CloseNow() })
+	return conn
+}
+
+// awaitOutput types a line into a terminal socket until its marker comes back,
+// which is the only reliable signal that the process behind the pane is
+// listening. It returns once the marker has been seen.
+func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			if err := conn.Write(ctx, websocket.MessageBinary, []byte(line)); err != nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}()
+
+	var seen strings.Builder
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read pty waiting for %q: %v\nsaw:\n%s", marker, err, seen.String())
+		}
+		seen.Write(data)
+		if strings.Contains(seen.String(), marker) {
+			return
+		}
+	}
+}
+
+// TestTerminalSocketFollowsARestartedPane covers restarting an agent. The pane
+// keeps its id and its place on screen, so the terminal socket serving it has
+// no reason to be torn down; before this it was, and an exited pane was
+// redialled several times a second, replaying its whole history each time.
+func TestTerminalSocketFollowsARestartedPane(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	st := nextState(t, ctl, nil)
+	paneID := st.Tabs[0].Root.Pane
+
+	pty := dialPTY(t, srv, paneID)
+	awaitOutput(t, pty, "echo before_restart\r", "before_restart")
+
+	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
+
+	// The same socket, never reconnected, must reach the new process.
+	awaitOutput(t, pty, "echo after_restart\r", "after_restart")
 }
