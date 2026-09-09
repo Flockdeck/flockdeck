@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/session"
 )
 
@@ -313,6 +314,8 @@ func (c PaneContext) Render() string {
 			"working on this one.\n", strings.Join(c.OtherProjects, ", "))
 	}
 
+	writeCapabilities(&b)
+
 	if c.CanSpawn && !c.Shell {
 		// The examples name the command that will actually run here. A copy
 		// that has not been installed is not on PATH, and an agent given
@@ -345,6 +348,8 @@ func (c PaneContext) Render() string {
 			"yours — not this context, not the task you were given, not what you have " +
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
 			"the user asks for parallel work, not on your own initiative.\n")
+
+		writeCommandLine(&b, perch)
 	}
 
 	b.WriteString("\n## The user's view\n\n" +
@@ -354,6 +359,139 @@ func (c PaneContext) Render() string {
 		"meant for a different pane, answer for your own directory and branch.\n")
 
 	return b.String()
+}
+
+// writeCapabilities describes the application the agent is running inside.
+//
+// An agent told only that it is in "Perch" has been told the name of something
+// it cannot use. Two kinds of thing are written here. The first is the
+// behaviour that changes how an agent should work: a status the user is
+// watching, a fan-out that reads the agent's own output, a commit button that
+// takes the working tree whole. The second is the plain list of what the
+// interface can do, so that a user who asks how to do something is answered by
+// the agent in front of them rather than sent to the help.
+//
+// The shortcuts are not written out by hand. They come from the one table the
+// command palette and the help pages are drawn from, so a rebinding cannot be
+// made there and left stale here.
+func writeCapabilities(b *strings.Builder) {
+	b.WriteString("\n## What Perch can do\n\n" +
+		"Some of this changes how you should work; the rest is here so that a user who asks " +
+		"how to do something gets an answer from you.\n\n")
+
+	fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
+		"is started with a generated `--settings` file registering Claude Code's lifecycle "+
+		"hooks — your own settings, hooks and permissions still apply on top — and Perch reads "+
+		"your state from those rather than from your output: green while you work, amber while "+
+		"you wait on the user, grey between turns, red once the process exits. A pane that is "+
+		"waiting marks its tab and the window title, and raises a desktop notification when the "+
+		"window is not in front. The pane header names the tool you are running while it runs. "+
+		"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
+
+	fmt.Fprintf(b, "**Fan out turns your own output into agents.** %s reads the list your last "+
+		"message ends with, hands the user an editable copy of it, and starts one agent per "+
+		"line — up to twelve, each in a git worktree and branch of its own, each given its line "+
+		"as its opening prompt. A plan written as one self-contained task per line can be run "+
+		"as it stands; a plan written as prose has to be rewritten before it can be, so write "+
+		"one that way when it is going to be handed to other agents.\n\n", how("fanout"))
+
+	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s mirrors what the user "+
+		"types into a set of panes — by default the agents on the current tab, adjusted with "+
+		"the `⇉` button in each pane header — and %s sends that set one composed message at "+
+		"once.\n\n", how("toggleBroadcast"), how("promptAll"))
+
+	fmt.Fprintf(b, "**Git has a home in the window.** %s shows the diff of the checkout this "+
+		"pane is working in, and commits, pushes, pulls and fetches it. Nothing is staged "+
+		"selectively there: a commit takes the working tree as it stands, so unrelated edits "+
+		"left lying about go in with it. %s lists every worktree with its branch, the agents "+
+		"working in it, its uncommitted files and how far it stands from upstream; it creates "+
+		"one for a new branch, and opens an agent, a shell or a diff in any of them. Every pane "+
+		"header carries the same for its own checkout.\n\n", how("changes"), how("worktrees"))
+
+	fmt.Fprintf(b, "**A pane and its conversation are one thing.** %s starts the process again "+
+		"in the same directory and resumes this conversation, which is the repair for an agent "+
+		"that has wedged itself rather than a way to clear the screen; %s ends it. Layouts, "+
+		"projects and conversations are restored on the next run, %s closes the window and "+
+		"leaves every agent running, and %s reopens a stored transcript in a tab. Panes are "+
+		"moved rather than recreated: dragged to another edge, another tab or a tab of their "+
+		"own, nothing restarts and the conversation, directory and scrollback come with "+
+		"them.\n\n", how("restartPane"), how("closePane"), how("detach"), how("history"))
+
+	fmt.Fprintf(b, "**Several projects are open at once**, each with its own tabs, layout and "+
+		"restored conversations. %s switches between them, which stops nothing: the other "+
+		"project's agents keep working, and a pane can be split into another project while "+
+		"staying on this tab.\n\n", how("projects"))
+
+	fmt.Fprintf(b, "Every action there is, and the keys for it. The ones marked "+
+		"(command palette) have no binding of their own; %s searches the whole list:\n\n",
+		how("palette"))
+	for _, section := range help.Sections {
+		var parts []string
+		for _, k := range help.InSection(section) {
+			if k.Keys == "" {
+				parts = append(parts, k.Name()+" (command palette)")
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s `%s`", k.Name(), k.Keys))
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "- **%s** — %s\n", section, strings.Join(parts, "; "))
+	}
+}
+
+// writeCommandLine documents what the pane carries in its environment and what
+// the rest of the command line does.
+//
+// `spawn` is the part of it meant for an agent, and it has a section of its
+// own. This is here so that the rest is recognised rather than experimented
+// with: `-quit` reads like a way to end this pane and is a way to end every
+// agent in every project, and an agent that has never been told about
+// `PERCH_PANE_NAME` cannot answer the user asking how to put it in a prompt.
+func writeCommandLine(b *strings.Builder, perch string) {
+	fmt.Fprintf(b, "\n## Perch from the shell\n\n"+
+		"The rest of the command line operates the application itself. It reaches the "+
+		"instance already running rather than starting a second one:\n\n"+
+		"```sh\n"+
+		"%s -C ~/code/api   # open another project in this window\n"+
+		"%s -detach         # close the window, leave every agent running\n"+
+		"%s -quit           # stop every agent in every project\n"+
+		"```\n\n"+
+		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
+		"along with your own. `-new`, `-shell`, `-solo`, `-no-window` and `-version` shape a "+
+		"fresh start and mean nothing from in here, and `PERCH_BROWSER` picks the browser that "+
+		"provides the window. The interface is a local page: Perch serves it on `127.0.0.1` on "+
+		"a random port, behind a token generated for each run, and exposes nothing to the "+
+		"network.\n\n", perch, perch, perch)
+
+	b.WriteString("Your pane carries the rest in its environment:\n\n" +
+		"| Variable | What it is |\n" +
+		"| --- | --- |\n" +
+		"| `PERCH_API` | where Perch listens for its panes |\n" +
+		"| `PERCH_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
+		"| `PERCH_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
+		"| `PERCH_PANE_NAME` | this pane's name |\n" +
+		"| `PERCH_PROJECT` | the project directory this pane belongs to |\n\n" +
+		"`spawn` reads the first three, which is why it works from inside a pane and nowhere " +
+		"else. The same values are set under the older `AGENT_WRAPPER_*` names as well, for " +
+		"anything written before the application was renamed.\n")
+}
+
+// how names an action as prose calls it and says how it is reached, from the
+// same table the palette and the help pages read.
+func how(id string) string {
+	k, ok := help.Lookup(id)
+	if !ok {
+		// An id that has been renamed out from under this text should read as
+		// the gap it is, rather than quietly leaving a sentence describing a
+		// feature with no way to reach it.
+		return id
+	}
+	if k.Keys == "" {
+		return k.Name() + " (command palette)"
+	}
+	return k.Name() + " (" + k.Keys + ")"
 }
 
 // describe renders one sibling as a single line.

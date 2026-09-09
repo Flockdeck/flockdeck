@@ -299,7 +299,15 @@ So every Claude pane is told, in its own words, at the start of its session:
 - which other agents are running beside it, where each of them is working, and
   what each was asked for — and that their conversations are separate, so
   nothing passes between panes except through the user or a commit;
-- that it can start agents of its own with `perch spawn`.
+- that it can start agents of its own with `perch spawn`;
+- what the application around it can do — the status the user is watching, the
+  fan-out that reads its own output, broadcast, the diff and the worktree
+  panel, what a restart keeps — with the keys for each, taken from the same
+  table the command palette and the help pages are drawn from, so a user who
+  asks how to do something is answered by the agent in front of them;
+- what its pane carries in its environment, and what the rest of the command
+  line does — including that `-quit` stops every agent in every project rather
+  than only this pane.
 
 It is one more Claude Code lifecycle hook, `SessionStart`, answered by the same
 loopback server that receives the status events. The reply is returned as

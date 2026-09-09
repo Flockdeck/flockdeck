@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
 )
@@ -789,5 +790,71 @@ func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
 		if !strings.Contains(text, want+" spawn ") {
 			t.Errorf("the examples do not run %s:\n%s", want, text)
 		}
+	}
+}
+
+// TestRenderNamesEveryActionTheInterfaceHas keeps the description of the
+// application whole as the application grows. An action added to the palette
+// and left out of here is one the agent beside the user will never mention,
+// which is the failure this section exists to prevent.
+func TestRenderNamesEveryActionTheInterfaceHas(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, k := range help.Keys {
+		if !strings.Contains(text, k.Name()) {
+			t.Errorf("the context never mentions %q", k.Name())
+		}
+		if k.Keys != "" && !strings.Contains(text, k.Keys) {
+			t.Errorf("the context gives no binding for %q; the table says %s", k.Name(), k.Keys)
+		}
+	}
+}
+
+// TestRenderExplainsTheFeaturesThatChangeHowAnAgentWorks covers the other half
+// of that section: naming a feature is not saying what it means for the agent
+// reading about it. Each of these is a fact that changes what an agent should
+// do, not a key for it to pass on.
+func TestRenderExplainsTheFeaturesThatChangeHowAnAgentWorks(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, want := range []string{
+		"amber",                     // the status the user is watching for
+		"one agent per line",        // what fan-out does with a plan
+		"working tree as it stands", // what the commit button takes
+		"resumes this conversation", // what restarting a pane keeps
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the capabilities section does not say %q:\n%s", want, text)
+		}
+	}
+}
+
+// TestRenderDocumentsThePaneEnvironment covers what a pane carries for the
+// processes inside it. A shell pane has no lifecycle hooks and these variables
+// are all it has to go on, so the agent that is asked how to read one has to
+// have been told they exist.
+func TestRenderDocumentsThePaneEnvironment(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, want := range []string{
+		"PERCH_API", "PERCH_TOKEN", "PERCH_PANE", "PERCH_PANE_NAME", "PERCH_PROJECT",
+		"AGENT_WRAPPER_",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the context does not document %s", want)
+		}
+	}
+	// The command that stops every agent in every project is the one an agent
+	// has to recognise before it runs something that reads like a way to end
+	// its own pane.
+	if !strings.Contains(text, "-quit") {
+		t.Errorf("the context never says what -quit does:\n%s", text)
+	}
+
+	// A pane with nothing to call back into has none of this in its
+	// environment, and being told otherwise sends it looking for an address
+	// that was never set.
+	if plain := (PaneContext{PaneName: "one"}).Render(); strings.Contains(plain, "PERCH_TOKEN") {
+		t.Error("a pane with no hook server should not be told about a token it does not carry")
+	}
+	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "PERCH_TOKEN") {
+		t.Error("a shell pane has no agent to read the environment table")
 	}
 }
