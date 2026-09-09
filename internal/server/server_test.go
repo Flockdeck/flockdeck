@@ -819,3 +819,43 @@ func TestOpenProjectNeedsAFullPath(t *testing.T) {
 		t.Errorf("open projects went from %v to %v", before, after)
 	}
 }
+
+// TestTheKeyTableArrivesBeforeTheFirstState covers the order a window is set up
+// in. The palette and the first-run hints are drawn from the key table and the
+// preferences, which is why they are sent before the state; a snapshot that
+// overtakes them renders hints with their keyboard shortcut missing until the
+// hello lands. State travels in a slot of its own rather than the queue, so
+// nothing but the write order keeps that promise.
+func TestTheKeyTableArrivesBeforeTheFirstState(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	const rounds = 60
+	early := 0
+	for i := 0; i < rounds; i++ {
+		conn := dialControl(t, srv)
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			_, data, err := conn.Read(ctx)
+			cancel()
+			if err != nil {
+				t.Fatalf("read control: %v", err)
+			}
+			var probe struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(data, &probe) != nil {
+				continue
+			}
+			if probe.Type == "state" {
+				early++
+			}
+			if probe.Type == "state" || probe.Type == "hello" {
+				break
+			}
+		}
+		_ = conn.CloseNow()
+	}
+	if early > 0 {
+		t.Errorf("the state overtook the key table on %d of %d connections", early, rounds)
+	}
+}

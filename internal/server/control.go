@@ -495,19 +495,32 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 
 func (c *controlClient) writeLoop(ctx context.Context) {
 	for {
+		// The queue goes first. It carries the key table and the preferences a
+		// window is given before anything else, which the palette and the
+		// first-run hints are drawn from, and the notices, which are the only
+		// place a refused worktree or a failed commit is ever reported. A
+		// snapshot supersedes the one before it and can wait a moment for
+		// them; neither of them can wait for it. Both are sent in bursts and
+		// then stop, so this cannot starve the state.
 		select {
 		case <-ctx.Done():
 			return
-		case <-c.ready:
-			data := c.takeState()
-			if data == nil {
-				continue
-			}
+		case data := <-c.out:
 			if !c.write(ctx, data) {
 				return
 			}
+			continue
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return
 		case data := <-c.out:
 			if !c.write(ctx, data) {
+				return
+			}
+		case <-c.ready:
+			if data := c.takeState(); data != nil && !c.write(ctx, data) {
 				return
 			}
 		}
