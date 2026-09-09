@@ -210,6 +210,46 @@ func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
 	}
 }
 
+// TestNoDirectoryIsNotThisProcessesDirectory covers a caller that has lost
+// track of which working tree it meant.
+//
+// exec reads an empty Dir as "wherever this process is", and Perch is normally
+// started from inside a checkout of something, so the panels would have been
+// answered with a real branch and a real file list belonging to a repository
+// nobody asked about.
+func TestNoDirectoryIsNotThisProcessesDirectory(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	// The test binary runs inside this project, which is itself a repository,
+	// so an unguarded call here would succeed and answer about it.
+	if !IsRepo(".") {
+		t.Skip("the tests are not running inside a repository")
+	}
+
+	if _, err := Root(""); err == nil {
+		t.Error("resolving a root with no directory should fail")
+	}
+	if IsRepo("") {
+		t.Error("nowhere is not a repository")
+	}
+	if st := StatusOf(""); st.Branch != "" || st.Head != "" {
+		t.Errorf("status of nowhere = %+v, want nothing", st)
+	}
+	if _, err := Changes(""); err == nil {
+		t.Error("listing changes with no directory should fail")
+	}
+	if _, err := Diff("", "README.md"); err == nil {
+		t.Error("diffing with no directory should fail")
+	}
+	if _, err := List(""); err == nil {
+		t.Error("listing worktrees with no directory should fail")
+	}
+	if b := CurrentBranch(""); b != "" {
+		t.Errorf("current branch of nowhere = %q", b)
+	}
+}
+
 // TestWorktreeLifecycle covers creating, listing and removing worktrees, which
 // is how agents are given separate checkouts to work in.
 func TestWorktreeLifecycle(t *testing.T) {
