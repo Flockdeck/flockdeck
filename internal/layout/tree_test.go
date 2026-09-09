@@ -583,19 +583,34 @@ func TestMovePaneOntoItsOwnEdgeKeepsTheWeights(t *testing.T) {
 		t.Fatal("setting the starting weights failed")
 	}
 
-	// b is already immediately right of a, and immediately left of c.
-	if !root.MovePane("b", "a", EdgeRight) {
-		t.Fatal("dropping b where it already is should succeed")
-	}
-	if !root.MovePane("b", "c", EdgeLeft) {
-		t.Fatal("dropping b where it already is should succeed")
-	}
-	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Fatalf("panes = %v, want [a b c]", got)
-	}
-	got := []float64{root.Children[0].Weight, root.Children[1].Weight, root.Children[2].Weight}
-	if !reflect.DeepEqual(got, []float64{3, 1, 1}) {
-		t.Errorf("weights = %v, want the divider left where it was", got)
+	ids := []string{root.Children[0].ID, root.Children[1].ID, root.Children[2].ID}
+
+	// b is already immediately right of a, and immediately left of c. Each of
+	// these is checked on its own: taking the pane out and putting it back
+	// gives it the weight of whichever pane it was dropped against, so a pair
+	// of drops that lean on opposite neighbours can undo each other's damage
+	// and leave the row looking untouched.
+	for _, drop := range []struct {
+		onto string
+		edge Edge
+	}{{"a", EdgeRight}, {"c", EdgeLeft}} {
+		if !root.MovePane("b", drop.onto, drop.edge) {
+			t.Fatalf("dropping b where it already is, against %s, should succeed", drop.onto)
+		}
+		if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+			t.Fatalf("after the drop against %s, panes = %v, want [a b c]", drop.onto, got)
+		}
+		got := []float64{root.Children[0].Weight, root.Children[1].Weight, root.Children[2].Weight}
+		if !reflect.DeepEqual(got, []float64{3, 1, 1}) {
+			t.Errorf("after the drop against %s, weights = %v, want the divider left where it was", drop.onto, got)
+		}
+		// Nothing was rebuilt, so a divider drag already in flight still names
+		// a node that is there.
+		for i, c := range root.Children {
+			if c.ID != ids[i] {
+				t.Errorf("after the drop against %s, slot %d is node %s, was %s", drop.onto, i, c.ID, ids[i])
+			}
+		}
 	}
 
 	// A drop on the other edge of the same neighbour is still a real move.
