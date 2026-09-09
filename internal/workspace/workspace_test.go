@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"testing"
 
@@ -178,4 +179,138 @@ func mustAbs(t *testing.T) string {
 		t.Fatalf("abs: %v", err)
 	}
 	return abs
+}
+
+// checkWorkspace asserts what every reader of the workspace assumes: a tab
+// holds at least one pane, its focus is one of them, no pane is drawn twice,
+// and the focused tab exists. hist names the moves that got here, since a
+// randomised failure is unreadable without it.
+func checkWorkspace(t *testing.T, w *Workspace, roots map[string]string, hist []string) {
+	t.Helper()
+	fail := func(format string, args ...any) {
+		t.Helper()
+		t.Log("after these moves:")
+		for _, h := range hist {
+			t.Log("  " + h)
+		}
+		t.Fatalf(format, args...)
+	}
+	at := map[string]string{}
+	for _, tab := range w.Tabs {
+		panes := tab.Tree.Panes()
+		if len(panes) == 0 {
+			fail("tab %s is empty", tab.Title)
+		}
+		if tab.Tree.Find(tab.Focus) == nil {
+			fail("tab %s is focused on %q, which is not in it", tab.Title, tab.Focus)
+		}
+		for _, id := range panes {
+			if other, ok := at[id]; ok {
+				fail("pane %s is drawn in both %s and %s", id, other, tab.Title)
+			}
+			at[id] = tab.Title
+			if w.panes[id] == nil {
+				fail("tab %s draws pane %s, which the workspace does not know", tab.Title, id)
+			}
+		}
+	}
+	for id, p := range w.panes {
+		if _, ok := at[id]; !ok {
+			fail("pane %s is running but is on no tab", id)
+		}
+		// Rearranging is about where a pane is drawn. Which project an agent
+		// is working in is not something dragging it somewhere may decide.
+		if want, ok := roots[id]; ok && p.Root != want {
+			fail("pane %s now belongs to project %s, but was started in %s", id, p.Root, want)
+		}
+	}
+	if w.activeTab != "" {
+		focused := w.Tab(w.activeTab)
+		if focused == nil {
+			fail("the focused tab %q is not open", w.activeTab)
+		} else if focused.Root != w.activeRoot {
+			fail("the focused tab belongs to %s, but %s is the project on screen",
+				focused.Root, w.activeRoot)
+		}
+	} else if len(w.tabsOf(w.activeRoot)) > 0 {
+		fail("no tab is focused, but the project on screen has %d", len(w.tabsOf(w.activeRoot)))
+	}
+}
+
+// TestMovesKeepTheWorkspaceCoherent rearranges a workspace at random and
+// checks after every step that it is still one the interface could draw.
+func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
+	edges := []layout.Edge{layout.EdgeLeft, layout.EdgeRight, layout.EdgeTop, layout.EdgeBottom}
+	dirs := []layout.Dir{layout.Horizontal, layout.Vertical}
+	towards := []layout.Direction{layout.Left, layout.Right, layout.Up, layout.Down}
+
+	for seed := int64(0); seed < 200; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		w := benchWorkspace(2, 3, 3)
+		roots := map[string]string{}
+		for id, p := range w.panes {
+			roots[id] = p.Root
+		}
+		var hist []string
+
+		for step := 0; step < 120 && len(w.Tabs) > 0; step++ {
+			all := []string{}
+			for _, tab := range w.Tabs {
+				all = append(all, tab.Tree.Panes()...)
+			}
+			pane := func() string { return all[rnd.Intn(len(all))] }
+			tab := func() *Tab { return w.Tabs[rnd.Intn(len(w.Tabs))] }
+			note := func(format string, args ...any) { hist = append(hist, fmt.Sprintf(format, args...)) }
+
+			switch rnd.Intn(12) {
+			case 0:
+				a, b, e := pane(), pane(), edges[rnd.Intn(len(edges))]
+				note("MovePane(%s, %s, %v)", a, b, e)
+				_ = w.MovePane(a, b, e)
+			case 1:
+				a, b := pane(), pane()
+				note("SwapPanes(%s, %s)", a, b)
+				_ = w.SwapPanes(a, b)
+			case 2:
+				a, dest := pane(), tab()
+				note("MovePaneToTab(%s, %s)", a, dest.Title)
+				_ = w.MovePaneToTab(a, dest.ID)
+			case 3:
+				a := pane()
+				note("MovePaneToNewTab(%s)", a)
+				_ = w.MovePaneToNewTab(a)
+			case 4:
+				src, dest, d := tab(), tab(), dirs[rnd.Intn(len(dirs))]
+				note("MergeTab(%s, %s, %v)", src.Title, dest.Title, d)
+				_ = w.MergeTab(src.ID, dest.ID, d)
+			case 5:
+				dest, d := tab(), dirs[rnd.Intn(len(dirs))]
+				note("MergeTabsInProject(%s, %v)", dest.Title, d)
+				_ = w.MergeTabsInProject(dest.ID, d)
+			case 6:
+				moving, before := tab(), tab()
+				note("MoveTab(%s, %s)", moving.Title, before.Title)
+				_ = w.MoveTab(moving.ID, before.ID)
+			case 7:
+				dest := tab()
+				note("SelectTab(%s)", dest.Title)
+				w.SelectTab(dest.ID)
+			case 8:
+				d := towards[rnd.Intn(len(towards))]
+				note("MovePaneDir(%v)", d)
+				_ = w.MovePaneDir(d)
+			case 9:
+				note("ClosePane() in %s", w.activeTab)
+				w.ClosePane()
+			case 10:
+				dead := tab()
+				note("CloseTab(%s)", dead.Title)
+				w.CloseTab(dead.ID)
+			case 11:
+				note("ToggleZoom() in %s", w.activeTab)
+				w.ToggleZoom()
+			}
+			checkWorkspace(t, w, roots, hist)
+		}
+	}
 }
