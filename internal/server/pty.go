@@ -96,10 +96,21 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusNormalClosure, "pane closed")
 			return
 		}
+		// A process that died mid-flight leaves the emulator however it had
+		// set it up -- alternate screen, mouse reporting, application cursor
+		// keys, an odd character set. The replacement has no idea any of that
+		// is on, so it is reset before it draws anything. The window did this
+		// for itself while a restart still cost it a reconnection.
+		if err := writeChunk(ctx, conn, termReset); err != nil {
+			return
+		}
 		sess = next
 		live.Store(sess)
 	}
 }
+
+// termReset is RIS, which puts the emulator back to how it starts up.
+var termReset = []byte("c")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.

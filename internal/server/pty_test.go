@@ -247,8 +247,8 @@ func dialPTY(t *testing.T, srv *Server, paneID string) *websocket.Conn {
 
 // awaitOutput types a line into a terminal socket until its marker comes back,
 // which is the only reliable signal that the process behind the pane is
-// listening. It returns once the marker has been seen.
-func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) {
+// listening. It returns everything that arrived up to and including it.
+func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -276,7 +276,7 @@ func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) {
 		}
 		seen.Write(data)
 		if strings.Contains(seen.String(), marker) {
-			return
+			return seen.String()
 		}
 	}
 }
@@ -297,7 +297,24 @@ func TestTerminalSocketFollowsARestartedPane(t *testing.T) {
 	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
 
 	// The same socket, never reconnected, must reach the new process.
-	awaitOutput(t, pty, "echo after_restart\r", "after_restart")
+	after := awaitOutput(t, pty, "echo after_restart\r", "after_restart")
+
+	// The process that has gone may have left the emulator on the alternate
+	// screen, reporting mouse movement, in application cursor mode -- none of
+	// which its replacement knows about or would undo, and all of which the
+	// window used to clear for itself on the reconnection a restart cost it.
+	// So the reset has to arrive before anything the new process draws.
+	//
+	// On Windows this pins the ordering rather than the reset itself: ConPTY
+	// opens its console with a reset of its own, so the sequence would be
+	// there either way.
+	reset := strings.Index(after, "\x1bc")
+	if reset < 0 {
+		t.Fatalf("the terminal was not reset for the new process; saw:\n%q", after)
+	}
+	if marker := strings.Index(after, "after_restart"); marker < reset {
+		t.Error("the reset arrived after the new process had already drawn")
+	}
 }
 
 // TestRestartedPaneComesBackAtTheMeasuredSize covers what a restart has to
