@@ -217,7 +217,7 @@ func (c PaneContext) Render() string {
 	var b strings.Builder
 
 	b.WriteString("# Where you are running\n\n")
-	fmt.Fprintf(&b, "You are one agent inside **perch**, a desktop application that runs "+
+	fmt.Fprintf(&b, "You are one agent inside **Perch**, a desktop application that runs "+
 		"several Claude Code agents side by side in terminal panes. You are the agent in the pane "+
 		"named %q", c.PaneName)
 	if c.Tab != "" {

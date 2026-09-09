@@ -1,4 +1,4 @@
-# agent-wrapper
+# Perch
 
 A desktop application for running several Claude Code agents at once.
 
@@ -13,7 +13,7 @@ It uses your existing Claude Code login. No API keys, no tokens, no separate
 account.
 
 ```
-┌ agent-wrapper ──────────────────────────────────── ─ □ × ┐
+┌ perch ──────────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
 │ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
@@ -49,15 +49,15 @@ account.
 
 Running one agent is easy. Running several is not: they finish at different
 times, they block on permission prompts, and you lose track of which one is
-waiting on you. `agent-wrapper` answers one question at a glance — **which
-agent needs me right now** — and gives each agent its own branch to work on.
+waiting on you. Perch answers one question at a glance — **which agent
+needs me right now** — and gives each agent its own branch to work on.
 
 ## Install
 
 Requires the [Claude Code](https://claude.com/claude-code) CLI on your `PATH`.
 
 ```sh
-go install github.com/jmwri/agent-wrapper@latest
+go install github.com/jmwri/perch@latest
 ```
 
 Or from a clone:
@@ -78,14 +78,14 @@ Double-click the binary, launch it from a shortcut, or run it from a terminal �
 all three work. It opens its own window; there is no terminal to keep around.
 
 ```sh
-agent-wrapper                 # open the current directory
-agent-wrapper -C ~/code/api   # …or attach to a running instance and open it there
-agent-wrapper -new            # ignore the saved layout
-agent-wrapper -shell          # first pane is a shell, not an agent
-agent-wrapper -detach         # run with no window; attach to it later
-agent-wrapper -quit           # stop a running instance and its agents
-agent-wrapper -no-window      # just serve; print the URL and open it yourself
-agent-wrapper -solo           # start a separate instance instead of attaching
+perch                 # open the current directory
+perch -C ~/code/api   # …or attach to a running instance and open it there
+perch -new            # ignore the saved layout
+perch -shell          # first pane is a shell, not an agent
+perch -detach         # run with no window; attach to it later
+perch -quit           # stop a running instance and its agents
+perch -no-window      # just serve; print the URL and open it yourself
+perch -solo           # start a separate instance instead of attaching
 ```
 
 Once it is running you rarely need the command line again: projects are opened
@@ -95,15 +95,15 @@ and switched from inside the window.
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
-window onto it — so `agent-wrapper -C ~/code/api` from anywhere adds that
-project to the session you already have. A record of the running instance is
-kept in the state directory; if the process died without cleaning up, the
-record is probed, found dead and replaced.
+window onto it — so `perch -C ~/code/api` from anywhere adds that project to
+the session you already have. A record of the running instance is kept in the
+state directory; if the process died without cleaning up, the record is probed,
+found dead and replaced.
 
 `Detach` (in the command palette) closes the window and leaves every agent
-running. Start that way with `-detach`, come back with `agent-wrapper`, and
-stop everything with `agent-wrapper -quit`. Closing the window normally still
-quits, so nothing is left running by accident.
+running. Start that way with `-detach`, come back with `perch`, and stop
+everything with `perch -quit`. Closing the window normally still quits, so
+nothing is left running by accident.
 
 ### How the window works
 
@@ -116,7 +116,7 @@ That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
 Brave or Chromium, whichever is found first. On Windows this is always
 satisfied because Edge ships with the OS. If none is installed the page opens
 as an ordinary tab in your default browser instead, which works but looks less
-like an application. `AGENT_WRAPPER_BROWSER` forces a specific one.
+like an application. `PERCH_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
@@ -211,6 +211,13 @@ Each pane header shows a status dot, any tab containing an agent that is
 blocked on you is marked `▲`, and the window title reports the count so a
 waiting agent is visible in the taskbar even when the window is not focused.
 
+The application icon carries the same state. The window is a Chromium app-mode
+window, so the icon in the taskbar is the page's own, and it changes with the
+agents: grey when nothing is running, accent cyan while an agent works, and
+amber the moment one blocks on you. Colour is spent on it for the same reason
+it is spent anywhere else here — it is reporting a state the app actually
+knows, not decorating the window.
+
 | Dot | Meaning |
 | --- | --- |
 | green, pulsing | Working — producing output or running a tool |
@@ -292,7 +299,7 @@ So every Claude pane is told, in its own words, at the start of its session:
 - which other agents are running beside it, where each of them is working, and
   what each was asked for — and that their conversations are separate, so
   nothing passes between panes except through the user or a commit;
-- that it can start agents of its own with `agent-wrapper spawn`.
+- that it can start agents of its own with `perch spawn`.
 
 It is one more Claude Code lifecycle hook, `SessionStart`, answered by the same
 loopback server that receives the status events. The reply is returned as
@@ -302,9 +309,11 @@ is typed into the terminal and no settings of the user's are overwritten.
 been running all day is still oriented after its context has been summarised
 away.
 
-Panes also carry `AGENT_WRAPPER_PANE`, `AGENT_WRAPPER_PANE_NAME` and
-`AGENT_WRAPPER_PROJECT` in their environment, which is what a shell pane — with
-no lifecycle hooks of its own — has to go on.
+Panes also carry `PERCH_PANE`, `PERCH_PANE_NAME` and
+`PERCH_PROJECT` in their environment, which is what a shell pane — with
+no lifecycle hooks of its own — has to go on. These were `AGENT_WRAPPER_*`
+before the rename; both spellings are set for now, so a shell prompt written
+against the old names keeps working until a later release drops them.
 
 The isolation this describes is real rather than advisory. Each pane is a
 separate top-level Claude session with its own `--session-id`, its own
@@ -373,9 +382,9 @@ Every pane is given an address and a token in its environment, so an agent can
 hand work to helpers itself:
 
 ```sh
-agent-wrapper spawn "add tests for the parser"
-agent-wrapper spawn --worktree fix-auth "repair the token refresh"
-agent-wrapper spawn --split "watch the build"
+perch spawn "add tests for the parser"
+perch spawn --worktree fix-auth "repair the token refresh"
+perch spawn --split "watch the build"
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans itself
@@ -542,7 +551,7 @@ Two development aids live under `cmd/` and are not part of the product:
   back.
 
 ```sh
-go build -o agent-wrapper.exe . && ./agent-wrapper.exe -no-window
+go build -o perch.exe . && ./perch.exe -no-window
 go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"claude"}'
 ```
 

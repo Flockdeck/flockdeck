@@ -48,6 +48,12 @@ func TestSpawnBadFlagIsReportedOnce(t *testing.T) {
 // Outside a pane there is no address to spawn through, and the message has to
 // say that rather than blaming the task.
 func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
+	t.Setenv("PERCH_API", "")
+	t.Setenv("PERCH_TOKEN", "")
+	// paneEnv still falls back to the names an earlier build used, so both
+	// spellings have to go. Running this test from inside a pane started by
+	// such a build would otherwise hand it a working address, and the test
+	// would spawn a real agent instead of failing to find one.
 	t.Setenv("AGENT_WRAPPER_API", "")
 	t.Setenv("AGENT_WRAPPER_TOKEN", "")
 
@@ -60,8 +66,8 @@ func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
 // An agent pane is where spawn is meant to run, so from there the missing
 // piece is the task, and nothing is sent without one.
 func TestSpawnRequiresATask(t *testing.T) {
-	t.Setenv("AGENT_WRAPPER_API", "http://127.0.0.1:1")
-	t.Setenv("AGENT_WRAPPER_TOKEN", "secret")
+	t.Setenv("PERCH_API", "http://127.0.0.1:1")
+	t.Setenv("PERCH_TOKEN", "secret")
 
 	err := runSpawn([]string{"   "})
 	if err == nil || !strings.Contains(err.Error(), "task") {

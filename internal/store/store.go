@@ -57,7 +57,7 @@ type Pane struct {
 	Task string `json:"task,omitempty"`
 }
 
-// Dir returns the per-user directory holding wrapper state.
+// Dir returns the per-user directory holding Perch's state.
 //
 // It is kept private to the user. Below it sit the local server's auth token,
 // the browser profile the application window signs in through, and the
@@ -69,12 +69,47 @@ func Dir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
 	}
-	dir := filepath.Join(base, "agent-wrapper")
+	dir := adoptLegacyDir(base, filepath.Join(base, "perch"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
 	makePrivate(dir)
 	return dir, nil
+}
+
+// legacyDirName is the directory this state was kept in before the program was
+// renamed. It is looked at only when nothing has been saved under the name in
+// use now, and can be dropped a release after the rename.
+const legacyDirName = "agent-wrapper"
+
+// adoptLegacyDir moves state saved under the name an earlier build used to the
+// name in use now, and returns the directory to work in.
+//
+// Everything below the directory travels in one rename — every saved layout,
+// the auth token, the generated per-session settings and the browser profile —
+// so upgrading opens the tabs the user left rather than an empty workspace
+// beside a layout nothing would ever look at again.
+//
+// It moves the old directory only when nothing exists under the new name. A
+// directory already there is this build's own state and is never written over,
+// which also makes the migration harmless to run on every call.
+//
+// Where the move cannot be made the old directory is used where it stands. On
+// Windows a file still held open by a detached instance is enough to fail a
+// rename, and continuing to write to the old name costs nothing next to
+// starting empty.
+func adoptLegacyDir(base, dir string) string {
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		return dir
+	}
+	old := filepath.Join(base, legacyDirName)
+	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
+		return dir
+	}
+	if err := os.Rename(old, dir); err != nil {
+		return old
+	}
+	return dir
 }
 
 // makePrivate narrows a directory that was created before it was kept private,
@@ -239,7 +274,7 @@ func Save(root string, s *State) error {
 // writeAtomic replaces a file with new contents, leaving either the old file
 // or the new one behind and never a half-written mixture of the two.
 //
-// The temporary file gets a unique name because two wrappers can be running at
+// The temporary file gets a unique name because two instances can be running at
 // once: with a shared "<name>.tmp" one process could rename the other's
 // half-written file into place. It is flushed to disk before the rename, since
 // a rename that reaches the disk ahead of the contents it names would leave an
@@ -297,7 +332,7 @@ func syncDir(dir string) {
 //
 // On Windows replacing a file fails outright with a sharing violation while
 // anything else holds it open, and these files are opened constantly — by the
-// other wrapper instance saving at the same moment, and by the virus scanner
+// other instance saving at the same moment, and by the virus scanner
 // and search indexer that follow every write in the user's AppData directory.
 // Those holds last microseconds, so a few retries turn a lost save into a
 // slightly slower one. On other platforms the first attempt always decides it.
@@ -343,14 +378,14 @@ func hashString(s string) string {
 // the temporaries of writes that never reached their rename.
 //
 // Files are only removed once they are older than maxAge, because a second
-// wrapper may be running concurrently and neither its panes' settings nor a
+// instance may be running concurrently and neither its panes' settings nor a
 // write it is part-way through must be pulled out from under it. Normal
 // shutdown deletes both as it goes, so anything this finds is genuinely
 // orphaned.
 func SweepSessions(maxAge time.Duration) (int, error) {
 	// Without an age there is nothing separating an orphan from a file a
-	// running wrapper wrote a moment ago, and the sweep would delete the live
-	// wrapper's settings and half-written state. Refuse rather than guess.
+	// running instance wrote a moment ago, and the sweep would delete the live
+	// instance's settings and half-written state. Refuse rather than guess.
 	if maxAge <= 0 {
 		return 0, fmt.Errorf("sweep sessions: maxAge must be positive, got %s", maxAge)
 	}
@@ -362,7 +397,7 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 	cutoff := time.Now().Add(-maxAge)
 	isSettings := func(name string) bool { return strings.HasSuffix(name, ".settings.json") }
 	// writeAtomic names its temporaries "<file>.tmp<random>"; nothing the
-	// wrapper keeps has ".tmp" anywhere in its name.
+	// instance keeps has ".tmp" anywhere in its name.
 	isTemp := func(name string) bool { return strings.Contains(name, ".tmp") }
 
 	// Both directories are swept whatever happens to either. They fill up
@@ -525,7 +560,7 @@ func ForgetRecent(root string) error {
 	}
 	if len(out) == len(list) {
 		// Nothing to forget. Rewriting the file anyway would be a needless
-		// chance for another wrapper's save to be the one that loses.
+		// chance for another instance's save to be the one that loses.
 		return nil
 	}
 	return writeRecents(out)
@@ -643,7 +678,7 @@ func SaveSession(s *Session) error {
 	return nil
 }
 
-// Instance records a running agent-wrapper so a second launch can attach to it
+// Instance records a running perch so a second launch can attach to it
 // instead of starting a rival server, and so agents can outlive the window.
 type Instance struct {
 	PID     int       `json:"pid"`
@@ -703,9 +738,9 @@ func SaveInstance(inst *Instance) error {
 // ClearInstance removes the record, and does nothing if it is already gone.
 //
 // A record naming another process that is still running is left alone. There
-// are two callers — a wrapper shutting down, and a launch that found the
+// are two callers — an instance shutting down, and a launch that found the
 // recorded address unreachable — and neither can tell whether the record it is
-// about to delete is still its own. It often is not: a wrapper whose server
+// about to delete is still its own. It often is not: an instance whose server
 // briefly failed to answer a probe has its record cleared and then overwritten
 // by the rival launch, and when the first one finally exits it would delete
 // the second one's record, leaving a running instance that no later launch can

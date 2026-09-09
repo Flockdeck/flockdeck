@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/jmwri/agent-wrapper/internal/gitx"
+	"github.com/jmwri/perch/internal/gitx"
 )
 
 // worktreeView is one worktree as the panel shows it.

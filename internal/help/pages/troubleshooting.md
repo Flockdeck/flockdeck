@@ -26,7 +26,7 @@ already given for the project.
 The interface is a local web page shown in a chromeless application window,
 provided by whichever Chromium-based browser is found first — Chrome, Edge,
 Brave or Chromium. If none is installed it opens as an ordinary tab instead,
-which works but looks less like an application. `AGENT_WRAPPER_BROWSER` forces
+which works but looks less like an application. `PERCH_BROWSER` forces
 a particular one.
 
 ## Nothing is exposed to the network
@@ -54,4 +54,4 @@ survives a restart is the conversation, deliberately.
 
 Closing the window quits the application. Use **Detach** in the command
 palette to close the window and leave the agents running, and
-`agent-wrapper` to come back to them.
+`perch` to come back to them.

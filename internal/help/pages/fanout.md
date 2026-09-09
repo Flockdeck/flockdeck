@@ -38,9 +38,9 @@ Every pane carries an address and a token in its environment, so an agent can
 hand work to helpers itself:
 
 ```sh
-agent-wrapper spawn "add tests for the parser"
-agent-wrapper spawn --worktree fix-auth "repair the token refresh"
-agent-wrapper spawn --split "watch the build"
+perch spawn "add tests for the parser"
+perch spawn --worktree fix-auth "repair the token refresh"
+perch spawn --split "watch the build"
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans

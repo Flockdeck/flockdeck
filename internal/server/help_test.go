@@ -9,8 +9,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/agent-wrapper/internal/help"
-	"github.com/jmwri/agent-wrapper/internal/store"
+	"github.com/jmwri/perch/internal/help"
+	"github.com/jmwri/perch/internal/store"
 )
 
 // The help pages are behind the same token as everything else, and come back

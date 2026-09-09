@@ -126,7 +126,7 @@ func writeClaudeConfig(cfg map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("encode Claude configuration: %w", err)
 	}
-	tmp := path + ".agent-wrapper.tmp"
+	tmp := path + ".perch.tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write Claude configuration: %w", err)
 	}

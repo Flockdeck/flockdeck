@@ -43,7 +43,7 @@ func TestPaneContextIdentifiesThePane(t *testing.T) {
 	}
 
 	text := c.Render()
-	for _, want := range []string{"perch", `"lead"`, root} {
+	for _, want := range []string{"Perch", `"lead"`, root} {
 		if !strings.Contains(text, want) {
 			t.Errorf("rendered context does not mention %q:\n%s", want, text)
 		}

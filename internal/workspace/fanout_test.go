@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/agent-wrapper/internal/session"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // TestExtractTasksFindsAPlan covers reading work items out of what an agent

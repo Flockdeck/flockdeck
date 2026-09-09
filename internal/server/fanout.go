@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmwri/agent-wrapper/internal/gitx"
-	"github.com/jmwri/agent-wrapper/internal/hooks"
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // fanoutPreviewMsg offers the work found in a pane's output for the user to
@@ -292,7 +292,7 @@ func (s *Server) installContextHandler() {
 var errShuttingDown = errors.New("the workspace is shutting down")
 
 // installSpawnHandler lets an agent start helpers of its own by running
-// `agent-wrapper spawn` inside its pane.
+// `perch spawn` inside its pane.
 func (s *Server) installSpawnHandler() {
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
@@ -308,7 +308,7 @@ func (s *Server) installSpawnHandler() {
 			}
 			done <- cwd
 		})
-		// The agent's `agent-wrapper spawn` is blocked on this reply, so a
+		// The agent's `perch spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
 		// hanging in the pane forever.
 		var cwd string

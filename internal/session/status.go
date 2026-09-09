@@ -1,7 +1,7 @@
 package session
 
 // Status describes what a session is currently doing. For Claude sessions this
-// is driven by lifecycle hooks the wrapper installs via --settings; for shell
+// is driven by lifecycle hooks Perch installs via --settings; for shell
 // sessions (and as a fallback when hooks are unavailable) it is inferred from
 // PTY output activity and the terminal bell.
 type Status int

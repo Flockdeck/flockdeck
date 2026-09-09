@@ -59,11 +59,11 @@ func TestSessionEchoesInput(t *testing.T) {
 	id, replay, out := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
-	if err := s.WriteString("echo wrapper_marker_ok\r"); err != nil {
+	if err := s.WriteString("echo perch_marker_ok\r"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	got, ok := collect(t, out, replay, "wrapper_marker_ok", 20*time.Second)
+	got, ok := collect(t, out, replay, "perch_marker_ok", 20*time.Second)
 	if !ok {
 		t.Fatalf("input was not echoed back; saw:\n%s", got)
 	}
@@ -232,14 +232,14 @@ func TestStatusForEvent(t *testing.T) {
 func TestEnvStripsInheritedSessionMarkers(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
 	t.Setenv("CLAUDECODE", "1")
-	t.Setenv("AGENT_WRAPPER_KEEP", "yes")
+	t.Setenv("PERCH_KEEP", "yes")
 
 	var sawStripped, sawKept bool
 	for _, kv := range Env() {
 		switch {
 		case strings.HasPrefix(kv, "CLAUDE_CODE_CHILD_SESSION="), strings.HasPrefix(kv, "CLAUDECODE="):
 			sawStripped = true
-		case kv == "AGENT_WRAPPER_KEEP=yes":
+		case kv == "PERCH_KEEP=yes":
 			sawKept = true
 		}
 	}
@@ -284,21 +284,21 @@ func TestExitDeliversFinalOutputThenCloses(t *testing.T) {
 }
 
 // TestEnvExtrasReplaceInheritedValues covers a pane opened from inside another
-// wrapper: the pane identity it inherits must not outrank the one it is given,
+// instance: the pane identity it inherits must not outrank the one it is given,
 // because the first copy of a duplicated name is the one that takes effect.
 func TestEnvExtrasReplaceInheritedValues(t *testing.T) {
-	t.Setenv("AGENT_WRAPPER_PANE", "the-parent-pane")
+	t.Setenv("PERCH_PANE", "the-parent-pane")
 
 	var seen []string
-	for _, kv := range Env("AGENT_WRAPPER_PANE=this-pane") {
-		if strings.HasPrefix(kv, "AGENT_WRAPPER_PANE=") {
+	for _, kv := range Env("PERCH_PANE=this-pane") {
+		if strings.HasPrefix(kv, "PERCH_PANE=") {
 			seen = append(seen, kv)
 		}
 	}
 	if len(seen) != 1 {
-		t.Fatalf("AGENT_WRAPPER_PANE appears %d times: %q", len(seen), seen)
+		t.Fatalf("PERCH_PANE appears %d times: %q", len(seen), seen)
 	}
-	if seen[0] != "AGENT_WRAPPER_PANE=this-pane" {
+	if seen[0] != "PERCH_PANE=this-pane" {
 		t.Errorf("environment says %q; the given value should win", seen[0])
 	}
 }

@@ -17,7 +17,23 @@ import (
 )
 
 // BrowserEnv names a specific browser binary to use, overriding the search.
-const BrowserEnv = "AGENT_WRAPPER_BROWSER"
+const BrowserEnv = "PERCH_BROWSER"
+
+// legacyBrowserEnv is what this setting was called before the program was
+// renamed. Unlike the variables a pane is handed, this one the user sets
+// themselves — silently ignoring a setting they had already made would look
+// like the override had stopped working. Read a release longer, then drop.
+const legacyBrowserEnv = "AGENT_WRAPPER_BROWSER"
+
+// pinnedBrowser returns the browser the user pinned, and the variable it came
+// from so a failure can name the one they actually set rather than the one
+// they didn't.
+func pinnedBrowser() (prog, from string) {
+	if v := os.Getenv(BrowserEnv); v != "" {
+		return v, BrowserEnv
+	}
+	return os.Getenv(legacyBrowserEnv), legacyBrowserEnv
+}
 
 // ErrNoBrowser is returned when nothing could be found to display the UI.
 var ErrNoBrowser = errors.New("no browser found to display the interface")
@@ -52,10 +68,10 @@ func (w *Window) Close() {
 // app mode, keeping it separate from the user's own browsing profile so the
 // window opens clean and does not disturb their session.
 func Open(url, profileDir string) (*Window, error) {
-	if prog := os.Getenv(BrowserEnv); prog != "" {
+	if prog, from := pinnedBrowser(); prog != "" {
 		path, err := exec.LookPath(prog)
 		if err != nil {
-			return nil, fmt.Errorf("%s=%q: %w", BrowserEnv, prog, err)
+			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
 		return startAppMode(path, url, profileDir)
 	}

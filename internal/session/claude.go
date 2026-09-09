@@ -14,7 +14,7 @@ import (
 // injects into its children. If we passed them through, every pane we spawn
 // would think it was a nested child session (and, among other things, stop
 // saving its transcript). They are stripped so each pane is a clean top-level
-// session, regardless of whether the wrapper itself was launched from Claude.
+// session, regardless of whether Perch itself was launched from Claude.
 var inheritedClaudeVars = map[string]bool{
 	"CLAUDECODE":                   true,
 	"CLAUDE_CODE_CHILD_SESSION":    true,
@@ -24,14 +24,14 @@ var inheritedClaudeVars = map[string]bool{
 	"CLAUDE_CODE_DONT_INHERIT_ENV": true,
 }
 
-// Env builds the environment for a pane: the wrapper's own environment minus
+// Env builds the environment for a pane: Perch's own environment minus
 // inherited Claude session markers, plus extra KEY=VALUE entries.
 //
 // An extra entry replaces an inherited one of the same name rather than
 // joining it. A duplicated name in an environment block is resolved by the
 // first copy, on Windows and on Unix alike, so appending alone would leave the
 // stale value in force -- which is how a pane opened from inside another
-// wrapper would tell its agent it was the pane that spawned it.
+// instance would tell its agent it was the pane that spawned it.
 func Env(extra ...string) []string {
 	replaced := make(map[string]bool, len(extra))
 	for _, kv := range extra {
@@ -113,7 +113,7 @@ func ShellArgs() []string {
 	return []string{"/bin/sh"}
 }
 
-// hookEvents are the Claude Code lifecycle events the wrapper subscribes to.
+// hookEvents are the Claude Code lifecycle events Perch subscribes to.
 // Each maps to the status the pane should take on when the event fires.
 var hookEvents = []string{
 	// SessionStart is subscribed to for a second reason: its reply is how the
@@ -145,7 +145,7 @@ type hookSpec struct {
 }
 
 // WriteHookSettings writes a settings file that makes the pane report its
-// lifecycle to the wrapper, and returns its path.
+// lifecycle to Perch, and returns its path.
 //
 // The hook command re-invokes this same binary in `hook` mode, so there is no
 // dependency on node, python or a shell script living next to the binary. The

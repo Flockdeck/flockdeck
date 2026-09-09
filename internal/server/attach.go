@@ -59,12 +59,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "agent-wrapper", Version: Version, PID: pid(), Projects: projects,
+		App: "perch", Version: Version, PID: pid(), Projects: projects,
 	})
 }
 
 // handleOpen lets a second launch hand its directory to the running instance,
-// so `agent-wrapper -C somewhere` attaches and opens that project rather than
+// so `perch -C somewhere` attaches and opens that project rather than
 // starting a rival server.
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
@@ -121,7 +121,7 @@ func requirePost(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // handleQuit stops the running instance from outside, which is how
-// `agent-wrapper -quit` reaches a detached one.
+// `perch -quit` reaches a detached one.
 func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -175,7 +175,7 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
 		return nil, err
 	}
-	if h.App != "agent-wrapper" {
+	if h.App != "perch" {
 		return nil, fmt.Errorf("something else is listening on that address")
 	}
 	return &h, nil

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jmwri/agent-wrapper/internal/store"
+	"github.com/jmwri/perch/internal/store"
 )
 
 // dirEntry is one directory offered by the project picker.

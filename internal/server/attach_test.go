@@ -16,7 +16,7 @@ func TestProbeIdentifiesTheInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
-	if h.App != "agent-wrapper" {
+	if h.App != "perch" {
 		t.Errorf("app = %q", h.App)
 	}
 	if h.Version != "test-version" {
@@ -48,7 +48,7 @@ func TestProbeFailsWhenNothingIsListening(t *testing.T) {
 	}
 }
 
-// TestRequestOpenAddsAProject covers `agent-wrapper -C dir` attaching to a
+// TestRequestOpenAddsAProject covers `perch -C dir` attaching to a
 // running instance and handing it the directory.
 func TestRequestOpenAddsAProject(t *testing.T) {
 	srv, ws := newTestServer(t)
@@ -76,7 +76,7 @@ func TestRequestOpenRejectsBadPaths(t *testing.T) {
 	}
 }
 
-// TestQuitEndpointStopsTheApplication covers `agent-wrapper -quit`.
+// TestQuitEndpointStopsTheApplication covers `perch -quit`.
 func TestQuitEndpointStopsTheApplication(t *testing.T) {
 	srv, _ := newTestServer(t)
 	stopped := make(chan struct{})

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // newRepoServer starts a server whose project is a real git repository with

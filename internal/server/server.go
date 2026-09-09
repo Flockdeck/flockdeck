@@ -20,14 +20,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jmwri/agent-wrapper/internal/store"
-	"github.com/jmwri/agent-wrapper/internal/webui"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/perch/internal/webui"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // tokenCookie carries the session token once the window has loaded, so asset
 // and WebSocket requests do not have to repeat it in every URL.
-const tokenCookie = "agent_wrapper_token"
+const tokenCookie = "perch_token"
 
 // stateDebounce coalesces bursts of session activity into a single state push.
 // Agents produce output continuously; the tab bar does not need to be rebuilt

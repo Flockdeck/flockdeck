@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/store"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/store"
 )
 
 // isolateConfig points the state directory at a temporary location so tests

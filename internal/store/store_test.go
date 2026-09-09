@@ -24,7 +24,7 @@ func isolateConfig(t *testing.T) {
 }
 
 // TestSweepSessionsOnlyRemovesOldOrphans checks the sweep cannot pull settings
-// out from under a wrapper that is still running.
+// out from under an instance that is still running.
 func TestSweepSessionsOnlyRemovesOldOrphans(t *testing.T) {
 	isolateConfig(t)
 	dir, err := SessionsDir()
@@ -59,7 +59,7 @@ func TestSweepSessionsOnlyRemovesOldOrphans(t *testing.T) {
 		t.Error("an orphaned settings file should have been removed")
 	}
 	if _, err := os.Stat(recent); err != nil {
-		t.Error("a recent settings file may belong to a running wrapper and must be kept")
+		t.Error("a recent settings file may belong to a running instance and must be kept")
 	}
 	if _, err := os.Stat(unrelated); err != nil {
 		t.Error("unrelated files must not be touched")
@@ -364,7 +364,7 @@ func TestRecentsCollapsesStaleDuplicates(t *testing.T) {
 	}
 }
 
-// TestClearInstanceKeepsALiveRivalsRecord checks a wrapper shutting down
+// TestClearInstanceKeepsALiveRivalsRecord checks an instance shutting down
 // cannot delete the record of another one that is still running, which would
 // leave a live instance no later launch could attach to.
 func TestClearInstanceKeepsALiveRivalsRecord(t *testing.T) {
@@ -382,7 +382,7 @@ func TestClearInstanceKeepsALiveRivalsRecord(t *testing.T) {
 		}
 	}
 
-	// Another wrapper, still running: its record must survive.
+	// Another instance, still running: its record must survive.
 	const rival = 4242
 	alive[rival] = true
 	save(rival)
@@ -409,7 +409,7 @@ func TestClearInstanceKeepsALiveRivalsRecord(t *testing.T) {
 		t.Fatalf("clear own: %v", err)
 	}
 	if inst, _ := LoadInstance(); inst != nil {
-		t.Error("a wrapper shutting down must clear its own record")
+		t.Error("an instance shutting down must clear its own record")
 	}
 
 	// Nothing recorded at all is not an error.
@@ -468,7 +468,7 @@ func TestSweepRemovesAbandonedTemporaries(t *testing.T) {
 }
 
 // TestSweepRefusesZeroAge checks the sweep will not treat every file as an
-// orphan, which would delete the settings of whichever wrapper is running.
+// orphan, which would delete the settings of whichever instance is running.
 func TestSweepRefusesZeroAge(t *testing.T) {
 	isolateConfig(t)
 	dir, err := SessionsDir()
@@ -575,7 +575,7 @@ func TestLoadRejectsAnotherProjectsLayout(t *testing.T) {
 }
 
 // TestStateDirectoriesArePrivate checks no other account on the machine can
-// list the wrapper's state, including a directory left wide open by an earlier
+// list Perch's state, including a directory left wide open by an earlier
 // version.
 func TestStateDirectoriesArePrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -614,7 +614,7 @@ func TestStateDirectoriesArePrivate(t *testing.T) {
 }
 
 // TestForgetUnknownProjectLeavesTheFileAlone checks forgetting something that
-// was never remembered does not rewrite the list, which would give a wrapper
+// was never remembered does not rewrite the list, which would give an instance
 // saving at the same moment a needless chance to lose its own write.
 func TestForgetUnknownProjectLeavesTheFileAlone(t *testing.T) {
 	isolateConfig(t)
@@ -730,7 +730,7 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 }
 
 // TestLoadIgnoresAnotherSchemaVersion checks a layout written by a different
-// version of the wrapper is passed over quietly. The fields it holds may mean
+// version of Perch is passed over quietly. The fields it holds may mean
 // something else entirely, and a start-up that fails is worse than one that
 // opens a fresh tab.
 func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
@@ -772,7 +772,7 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 }
 
 // TestInstanceRecordRoundTrip pins what a second launch reads before deciding
-// whether to attach to a wrapper already running or start one of its own.
+// whether to attach to an instance already running or start one of its own.
 func TestInstanceRecordRoundTrip(t *testing.T) {
 	isolateConfig(t)
 
@@ -800,7 +800,7 @@ func TestInstanceRecordRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("instance path: %v", err)
 	}
-	// The token in here is what authorises commands to the running wrapper.
+	// The token in here is what authorises commands to the running instance.
 	if fi, err := os.Stat(p); err != nil {
 		t.Fatalf("stat: %v", err)
 	} else if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
@@ -1155,5 +1155,86 @@ func TestLoadLeavesAnotherProjectsLegacyLayoutAlone(t *testing.T) {
 	}
 	if _, err := os.Stat(old); err != nil {
 		t.Errorf("other project's layout = %v, want it left where it was", err)
+	}
+}
+
+// TestDirAdoptsStateSavedUnderTheOldName checks that renaming the program does
+// not strand what the previous name saved. Everything is below one directory —
+// every layout, the auth token, the generated per-session settings — so the
+// upgrade has to bring the directory with it or the first run after it opens
+// an empty workspace beside a full one nobody will look in again.
+func TestDirAdoptsStateSavedUnderTheOldName(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create the old directory: %v", err)
+	}
+	want := `{"version":1,"root":"/repo"}`
+	if err := os.WriteFile(filepath.Join(old, "layout-abc.json"), []byte(want), 0o600); err != nil {
+		t.Fatalf("seed a layout: %v", err)
+	}
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if filepath.Base(dir) != "perch" {
+		t.Errorf("Dir() = %q, want the directory named for the program in use now", dir)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "layout-abc.json"))
+	if err != nil {
+		t.Fatalf("the saved layout did not come across: %v", err)
+	}
+	if string(got) != want {
+		t.Errorf("layout = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the old directory was left behind: Stat = %v, want it moved", err)
+	}
+}
+
+// TestDirNeverWritesOverStateAlreadySaved checks the adoption cannot destroy
+// this build's own state. Once anything has been saved under the name in use
+// now, that is the state to use and the old directory is only a leftover: a
+// migration that ran a second time and moved it over the top would replace a
+// live layout with a stale one.
+func TestDirNeverWritesOverStateAlreadySaved(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create the old directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "layout-abc.json"), []byte("stale"), 0o600); err != nil {
+		t.Fatalf("seed the old layout: %v", err)
+	}
+	cur := filepath.Join(base, "perch")
+	if err := os.MkdirAll(cur, 0o700); err != nil {
+		t.Fatalf("create the current directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cur, "layout-abc.json"), []byte("current"), 0o600); err != nil {
+		t.Fatalf("seed the current layout: %v", err)
+	}
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "layout-abc.json"))
+	if err != nil {
+		t.Fatalf("read the layout: %v", err)
+	}
+	if string(got) != "current" {
+		t.Errorf("layout = %q, want the state already saved under the name in use now", got)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("the old directory should be left alone, not consumed: %v", err)
 	}
 }

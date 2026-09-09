@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // panesOfTab is the pane order a tab is drawn in.

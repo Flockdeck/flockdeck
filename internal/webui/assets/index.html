@@ -3,7 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agent-wrapper</title>
+<title>perch</title>
+<!-- The window is a Chromium app-mode window, so this is the application icon
+     as much as the tab icon: it is what the taskbar and alt-tab show. app.js
+     retargets the first link as the agents change state. -->
+<link id="favicon" rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/assets/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/assets/icon-128.png">
 <link rel="stylesheet" href="/assets/vendor/xterm.css">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
@@ -75,7 +81,7 @@
     <div class="panel" role="alertdialog" aria-modal="true"
          aria-labelledby="disconnected-title" aria-describedby="disconnected-desc">
       <h2 id="disconnected-title">Disconnected</h2>
-      <p id="disconnected-desc">The agent-wrapper process is no longer running, or the connection was lost.</p>
+      <p id="disconnected-desc">The perch process is no longer running, or the connection was lost.</p>
       <button id="retry" class="chip primary">Reconnect</button>
     </div>
   </div>

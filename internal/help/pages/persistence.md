@@ -27,9 +27,9 @@ dying on restore.
 running.
 
 ```sh
-agent-wrapper -detach   # start that way, with no window
-agent-wrapper           # come back to it
-agent-wrapper -quit     # stop everything
+perch -detach   # start that way, with no window
+perch           # come back to it
+perch -quit     # stop everything
 ```
 
 Closing the window normally still quits, so nothing is left running by

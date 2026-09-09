@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="perch">
+  <!-- The mark, and the working state: an agent is running.
+       Two agents at rest on the perch and one raised: the glyphs the pane
+       header already uses, ● working and ▲ waiting. Colours are the tokens
+       from design/color.css. Keep the geometry identical across the variants —
+       only the raised bird changes colour, so the swap reads as a state
+       change and not as a different application. -->
+  <style>
+    .dim { fill: #5C676D }
+    .acc { fill: #0B6E77 }
+    @media (prefers-color-scheme: dark) {
+      .dim { fill: #93A1A9 }
+      .acc { fill: #4FD1DB }
+    }
+  </style>
+  <rect class="dim" x="3" y="22" width="26" height="2.6" rx="1.3"/>
+  <circle class="dim" cx="8.4" cy="18" r="3.4"/>
+  <circle class="dim" cx="23.6" cy="18" r="3.4"/>
+  <path class="acc" d="M16 3.4L21 12.2H11Z"/>
+</svg>

@@ -1,9 +1,8 @@
-// Package hooks carries Claude Code lifecycle events from panes back to the
-// wrapper.
+// Package hooks carries Claude Code lifecycle events from panes back to Perch.
 //
 // Each Claude pane is launched with a generated --settings file registering
 // command hooks that re-invoke this binary in `hook` mode. Those invocations
-// POST to a loopback server the wrapper runs, which is how a pane's status
+// POST to a loopback server Perch runs, which is how a pane's status
 // ("working", "waiting on you", "idle") is known accurately rather than being
 // guessed from screen scraping.
 package hooks
@@ -210,7 +209,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 // SpawnRequest is a pane asking the application to start another agent.
 //
 // This is what makes a lead agent able to hand work to helpers: it runs
-// `agent-wrapper spawn`, which posts here using the address and token its pane
+// `perch spawn`, which posts here using the address and token its pane
 // was given in its environment.
 type SpawnRequest struct {
 	Parent   string `json:"parent"`

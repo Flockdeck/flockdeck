@@ -1,4 +1,4 @@
-// Command ctl drives a running agent-wrapper instance over its control socket.
+// Command ctl drives a running perch instance over its control socket.
 // Development aid, not part of the product.
 //
 //	go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"type":"split","dir":"h"}' ...

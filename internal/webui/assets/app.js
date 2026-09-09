@@ -1,4 +1,4 @@
-/* agent-wrapper front end.
+/* perch front end.
  *
  * The Go process owns the panes, their processes and the layout tree; this
  * file renders that state and forwards input. Terminal emulation happens here
@@ -155,6 +155,10 @@
   let lastStructure = "";
   /** Which tab is currently on screen, so a switch can be told from a redraw. */
   let shownTab = "";
+  /** Which pane the keyboard was last handed to, so a new pane, a closed one
+   *  or a focus moved from the keyboard can be told from an ordinary status
+   *  push that leaves the focus exactly where it was. */
+  let shownFocus = "";
   let state = null;
   let control = null;
   let reconnectTimer = null;
@@ -231,12 +235,14 @@
       zoom: t.zoom,
       focus: t.zoom ? t.focus : "",
     }))) + "|" + s.tabs.length;
+    let rebuilt = false;
     if (structure !== lastStructure) {
       lastStructure = structure;
       rebuildLayout(s);
+      rebuilt = true;
     }
     applyWeights(s);
-    showActiveTab(s);
+    showActiveTab(s, rebuilt);
     renderTabs(s);
     renderSummary(s);
     updatePaneChrome(s);
@@ -382,25 +388,32 @@
     }
   }
 
-  function showActiveTab(s) {
+  function showActiveTab(s, rebuilt) {
     let idx = s.tabs.findIndex((t) => t.id === s.activeTab);
     if (idx < 0) idx = 0;
     tabPages.forEach((page, i) => { page.hidden = i !== idx; });
     // A terminal cannot measure itself while hidden, so refit on reveal.
     const tab = s.tabs[idx];
-    if (!tab) { shownTab = ""; return; }
+    if (!tab) { shownTab = ""; shownFocus = ""; return; }
     const ids = new Set();
     collectPanes(tab.root, ids);
     ids.forEach((id) => {
       const p = panes.get(id);
       if (p) scheduleFit(p);
     });
-    if (tab.id === shownTab) return;
-    shownTab = tab.id;
     // Switching tab means switching agent, so the keyboard has to come along:
     // the click that caused the switch left the focus on the tab button, and
     // the revealed terminal would ignore everything typed at it.
-    if (!typingInDialog()) focusTerminal(tab, ids);
+    //
+    // A rebuild needs the same treatment for a different reason: it empties
+    // the workspace and puts the panes back, which blurs whatever the
+    // keyboard was in. Splitting, closing, zooming and dragging all rebuild,
+    // so without this a fresh pane would arrive with nowhere to type and the
+    // pane you were in would go deaf.
+    const moved = tab.id !== shownTab || tab.focus !== shownFocus || rebuilt;
+    shownTab = tab.id;
+    shownFocus = tab.focus;
+    if (moved && !dialogOpen()) focusTerminal(tab, ids);
   }
 
   // ------------------------------------------------------------------- tabs
@@ -467,6 +480,29 @@
     return describe(span, tip);
   }
 
+  /** ICONS maps a workspace state to the mark that stands for it. The window is
+   *  a Chromium app-mode window, so the favicon is the application icon: this
+   *  is what puts "an agent is waiting" in the taskbar while the window is
+   *  behind three others and the title bar cannot be read. */
+  const ICONS = {
+    waiting: "/assets/icon-waiting.svg",
+    working: "/assets/icon.svg",
+    idle: "/assets/icon-idle.svg",
+  };
+  let iconState = "";
+
+  /** setFavicon points the icon link at the mark for state. Assigning the same
+   *  href again makes some browsers drop and refetch the icon, which shows up
+   *  as the tab flickering on every state push, so an unchanged state is left
+   *  alone — and the pushes are frequent. */
+  function setFavicon(state) {
+    if (state === iconState) return;
+    const link = $("favicon");
+    if (!link) return;
+    iconState = state;
+    link.href = ICONS[state];
+  }
+
   function renderSummary(s) {
     const box = $("summary");
     box.textContent = "";
@@ -477,9 +513,11 @@
     if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
     if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
     if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
+    const state = s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle");
     document.title = s.waiting > 0
-      ? `▲ ${s.waiting} waiting · agent-wrapper`
-      : (s.working > 0 ? `● ${s.working} working · agent-wrapper` : "agent-wrapper");
+      ? `▲ ${s.waiting} waiting · perch`
+      : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
+    setFavicon(state);
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     renderProjectChip(s);
   }
@@ -989,6 +1027,20 @@
     if (p) p.term.focus();
   }
 
+  /** dialogOpen reports whether anything is on screen that the keyboard could
+   * reasonably belong to, so that a pane appearing behind a dialog does not
+   * pull the focus out from under someone mid-sentence. It answers for the
+   * dialog being open rather than for it holding the focus, because the state
+   * push and the dialog's own focus() race: the button that opened the dialog
+   * also moved the focus, and the answer must not depend on which won. */
+  function dialogOpen() {
+    if (typingInDialog()) return true;
+    return ["overlay", "palette", "promptbar", "searchbar"].some((id) => {
+      const n = $(id);
+      return n && !n.hidden;
+    });
+  }
+
   /** typingInDialog reports whether a dialog field has the keyboard, so that a
    * tab switch does not pull focus out from under someone mid-sentence. */
   function typingInDialog() {
@@ -1441,7 +1493,7 @@
   function showNotification(title, body) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const n = new Notification(title, { body, tag: "agent-wrapper" });
+      const n = new Notification(title, { body, tag: "perch" });
       n.onclick = () => { window.focus(); n.close(); };
     } catch { /* notifications are best effort */ }
   }

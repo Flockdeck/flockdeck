@@ -1,6 +1,6 @@
 # Getting started
 
-agent-wrapper runs several Claude Code agents at once, each in a real terminal,
+Perch runs several Claude Code agents at once, each in a real terminal,
 and answers one question at a glance: which agent needs you right now.
 
 Every pane is the `claude` CLI running in a genuine pseudo-terminal, so it

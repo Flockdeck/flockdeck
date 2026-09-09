@@ -1,4 +1,4 @@
-// Command agent-wrapper is a desktop application for running several Claude
+// Command perch is a desktop application for running several Claude
 // Code agents at once.
 //
 // It drives the `claude` CLI in real pseudo-terminals, so every agent behaves
@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmwri/agent-wrapper/internal/appwindow"
-	"github.com/jmwri/agent-wrapper/internal/hooks"
-	"github.com/jmwri/agent-wrapper/internal/server"
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/store"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/appwindow"
+	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/perch/internal/server"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -49,7 +49,7 @@ func main() {
 			// A flag set has already explained a parse failure itself; saying
 			// it a second time only makes the real message harder to find.
 			if !errors.Is(err, errReported) {
-				fmt.Fprintln(os.Stderr, "agent-wrapper spawn:", err)
+				fmt.Fprintln(os.Stderr, "perch spawn:", err)
 			}
 			os.Exit(1)
 		}
@@ -70,19 +70,19 @@ func main() {
 	flag.Parse()
 
 	if *showVer {
-		fmt.Println("agent-wrapper", version)
+		fmt.Println("perch", version)
 		return
 	}
 
 	// Anything left over is a mistyped flag or a subcommand that does not
 	// exist. Ignoring it would open a window on the current directory and
-	// leave the user believing `agent-wrapper quit` had done something.
+	// leave the user believing `perch quit` had done something.
 	if flag.NArg() > 0 {
 		arg := flag.Arg(0)
-		fmt.Fprintf(os.Stderr, "agent-wrapper: unrecognised argument %q\n", arg)
+		fmt.Fprintf(os.Stderr, "perch: unrecognised argument %q\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
-			fmt.Fprintf(os.Stderr, "To open that directory: agent-wrapper -C %s\n", arg)
+			fmt.Fprintf(os.Stderr, "To open that directory: perch -C %s\n", arg)
 		case flag.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
 		}
@@ -109,13 +109,13 @@ func main() {
 
 func usage() {
 	out := flag.CommandLine.Output()
-	fmt.Fprintf(out, "agent-wrapper — run several Claude Code agents in tabs and split panes.\n\n")
-	fmt.Fprintf(out, "Usage:\n  agent-wrapper [flags]\n\nFlags:\n")
+	fmt.Fprintf(out, "perch — run several Claude Code agents in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "Usage:\n  perch [flags]\n\nFlags:\n")
 	flag.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
-	fmt.Fprintf(out, "        run agent-wrapper spawn -h for what the flags do\n")
+	fmt.Fprintf(out, "        run perch spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
@@ -124,7 +124,7 @@ func usage() {
 // shortcut there is no console to print to, so the message is also written to
 // a log file the user can be pointed at.
 func fail(err error) {
-	fmt.Fprintln(os.Stderr, "agent-wrapper:", err)
+	fmt.Fprintln(os.Stderr, "perch:", err)
 	if dir, dirErr := store.Dir(); dirErr == nil {
 		path := filepath.Join(dir, "error.log")
 		stamp := time.Now().Format(time.RFC3339)
@@ -156,12 +156,12 @@ func quitRunning() error {
 		return fmt.Errorf("read the record of the running instance: %w", err)
 	}
 	if inst == nil {
-		return fmt.Errorf("no running agent-wrapper found")
+		return fmt.Errorf("no running perch found")
 	}
 	if err := server.RequestQuit(base, inst.Token); err != nil {
 		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
 	}
-	fmt.Println("agent-wrapper: stopped")
+	fmt.Println("perch: stopped")
 	return nil
 }
 
@@ -189,7 +189,7 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	}
 	url := base + "/?t=" + inst.Token
 	if noWindow {
-		fmt.Println("agent-wrapper is already running at:")
+		fmt.Println("perch is already running at:")
 		fmt.Println(" ", url)
 		return nil
 	}
@@ -258,7 +258,7 @@ func run(opts options) error {
 			// silently ignoring -new looks like the layout was kept on purpose.
 			if ignored := startupOnlyFlags(opts); len(ignored) > 0 {
 				fmt.Fprintf(os.Stderr,
-					"agent-wrapper: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
+					"perch: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
 					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
 			}
 			return attach(inst, base, root, opts.noWindow)
@@ -300,7 +300,7 @@ func run(opts options) error {
 	if err := store.SaveInstance(&store.Instance{
 		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
 	}); err != nil {
-		fmt.Fprintln(os.Stderr, "agent-wrapper: could not record the instance:", err)
+		fmt.Fprintln(os.Stderr, "perch: could not record the instance:", err)
 	}
 	defer store.ClearInstance()
 
@@ -330,10 +330,10 @@ func run(opts options) error {
 
 	var win *appwindow.Window
 	if opts.noWindow || opts.detach {
-		fmt.Println("agent-wrapper serving at:")
+		fmt.Println("perch serving at:")
 		fmt.Println(" ", srv.URL())
 		if opts.detach {
-			fmt.Println("Running detached. Attach with `agent-wrapper`, stop with `agent-wrapper -quit`.")
+			fmt.Println("Running detached. Attach with `perch`, stop with `perch -quit`.")
 		} else {
 			fmt.Println("Press Ctrl+C to stop.")
 		}
@@ -348,10 +348,10 @@ func run(opts options) error {
 			// address it was serving will not answer by the time anyone reads
 			// this. Name the ways to get a window instead.
 			if errors.Is(err, appwindow.ErrNoBrowser) {
-				return fmt.Errorf("%w — set %s to one, or run `agent-wrapper -no-window` and open the URL it prints",
+				return fmt.Errorf("%w — set %s to one, or run `perch -no-window` and open the URL it prints",
 					err, appwindow.BrowserEnv)
 			}
-			return fmt.Errorf("open the window: %w — or run `agent-wrapper -no-window` and open the URL it prints", err)
+			return fmt.Errorf("open the window: %w — or run `perch -no-window` and open the URL it prints", err)
 		}
 		defer win.Close()
 
@@ -385,7 +385,7 @@ func run(opts options) error {
 	<-quit
 
 	if err := ws.SaveAll(); err != nil {
-		fmt.Fprintln(os.Stderr, "agent-wrapper: could not save layout:", err)
+		fmt.Fprintln(os.Stderr, "perch: could not save layout:", err)
 	}
 	return nil
 }
@@ -401,6 +401,19 @@ var errReported = errors.New("already reported")
 // this once per task and watch the helpers appear beside it. The address and
 // token come from the environment its pane was started with, so only processes
 // running inside a pane can use it.
+// paneEnv reads one of the variables a pane carries, accepting the name an
+// earlier build used alongside the one in use now. A pane started by an
+// instance of that build is still running with the old names in its
+// environment, and an agent inside it should not lose the ability to spawn
+// just because the binary on its PATH has been upgraded. The fallback can go a
+// release after the rename.
+func paneEnv(name string) string {
+	if v := os.Getenv("PERCH_" + name); v != "" {
+		return v
+	}
+	return os.Getenv("AGENT_WRAPPER_" + name)
+}
+
 func runSpawn(args []string) error {
 	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -410,7 +423,7 @@ func runSpawn(args []string) error {
 		shell    = fs.Bool("shell", false, "start a shell instead of an agent")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: agent-wrapper spawn [flags] <task>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -423,11 +436,11 @@ func runSpawn(args []string) error {
 		return errReported
 	}
 
-	api := os.Getenv("AGENT_WRAPPER_API")
-	token := os.Getenv("AGENT_WRAPPER_TOKEN")
-	pane := os.Getenv("AGENT_WRAPPER_PANE")
+	api := paneEnv("API")
+	token := paneEnv("TOKEN")
+	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside an agent-wrapper pane")
+		return fmt.Errorf("this only works inside a perch pane")
 	}
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -456,7 +469,7 @@ func runHook(args []string) {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
-		endpoint = fs.String("endpoint", "", "wrapper hook endpoint")
+		endpoint = fs.String("endpoint", "", "Perch hook endpoint")
 		token    = fs.String("token", "", "shared secret")
 		sessID   = fs.String("session", "", "pane session id")
 		event    = fs.String("event", "", "lifecycle event name")
@@ -469,12 +482,12 @@ func runHook(args []string) {
 	// SessionStart parses as JSON. Without it a hook that never arrives leaves
 	// no trace at all, only panes whose status stops changing.
 	if *endpoint == "" || *sessID == "" || *event == "" {
-		fmt.Fprintln(os.Stderr, "agent-wrapper hook: -endpoint, -session and -event are all required")
+		fmt.Fprintln(os.Stderr, "perch hook: -endpoint, -session and -event are all required")
 		return
 	}
 	ctx, err := hooks.Emit(os.Stdin, *endpoint, *token, *sessID, *event)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agent-wrapper hook:", err)
+		fmt.Fprintln(os.Stderr, "perch hook:", err)
 		return
 	}
 	if strings.TrimSpace(ctx) == "" {
@@ -490,7 +503,7 @@ func runHook(args []string) {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agent-wrapper hook: could not encode the session context:", err)
+		fmt.Fprintln(os.Stderr, "perch hook: could not encode the session context:", err)
 		return
 	}
 	_, _ = os.Stdout.Write(out)

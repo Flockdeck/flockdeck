@@ -4,8 +4,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
+
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // Rearranging panes moves live sessions between positions and between tabs.

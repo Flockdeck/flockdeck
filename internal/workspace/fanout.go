@@ -8,9 +8,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/jmwri/agent-wrapper/internal/gitx"
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
+
+	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.

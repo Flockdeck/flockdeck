@@ -10,10 +10,10 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/store"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // The workspace is not safe for concurrent mutation, and it is now reached

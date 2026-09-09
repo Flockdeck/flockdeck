@@ -22,7 +22,7 @@ page cannot be handed a real directory path.
 ## From the command line
 
 ```sh
-agent-wrapper -C ~/code/api
+perch -C ~/code/api
 ```
 
 This does not start a second set of agents. It finds the instance already

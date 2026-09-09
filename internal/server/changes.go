@@ -3,7 +3,7 @@ package server
 import (
 	"strings"
 
-	"github.com/jmwri/agent-wrapper/internal/gitx"
+	"github.com/jmwri/perch/internal/gitx"
 )
 
 // changeView is one modified file as the review panel shows it.

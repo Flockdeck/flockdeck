@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/agent-wrapper/internal/help"
+	"github.com/jmwri/perch/internal/help"
 )
 
 // readAsset returns one of the embedded front-end files.

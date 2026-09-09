@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jmwri/agent-wrapper/internal/gitx"
-	"github.com/jmwri/agent-wrapper/internal/hooks"
-	"github.com/jmwri/agent-wrapper/internal/layout"
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/store"
+
+	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/store"
 )
 
 // orphanedSettingsAge is how old a generated settings file must be before it is
@@ -630,20 +631,30 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 }
 
 // paneEnv gives a pane what it needs to call back into the application, so an
-// agent can spawn helpers of its own with `agent-wrapper spawn`.
+// agent can spawn helpers of its own with `perch spawn`.
 func (w *Workspace) paneEnv(p *Pane) []string {
 	if w.hookSrv == nil {
 		return nil
 	}
-	return []string{
-		"AGENT_WRAPPER_API=" + w.hookSrv.BaseURL(),
-		"AGENT_WRAPPER_TOKEN=" + w.hookSrv.Token(),
-		"AGENT_WRAPPER_PANE=" + p.ID,
+	vars := [][2]string{
+		{"API", w.hookSrv.BaseURL()},
+		{"TOKEN", w.hookSrv.Token()},
+		{"PANE", p.ID},
 		// Shell panes get no lifecycle hooks, so what is known at launch is put
 		// in the environment, where a prompt or a script can read it.
-		"AGENT_WRAPPER_PANE_NAME=" + p.Name,
-		"AGENT_WRAPPER_PROJECT=" + w.rootOf(p.ID),
+		{"PANE_NAME", p.Name},
+		{"PROJECT", w.rootOf(p.ID)},
 	}
+	// Both spellings go into the environment for now. The pane name and the
+	// project are documented for the user's own shell prompt to read, so a
+	// prompt written against the names an earlier build used would go blank on
+	// upgrade with nothing on screen to say why. The old set can be dropped a
+	// release after the rename.
+	env := make([]string, 0, 2*len(vars))
+	for _, v := range vars {
+		env = append(env, "PERCH_"+v[0]+"="+v[1], "AGENT_WRAPPER_"+v[0]+"="+v[1])
+	}
+	return env
 }
 
 // rootOf reports the project a pane belongs to, falling back to the active one

@@ -11,8 +11,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/agent-wrapper/internal/session"
-	"github.com/jmwri/agent-wrapper/internal/workspace"
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // newTestServer starts a workspace with one shell pane behind a server.
@@ -74,7 +74,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "agent-wrapper") {
+	if !strings.Contains(string(body), "perch") {
 		t.Error("index does not look like the app page")
 	}
 

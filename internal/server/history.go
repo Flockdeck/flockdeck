@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jmwri/agent-wrapper/internal/session"
+	"github.com/jmwri/perch/internal/session"
 )
 
 // conversationView is one stored conversation as the history panel shows it.
