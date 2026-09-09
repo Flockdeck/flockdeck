@@ -314,3 +314,60 @@ func TestMovesKeepTheWorkspaceCoherent(t *testing.T) {
 		}
 	}
 }
+
+// TestTheDefaultBroadcastSetFollowsTheTabOnScreen covers leaving broadcast on
+// and moving to another tab. The default means "every agent in front of me",
+// so it has to mean the tab in front of you now; pinned to the tab it was
+// switched on in, typing reached panes that are not on screen and nothing
+// that is.
+func TestTheDefaultBroadcastSetFollowsTheTabOnScreen(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	first := ws.NewTab(session.KindClaude, root, "first")
+	ws.ToggleBroadcast()
+	if !ws.InBroadcast(first.Focus) {
+		t.Fatal("turning broadcast on should cover the agents in the tab")
+	}
+
+	second := ws.NewTab(session.KindClaude, root, "second")
+	if !ws.InBroadcast(second.Focus) {
+		t.Error("the tab now on screen is not being broadcast to")
+	}
+	if ws.InBroadcast(first.Focus) {
+		t.Error("a pane on another tab is still a broadcast target")
+	}
+
+	ws.SelectTab(first.ID)
+	if !ws.InBroadcast(first.Focus) {
+		t.Error("going back should broadcast to the tab that is back on screen")
+	}
+}
+
+// TestRemovingOnePaneFromTheDefaultKeepsTheRest covers turning the default
+// into a selection: it starts as what the default covered, so deselecting one
+// agent leaves the others selected rather than clearing everything.
+func TestRemovingOnePaneFromTheDefaultKeepsTheRest(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	tab := ws.NewTab(session.KindClaude, root, "pair")
+	ws.SplitPane(layout.Horizontal, session.KindClaude)
+
+	ws.ToggleBroadcast()
+	dropped := tab.Focus
+	ws.ToggleBroadcastMember()
+	if ws.InBroadcast(dropped) {
+		t.Error("the pane that was just deselected is still a target")
+	}
+	others := 0
+	for _, id := range tab.Tree.Panes() {
+		if id != dropped && ws.InBroadcast(id) {
+			others++
+		}
+	}
+	if others != 1 {
+		t.Errorf("%d other panes are still selected, want the one that was not deselected", others)
+	}
+}

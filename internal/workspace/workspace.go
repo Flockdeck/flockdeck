@@ -1118,45 +1118,21 @@ func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 // ---------------------------------------------------------------- broadcast
 
 // ToggleBroadcast turns broadcast mode on or off.
+//
+// With no selection of the user's own, broadcast means every Claude pane in
+// the tab in front of you. That default is not written down as a set of panes:
+// it is answered from whichever tab is on screen at the time, so switching
+// tabs with broadcast still on broadcasts to the tab you are now looking at
+// rather than to the one you switched it on in — where it would have gone to
+// panes that are not on screen, which looks exactly like broadcast having
+// stopped working.
 func (w *Workspace) ToggleBroadcast() {
 	w.Broadcast = !w.Broadcast
-	if !w.Broadcast {
-		// A set nobody picked describes the tab it was built from and nothing
-		// else. Keeping it would leave the next tab broadcasting to panes that
-		// are not in it, which looks like broadcast doing nothing at all.
-		if w.broadcastAuto {
-			w.mu.Lock()
-			clear(w.BroadcastSet)
-			w.broadcastAuto = false
-			w.mu.Unlock()
-		}
-		return
-	}
-	t := w.CurrentTab()
-	if t == nil {
-		return
-	}
-	// Which panes would be selected is decided before taking the lock: pane
-	// lookups take the same one.
-	var claude []string
-	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
-			claude = append(claude, id)
-		}
-	}
-	// The set is read and written under the lock everywhere else — a closing
-	// pane removes itself from it — so this must hold it too.
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.BroadcastSet) > 0 {
-		return
-	}
-	// With no explicit selection, broadcasting to every Claude pane in the tab
-	// is the useful default.
-	for _, id := range claude {
-		w.BroadcastSet[id] = true
-	}
-	w.broadcastAuto = len(claude) > 0
+	// Turning it off drops the default; a selection the user made by hand is
+	// theirs and stays.
+	w.broadcastAuto = w.Broadcast && len(w.BroadcastSet) == 0
 }
 
 // ToggleBroadcastMember adds or removes the focused pane from the broadcast set.
@@ -1165,8 +1141,19 @@ func (w *Workspace) ToggleBroadcastMember() {
 	if t == nil {
 		return
 	}
+	// Changing the default turns it into a selection, and the selection starts
+	// as what the default covered: removing one pane from it has to leave the
+	// others in. Membership is worked out before the lock, since the pane
+	// lookups take the same one.
+	var adopt []string
+	if w.broadcastAuto {
+		adopt = w.autoBroadcastMembers(t)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	for _, id := range adopt {
+		w.BroadcastSet[id] = true
+	}
 	if w.BroadcastSet[t.Focus] {
 		delete(w.BroadcastSet, t.Focus)
 	} else {
@@ -1177,8 +1164,27 @@ func (w *Workspace) ToggleBroadcastMember() {
 	w.broadcastAuto = false
 }
 
+// autoBroadcastMembers lists the panes the default set covers in a tab.
+func (w *Workspace) autoBroadcastMembers(t *Tab) []string {
+	var out []string
+	for _, id := range t.Tree.Panes() {
+		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // InBroadcast reports whether a pane receives broadcast input.
 func (w *Workspace) InBroadcast(id string) bool {
+	if w.broadcastAuto {
+		t := w.CurrentTab()
+		if t == nil || t.Tree.Find(id) == nil {
+			return false
+		}
+		p := w.Pane(id)
+		return p != nil && p.Kind == session.KindClaude
+	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.BroadcastSet[id]
