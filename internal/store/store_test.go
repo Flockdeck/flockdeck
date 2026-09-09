@@ -2024,3 +2024,63 @@ func TestTheStateDirectoryIsDecidedOnceARun(t *testing.T) {
 		t.Errorf("the settings directory handed out earlier is gone: %v", err)
 	}
 }
+
+// TestSweepLeavesARunningInstancesSettingsAlone checks the sweep does not pull
+// the hook settings out from under agents that are still going.
+//
+// A pane's settings are written when it starts and never touched again, so an
+// agent working since yesterday has a file that looks a day abandoned. `perch
+// -solo` starts a second instance beside a first that is still answering — the
+// one left detached with its agents running among them — and its sweep was
+// deleting exactly those files. Temporaries are a different matter: no write
+// is a day long, so an old one is nobody's.
+func TestSweepLeavesARunningInstancesSettingsAlone(t *testing.T) {
+	isolateConfig(t)
+	sessions, err := SessionsDir()
+	if err != nil {
+		t.Fatalf("sessions dir: %v", err)
+	}
+	state, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	settings := filepath.Join(sessions, "9f6a1c34-2b7e.settings.json")
+	temp := filepath.Join(state, "layout-abc.json.tmp99")
+	old := time.Now().Add(-48 * time.Hour)
+	for _, p := range []string{settings, temp} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatalf("age %s: %v", p, err)
+		}
+	}
+
+	// Another instance, running, that is not us.
+	if err := SaveInstance(&Instance{PID: os.Getpid() + 1, URL: "http://127.0.0.1:1/", Started: old}); err != nil {
+		t.Fatalf("save instance: %v", err)
+	}
+	alive := processAlive
+	t.Cleanup(func() { processAlive = alive })
+	processAlive = func(pid int) bool { return pid == os.Getpid()+1 }
+
+	if _, err := SweepSessions(24 * time.Hour); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(settings); err != nil {
+		t.Errorf("the running instance's pane lost its hook settings: %v", err)
+	}
+	if _, err := os.Stat(temp); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("an abandoned temporary was kept; no write is a day long")
+	}
+
+	// Once nothing else is running, the settings go too.
+	processAlive = func(int) bool { return false }
+	if _, err := SweepSessions(24 * time.Hour); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(settings); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("settings with nobody left to want them were kept")
+	}
+}

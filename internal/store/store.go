@@ -548,11 +548,22 @@ func hashString(s string) string {
 // closed, and returns how many it deleted: generated per-session settings, and
 // the temporaries of writes that never reached their rename.
 //
-// Files are only removed once they are older than maxAge, because a second
-// instance may be running concurrently and neither its panes' settings nor a
-// write it is part-way through must be pulled out from under it. Normal
-// shutdown deletes both as it goes, so anything this finds is genuinely
-// orphaned.
+// Files are only removed once they are older than maxAge. Normal shutdown
+// deletes both as it goes, so what is left after that is orphaned.
+//
+// Age settles it for a temporary: a write is a few milliseconds, so nothing
+// part-way through is a day old. It does not settle it for a pane's settings.
+// Those are written once when the pane starts and never touched again, so an
+// agent that has been running since yesterday has a settings file that looks a
+// day abandoned — and deleting it takes the hooks out from under a pane that
+// is still working, which is how perch knows whether that agent is waiting on
+// its user. Whether they are in use is not a question about the file, so it is
+// asked of the instance instead: while another one is running, its panes keep
+// their settings and only the temporaries go.
+//
+// That case is `perch -solo`, which is the one way to get a second instance
+// past a first that is still answering — including one left detached with its
+// agents still going, which is exactly the run with the most to lose.
 func SweepSessions(maxAge time.Duration) (int, error) {
 	// Without an age there is nothing separating an orphan from a file a
 	// running instance wrote a moment ago, and the sweep would delete the live
@@ -571,6 +582,10 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 	// instance keeps has ".tmp" anywhere in its name.
 	isTemp := func(name string) bool { return strings.Contains(name, ".tmp") }
 
+	if rivalRunning() {
+		isSettings = func(string) bool { return false }
+	}
+
 	// Both directories are swept whatever happens to either. They fill up
 	// independently, so giving up on the second because the first could not be
 	// reached would leave its orphans there for good.
@@ -586,6 +601,21 @@ func SweepSessions(maxAge time.Duration) (int, error) {
 		firstErr = err
 	}
 	return removed + n, firstErr
+}
+
+// rivalRunning reports whether another instance is recorded and still running.
+//
+// A record left by a run that crashed names a process that is gone, and that
+// answers no, which is right: nothing is holding those files. A record we
+// cannot read at all also answers no, which is the same answer the sweep gave
+// before there was a question, and the worst it costs is a settings file a
+// running agent would have liked to keep.
+func rivalRunning() bool {
+	inst, err := LoadInstance()
+	if err != nil || inst == nil || inst.PID == os.Getpid() {
+		return false
+	}
+	return processAlive(inst.PID)
 }
 
 // sweepDir deletes the matching files in a directory that were last written
