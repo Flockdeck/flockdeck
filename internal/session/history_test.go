@@ -1645,3 +1645,100 @@ func TestTranscriptReaderIsCleanWhenItComesBack(t *testing.T) {
 		t.Errorf("the reader still had %q from the transcript before it", strings.TrimRight(string(leftover), "\r\n"))
 	}
 }
+
+// TestConversationsForAProjectInFullSwing puts the rules together on one
+// project, because they meet each other rather than running one at a time. A
+// project being worked in has its own conversations, agents off in worktrees
+// whose transcripts are filed under those worktrees, several of them sent the
+// same instruction at once, a neighbour whose folder name starts the same
+// way, and Claude Code's own leavings among the files. What the panel draws
+// is the whole of that decided together: which rows exist at all, and what
+// each of them is called.
+func TestConversationsForAProjectInFullSwing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	parent := t.TempDir()
+	project := filepath.Join(parent, "perch")
+	worktreeA := filepath.Join(project, ".claude-worktrees", "one")
+	worktreeB := filepath.Join(project, ".claude-worktrees", "two")
+	sibling := filepath.Join(parent, "perch-notes")
+	for _, d := range []string{worktreeA, worktreeB, sibling} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	own := filepath.Join(home, "projects", projectSlug(project))
+	underA := filepath.Join(home, "projects", projectSlug(worktreeA))
+	underB := filepath.Join(home, "projects", projectSlug(worktreeB))
+	fanout := `","message":{"role":"user","content":"you are one of 10 agents"}}`
+
+	// Two of the fan-out, started here and gone off to a worktree each, so
+	// they are stored apart and can only be told apart by their names.
+	writeTranscript(t, underA, "aaaaaaaa-1414-1414-1414-141414141414",
+		`{"type":"user","cwd":"`+jsonPath(project)+fanout,
+		`{"type":"ai-title","aiTitle":"the first lane"}`)
+	writeTranscript(t, underB, "bbbbbbbb-1414-1414-1414-141414141414",
+		`{"type":"user","cwd":"`+jsonPath(project)+fanout,
+		`{"type":"ai-title","aiTitle":"the second lane"}`)
+	// The worktree's own work, which is the worktree's and not this project's.
+	writeTranscript(t, underA, "cccccccc-1414-1414-1414-141414141414",
+		`{"type":"user","cwd":"`+jsonPath(worktreeA)+`","message":{"role":"user","content":"the worktree's own work"}}`)
+	// This project's own, and a session opened here and never used.
+	writeTranscript(t, own, "dddddddd-1414-1414-1414-141414141414",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"the work done here"}}`)
+	writeTranscript(t, own, "eeeeeeee-1414-1414-1414-141414141414",
+		`{"type":"ai-title","aiTitle":"opened and left"}`)
+	// Claude Code's leavings: a transcript it orphaned, and an empty file.
+	writeTranscript(t, own, "ffffffff-1414-1414-1414-141414141414.orphaned-1788557454976-69dd3a08",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"not resumable"}}`)
+	if err := os.WriteFile(filepath.Join(own, "99999999-1414-1414-1414-141414141414.jsonl"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The neighbour, under a folder whose name starts with this project's.
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(sibling)), "88888888-1414-1414-1414-141414141414",
+		`{"type":"user","cwd":"`+jsonPath(sibling)+`","message":{"role":"user","content":"the neighbour's work"}}`)
+
+	got, err := Conversations(project)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+
+	want := map[string]string{
+		"aaaaaaaa-1414-1414-1414-141414141414": "the first lane",
+		"bbbbbbbb-1414-1414-1414-141414141414": "the second lane",
+		"dddddddd-1414-1414-1414-141414141414": "the work done here",
+		"eeeeeeee-1414-1414-1414-141414141414": "opened and left",
+	}
+	rows := map[string]string{}
+	for _, c := range got {
+		rows[c.ID] = c.Summary
+	}
+	for id, summary := range want {
+		if rows[id] != summary {
+			t.Errorf("row %s reads %q, want %q", id[:8], rows[id], summary)
+		}
+	}
+	for id, summary := range rows {
+		if _, ok := want[id]; !ok {
+			t.Errorf("row %s reading %q should not be in this project's panel", id[:8], summary)
+		}
+	}
+
+	// Most recently used first, and every row says something of its own.
+	for i := 1; i < len(got); i++ {
+		if got[i-1].Modified.Before(got[i].Modified) {
+			t.Errorf("row %d is older than the one after it", i-1)
+		}
+	}
+	seen := map[string]bool{}
+	for _, c := range got {
+		if seen[c.Summary] {
+			t.Errorf("two rows both read %q", c.Summary)
+		}
+		seen[c.Summary] = true
+	}
+}
