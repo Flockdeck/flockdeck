@@ -112,3 +112,70 @@ func TestNewTabTakesTheProjectOfItsDirectory(t *testing.T) {
 		t.Error("the agent is still running after its project was closed")
 	}
 }
+
+// TestProjectNamesGrowUntilTheyDiffer covers the switcher's labels for trees
+// laid out the same way — a mirror, a backup, the same worktree layout under
+// two parents. Borrowing a single parent element leaves those as identical as
+// they started, and an identical label is no label at all.
+func TestProjectNamesGrowUntilTheyDiffer(t *testing.T) {
+	sep := string(filepath.Separator)
+	join := func(parts ...string) string { return filepath.Join(append([]string{sep}, parts...)...) }
+
+	cases := []struct {
+		name  string
+		roots []string
+		want  []string
+	}{{
+		name:  "names that stand on their own are left alone",
+		roots: []string{join("work", "api"), join("work", "web")},
+		want:  []string{"api", "web"},
+	}, {
+		name:  "one parent is enough to tell two checkouts apart",
+		roots: []string{join("a", "service"), join("b", "service")},
+		want:  []string{filepath.Join("a", "service"), filepath.Join("b", "service")},
+	}, {
+		name:  "mirrored trees agree until the element that differs",
+		roots: []string{join("disk1", "src", "service"), join("disk2", "src", "service")},
+		want: []string{
+			filepath.Join("disk1", "src", "service"),
+			filepath.Join("disk2", "src", "service"),
+		},
+	}, {
+		name:  "a grown name that collides with a shorter one grows again",
+		roots: []string{join("a", "service"), join("b", "a", "service")},
+		want:  []string{filepath.Join("a", "service"), filepath.Join("b", "a", "service")},
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := projectNames(tc.roots)
+			if len(got) != len(tc.want) {
+				t.Fatalf("names = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("name of %s = %q, want %q", tc.roots[i], got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestProjectNameOfARootDirectory keeps the top of a path from naming a
+// project after a separator, which is what Base of "C:\\" gives.
+func TestProjectNameOfARootDirectory(t *testing.T) {
+	root := filepath.VolumeName(mustAbs(t)) + string(filepath.Separator)
+	names := projectNames([]string{root})
+	if len(names) != 1 || names[0] == "" || names[0] == string(filepath.Separator) {
+		t.Errorf("name of %q = %q, want something that names a directory", root, names)
+	}
+}
+
+func mustAbs(t *testing.T) string {
+	t.Helper()
+	abs, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+	return abs
+}

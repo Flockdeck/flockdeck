@@ -320,6 +320,11 @@ func (w *Workspace) Projects() []Project {
 	return out
 }
 
+// maxNameDepth bounds how much of a path a project's name may grow to. Four
+// elements is already more than a label, and a name that long has stopped
+// helping long before it stops fitting.
+const maxNameDepth = 4
+
 // projectNames names each root by its own directory, and gives the ones whose
 // names would collide enough of the path to tell them apart.
 //
@@ -327,29 +332,68 @@ func (w *Workspace) Projects() []Project {
 // are called the same thing. The project switcher shows the name and nothing
 // else, and so does the list of other open projects an agent is given, so
 // without this both are asked to tell two identical labels apart.
+//
+// One parent is not always enough. Trees laid out the same way — a mirror, a
+// backup, a second machine's copy — agree for as many elements as the layout
+// is deep, so the names grow an element at a time until they differ or the
+// paths run out.
 func projectNames(roots []string) []string {
 	names := make([]string, len(roots))
-	seen := map[string]int{}
+	depth := make([]int, len(roots))
 	for i, root := range roots {
-		names[i] = filepath.Base(root)
-		seen[names[i]]++
+		names[i], depth[i] = pathTail(root, 1), 1
 	}
-	for i, root := range roots {
-		if seen[names[i]] < 2 {
-			continue
+	for round := 1; round < maxNameDepth; round++ {
+		seen := make(map[string]int, len(names))
+		for _, n := range names {
+			seen[n]++
 		}
-		parent := filepath.Base(filepath.Dir(root))
-		// A project at the root of a drive has no parent worth borrowing: Base
-		// of "C:\" is a separator, which names nothing.
-		if parent == "" || parent == "." || parent == names[i] {
-			continue
+		grew := false
+		for i, root := range roots {
+			if seen[names[i]] < 2 {
+				continue
+			}
+			// A root with nothing left to prepend keeps the name it has; the
+			// project it collides with is the one that grows.
+			longer := pathTail(root, depth[i]+1)
+			if longer == names[i] {
+				continue
+			}
+			names[i], depth[i] = longer, depth[i]+1
+			grew = true
 		}
-		if len(parent) == 1 && os.IsPathSeparator(parent[0]) {
-			continue
+		if !grew {
+			break
 		}
-		names[i] = filepath.Join(parent, names[i])
 	}
 	return names
+}
+
+// pathTail returns the last n elements of a path, or as much of it as there is.
+func pathTail(path string, n int) string {
+	rest := filepath.Clean(path)
+	out := ""
+	for i := 0; i < n; i++ {
+		base, parent := filepath.Base(rest), filepath.Dir(rest)
+		// The top of a path names nothing worth borrowing: Base of "C:\" and of
+		// "/" is a separator, and Dir stops moving once it is reached.
+		if base == "" || base == "." || (len(base) == 1 && os.IsPathSeparator(base[0])) {
+			break
+		}
+		if out == "" {
+			out = base
+		} else {
+			out = filepath.Join(base, out)
+		}
+		if parent == rest {
+			break
+		}
+		rest = parent
+	}
+	if out == "" {
+		out = filepath.Clean(path)
+	}
+	return out
 }
 
 // OpenProject opens a directory as a project and makes it active. A project
