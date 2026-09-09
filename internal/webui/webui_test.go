@@ -1545,6 +1545,65 @@ assert.ok(small.children[0].classList.contains("hunk"));
 	t.Log(strings.TrimSpace(out))
 }
 
+// Fetching, pulling, pushing and committing all talk to a remote. Nothing on
+// screen changed while they did, so a press that had registered looked exactly
+// like one that had not.
+func TestARemoteOperationSaysItIsRunning(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const state = () => ({ type: "changes", cwd: "C:/repo", branch: "improve-webui",
+  upstream: "origin/improve-webui", hasRemote: true, ahead: 2,
+  files: [{ path: "app.js", label: "M", added: 9, removed: 1 }] });
+h.recv(state());
+
+const push = h.$("rev-push");
+assert.strictEqual(push.textContent, "Push 2");
+push.focus();
+h.click(push);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "gitPush", path: "C:/repo" });
+assert.strictEqual(push.textContent, "Pushing\u2026", "the button did not say it was working");
+
+// A second press while the first is in flight is a second push.
+const sent = h.commands().length;
+h.click(push);
+h.key({ key: "Enter" });
+assert.strictEqual(h.commands().length, sent, "a second push was sent while the first was in flight");
+assert.ok(h.$("rev-refresh").disabled, "the other buttons still invite a press");
+assert.ok(h.$("rev-commit").disabled, "the commit buttons still invite a press");
+
+// It always ends by sending the working tree back, which puts them right.
+h.recv(state());
+const after = h.$("rev-push");
+assert.ok(after !== push, "the dialog was not redrawn");
+assert.strictEqual(after.textContent, "Push 2", "the button was left saying it was working");
+assert.ok(!after.disabled, "the buttons were left disabled");
+assert.ok(h.doc.activeElement === after, "the button that was pressed lost the keyboard");
+
+// A commit says so too, and does not go twice.
+const box = h.$("commit-message");
+box.value = "webui: a change";
+box.oninput();
+const commit = h.$("rev-commit");
+h.click(commit);
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "commit", path: "C:/repo", text: "webui: a change", push: false });
+assert.strictEqual(commit.textContent, "Committing\u2026");
+const twice = h.commands().length;
+h.click(commit);
+assert.strictEqual(h.commands().length, twice, "the commit was sent twice");
+
+// A dropped connection would otherwise leave those buttons waiting for a reply
+// that went with it, so coming back asks again.
+h.controls()[0].close();
+h.click(h.$("retry"));
+h.controls().pop().onopen();
+assert.ok(h.commands().some((c) => c.cmd === "changes" && c.path === "C:/repo"),
+  "reconnecting left the dialog showing what it read before the drop");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -2137,8 +2196,18 @@ function boot() {
       });
     },
     open() { sockets.forEach((s) => { if (!s.opened && s.onopen) { s.opened = true; s.onopen(); } }); },
-    commands() { return h.control.sent.map((s) => JSON.parse(s)); },
-    click(node, init) { return dispatch(node, new Ev("click", Object.assign({ target: node }, init))); },
+    /** commands is everything the page has sent up the control connection, in
+     *  order, across a reconnect as well as within one. */
+    commands() {
+      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s));
+    },
+    /** click presses something. A disabled control is not clicked at all — the
+     *  browser does not dispatch the event — which is the whole point of
+     *  disabling one. */
+    click(node, init) {
+      for (let n = node; n; n = n.parentElement) if (n.disabled) return false;
+      return dispatch(node, new Ev("click", Object.assign({ target: node }, init)));
+    },
     /** key presses a key at whatever has the keyboard. A keydown starts at the
      *  focused element and travels out to the window, so a handler on a row and
      *  the one on the window both get their turn, in that order. */

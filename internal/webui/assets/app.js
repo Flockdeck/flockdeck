@@ -209,6 +209,11 @@
     ws.onopen = () => {
       if (control !== ws) return;
       $("disconnected").hidden = true;
+      // Whatever a dialog is showing was read before the connection went, and
+      // the working tree it describes has had time to move on. Asking again is
+      // also what releases a button left waiting for a reply that the drop
+      // took with it.
+      refreshDialog();
     };
     ws.onmessage = (ev) => {
       if (control !== ws) return;
@@ -1505,9 +1510,25 @@
     }
   }
 
-  /** identify is what makes a control the same control across a redraw. */
+  /** identify is what makes a control the same control across a redraw. An id
+   *  is that on its own; otherwise it is what the control is and what it says,
+   *  which is how a person finds it again too. A control whose wording changes
+   *  while it is working needs the id. */
   function identify(node) {
-    return [node.id, node.tagName, node.className, (node.textContent || "").trim()].join("|");
+    return node.id ? "#" + node.id
+      : [node.tagName, node.className, (node.textContent || "").trim()].join("|");
+  }
+
+  /** refreshDialog asks again for whatever the open dialog is showing. */
+  function refreshDialog() {
+    if (dialog === "worktrees") send({ cmd: "worktrees" });
+    else if (dialog === "changes") send({ cmd: "changes", path: (changes && changes.cwd) || "" });
+    else if (dialog === "agents") send({ cmd: "agents" });
+    else if (dialog === "history") send({ cmd: "conversations" });
+    else if (dialog === "projects") {
+      send({ cmd: "recents" });
+      send({ cmd: "browse", path: browseState ? browseState.path : "" });
+    }
   }
 
   function closeOverlay() {
@@ -2434,23 +2455,43 @@
     }
 
     const actions = el("div", "rev-actions");
+
+    /* Fetching, pulling, pushing and committing all talk to a remote, which
+     * takes seconds and sometimes considerably longer. Nothing on screen said
+     * so: the button looked exactly as it had, so the natural reading was that
+     * the press had not registered, and pressing it again sent a second push
+     * while the first was still in flight.
+     *
+     * Every one of these ends by sending the working tree back, whether it
+     * worked or not, which redraws this dialog with its buttons as they should
+     * be. So saying so and refusing further presses until then needs nothing
+     * to undo it. */
+    const running = (btn, saying) => {
+      btn.textContent = saying;
+      for (const b of body.querySelectorAll("button")) b.disabled = true;
+    };
+
     if (m.hasRemote) {
       const fetch = el("button", "chip", "Fetch");
-      fetch.onclick = () => send({ cmd: "gitFetch", path: m.cwd });
+      fetch.id = "rev-fetch";
+      fetch.onclick = () => { running(fetch, "Fetching…"); send({ cmd: "gitFetch", path: m.cwd }); };
       actions.append(fetch);
       if (m.behind) {
         const pull = el("button", "chip", "Pull " + m.behind);
+        pull.id = "rev-pull";
         pull.title = "Fast-forward from " + m.upstream;
-        pull.onclick = () => send({ cmd: "gitPull", path: m.cwd });
+        pull.onclick = () => { running(pull, "Pulling…"); send({ cmd: "gitPull", path: m.cwd }); };
         actions.append(pull);
       }
       const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
+      push.id = "rev-push";
       push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
-      push.onclick = () => send({ cmd: "gitPush", path: m.cwd });
+      push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
       actions.append(push);
     }
     const refresh = el("button", "chip", "Refresh");
-    refresh.onclick = () => send({ cmd: "changes", path: m.cwd });
+    refresh.id = "rev-refresh";
+    refresh.onclick = () => { running(refresh, "Reading…"); send({ cmd: "changes", path: m.cwd }); };
     actions.append(refresh);
     head.append(actions);
     body.append(head);
@@ -2504,18 +2545,21 @@
       box.value = commitDraft;
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
-      const doCommit = (push) => {
+      const doCommit = (btn, push) => {
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
+        running(btn, push ? "Committing and pushing…" : "Committing…");
         send({ cmd: "commit", path: m.cwd, text: message, push });
         commitDraft = "";
       };
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
-      c1.onclick = () => doCommit(false);
+      c1.id = "rev-commit";
+      c1.onclick = () => doCommit(c1, false);
       buttons.append(c1);
       if (m.hasRemote) {
         const c2 = el("button", "chip", "Commit and push");
-        c2.onclick = () => doCommit(true);
+        c2.id = "rev-commit-push";
+        c2.onclick = () => doCommit(c2, true);
         buttons.append(c2);
       }
       commit.append(box, buttons);
