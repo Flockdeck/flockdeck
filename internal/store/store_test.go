@@ -1680,3 +1680,128 @@ func BenchmarkRunSavesChangedLayout(b *testing.B) {
 		}
 	}
 }
+
+// TestLayoutFileNamesAreFixed pins the name a project's layout is saved under.
+//
+// The name is a hash of the root, so every part of taking it — cleaning the
+// path, folding its case, the hash itself, the prefix and extension around it
+// — is load-bearing in a way nothing else in the package is. Change any of
+// them and the application looks up a name nothing was ever written to, finds
+// nothing, and opens an empty workspace beside the layout it should have
+// restored. That has happened once already; legacyPath exists to carry that
+// change's victims across.
+//
+// So these values are not an implementation detail to be updated when the test
+// goes red. A failure here means every saved layout in the world has just been
+// orphaned, and the change needs a migration beside it.
+func TestLayoutFileNamesAreFixed(t *testing.T) {
+	// The hash on its own, checked everywhere so a platform that never sees
+	// the paths below still catches a change to it.
+	for _, c := range []struct{ in, want string }{
+		{"", "cbf29ce484222325"},
+		{".", "af63a34c86018bb1"},
+		{"/home/user/repo", "96e5ae60e8caf52a"},
+		{`c:\users\jim\repo`, "194e567d812290d0"},
+		{"/users/jim/repo", "ed058ea066c6eec6"},
+		{"/Users/Jim/repo", "1fb07467504dc246"},
+		{`C:\Users\Jim\repo`, "baed5f9e244c96f0"},
+	} {
+		if got := hashString(c.in); got != c.want {
+			t.Errorf("hashString(%q) = %s, want %s: every saved layout has just been orphaned", c.in, got, c.want)
+		}
+	}
+
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+
+	// The whole name, for roots spelled the way that platform spells them.
+	// The alternative spellings are the ones the picker, the command line and
+	// the saved session actually produce, and every one of them has to reach
+	// the same file. The filesystem root is in there because it is the one
+	// path where tidying a trailing separator away changes what is left.
+	var root, want string
+	var also []string
+	switch runtime.GOOS {
+	case "windows":
+		root, want = `C:\Users\Jim\repo`, "layout-194e567d812290d0.json"
+		also = []string{`c:\users\jim\repo\`, `C:/Users/Jim/./repo`}
+	case "darwin":
+		root, want = "/Users/Jim/repo", "layout-ed058ea066c6eec6.json"
+		also = []string{"/users/jim/repo/", "/Users/Jim/./repo"}
+	default:
+		root, want = "/home/user/repo", "layout-96e5ae60e8caf52a.json"
+		also = []string{"/home/user/repo/", "/home/user/./repo"}
+	}
+	for _, spelling := range append([]string{root}, also...) {
+		got, err := path(spelling)
+		if err != nil {
+			t.Fatalf("path: %v", err)
+		}
+		if got != filepath.Join(dir, want) {
+			t.Errorf("path(%q) = %s, want %s", spelling, got, filepath.Join(dir, want))
+		}
+	}
+
+	// The filesystem root, whose separator is not a trailing one to be tidied
+	// away: strip it and the name changes.
+	fsRoot, fsWant := "/", "layout-af63a24c860189fe.json"
+	if runtime.GOOS == "windows" {
+		fsRoot, fsWant = `C:`+`\`, "layout-f696dd190d7d304c.json"
+	}
+	if got, err := path(fsRoot); err != nil || got != filepath.Join(dir, fsWant) {
+		t.Errorf("path(%q) = %s, %v, want %s", fsRoot, got, err, filepath.Join(dir, fsWant))
+	}
+
+	// And the name the same root was saved under before it was folded, which
+	// is what Load falls back to. Where case is not folded there is no second
+	// name to fall back to and there never was.
+	old, err := legacyPath(root)
+	if err != nil {
+		t.Fatalf("legacy path: %v", err)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if old != filepath.Join(dir, "layout-baed5f9e244c96f0.json") {
+			t.Errorf("legacyPath(%q) = %s, want layout-baed5f9e244c96f0.json", root, old)
+		}
+	case "darwin":
+		if old != filepath.Join(dir, "layout-1fb07467504dc246.json") {
+			t.Errorf("legacyPath(%q) = %s, want layout-1fb07467504dc246.json", root, old)
+		}
+	default:
+		if old != "" {
+			t.Errorf("legacyPath(%q) = %s, want no fallback name on a platform that does not fold case", root, old)
+		}
+	}
+}
+
+// TestStateFileNamesAreFixed pins the names of the files that are not per
+// project. They are looked up by name across releases in exactly the same way
+// a layout is, and renaming one silently starts the user again from nothing.
+func TestStateFileNamesAreFixed(t *testing.T) {
+	for _, c := range [][2]string{
+		{recentsFile, "projects.json"},
+		{sessionFile, "session.json"},
+		{instanceFile, "instance.json"},
+		{prefsFile, "prefs.json"},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("state file is named %q, want %q", c[0], c[1])
+		}
+	}
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	if dir != filepath.Join(base, "perch") {
+		t.Errorf("state dir is %s, want %s", dir, filepath.Join(base, "perch"))
+	}
+}
