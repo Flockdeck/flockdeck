@@ -188,6 +188,21 @@ func stripANSI(p []byte) string {
 		out = append(out, '\n')
 		lineStart = len(out)
 	}
+	// back moves the write position left, which is what the moves that rub
+	// characters out amount to where text is appended rather than laid out.
+	// It stops at the start of the line: a terminal's cursor does not carry
+	// on into the line above, and letting it here would eat text that has
+	// already been read as final.
+	back := func(n int) {
+		if n < 1 {
+			n = 1
+		}
+		if len(out)-n < lineStart {
+			out = out[:lineStart]
+			return
+		}
+		out = out[:len(out)-n]
+	}
 
 	state := scanNormal
 	var params []byte
@@ -200,6 +215,12 @@ func stripANSI(p []byte) string {
 				state = scanEsc
 			case c == 0x07, c == 0x00:
 				// Bells and padding are not text.
+			case c == 0x08:
+				// A backspace is how a program takes back what it has just
+				// printed -- a spinner frame, a character being erased --
+				// and dropping it leaves both the character and the one that
+				// replaced it in the text.
+				back(1)
 			case c == '\r':
 				// Before a newline a carriage return is only part of the line
 				// break. On its own it rewinds to the start of the line and
@@ -265,6 +286,11 @@ func stripANSI(p []byte) string {
 				for n := csiCount(params); n > 0; n-- {
 					out = append(out, ' ')
 				}
+			// Moving it left is the other half of that. Handling only the
+			// rightward move left the text of a redraw standing in front of
+			// whatever redrew it.
+			case c == 'D':
+				back(csiCount(params))
 			// Moving to a column is the other way of saying what a carriage
 			// return says, and the way Claude Code's own interface says it:
 			// go back to the start of the line and draw it again. Without

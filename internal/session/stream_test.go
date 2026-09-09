@@ -143,6 +143,14 @@ func TestStripANSIRecoversText(t *testing.T) {
 		// Erasing the whole line is the rest of that idiom.
 		{"erasing the line drops it", "stale text\x1b[2K\x1b[1Gfresh", "fresh"},
 		{"erasing to the end of the line drops nothing", "kept\x1b[K", "kept"},
+		// Moving the write position back is how a program takes back what it
+		// has just printed. Dropping the move leaves both what was printed and
+		// what replaced it.
+		{"backspace rubs out the character before it", "abcx\bd", "abcd"},
+		{"backspace stops at the start of its line", "a\nb\b\bc", "a\nc"},
+		{"cursor left moves back over what it wrote", "100%\x1b[4D 50%", " 50%"},
+		{"cursor left stops at the start of its line", "ab\x1b[9Dcd", "cd"},
+		{"an unparameterised cursor left is one place", "abx\x1b[Dy", "aby"},
 		{"plain", "nothing to strip", "nothing to strip"},
 	}
 	for _, c := range cases {
