@@ -121,6 +121,10 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"a runaway move is capped", "a\x1b[99999Cb", "a" + strings.Repeat(" ", maxCSICount) + "b"},
 		{"osc title", "\x1b]0;window title\x07visible", "visible"},
 		{"osc with ST", "\x1b]8;;http://x\x1b\\link", "link"},
+		// An escape inside the payload is the start of a terminator, not the
+		// payload coming back: reading it as the end of the sequence puts the
+		// backslash that really ends it, and the rest of the title, on screen.
+		{"osc with a doubled escape before ST", "\x1b]0;window title\x1b\x1b\\visible", "visible"},
 		{"carriage returns", "first\r\nsecond\r\n", "first\nsecond\n"},
 		// On its own a carriage return rewinds to the start of the line and
 		// what follows overwrites it, which is how a progress line redraws.

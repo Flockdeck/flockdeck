@@ -320,7 +320,13 @@ func stripANSI(p []byte) string {
 				state = scanOSCEsc
 			}
 		case scanOSCEsc:
-			state = scanNormal
+			// An escape here is the start of a terminator, not the payload
+			// coming back. Treating it as the end of the sequence puts the
+			// backslash that really ends it, and everything after it, into
+			// the text: a window title arriving as prose.
+			if c != 0x1b {
+				state = scanNormal
+			}
 		}
 	}
 	return string(out)
