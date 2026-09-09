@@ -286,7 +286,7 @@ textarea:focus-visible {
   padding: 1px 5px;
   border-radius: 3px;
   color: var(--fg);
-  background: var(--sep);
+  background: var(--line-strong);
   white-space: nowrap;
 }
 /* Everything to the left of the actions has to be able to collapse. The

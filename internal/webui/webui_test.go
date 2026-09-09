@@ -70,6 +70,32 @@ func TestNoBindingsAreWrittenIntoTheInterface(t *testing.T) {
 	}
 }
 
+// A custom property that was never defined is not an error anyone is told
+// about: the declaration using it is thrown away and the property falls back to
+// its initial value, so a background simply does not appear and a colour comes
+// out black. The palette is small and stated in one place, which is what makes
+// this worth checking rather than eyeballing.
+func TestEveryColourTheStyleSheetUsesIsDefined(t *testing.T) {
+	css := readAsset(t, "app.css")
+
+	defined := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(--[\w-]+)\s*:`).FindAllStringSubmatch(css, -1) {
+		defined[m[1]] = true
+	}
+
+	// A var() with a fallback stands on its own, so only the bare ones count.
+	used := regexp.MustCompile(`var\(\s*(--[\w-]+)\s*\)`)
+	for i, line := range strings.Split(css, "\n") {
+		for _, m := range used.FindAllStringSubmatch(line, -1) {
+			if defined[m[1]] {
+				continue
+			}
+			t.Errorf("app.css:%d uses %s, which nothing defines, so this declaration is dropped:\n\t%s",
+				i+1, m[1], strings.TrimSpace(line))
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Running the front end
 // ---------------------------------------------------------------------------
