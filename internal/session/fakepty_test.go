@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -19,6 +20,17 @@ type fakePTY struct {
 	resizeDelay func(cols int) time.Duration
 
 	reads chan []byte
+	// done is closed by Close, and is what releases anything waiting on the
+	// pseudo-terminal. The queue itself is left open: closing it would be the
+	// tidier signal, but a feeder that had already decided to send would then
+	// send on a closed channel, and a test that closes a pane while output is
+	// still arriving is exactly what some of these do.
+	done chan struct{}
+
+	// readsDone counts the chunks the reader has taken, so a benchmark can
+	// check it measured the path it meant to rather than reporting an
+	// impossible throughput because nothing was moving.
+	readsDone atomic.Int64
 
 	mu      sync.Mutex
 	applied [][2]int
@@ -26,29 +38,37 @@ type fakePTY struct {
 	closed  bool
 }
 
-func newFakePTY() *fakePTY { return &fakePTY{reads: make(chan []byte, 64)} }
+func newFakePTY() *fakePTY {
+	return &fakePTY{reads: make(chan []byte, 64), done: make(chan struct{})}
+}
 
-// feed queues a chunk for the reader to pick up. A chunk offered to a closed
-// pseudo-terminal, or to one nothing is draining, is dropped rather than
-// blocking the test that offered it.
+// feed queues a chunk for the reader to pick up, waiting while the queue is
+// full the way a real writer waits on a full buffer. A chunk offered to a
+// closed pseudo-terminal is dropped.
 func (f *fakePTY) feed(p []byte) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.closed {
-		return
-	}
 	select {
 	case f.reads <- p:
-	default:
+	case <-f.done:
 	}
 }
 
 func (f *fakePTY) Read(p []byte) (int, error) {
-	chunk, ok := <-f.reads
-	if !ok {
+	// Anything already queued is still readable after the close, the way
+	// output a process left in the buffer is. Only once there is nothing left
+	// does the close end the stream.
+	select {
+	case chunk := <-f.reads:
+		f.readsDone.Add(1)
+		return copy(p, chunk), nil
+	default:
+	}
+	select {
+	case chunk := <-f.reads:
+		f.readsDone.Add(1)
+		return copy(p, chunk), nil
+	case <-f.done:
 		return 0, io.EOF
 	}
-	return copy(p, chunk), nil
 }
 
 func (f *fakePTY) Write(p []byte) (int, error) {
@@ -68,7 +88,7 @@ func (f *fakePTY) Close() error {
 		return nil
 	}
 	f.closed = true
-	close(f.reads)
+	close(f.done)
 	return nil
 }
 

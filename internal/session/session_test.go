@@ -725,6 +725,14 @@ func BenchmarkPumpOutput(b *testing.B) {
 			b.SetBytes(int64(len(chunk)))
 			b.ResetTimer()
 			s.pumpOutput()
+			b.StopTimer()
+
+			// Without this the benchmark can quietly stop measuring the read
+			// path -- a pseudo-terminal that drops what it cannot queue makes
+			// it report several terabytes a second and nobody looks twice.
+			if got := f.readsDone.Load(); got != int64(b.N) {
+				b.Fatalf("the reader saw %d of %d chunks; this is not measuring the read path", got, b.N)
+			}
 		})
 	}
 }
