@@ -330,7 +330,31 @@ func (s *Session) wait() {
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
+
+	// The process is gone and no further output can reach a viewer, so let the
+	// pseudo-terminal go. A pane whose process ends on its own is left on
+	// screen showing that it has, and nothing else closes it: without this the
+	// reader stays blocked on a handle nothing will ever write to again, which
+	// is not a hypothetical but the normal case on Windows, where a ConPTY
+	// does not report the end of its output when the process attached to it
+	// exits. The status is recorded first so that a write racing the exit gets
+	// the message naming the pane rather than a closed handle.
+	_ = s.releasePTY()
+
 	s.changed()
+}
+
+// releasePTY closes the pseudo-terminal, once, whichever of the exit and an
+// explicit close reaches it first.
+func (s *Session) releasePTY() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+	return s.pty.Close()
 }
 
 func (s *Session) changed() {
@@ -500,18 +524,11 @@ func (s *Session) Size() (cols, rows int) {
 	return s.cols, s.rows
 }
 
-// Close terminates the process and releases the PTY.
+// Close terminates the process and releases the PTY. It is safe to call on a
+// pane that has already exited, which releases the PTY on its own.
 func (s *Session) Close() error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil
-	}
-	s.closed = true
-	s.mu.Unlock()
-
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	return s.pty.Close()
+	return s.releasePTY()
 }

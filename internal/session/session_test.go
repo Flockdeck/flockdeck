@@ -726,3 +726,28 @@ func BenchmarkPumpOutput(b *testing.B) {
 		})
 	}
 }
+
+// TestExitReleasesThePseudoTerminal covers a pane whose process ends on its
+// own and is left on screen showing that it has. Nothing closes the pane, so
+// if the exit does not release the pseudo-terminal the reader stays blocked on
+// it forever, holding the handle and its buffer.
+func TestExitReleasesThePseudoTerminal(t *testing.T) {
+	s := startShell(t)
+	if err := s.WriteString("exit\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for !s.Exited() {
+		if time.Now().After(deadline) {
+			t.Fatal("session never reported the process as exited")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	select {
+	case <-s.pumped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the reader is still blocked on the pseudo-terminal after the pane exited")
+	}
+}
