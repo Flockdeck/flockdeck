@@ -660,3 +660,69 @@ func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 		t.Errorf("session reports %dx%d but the pane is %v", cols, rows, applied)
 	}
 }
+
+// TestReplayAndViewersDoNotShareTheReadBuffer covers the reader handing its
+// own buffer to publish. The buffer is reused on the very next read, so
+// anything kept beyond the call -- the replay history, a viewer's queue --
+// has to have taken a copy of it.
+func TestReplayAndViewersDoNotShareTheReadBuffer(t *testing.T) {
+	f := newFakePTY()
+	s := fakeSession(f)
+	id, _, out := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+
+	go s.pumpOutput()
+	f.feed([]byte("first chunk\n"))
+	f.feed([]byte("second chunk\n"))
+
+	var got []string
+	for i := 0; i < 2; i++ {
+		select {
+		case chunk := <-out:
+			got = append(got, string(chunk))
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d chunks arrived: %q", len(got), got)
+		}
+	}
+	if got[0] != "first chunk\n" || got[1] != "second chunk\n" {
+		t.Errorf("viewer saw %q; the second read overwrote the first", got)
+	}
+
+	_, replay, _ := s.Subscribe()
+	if want := "first chunk\nsecond chunk\n"; string(replay) != want {
+		t.Errorf("replay = %q, want %q", replay, want)
+	}
+	_ = f.Close()
+}
+
+// BenchmarkPumpOutput measures the whole read path, which is where a pane's
+// output costs the application something: read, record for replay, fan out.
+func BenchmarkPumpOutput(b *testing.B) {
+	for _, viewers := range []int{0, 1} {
+		name := "no viewers"
+		if viewers > 0 {
+			name = "one viewer"
+		}
+		b.Run(name, func(b *testing.B) {
+			f := newFakePTY()
+			s := fakeSession(f)
+			for i := 0; i < viewers; i++ {
+				_, _, out := s.Subscribe()
+				go func() {
+					for range out {
+					}
+				}()
+			}
+			chunk := make([]byte, 32<<10)
+			go func() {
+				for i := 0; i < b.N; i++ {
+					f.feed(chunk)
+				}
+				_ = f.Close()
+			}()
+			b.SetBytes(int64(len(chunk)))
+			b.ResetTimer()
+			s.pumpOutput()
+		})
+	}
+}

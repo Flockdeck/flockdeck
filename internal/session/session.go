@@ -190,9 +190,7 @@ func (s *Session) pumpOutput() {
 	for {
 		n, err := s.pty.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			s.publish(chunk)
+			s.publish(buf[:n])
 		}
 		if err != nil {
 			return
@@ -201,6 +199,12 @@ func (s *Session) pumpOutput() {
 }
 
 // publish records a chunk and delivers it to every viewer.
+//
+// The chunk is borrowed for the duration of the call: it goes into the replay
+// buffer by copy, and a copy is taken for viewers only when there are any. A
+// pane whose output nobody is watching -- every pane on a tab that is not on
+// screen -- then reads without allocating at all, which is most of them once
+// a handful of agents are running.
 func (s *Session) publish(chunk []byte) {
 	rang := s.bell.scan(chunk)
 
@@ -253,6 +257,11 @@ func (s *Session) publish(chunk []byte) {
 		}
 	}
 	var dead []int
+	if len(s.subs) > 0 {
+		owned := make([]byte, len(chunk))
+		copy(owned, chunk)
+		chunk = owned
+	}
 	for id, ch := range s.subs {
 		select {
 		case ch <- chunk:
