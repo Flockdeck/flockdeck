@@ -63,7 +63,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// the pane has been restarted.
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
-	go readInput(ctx, cancel, conn, &live)
+	go s.readInput(ctx, cancel, conn, id, &live)
 
 	for {
 		subID, replay, out := sess.Subscribe()
@@ -94,7 +94,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	for {
 		typ, data, err := conn.Read(ctx)
@@ -117,7 +117,14 @@ func readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.C
 			continue
 		}
 		if ctl.Resize != nil {
-			sess.Resize(ctl.Resize.Cols, ctl.Resize.Rows)
+			// Through the workspace rather than straight at the session, so
+			// the pane remembers the size the browser measured. It is the
+			// only place that measurement exists -- the server has no idea
+			// what the font metrics are -- and a restarted pane that does not
+			// have it starts its process at a conventional 80x24 and draws
+			// its first screen at the wrong width.
+			cols, rows := ctl.Resize.Cols, ctl.Resize.Rows
+			s.do(func() { s.ws.ResizePaneTerminal(id, cols, rows) })
 		}
 	}
 }

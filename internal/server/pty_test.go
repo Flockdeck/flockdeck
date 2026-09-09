@@ -299,3 +299,44 @@ func TestTerminalSocketFollowsARestartedPane(t *testing.T) {
 	// The same socket, never reconnected, must reach the new process.
 	awaitOutput(t, pty, "echo after_restart\r", "after_restart")
 }
+
+// TestRestartedPaneComesBackAtTheMeasuredSize covers what a restart has to
+// know: only the browser can measure a pane, and it reports that once, over
+// the terminal socket. A restart that does not have it starts the process at
+// a conventional 80x24 in a pane that is nothing like that size.
+func TestRestartedPaneComesBackAtTheMeasuredSize(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	st := nextState(t, ctl, nil)
+	paneID := st.Tabs[0].Root.Pane
+
+	pty := dialPTY(t, srv, paneID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pty.Write(ctx, websocket.MessageText, []byte(`{"resize":{"cols":137,"rows":41}}`)); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+	nextState(t, ctl, func(s stateMsg) bool {
+		p, ok := s.Panes[paneID]
+		return ok && p.Cols == 137 && p.Rows == 41
+	})
+
+	before, _ := srv.paneSession(paneID)
+	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
+
+	// The window never re-reports the size here, exactly as it would not until
+	// its next fit, so the new process has to have been started at it.
+	var cols, rows int
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if sess, _ := srv.paneSession(paneID); sess != nil && sess != before {
+			cols, rows = sess.Size()
+			if cols == 137 && rows == 41 {
+				return
+			}
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("restarted pane is %dx%d, want the measured 137x41", cols, rows)
+}
