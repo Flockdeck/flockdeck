@@ -143,3 +143,36 @@ func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
 		t.Errorf("argv = %q; the task should come last", plain)
 	}
 }
+
+// TestNoLifecycleEventCanMarkALivePaneExited walks every event the settings
+// file subscribes to and applies what it maps to. A pane marked exited while
+// its process is running is not a cosmetic mistake: it refuses what is typed
+// into it and hands new viewers a closed stream, and nothing arrives later to
+// put it right.
+func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
+	for _, ev := range hookEvents {
+		st, detail, ok := StatusForEvent(ev, "Bash")
+		if !ok {
+			continue
+		}
+
+		f := newFakePTY()
+		s := fakeSession(f)
+		s.Kind = KindClaude
+		s.SetStatus(st, detail)
+
+		if s.Exited() {
+			t.Errorf("%s marks a pane exited while its process is running", ev)
+		}
+		if err := s.WriteString("are you there?"); err != nil {
+			t.Errorf("%s left the pane refusing input: %v", ev, err)
+		}
+		if id, _, out := s.Subscribe(); id < 0 {
+			t.Errorf("%s left new viewers with a closed stream", ev)
+		} else {
+			s.Unsubscribe(id)
+			_ = out
+		}
+		_ = f.Close()
+	}
+}

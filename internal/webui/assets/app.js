@@ -52,6 +52,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back.",
     close:       "Closes this pane and stops the process running in it.",
+    usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     repoFolder:  "A folder with a git repository in it - opening it makes it a project.",
     plainFolder: "A folder with no git repository in it - open it to look further in.",
   };
@@ -1025,6 +1026,7 @@
     const branch = el("span", "pane-branch");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
+    const usage = el("span", "pane-usage");
     const cast = el("span", "pane-cast");
     const actions = el("div", "pane-actions");
 
@@ -1046,7 +1048,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions);
-    header.append(dot, project, name, branch, git, detail, cast, actions);
+    header.append(dot, project, name, branch, git, detail, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -1094,7 +1096,7 @@
       /* Canvas rendering is a fine fallback. */
     }
 
-    p = { id, wrap, header, dot, name, project, branch, git, detail, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, git, detail, usage, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -1245,6 +1247,12 @@
       const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
+      // Keyed on what is actually displayed — the processor figure is drawn
+      // rounded — so a pane whose usage is merely jittering does not redraw
+      // its header on every sample.
+      const usage = (v.procs || 0) + " " + Math.round(v.cpu || 0) + " " + (v.rss || 0);
+      if (was.usage !== usage) { was.usage = usage; renderPaneUsage(p, v); }
+
       const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
       if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
 
@@ -1290,6 +1298,45 @@
     if (!v.branch) { delete p.branch.dataset.tip; return; }
     p.branch.append(glyph("⎇"), document.createTextNode(" " + v.branch));
     describe(p.branch, TIPS.branch);
+  }
+
+  /** renderPaneUsage shows what the pane is costing the machine: its share of a
+   *  processor, averaged so the figure settles rather than flickering, and the
+   *  memory resident across the agent's whole process tree - the `claude` CLI
+   *  does its work in children, so its own process alone would say almost
+   *  nothing. A pane with nothing to report, which includes every platform the
+   *  server cannot read a process table on, shows nothing at all rather than a
+   *  row of zeroes. */
+  function renderPaneUsage(p, v) {
+    p.usage.textContent = "";
+    if (!v.procs) {
+      p.usage.classList.remove("hot");
+      p.usage.removeAttribute("role");
+      p.usage.removeAttribute("aria-label");
+      delete p.usage.dataset.tip;
+      return;
+    }
+    const cpu = Math.round(v.cpu || 0);
+    const mem = formatBytes(v.rss || 0);
+    p.usage.textContent = cpu + "% " + mem;
+    // A whole core is the point at which a pane is worth noticing, and this is
+    // the only thing on screen saying which agent is the expensive one.
+    p.usage.classList.toggle("hot", cpu >= 100);
+    p.usage.setAttribute("role", "img");
+    const text = cpu + "% of a processor and " + mem + " across " +
+      v.procs + (v.procs === 1 ? " process" : " processes") + ". " + TIPS.usage;
+    p.usage.setAttribute("aria-label", text);
+    describe(p.usage, text);
+  }
+
+  /** formatBytes writes a size the way a person reads one, to three
+   *  significant figures at most so the header does not jitter as the last
+   *  digit moves. */
+  function formatBytes(n) {
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
   }
 
   /** renderPaneOverlay covers the terminal when the pane has no live process. */

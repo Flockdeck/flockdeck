@@ -27,11 +27,29 @@ const (
 	// subscriberQueue is how many output chunks may be outstanding for one
 	// viewer before it is considered too slow to keep up.
 	subscriberQueue = 512
+	// subscriberBytes is how much output may be outstanding for one viewer,
+	// which is the same question asked in the units that matter. A chunk is
+	// whatever one read returned, up to the reader's whole buffer, so a queue
+	// counted in chunks alone puts no bound at all on what a stalled viewer
+	// holds: five hundred reads of thirty-two kilobytes is sixteen megabytes
+	// for one pane, and a window that has been minimised or throttled stalls
+	// every pane at once. Reaching this is also the point at which replaying
+	// from history is cheaper than delivering the backlog.
+	subscriberBytes = 2 << 20
 	// drainGrace is how long the exit is held back so the reader can pick up
 	// whatever the process printed on its way out. A PTY does not always
 	// report end of output when the process it is attached to goes away, so
 	// this is a grace period rather than something to wait on indefinitely.
 	drainGrace = 500 * time.Millisecond
+	// quietBeforeIdle is how long a pane with no lifecycle hooks reporting for
+	// it must print nothing before it is called idle again. It has to bridge
+	// the pauses inside one piece of work -- a compiler between files, a test
+	// runner between packages -- without leaving a pane that has genuinely
+	// finished claiming to be busy.
+	quietBeforeIdle = 3 * time.Second
+	// bellGrace is how long after a pane starts its bells are treated as part
+	// of starting up rather than a request for attention.
+	bellGrace = 5 * time.Second
 	// maxCols and maxRows bound a resize. The dimensions are measured by the
 	// browser and can be anything it cares to send, while a PTY allocates a
 	// cell for every one of them, so a figure no display could produce is
@@ -82,16 +100,41 @@ type Session struct {
 	// hooksSeen records that Claude lifecycle hooks have reported for this
 	// session, which makes them authoritative over the terminal bell.
 	hooksSeen bool
-	// sawInput records that the user has typed into this pane. Claude rings the
-	// bell while starting up, so without this a freshly opened pane would
-	// announce that it needs attention before anyone has spoken to it.
+	// sawInput records that the user has typed into this pane, and startedAt
+	// when it was launched. Claude rings the bell while starting up, so
+	// without one of the two a freshly opened pane would announce that it
+	// needs attention before anything has happened in it.
 	sawInput   bool
+	startedAt  time.Time
 	cols, rows int
+	// idleAfter is quietBeforeIdle, held per session so a test can shorten it.
+	idleAfter time.Duration
+	// settling records that a goroutine is already waiting to call this pane
+	// idle again, so a pane printing steadily starts one rather than one per
+	// chunk it prints.
+	settling bool
+
+	// usage is the last reading of what the pane's process tree costs, usageAt
+	// is the process table it was taken from, and usageCPU is how much CPU each
+	// process in the tree had used by then.
+	usage    Usage
+	usageAt  time.Time
+	usageCPU map[int]time.Duration
+	// cpuSeeded records that a CPU share has been measured at least once, so
+	// the first measurable interval is reported rather than averaged against
+	// the nothing before it.
+	cpuSeeded bool
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
-	subs    map[int]chan []byte
+	subs    map[int]*subscriber
 	nextSub int
+
+	// resizeMu orders resizes, and keeps one from overlapping the release of
+	// the PTY it would resize. It is separate from mu because applying a
+	// resize is a call into the PTY, which must not be made while the reader
+	// is blocked out of publishing.
+	resizeMu sync.Mutex
 
 	// pumped is closed once the PTY reader has seen the end of the output.
 	pumped chan struct{}
@@ -140,10 +183,12 @@ func Start(cfg Config) (*Session, error) {
 		name:        cfg.Name,
 		status:      StatusStarting,
 		statusSince: time.Now(),
+		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
+		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
-		subs:        map[int]chan []byte{},
+		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
 	}
 
@@ -165,6 +210,31 @@ func Start(cfg Config) (*Session, error) {
 	return s, nil
 }
 
+// subscriber is one viewer's queue of output.
+type subscriber struct {
+	ch chan []byte
+	// sizes holds the lengths of the chunks put into ch, oldest first, and
+	// queued their sum. A channel is first in first out, so whatever is still
+	// in it is the last len(ch) of what was put there, which is what makes the
+	// outstanding bytes exactly knowable without the viewer reporting back.
+	sizes  []int
+	queued int
+}
+
+// settle forgets the chunks the viewer has taken since the last look.
+func (v *subscriber) settle() {
+	taken := len(v.sizes) - len(v.ch)
+	if taken <= 0 {
+		return
+	}
+	for _, n := range v.sizes[:taken] {
+		v.queued -= n
+	}
+	// Copied down rather than resliced forwards, so the array is reused
+	// instead of growing away from its start for the life of the viewer.
+	v.sizes = append(v.sizes[:0], v.sizes[taken:]...)
+}
+
 // pumpOutput reads process output, records it for replay and fans it out.
 func (s *Session) pumpOutput() {
 	defer close(s.pumped)
@@ -172,9 +242,7 @@ func (s *Session) pumpOutput() {
 	for {
 		n, err := s.pty.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			s.publish(chunk)
+			s.publish(buf[:n])
 		}
 		if err != nil {
 			return
@@ -183,18 +251,43 @@ func (s *Session) pumpOutput() {
 }
 
 // publish records a chunk and delivers it to every viewer.
+//
+// The chunk is borrowed for the duration of the call: it goes into the replay
+// buffer by copy, and a copy is taken for viewers only when there are any. A
+// pane whose output nobody is watching -- every pane on a tab that is not on
+// screen -- then reads without allocating at all, which is most of them once
+// a handful of agents are running.
 func (s *Session) publish(chunk []byte) {
 	rang := s.bell.scan(chunk)
+
+	// Output itself is not a change anyone outside this type can see: it
+	// reaches viewers on their own subscriptions, and nothing in the interface
+	// is drawn from the fact that bytes arrived. Reporting a change per chunk
+	// is what keeps the whole workspace snapshot being rebuilt, encoded and
+	// pushed to the browser for as long as any pane is streaming.
+	notify := false
 
 	s.mu.Lock()
 	s.history.write(chunk)
 	s.lastOutput = time.Now()
-	// A pane that has produced output is up. Claude panes are corrected to
-	// working/waiting by their lifecycle hooks; shells, and agents whose hooks
-	// never arrive, stay readable rather than stuck on "starting".
-	if s.status == StatusStarting {
-		s.status = StatusIdle
-		s.statusSince = time.Now()
+	// A pane nothing is reporting for is read from what it prints. Shell panes
+	// never get lifecycle hooks at all, and a Claude pane has none until its
+	// first event arrives, so without this a build running for a minute and a
+	// prompt nobody has typed at look exactly alike from the tab bar.
+	//
+	// Waiting is left alone: it is the one status here worth surfacing, and it
+	// is set from the bell below, which knows more than the fact that bytes
+	// arrived.
+	if !s.hooksSeen && s.status != StatusExited && s.status != StatusWaiting {
+		if s.status != StatusWorking {
+			s.status = StatusWorking
+			s.statusSince = s.lastOutput
+			notify = true
+		}
+		if !s.settling {
+			s.settling = true
+			go s.settleIdle()
+		}
 	}
 	if rang {
 		s.bellAt = time.Now()
@@ -202,7 +295,15 @@ func (s *Session) publish(chunk []byte) {
 		// and when a turn simply ends, so once lifecycle hooks are reporting
 		// they are the sole source of truth; letting the bell win would flip
 		// every completed turn to "waiting".
-		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && s.sawInput {
+		// A pane is past its startup either because somebody typed into it or
+		// because enough time has gone by. Waiting for the typing alone
+		// silenced this for the panes it matters most for: an agent spawned
+		// with its task on the command line is never typed at, and neither is
+		// a pane restored from a saved layout until the user gets to it, so a
+		// workspace of fifteen restored agents had no fallback at all if
+		// their lifecycle hooks did not report.
+		started := s.sawInput || time.Since(s.startedAt) > bellGrace
+		if s.Kind == KindClaude && s.status != StatusExited && !s.hooksSeen && started {
 			// Claude rings again every time it nudges about the input it is
 			// still waiting for, so the clock only starts on the transition:
 			// restarting it on each bell is how a pane that has been blocked
@@ -210,27 +311,68 @@ func (s *Session) publish(chunk []byte) {
 			// is exactly the number being used to decide where to look.
 			if s.status != StatusWaiting {
 				s.statusSince = time.Now()
+				notify = true
 			}
 			s.status = StatusWaiting
 		}
 	}
 	var dead []int
-	for id, ch := range s.subs {
+	if len(s.subs) > 0 {
+		owned := make([]byte, len(chunk))
+		copy(owned, chunk)
+		chunk = owned
+	}
+	for id, v := range s.subs {
+		v.settle()
+		// A viewer too slow to keep up would otherwise stall the process, or
+		// hold the backlog for as long as it took to catch up. Drop it; the
+		// client reconnects and replays from history, which is bounded.
+		if v.queued+len(chunk) > subscriberBytes {
+			dead = append(dead, id)
+			continue
+		}
 		select {
-		case ch <- chunk:
+		case v.ch <- chunk:
+			v.sizes = append(v.sizes, len(chunk))
+			v.queued += len(chunk)
 		default:
-			// A viewer too slow to keep up would otherwise stall the process.
-			// Drop it; the client reconnects and replays from history.
 			dead = append(dead, id)
 		}
 	}
 	for _, id := range dead {
-		close(s.subs[id])
+		close(s.subs[id].ch)
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
 
-	s.changed()
+	if notify {
+		s.changed()
+	}
+}
+
+// settleIdle returns an inferred-working pane to idle once it has been quiet
+// for long enough, and gives up as soon as anything better informed -- a
+// lifecycle hook, the bell, the process exiting -- has spoken for it.
+func (s *Session) settleIdle() {
+	for {
+		s.mu.Lock()
+		if s.hooksSeen || s.status != StatusWorking {
+			s.settling = false
+			s.mu.Unlock()
+			return
+		}
+		if quiet := time.Since(s.lastOutput); quiet < s.idleAfter {
+			s.mu.Unlock()
+			time.Sleep(s.idleAfter - quiet)
+			continue
+		}
+		s.status = StatusIdle
+		s.statusSince = time.Now()
+		s.settling = false
+		s.mu.Unlock()
+		s.changed()
+		return
+	}
 }
 
 // wait reaps the process and records its exit status.
@@ -251,12 +393,39 @@ func (s *Session) wait() {
 	s.exitErr = err
 	s.status = StatusExited
 	s.statusSince = time.Now()
-	for id, ch := range s.subs {
-		close(ch)
+	for id, v := range s.subs {
+		close(v.ch)
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
+
+	// The process is gone and no further output can reach a viewer, so let the
+	// pseudo-terminal go. A pane whose process ends on its own is left on
+	// screen showing that it has, and nothing else closes it: without this the
+	// reader stays blocked on a handle nothing will ever write to again, which
+	// is not a hypothetical but the normal case on Windows, where a ConPTY
+	// does not report the end of its output when the process attached to it
+	// exits. The status is recorded first so that a write racing the exit gets
+	// the message naming the pane rather than a closed handle.
+	_ = s.releasePTY()
+
 	s.changed()
+}
+
+// releasePTY closes the pseudo-terminal, once, whichever of the exit and an
+// explicit close reaches it first.
+func (s *Session) releasePTY() error {
+	s.resizeMu.Lock()
+	defer s.resizeMu.Unlock()
+
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+	return s.pty.Close()
 }
 
 func (s *Session) changed() {
@@ -278,14 +447,14 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	replay = s.history.bytes()
+	replay = s.history.replay()
 	if s.status == StatusExited {
 		close(ch)
 		return -1, replay, ch
 	}
 	s.nextSub++
 	id = s.nextSub
-	s.subs[id] = ch
+	s.subs[id] = &subscriber{ch: ch}
 	return id, replay, ch
 }
 
@@ -293,8 +462,8 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 func (s *Session) Unsubscribe(id int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if ch, ok := s.subs[id]; ok {
-		close(ch)
+	if v, ok := s.subs[id]; ok {
+		close(v.ch)
 		delete(s.subs, id)
 	}
 }
@@ -307,12 +476,31 @@ func (s *Session) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 	s.mu.Lock()
-	if s.status == StatusExited {
+	if s.status == StatusExited || s.closed {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
 	s.sawInput = true
+	// Typing is the answer to whatever the pane was blocked on, and where the
+	// bell is what put it there, typing is the only thing that can take it
+	// back out: the bell rings again on the next question, not on this one
+	// being answered, and the guess made from output deliberately leaves
+	// "waiting" alone. Without this a pane whose lifecycle hooks are not
+	// reporting stays in the count of agents needing you from the first
+	// question it ever asks until it exits.
+	answered := !s.hooksSeen && s.status == StatusWaiting
+	if answered {
+		s.status = StatusWorking
+		s.statusSince = time.Now()
+		if !s.settling {
+			s.settling = true
+			go s.settleIdle()
+		}
+	}
 	s.mu.Unlock()
+	if answered {
+		s.changed()
+	}
 	return s.pty.Write(p)
 }
 
@@ -391,8 +579,28 @@ func (s *Session) Resize(cols, rows int) {
 		return
 	}
 	cols, rows = clampSize(cols, rows)
+
+	// Recording the size and applying it have to happen as one step. The
+	// browser measures a pane on every layout change, so two resizes are
+	// routinely in flight at once -- one from the terminal socket, one from
+	// the layout -- and if the second overtakes the first inside the PTY call
+	// the pane is left the size of the resize that lost, while the session and
+	// the saved layout both report the size of the one that won. Nothing
+	// corrects that until somebody drags the divider again.
+	s.resizeMu.Lock()
+	defer s.resizeMu.Unlock()
+
 	s.mu.Lock()
-	if s.cols == cols && s.rows == rows {
+	// Resizing a pseudo-terminal that has been released is not a no-op that
+	// returns an error. On Windows the handle is a pointer into the console
+	// host, closing it frees what it points at, and go-pty leaves the field
+	// holding the stale value, so the resize reaches ResizePseudoConsole with
+	// a pointer to memory that has been given back. That is a crash of the
+	// whole application, not of one pane, and there is nothing above this that
+	// could catch it. Holding resizeMu across the release as well is what
+	// makes the check mean something: a resize cannot already be inside the
+	// PTY when it is closed, and cannot start afterwards.
+	if s.closed || (s.cols == cols && s.rows == rows) {
 		s.mu.Unlock()
 		return
 	}
@@ -415,18 +623,11 @@ func (s *Session) Size() (cols, rows int) {
 	return s.cols, s.rows
 }
 
-// Close terminates the process and releases the PTY.
+// Close terminates the process and releases the PTY. It is safe to call on a
+// pane that has already exited, which releases the PTY on its own.
 func (s *Session) Close() error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil
-	}
-	s.closed = true
-	s.mu.Unlock()
-
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	return s.pty.Close()
+	return s.releasePTY()
 }

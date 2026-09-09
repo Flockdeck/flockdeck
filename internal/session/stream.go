@@ -51,6 +51,46 @@ func (r *ring) bytes() []byte {
 	return out
 }
 
+// replay returns the buffered output for a viewer rebuilding its screen.
+//
+// Once the buffer has wrapped its oldest byte is wherever the last write
+// happened to land, which is usually the middle of an escape sequence: the
+// viewer feeds that to a fresh terminal, which has no sequence to attach the
+// parameters to and prints them, so every reload of a pane that has said more
+// than a bufferful opens with "38;5;42m" where a word should be. Starting at
+// a line boundary costs at most one line of scrollback.
+func (r *ring) replay() []byte {
+	out := r.bytes()
+	if r.full {
+		out = dropPartialLine(out)
+	}
+	return out
+}
+
+// tail returns the last n bytes written, oldest first, and reports whether
+// anything older than them was left behind. n of zero or less means all of it.
+//
+// Reading a tail through bytes() would copy the whole buffer to keep a
+// fraction of it, and the buffer is half a megabyte for every open pane.
+func (r *ring) tail(n int) (b []byte, truncated bool) {
+	held := r.pos
+	if r.full {
+		held = len(r.buf)
+	}
+	if n <= 0 || n >= held {
+		return r.bytes(), false
+	}
+	out := make([]byte, 0, n)
+	start := (r.pos - n + len(r.buf)) % len(r.buf)
+	if start+n <= len(r.buf) {
+		out = append(out, r.buf[start:start+n]...)
+	} else {
+		out = append(out, r.buf[start:]...)
+		out = append(out, r.buf[:n-(len(r.buf)-start)]...)
+	}
+	return out, true
+}
+
 // bellScanner finds terminal bells in a byte stream.
 //
 // A naive search for 0x07 is wrong: BEL is also the terminator of an OSC
@@ -76,6 +116,13 @@ const (
 )
 
 // scan reports whether p contains a real bell.
+//
+// It looks at every byte rather than skipping to the next escape or bell with
+// bytes.IndexByte. That was tried: it is forty times faster on plain lines and
+// two and a half times slower on the output a Claude pane actually produces,
+// where an escape sequence every few bytes turns each search into call
+// overhead over a span too short to pay for it. BenchmarkBellScan keeps all
+// three shapes of output in view so the next attempt starts from the numbers.
 func (b *bellScanner) scan(p []byte) bool {
 	rang := false
 	for _, c := range p {
@@ -111,9 +158,15 @@ func (b *bellScanner) scan(p []byte) bool {
 				b.state = scanOSCEsc
 			}
 		case scanOSCEsc:
-			if c == '\\' {
+			switch c {
+			case '\\':
 				b.state = scanNormal // ST terminator
-			} else {
+			case 0x1b:
+				// Still the start of a terminator, not the payload again.
+				// Dropping back to the payload here leaves the scanner inside
+				// the sequence for good, and the next real bell is swallowed
+				// as the byte that ends it.
+			default:
 				b.state = scanOSC
 			}
 		}
@@ -135,6 +188,31 @@ func stripANSI(p []byte) string {
 		out = append(out, '\n')
 		lineStart = len(out)
 	}
+	// back moves the write position left, which is what the moves that rub
+	// characters out amount to where text is appended rather than laid out.
+	// It stops at the start of the line: a terminal's cursor does not carry
+	// on into the line above, and letting it here would eat text that has
+	// already been read as final.
+	back := func(n int) {
+		if n < 1 {
+			n = 1
+		}
+		for ; n > 0; n-- {
+			if len(out) <= lineStart {
+				return
+			}
+			// A terminal moves by cells, not by bytes, and the spinners these
+			// moves are used to draw are made of braille and box-drawing
+			// characters three bytes wide. Taking one byte off the end of one
+			// leaves a fragment of a character behind, which is not text at
+			// all: the rest of the reading comes back as invalid UTF-8.
+			i := len(out) - 1
+			for i > lineStart && out[i]&0xc0 == 0x80 {
+				i--
+			}
+			out = out[:i]
+		}
+	}
 
 	state := scanNormal
 	var params []byte
@@ -147,6 +225,12 @@ func stripANSI(p []byte) string {
 				state = scanEsc
 			case c == 0x07, c == 0x00:
 				// Bells and padding are not text.
+			case c == 0x08:
+				// A backspace is how a program takes back what it has just
+				// printed -- a spinner frame, a character being erased --
+				// and dropping it leaves both the character and the one that
+				// replaced it in the text.
+				back(1)
 			case c == '\r':
 				// Before a newline a carriage return is only part of the line
 				// break. On its own it rewinds to the start of the line and
@@ -212,6 +296,32 @@ func stripANSI(p []byte) string {
 				for n := csiCount(params); n > 0; n-- {
 					out = append(out, ' ')
 				}
+			// Moving it left is the other half of that. Handling only the
+			// rightward move left the text of a redraw standing in front of
+			// whatever redrew it.
+			case c == 'D':
+				back(csiCount(params))
+			// Moving to a column is the other way of saying what a carriage
+			// return says, and the way Claude Code's own interface says it:
+			// go back to the start of the line and draw it again. Without
+			// this the line before the redraw and the line after it are read
+			// as one, which is how a status line that has counted to a
+			// hundred arrives here as every number it passed through.
+			case c == 'G':
+				col := csiCount(params)
+				if col < 1 {
+					col = 1
+				}
+				target := lineStart + col - 1
+				for len(out) < target {
+					out = append(out, ' ')
+				}
+				out = out[:target]
+			// Erasing the line is the rest of that idiom. Only erasing all of
+			// it has anything to undo where text is appended rather than laid
+			// out: the other forms erase what has not been written yet.
+			case c == 'K' && csiCount(params) == 2:
+				out = out[:lineStart]
 			}
 		case scanOSC:
 			if c == 0x07 {
@@ -220,7 +330,13 @@ func stripANSI(p []byte) string {
 				state = scanOSCEsc
 			}
 		case scanOSCEsc:
-			state = scanNormal
+			// An escape here is the start of a terminator, not the payload
+			// coming back. Treating it as the end of the sequence puts the
+			// backslash that really ends it, and everything after it, into
+			// the text: a window title arriving as prose.
+			if c != 0x1b {
+				state = scanNormal
+			}
 		}
 	}
 	return string(out)
@@ -267,24 +383,23 @@ func breaksLine(final byte) bool {
 // lead agent has proposed.
 func (s *Session) RecentText(maxBytes int) string {
 	s.mu.RLock()
-	raw := s.history.bytes()
+	raw, truncated := s.history.tail(maxBytes)
 	s.mu.RUnlock()
 
-	return stripANSI(tailLines(raw, maxBytes))
+	if truncated {
+		raw = dropPartialLine(raw)
+	}
+	return stripANSI(raw)
 }
 
-// tailLines returns the last whole lines of p that fit in maxBytes, or all of
-// p when maxBytes is zero or negative.
+// dropPartialLine drops everything up to and including the first line break,
+// which is the line a byte-counted tail was cut in the middle of.
 //
-// Cutting at a byte offset lands mid-line, and a line of terminal output is
-// mostly escape sequences: starting inside one leaves the reader looking at
-// "38;5;42mgreen" where it expected a word, and can halve a UTF-8 rune
-// besides. The partial line the cut opens with is dropped.
-func tailLines(p []byte, maxBytes int) []byte {
-	if maxBytes <= 0 || len(p) <= maxBytes {
-		return p
-	}
-	p = p[len(p)-maxBytes:]
+// A line of terminal output is mostly escape sequences: opening inside one
+// leaves the reader looking at "38;5;42mgreen" where it expected a word, and
+// can halve a UTF-8 rune besides. Output holding no line break at all is
+// better shown truncated than dropped entirely.
+func dropPartialLine(p []byte) []byte {
 	if i := bytes.IndexByte(p, '\n'); i >= 0 {
 		return p[i+1:]
 	}

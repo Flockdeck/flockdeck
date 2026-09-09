@@ -321,6 +321,17 @@ textarea:focus-visible {
 .pane-git .dirty { color: var(--waiting); }
 .pane-git .ahead { color: var(--working); }
 .pane-git .behind { color: var(--exited); }
+/* What the pane is costing the machine. It is glanceable detail rather than
+ * identity, so it is the first thing in the header to give up its width: a
+ * high shrink factor lets it clip away in a three-way split while the pane
+ * name and the branch keep theirs. Tabular figures stop the row twitching as
+ * the digits change. */
+.pane-usage {
+  color: var(--fg-dim); font-size: 11px; white-space: nowrap;
+  overflow: hidden; flex: 0 1000 auto; min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.pane-usage.hot { color: var(--working); }
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-cast.active { color: var(--cast); font-weight: 600; }
 .pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }

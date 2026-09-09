@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 )
 
 func TestRingKeepsMostRecentBytes(t *testing.T) {
@@ -73,6 +75,10 @@ func TestBellScannerIgnoresOSCTerminator(t *testing.T) {
 		{"apc terminated by BEL", "\x1b_G f=100\x07after", false},
 		{"pm terminated by BEL", "\x1b^message\x07after", false},
 		{"a doubled escape still starts the sequence", "\x1b\x1b]0;t\x07", false},
+		// An escape inside the payload that is not the terminator is still the
+		// start of one: losing that leaves the scanner inside the sequence,
+		// and the next real bell is swallowed as the byte that ends it.
+		{"an escape before the ST terminator", "\x1b]0;t\x1b\x1b" + `\` + "ding\x07", true},
 		{"no bell at all", "just text", false},
 	}
 	for _, c := range cases {
@@ -116,6 +122,10 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"a runaway move is capped", "a\x1b[99999Cb", "a" + strings.Repeat(" ", maxCSICount) + "b"},
 		{"osc title", "\x1b]0;window title\x07visible", "visible"},
 		{"osc with ST", "\x1b]8;;http://x\x1b\\link", "link"},
+		// An escape inside the payload is the start of a terminator, not the
+		// payload coming back: reading it as the end of the sequence puts the
+		// backslash that really ends it, and the rest of the title, on screen.
+		{"osc with a doubled escape before ST", "\x1b]0;window title\x1b\x1b\\visible", "visible"},
 		{"carriage returns", "first\r\nsecond\r\n", "first\nsecond\n"},
 		// On its own a carriage return rewinds to the start of the line and
 		// what follows overwrites it, which is how a progress line redraws.
@@ -128,11 +138,41 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"charset designator", "\x1b(Bplain ascii", "plain ascii"},
 		{"alternate charset", "\x1b)0line\x1b(Btext", "linetext"},
 		{"line size", "\x1b#8grid", "grid"},
+		// Moving to a column is the other spelling of a carriage return, and
+		// the one Claude Code's own interface uses to redraw a line.
+		{"a column move rewinds the line", "50%\x1b[1G100%", "100%"},
+		{"an unparameterised column move is column one", "50%\x1b[G100%", "100%"},
+		{"a column move keeps what is before it", "abcdef\x1b[3Gxy", "abxy"},
+		{"a column move past the end pads", "ab\x1b[5Gcd", "ab  cd"},
+		{"a column move after a line break stays on its line", "first\n50%\x1b[1G100%", "first\n100%"},
+		// Erasing the whole line is the rest of that idiom.
+		{"erasing the line drops it", "stale text\x1b[2K\x1b[1Gfresh", "fresh"},
+		{"erasing to the end of the line drops nothing", "kept\x1b[K", "kept"},
+		// Moving the write position back is how a program takes back what it
+		// has just printed. Dropping the move leaves both what was printed and
+		// what replaced it.
+		{"backspace rubs out the character before it", "abcx\bd", "abcd"},
+		{"backspace stops at the start of its line", "a\nb\b\bc", "a\nc"},
+		{"cursor left moves back over what it wrote", "100%\x1b[4D 50%", " 50%"},
+		{"cursor left stops at the start of its line", "ab\x1b[9Dcd", "cd"},
+		{"an unparameterised cursor left is one place", "abx\x1b[Dy", "aby"},
+		// The moves count cells, and the spinners drawn with them are made of
+		// characters three bytes wide. Stepping back a byte at a time leaves a
+		// fragment of one behind, and the reading is no longer text.
+		{"backspace steps back over a whole character", "⠁x\b\b⠂", "⠂"},
+		{"cursor left steps back over whole characters", "⠋⠙\x1b[2D⠹", "⠹"},
 		{"plain", "nothing to strip", "nothing to strip"},
 	}
 	for _, c := range cases {
-		if got := stripANSI([]byte(c.in)); got != c.want {
+		got := stripANSI([]byte(c.in))
+		if got != c.want {
 			t.Errorf("%s: stripANSI(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+		// Whatever it recovers has to be text. A cut through the middle of a
+		// character is not shown as a wrong letter, it is shown as a
+		// replacement glyph in the middle of a sentence.
+		if !utf8.ValidString(got) {
+			t.Errorf("%s: stripANSI(%q) = %q, which is not valid UTF-8", c.name, c.in, got)
 		}
 	}
 }
@@ -152,15 +192,20 @@ func TestRecentTextReadsTheTail(t *testing.T) {
 	}
 }
 
-// TestTailLinesDropsThePartialFirstLine covers the byte cut the tail of a
+// TestRecentTextDropsThePartialFirstLine covers the byte cut the tail of a
 // pane's output is taken at. Landing inside an escape sequence spills its
 // parameters into the text as if they were words, which is what the fan-out
 // dialog then shows to the user.
-func TestTailLinesDropsThePartialFirstLine(t *testing.T) {
+func TestRecentTextDropsThePartialFirstLine(t *testing.T) {
 	raw := []byte("\x1b[38;5;42mearlier line\x1b[m\r\n\x1b[1mlater line\x1b[m\r\n")
+	pane := func() *Session {
+		s := &Session{history: newRing(1024)}
+		s.history.write(raw)
+		return s
+	}
 
 	// A budget that lands part way through the first line's colour sequence.
-	got := stripANSI(tailLines(raw, 41))
+	got := pane().RecentText(41)
 	if strings.Contains(got, "5;42") {
 		t.Errorf("escape parameters leaked into the text: %q", got)
 	}
@@ -173,13 +218,118 @@ func TestTailLinesDropsThePartialFirstLine(t *testing.T) {
 
 	// A budget bigger than the output keeps all of it, and so does no budget.
 	for _, n := range []int{0, -1, len(raw), len(raw) * 2} {
-		if got := stripANSI(tailLines(raw, n)); !strings.Contains(got, "earlier line") {
-			t.Errorf("tailLines(_, %d) dropped output that fitted: %q", n, got)
+		if got := pane().RecentText(n); !strings.Contains(got, "earlier line") {
+			t.Errorf("RecentText(%d) dropped output that fitted: %q", n, got)
 		}
 	}
 
 	// Output with no line break at all is better shown truncated than lost.
-	if got := tailLines([]byte("no breaks here"), 5); string(got) != " here" {
+	s := &Session{history: newRing(1024)}
+	s.history.write([]byte("no breaks here"))
+	if got := s.RecentText(5); got != " here" {
 		t.Errorf("unbroken output = %q, want the tail", got)
+	}
+}
+
+// TestRingTailMatchesBytes checks the cheap tail against the whole-buffer read
+// it replaces, across every wrap position a ring can be in.
+func TestRingTailMatchesBytes(t *testing.T) {
+	for _, size := range []int{1, 4, 7, 16} {
+		for written := 0; written < size*3; written++ {
+			r := newRing(size)
+			for i := 0; i < written; i++ {
+				r.write([]byte{byte('a' + i%26)})
+			}
+			all := r.bytes()
+			for n := -1; n <= size+2; n++ {
+				got, truncated := r.tail(n)
+				want := all
+				if n > 0 && n < len(all) {
+					want = all[len(all)-n:]
+				}
+				if !bytes.Equal(got, want) {
+					t.Fatalf("size %d, %d written, tail(%d) = %q, want %q", size, written, n, got, want)
+				}
+				if truncated != (len(got) < len(all)) {
+					t.Fatalf("size %d, %d written, tail(%d) reported truncated = %v", size, written, n, truncated)
+				}
+			}
+		}
+	}
+}
+
+// BenchmarkRecentText measures reading the tail of a pane's output, which the
+// fan-out dialog does for every open pane at once.
+func BenchmarkRecentText(b *testing.B) {
+	s := &Session{history: newRing(replayBytes)}
+	line := []byte(strings.Repeat("x", 79) + "\n")
+	for s.history.pos != 0 || !s.history.full {
+		s.history.write(line)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if len(s.RecentText(64<<10)) == 0 {
+			b.Fatal("no text")
+		}
+	}
+}
+
+// TestReplayStartsAtALineBoundary covers reloading a pane that has said more
+// than its buffer holds. The oldest byte kept is wherever the last write
+// landed, and a terminal handed the tail of an escape sequence has nothing to
+// attach the parameters to and prints them as if they were words.
+func TestReplayStartsAtALineBoundary(t *testing.T) {
+	// Sized so the buffer wraps six bytes into the colour sequence on the
+	// second line, which is the middle of its parameters.
+	s := &Session{history: newRing(24), subs: map[int]*subscriber{}, idleAfter: time.Minute}
+	s.publish([]byte("first line\n"))
+	s.publish([]byte("\x1b[38;5;42mgreen\x1b[m\n"))
+	s.publish([]byte("plain tail\n"))
+
+	id, replay, _ := s.Subscribe()
+	t.Cleanup(func() { s.Unsubscribe(id) })
+
+	if strings.Contains(string(replay), "42m") {
+		t.Errorf("the replay opens inside an escape sequence: %q", replay)
+	}
+	if !strings.Contains(string(replay), "plain tail") {
+		t.Errorf("the replay lost the whole lines it did hold: %q", replay)
+	}
+
+	// A buffer that has not wrapped is replayed whole: there is no partial
+	// line at the front of it, and dropping one would lose the first thing the
+	// pane ever said.
+	fresh := &Session{history: newRing(4096), subs: map[int]*subscriber{}, idleAfter: time.Minute}
+	fresh.publish([]byte("the first line\nthe second\n"))
+	id2, replay2, _ := fresh.Subscribe()
+	t.Cleanup(func() { fresh.Unsubscribe(id2) })
+	if !strings.Contains(string(replay2), "the first line") {
+		t.Errorf("replay dropped the start of a buffer that never wrapped: %q", replay2)
+	}
+}
+
+// BenchmarkBellScan measures the scan every byte of every pane's output goes
+// through on the way from the process to the screen, over the three shapes
+// terminal output comes in.
+func BenchmarkBellScan(b *testing.B) {
+	shapes := []struct{ name, unit string }{
+		// A build log, or anything writing plain lines.
+		{"plain", "some ordinary output on a line of its own\n"},
+		// Coloured output: a sequence every few words.
+		{"coloured", "\x1b[38;5;42m" + "some ordinary output " + "\x1b[m\r\n"},
+		// A full-screen interface redrawing itself, which is what a Claude
+		// pane produces: escape sequences with a few characters between them.
+		{"full screen", "\x1b[K\x1b[36mx\x1b[m\x1b[1B"},
+	}
+	for _, shape := range shapes {
+		b.Run(shape.name, func(b *testing.B) {
+			chunk := []byte(strings.Repeat(shape.unit, (32<<10)/len(shape.unit)))
+			var s bellScanner
+			b.SetBytes(int64(len(chunk)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				s.scan(chunk)
+			}
+		})
 	}
 }
