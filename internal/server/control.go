@@ -344,6 +344,14 @@ func parseDirection(s string) layout.Direction {
 // lastState is by definition what every window already holds and one that
 // connected later was handed a snapshot of its own that is at least as new.
 func (s *Server) broadcastState() {
+	// Nobody to tell. A detached run sits like this for hours while the agents
+	// carry on producing output, and every chunk of it wakes the server:
+	// building a snapshot and encoding it for no window at all is the one part
+	// of that work that buys nothing at any point. The git loop stands down
+	// for the same reason.
+	if s.ClientCount() == 0 {
+		return
+	}
 	s.do(func() {
 		data, err := json.Marshal(s.snapshot())
 		if err != nil {
@@ -466,6 +474,12 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if data, err := json.Marshal(s.snapshot()); err == nil {
 			c.sendState(data)
 		}
+		// What was last broadcast no longer describes what every window holds.
+		// Nothing was broadcast at all while there were no windows, so the
+		// state may since have moved away and come back to it; comparing
+		// against it would then skip a change this window has not been told
+		// about. Forgetting it costs one extra broadcast per window opened.
+		s.lastState = nil
 	})
 
 	defer func() {

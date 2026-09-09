@@ -1088,3 +1088,72 @@ func TestAChangeAskedForBeatsTheChatter(t *testing.T) {
 	}
 	t.Logf("median change reaching the window while agents talked: %v (worst %v)", median, took[len(took)-1])
 }
+
+// TestAWindowOpenedLaterIsNotToldStaleNews covers the two halves of skipping
+// work while no window is open. Nothing is built or sent for nobody — but a
+// change made in that time is then absent from what was last broadcast, so if
+// the state wanders away and comes back to it, the comparison that suppresses
+// an unchanged snapshot would suppress one a newly opened window has never
+// seen.
+func TestAWindowOpenedLaterIsNotToldStaleNews(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	first := dialControl(t, srv)
+	r1 := readControl(first)
+	r1.settle(t)
+	id := srv.firstTabID(t)
+	original := ""
+	if st, ok := r1.stateWithin(time.Second, nil); ok {
+		original = st.Tabs[0].Title
+	}
+	if original == "" {
+		original = "first"
+	}
+
+	// The window goes.
+	_ = first.CloseNow()
+	for deadline := time.Now().Add(10 * time.Second); srv.ClientCount() != 0; {
+		if time.Now().After(deadline) {
+			t.Fatal("the window was never taken off the client list")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The workspace moves on with nobody watching.
+	renameTab(t, srv, id, "while nobody was looking")
+	time.Sleep(4 * stateInterval)
+
+	// A window opens and is given the state as it now stands.
+	second := dialControl(t, srv)
+	r2 := readControl(second)
+	if _, ok := r2.stateWithin(20*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == "while nobody was looking"
+	}); !ok {
+		t.Fatal("the newly opened window was not given the current state")
+	}
+
+	// And the state goes back to exactly what was last broadcast, before this
+	// window existed. It has never been sent that, so it has to be now.
+	renameTab(t, srv, id, original)
+	if _, ok := r2.stateWithin(20*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == original
+	}); !ok {
+		t.Fatalf("the window was never told the title went back to %q", original)
+	}
+}
+
+// renameTab renames a tab from outside any window, as something other than the
+// interface would.
+func renameTab(t *testing.T, s *Server, id, title string) {
+	t.Helper()
+	done := make(chan struct{})
+	s.do(func() {
+		defer close(done)
+		if tab := s.ws.Tab(id); tab != nil {
+			tab.Title = title
+			tab.AutoTitle = false
+		}
+	})
+	<-done
+	s.Wake()
+}
