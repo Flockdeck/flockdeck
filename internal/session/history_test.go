@@ -594,3 +594,74 @@ func TestConversationsIgnoreAFileWhereTheFolderBelongs(t *testing.T) {
 		t.Fatalf("expected the folder to be found by search, got %+v (err %v)", got, err)
 	}
 }
+
+// TestConversationsSummariseAfterAnEntryTooLargeToHold covers a conversation
+// that opens by pasting something enormous: an image, or a file dropped in
+// whole. It arrives as a single entry of many megabytes, and the prompt that
+// goes with it is the entry underneath. Stopping at the paste leaves the row
+// claiming the conversation has no prompt at all.
+func TestConversationsSummariseAfterAnEntryTooLargeToHold(t *testing.T) {
+	cwd, dir := historyFixture(t, "pasted-first")
+
+	huge := `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("x", 9<<20) + `"}}`
+	writeTranscript(t, dir, "77777777-7777-7777-7777-777777777777",
+		huge,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"what is in this image"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":"a cat"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Summary != "what is in this image" {
+		t.Errorf("summary = %q; the prompt after the paste should still be found", got[0].Summary)
+	}
+	if got[0].Messages != 3 {
+		t.Errorf("entry count = %d, want 3", got[0].Messages)
+	}
+}
+
+// TestTranscriptReaderWalksEveryEntry pins how a transcript is walked: one
+// entry per line, the last one counting even while the file is still being
+// written, and an entry too large to hold stepped over without ending the
+// walk or being held in memory.
+func TestTranscriptReaderWalksEveryEntry(t *testing.T) {
+	oversized := strings.Repeat("x", 8<<20+1)
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"one entry", "a\n", []string{"a"}},
+		{"unfinished last entry", "a\nbc", []string{"a", "bc"}},
+		{"blank lines are entries", "a\n\nb\n", []string{"a", "", "b"}},
+		{"windows line endings", "a\r\nb\r\n", []string{"a", "b"}},
+		{"oversized entry stepped over", "a\n" + oversized + "\nb\n", []string{"a", "", "b"}},
+		{"oversized entry last", "a\n" + oversized, []string{"a", ""}},
+		{"two oversized entries", oversized + "\n" + oversized + "\nb\n", []string{"", "", "b"}},
+	}
+	for _, c := range cases {
+		var got []string
+		r := newTranscriptReader(strings.NewReader(c.in))
+		for i := 0; i < 10; i++ {
+			raw, ok := r.next()
+			if !ok {
+				break
+			}
+			got = append(got, strings.TrimRight(string(raw), "\r\n"))
+		}
+		if len(got) != len(c.want) {
+			t.Errorf("%s: read %q, want %q", c.name, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: entry %d = %q, want %q", c.name, i, got[i], c.want[i])
+			}
+		}
+	}
+}

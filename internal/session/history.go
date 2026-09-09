@@ -286,10 +286,14 @@ func transcriptCwd(path string) string {
 		return ""
 	}
 	defer f.Close()
-	sc := newTranscriptScanner(f)
-	for i := 0; sc.Scan() && i < 10; i++ {
+	lines := newTranscriptReader(f)
+	for i := 0; i < 10; i++ {
+		raw, ok := lines.next()
+		if !ok {
+			break
+		}
 		var line transcriptLine
-		if json.Unmarshal(sc.Bytes(), &line) == nil && line.Cwd != "" {
+		if json.Unmarshal(raw, &line) == nil && line.Cwd != "" {
 			return line.Cwd
 		}
 	}
@@ -345,10 +349,14 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) tra
 // openingPrompt reads the first thing the user asked, looking only at the
 // opening entries of the transcript.
 func openingPrompt(r io.Reader) string {
-	sc := newTranscriptScanner(r)
-	for i := 0; i < summaryScanLimit && sc.Scan(); i++ {
+	lines := newTranscriptReader(r)
+	for i := 0; i < summaryScanLimit; i++ {
+		raw, ok := lines.next()
+		if !ok {
+			break
+		}
 		var line transcriptLine
-		if json.Unmarshal(sc.Bytes(), &line) != nil {
+		if json.Unmarshal(raw, &line) != nil {
 			continue
 		}
 		if line.Type != "user" || line.Message.Role != "user" {
@@ -454,9 +462,67 @@ func firstPrompt(s string) string {
 }
 
 // newTranscriptScanner returns a scanner able to cope with the long lines a
-// transcript contains.
+// transcript contains. It is what the reply reader walks a transcript with,
+// which reads a transcript it knows the shape of rather than one it is
+// hunting through.
 func newTranscriptScanner(r io.Reader) *bufio.Scanner {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	return sc
+}
+
+// maxTranscriptEntry bounds how large a single entry may be before it is
+// stepped over rather than held in memory. Listing history must not be able
+// to allocate a transcript's worth of memory per file.
+const maxTranscriptEntry = 8 << 20
+
+// transcriptReader walks a transcript entry by entry.
+//
+// A transcript has one entry per line and the lines are long: a tool result
+// or a pasted screenshot arrives as a single line of many megabytes. An entry
+// too large to hold has to be stepped over rather than end the walk, because
+// what is being looked for is often the entry after it -- a conversation that
+// opens by pasting an image still has a prompt underneath, and a scanner that
+// stops at the paste reports it as having none.
+type transcriptReader struct {
+	br  *bufio.Reader
+	buf []byte
+}
+
+func newTranscriptReader(r io.Reader) *transcriptReader {
+	return &transcriptReader{br: bufio.NewReaderSize(r, 64<<10)}
+}
+
+// next returns the next entry, or ok=false once there are no more. An entry
+// too large to hold comes back as no bytes at all: there was something here,
+// but it is not being kept. The bytes are only valid until the next call.
+func (t *transcriptReader) next() ([]byte, bool) {
+	t.buf = t.buf[:0]
+	oversized := false
+	for {
+		chunk, err := t.br.ReadSlice('\n')
+		if len(t.buf)+len(chunk) > maxTranscriptEntry {
+			// Keep reading to the end of the entry, but stop holding on to it.
+			oversized = true
+			t.buf = t.buf[:0]
+		}
+		if !oversized {
+			t.buf = append(t.buf, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err != nil {
+			// The end of the file, or a file that cannot be read any further.
+			// A last line with no break after it is still an entry.
+			if !oversized && len(t.buf) == 0 {
+				return nil, false
+			}
+		}
+		break
+	}
+	if oversized {
+		return nil, true
+	}
+	return t.buf, true
 }
