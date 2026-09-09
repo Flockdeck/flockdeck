@@ -177,7 +177,7 @@ func TestPaneContextUnknownPane(t *testing.T) {
 // TestOneLineShortensAPastedWall keeps a long opening prompt from becoming the
 // bulk of what an agent is told.
 func TestOneLineShortensAPastedWall(t *testing.T) {
-	got := oneLine("first line\n\n   second   line\t" + strings.Repeat("x", 400))
+	got := oneLine("first line\n\n   second   line\t"+strings.Repeat("x", 400), siblingTaskLimit)
 	if strings.ContainsAny(got, "\n\t") {
 		t.Errorf("oneLine left whitespace in %q", got)
 	}
@@ -189,7 +189,7 @@ func TestOneLineShortensAPastedWall(t *testing.T) {
 // TestOneLineKeepsRunesWhole covers a task written in a non-ASCII script: the
 // cut has to fall between runes, or the context ends in a mangled character.
 func TestOneLineKeepsRunesWhole(t *testing.T) {
-	got := oneLine(strings.Repeat("こんにちは", 80))
+	got := oneLine(strings.Repeat("こんにちは", 80), siblingTaskLimit)
 	if !utf8.ValidString(got) {
 		t.Errorf("oneLine produced invalid UTF-8: %q", got)
 	}
@@ -705,5 +705,27 @@ func TestTheSpawnCommandIsResolvedOnce(t *testing.T) {
 	}
 	if c.SpawnCommand == "" {
 		t.Error("the context carries no way of running perch")
+	}
+}
+
+// TestTheOwnTaskIsKeptWholeWhereASiblingsIsSummarised covers what an agent is told it was
+// asked, which after a compaction is the only copy of it left. A long
+// instruction cut at the length used for other agents' one-line summaries
+// reads as though it were the whole of it.
+func TestTheOwnTaskIsKeptWholeWhereASiblingsIsSummarised(t *testing.T) {
+	task := "rewrite the importer: " + strings.Repeat("keep every clause of this; ", 12) + "and stop at the marker"
+	own := PaneContext{PaneName: "one", Task: task}.Render()
+	tail := "and stop at the marker"
+	if !strings.Contains(own, tail) {
+		t.Errorf("the end of the pane's own task is missing from its context:\n%s", own)
+	}
+
+	// The same task belonging to somebody else is still a summary.
+	sib := PaneContext{PaneName: "one", Siblings: []Sibling{{Name: "two", Cwd: "/repo", Status: "working", Task: task}}}.Render()
+	if strings.Contains(sib, tail) {
+		t.Error("a sibling's task is written out in full; it should be cut to a line")
+	}
+	if !strings.Contains(sib, "rewrite the importer") {
+		t.Errorf("a sibling's task is missing entirely:\n%s", sib)
 	}
 }

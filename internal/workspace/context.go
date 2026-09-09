@@ -10,6 +10,18 @@ import (
 	"github.com/jmwri/perch/internal/session"
 )
 
+// siblingTaskLimit and ownTaskLimit bound how much of a task is written out.
+//
+// What another agent is doing is orientation, and a line of it is enough. What
+// this agent was asked is not: after a compaction this is the only copy of it
+// left, and 160 characters of a longer instruction is worse than none, since
+// what survives reads like the whole of it. The cap that remains is there to
+// keep a pasted wall of text from crowding out the rest of the context.
+const (
+	siblingTaskLimit = 160
+	ownTaskLimit     = 1200
+)
+
 // maxSiblings bounds how many other agents are named in a pane's context. A
 // long list stops being orientation and starts being noise, and it is stale
 // the moment it is read anyway.
@@ -261,7 +273,7 @@ func (c PaneContext) Render() string {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
 	}
 	if c.Task != "" {
-		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task))
+		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task, ownTaskLimit))
 	}
 	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
 		"restored, so what you say here outlives the window.\n")
@@ -358,7 +370,7 @@ func (s Sibling) describe() string {
 		fmt.Fprintf(&b, " — %s", s.Status)
 	}
 	if s.Task != "" {
-		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task))
+		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task, siblingTaskLimit))
 	}
 	return b.String()
 }
@@ -372,11 +384,10 @@ func shellWord(s string) string {
 	return "\"" + s + "\""
 }
 
-// oneLine flattens a prompt onto a single line and shortens it, so a pasted
-// wall of text does not become the bulk of the context.
-func oneLine(s string) string {
+// oneLine flattens a prompt onto a single line and shortens it to max runes,
+// so a pasted wall of text does not become the bulk of the context.
+func oneLine(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	const max = 160
 	// Counted in runes, not bytes: cutting a task written in any non-ASCII
 	// script mid-rune would put a replacement character into the context.
 	if r := []rune(s); len(r) > max {
