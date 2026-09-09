@@ -368,13 +368,28 @@ func Diff(dir, path string) (string, error) {
 	// commit, where asking first cost two: this runs on every click in the
 	// file list. When the fallback fails as well the first failure is the one
 	// worth reporting, since a missing HEAD is not what went wrong.
-	out, err := gitDiff(dir, "HEAD", "--", pathspec(path))
+	against := "HEAD"
+	out, err := gitDiff(dir, against, "--", pathspec(path))
 	if err != nil {
-		staged, stagedErr := gitDiff(dir, "--cached", "--", pathspec(path))
+		against = "--cached"
+		staged, stagedErr := gitDiff(dir, against, "--", pathspec(path))
 		if stagedErr != nil {
 			return "", err
 		}
 		out = staged
+	}
+	if isWholeFileAddition(out) {
+		// git pairs a rename by looking at both names, and a pathspec naming
+		// only the new one leaves it nothing to pair against: what comes back
+		// is the whole file as a fresh addition. A file that moved and had
+		// three lines changed in it read as two thousand added ones, with the
+		// actual edit somewhere inside them. Asking again with both names is
+		// what lets git see it for what it is.
+		if from := renameSource(dir, path); from != "" {
+			if paired, perr := gitDiff(dir, against, "--", pathspec(path), pathspec(from)); perr == nil {
+				out = paired
+			}
+		}
 	}
 	if strings.TrimSpace(out) == "" {
 		out, err = gitDiff(dir, "--", pathspec(path))
@@ -405,7 +420,7 @@ func pathspec(path string) string { return ":(literal)" + path }
 // with the output of some other program. "diff.mnemonicPrefix" and
 // "diff.noprefix" rename or drop the "a/" and "b/" that an untracked file's
 // rendering writes by hand, leaving the two sources of diff text unalike.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"}
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/"}
 
 // gitDiff runs a diff with those flags ahead of the caller's arguments.
 func gitDiff(dir string, args ...string) (string, error) {
@@ -414,6 +429,49 @@ func gitDiff(dir string, args ...string) (string, error) {
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
 	return run(dir, argv...)
+}
+
+// isWholeFileAddition reports whether a diff says the file did not exist
+// before. The test is anchored to the start of a line: a diff body carries
+// the same words as content often enough, behind a "+" or a space.
+func isWholeFileAddition(diff string) bool {
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "new file mode ") {
+			return true
+		}
+	}
+	return false
+}
+
+// renameSource names the file a path was renamed from, or "" if it was not.
+//
+// The status has to cover the whole tree: rename detection needs both sides,
+// and limiting it to the new name leaves git pairing it against nothing and
+// calling it an addition, which is the very answer being checked here. That
+// is why it is only asked once a diff has already come back looking like a
+// file that never existed before, which is rare among the files anyone
+// clicks.
+func renameSource(dir, path string) string {
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=no", "-z")
+	if err != nil {
+		return ""
+	}
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		entry := records[i]
+		if len(entry) < 4 || (entry[0] != 'R' && entry[0] != 'C') {
+			continue
+		}
+		// The name it came from follows as its own record.
+		i++
+		if i >= len(records) {
+			break
+		}
+		if entry[3:] == path {
+			return records[i]
+		}
+	}
+	return ""
 }
 
 // insideTree reports whether a repository-relative path stays within the tree.

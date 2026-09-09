@@ -346,6 +346,51 @@ func TestChangesReportsAwkwardNames(t *testing.T) {
 	}
 }
 
+// TestDiffOfARenameShowsTheRename covers clicking a file that moved.
+//
+// The panel lists a rename under its new name, and a diff limited to that name
+// alone gives git nothing to pair it against: it answers with the whole file
+// as a fresh addition, burying whatever actually changed in it.
+func TestDiffOfARenameShowsTheRename(t *testing.T) {
+	repo := newRepo(t)
+	body := strings.Repeat("a settled line\n", 200)
+	write(t, repo, "old.txt", body)
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "the file before it moved")
+
+	gitRun(t, repo, "mv", "old.txt", "new.txt")
+	write(t, repo, "new.txt", body+"the one line that changed\n")
+	gitRun(t, repo, "add", "-A")
+
+	diff, err := Diff(repo, "new.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.Contains(diff, "new file mode") {
+		t.Errorf("the rename is shown as a brand new file:\n%.400s", diff)
+	}
+	if !strings.Contains(diff, "rename from old.txt") {
+		t.Errorf("diff does not name what the file was called:\n%.400s", diff)
+	}
+	if !strings.Contains(diff, "+the one line that changed") {
+		t.Errorf("diff does not show the change:\n%.400s", diff)
+	}
+	if added := strings.Count(diff, "\n+"); added > 5 {
+		t.Errorf("%d added lines for a rename with one edit in it", added)
+	}
+
+	// A file that really is new still reads as one.
+	write(t, repo, "fresh.txt", "brand new\n")
+	gitRun(t, repo, "add", "fresh.txt")
+	fresh, err := Diff(repo, "fresh.txt")
+	if err != nil {
+		t.Fatalf("diff of a new file: %v", err)
+	}
+	if !strings.Contains(fresh, "+brand new") {
+		t.Errorf("a genuinely new file is no longer shown as added:\n%s", fresh)
+	}
+}
+
 // TestChangesReportsRenameUnderItsNewName covers a staged rename, whose old
 // name git sends as a separate record.
 func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
