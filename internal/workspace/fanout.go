@@ -411,25 +411,80 @@ func listItem(line string) (string, bool) {
 			return trimCheckbox(strings.TrimPrefix(line, marker)), true
 		}
 	}
-	// "1. text", "2) text", "10 - text"
-	digits := 0
-	for digits < len(line) && line[digits] >= '0' && line[digits] <= '9' {
-		digits++
-	}
-	if digits > 0 && digits <= 3 && digits < len(line) {
-		// The separator is allowed one leading space, which is how a dash is
-		// written after a number: "10 - text" rather than "10- text".
-		rest := strings.TrimPrefix(line[digits:], " ")
-		for _, sep := range []string{". ", ") ", "- ", ": "} {
-			if strings.HasPrefix(rest, sep) {
-				return rest[len(sep):], true
-			}
-		}
+	// "1. text", "2) text", "10 - text", "(3) text"
+	if entry, ok := numberedItem(line); ok {
+		return entry, true
 	}
 	// "TODO: text"
 	for _, prefix := range []string{"TODO: ", "TODO ", "Task: "} {
 		if strings.HasPrefix(line, prefix) {
 			return line[len(prefix):], true
+		}
+	}
+	// "Task 2: text", "Step 3 — text"
+	return labelledItem(line)
+}
+
+// numberedItem strips a leading number and its separator.
+//
+// The parenthesised spelling is here for the same reason the other three are:
+// an agent numbering its plan writes "(1)" as readily as "1." or "1)", and a
+// plan written in the one form the reader did not know went through as no plan
+// at all. Only ")" closes a "(", so nothing else is read as a number in
+// brackets.
+func numberedItem(line string) (string, bool) {
+	rest := line
+	bracketed := strings.HasPrefix(rest, "(")
+	if bracketed {
+		rest = rest[1:]
+	}
+	digits := 0
+	for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+		digits++
+	}
+	if digits == 0 || digits > 3 || digits >= len(rest) {
+		return "", false
+	}
+	seps := []string{". ", ") ", "- ", ": "}
+	if bracketed {
+		seps = []string{") "}
+	}
+	// The separator is allowed one leading space, which is how a dash is
+	// written after a number: "10 - text" rather than "10- text".
+	tail := strings.TrimPrefix(rest[digits:], " ")
+	for _, sep := range seps {
+		if strings.HasPrefix(tail, sep) {
+			return tail[len(sep):], true
+		}
+	}
+	return "", false
+}
+
+// labelledItem strips a "Task 2:" or "Step 3:" label.
+//
+// An agent asked to lay out an order of work sometimes numbers its steps in
+// words instead of with a list marker, which leaves a plan with no list in it
+// for the extractor to find. The number is required: without it "Step through
+// the reconnect path" would be read as an instruction to do "through the
+// reconnect path".
+func labelledItem(line string) (string, bool) {
+	for _, word := range []string{"Task", "Step"} {
+		if !strings.HasPrefix(line, word+" ") {
+			continue
+		}
+		rest := strings.TrimLeft(line[len(word):], " ")
+		digits := 0
+		for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+			digits++
+		}
+		if digits == 0 || digits > 3 {
+			continue
+		}
+		rest = strings.TrimLeft(rest[digits:], " ")
+		for _, sep := range []string{": ", "- ", "— ", ". ", ") "} {
+			if strings.HasPrefix(rest, sep) {
+				return rest[len(sep):], true
+			}
 		}
 	}
 	return "", false

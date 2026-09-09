@@ -774,3 +774,59 @@ Here is the plan:
 		t.Errorf("extracted %#v, want [%q]", got, want)
 	}
 }
+
+// An agent numbering its plan writes "(1)" as readily as "1." or "1)", and
+// numbers its steps in words as readily as with a marker at all. A plan
+// written in a form the reader does not know goes through as no plan.
+func TestExtractTasksReadsBracketedAndLabelledForms(t *testing.T) {
+	cases := map[string]string{
+		"bracketed": `Here is the plan:
+(1) Split the router into three files
+(2) Add a timeout to the control socket
+(3) Cover the reconnect path with a test`,
+		"labelled": `Here is the plan:
+Task 1: Split the router into three files
+Task 2: Add a timeout to the control socket
+Step 3 — Cover the reconnect path with a test`,
+	}
+	want := []string{
+		"Split the router into three files",
+		"Add a timeout to the control socket",
+		"Cover the reconnect path with a test",
+	}
+	for name, plan := range cases {
+		got := ExtractTasks(plan)
+		if len(got) != len(want) {
+			t.Errorf("%s: extracted %#v, want %#v", name, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: task %d = %q, want %q", name, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// The label has to carry a number. Without one, an ordinary sentence opening
+// on the word would be read as an instruction with its first word missing.
+func TestExtractTasksIgnoresAnUnnumberedLabel(t *testing.T) {
+	plan := `Here is the plan:
+Step through the reconnect path in the debugger
+- Add a timeout to the control socket`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the bulleted task", got)
+	}
+}
+
+// A bracket is only a list marker when it closes the way a bracket does.
+func TestExtractTasksIgnoresAHalfBracketedNumber(t *testing.T) {
+	plan := `Here is the plan:
+(1. this is not a numbered list entry at all
+- Add a timeout to the control socket`
+	got := ExtractTasks(plan)
+	if len(got) != 1 || got[0] != "Add a timeout to the control socket" {
+		t.Errorf("extracted %#v, want only the bulleted task", got)
+	}
+}
