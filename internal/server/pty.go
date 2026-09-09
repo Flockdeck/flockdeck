@@ -76,14 +76,26 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Everything printed so far, so the window can rebuild its screen after a
-	// reload or reconnect.
+	streamOutput(ctx, conn, replay, out)
+}
+
+// streamOutput sends a pane's output down one terminal socket: the replay
+// first, so the window can rebuild its screen, then everything the process
+// prints from here on.
+func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte) {
 	if len(replay) > 0 {
 		if err := writeChunk(ctx, conn, replay); err != nil {
 			return
 		}
 	}
 
+	// A burst -- a build's output, a page of scrollback, Claude redrawing --
+	// reaches the session as many small reads, and one websocket frame per
+	// read is where the cost of it lands. Whatever has already queued behind
+	// the first chunk goes out with it, so a burst costs a handful of frames
+	// rather than hundreds, and the subscriber queue drains fast enough that
+	// the viewer is not dropped for falling behind in the middle of one.
+	var buf []byte
 	for {
 		select {
 		case <-ctx.Done():
@@ -95,11 +107,46 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
 				return
 			}
-			if err := writeChunk(ctx, conn, chunk); err != nil {
+			var ended bool
+			buf, ended = coalesce(buf[:0], chunk, out)
+			if err := writeChunk(ctx, conn, buf); err != nil {
+				return
+			}
+			if ended {
+				_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
 				return
 			}
 		}
 	}
+}
+
+// coalesceLimit bounds one frame. Merging is only worth doing up to the point
+// where the frame itself is the thing the window waits on: past this the
+// remainder goes out as the next frame, which the terminal draws just as
+// happily.
+const coalesceLimit = 256 << 10
+
+// coalesce appends chunk, and whatever else the session has already queued, to
+// buf. It never waits for more: only output that has already been produced is
+// merged, so nothing is held back to see whether more arrives.
+//
+// ended reports that the stream closed while draining, which the caller must
+// still act on -- after sending what was collected, since those bytes are the
+// last thing the process printed.
+func coalesce(buf, chunk []byte, out <-chan []byte) (data []byte, ended bool) {
+	buf = append(buf, chunk...)
+	for len(buf) < coalesceLimit {
+		select {
+		case next, ok := <-out:
+			if !ok {
+				return buf, true
+			}
+			buf = append(buf, next...)
+		default:
+			return buf, false
+		}
+	}
+	return buf, false
 }
 
 func writeChunk(ctx context.Context, conn *websocket.Conn, data []byte) error {
