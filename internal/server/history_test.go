@@ -161,6 +161,45 @@ func TestListConversationsGivesUpWhenTheServerCloses(t *testing.T) {
 	}
 }
 
+// TestResumeAConversationThatIsNoLongerStored covers the row that has gone
+// stale. The panel lists what was on disk when it was drawn, and a
+// conversation can be deleted -- Claude Code removes old transcripts -- while
+// somebody is looking at it. Resuming one starts an agent with `--resume`,
+// which Claude Code refuses outright, so it has to be refused here instead,
+// and the window has to be told why rather than left watching for a pane
+// that never arrives.
+func TestResumeAConversationThatIsNoLongerStored(t *testing.T) {
+	srv, ws := newTestServer(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	before := len(srv.openConversationIDs())
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.resumeConversation(c, "12345678-0000-0000-0000-000000000000", ws.ActiveRoot(), "gone")
+
+	var notice struct {
+		Type  string `json:"type"`
+		Text  string `json:"text"`
+		Error bool   `json:"error"`
+	}
+	select {
+	case raw := <-c.out:
+		if err := json.Unmarshal(raw, &notice); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was said about a conversation that could not be resumed")
+	}
+	if notice.Type != "notice" || !notice.Error {
+		t.Errorf("got %+v, want an error notice", notice)
+	}
+	if !strings.Contains(notice.Text, "stored") {
+		t.Errorf("notice = %q; it should say the conversation is not there", notice.Text)
+	}
+	if after := len(srv.openConversationIDs()); after != before {
+		t.Errorf("panes went from %d to %d; nothing should have been opened", before, after)
+	}
+}
+
 // TestHumanAgoReadsLikeAList pins the wording of the only column a history row
 // is scanned by.
 func TestHumanAgoReadsLikeAList(t *testing.T) {
