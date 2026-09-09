@@ -117,9 +117,10 @@ type Session struct {
 	subs    map[int]chan []byte
 	nextSub int
 
-	// resizeMu orders resizes. It is separate from mu because applying one is
-	// a call into the PTY, which must not be made while the reader is blocked
-	// out of publishing.
+	// resizeMu orders resizes, and keeps one from overlapping the release of
+	// the PTY it would resize. It is separate from mu because applying a
+	// resize is a call into the PTY, which must not be made while the reader
+	// is blocked out of publishing.
 	resizeMu sync.Mutex
 
 	// pumped is closed once the PTY reader has seen the end of the output.
@@ -368,6 +369,9 @@ func (s *Session) wait() {
 // releasePTY closes the pseudo-terminal, once, whichever of the exit and an
 // explicit close reaches it first.
 func (s *Session) releasePTY() error {
+	s.resizeMu.Lock()
+	defer s.resizeMu.Unlock()
+
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -426,7 +430,7 @@ func (s *Session) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 	s.mu.Lock()
-	if s.status == StatusExited {
+	if s.status == StatusExited || s.closed {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
@@ -522,7 +526,16 @@ func (s *Session) Resize(cols, rows int) {
 	defer s.resizeMu.Unlock()
 
 	s.mu.Lock()
-	if s.cols == cols && s.rows == rows {
+	// Resizing a pseudo-terminal that has been released is not a no-op that
+	// returns an error. On Windows the handle is a pointer into the console
+	// host, closing it frees what it points at, and go-pty leaves the field
+	// holding the stale value, so the resize reaches ResizePseudoConsole with
+	// a pointer to memory that has been given back. That is a crash of the
+	// whole application, not of one pane, and there is nothing above this that
+	// could catch it. Holding resizeMu across the release as well is what
+	// makes the check mean something: a resize cannot already be inside the
+	// PTY when it is closed, and cannot start afterwards.
+	if s.closed || (s.cols == cols && s.rows == rows) {
 		s.mu.Unlock()
 		return
 	}

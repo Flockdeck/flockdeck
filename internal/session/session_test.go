@@ -768,3 +768,49 @@ func TestBellReachesAPaneNobodyHasTypedInto(t *testing.T) {
 		t.Errorf("status = %v; a pane past its startup should report the bell", st)
 	}
 }
+
+// TestResizeAfterReleaseDoesNotReachThePTY covers a pane that is closed, or
+// whose process exits, while the layout is still measuring it. Both of those
+// release the pseudo-terminal, and a resize that arrives afterwards must not
+// be handed to it: the handle it would be given has been freed, and what
+// follows is not an error return but a crash of the whole application.
+func TestResizeAfterReleaseDoesNotReachThePTY(t *testing.T) {
+	f := newFakePTY()
+	s := fakeSession(f)
+
+	s.Resize(100, 30)
+	if got := f.lastApplied(); got != [2]int{100, 30} {
+		t.Fatalf("a resize before the close was applied as %v", got)
+	}
+
+	if err := s.releasePTY(); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	s.Resize(120, 40) // must not panic
+	if got := f.lastApplied(); got != [2]int{100, 30} {
+		t.Errorf("a resize reached the pseudo-terminal after it was released: %v", got)
+	}
+
+	// And a release cannot slip in while a resize is inside the PTY, which is
+	// the same crash arrived at from the other side.
+	g := newFakePTY()
+	g.resizeDelay = func(int) time.Duration { return 100 * time.Millisecond }
+	s2 := fakeSession(g)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s2.Resize(90, 20)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := s2.releasePTY(); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	<-done
+
+	// Typing into a pane whose pseudo-terminal has gone is answered by name
+	// rather than by whatever the closed handle says.
+	err := s2.WriteString("hello?")
+	if err == nil || !strings.Contains(err.Error(), "has exited") {
+		t.Errorf("write after release = %v; it should name the pane", err)
+	}
+}

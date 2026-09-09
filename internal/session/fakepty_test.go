@@ -66,6 +66,14 @@ func (f *fakePTY) Resize(cols, rows int) error {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// A real pseudo-terminal does not politely refuse this. On Windows the
+	// handle points into the console host and closing it frees what it points
+	// at, while go-pty goes on holding the stale value, so a resize after the
+	// close reaches the operating system with a pointer to memory that has
+	// been given back. Panicking here is the nearest a test can get to that.
+	if f.closed {
+		panic("resized a pseudo-terminal that had been released")
+	}
 	f.applied = append(f.applied, [2]int{cols, rows})
 	return nil
 }
