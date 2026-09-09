@@ -1,6 +1,8 @@
 package gitx
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -83,7 +85,49 @@ func StatusOf(dir string) Status {
 			st.Dirty++
 		}
 	}
+	if st.Detached && st.Branch == "" {
+		st.Branch = rebasingBranch(dir)
+	}
 	return st
+}
+
+// rebasingBranch names the branch a rebase in progress will return to.
+//
+// Replaying commits is done on a detached HEAD, so a checkout in the middle of
+// a rebase reports no branch at all: an agent that stopped on a conflict shows
+// in its pane header, and in the review panel, as "detached" -- which is true
+// of HEAD and useless to the person looking at it, who has not stopped
+// thinking of it as their branch. git keeps the name it will go back to in the
+// state directory, and reads it back for its own "rebasing topic".
+//
+// This costs an extra call, so it is only made for a checkout that has already
+// said it is detached, which is rare and stays that way for as long as the
+// rebase does.
+func rebasingBranch(dir string) string {
+	out, err := run(dir, "rev-parse", "--git-dir")
+	if err != nil {
+		return ""
+	}
+	base := strings.TrimSpace(out)
+	if base == "" {
+		return ""
+	}
+	// rev-parse answers relative to the directory it was asked from.
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(dir, base)
+	}
+	// rebase-merge belongs to the default backend; rebase-apply to `--apply`
+	// and to git old enough to have had no other.
+	for _, state := range []string{"rebase-merge", "rebase-apply"} {
+		data, err := os.ReadFile(filepath.Join(base, state, "head-name"))
+		if err != nil {
+			continue
+		}
+		if ref := strings.TrimSpace(string(data)); ref != "" {
+			return strings.TrimPrefix(ref, "refs/heads/")
+		}
+	}
+	return ""
 }
 
 // Branch is a local branch and where it stands against its upstream.
@@ -156,10 +200,25 @@ func ListDetailed(dir string) ([]Worktree, error) {
 }
 
 // Prune removes administrative records for worktrees whose directories have
-// been deleted behind git's back.
-func Prune(repoDir string) error {
-	_, err := run(repoDir, "worktree", "prune")
-	return err
+// been deleted behind git's back, and reports how many went.
+//
+// The count is what lets the panel say whether the button it just offered
+// did anything. git names each record it removes on stderr, one to a line,
+// so they are counted as lines rather than looked for by the word they start
+// with -- which is translated when git is speaking anything but English.
+func Prune(repoDir string) (int, error) {
+	_, said, err := runCapture(context.Background(), commandTimeout, repoDir,
+		"worktree", "prune", "--verbose")
+	if err != nil {
+		return 0, err
+	}
+	var pruned int
+	for _, line := range strings.Split(said, "\n") {
+		if strings.TrimSpace(line) != "" {
+			pruned++
+		}
+	}
+	return pruned, nil
 }
 
 // AddFrom creates a worktree at path.
@@ -167,18 +226,23 @@ func Prune(repoDir string) error {
 // When branch names an existing local branch it is checked out; otherwise a new
 // branch is created, starting at base when one is given and at the current HEAD
 // when it is not.
+// The path and the starting point both arrive from the window, so they are put
+// after a "--": without it git reads anything beginning with a dash as one of
+// its own options. A base of "--force" was not refused, it was obeyed, and the
+// new worktree quietly started from HEAD with a force checkout instead of from
+// wherever the user had named.
 func AddFrom(repoDir, path, branch, base string) error {
 	args := []string{"worktree", "add"}
 	switch {
 	case branch == "":
-		args = append(args, "--detach", path)
+		args = append(args, "--detach", "--", path)
 		if base != "" {
 			args = append(args, base)
 		}
 	case branchExists(repoDir, branch):
-		args = append(args, path, branch)
+		args = append(args, "--", path, branch)
 	default:
-		args = append(args, "-b", branch, path)
+		args = append(args, "-b", branch, "--", path)
 		if base != "" {
 			args = append(args, base)
 		}
@@ -189,8 +253,18 @@ func AddFrom(repoDir, path, branch, base string) error {
 
 // DefaultBase returns a sensible starting point for a new branch: the current
 // branch of the main worktree.
+//
+// A rebase in progress there has to be stepped around. It detaches HEAD while
+// it replays commits, so there is no current branch to offer and "HEAD" means
+// whichever commit the replay happens to be sitting on -- a starting point
+// nobody means, and one that will not exist as anything once the rebase
+// finishes. The branch being rebased still points at where it was before the
+// rebase started, which is a real place to branch from.
 func DefaultBase(repoDir string) string {
 	if b := CurrentBranch(repoDir); b != "" {
+		return b
+	}
+	if b := rebasingBranch(repoDir); b != "" {
 		return b
 	}
 	return "HEAD"

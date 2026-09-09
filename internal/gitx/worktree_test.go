@@ -9,7 +9,7 @@ import (
 )
 
 // newRepo creates a repository with one commit and returns its path.
-func newRepo(t *testing.T) string {
+func newRepo(t testing.TB) string {
 	t.Helper()
 	if !Available() {
 		t.Skip("git is not installed")
@@ -165,6 +165,100 @@ func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
 	}
 }
 
+// TestStatusDuringARebaseKeepsTheBranchName covers an agent that stopped on a
+// conflict: git detaches HEAD to replay commits, so without help the pane
+// header and the review panel both call the checkout "detached".
+func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "base")
+
+	gitRun(t, repo, "checkout", "-b", "topic")
+	write(t, repo, "f.txt", "topic\n")
+	gitRun(t, repo, "commit", "-am", "topic")
+	gitRun(t, repo, "checkout", "main")
+	write(t, repo, "f.txt", "main\n")
+	gitRun(t, repo, "commit", "-am", "main")
+	gitRun(t, repo, "checkout", "topic")
+
+	// The rebase is meant to stop here: both sides changed the same line.
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected the rebase to stop on a conflict: %s", out)
+	}
+	t.Cleanup(func() {
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = repo
+		_ = abort.Run()
+	})
+
+	st := StatusOf(repo)
+	if !st.Detached {
+		t.Error("a rebase in progress should still report a detached HEAD")
+	}
+	if st.Branch != "topic" {
+		t.Errorf("branch = %q, want topic -- the branch being rebased", st.Branch)
+	}
+
+	// A new worktree started while the rebase is stopped must not be based on
+	// the commit the replay is sitting on, which is nowhere once it finishes.
+	if got := DefaultBase(repo); got != "topic" {
+		t.Errorf("default base = %q mid-rebase, want topic", got)
+	}
+
+	// A plain detached checkout has no branch to name, and must not borrow one.
+	gitRun(t, repo, "rebase", "--abort")
+	gitRun(t, repo, "checkout", "--detach", "main")
+	if st := StatusOf(repo); st.Branch != "" {
+		t.Errorf("branch = %q on a plain detached HEAD, want empty", st.Branch)
+	}
+	if got := DefaultBase(repo); got != "HEAD" {
+		t.Errorf("default base = %q when detached and not rebasing, want HEAD", got)
+	}
+}
+
+// TestNoDirectoryIsNotThisProcessesDirectory covers a caller that has lost
+// track of which working tree it meant.
+//
+// exec reads an empty Dir as "wherever this process is", and Perch is normally
+// started from inside a checkout of something, so the panels would have been
+// answered with a real branch and a real file list belonging to a repository
+// nobody asked about.
+func TestNoDirectoryIsNotThisProcessesDirectory(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	// The test binary runs inside this project, which is itself a repository,
+	// so an unguarded call here would succeed and answer about it.
+	if !IsRepo(".") {
+		t.Skip("the tests are not running inside a repository")
+	}
+
+	if _, err := Root(""); err == nil {
+		t.Error("resolving a root with no directory should fail")
+	}
+	if IsRepo("") {
+		t.Error("nowhere is not a repository")
+	}
+	if st := StatusOf(""); st.Branch != "" || st.Head != "" {
+		t.Errorf("status of nowhere = %+v, want nothing", st)
+	}
+	if _, err := Changes(""); err == nil {
+		t.Error("listing changes with no directory should fail")
+	}
+	if _, err := Diff("", "README.md"); err == nil {
+		t.Error("diffing with no directory should fail")
+	}
+	if _, err := List(""); err == nil {
+		t.Error("listing worktrees with no directory should fail")
+	}
+	if b := CurrentBranch(""); b != "" {
+		t.Errorf("current branch of nowhere = %q", b)
+	}
+}
+
 // TestWorktreeLifecycle covers creating, listing and removing worktrees, which
 // is how agents are given separate checkouts to work in.
 func TestWorktreeLifecycle(t *testing.T) {
@@ -233,6 +327,45 @@ func TestWorktreeLifecycle(t *testing.T) {
 	wts, _ = ListDetailed(repo)
 	if len(wts) != 1 {
 		t.Errorf("expected the worktree to be gone, got %d", len(wts))
+	}
+}
+
+// TestWorktreeArgumentsAreNotReadAsOptions covers the path and the starting
+// point, both of which arrive from the window and neither of which git tells
+// apart from one of its own flags.
+func TestWorktreeArgumentsAreNotReadAsOptions(t *testing.T) {
+	repo := newRepo(t)
+
+	// "--force" as a starting point is the dangerous shape: read as an option
+	// it is not refused, it is obeyed, and the worktree starts from HEAD with
+	// a forced checkout instead of from wherever was asked for.
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "from-a-flag", "--force")
+	if err == nil {
+		t.Error("a starting point named like an option should be refused, not obeyed")
+	}
+	if BranchExists(repo, "from-a-flag") {
+		t.Error("the branch was created from a starting point git never resolved")
+	}
+
+	// A path beginning with a dash is a path, awkward as it is.
+	if err := AddFrom(repo, "-dashed", "dashed", ""); err != nil {
+		t.Fatalf("a worktree at a dash-leading path: %v", err)
+	}
+	wts, err := List(repo)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var found bool
+	for _, wt := range wts {
+		if filepath.Base(wt.Path) == "-dashed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the worktree is not in the list: %+v", wts)
+	}
+	if err := Remove(repo, filepath.Join(repo, "-dashed"), true); err != nil {
+		t.Errorf("removing it again: %v", err)
 	}
 }
 
@@ -328,6 +461,41 @@ func TestRemoveWorktreeAlreadyDeleted(t *testing.T) {
 	}
 }
 
+// TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone covers what removing by
+// path can reach when the path is not a worktree at all.
+//
+// Removing a directory that is not there is answered with a prune, and a prune
+// takes the record of every worktree whose directory is missing -- an external
+// drive that is unplugged, a network share that is down. A path git has never
+// heard of must not be able to set that off, and it never removed anything, so
+// it should not report success either.
+func TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone(t *testing.T) {
+	repo := newRepo(t)
+	offline := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-offline")
+	if err := AddFrom(repo, offline, "offline", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(offline) })
+	// Stand in for a drive that is not mounted: the record is still good, the
+	// directory is simply not reachable at the moment.
+	if err := os.RemoveAll(offline); err != nil {
+		t.Fatal(err)
+	}
+
+	stranger := filepath.Join(t.TempDir(), "never-a-worktree")
+	if err := Remove(repo, stranger, false); err == nil {
+		t.Error("removing a path that is not a worktree should be refused")
+	}
+
+	wts, err := List(repo)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(wts) != 2 {
+		t.Errorf("the unrelated worktree's record was pruned: %d records left, want 2", len(wts))
+	}
+}
+
 // TestAddFromExistingBranchChecksItOut covers the "branch without a worktree"
 // shortcut.
 func TestAddFromExistingBranchChecksItOut(t *testing.T) {
@@ -387,6 +555,35 @@ func TestDefaultWorktreePathIsUsable(t *testing.T) {
 	}
 }
 
+// TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories covers the state a
+// checkout deleted in a file manager leaves behind: git still has a record of
+// a worktree at a path where there is now nothing to see.
+//
+// The suggested path looked free, and `git worktree add` then refused it as "a
+// missing but already registered worktree" -- an error about a path the person
+// never chose and cannot see.
+func TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories(t *testing.T) {
+	repo := newRepo(t)
+	first := DefaultWorktreePath(repo, "shared")
+	if err := AddFrom(repo, first, "shared", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	// Deleted by hand, as happens; the record stays behind.
+	if err := os.RemoveAll(first); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(first) })
+
+	next := DefaultWorktreePath(repo, "shared")
+	if next == first {
+		t.Fatalf("suggested %q again, which git still has a record of", next)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(next) })
+	if err := AddFrom(repo, next, "second", ""); err != nil {
+		t.Errorf("a worktree at the suggested path: %v", err)
+	}
+}
+
 // TestPruneRemovesStaleRecords covers the maintenance button.
 func TestPruneRemovesStaleRecords(t *testing.T) {
 	repo := newRepo(t)
@@ -399,11 +596,21 @@ func TestPruneRemovesStaleRecords(t *testing.T) {
 	if err := os.RemoveAll(wtPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := Prune(repo); err != nil {
+	pruned, err := Prune(repo)
+	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("prune reported %d records removed, want 1", pruned)
 	}
 	wts, _ := List(repo)
 	if len(wts) != 1 {
 		t.Errorf("expected the stale record to be pruned, got %d worktrees", len(wts))
+	}
+
+	// Pressing it again has nothing to do, and the count is how the panel
+	// knows to say so rather than claiming it cleaned something up.
+	if pruned, err := Prune(repo); err != nil || pruned != 0 {
+		t.Errorf("second prune = %d, %v; want nothing removed", pruned, err)
 	}
 }

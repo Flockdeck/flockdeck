@@ -1,10 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -408,6 +410,176 @@ func TestRemovingAWorktreeWithOpenPanesIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(repo); err != nil {
 		t.Fatalf("the worktree was removed anyway: %v", err)
+	}
+}
+
+// TestWorktreePanelDescribesEveryCheckout covers what the worktree panel is
+// built from: the checkouts, the branches on offer, and the base a new one
+// would start from. Nothing exercised it before the calls were made together.
+func TestWorktreePanelDescribesEveryCheckout(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	gitCmd(t, repo, "branch", "spare")
+	side := filepath.Join(t.TempDir(), "side")
+	gitCmd(t, repo, "worktree", "add", "-b", "side", side)
+
+	msg := collectWorktrees(repo)
+	if msg.Error != "" {
+		t.Fatalf("worktrees: %s", msg.Error)
+	}
+	if len(msg.Items) != 2 {
+		t.Fatalf("%d checkouts, want the main one and the new one: %+v", len(msg.Items), msg.Items)
+	}
+	if !msg.Items[0].Main {
+		t.Error("the first entry should be the main worktree")
+	}
+	if msg.Items[0].Branch != "main" || msg.Items[1].Branch != "side" {
+		t.Errorf("branches = %q and %q, want main and side", msg.Items[0].Branch, msg.Items[1].Branch)
+	}
+	if msg.DefaultBase != "main" {
+		t.Errorf("default base = %q, want main", msg.DefaultBase)
+	}
+	var names []string
+	for _, b := range msg.Branches {
+		names = append(names, b.Name)
+	}
+	sort.Strings(names)
+	if strings.Join(names, ",") != "main,side,spare" {
+		t.Errorf("branches offered = %v, want main, side and spare", names)
+	}
+	for _, b := range msg.Branches {
+		if b.Name == "spare" && b.CheckedIn != "" {
+			t.Errorf("spare is checked out at %q, but nothing has it", b.CheckedIn)
+		}
+		if b.Name == "side" && b.CheckedIn == "" {
+			t.Error("side is checked out in the new worktree and should say so")
+		}
+	}
+
+	// A directory that is not a repository is explained rather than passed
+	// git's own wording, which names parent directories nobody asked about.
+	outside := collectWorktrees(t.TempDir())
+	if !strings.Contains(outside.Error, "not a git repository") {
+		t.Errorf("error for a plain directory = %q", outside.Error)
+	}
+}
+
+// gitCmd runs git in dir and fails the test if it does not succeed.
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+// TestPanelsSayWhenTheCheckoutIsGone covers a pane left behind by a worktree
+// that was removed under it: the directory is not missing a .git, it is not
+// there at all, and saying so is the difference between looking for the
+// problem and knowing it.
+func TestPanelsSayWhenTheCheckoutIsGone(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "removed-worktree")
+	if err := os.MkdirAll(gone, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := collectChanges(gone).Error; !strings.Contains(got, "no longer exists") {
+		t.Errorf("changes error = %q, want it to say the directory is gone", got)
+	}
+	if got := collectWorktrees(gone).Error; !strings.Contains(got, "no longer exists") {
+		t.Errorf("worktrees error = %q, want it to say the directory is gone", got)
+	}
+
+	// A directory that is there but holds no repository still gets the older
+	// wording, which is the right answer for it.
+	plain := t.TempDir()
+	if got := collectChanges(plain).Error; !strings.Contains(got, "not a git repository") {
+		t.Errorf("changes error for a plain directory = %q", got)
+	}
+}
+
+// TestRepoRootAnswersWithoutGitWhereItCan covers the resolution done on every
+// click in the file list and every commit.
+func TestRepoRootAnswersWithoutGitWhereItCan(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	sub := filepath.Join(repo, "pkg", "inner")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	side := filepath.Join(t.TempDir(), "side")
+	gitCmd(t, repo, "worktree", "add", "-b", "side", side)
+
+	for _, tc := range []struct{ in, want string }{
+		{repo, repo},
+		{sub, repo},
+		// A linked worktree's .git is a file rather than a directory, and it
+		// is still the top of its own working tree.
+		{side, side},
+	} {
+		if got := repoRoot(tc.in); got != tc.want {
+			t.Errorf("repoRoot(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// A directory with no repository above it is its own answer, so a review
+	// of it fails with something about that directory rather than another.
+	plain := t.TempDir()
+	if got := repoRoot(plain); got != plain {
+		t.Errorf("repoRoot(%q) = %q, want it unchanged", plain, got)
+	}
+}
+
+// TestPrunedSummarySaysWhatItDid covers the wording of a button that used to
+// report success whether or not there was anything to clean up.
+func TestPrunedSummarySaysWhatItDid(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{0, "nothing to prune"},
+		{1, "pruned 1 stale worktree record"},
+		{3, "pruned 3 stale worktree records"},
+	} {
+		if got := prunedSummary(tc.n); !strings.Contains(got, tc.want) {
+			t.Errorf("prunedSummary(%d) = %q, want it to contain %q", tc.n, got, tc.want)
+		}
+	}
+	if strings.Contains(prunedSummary(1), "records") {
+		t.Error("one record should not be described in the plural")
+	}
+}
+
+// TestChangesPanelStopsAtALimitAndSaysSo covers a working tree with more
+// changed files in it than a list of rows can usefully hold.
+func TestChangesPanelStopsAtALimitAndSaysSo(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	for i := 0; i < 5; i++ {
+		if err := os.WriteFile(filepath.Join(repo, fmt.Sprintf("f%d.txt", i)), []byte("new\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all := collectChangesUpTo(repo, 100)
+	if all.Error != "" {
+		t.Fatalf("changes: %s", all.Error)
+	}
+	if len(all.Files) != 5 || all.Omitted != 0 {
+		t.Fatalf("under the limit: %d files, %d omitted; want 5 and 0", len(all.Files), all.Omitted)
+	}
+
+	capped := collectChangesUpTo(repo, 2)
+	if len(capped.Files) != 2 {
+		t.Errorf("%d files sent, want the limit of 2", len(capped.Files))
+	}
+	if capped.Omitted != 3 {
+		t.Errorf("omitted = %d, want 3 -- a list cut short without saying so reads as a clean tree", capped.Omitted)
+	}
+	// The branch summary is still the whole tree's, not the part that fitted.
+	if capped.Branch != "main" {
+		t.Errorf("branch = %q, want main", capped.Branch)
 	}
 }
 

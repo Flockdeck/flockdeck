@@ -1,11 +1,13 @@
 package gitx
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestChangesReportsWhatMoved covers the review panel's file list.
@@ -64,6 +66,160 @@ func TestChangesReportsWhatMoved(t *testing.T) {
 	}
 }
 
+// TestDiffOfAGlobbyNameIsNotAPattern covers a file whose name contains the
+// characters git reads as a pathspec pattern.
+func TestDiffOfAGlobbyNameIsNotAPattern(t *testing.T) {
+	repo := newRepo(t)
+
+	// "a1.txt" is exactly what the pattern "a[1].txt" matches, so a bare
+	// pathspec picks up the sibling and misses the file that was asked for.
+	write(t, repo, "a1.txt", "one\n")
+	write(t, repo, "a[1].txt", "bracket\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "two files")
+	write(t, repo, "a1.txt", "one\nsibling edit\n")
+	write(t, repo, "a[1].txt", "bracket\nthe edit under review\n")
+
+	diff, err := Diff(repo, "a[1].txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, "+the edit under review") {
+		t.Errorf("diff missing the file's own change:\n%s", diff)
+	}
+	if strings.Contains(diff, "sibling edit") || strings.Contains(diff, "a/a1.txt") {
+		t.Errorf("diff of a[1].txt also showed a1.txt:\n%s", diff)
+	}
+
+	// The same pathspec decides whether a file counts as untracked, which is
+	// what makes it render as one addition rather than as a diff.
+	write(t, repo, "b[2].txt", "brand new\n")
+	diff, err = Diff(repo, "b[2].txt")
+	if err != nil {
+		t.Fatalf("diff of untracked: %v", err)
+	}
+	if !strings.Contains(diff, "+brand new") {
+		t.Errorf("untracked bracketed file did not render as an addition:\n%s", diff)
+	}
+}
+
+// write puts a file in the repository, failing the test if it cannot.
+func write(t testing.TB, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestUntrackedCountsSurviveBeingReadAtOnce checks that a tree full of new
+// files still gets each count against the right name.
+func TestUntrackedCountsSurviveBeingReadAtOnce(t *testing.T) {
+	repo := newRepo(t)
+
+	// More files than there are readers, with a different length each, so a
+	// count landing on the wrong entry cannot go unnoticed.
+	const n = 60
+	for i := 1; i <= n; i++ {
+		write(t, repo, fmt.Sprintf("new-%03d.txt", i), strings.Repeat("x\n", i))
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	byPath := map[string]FileChange{}
+	for _, f := range files {
+		byPath[f.Path] = f
+	}
+	for i := 1; i <= n; i++ {
+		name := fmt.Sprintf("new-%03d.txt", i)
+		f, ok := byPath[name]
+		if !ok {
+			t.Fatalf("%s not reported", name)
+		}
+		if f.Added != i {
+			t.Errorf("%s added = %d, want %d", name, f.Added, i)
+		}
+	}
+}
+
+// TestUntrackedCountingStopsAtTheLimit checks that the panel is not made to
+// wait on a checkout that has picked up thousands of new files.
+func TestUntrackedCountingStopsAtTheLimit(t *testing.T) {
+	repo := newRepo(t)
+	for i := 1; i <= 5; i++ {
+		write(t, repo, fmt.Sprintf("new-%03d.txt", i), strings.Repeat("x\n", i))
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	for i := range files {
+		files[i].Added = 0
+	}
+	countUntracked(repo, files, 3)
+
+	var counted int
+	for _, f := range files {
+		if f.Added > 0 {
+			counted++
+		}
+	}
+	if counted != 3 {
+		t.Errorf("%d files counted, want the limit of 3: %+v", counted, files)
+	}
+	if len(files) != 5 {
+		t.Errorf("%d files listed, want all 5: the limit is on the counting, not the listing", len(files))
+	}
+}
+
+// TestLineCountsAreGivenUpOnAHugeDiff covers a working tree with more changed
+// files in it than anyone is going to read a "+12" beside.
+//
+// git has to read and diff every one of them to produce those numbers -- 20s
+// over a 10,000-file diff, against 139ms for the status call that lists the
+// same files -- so past the limit the numbers are abandoned and the list is
+// what the panel gets.
+func TestLineCountsAreGivenUpOnAHugeDiff(t *testing.T) {
+	repo := newRepo(t)
+	for i := 0; i < 4; i++ {
+		write(t, repo, fmt.Sprintf("f%d.txt", i), "one\n")
+	}
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "four files")
+	for i := 0; i < 4; i++ {
+		write(t, repo, fmt.Sprintf("f%d.txt", i), "one\ntwo\n")
+	}
+
+	under, err := changes(repo, 10)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(under) != 4 {
+		t.Fatalf("%d files, want 4: %+v", len(under), under)
+	}
+	for _, f := range under {
+		if f.Added != 1 {
+			t.Errorf("%s added = %d under the limit, want the count git gives", f.Path, f.Added)
+		}
+	}
+
+	over, err := changes(repo, 2)
+	if err != nil {
+		t.Fatalf("changes over the limit: %v", err)
+	}
+	if len(over) != 4 {
+		t.Errorf("%d files over the limit, want all 4 still listed", len(over))
+	}
+	for _, f := range over {
+		if f.Added != 0 || f.Removed != 0 {
+			t.Errorf("%s = +%d -%d over the limit, want the counting given up on",
+				f.Path, f.Added, f.Removed)
+		}
+	}
+}
+
 // TestDiffCoversTrackedAndUntracked checks both paths the panel needs.
 func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	repo := newRepo(t)
@@ -90,6 +246,62 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	}
 	if !strings.Contains(diff, "+brand new") {
 		t.Errorf("untracked file not rendered as an addition:\n%s", diff)
+	}
+}
+
+// TestDiffIgnoresTheUsersDiffConfig covers the settings that change what git
+// prints, which the panel has no way to recognise once it arrives.
+func TestDiffIgnoresTheUsersDiffConfig(t *testing.T) {
+	repo := newRepo(t)
+
+	// Every one of these is a setting somebody really keeps: colour through a
+	// pager, an external diff tool, and prefixes other than "a/" and "b/".
+	gitRun(t, repo, "config", "color.ui", "always")
+	gitRun(t, repo, "config", "diff.mnemonicPrefix", "true")
+	gitRun(t, repo, "config", "diff.external", "cmd-that-does-not-exist")
+
+	write(t, repo, "README.md", "hello\na second line\n")
+
+	diff, err := Diff(repo, "README.md")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.ContainsRune(diff, 0x1b) {
+		t.Errorf("diff carries ANSI escapes, which the panel renders as text:\n%q", diff)
+	}
+	if !strings.Contains(diff, "+a second line") {
+		t.Errorf("added line is not marked as an addition:\n%s", diff)
+	}
+	if !strings.Contains(diff, "--- a/README.md") || !strings.Contains(diff, "+++ b/README.md") {
+		t.Errorf("diff does not use the a/ and b/ prefixes:\n%s", diff)
+	}
+}
+
+// TestUntrackedSymlinkIsShownAsTheLink covers a new symlink in a working tree.
+//
+// git records a symlink as the path it points at, so that is what a diff of
+// one should show. Reading through it instead prints the contents of whatever
+// is on the other end, which is not what was added and need not be inside the
+// working tree at all -- node_modules/.bin and a checked-out framework are
+// both full of links leading elsewhere.
+func TestUntrackedSymlinkIsShownAsTheLink(t *testing.T) {
+	repo := newRepo(t)
+	private := t.TempDir()
+	write(t, private, "private.txt", "TOP SECRET\n")
+	elsewhere := filepath.Join(private, "private.txt")
+	if err := os.Symlink(elsewhere, filepath.Join(repo, "link")); err != nil {
+		t.Skipf("symlinks cannot be created here: %v", err)
+	}
+
+	diff, err := Diff(repo, "link")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.Contains(diff, "TOP SECRET") {
+		t.Errorf("the diff followed the link and printed what it points at:\n%s", diff)
+	}
+	if !strings.Contains(diff, "private.txt") {
+		t.Errorf("the diff does not show the link's target:\n%s", diff)
 	}
 }
 
@@ -131,6 +343,51 @@ func TestChangesReportsAwkwardNames(t *testing.T) {
 	}
 	if !strings.Contains(diff, "+x") {
 		t.Errorf("diff did not find the file:\n%s", diff)
+	}
+}
+
+// TestDiffOfARenameShowsTheRename covers clicking a file that moved.
+//
+// The panel lists a rename under its new name, and a diff limited to that name
+// alone gives git nothing to pair it against: it answers with the whole file
+// as a fresh addition, burying whatever actually changed in it.
+func TestDiffOfARenameShowsTheRename(t *testing.T) {
+	repo := newRepo(t)
+	body := strings.Repeat("a settled line\n", 200)
+	write(t, repo, "old.txt", body)
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "the file before it moved")
+
+	gitRun(t, repo, "mv", "old.txt", "new.txt")
+	write(t, repo, "new.txt", body+"the one line that changed\n")
+	gitRun(t, repo, "add", "-A")
+
+	diff, err := Diff(repo, "new.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if strings.Contains(diff, "new file mode") {
+		t.Errorf("the rename is shown as a brand new file:\n%.400s", diff)
+	}
+	if !strings.Contains(diff, "rename from old.txt") {
+		t.Errorf("diff does not name what the file was called:\n%.400s", diff)
+	}
+	if !strings.Contains(diff, "+the one line that changed") {
+		t.Errorf("diff does not show the change:\n%.400s", diff)
+	}
+	if added := strings.Count(diff, "\n+"); added > 5 {
+		t.Errorf("%d added lines for a rename with one edit in it", added)
+	}
+
+	// A file that really is new still reads as one.
+	write(t, repo, "fresh.txt", "brand new\n")
+	gitRun(t, repo, "add", "fresh.txt")
+	fresh, err := Diff(repo, "fresh.txt")
+	if err != nil {
+		t.Fatalf("diff of a new file: %v", err)
+	}
+	if !strings.Contains(fresh, "+brand new") {
+		t.Errorf("a genuinely new file is no longer shown as added:\n%s", fresh)
 	}
 }
 
@@ -185,6 +442,105 @@ func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
 	}
 	if renamed.Added != 1 {
 		t.Errorf("renamed file added = %d, want 1", renamed.Added)
+	}
+}
+
+// TestChangesDuringAConflictedMerge covers the state an agent most often
+// stops in and asks for help: the merge is half done and one file is in
+// pieces. Only the code-to-word mapping was tested before, not what the panel
+// is actually handed for it.
+func TestChangesDuringAConflictedMerge(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "base")
+	gitRun(t, repo, "checkout", "-b", "topic")
+	write(t, repo, "f.txt", "from the agent\n")
+	gitRun(t, repo, "commit", "-am", "topic")
+	gitRun(t, repo, "checkout", "main")
+	write(t, repo, "f.txt", "from main\n")
+	gitRun(t, repo, "commit", "-am", "main")
+
+	merge := exec.Command("git", "merge", "topic")
+	merge.Dir = repo
+	if out, err := merge.CombinedOutput(); err == nil {
+		t.Fatalf("expected the merge to conflict: %s", out)
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("%d files, want the one in conflict: %+v", len(files), files)
+	}
+	if files[0].Path != "f.txt" || files[0].Label != "conflict" {
+		t.Errorf("entry = %+v, want f.txt labelled conflict", files[0])
+	}
+
+	// A merge does not detach HEAD the way a rebase does, so the branch is
+	// still the branch.
+	if st := StatusOf(repo); st.Branch != "main" || st.Detached || st.Dirty != 1 {
+		t.Errorf("status = %+v, want main, attached, one dirty file", st)
+	}
+
+	// The diff of a conflicted file is the conflict, markers and all, which is
+	// the thing worth reading at that moment.
+	diff, err := Diff(repo, "f.txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	for _, want := range []string{"<<<<<<<", "from the agent", ">>>>>>>"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("diff does not show %q:\n%s", want, diff)
+		}
+	}
+}
+
+// TestChangesReportsADirtySubmodule covers a gitlink, which is neither a file
+// with contents nor a directory to walk into: git reports one entry for the
+// whole submodule and one line of diff naming the commit it moved to.
+func TestChangesReportsADirtySubmodule(t *testing.T) {
+	inner := newRepo(t)
+	outer := newRepo(t)
+
+	add := exec.Command("git", "-c", "protocol.file.allow=always",
+		"submodule", "add", "--", filepath.ToSlash(inner), "mod")
+	add.Dir = outer
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Skipf("submodules are not usable here: %v: %s", err, out)
+	}
+	gitRun(t, outer, "commit", "-m", "add the submodule")
+
+	// Moving the submodule on by a commit is what makes the outer repository
+	// dirty, without changing a single file the outer one tracks.
+	mod := filepath.Join(outer, "mod")
+	write(t, mod, "README.md", "hello\nand more\n")
+	gitRun(t, mod, "commit", "-am", "work inside the submodule")
+
+	files, err := Changes(outer)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("%d files, want the submodule alone: %+v", len(files), files)
+	}
+	if files[0].Path != "mod" || files[0].Label != "modified" {
+		t.Errorf("entry = %+v, want mod reported as modified", files[0])
+	}
+	if files[0].Untracked {
+		t.Error("a submodule that moved is not an untracked file")
+	}
+	if st := StatusOf(outer); st.Dirty != 1 || st.Untracked != 0 {
+		t.Errorf("status = %+v, want one dirty entry and nothing untracked", st)
+	}
+
+	diff, err := Diff(outer, "mod")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, "Subproject commit") {
+		t.Errorf("submodule diff should name the commits it moved between:\n%s", diff)
 	}
 }
 
@@ -550,6 +906,85 @@ func TestPushSetsUpstreamOnFirstPush(t *testing.T) {
 	}
 }
 
+// TestUpstreamOfAgreesWithStatus checks the cheap upstream lookup Push relies
+// on against the one that walks the working tree to find out.
+func TestUpstreamOfAgreesWithStatus(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("upstream = %q before anything is pushed, want none", got)
+	}
+
+	gitRun(t, repo, "push", "--set-upstream", "origin", "main")
+	want := StatusOf(repo).Upstream
+	if want == "" {
+		t.Fatal("status reports no upstream after one was set")
+	}
+	if got := UpstreamOf(repo); got != want {
+		t.Errorf("upstream = %q, want %q as status reports it", got, want)
+	}
+
+	// A branch with no upstream of its own must not borrow the one beside it.
+	gitRun(t, repo, "checkout", "-b", "solo")
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("upstream = %q on a branch that tracks nothing", got)
+	}
+}
+
+// TestRemoteCommandsGetTheLongerDeadline checks that push, pull and fetch are
+// not held to the deadline meant for reading the local repository, and that
+// reading the local repository is not held to theirs.
+func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
+	repo := newRepo(t)
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	gitRun(t, repo, "remote", "add", "origin", origin)
+
+	if networkTimeout <= commandTimeout {
+		t.Errorf("network deadline %s is no longer than the local one %s",
+			networkTimeout, commandTimeout)
+	}
+
+	// Shortening it to nothing is how the deadline a command actually ran
+	// under can be read back out of the message it fails with.
+	restore := networkTimeout
+	t.Cleanup(func() { networkTimeout = restore })
+	networkTimeout = time.Nanosecond
+
+	for _, tc := range []struct {
+		name string
+		run  func() (string, error)
+	}{
+		{"fetch", func() (string, error) { return Fetch(repo) }},
+		{"pull", func() (string, error) { return Pull(repo) }},
+	} {
+		_, err := tc.run()
+		if err == nil {
+			t.Errorf("%s: expected the shortened deadline to stop it", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "gave up after 1ns") {
+			t.Errorf("%s did not run under the network deadline: %v", tc.name, err)
+		}
+	}
+
+	// Nothing local borrows it, or every pane header would stop working.
+	if got := StatusOf(repo).Branch; got != "main" {
+		t.Errorf("branch = %q; a status call should be unaffected", got)
+	}
+}
+
 // TestHasRemoteWithoutOrigin covers a repository that cannot be pushed.
 func TestHasRemoteWithoutOrigin(t *testing.T) {
 	repo := newRepo(t)
@@ -592,7 +1027,7 @@ func TestRemotesMatchWholeNames(t *testing.T) {
 
 // gitRun runs a git command in dir and returns its output, failing the test on
 // error.
-func gitRun(t *testing.T, dir string, args ...string) string {
+func gitRun(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

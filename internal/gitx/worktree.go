@@ -13,14 +13,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
 )
 
-// commandTimeout bounds every git invocation so a hung command cannot freeze
-// the UI thread.
+// commandTimeout bounds a git invocation that only reads the local repository,
+// so a hung command cannot freeze the UI thread.
 const commandTimeout = 20 * time.Second
+
+// networkTimeout bounds push, pull and fetch instead.
+//
+// Twenty seconds is nothing to a command that talks to a remote: a first push
+// of a branch with any history behind it, a fetch of a repository nobody has
+// cloned recently, or any of it over a link that is having a bad day. Killing
+// those part way through and reporting a hang is worse than waiting, and
+// nothing is waiting on them -- they run off the UI thread and tell the panel
+// when they are done. Asking for a password is already refused outright, so
+// the hang these guard against cannot happen here in the first place.
+//
+// It is a variable so a test can shorten it; nothing else assigns to it.
+var networkTimeout = 10 * time.Minute
 
 // Worktree is one entry from `git worktree list`.
 type Worktree struct {
@@ -49,17 +63,27 @@ func (w Worktree) Label() string {
 
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
-	out, _, err := runCapture(dir, args...)
+	out, _, err := runCapture(context.Background(), commandTimeout, dir, args...)
 	return out, err
 }
 
-// runVerbose returns what git said on both streams.
+// runUntil is run for a command whose answer stops being wanted part way
+// through, so that cancelling ctx kills the process rather than leaving it to
+// finish work nobody will read.
+func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
+	out, _, err := runCapture(ctx, commandTimeout, dir, args...)
+	return out, err
+}
+
+// runVerbose returns what git said on both streams, under the network deadline.
 //
 // push, pull and fetch write their progress and their summary to stderr, so a
 // caller that shows the user only stdout shows them nothing at all: stderr
-// comes first because that is the order the two were written in.
+// comes first because that is the order the two were written in. They are also
+// the only commands here that talk to anything outside the machine, which is
+// why they are the ones given the longer deadline.
 func runVerbose(dir string, args ...string) (string, error) {
-	out, errText, err := runCapture(dir, args...)
+	out, errText, err := runCapture(context.Background(), networkTimeout, dir, args...)
 	if err != nil {
 		return "", err
 	}
@@ -82,8 +106,19 @@ func cleanProgress(s string) string {
 }
 
 // runCapture executes git in dir and returns stdout and stderr separately.
-func runCapture(dir string, args ...string) (string, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
+	// An empty Dir does not mean "no repository" to exec: it means the
+	// directory this process happens to be running in. Perch is often started
+	// from inside a checkout of something, so a caller that lost track of
+	// which working tree it meant -- a review panel opened with no project
+	// open, a pane whose directory never got set -- would have been answered
+	// with a real status for an entirely unrelated repository, and shown it as
+	// though it were the project's.
+	if strings.TrimSpace(dir) == "" {
+		return "", "", fmt.Errorf("git %s: no working tree was named", strings.Join(args, " "))
+	}
+
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -101,7 +136,10 @@ func runCapture(dir string, args ...string) (string, string, error) {
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), commandTimeout)
+			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
+		}
+		if parent.Err() != nil {
+			return "", "", parent.Err()
 		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back
@@ -171,15 +209,6 @@ func CurrentBranch(dir string) string {
 	return strings.TrimSpace(out)
 }
 
-// Dirty reports whether the worktree has uncommitted changes.
-func Dirty(dir string) bool {
-	out, err := run(dir, "status", "--porcelain")
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(out) != ""
-}
-
 // List returns every worktree of the repository containing dir.
 func List(dir string) ([]Worktree, error) {
 	out, err := run(dir, "worktree", "list", "--porcelain")
@@ -240,23 +269,6 @@ func List(dir string) ([]Worktree, error) {
 	return res, nil
 }
 
-// Add creates a worktree at path. When branch is non-empty it is created as a
-// new branch when it does not already exist, and checked out otherwise.
-func Add(repoDir, path, branch string) error {
-	args := []string{"worktree", "add"}
-	if branch != "" {
-		if branchExists(repoDir, branch) {
-			args = append(args, path, branch)
-		} else {
-			args = append(args, "-b", branch, path)
-		}
-	} else {
-		args = append(args, path)
-	}
-	_, err := run(repoDir, args...)
-	return err
-}
-
 // BranchExists reports whether a local branch is already present.
 func BranchExists(dir, branch string) bool { return branchExists(dir, branch) }
 
@@ -272,39 +284,104 @@ func branchExists(dir, branch string) bool {
 // usually disappear -- git refuses to remove a path that is not there. Pruning
 // the record it left behind is what the person pressing remove meant, and it
 // is the only thing left to do.
+//
+// That prune is why the path is checked against the repository's own list
+// first. It is not selective: it discards the record of every worktree whose
+// directory is missing, including one sitting on a drive that happens to be
+// unplugged. A path git has never heard of should not be able to set that off,
+// and reporting "removed" for it was a lie besides.
 func Remove(repoDir, path string, force bool) error {
 	if strings.TrimSpace(path) == "" {
 		return &gitError{"which worktree? no path was given"}
 	}
+	known, err := isWorktree(repoDir, path)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return &gitError{path + " is not a worktree of this repository"}
+	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return Prune(repoDir)
+		_, err := Prune(repoDir)
+		return err
 	}
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
 	}
-	args = append(args, path)
-	_, err := run(repoDir, args...)
+	args = append(args, "--", path)
+	_, err = run(repoDir, args...)
 	return err
 }
+
+// isWorktree reports whether path is one of the repository's registered
+// worktrees.
+func isWorktree(repoDir, path string) (bool, error) {
+	wts, err := List(repoDir)
+	if err != nil {
+		return false, err
+	}
+	for _, wt := range wts {
+		if samePath(wt.Path, path) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// samePath compares two paths as the file system would.
+//
+// The two reach here from different places -- one from git, the other from
+// whatever the window sent back -- so on Windows they can name the same
+// directory in different case, which a plain comparison calls different.
+func samePath(a, b string) bool { return foldPath(a) == foldPath(b) }
 
 // DefaultWorktreePath suggests where a new worktree for a branch should live:
 // a sibling of the repository, named after it, so checkouts stay grouped
 // together without nesting inside the repository itself.
 //
-// A directory already sitting at that name is stepped around rather than
-// suggested: `git worktree add` refuses an occupied path, and the leftovers of
-// a worktree someone deleted by hand are exactly what is found there.
+// A name that is already taken is stepped around rather than suggested. That
+// means two things, and only one of them is visible in the file system: a
+// directory sitting there, which `git worktree add` refuses, and a worktree
+// git still has a record of. The second is what someone who deleted a
+// checkout in their file manager leaves behind, and it fails differently --
+// "a missing but already registered worktree" -- for a path that looks free.
 func DefaultWorktreePath(repoRoot, branch string) string {
 	parent := filepath.Dir(repoRoot)
 	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
 
+	registered := map[string]bool{}
+	if wts, err := List(repoRoot); err == nil {
+		for _, wt := range wts {
+			registered[foldPath(wt.Path)] = true
+		}
+	}
+	taken := func(path string) bool {
+		if registered[foldPath(path)] {
+			return true
+		}
+		_, err := os.Lstat(path)
+		return err == nil
+	}
+
 	path := filepath.Join(parent, name)
-	for i := 2; i < 100; i++ {
-		if _, err := os.Lstat(path); err != nil {
-			break
+	// The last name tried is checked like the rest, so a hundred collisions
+	// end in a name that is merely unlikely rather than one known to be
+	// taken -- which is what a loop that stopped on the counter returned.
+	for i := 2; taken(path); i++ {
+		if i > 99 {
+			return filepath.Join(parent, fmt.Sprintf("%s-%d", name, time.Now().UnixNano()))
 		}
 		path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, i))
+	}
+	return path
+}
+
+// foldPath puts a path in the form two of them can be compared in.
+func foldPath(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(path)
 	}
 	return path
 }

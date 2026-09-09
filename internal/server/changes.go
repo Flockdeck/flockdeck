@@ -1,7 +1,13 @@
 package server
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/jmwri/perch/internal/gitx"
 )
@@ -25,7 +31,10 @@ type changesMsg struct {
 	Behind    int          `json:"behind"`
 	HasRemote bool         `json:"hasRemote"`
 	Files     []changeView `json:"files"`
-	Error     string       `json:"error,omitempty"`
+	// Omitted counts the changed files left out of Files, which happens
+	// only on a checkout with more of them than a list can usefully hold.
+	Omitted int    `json:"omitted,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type diffMsg struct {
@@ -68,53 +77,123 @@ func (s *Server) reviewDir(path string) string {
 // usually sits somewhere inside the project rather than at the top of it, and
 // joining a root-relative name onto that subdirectory names a file that is not
 // there: every diff came back empty and was reported as possibly binary.
+//
+// It is usually the root already, though. The panel is told the root when it
+// asks what changed and sends it back with every command after that, and a
+// working tree's top level is the directory holding the .git entry -- which is
+// free to look for, where asking git costs a process, on every click in the
+// file list and on every commit.
 func repoRoot(dir string) string {
-	if root, err := gitx.Root(dir); err == nil {
+	if root, err := treeRoot(dir); err == nil {
 		return root
 	}
 	return dir
+}
+
+// treeRoot is repoRoot for the caller that needs to know when there is no
+// working tree at all rather than carry on with the directory it was given.
+func treeRoot(dir string) (string, error) {
+	if dir != "" {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir, nil
+		}
+	}
+	return gitx.Root(dir)
 }
 
 // listChanges answers a request for what has changed in a working tree.
 func (s *Server) listChanges(c *controlClient, path string) {
 	dir := s.reviewDir(path)
 	go func() {
-		msg := changesMsg{Type: "changes", Cwd: dir}
-		if !gitx.Available() {
-			msg.Error = "git is not installed"
-			c.sendJSON(msg)
-			return
-		}
-		root, err := gitx.Root(dir)
-		if err != nil {
-			msg.Error = dir + " is not a git repository"
-			c.sendJSON(msg)
-			return
-		}
-		// The panel works in root-relative paths from here on, and echoes this
-		// back as the directory its later commands carry.
-		dir = root
-		msg.Cwd = dir
-
-		st := gitx.StatusOf(dir)
-		msg.Branch, msg.Upstream = st.Branch, st.Upstream
-		msg.Ahead, msg.Behind = st.Ahead, st.Behind
-		msg.HasRemote = gitx.HasRemote(dir)
-
-		files, err := gitx.Changes(dir)
-		if err != nil {
-			msg.Error = err.Error()
-			c.sendJSON(msg)
-			return
-		}
-		for _, f := range files {
-			msg.Files = append(msg.Files, changeView{
-				Path: f.Path, Status: f.Status, Label: f.Label,
-				Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
-			})
-		}
+		msg := collectChanges(dir)
 		c.sendJSON(msg)
+		if msg.Omitted > 0 {
+			// Said out loud, because a list that stops at two thousand rows
+			// looks exactly like a working tree with two thousand changes in
+			// it, and the difference matters to someone about to commit.
+			c.notify(fmt.Sprintf("showing %d of %d changed files — the rest are left out to keep the list usable",
+				len(msg.Files), len(msg.Files)+msg.Omitted), false)
+		}
 	}()
+}
+
+// maxPanelFiles bounds how many entries the panel is sent.
+//
+// A checkout that has picked up a build directory nobody ignored can have
+// tens of thousands of changed files. Every one becomes a row the window
+// builds before it draws anything, so the panel stops being usable long
+// before the list stops being complete.
+const maxPanelFiles = 2000
+
+// collectChanges gathers everything the panel shows about one checkout.
+//
+// The branch summary, the remote list and the file list come from three
+// independent git commands -- five processes between them, since listing the
+// files is itself three. They are asked for together rather than one after
+// another: this runs on opening the panel and again after every commit, push,
+// pull and fetch, and on Windows the process starts are most of that wait.
+func collectChanges(dir string) changesMsg { return collectChangesUpTo(dir, maxPanelFiles) }
+
+// collectChangesUpTo is collectChanges with the limit given, so a test can
+// reach it without a working tree full of thousands of files.
+func collectChangesUpTo(dir string, limit int) changesMsg {
+	msg := changesMsg{Type: "changes", Cwd: dir}
+	if !gitx.Available() {
+		msg.Error = "git is not installed"
+		return msg
+	}
+	root, err := treeRoot(dir)
+	if err != nil {
+		msg.Error = noRepoReason(dir)
+		return msg
+	}
+	// The panel works in root-relative paths from here on, and echoes this
+	// back as the directory its later commands carry.
+	msg.Cwd = root
+
+	var (
+		st    gitx.Status
+		files []gitx.FileChange
+		ferr  error
+		wg    sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); st = gitx.StatusOf(root) }()
+	go func() { defer wg.Done(); files, ferr = gitx.Changes(root) }()
+	msg.HasRemote = gitx.HasRemote(root)
+	wg.Wait()
+
+	msg.Branch, msg.Upstream = st.Branch, st.Upstream
+	msg.Ahead, msg.Behind = st.Ahead, st.Behind
+	if ferr != nil {
+		msg.Error = ferr.Error()
+		return msg
+	}
+	if len(files) > limit {
+		msg.Omitted = len(files) - limit
+		files = files[:limit]
+	}
+	for _, f := range files {
+		msg.Files = append(msg.Files, changeView{
+			Path: f.Path, Status: f.Status, Label: f.Label,
+			Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
+		})
+	}
+	return msg
+}
+
+// noRepoReason explains why a directory has nothing to review.
+//
+// Removing a worktree deletes its directory, and a pane that was working in it
+// is left somewhere that is not there any more. Reporting that as "not a git
+// repository" sends the reader looking for the wrong thing entirely -- a
+// missing .git, a project opened at the wrong level -- when the answer is that
+// the checkout is gone.
+func noRepoReason(dir string) string {
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return dir + " no longer exists"
+	}
+	return dir + " is not a git repository"
 }
 
 // showDiff sends the diff of one file.

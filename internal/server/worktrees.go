@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/jmwri/perch/internal/gitx"
 )
@@ -52,59 +53,78 @@ type worktreesMsg struct {
 func (s *Server) listWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	go func() {
-		msg := worktreesMsg{Type: "worktrees", Root: root}
-		switch {
-		case !gitx.Available():
-			msg.Error = "git is not installed"
-			c.sendJSON(msg)
-			return
-		case !gitx.IsRepo(root):
-			msg.Error = root + " is not a git repository"
-			c.sendJSON(msg)
-			return
-		}
-
-		wts, err := gitx.ListDetailed(root)
-		if err != nil {
-			msg.Error = err.Error()
-			c.sendJSON(msg)
-			return
-		}
-		msg.DefaultBase = gitx.DefaultBase(root)
-		if branches, err := gitx.Branches(root); err == nil {
-			for _, b := range branches {
-				msg.Branches = append(msg.Branches, branchView{
-					Name: b.Name, Upstream: b.Upstream,
-					Current: b.Current, CheckedIn: b.CheckedIn,
-				})
+		msg := collectWorktrees(root)
+		if msg.Error == "" {
+			paths := make([]string, 0, len(msg.Items))
+			for _, it := range msg.Items {
+				paths = append(paths, it.Path)
 			}
-		}
-
-		paths := make([]string, 0, len(wts))
-		for _, wt := range wts {
-			paths = append(paths, wt.Path)
-		}
-		counts := s.panesPerPath(paths)
-
-		for _, wt := range wts {
-			msg.Items = append(msg.Items, worktreeView{
-				Path:      wt.Path,
-				Label:     wt.Label(),
-				Branch:    wt.Branch,
-				Head:      wt.Status.Head,
-				Upstream:  wt.Status.Upstream,
-				Main:      wt.Main,
-				Locked:    wt.Locked,
-				Detached:  wt.Detached,
-				Dirty:     wt.Status.Dirty,
-				Untracked: wt.Status.Untracked,
-				Ahead:     wt.Status.Ahead,
-				Behind:    wt.Status.Behind,
-				Panes:     counts[wt.Path],
-			})
+			counts := s.panesPerPath(paths)
+			for i := range msg.Items {
+				msg.Items[i].Panes = counts[msg.Items[i].Path]
+			}
 		}
 		c.sendJSON(msg)
 	}()
+}
+
+// collectWorktrees gathers what the panel shows about a repository, short of
+// which panes are working where, which only the workspace knows.
+//
+// The worktree list, the branch list and the starting point a new branch would
+// be offered all come from separate git commands that share nothing but the
+// root, so they are asked for together. The "is this a repository" call is
+// gone from the ordinary path entirely: it existed to phrase a friendlier
+// error, and is now only made once something has actually failed.
+func collectWorktrees(root string) worktreesMsg {
+	msg := worktreesMsg{Type: "worktrees", Root: root}
+	if !gitx.Available() {
+		msg.Error = "git is not installed"
+		return msg
+	}
+
+	var (
+		wts      []gitx.Worktree
+		wtErr    error
+		branches []gitx.Branch
+		wg       sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); wts, wtErr = gitx.ListDetailed(root) }()
+	go func() { defer wg.Done(); branches, _ = gitx.Branches(root) }()
+	msg.DefaultBase = gitx.DefaultBase(root)
+	wg.Wait()
+
+	if wtErr != nil {
+		msg.Error = wtErr.Error()
+		if !gitx.IsRepo(root) {
+			msg.Error = noRepoReason(root)
+		}
+		return msg
+	}
+	for _, b := range branches {
+		msg.Branches = append(msg.Branches, branchView{
+			Name: b.Name, Upstream: b.Upstream,
+			Current: b.Current, CheckedIn: b.CheckedIn,
+		})
+	}
+	for _, wt := range wts {
+		msg.Items = append(msg.Items, worktreeView{
+			Path:      wt.Path,
+			Label:     wt.Label(),
+			Branch:    wt.Branch,
+			Head:      wt.Status.Head,
+			Upstream:  wt.Status.Upstream,
+			Main:      wt.Main,
+			Locked:    wt.Locked,
+			Detached:  wt.Detached,
+			Dirty:     wt.Status.Dirty,
+			Untracked: wt.Status.Untracked,
+			Ahead:     wt.Status.Ahead,
+			Behind:    wt.Status.Behind,
+		})
+	}
+	return msg
 }
 
 // panesPerPath counts open panes working inside each of the given directories.
@@ -142,6 +162,21 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 		return counts
 	case <-s.closed:
 		return nil
+	}
+}
+
+// prunedSummary says what pressing prune actually did.
+//
+// It reported success either way before, so a button pressed on a repository
+// with nothing stale in it said it had cleaned something up.
+func prunedSummary(n int) string {
+	switch n {
+	case 0:
+		return "nothing to prune — every worktree is where its record says it is"
+	case 1:
+		return "pruned 1 stale worktree record"
+	default:
+		return fmt.Sprintf("pruned %d stale worktree records", n)
 	}
 }
 
@@ -219,11 +254,12 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	go func() {
-		if err := gitx.Prune(root); err != nil {
+		pruned, err := gitx.Prune(root)
+		if err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
-		c.notify("pruned stale worktree records", false)
+		c.notify(prunedSummary(pruned), false)
 		s.listWorktrees(c)
 	}()
 }
