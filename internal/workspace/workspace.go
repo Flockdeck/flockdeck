@@ -4,12 +4,20 @@
 //
 // It deliberately knows nothing about rendering or key bindings, so the layout
 // and session lifecycle can be exercised without a user interface.
+//
+// A tab belongs to a project and so does a pane, and the two need not agree: a
+// tab can show agents from more than one project side by side. The tab's
+// project decides which tab bar draws it. The pane's project decides what the
+// agent is told it is working in, whose summary counts it as waiting, and what
+// stops it when a project closes — so anything grouping panes by project asks
+// rootOf, never the tab the pane happens to sit on.
 package workspace
 
 import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -134,8 +142,12 @@ type Workspace struct {
 	opening    map[string]bool
 	activeRoot string
 	activeTab  string
+	// lastTab remembers which tab each project was left on, so coming back to
+	// a project comes back to what you were doing in it.
+	lastTab map[string]string
 
 	selfExe     string
+	spawnCmd    string
 	settingsDir string
 	hookSrv     *hooks.Server
 	claudeExe   string
@@ -191,6 +203,7 @@ func New(opts Options) (*Workspace, error) {
 	// A missing claude CLI is not fatal: shell panes still work, and the pane
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
+	w.spawnCmd = spawnCommand(selfExe)
 
 	srv, err := hooks.Serve(w.handleHook)
 	if err != nil {
@@ -257,34 +270,73 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 // ----------------------------------------------------------------- projects
 
 // Projects returns the open projects with a summary of each.
+//
+// An agent is counted against the project it belongs to rather than the
+// project of the tab it is drawn on. The switcher's badge is what says a
+// project is waiting on you, and a borrowed pane counted against the tab it
+// sits on lights up a project that is not the one whose work has stopped —
+// while the project that is actually blocked shows nothing.
 func (w *Workspace) Projects() []Project {
 	w.applyPendingTitles()
 	names := projectNames(w.openRoots)
-	out := make([]Project, 0, len(w.openRoots))
+	out := make([]Project, len(w.openRoots))
+	byRoot := make(map[string]int, len(w.openRoots))
 	for i, root := range w.openRoots {
-		p := Project{Root: root, Name: names[i], Active: root == w.activeRoot}
-		for _, t := range w.Tabs {
-			if t.Root != root {
-				continue
-			}
-			p.Tabs++
-			for _, id := range t.Tree.Panes() {
-				pane := w.Pane(id)
-				if pane == nil {
-					continue
-				}
-				switch st, _ := pane.Status(); st {
-				case session.StatusWaiting:
-					p.Waiting++
-				case session.StatusWorking:
-					p.Working++
-				}
+		out[i] = Project{Root: root, Name: names[i], Active: root == w.activeRoot}
+		byRoot[root] = i
+	}
+	// Tabs and panes name their project with the string it was opened under,
+	// so the map answers almost every lookup; a layout written elsewhere can
+	// spell it in another case, and that falls back to comparing the paths.
+	indexOf := func(root string) int {
+		if i, ok := byRoot[root]; ok {
+			return i
+		}
+		for i, r := range w.openRoots {
+			if sameDir(r, root) {
+				return i
 			}
 		}
-		out = append(out, p)
+		return -1
+	}
+
+	// One pass over the tabs under one lock, rather than a walk of every tab
+	// once per open project and a separately locked lookup for every pane in
+	// it: this is rebuilt every time any pane changes status.
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for _, t := range w.Tabs {
+		if i := indexOf(t.Root); i >= 0 {
+			out[i].Tabs++
+		}
+		for _, id := range t.Tree.Panes() {
+			pane := w.panes[id]
+			if pane == nil || pane.Sess == nil {
+				continue
+			}
+			root := pane.Root
+			if root == "" {
+				root = t.Root
+			}
+			i := indexOf(root)
+			if i < 0 {
+				continue
+			}
+			switch st, _ := pane.Sess.Status(); st {
+			case session.StatusWaiting:
+				out[i].Waiting++
+			case session.StatusWorking:
+				out[i].Working++
+			}
+		}
 	}
 	return out
 }
+
+// maxNameDepth bounds how much of a path a project's name may grow to. Four
+// elements is already more than a label, and a name that long has stopped
+// helping long before it stops fitting.
+const maxNameDepth = 4
 
 // projectNames names each root by its own directory, and gives the ones whose
 // names would collide enough of the path to tell them apart.
@@ -293,29 +345,68 @@ func (w *Workspace) Projects() []Project {
 // are called the same thing. The project switcher shows the name and nothing
 // else, and so does the list of other open projects an agent is given, so
 // without this both are asked to tell two identical labels apart.
+//
+// One parent is not always enough. Trees laid out the same way — a mirror, a
+// backup, a second machine's copy — agree for as many elements as the layout
+// is deep, so the names grow an element at a time until they differ or the
+// paths run out.
 func projectNames(roots []string) []string {
 	names := make([]string, len(roots))
-	seen := map[string]int{}
+	depth := make([]int, len(roots))
 	for i, root := range roots {
-		names[i] = filepath.Base(root)
-		seen[names[i]]++
+		names[i], depth[i] = pathTail(root, 1), 1
 	}
-	for i, root := range roots {
-		if seen[names[i]] < 2 {
-			continue
+	for round := 1; round < maxNameDepth; round++ {
+		seen := make(map[string]int, len(names))
+		for _, n := range names {
+			seen[n]++
 		}
-		parent := filepath.Base(filepath.Dir(root))
-		// A project at the root of a drive has no parent worth borrowing: Base
-		// of "C:\" is a separator, which names nothing.
-		if parent == "" || parent == "." || parent == names[i] {
-			continue
+		grew := false
+		for i, root := range roots {
+			if seen[names[i]] < 2 {
+				continue
+			}
+			// A root with nothing left to prepend keeps the name it has; the
+			// project it collides with is the one that grows.
+			longer := pathTail(root, depth[i]+1)
+			if longer == names[i] {
+				continue
+			}
+			names[i], depth[i] = longer, depth[i]+1
+			grew = true
 		}
-		if len(parent) == 1 && os.IsPathSeparator(parent[0]) {
-			continue
+		if !grew {
+			break
 		}
-		names[i] = filepath.Join(parent, names[i])
 	}
 	return names
+}
+
+// pathTail returns the last n elements of a path, or as much of it as there is.
+func pathTail(path string, n int) string {
+	rest := filepath.Clean(path)
+	out := ""
+	for i := 0; i < n; i++ {
+		base, parent := filepath.Base(rest), filepath.Dir(rest)
+		// The top of a path names nothing worth borrowing: Base of "C:\" and of
+		// "/" is a separator, and Dir stops moving once it is reached.
+		if base == "" || base == "." || (len(base) == 1 && os.IsPathSeparator(base[0])) {
+			break
+		}
+		if out == "" {
+			out = base
+		} else {
+			out = filepath.Join(base, out)
+		}
+		if parent == rest {
+			break
+		}
+		rest = parent
+	}
+	if out == "" {
+		out = filepath.Clean(path)
+	}
+	return out
 }
 
 // OpenProject opens a directory as a project and makes it active. A project
@@ -386,12 +477,23 @@ func (w *Workspace) CloseProject(root string) {
 	_ = w.SaveProject(root)
 
 	kept := make([]*Tab, 0, len(w.Tabs))
+	// Tabs made to hold agents that were being shown here but belong to a
+	// project that stays open. They are appended once the surviving tabs are
+	// known, so they come out last among their own project's tabs.
+	var rescued []*Tab
 	for _, t := range w.Tabs {
 		if t.Root == root {
-			// The tab goes, and everything drawn on it goes with it —
-			// including a pane borrowed from another project, which would
-			// otherwise be left running with nowhere to be shown.
+			// The tab goes, and this project's agents go with it. One borrowed
+			// from a project that is still open is not this project's to stop:
+			// closing a window onto an agent is not the same as ending it, so
+			// it is given a tab of its own back in the project it works in.
 			for _, id := range t.Tree.Panes() {
+				if home := w.rootOf(id); !sameDir(home, root) && w.isOpen(home) {
+					if moved := w.tabHolding(id, home); moved != nil {
+						rescued = append(rescued, moved)
+						continue
+					}
+				}
 				w.destroyPane(id)
 			}
 			continue
@@ -399,26 +501,54 @@ func (w *Workspace) CloseProject(root string) {
 		// A tab belonging to another project may still be showing this one's
 		// agents. Closing a project stops its agents, so they have to be found
 		// where they are rather than only among its own tabs.
+		//
+		// Which panes are going is settled before any of them do. A tree
+		// refuses to give up its last pane, so taking them out one at a time
+		// would leave a tab whose whole contents were borrowed still drawing
+		// the last of them — a pane with no process and nothing behind it,
+		// which only closing the tab could get rid of.
+		var going []string
+		keeping := 0
 		for _, id := range t.Tree.Panes() {
-			p := w.Pane(id)
-			if p == nil || !sameDir(w.rootOf(id), root) {
+			if p := w.Pane(id); p != nil && !sameDir(w.rootOf(id), root) {
+				keeping++
 				continue
+			}
+			going = append(going, id)
+		}
+		if keeping == 0 {
+			for _, id := range going {
+				w.destroyPane(id)
+			}
+			// Nothing of this tab is left once the closing project's panes
+			// have gone.
+			continue
+		}
+		for _, id := range going {
+			// Losing the pane you were typing into leaves the focus beside the
+			// space it left, the way closing it by hand would, rather than
+			// throwing it to the front of the tab.
+			if t.Focus == id {
+				t.Focus = paneBesideTheGap(t, id)
 			}
 			t.Tree.Remove(id)
 			w.destroyPane(id)
 		}
 		panes := t.Tree.Panes()
 		if len(panes) == 0 {
-			// Nothing of this tab is left once the closing project's panes
-			// have gone.
 			continue
+		}
+		if len(going) > 0 {
+			// A tab that lost panes underneath it comes back showing what is
+			// left of it, not one survivor filling the window.
+			t.Zoom = false
 		}
 		if t.Tree.Find(t.Focus) == nil {
 			t.Focus = panes[0]
 		}
 		kept = append(kept, t)
 	}
-	w.Tabs = kept
+	w.Tabs = append(kept, rescued...)
 
 	roots := make([]string, 0, len(w.openRoots))
 	for _, r := range w.openRoots {
@@ -449,6 +579,14 @@ func (w *Workspace) isOpen(root string) bool {
 // second copy of a project that was already there, with its own tabs and its
 // own idea of the layout to save.
 func (w *Workspace) openRootFor(root string) (string, bool) {
+	// Almost every caller already holds the spelling the project was opened
+	// with, and this runs once per pane on every redraw, so the exact match is
+	// tried before cleaning and folding both paths.
+	for _, r := range w.openRoots {
+		if r == root {
+			return r, true
+		}
+	}
 	for _, r := range w.openRoots {
 		if sameDir(r, root) {
 			return r, true
@@ -457,10 +595,28 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 	return "", false
 }
 
-// focusFirstTabOf moves focus to a tab belonging to root, unless the focused
-// tab already does.
+// focusFirstTabOf moves focus to a tab of root, unless the focused tab already
+// belongs to it.
+//
+// Which tab depends on whether the project has been visited before. Landing on
+// the first tab every time is fine for a project of two and no help at all for
+// one of ten: switching to another project to look something up and coming
+// back would put you somewhere other than where you were working, with the
+// tab you had open still to find.
 func (w *Workspace) focusFirstTabOf(root string) {
-	if t := w.CurrentTab(); t != nil && t.Root == root {
+	if t := w.CurrentTab(); t != nil {
+		if t.Root == root {
+			return
+		}
+		// The project being left is noted on the way out, which is the only
+		// moment it is known which tab it is being left on.
+		if w.lastTab == nil {
+			w.lastTab = map[string]string{}
+		}
+		w.lastTab[t.Root] = t.ID
+	}
+	if t := w.Tab(w.lastTab[root]); t != nil && t.Root == root {
+		w.activeTab = t.ID
 		return
 	}
 	w.activeTab = ""
@@ -562,6 +718,38 @@ func summarisePrompt(prompt string) string {
 		}
 	}
 	return strings.TrimSpace(string(r[:cut])) + "…"
+}
+
+// tabHolding builds a tab in project root holding a single pane, named the way
+// a pane pulled out into a tab of its own is named.
+func (w *Workspace) tabHolding(paneID, root string) *Tab {
+	p := w.Pane(paneID)
+	if p == nil {
+		return nil
+	}
+	title, auto := paneTabTitle(p)
+	return &Tab{
+		ID:        uuid.NewString(),
+		Root:      root,
+		Title:     title,
+		Tree:      layout.NewLeaf(paneID),
+		Focus:     paneID,
+		AutoTitle: auto,
+	}
+}
+
+// paneTabTitle names a tab that exists to hold one pane.
+//
+// A tab named after its directory tells the user nothing once several are
+// open, and a pane ends up alone in a tab precisely when several are. What the
+// agent was spawned to do names it far better; failing that, leave the tab
+// open to being named by the next thing it is asked, exactly as a tab created
+// from scratch would be.
+func paneTabTitle(p *Pane) (title string, auto bool) {
+	if title = summarisePrompt(p.Task); title != "" {
+		return title, false
+	}
+	return p.Name, p.Kind == session.KindClaude
 }
 
 // Pane returns the pane with the given id.
@@ -702,6 +890,13 @@ func (w *Workspace) RootOf(paneID string) string { return w.rootOf(paneID) }
 // pane restored from a layout written before panes recorded their own.
 func (w *Workspace) rootOf(paneID string) string {
 	if p := w.Pane(paneID); p != nil && p.Root != "" {
+		// Under the spelling the project is open with. A pane restored from a
+		// layout carries the spelling that was saved, and everything that
+		// groups tabs and panes by project — which tabs are shown, which tabs
+		// belong to what — compares those strings directly.
+		if open, ok := w.openRootFor(p.Root); ok {
+			return open
+		}
 		return p.Root
 	}
 	if t := w.tabOf(paneID); t != nil {
@@ -747,6 +942,22 @@ func (w *Workspace) newPane(kind session.Kind, cwd, name, root string) *Pane {
 	return p
 }
 
+// spawnCommand is the command an agent is told to run to start a helper.
+//
+// It is `perch` when that is on PATH, which is how an installed copy is
+// reached. It is this binary's own path when it is not: a build that has not
+// been installed still serves panes that can spawn, and an agent told to run a
+// command that is not there has no way of finding that out but to try it.
+func spawnCommand(selfExe string) string {
+	if _, err := exec.LookPath("perch"); err == nil {
+		return "perch"
+	}
+	if selfExe == "" {
+		return "perch"
+	}
+	return selfExe
+}
+
 // branchOf reports the branch checked out in dir, or "" when dir is not a
 // repository or git is unavailable.
 func branchOf(dir string) string {
@@ -757,8 +968,14 @@ func branchOf(dir string) string {
 }
 
 // NewTab appends a tab to the active project and focuses it.
+//
+// The tab belongs to the active project, since that is the tab bar it is drawn
+// on, but the pane belongs to whichever open project its directory is in — the
+// same rule a split follows. Opening a checkout that is itself open as a
+// project, which is how a worktree usually reaches a new tab, otherwise gave an
+// agent working in one project every reason to think it was in another.
 func (w *Workspace) NewTab(kind session.Kind, cwd, title string) *Tab {
-	p := w.newPane(kind, cwd, "", w.activeRoot)
+	p := w.newPane(kind, cwd, "", "")
 	// A tab with no title of its own is named after the directory for now, and
 	// renames itself when the agent is first asked something.
 	autoTitle := title == "" && kind == session.KindClaude
@@ -934,15 +1151,8 @@ func (w *Workspace) ClosePane() {
 		w.CloseTab(t.ID)
 		return
 	}
-	// Choose the pane to focus next before mutating the tree. Neighbour lookup
-	// is geometric, so the tree needs its rectangles first.
-	computeTab(t)
-	next := ""
-	for _, dir := range []layout.Direction{layout.Right, layout.Left, layout.Down, layout.Up} {
-		if next = t.Tree.Neighbor(id, dir); next != "" {
-			break
-		}
-	}
+	// Choose the pane to focus next before mutating the tree.
+	next := paneBesideTheGap(t, id)
 
 	t.Tree.Remove(id)
 	w.destroyPane(id)
@@ -1034,45 +1244,21 @@ func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 // ---------------------------------------------------------------- broadcast
 
 // ToggleBroadcast turns broadcast mode on or off.
+//
+// With no selection of the user's own, broadcast means every Claude pane in
+// the tab in front of you. That default is not written down as a set of panes:
+// it is answered from whichever tab is on screen at the time, so switching
+// tabs with broadcast still on broadcasts to the tab you are now looking at
+// rather than to the one you switched it on in — where it would have gone to
+// panes that are not on screen, which looks exactly like broadcast having
+// stopped working.
 func (w *Workspace) ToggleBroadcast() {
 	w.Broadcast = !w.Broadcast
-	if !w.Broadcast {
-		// A set nobody picked describes the tab it was built from and nothing
-		// else. Keeping it would leave the next tab broadcasting to panes that
-		// are not in it, which looks like broadcast doing nothing at all.
-		if w.broadcastAuto {
-			w.mu.Lock()
-			clear(w.BroadcastSet)
-			w.broadcastAuto = false
-			w.mu.Unlock()
-		}
-		return
-	}
-	t := w.CurrentTab()
-	if t == nil {
-		return
-	}
-	// Which panes would be selected is decided before taking the lock: pane
-	// lookups take the same one.
-	var claude []string
-	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
-			claude = append(claude, id)
-		}
-	}
-	// The set is read and written under the lock everywhere else — a closing
-	// pane removes itself from it — so this must hold it too.
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.BroadcastSet) > 0 {
-		return
-	}
-	// With no explicit selection, broadcasting to every Claude pane in the tab
-	// is the useful default.
-	for _, id := range claude {
-		w.BroadcastSet[id] = true
-	}
-	w.broadcastAuto = len(claude) > 0
+	// Turning it off drops the default; a selection the user made by hand is
+	// theirs and stays.
+	w.broadcastAuto = w.Broadcast && len(w.BroadcastSet) == 0
 }
 
 // ToggleBroadcastMember adds or removes the focused pane from the broadcast set.
@@ -1081,8 +1267,19 @@ func (w *Workspace) ToggleBroadcastMember() {
 	if t == nil {
 		return
 	}
+	// Changing the default turns it into a selection, and the selection starts
+	// as what the default covered: removing one pane from it has to leave the
+	// others in. Membership is worked out before the lock, since the pane
+	// lookups take the same one.
+	var adopt []string
+	if w.broadcastAuto {
+		adopt = w.autoBroadcastMembers(t)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	for _, id := range adopt {
+		w.BroadcastSet[id] = true
+	}
 	if w.BroadcastSet[t.Focus] {
 		delete(w.BroadcastSet, t.Focus)
 	} else {
@@ -1093,8 +1290,27 @@ func (w *Workspace) ToggleBroadcastMember() {
 	w.broadcastAuto = false
 }
 
+// autoBroadcastMembers lists the panes the default set covers in a tab.
+func (w *Workspace) autoBroadcastMembers(t *Tab) []string {
+	var out []string
+	for _, id := range t.Tree.Panes() {
+		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // InBroadcast reports whether a pane receives broadcast input.
 func (w *Workspace) InBroadcast(id string) bool {
+	if w.broadcastAuto {
+		t := w.CurrentTab()
+		if t == nil || t.Tree.Find(id) == nil {
+			return false
+		}
+		p := w.Pane(id)
+		return p != nil && p.Kind == session.KindClaude
+	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.BroadcastSet[id]

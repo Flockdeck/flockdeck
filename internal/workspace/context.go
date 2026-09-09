@@ -10,6 +10,18 @@ import (
 	"github.com/jmwri/perch/internal/session"
 )
 
+// siblingTaskLimit and ownTaskLimit bound how much of a task is written out.
+//
+// What another agent is doing is orientation, and a line of it is enough. What
+// this agent was asked is not: after a compaction this is the only copy of it
+// left, and 160 characters of a longer instruction is worse than none, since
+// what survives reads like the whole of it. The cap that remains is there to
+// keep a pasted wall of text from crowding out the rest of the context.
+const (
+	siblingTaskLimit = 160
+	ownTaskLimit     = 1200
+)
+
 // maxSiblings bounds how many other agents are named in a pane's context. A
 // long list stops being orientation and starts being noise, and it is stale
 // the moment it is read anyway.
@@ -47,9 +59,16 @@ type PaneContext struct {
 	ProjectName string
 	Cwd         string
 	Branch      string
-	// Worktree reports that the pane works in a checkout of its own rather
-	// than in the project root, which is what fan-out gives each child.
+	// Worktree reports that the pane works in a checkout of its own — a
+	// directory outside the project altogether, which is what fan-out gives
+	// each child, since Perch puts a worktree beside the repository it came
+	// from rather than inside it.
 	Worktree bool
+	// Subdirectory reports a working directory below the project root: the
+	// same checkout, a directory or two down. It is not a worktree, and an
+	// agent told that it is one is told to keep out of the rest of its own
+	// repository.
+	Subdirectory bool
 
 	// Task is the opening prompt the pane was spawned with, when it was
 	// started by a fan-out or by another agent rather than by hand. Which of
@@ -64,8 +83,11 @@ type PaneContext struct {
 
 	OtherProjects []string
 
-	// CanSpawn reports whether `perch spawn` will work from this pane.
+	// CanSpawn reports whether spawning helpers will work from this pane.
 	CanSpawn bool
+	// SpawnCommand is how Perch itself is run from inside the pane: the name
+	// on PATH where there is one, and the binary's own path where there is not.
+	SpawnCommand string
 }
 
 // PaneContext describes the situation a pane is running in. It reports false
@@ -81,26 +103,26 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	}
 
 	c := PaneContext{
-		PaneID:   p.ID,
-		PaneName: p.Name,
-		Shell:    p.Kind == session.KindShell,
-		Cwd:      p.Cwd,
-		Branch:   p.Branch,
-		Task:     p.Task,
-		CanSpawn: w.hookSrv != nil,
+		PaneID:       p.ID,
+		PaneName:     p.Name,
+		Shell:        p.Kind == session.KindShell,
+		Cwd:          p.Cwd,
+		Branch:       p.Branch,
+		Task:         p.Task,
+		CanSpawn:     w.hookSrv != nil,
+		SpawnCommand: w.spawnCmd,
 	}
 
-	// The tab the pane lives in also identifies its project: a fan-out child
-	// in a worktree works well outside its project root.
 	own := w.tabOf(paneID)
 	if own != nil {
 		c.Tab = own.Title
 		c.TabPanes = len(own.Tree.Panes())
-		c.ProjectRoot = own.Root
 	}
-	if c.ProjectRoot == "" {
-		c.ProjectRoot = w.activeRoot
-	}
+	// The pane's own project, not the project of the tab it is drawn on. A tab
+	// can show agents from more than one project, and a borrowed pane told it
+	// belongs to the tab's project is told the wrong root — which it would then
+	// read as a worktree of a project it has nothing to do with.
+	c.ProjectRoot = w.rootOf(paneID)
 	// Projects are named the way the switcher names them, so an agent and the
 	// user looking at it call the same thing by the same word — and so two
 	// checkouts of one repository are not both simply "the project".
@@ -112,23 +134,36 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			break
 		}
 	}
-	c.Worktree = c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot)
+	if c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot) {
+		c.Subdirectory = underDir(c.Cwd, c.ProjectRoot)
+		c.Worktree = !c.Subdirectory
+	}
 
-	// Panes sharing the tab come first. They are the ones the agent is most
-	// likely to collide with — a split tab usually means one checkout — and
-	// the list is cut short in a busy project, so they must not be the ones
-	// that get dropped.
-	var sameTab, elsewhere []Sibling
+	// The list is cut short in a busy project, so what it keeps matters more
+	// than the order it keeps it in. An agent working in the reader's own
+	// checkout comes first however far away it is drawn: it is the one fact
+	// here that changes what the reader should do, and losing it to the cap
+	// tells an agent it has its files to itself when it has not. Panes sharing
+	// the tab come next, being the ones the user is watching side by side.
+	var ownCheckoutSameTab, ownCheckout, sameTab, elsewhere []Sibling
 	for _, t := range w.Tabs {
-		if t.Root != c.ProjectRoot {
-			continue
-		}
 		for _, id := range t.Tree.Panes() {
 			if id == paneID {
 				continue
 			}
 			sib := w.Pane(id)
 			if sib == nil {
+				continue
+			}
+			// Membership follows the pane rather than the tab, for the same
+			// reason the reader's own project does: an agent borrowed by
+			// another project's tab is still working in this one, and one
+			// borrowed from elsewhere is not.
+			sibRoot := sib.Root
+			if sibRoot == "" {
+				sibRoot = t.Root
+			}
+			if !sameDir(sibRoot, c.ProjectRoot) {
 				continue
 			}
 			st, _ := sib.Status()
@@ -145,14 +180,21 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				Task:         sib.Task,
 				SameCheckout: sameDir(sib.Cwd, c.Cwd),
 			}
-			if own != nil && t.ID == own.ID {
+			switch onOwnTab := own != nil && t.ID == own.ID; {
+			case s.SameCheckout && onOwnTab:
+				ownCheckoutSameTab = append(ownCheckoutSameTab, s)
+			case s.SameCheckout:
+				ownCheckout = append(ownCheckout, s)
+			case onOwnTab:
 				sameTab = append(sameTab, s)
-				continue
+			default:
+				elsewhere = append(elsewhere, s)
 			}
-			elsewhere = append(elsewhere, s)
 		}
 	}
-	c.Siblings = append(sameTab, elsewhere...)
+	for _, group := range [][]Sibling{ownCheckoutSameTab, ownCheckout, sameTab, elsewhere} {
+		c.Siblings = append(c.Siblings, group...)
+	}
 	if len(c.Siblings) > maxSiblings {
 		c.SiblingsOmitted = len(c.Siblings) - maxSiblings
 		c.Siblings = c.Siblings[:maxSiblings]
@@ -237,11 +279,15 @@ func (c PaneContext) Render() string {
 		fmt.Fprintf(&b, "- This is a separate git worktree, not the project root (`%s`). "+
 			"Work here; do not edit files under another checkout.\n", c.ProjectRoot)
 	}
+	if c.Subdirectory {
+		fmt.Fprintf(&b, "- The project root is `%s`; you are working in a directory "+
+			"below it, in the same checkout.\n", c.ProjectRoot)
+	}
 	if c.TabPanes > 1 {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
 	}
 	if c.Task != "" {
-		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task))
+		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task, ownTaskLimit))
 	}
 	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
 		"restored, so what you say here outlives the window.\n")
@@ -268,13 +314,20 @@ func (c PaneContext) Render() string {
 	}
 
 	if c.CanSpawn && !c.Shell {
+		// The examples name the command that will actually run here. A copy
+		// that has not been installed is not on PATH, and an agent given
+		// `perch spawn` in that case is given something that cannot work.
+		perch := shellWord(c.SpawnCommand)
+		if perch == "" {
+			perch = "perch"
+		}
 		b.WriteString("\n## Starting agents of your own\n\n" +
 			"You can hand work to further agents, which appear as panes of their own:\n\n" +
 			"```sh\n" +
-			"perch spawn \"add tests for the parser\"\n" +
-			"perch spawn --worktree fix-auth \"repair the token refresh\"\n" +
-			"perch spawn --split \"watch the build\"\n" +
-			"perch spawn --split --shell \"tail the build log\"\n" +
+			perch + " spawn \"add tests for the parser\"\n" +
+			perch + " spawn --worktree fix-auth \"repair the token refresh\"\n" +
+			perch + " spawn --split \"watch the build\"\n" +
+			perch + " spawn --split --shell \"tail the build log\"\n" +
 			"```\n\n" +
 			"What the flags do — the placement ones matter, because a pane put somewhere " +
 			"the user did not expect is one they have to go looking for:\n\n" +
@@ -331,16 +384,39 @@ func (s Sibling) describe() string {
 		fmt.Fprintf(&b, " — %s", s.Status)
 	}
 	if s.Task != "" {
-		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task))
+		fmt.Fprintf(&b, "; working on: %s", oneLine(s.Task, siblingTaskLimit))
 	}
 	return b.String()
 }
 
-// oneLine flattens a prompt onto a single line and shortens it, so a pasted
-// wall of text does not become the bulk of the context.
-func oneLine(s string) string {
+// shellWord quotes a command for the shell the examples are written for.
+//
+// The path to a build that has not been installed is full of characters a
+// shell reads as syntax rather than as part of a name: the space in "Program
+// Files", the brackets after it. Anything but what a bare path is made of is
+// quoted, rather than the space alone.
+func shellWord(s string) string {
+	if s == "" || !strings.ContainsFunc(s, needsQuoting) {
+		return s
+	}
+	return `"` + s + `"`
+}
+
+// needsQuoting reports a character a shell would not read as part of a path.
+func needsQuoting(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	case r == '.', r == '_', r == '-', r == ':', r == '/', r == '\\':
+		return false
+	}
+	return true
+}
+
+// oneLine flattens a prompt onto a single line and shortens it to max runes,
+// so a pasted wall of text does not become the bulk of the context.
+func oneLine(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
-	const max = 160
 	// Counted in runes, not bytes: cutting a task written in any non-ASCII
 	// script mid-rune would put a replacement character into the context.
 	if r := []rune(s); len(r) > max {

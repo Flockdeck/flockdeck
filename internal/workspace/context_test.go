@@ -177,7 +177,7 @@ func TestPaneContextUnknownPane(t *testing.T) {
 // TestOneLineShortensAPastedWall keeps a long opening prompt from becoming the
 // bulk of what an agent is told.
 func TestOneLineShortensAPastedWall(t *testing.T) {
-	got := oneLine("first line\n\n   second   line\t" + strings.Repeat("x", 400))
+	got := oneLine("first line\n\n   second   line\t"+strings.Repeat("x", 400), siblingTaskLimit)
 	if strings.ContainsAny(got, "\n\t") {
 		t.Errorf("oneLine left whitespace in %q", got)
 	}
@@ -189,7 +189,7 @@ func TestOneLineShortensAPastedWall(t *testing.T) {
 // TestOneLineKeepsRunesWhole covers a task written in a non-ASCII script: the
 // cut has to fall between runes, or the context ends in a mangled character.
 func TestOneLineKeepsRunesWhole(t *testing.T) {
-	got := oneLine(strings.Repeat("こんにちは", 80))
+	got := oneLine(strings.Repeat("こんにちは", 80), siblingTaskLimit)
 	if !utf8.ValidString(got) {
 		t.Errorf("oneLine produced invalid UTF-8: %q", got)
 	}
@@ -546,5 +546,248 @@ func TestOtherProjectsAreNamedApart(t *testing.T) {
 	}
 	if text := c.Render(); !strings.Contains(text, c.ProjectName) {
 		t.Errorf("the rendered context does not name the project:\n%s", text)
+	}
+}
+
+// TestPaneContextFollowsThePanesOwnProject covers an agent borrowed by another
+// project's tab: it works in the project it was started in, and the context has
+// to say so. Reading the project off the tab told it that it was working in a
+// project it has never touched, that its own checkout was a worktree of that
+// project, and that its real project was somebody else's.
+func TestPaneContextFollowsThePanesOwnProject(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+
+	// A tab of the first project showing an agent of the second, which is what
+	// working on two projects at once looks like.
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+	tab := ws.CurrentTab()
+	if tab.Root != first {
+		t.Fatalf("tab root = %q, want the first project %q", tab.Root, first)
+	}
+	borrowed := borrowedPane(t, ws, tab)
+	if borrowed == nil {
+		t.Fatal("no pane of the second project on the first project's tab")
+	}
+
+	c, ok := ws.PaneContext(borrowed.ID)
+	if !ok {
+		t.Fatal("no context for the borrowed pane")
+	}
+	if c.ProjectRoot != second {
+		t.Errorf("project root = %q, want the pane's own project %q", c.ProjectRoot, second)
+	}
+	if c.Worktree {
+		t.Error("a pane sitting in its own project root is not in a worktree")
+	}
+	// The other agent of its own project — sitting on that project's own tab —
+	// is a sibling; the pane it shares a tab with belongs to the first project
+	// and is not.
+	if len(c.Siblings) != 1 {
+		t.Fatalf("siblings = %#v, want only the second project's own pane", c.Siblings)
+	}
+	if !sameDir(c.Siblings[0].Cwd, second) {
+		t.Errorf("sibling works in %q, want the second project %q", c.Siblings[0].Cwd, second)
+	}
+	if len(c.OtherProjects) != 1 {
+		t.Errorf("other projects = %v, want just the first project", c.OtherProjects)
+	}
+
+	// And the pane that lent the tab still sees its own project, with the
+	// borrowed agent left out of its siblings.
+	host := ""
+	for _, id := range tab.Tree.Panes() {
+		if id != borrowed.ID {
+			host = id
+		}
+	}
+	hc, ok := ws.PaneContext(host)
+	if !ok {
+		t.Fatal("no context for the host pane")
+	}
+	if hc.ProjectRoot != first {
+		t.Errorf("host project root = %q, want %q", hc.ProjectRoot, first)
+	}
+	for _, s := range hc.Siblings {
+		if s.Cwd == borrowed.Cwd {
+			t.Errorf("the borrowed pane is listed as a sibling of the project it is only shown in")
+		}
+	}
+}
+
+// TestTheSharedCheckoutSurvivesTheSiblingCap covers a busy project, which is
+// where the list an agent is given stops being complete. What has to survive
+// being cut is the agent editing the reader's own files: dropping it says
+// nobody else is in this checkout, which is worse than saying nothing.
+func TestTheSharedCheckoutSurvivesTheSiblingCap(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("make worktree dir: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	reader := ws.CurrentTab().Focus
+
+	// Enough panes on the reader's own tab to fill the list on their own, none
+	// of them in its checkout.
+	for i := 0; i <= maxSiblings; i++ {
+		ws.SplitPaneIn(layout.Vertical, session.KindShell, worktree)
+	}
+	// And one agent in the reader's checkout, on a tab of its own.
+	ws.NewTab(session.KindShell, root, "next door")
+	ws.SelectTab(ws.VisibleTabs()[0].ID)
+
+	c, ok := ws.PaneContext(reader)
+	if !ok {
+		t.Fatal("no context for the reader")
+	}
+	if c.SiblingsOmitted == 0 {
+		t.Fatalf("siblings = %d with none omitted; the test needs a list long enough to be cut",
+			len(c.Siblings))
+	}
+	shared := 0
+	for _, s := range c.Siblings {
+		if s.SameCheckout {
+			shared++
+		}
+	}
+	if shared != 1 {
+		t.Errorf("%d of the listed siblings share the reader's checkout, want the one that does", shared)
+	}
+	if len(c.Siblings) > 0 && !c.Siblings[0].SameCheckout {
+		t.Errorf("first sibling is %q in %q, want the one sharing the checkout",
+			c.Siblings[0].Name, c.Siblings[0].Cwd)
+	}
+}
+
+// TestSpawnExamplesNameACommandThatExists covers a build that has not been
+// installed. `perch` is only on PATH once it has been, and an agent handed
+// `perch spawn` on a machine without it is handed a command that cannot run,
+// with nothing but the failure to say why.
+func TestSpawnExamplesNameACommandThatExists(t *testing.T) {
+	exe := filepath.Join("C:", "Program Files", "perch", "perch.exe")
+	text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}.Render()
+	quoted := `"` + exe + `" spawn "add tests for the parser"`
+	if !strings.Contains(text, quoted) {
+		t.Errorf("the examples do not run %s, quoted for a path with a space:\n%s", exe, text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "perch spawn") {
+			t.Errorf("an example still runs a bare perch: %q", line)
+		}
+	}
+
+	// A name that needs no quoting is left as it is, and a context built
+	// without one still documents something.
+	plain := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: "perch"}.Render()
+	if !strings.Contains(plain, `perch spawn "add tests for the parser"`) {
+		t.Errorf("an installed copy should be run by name:\n%s", plain)
+	}
+	if bare := (PaneContext{PaneName: "one", CanSpawn: true}).Render(); !strings.Contains(bare, "perch spawn") {
+		t.Errorf("a context with no command recorded should still name one:\n%s", bare)
+	}
+}
+
+// TestTheSpawnCommandIsResolvedOnce checks the workspace hands the context a
+// command at all, since the text is only as good as what reaches it.
+func TestTheSpawnCommandIsResolvedOnce(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+
+	c, ok := ws.PaneContext(ws.CurrentTab().Focus)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if c.SpawnCommand == "" {
+		t.Error("the context carries no way of running perch")
+	}
+}
+
+// TestTheOwnTaskIsKeptWholeWhereASiblingsIsSummarised covers what an agent is told it was
+// asked, which after a compaction is the only copy of it left. A long
+// instruction cut at the length used for other agents' one-line summaries
+// reads as though it were the whole of it.
+func TestTheOwnTaskIsKeptWholeWhereASiblingsIsSummarised(t *testing.T) {
+	task := "rewrite the importer: " + strings.Repeat("keep every clause of this; ", 12) + "and stop at the marker"
+	own := PaneContext{PaneName: "one", Task: task}.Render()
+	tail := "and stop at the marker"
+	if !strings.Contains(own, tail) {
+		t.Errorf("the end of the pane's own task is missing from its context:\n%s", own)
+	}
+
+	// The same task belonging to somebody else is still a summary.
+	sib := PaneContext{PaneName: "one", Siblings: []Sibling{{Name: "two", Cwd: "/repo", Status: "working", Task: task}}}.Render()
+	if strings.Contains(sib, tail) {
+		t.Error("a sibling's task is written out in full; it should be cut to a line")
+	}
+	if !strings.Contains(sib, "rewrite the importer") {
+		t.Errorf("a sibling's task is missing entirely:\n%s", sib)
+	}
+}
+
+// TestAPaneBelowTheProjectRootIsNotAWorktree covers a project opened above the
+// checkout an agent works in — a directory of repositories opened as one
+// project, or a tab opened on a subdirectory. The agent shares the project's
+// checkout; being told it has a worktree of its own tells it to keep out of
+// the rest of its own repository.
+func TestAPaneBelowTheProjectRootIsNotAWorktree(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	below := filepath.Join(root, "services", "api")
+	if err := os.MkdirAll(below, 0o755); err != nil {
+		t.Fatalf("make subdirectory: %v", err)
+	}
+
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, below, "api")
+
+	c, ok := ws.PaneContext(ws.CurrentTab().Focus)
+	if !ok {
+		t.Fatal("no context for the focused pane")
+	}
+	if c.ProjectRoot != root {
+		t.Fatalf("project root = %q, want %q", c.ProjectRoot, root)
+	}
+	if c.Worktree {
+		t.Error("a directory inside the project is not a checkout of its own")
+	}
+	if !c.Subdirectory {
+		t.Error("the context does not record that the pane works below the project root")
+	}
+
+	text := c.Render()
+	if strings.Contains(text, "separate git worktree") {
+		t.Errorf("the agent is told it has a worktree it does not have:\n%s", text)
+	}
+	if !strings.Contains(text, "in the same checkout") {
+		t.Errorf("the agent is not told where the project root is:\n%s", text)
+	}
+}
+
+// TestTheSpawnCommandIsQuotedWhenItHasToBe covers the paths an uninstalled
+// build actually sits at. Quoting on a space alone leaves the brackets in
+// "Program Files (x86)" for the shell to read as syntax, and an agent copying
+// the example gets a parse error rather than a helper.
+func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
+	cases := map[string]string{
+		"perch":                            "perch",
+		`C:\Program Files (x86)\perch.exe`: `"C:\Program Files (x86)\perch.exe"`,
+		`C:\tools\perch-2.1.exe`:           `C:\tools\perch-2.1.exe`,
+		`/usr/local/bin/perch`:             `/usr/local/bin/perch`,
+		`C:\build\perch(1).exe`:            `"C:\build\perch(1).exe"`,
+	}
+	for in, want := range cases {
+		if got := shellWord(in); got != want {
+			t.Errorf("shellWord(%q) = %q, want %q", in, got, want)
+		}
+		text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: in}.Render()
+		if !strings.Contains(text, want+" spawn ") {
+			t.Errorf("the examples do not run %s:\n%s", want, text)
+		}
 	}
 }
