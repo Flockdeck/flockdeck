@@ -109,15 +109,17 @@ func TestNameBranchesAreDistinct(t *testing.T) {
 	// repo "" skips the git lookup, leaving the within-fan-out check.
 	nameBranches(jobs, "")
 
-	seen := map[string]bool{}
-	for _, j := range jobs {
-		if j.branch == "" {
-			t.Fatalf("%q got no branch", j.task)
+	base := workspace.BranchNameFor(jobs[0].task)
+	if workspace.BranchNameFor(jobs[1].task) != base {
+		t.Fatal("the tasks no longer derive the same name; the test needs them to collide")
+	}
+	// The first sibling keeps the plain name and the rest are numbered, so the
+	// branches read as a set rather than as three unrelated ones.
+	want := []string{base, base + "-2", base + "-3"}
+	for i, j := range jobs {
+		if j.branch != want[i] {
+			t.Errorf("%q got branch %q, want %q", j.task, j.branch, want[i])
 		}
-		if seen[j.branch] {
-			t.Errorf("%q reuses the branch %s", j.task, j.branch)
-		}
-		seen[j.branch] = true
 	}
 }
 

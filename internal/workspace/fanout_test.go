@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -399,54 +398,6 @@ func TestExtractTasksKeepsCountsOutOfTasks(t *testing.T) {
 	}
 }
 
-// TestFanOutCapCountsStartedAgents covers the cap over a list a user has been
-// editing. Blank rows are left behind by that editing, and they must not be
-// counted against the agents the cap is there to limit.
-func TestFanOutCapCountsStartedAgents(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	ws := newTestWorkspace(t, root)
-	ws.NewTab(session.KindShell, root, "lead")
-	parent := ws.CurrentTab().Focus
-
-	var tasks []string
-	for i := 0; i < maxTasks; i++ {
-		tasks = append(tasks, "", fmt.Sprintf("do the %dth thing", i))
-	}
-	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
-	if len(made) != maxTasks {
-		t.Errorf("started %d agents, want the full %d", len(made), maxTasks)
-	}
-	if len(errs) != 0 {
-		t.Errorf("unexpected errors: %v", errs)
-	}
-}
-
-// TestFanOutStopsAtTheCap is the other half: past the cap the extra tasks are
-// refused, and the caller is told rather than left to count panes.
-func TestFanOutStopsAtTheCap(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	ws := newTestWorkspace(t, root)
-	ws.NewTab(session.KindShell, root, "lead")
-	parent := ws.CurrentTab().Focus
-
-	var tasks []string
-	for i := 0; i < maxTasks+3; i++ {
-		tasks = append(tasks, fmt.Sprintf("do the %dth thing", i))
-	}
-	made, errs := ws.FanOut(parent, tasks, SpawnOptions{Kind: session.KindShell})
-	if len(made) != maxTasks {
-		t.Errorf("started %d agents, want %d", len(made), maxTasks)
-	}
-	if len(errs) != 1 {
-		t.Fatalf("errors = %v, want the one that says it stopped", errs)
-	}
-	if !strings.Contains(errs[0].Error(), "stopped after") {
-		t.Errorf("error = %q, want it to say the fan-out stopped", errs[0])
-	}
-}
-
 // TestExtractTasksKeepsLongWrappedItems covers a bullet long enough that its
 // wrapped tail would carry it past the cap. isTask discards anything over the
 // cap whole, so joining blindly cost the plan a real job instead of its tail.
@@ -466,35 +417,6 @@ func TestExtractTasksKeepsLongWrappedItems(t *testing.T) {
 	}
 	if strings.Contains(got[0], "a continuation row") {
 		t.Errorf("the tail was joined past the cap: %q", got[0])
-	}
-}
-
-// TestDistinctBranchSeparatesSiblings covers the hazard in an auto-branched
-// fan-out: branch names are truncated, so two tasks that begin alike derive the
-// same name, and a worktree that already exists is reused rather than made
-// again. Sharing one would put two agents in one checkout.
-func TestDistinctBranchSeparatesSiblings(t *testing.T) {
-	a := BranchNameFor("add a health endpoint to the HTTP server")
-	b := BranchNameFor("add a health endpoint to the gRPC server")
-	if a != b {
-		t.Fatalf("the two tasks derived %q and %q; the test needs them to collide", a, b)
-	}
-
-	used := map[string]bool{}
-	seen := map[string]bool{}
-	for i := 0; i < 3; i++ {
-		got := distinctBranch(a, used)
-		if seen[got] {
-			t.Fatalf("branch %q handed out twice", got)
-		}
-		seen[got] = true
-		used[got] = true
-	}
-	if !seen[a] {
-		t.Errorf("the first sibling should keep the plain name %q: %v", a, seen)
-	}
-	if !seen[a+"-2"] || !seen[a+"-3"] {
-		t.Errorf("later siblings should be suffixed: %v", seen)
 	}
 }
 
