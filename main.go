@@ -406,10 +406,27 @@ func run(opts options) error {
 
 	<-quit
 
-	if err := ws.SaveAll(); err != nil {
+	if err := shutdown(srv.Close, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "perch: could not save layout:", err)
 	}
 	return nil
+}
+
+// shutdown stops serving, and only then saves.
+//
+// The order is the whole of it. The workspace is not safe for concurrent use,
+// which is why the server funnels every read and write of it through a single
+// goroutine of its own — and that goroutine is still running commands from any
+// window that is still connected right up until the server is closed. Saving
+// first walks the tabs and the pane tree while that goroutine may be adding to
+// them, which is a race for the one piece of state the user would actually
+// notice losing.
+//
+// Closing first also loses nothing: what is being closed is the way in, and
+// everything it was serving is about to go.
+func shutdown(stopServing func() error, save func() error) error {
+	_ = stopServing()
+	return save()
 }
 
 // shutdownGrace bounds the orderly shutdown. It is generous: closing panes is

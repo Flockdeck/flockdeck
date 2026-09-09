@@ -261,3 +261,33 @@ func TestUsageNamesEveryFlag(t *testing.T) {
 		}
 	}
 }
+
+// Saving walks the tabs and the pane tree; the server's own goroutine is still
+// changing them while any window is connected. Stopping the server has to come
+// first, or the one piece of state the user would notice losing is read while
+// it is being written.
+func TestShutdownStopsServingBeforeSaving(t *testing.T) {
+	var order []string
+	err := shutdown(
+		func() error { order = append(order, "stop"); return nil },
+		func() error { order = append(order, "save"); return nil },
+	)
+	if err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	if strings.Join(order, ",") != "stop,save" {
+		t.Errorf("order = %v, want the server stopped before the save", order)
+	}
+}
+
+// The save is what the caller is told about: a window that will not close is
+// not worth a message, and a layout that was not written is.
+func TestShutdownReportsTheSave(t *testing.T) {
+	boom := errors.New("disk full")
+	if err := shutdown(func() error { return errors.New("still serving") }, func() error { return boom }); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want the save's error", err)
+	}
+	if err := shutdown(func() error { return errors.New("still serving") }, func() error { return nil }); err != nil {
+		t.Errorf("err = %v, want nil when the layout was saved", err)
+	}
+}
