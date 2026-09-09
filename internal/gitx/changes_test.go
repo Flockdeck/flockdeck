@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,38 @@ func write(t testing.TB, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestUntrackedCountsSurviveBeingReadAtOnce checks that a tree full of new
+// files still gets each count against the right name.
+func TestUntrackedCountsSurviveBeingReadAtOnce(t *testing.T) {
+	repo := newRepo(t)
+
+	// More files than there are readers, with a different length each, so a
+	// count landing on the wrong entry cannot go unnoticed.
+	const n = 60
+	for i := 1; i <= n; i++ {
+		write(t, repo, fmt.Sprintf("new-%03d.txt", i), strings.Repeat("x\n", i))
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	byPath := map[string]FileChange{}
+	for _, f := range files {
+		byPath[f.Path] = f
+	}
+	for i := 1; i <= n; i++ {
+		name := fmt.Sprintf("new-%03d.txt", i)
+		f, ok := byPath[name]
+		if !ok {
+			t.Fatalf("%s not reported", name)
+		}
+		if f.Added != i {
+			t.Errorf("%s added = %d, want %d", name, f.Added, i)
+		}
 	}
 }
 

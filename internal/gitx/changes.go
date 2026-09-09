@@ -77,12 +77,42 @@ func Changes(dir string) ([]FileChange, error) {
 			fc.Added += n.added
 			fc.Removed += n.removed
 		}
-		if fc.Untracked {
-			fc.Added = countLines(filepath.Join(dir, path))
-		}
 		files = append(files, fc)
 	}
+	countUntracked(dir, files)
 	return files, nil
+}
+
+// countUntracked fills in the line counts of the new files.
+//
+// git does not report those, so every untracked entry is a file to open and
+// read to the end. A checkout that has picked up a build directory or an
+// unignored node_modules has tens of thousands of them, and doing it one file
+// at a time took 27 seconds over 20,000 of them -- almost all of it waiting on
+// the disk with nothing else in flight, while the git call that found them
+// took 262ms. Reading several at once is what shortens that wait.
+func countUntracked(dir string, files []FileChange) {
+	const readers = 16
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < readers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Each worker writes to its own elements, which no one else reads
+			// until every one of them has finished.
+			for i := range jobs {
+				files[i].Added = countLines(filepath.Join(dir, files[i].Path))
+			}
+		}()
+	}
+	for i := range files {
+		if files[i].Untracked {
+			jobs <- i
+		}
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 type lineCount struct{ added, removed int }
