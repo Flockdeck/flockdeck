@@ -163,7 +163,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktrees can be created", filepath.Base(baseCwd)), true)
 				return
 			}
-			nameBranches(jobs, repo)
+			nameBranches(jobs, localBranches(repo))
 			makeWorktrees(jobs, func(branch string) (string, error) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
@@ -252,14 +252,43 @@ type fanoutJob struct {
 // Branch names are derived from the task text and then truncated, so two tasks
 // that begin alike would otherwise land on the same branch — and PrepareWorktree
 // reuses the worktree a branch already has, which would quietly put two agents
-// in one checkout. This asks git about each candidate, so it happens before the
-// parallel work rather than inside it.
-func nameBranches(jobs []*fanoutJob, repo string) {
+// in one checkout. taken is what the repository already has, from
+// localBranches.
+func nameBranches(jobs []*fanoutJob, taken map[string]bool) {
 	used := map[string]bool{}
 	for _, j := range jobs {
-		j.branch = uniqueBranch(repo, workspace.BranchNameFor(j.task), used)
+		j.branch = uniqueBranch(workspace.BranchNameFor(j.task), taken, used)
 		used[j.branch] = true
 	}
+}
+
+// localBranches is the set of branch names the repository already has, folded
+// to lower case.
+//
+// Read in one go rather than asked about a candidate at a time: on Windows a
+// git invocation is most of a tenth of a second of process start-up, so a
+// dozen tasks spent 1.2 seconds asking twelve questions that one command
+// answers in 0.35 — before the fan-out had created anything at all.
+//
+// The folding is not tidiness. git stores a loose ref as a file, so on Windows
+// and macOS "agent/Fix" and "agent/fix" are the same ref, and `git worktree
+// add -b` refuses the second with a lock error the user sees as a task that
+// would not start. Where the filesystem does tell them apart, the only cost of
+// treating them as one is a branch that gets a number on the end it did not
+// strictly need.
+func localBranches(repo string) map[string]bool {
+	if repo == "" {
+		return nil
+	}
+	branches, err := gitx.Branches(repo)
+	if err != nil {
+		return nil
+	}
+	taken := make(map[string]bool, len(branches))
+	for _, b := range branches {
+		taken[strings.ToLower(b.Name)] = true
+	}
+	return taken
 }
 
 // makeWorktrees creates every job's worktree, all at once.
@@ -488,15 +517,12 @@ func (s *Server) installSpawnHandler() {
 }
 
 // uniqueBranch returns base, or base-2, base-3 and so on, until it names a
-// branch that neither exists nor has already been handed out in this fan-out.
-func uniqueBranch(repo, base string, used map[string]bool) string {
+// branch that the repository does not have and this fan-out has not already
+// handed to a sibling.
+func uniqueBranch(base string, taken, used map[string]bool) string {
 	candidate := base
 	for i := 2; ; i++ {
-		free := !used[candidate]
-		if free && repo != "" && gitx.BranchExists(repo, candidate) {
-			free = false
-		}
-		if free {
+		if !used[candidate] && !taken[strings.ToLower(candidate)] {
 			return candidate
 		}
 		candidate = fmt.Sprintf("%s-%d", base, i)

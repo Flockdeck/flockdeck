@@ -106,8 +106,8 @@ func TestNameBranchesAreDistinct(t *testing.T) {
 		{task: "Add a health endpoint to the HTTP server and document it"},
 		{task: "Add a health endpoint to the HTTP server and test it"},
 	}
-	// repo "" skips the git lookup, leaving the within-fan-out check.
-	nameBranches(jobs, "")
+	// No branch in the repository is taken, leaving the within-fan-out check.
+	nameBranches(jobs, nil)
 
 	base := workspace.BranchNameFor(jobs[0].task)
 	if workspace.BranchNameFor(jobs[1].task) != base {
@@ -344,5 +344,52 @@ func TestPlanJobsOnAnEmptyList(t *testing.T) {
 	jobs, capped := planJobs([]string{"", "   ", ""}, "/repo")
 	if len(jobs) != 0 || capped {
 		t.Errorf("planJobs on blank rows = %d jobs, capped=%v; want none and not capped", len(jobs), capped)
+	}
+}
+
+// A branch the repository already has must not be handed to an agent: the
+// worktree for it would be reused rather than created, and two agents would
+// share one checkout without anything saying so.
+func TestNameBranchesStepAroundExistingOnes(t *testing.T) {
+	base := workspace.BranchNameFor("split the router into three files")
+	jobs := []*fanoutJob{{task: "split the router into three files"}}
+
+	nameBranches(jobs, map[string]bool{base: true})
+	if jobs[0].branch == base {
+		t.Errorf("branch = %q, which the repository already has", jobs[0].branch)
+	}
+	if jobs[0].branch != base+"-2" {
+		t.Errorf("branch = %q, want %q", jobs[0].branch, base+"-2")
+	}
+}
+
+// git keeps a loose ref as a file, so on Windows and macOS "agent/Fix" and
+// "agent/fix" are one ref — and `git worktree add -b` refuses the second with
+// a lock error, which reaches the user as a task that would not start. The
+// branch names a fan-out derives are always lower case, so the repository's
+// own are folded to match.
+func TestLocalBranchesFoldCase(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed")
+	}
+	repo := newTestRepo(t)
+	const task = "split the router into three files"
+	base := workspace.BranchNameFor(task)
+
+	cmd := exec.Command("git", "branch", strings.ToUpper(base))
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git branch failed (%v): %s", err, out)
+	}
+
+	taken := localBranches(repo)
+	if !taken[base] {
+		t.Fatalf("the repository has %s but localBranches reported %v", strings.ToUpper(base), taken)
+	}
+
+	jobs := []*fanoutJob{{task: task}}
+	nameBranches(jobs, taken)
+	if strings.EqualFold(jobs[0].branch, base) {
+		t.Errorf("branch = %q, which differs from an existing branch only by case", jobs[0].branch)
 	}
 }

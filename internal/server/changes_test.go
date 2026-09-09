@@ -221,11 +221,11 @@ func TestRevealPaneSwitchesProjectAndTab(t *testing.T) {
 func TestUniqueBranchAvoidsCollisions(t *testing.T) {
 	used := map[string]bool{}
 
-	first := uniqueBranch("", "agent/reply-with-the-single-word", used)
+	first := uniqueBranch("agent/reply-with-the-single-word", nil, used)
 	used[first] = true
-	second := uniqueBranch("", "agent/reply-with-the-single-word", used)
+	second := uniqueBranch("agent/reply-with-the-single-word", nil, used)
 	used[second] = true
-	third := uniqueBranch("", "agent/reply-with-the-single-word", used)
+	third := uniqueBranch("agent/reply-with-the-single-word", nil, used)
 
 	if first == second || second == third || first == third {
 		t.Fatalf("branches collided: %q %q %q", first, second, third)
