@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -36,8 +39,46 @@ func (s *Server) runLoop() {
 		case <-s.closed:
 			return
 		case fn := <-s.cmds:
-			fn()
+			s.guard("applying a change to the workspace", fn)
 		}
+	}
+}
+
+// guard runs fn and survives a panic in it.
+//
+// A panic in any goroutine ends the process, and ending this process kills
+// every agent running under it — work in progress in a dozen panes, thrown
+// away because one command from the window reached a pane or a tab that had
+// gone. The agents are the valuable thing here and they are not what failed,
+// so the panic is reported and the interface carries on. The stack goes to
+// the console, where a crash would have put it, and the window is told, since
+// the person watching is otherwise left with a click that did nothing.
+func (s *Server) guard(doing string, fn func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "perch: panic %s: %v\n%s\n", doing, r, debug.Stack())
+		s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
+	}()
+	fn()
+}
+
+// notifyAll sends a one-off message to every connected window.
+func (s *Server) notifyAll(text string, isErr bool) {
+	data, err := json.Marshal(noticeMsg{Type: "notice", Text: text, Error: isErr})
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	clients := make([]*controlClient, 0, len(s.clients))
+	for c := range s.clients {
+		clients = append(clients, c)
+	}
+	s.mu.Unlock()
+	for _, c := range clients {
+		c.send(data)
 	}
 }
 
@@ -448,7 +489,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
-		s.handleCommand(c, cmd)
+		s.guard("handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}
 }
 
@@ -716,6 +757,19 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.Wake()
 	})
+}
+
+// cmdName names a command for a message. The name arrives from the page, so it
+// is clamped rather than repeated back whole.
+func cmdName(cmd string) string {
+	if cmd == "" {
+		return "a command"
+	}
+	const limit = 24
+	if r := []rune(cmd); len(r) > limit {
+		cmd = string(r[:limit]) + "…"
+	}
+	return "the " + cmd + " command"
 }
 
 // paneGone is what a window is told when it acts on a pane that has since

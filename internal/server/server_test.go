@@ -723,3 +723,53 @@ func (s *Server) firstTabID(t *testing.T) string {
 		return ""
 	}
 }
+
+// TestAPanicDoesNotTakeTheAgentsDown covers the worst outcome a bad command
+// can have. Every window command is applied on one goroutine, and a panic in
+// any goroutine ends the process — which here means killing every agent
+// running under it. The interface has to survive it and say so.
+func TestAPanicDoesNotTakeTheAgentsDown(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	srv.do(func() { panic("a command reached something that had gone") })
+
+	// The workspace goroutine must still be there to serve what follows.
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "still here"})
+	if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == "still here"
+	}); !ok {
+		t.Fatal("the workspace stopped answering after a panic")
+	}
+
+	// And a panic while handling a command is contained the same way.
+	srv.guard("in a test", func() { panic("and again") })
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "and still here"})
+	if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == "and still here"
+	}); !ok {
+		t.Fatal("the workspace stopped answering after a second panic")
+	}
+}
+
+// TestAPanicTellsTheWindow covers the report: a click that quietly did nothing
+// is worse than one that says what went wrong.
+func TestAPanicTellsTheWindow(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	srv.do(func() { panic("the tab was not there") })
+
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error {
+		t.Errorf("notice = %+v, want it marked as an error", note)
+	}
+	if !strings.Contains(note.Text, "the tab was not there") {
+		t.Errorf("notice = %q, want it to carry what went wrong", note.Text)
+	}
+}
