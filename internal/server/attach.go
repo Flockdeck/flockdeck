@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -51,6 +53,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if !requireNotAPage(w, r) {
+		return
+	}
 	done := make(chan int, 1)
 	s.do(func() { done <- len(s.ws.Projects()) })
 
@@ -91,7 +96,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !requirePost(w, r) {
+	if !requirePost(w, r) || !requireNotAPage(w, r) {
 		return
 	}
 	path := r.URL.Query().Get("path")
@@ -125,6 +130,34 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// requireNotAPage rejects a request made by a page in a browser.
+//
+// These three endpoints are for another launch of the binary: they report on
+// the instance, hand it a project, or shut it down. The window's own page
+// never calls any of them, and it matters that nothing else can. The token
+// they are gated on is held in a cookie, cookies are scoped to a host and take
+// no notice of the port, and a different port is not a different site -- so a
+// page served from anything else on 127.0.0.1 or localhost has this
+// instance's token attached to a request it makes here, and SameSite does not
+// hold it back. A plain cross-origin POST needs no permission to be sent; that
+// its reply cannot be read is no comfort when the request itself stops every
+// agent the user has running.
+//
+// A browser announces itself by sending Origin. Nothing without one is a page,
+// and a page from this server's own address is allowed in case one ever has
+// reason to call these.
+func requireNotAPage(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	http.Error(w, "forbidden", http.StatusForbidden)
+	return false
+}
+
 // requirePost rejects anything but the POST the launching binary sends.
 //
 // Both endpoints below act rather than report: one opens a project, the other
@@ -147,7 +180,7 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !requirePost(w, r) {
+	if !requirePost(w, r) || !requireNotAPage(w, r) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

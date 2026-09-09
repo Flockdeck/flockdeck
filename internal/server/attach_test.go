@@ -246,3 +246,67 @@ func TestQuitAnswersBeforeItActs(t *testing.T) {
 		t.Fatal("quit was not acted on")
 	}
 }
+
+// TestActingEndpointsRefuseAPage covers the other way into these endpoints.
+// The token is a cookie; cookies are scoped to a host and ignore the port, and
+// a different port is the same site, so a page served from anything else on
+// 127.0.0.1 has this instance's token attached to a request it makes here.
+// Nothing else stands in the way of a plain cross-origin POST, and one of
+// these stops every agent the user has running.
+func TestActingEndpointsRefuseAPage(t *testing.T) {
+	srv, ws := newTestServer(t)
+	srv.OnQuit = func() { t.Error("a page was allowed to stop the application") }
+
+	before := len(ws.Projects())
+	posts := []string{
+		srv.BaseURL() + "/quit?t=" + srv.Token(),
+		srv.BaseURL() + "/open?t=" + srv.Token() + "&path=" + queryEscape(t.TempDir()),
+	}
+	for _, url := range posts {
+		resp := postFrom(t, url, "http://127.0.0.1:9999")
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("POST %s from another local page = %d, want 403", url, resp.StatusCode)
+		}
+	}
+	if n := len(ws.Projects()); n != before {
+		t.Errorf("projects = %d, want %d — a page opened one", n, before)
+	}
+
+	// Reporting on the instance is not for a page either: the reply names the
+	// process and what it has open.
+	resp := getFrom(t, srv.BaseURL()+"/health?t="+srv.Token(), "http://127.0.0.1:9999")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("GET /health from another local page = %d, want 403", resp.StatusCode)
+	}
+
+	// The launching binary sends no Origin at all, and must still work.
+	if _, err := Probe(srv.BaseURL(), srv.Token()); err != nil {
+		t.Errorf("the launching binary was refused: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+}
+
+func postFrom(t *testing.T, url, origin string) *http.Response {
+	t.Helper()
+	return sendFrom(t, http.MethodPost, url, origin)
+}
+
+func getFrom(t *testing.T, url, origin string) *http.Response {
+	t.Helper()
+	return sendFrom(t, http.MethodGet, url, origin)
+}
+
+func sendFrom(t *testing.T, method, url, origin string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("Origin", origin)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	resp.Body.Close()
+	return resp
+}
