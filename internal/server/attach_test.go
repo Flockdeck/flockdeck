@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -76,11 +78,13 @@ func TestRequestOpenRejectsBadPaths(t *testing.T) {
 	}
 }
 
-// TestQuitEndpointStopsTheApplication covers `perch -quit`.
+// TestQuitEndpointStopsTheApplication covers `perch -quit`. Stopping is what
+// the real OnQuit does, and the request does not report success until it has
+// happened, so the stand-in has to do it too.
 func TestQuitEndpointStopsTheApplication(t *testing.T) {
 	srv, _ := newTestServer(t)
 	stopped := make(chan struct{})
-	srv.OnQuit = func() { close(stopped) }
+	srv.OnQuit = func() { close(stopped); _ = srv.Close() }
 
 	if err := RequestQuit(srv.BaseURL(), srv.Token()); err != nil {
 		t.Fatalf("request quit: %v", err)
@@ -148,6 +152,9 @@ func TestDetachCommandFromTheWindow(t *testing.T) {
 // anything. The probe has to come back as a failure so the launch starts its
 // own instance rather than handing its directory to a wedged one.
 func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
+	defer func(g, r time.Duration) { busyGrace, busyRetry = g, r }(busyGrace, busyRetry)
+	busyGrace, busyRetry = 600*time.Millisecond, 100*time.Millisecond
+
 	srv, _ := newTestServer(t)
 
 	// Occupy the workspace goroutine for longer than a probe will wait.
@@ -159,8 +166,35 @@ func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
 	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
 		t.Fatal("expected the probe to fail while the workspace is stuck")
 	}
-	if elapsed := time.Since(start); elapsed > probeTimeout {
-		t.Errorf("probe took %v, want an answer within %v", elapsed, probeTimeout)
+	// The probe waits a busy instance out rather than writing it off, so the
+	// bound is that grace and not a single request.
+	if elapsed := time.Since(start); elapsed > busyGrace+probeTimeout {
+		t.Errorf("probe took %v, want an answer within %v", elapsed, busyGrace+probeTimeout)
+	}
+}
+
+// TestProbeWaitsOutABusyInstance is the other side of it. Opening a project
+// and starting the agents in it runs on the workspace goroutine, so an
+// instance can easily be unable to answer for a second while it does exactly
+// what a previous launch asked of it. Writing it off then is the expensive
+// mistake: the record is cleared and a second set of agents is started
+// alongside the first, in a second window, with no way back to one.
+func TestProbeWaitsOutABusyInstance(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	release := make(chan struct{})
+	srv.do(func() { <-release })
+	go func() {
+		time.Sleep(healthTimeout + 500*time.Millisecond)
+		close(release)
+	}()
+
+	h, err := Probe(srv.BaseURL(), srv.Token())
+	if err != nil {
+		t.Fatalf("probe gave up on a busy instance: %v", err)
+	}
+	if !h.Ready || h.Projects != 1 {
+		t.Errorf("probe reported ready=%v projects=%d, want true and 1", h.Ready, h.Projects)
 	}
 }
 
@@ -192,5 +226,204 @@ func TestActingEndpointsNeedAPost(t *testing.T) {
 	}
 	if n := len(ws.Projects()); n != before {
 		t.Errorf("projects = %d, want %d — a GET opened one", n, before)
+	}
+}
+
+// TestQuitAnswersBeforeItActs covers `perch -quit`. Acting on the request ends
+// the process, so the reply has to have left the connection first; otherwise
+// the command reports a failure for a shutdown that worked.
+func TestQuitAnswersBeforeItActs(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	flushed := make(chan bool, 1)
+	srv.OnQuit = func() { flushed <- rec.Flushed }
+
+	srv.handleQuit(rec, httptest.NewRequest(http.MethodPost, "/quit?t="+srv.Token(), nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	select {
+	case ok := <-flushed:
+		if !ok {
+			t.Error("the shutdown started before the reply was flushed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("quit was not acted on")
+	}
+}
+
+// TestActingEndpointsRefuseTheCookieAlone covers the way into these endpoints
+// that a page actually has.
+//
+// The token is held in a cookie; cookies are scoped to a host and ignore the
+// port, and a different port is the same site, so a page served from anything
+// else on 127.0.0.1 has this instance's token attached to a request it makes
+// here whatever SameSite says. Nothing else stands in the way of a plain
+// cross-origin POST, and one of these stops every agent the user is running.
+// The token has to be in the request itself, which such a page cannot know.
+func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
+	srv, ws := newTestServer(t)
+	srv.OnQuit = func() { t.Error("a page was allowed to stop the application") }
+
+	before := len(ws.Projects())
+	posts := []string{
+		srv.BaseURL() + "/quit",
+		srv.BaseURL() + "/open?path=" + queryEscape(t.TempDir()),
+	}
+	for _, url := range posts {
+		resp := sendWithCookie(t, http.MethodPost, url, srv.Token())
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("POST %s with only the cookie = %d, want 403", url, resp.StatusCode)
+		}
+	}
+	if n := len(ws.Projects()); n != before {
+		t.Errorf("projects = %d, want %d — a page opened one", n, before)
+	}
+
+	// Reporting on the instance is not for a page either: the reply names the
+	// process and what it has open.
+	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv.Token())
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("GET /health with only the cookie = %d, want 403", resp.StatusCode)
+	}
+
+	// The launching binary carries the token in the URL and must still work.
+	if _, err := Probe(srv.BaseURL(), srv.Token()); err != nil {
+		t.Errorf("the launching binary was refused: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+}
+
+// sendWithCookie makes the request a page in a browser would: no token of its
+// own, and the cookie attached for it.
+func sendWithCookie(t *testing.T, method, url, token string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: token})
+	req.Header.Set("Origin", "http://127.0.0.1:9999")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	resp.Body.Close()
+	return resp
+}
+
+// TestProbeSurvivesABackedUpWorkspace is the case the busy-instance grace did
+// not reach on its own. Opening a project holds the workspace goroutine and
+// fills the queue in front of it, and while that queue is full nothing can
+// hand work over at all -- including the health endpoint, whose whole job is
+// to answer within a moment. Without an answer the launch has nothing to wait
+// for: it declares the record stale and starts a rival set of agents.
+func TestProbeSurvivesABackedUpWorkspace(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	stop := sync.OnceFunc(func() { close(release) })
+	defer stop()
+
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(srv.cmds) < cap(srv.cmds) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.cmds) < cap(srv.cmds) {
+		t.Fatalf("could not fill the workspace queue: %d of %d", len(srv.cmds), cap(srv.cmds))
+	}
+
+	// Held for longer than one probe waits, and freed well inside the grace a
+	// probe gives a busy instance.
+	go func() {
+		time.Sleep(probeTimeout + 500*time.Millisecond)
+		stop()
+	}()
+
+	if _, err := Probe(srv.BaseURL(), srv.Token()); err != nil {
+		t.Errorf("probe wrote off an instance that was only busy: %v", err)
+	}
+}
+
+// TestOpenIsAcceptedWhileTheWorkspaceIsSlow covers `perch -C dir` against an
+// instance that is busy. Opening a project can only fail on the directory, and
+// the launch has already checked that; taking longer than the wait is not a
+// failure, and reporting one refused to show a window onto a project that was
+// about to open anyway.
+func TestOpenIsAcceptedWhileTheWorkspaceIsSlow(t *testing.T) {
+	defer func(d time.Duration) { openTimeout = d }(openTimeout)
+	openTimeout = 300 * time.Millisecond
+
+	srv, ws := newTestServer(t)
+	other := t.TempDir()
+
+	release := make(chan struct{})
+	stop := sync.OnceFunc(func() { close(release) })
+	defer stop()
+	srv.do(func() { <-release })
+
+	// Queued behind the occupied goroutine, so no answer arrives in time.
+	if err := RequestOpen(srv.BaseURL(), srv.Token(), other); err != nil {
+		t.Fatalf("open was reported as a failure: %v", err)
+	}
+
+	stop()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(ws.Projects()) == 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("projects = %d, want the accepted one to have opened", len(ws.Projects()))
+}
+
+// TestOpenSaysSoWhenItCannotBeTakenAtAll separates the two ways a busy
+// instance can be busy. A request that never reached the workspace has not
+// been accepted, and telling the launch it has would have it open a window
+// onto a project that is never going to appear.
+func TestOpenSaysSoWhenItCannotBeTakenAtAll(t *testing.T) {
+	defer func(d time.Duration) { openTimeout = d }(openTimeout)
+	openTimeout = 300 * time.Millisecond
+
+	srv, ws := newTestServer(t)
+	before := len(ws.Projects())
+
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	defer close(release)
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(srv.cmds) < cap(srv.cmds) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(srv.cmds) < cap(srv.cmds) {
+		t.Fatalf("could not fill the workspace queue: %d of %d", len(srv.cmds), cap(srv.cmds))
+	}
+
+	start := time.Now()
+	if err := RequestOpen(srv.BaseURL(), srv.Token(), t.TempDir()); err == nil {
+		t.Error("expected an instance too busy to take the request to say so")
+	}
+	// The answer has to come from the instance, inside its own budget, rather
+	// than from the launch giving up on its side with nothing to report.
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the launch waited %v for an answer, want one within the instance's budget", elapsed)
+	}
+	if n := len(ws.Projects()); n != before {
+		t.Errorf("projects = %d, want %d", n, before)
 	}
 }
