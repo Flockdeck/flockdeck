@@ -1,11 +1,17 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -34,8 +40,46 @@ func (s *Server) runLoop() {
 		case <-s.closed:
 			return
 		case fn := <-s.cmds:
-			fn()
+			s.guard("applying a change to the workspace", fn)
 		}
+	}
+}
+
+// guard runs fn and survives a panic in it.
+//
+// A panic in any goroutine ends the process, and ending this process kills
+// every agent running under it — work in progress in a dozen panes, thrown
+// away because one command from the window reached a pane or a tab that had
+// gone. The agents are the valuable thing here and they are not what failed,
+// so the panic is reported and the interface carries on. The stack goes to
+// the console, where a crash would have put it, and the window is told, since
+// the person watching is otherwise left with a click that did nothing.
+func (s *Server) guard(doing string, fn func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "perch: panic %s: %v\n%s\n", doing, r, debug.Stack())
+		s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
+	}()
+	fn()
+}
+
+// notifyAll sends a one-off message to every connected window.
+func (s *Server) notifyAll(text string, isErr bool) {
+	data, err := json.Marshal(noticeMsg{Type: "notice", Text: text, Error: isErr})
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	clients := make([]*controlClient, 0, len(s.clients))
+	for c := range s.clients {
+		clients = append(clients, c)
+	}
+	s.mu.Unlock()
+	for _, c := range clients {
+		c.send(data)
 	}
 }
 
@@ -157,15 +201,16 @@ func (s *Server) snapshot() stateMsg {
 		Broadcast:       ws.Broadcast,
 		Waiting:         waiting,
 		Working:         working,
-		// The window walks these without checking them first, so an empty one
-		// has to arrive as an empty array. Closing a project's last tab leaves
-		// no visible tabs at all, and a nil slice would encode as null and take
-		// the interface down instead of showing its empty state.
-		Projects: []projectView{},
-		Tabs:     []tabView{},
-		Panes:    map[string]paneView{},
+		Panes:           map[string]paneView{},
 	}
-	for _, p := range ws.Projects() {
+	// These are sized rather than grown, and made rather than left nil: the
+	// window walks them without checking them first, so an empty one has to
+	// arrive as an empty array. Closing a project's last tab leaves no visible
+	// tabs at all, and a nil slice would encode as null and take the interface
+	// down instead of showing its empty state.
+	projects := ws.Projects()
+	msg.Projects = make([]projectView, 0, len(projects))
+	for _, p := range projects {
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
@@ -173,16 +218,27 @@ func (s *Server) snapshot() stateMsg {
 	}
 
 	// Only the active project's tabs are rendered; the rest keep running.
-	for _, t := range ws.VisibleTabs() {
+	tabs := ws.VisibleTabs()
+	msg.Tabs = make([]tabView, 0, len(tabs))
+	// The pane ids of the tab being encoded, reused from one tab to the next.
+	// They are collected on the way through the tree rather than asked for
+	// separately, since walking it again for them costs a slice per node.
+	var ids []string
+	for _, t := range tabs {
+		ids = ids[:0]
+		root := encodeNode(t.Tree, &ids)
 		msg.Tabs = append(msg.Tabs, tabView{
 			ID:        t.ID,
 			Title:     t.Title,
 			Focus:     t.Focus,
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
-			Root:      encodeNode(t.Tree),
+			Root:      root,
 		})
-		for _, id := range t.Tree.Panes() {
+		// Cleaning the tab's directory once rather than once per pane: it is
+		// the same answer every time round.
+		tabRoot := filepath.Clean(t.Root)
+		for _, id := range ids {
 			p := ws.Pane(id)
 			if p == nil {
 				continue
@@ -198,8 +254,11 @@ func (s *Server) snapshot() stateMsg {
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
 			}
-			if root := ws.RootOf(p.ID); root != "" && !strings.EqualFold(filepath.Clean(root), filepath.Clean(t.Root)) {
-				pv.Project = filepath.Base(root)
+			// The common case is a pane of the tab's own project, where the
+			// two are the same string and there is nothing to clean or fold.
+			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
+				!strings.EqualFold(filepath.Clean(paneRoot), tabRoot) {
+				pv.Project = filepath.Base(paneRoot)
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -215,25 +274,39 @@ func (s *Server) snapshot() stateMsg {
 	return msg
 }
 
-func encodeNode(n *layout.Node) *nodeView {
+// encodeNode turns a layout tree into what the window lays out, appending the
+// id of every pane it holds to panes on the way through, in tree order.
+func encodeNode(n *layout.Node, panes *[]string) *nodeView {
 	if n == nil {
 		return nil
 	}
+	// A weight that is not a usable number is replaced rather than passed on,
+	// with the same test the layout applies to one arriving from a drag. Zero
+	// is what a layout written before weights were recorded reads back as, and
+	// a pane laid out with no width at all is worse than one given an even
+	// share. A NaN or an infinity is worse again, and in a way that has nothing
+	// to do with the layout: encoding/json will not write one, so the whole
+	// state message fails to encode and every window stops being updated —
+	// silently, for good, with no way back but restarting.
 	w := n.Weight
-	if w <= 0 {
+	if w <= 0 || math.IsNaN(w) || math.IsInf(w, 0) {
 		w = 1
 	}
 	out := &nodeView{ID: n.ID, Weight: w}
 	if n.IsLeaf() {
 		out.Pane = n.Pane
+		if n.Pane != "" {
+			*panes = append(*panes, n.Pane)
+		}
 		return out
 	}
 	out.Dir = "v"
 	if n.Dir == layout.Horizontal {
 		out.Dir = "h"
 	}
+	out.Children = make([]*nodeView, 0, len(n.Children))
 	for _, c := range n.Children {
-		out.Children = append(out.Children, encodeNode(c))
+		out.Children = append(out.Children, encodeNode(c, panes))
 	}
 	return out
 }
@@ -288,13 +361,41 @@ func parseDirection(s string) layout.Direction {
 	}
 }
 
-// broadcastState pushes the current state to every connected window.
+// broadcastState pushes the current state to every connected window, unless
+// that state is the one they were last sent.
+//
+// Wake fires on every chunk of output an agent produces, so with a few agents
+// talking this runs many times a second. Almost none of those bursts change
+// anything the window draws: the snapshot carries statuses, names and counts,
+// not terminal output. Re-sending an identical one costs a frame per window
+// and, on the far side, a parse and a full re-render of the tab bar, every
+// pane header and the summary. Comparing the encoded bytes is far cheaper
+// than either.
+//
+// Skipping the send cannot leave a window behind, because lastState either
+// describes what every window holds or is empty. It is set only here, by the
+// broadcast that put it in front of all of them at once, and it is emptied
+// whenever a window connects — which is what covers the gap where no window
+// was open and nothing was broadcast, and the window that then arrived was
+// handed a snapshot of its own that this never saw.
 func (s *Server) broadcastState() {
+	// Nobody to tell. A detached run sits like this for hours while the agents
+	// carry on producing output, and every chunk of it wakes the server:
+	// building a snapshot and encoding it for no window at all is the one part
+	// of that work that buys nothing at any point. The git loop stands down
+	// for the same reason.
+	if s.ClientCount() == 0 {
+		return
+	}
 	s.do(func() {
 		data, err := json.Marshal(s.snapshot())
 		if err != nil {
 			return
 		}
+		if bytes.Equal(data, s.lastState) {
+			return
+		}
+		s.lastState = data
 		s.mu.Lock()
 		clients := make([]*controlClient, 0, len(s.clients))
 		for c := range s.clients {
@@ -302,7 +403,7 @@ func (s *Server) broadcastState() {
 		}
 		s.mu.Unlock()
 		for _, c := range clients {
-			c.send(data)
+			c.sendState(data)
 		}
 	})
 }
@@ -314,14 +415,51 @@ func (s *Server) broadcastState() {
 type controlClient struct {
 	conn *websocket.Conn
 	out  chan []byte
+
+	// pending is the newest snapshot not yet written, held apart from out
+	// because snapshots supersede one another. See sendState.
+	mu      sync.Mutex
+	pending []byte
+	ready   chan struct{}
 }
 
-// send queues a message, dropping the client if it cannot keep up.
+// send queues a one-off message, dropping it if the window cannot keep up.
 func (c *controlClient) send(data []byte) {
 	select {
 	case c.out <- data:
 	default:
 	}
+}
+
+// sendState queues a snapshot, replacing any earlier one still waiting.
+//
+// A window that has fallen behind — busy rendering, or on a socket that has
+// stopped draining — used to have its newest snapshot dropped once the queue
+// filled, and would then sit showing state that had since changed. It was
+// covered up by the flood of identical snapshots that followed, one of which
+// would eventually get through; now that an unchanged snapshot is not sent
+// again, nothing would correct it until the next real change. Keeping the
+// newest one aside instead means a slow window skips the snapshots it missed
+// and lands on the current one, which is all it ever wanted, and leaves the
+// queue for the notices, which do not supersede each other and must not be
+// pushed out by a burst of state.
+func (c *controlClient) sendState(data []byte) {
+	c.mu.Lock()
+	c.pending = data
+	c.mu.Unlock()
+	select {
+	case c.ready <- struct{}{}:
+	default:
+	}
+}
+
+// takeState removes the waiting snapshot, if there still is one.
+func (c *controlClient) takeState() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data := c.pending
+	c.pending = nil
+	return data
 }
 
 func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +475,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(1 << 20)
 
-	c := &controlClient{conn: conn, out: make(chan []byte, 64)}
+	c := &controlClient{
+		conn:  conn,
+		out:   make(chan []byte, 64),
+		ready: make(chan struct{}, 1),
+	}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -365,8 +507,14 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	s.do(func() {
 		s.sendHello(c)
 		if data, err := json.Marshal(s.snapshot()); err == nil {
-			c.send(data)
+			c.sendState(data)
 		}
+		// What was last broadcast no longer describes what every window holds.
+		// Nothing was broadcast at all while there were no windows, so the
+		// state may since have moved away and come back to it; comparing
+		// against it would then skip a change this window has not been told
+		// about. Forgetting it costs one extra broadcast per window opened.
+		s.lastState = nil
 	})
 
 	defer func() {
@@ -390,7 +538,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
-		s.handleCommand(c, cmd)
+		s.guard("handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}
 }
 
@@ -400,14 +548,48 @@ func (c *controlClient) writeLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case data := <-c.out:
-			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.conn.Write(writeCtx, websocket.MessageText, data)
-			cancel()
-			if err != nil {
+			if !c.write(ctx, data) {
+				return
+			}
+		case <-c.ready:
+			// Whatever was queued before this snapshot was handed over goes
+			// out before it. That is what puts the key table and the
+			// preferences in front of the first state, which the palette and
+			// the first-run hints are drawn from, and it keeps a notice — the
+			// only place a refused worktree or a failed commit is reported —
+			// from waiting behind the write of a snapshot that a newer one may
+			// supersede anyway. Neither arrives continuously, so the state
+			// cannot be starved by them.
+			if !c.drainQueue(ctx) {
+				return
+			}
+			if data := c.takeState(); data != nil && !c.write(ctx, data) {
 				return
 			}
 		}
 	}
+}
+
+// drainQueue writes everything already waiting in the queue, and reports
+// whether the connection is still usable.
+func (c *controlClient) drainQueue(ctx context.Context) bool {
+	for {
+		select {
+		case data := <-c.out:
+			if !c.write(ctx, data) {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+}
+
+// write sends one message and reports whether the connection is still usable.
+func (c *controlClient) write(ctx context.Context, data []byte) bool {
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.conn.Write(writeCtx, websocket.MessageText, data) == nil
 }
 
 // sendJSON encodes a message to a single window.
@@ -506,7 +688,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		ws := s.ws
 		switch cmd.Cmd {
 		case "newTab":
-			ws.NewTab(parseKind(cmd.Kind), cmd.Path, cmd.Text)
+			// Cleaned the same way a rename is. The worktree panel opens a tab
+			// named after a branch, and a branch name has no length to it —
+			// one written out of a ticket title is long enough to push every
+			// other tab off the bar, and it is written to the layout that way
+			// too. An empty title still means "name it yourself", which is
+			// what an agent tab does until it has been asked something.
+			ws.NewTab(parseKind(cmd.Kind), cmd.Path, tabTitle(cmd.Text))
 		case "closeTab":
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
@@ -529,6 +717,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// A title chosen by hand is not replaced by a later prompt.
 			t.AutoTitle = false
 		case "openProject":
+			// A path that is not absolute is resolved against the directory
+			// perch was launched from, which the window knows nothing about
+			// and did not mean. An empty one resolves to that directory
+			// exactly: it opens as a project, becomes the active one, and gets
+			// an agent started in it, while the projects the person was
+			// working in drop off the tab bar until they think to close it
+			// again. Everything the page sends here comes from a directory
+			// listing or the recent list and is absolute already.
+			if !filepath.IsAbs(cmd.Path) {
+				c.notify("a project has to be named by its full path", true)
+				return
+			}
 			if err := ws.OpenProject(cmd.Path); err != nil {
 				c.notify(err.Error(), true)
 				return
@@ -644,8 +844,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		default:
 			return
 		}
-		s.Wake()
+		s.wakeAsked()
 	})
+}
+
+// cmdName names a command for a message. The name arrives from the page, so it
+// is clamped rather than repeated back whole.
+func cmdName(cmd string) string {
+	if cmd == "" {
+		return "a command"
+	}
+	const limit = 24
+	if r := []rune(cmd); len(r) > limit {
+		cmd = string(r[:limit]) + "…"
+	}
+	return "the " + cmd + " command"
 }
 
 // paneGone is what a window is told when it acts on a pane that has since
