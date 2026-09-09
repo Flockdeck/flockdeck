@@ -780,7 +780,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		default:
 			return
 		}
-		s.Wake()
+		s.wakeAsked()
 	})
 }
 

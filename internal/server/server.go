@@ -29,9 +29,16 @@ import (
 // and WebSocket requests do not have to repeat it in every URL.
 const tokenCookie = "perch_token"
 
-// stateInterval is the shortest gap between two state pushes. Agents produce
-// output continuously; the tab bar does not need to be rebuilt for every chunk.
+// stateInterval is the shortest gap between two state pushes made for the
+// agents' own account. They produce output continuously; the tab bar does not
+// need to be rebuilt for every chunk.
 const stateInterval = 40 * time.Millisecond
+
+// askedInterval is the same for a change somebody just asked for. It is a
+// floor rather than a pace: it exists only so that a client sending commands
+// as fast as it can cannot spin the push loop, and is short enough that
+// nobody sees it.
+const askedInterval = 5 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
@@ -51,8 +58,11 @@ type Server struct {
 
 	// cmds serialises every access to the workspace, which is not safe for
 	// concurrent use and is now reached from many connection goroutines.
-	cmds   chan func()
-	dirty  chan struct{}
+	cmds  chan func()
+	dirty chan struct{}
+	// asked is dirty for a change a person just made, which is held back for
+	// far less: they are watching for it, and there are only ever a few.
+	asked  chan struct{}
 	closed chan struct{}
 	// gitNow asks the git loop for an out-of-turn refresh, so a window that
 	// has just opened does not have to wait out the interval for its branch
@@ -97,6 +107,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		clients: map[*controlClient]struct{}{},
 		cmds:    make(chan func(), 64),
 		dirty:   make(chan struct{}, 1),
+		asked:   make(chan struct{}, 1),
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
@@ -143,32 +154,86 @@ func (s *Server) Wake() {
 	}
 }
 
-// pushLoop turns change notifications into state broadcasts, at most one every
-// stateInterval.
+// wakeAsked is Wake for a change a window asked for, which is worth telling the
+// windows about sooner than the agents' own comings and goings.
+func (s *Server) wakeAsked() {
+	select {
+	case s.asked <- struct{}{}:
+	default:
+	}
+}
+
+// pushLoop turns change notifications into state broadcasts.
 //
 // The interval is a rate limit rather than a delay: a change that arrives after
 // a quiet moment goes out at once, and only the ones treading on its heels wait
 // for it. Delaying every change instead put the interval on the end of every
 // split, close, zoom and tab switch, which is the part of the interface a
-// person is watching for. Nothing is lost by broadcasting early — dirty is a
-// single flag, so a change made during the wait is still pending afterwards and
-// gets a broadcast of its own.
+// person is watching for. Nothing is lost by broadcasting early — each flag is
+// a single slot, so a change made during the wait is still pending afterwards
+// and gets a broadcast of its own.
+//
+// Which interval applies depends on what caused the change. Holding the agents'
+// chatter to forty milliseconds is the whole point of having one; holding a
+// split or a tab switch to it is not, and with several agents talking the wait
+// would otherwise land on every one of them, since the chatter keeps the last
+// broadcast recent. So a change somebody asked for is answered on its own, much
+// shorter, floor.
 func (s *Server) pushLoop() {
 	var last time.Time
 	for {
+		asked := false
+		// An asked-for change takes precedence over chatter pending at the
+		// same moment, which a plain select would decide by coin toss.
 		select {
 		case <-s.closed:
 			return
-		case <-s.dirty:
-			if wait := stateInterval - time.Since(last); wait > 0 {
-				select {
-				case <-time.After(wait):
-				case <-s.closed:
-					return
-				}
+		case <-s.asked:
+			asked = true
+		default:
+			select {
+			case <-s.closed:
+				return
+			case <-s.asked:
+				asked = true
+			case <-s.dirty:
 			}
-			last = time.Now()
-			s.broadcastState()
+		}
+		if !s.holdTurn(asked, last) {
+			return
+		}
+		last = time.Now()
+		s.broadcastState()
+	}
+}
+
+// holdTurn waits until a pending change may go out. It reports false if the
+// server closed while it waited.
+//
+// A chatter wait is cut short by somebody asking for something part way
+// through, which is the point of the whole arrangement: the wait exists to
+// spare the window work it does not need, not to keep a person looking at a
+// pane they have already closed.
+func (s *Server) holdTurn(asked bool, last time.Time) bool {
+	for {
+		floor := stateInterval
+		if asked {
+			floor = askedInterval
+		}
+		wait := floor - time.Since(last)
+		if wait <= 0 {
+			return true
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-timer.C:
+			return true
+		case <-s.asked:
+			timer.Stop()
+			asked = true
+		case <-s.closed:
+			timer.Stop()
+			return false
 		}
 	}
 }

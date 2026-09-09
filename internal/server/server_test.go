@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1031,4 +1033,58 @@ func writeRaw(t *testing.T, conn *websocket.Conn, data []byte) {
 	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
 		t.Fatalf("write raw: %v", err)
 	}
+}
+
+// TestAChangeAskedForBeatsTheChatter covers the case the interval was hurting
+// most. With several agents talking, the last broadcast is never long ago, so
+// a single rate limit put its full wait on the end of every split, close and
+// tab switch — the interface felt slowest exactly when there was most going on.
+func TestAChangeAskedForBeatsTheChatter(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	// Sessions waking the server at the rate a few busy agents would.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			srv.Wake()
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	// Latency under a plain rate limit is spread evenly across the interval,
+	// so the best of a few runs proves nothing and the worst is at the mercy
+	// of a busy machine. The middle one is the honest measure.
+	const rounds = 15
+	var took []time.Duration
+	for i := 0; i < rounds; i++ {
+		title := fmt.Sprintf("asked %d", i)
+		start := time.Now()
+		sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: title})
+		if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+			return len(s.Tabs) == 1 && s.Tabs[0].Title == title
+		}); !ok {
+			t.Fatalf("the rename to %q was never broadcast", title)
+		}
+		took = append(took, time.Since(start))
+		// A gap that is not a multiple of the interval, so the changes do not
+		// fall into step with the chatter's broadcasts and land at the same
+		// point in the wait every time.
+		time.Sleep(time.Duration(60+rand.Intn(90)) * time.Millisecond)
+	}
+	sort.Slice(took, func(a, b int) bool { return took[a] < took[b] })
+	median := took[len(took)/2]
+	if median >= stateInterval/4 {
+		t.Errorf("the middle of %d changes took %v while the agents talked; the chatter's %v interval is being charged to it", rounds, median, stateInterval)
+	}
+	t.Logf("median change reaching the window while agents talked: %v (worst %v)", median, took[len(took)-1])
 }
