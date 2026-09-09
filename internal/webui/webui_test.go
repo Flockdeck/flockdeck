@@ -114,9 +114,13 @@ func runFrontEnd(t *testing.T, body string) string {
 	}
 	write("keys.json", string(keys))
 
+	// The body runs inside an async function so a case can wait for the parts of
+	// the front end that are on a timer: the tooltip delay, the fit debounce,
+	// the notice that takes itself away again.
 	write("case.js", "\"use strict\";\nconst assert = require(\"assert\");\n"+
 		"const { boot, fixture, pane, split, leaf } = require(\"./harness.js\");\n"+
-		"const h = boot();\n"+body+"\n")
+		"const h = boot();\n(async () => {\n"+body+
+		"\n})().catch((err) => { console.error(err); process.exitCode = 1; });\n")
 
 	cmd := exec.Command(node, filepath.Join(dir, "case.js"))
 	cmd.Dir = dir
@@ -575,6 +579,46 @@ input.oninput();
 assert.strictEqual(list.children.length, 1, "the empty note is all that is left");
 assert.ok(!input.hasAttribute("aria-activedescendant"),
   "the field still names a row that is no longer there");
+`)
+}
+
+// Panes come and go constantly here — fanning a plan out opens one per task
+// and they are closed as each finishes — so what a closed pane leaves behind
+// accumulates over a session rather than being paid once.
+func TestAClosedPaneLetsGoOfEverythingItHeld(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+
+const four = { tabs: [{ id: "t1", title: "fan out", focus: "p0", root:
+  split("h", [leaf("n0", "p0"), leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }],
+  panes: {} };
+for (let i = 0; i < 4; i++) four.panes["p" + i] = pane("p" + i, { name: "task " + i });
+h.recv(fixture(four));
+
+assert.strictEqual(h.terms.length, 4, "one terminal per pane");
+assert.strictEqual(h.observers.length, 4, "one size watcher per pane");
+assert.strictEqual(h.sockets.filter((s) => s.url.includes("/ws/pty")).length, 4, "one stream per pane");
+
+// Someone rests the pointer on a pane's header while three of the four finish.
+const header = h.doc.querySelectorAll("div.pane-header")[1];
+h.dispatch(header.querySelector("span.dot"), new h.Ev("pointerover", { pointerType: "mouse" }));
+await h.sleep(400);
+assert.ok(h.doc.body.querySelector("div.tip"), "the bubble describing the dot did not open");
+
+h.recv(fixture({ tabs: [{ id: "t1", title: "fan out", focus: "p0", root: leaf("n0", "p0") }],
+                 panes: { p0: pane("p0", { name: "task 0" }) } }));
+
+for (let i = 1; i < 4; i++) {
+  assert.ok(h.terms[i].disposed, "the terminal of pane " + i + " was not disposed");
+  assert.ok(h.observers[i].disconnected,
+    "the size watcher of pane " + i + " is still registered, and holds the pane through its callback");
+  assert.strictEqual(h.sockets.filter((s) => s.url.includes("id=p" + i))[0].readyState, 3,
+    "the stream of pane " + i + " is still open");
+}
+// The one still running kept all of it.
+assert.ok(!h.terms[0].disposed, "the surviving pane lost its terminal");
+assert.ok(!h.observers[0].disconnected, "the surviving pane lost its size watcher");
+assert.ok(!h.doc.body.querySelector("div.tip"), "a bubble was left over a pane that is gone");
 `)
 }
 
@@ -1107,6 +1151,7 @@ function boot() {
       return keys;
     },
     keyTable() { return JSON.parse(fs.readFileSync(path.join(ASSETS, "keys.json"), "utf8")); },
+    sleep(ms) { return new Promise((done) => setTimeout(done, ms)); },
     /** made counts every element ever built, so a test can say how much of the
      *  screen an action puts together again. */
     made() { return SERIAL; },

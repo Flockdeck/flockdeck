@@ -904,7 +904,12 @@
       sendBytes(p, bytes);
     });
 
-    new ResizeObserver(() => scheduleFit(p)).observe(host);
+    // Kept, because it has to be disconnected when the pane closes: an
+    // observer with a live observation is held by the document whether or not
+    // the element it is watching is still in it, and through its callback it
+    // holds this whole record — the terminal, the socket and the header.
+    p.resize = new ResizeObserver(() => scheduleFit(p));
+    p.resize.observe(host);
     connectPTY(p);
     return p;
   }
@@ -1069,14 +1074,24 @@
     p.overlay = box;
   }
 
+  /** prunePanes takes down the panes the workspace no longer has. Everything a
+   *  pane holds that outlives its elements has to be given up here: the layout
+   *  tree is the only record of which panes exist, so nothing else will ever
+   *  come back to this one. */
   function prunePanes(s) {
     const live = paneIdsIn(s);
     for (const [id, p] of panes) {
       if (live.has(id)) continue;
       clearTimeout(p.retryTimer);
+      clearTimeout(p.fitTimer);
       panes.delete(id); // stop the close handler from reconnecting
       try { p.ws && p.ws.close(); } catch {}
+      p.resize.disconnect();
       p.term.dispose();
+      // A pane can go while the pointer is resting on something in its header,
+      // which would leave the bubble describing it hanging over the pane that
+      // takes its place.
+      if (tipFor && p.wrap.contains(tipFor)) hideTip();
       p.wrap.remove();
     }
   }
