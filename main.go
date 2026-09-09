@@ -484,19 +484,9 @@ func runSpawn(args []string) error {
 // An error of errReported means the flag set has already said what was wrong;
 // a nil request with a nil error means the caller asked for the usage.
 func parseSpawn(args []string) (hooks.SpawnRequest, error) {
-	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var (
-		worktree = fs.String("worktree", "", "branch name; the helper gets its own git worktree")
-		split    = fs.Bool("split", false, "place the helper beside this pane instead of in a new tab")
-		shell    = fs.Bool("shell", false, "start a shell instead of an agent")
-	)
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
-		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(orderSpawnArgs(args)); err != nil {
+	var f spawnFlags
+	fs := spawnFlagSet(&f)
+	if err := fs.Parse(orderSpawnArgs(fs, args)); err != nil {
 		// `spawn -h` is the user asking for the usage they have just been
 		// given, not a failure to report on top of it.
 		if errors.Is(err, flag.ErrHelp) {
@@ -506,24 +496,40 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if task == "" && !*shell {
+	if task == "" && !f.shell {
 		fs.Usage()
 		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
 	}
 	return hooks.SpawnRequest{
 		Task:   task,
-		Branch: *worktree,
-		Split:  *split,
-		Shell:  *shell,
+		Branch: f.worktree,
+		Split:  f.split,
+		Shell:  f.shell,
 	}, nil
 }
 
-// spawnFlagTakesValue names the flags `spawn` accepts, and says which of them
-// is followed by a value.
-var spawnFlagTakesValue = map[string]bool{
-	"worktree": true,
-	"split":    false,
-	"shell":    false,
+// spawnFlags are the flags of `perch spawn` and where their values land.
+type spawnFlags struct {
+	worktree string
+	split    bool
+	shell    bool
+}
+
+// spawnFlagSet defines the command line of `perch spawn`. It is built here
+// rather than inline so that the reordering, the parsing and the tests all
+// work from the one definition.
+func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
+	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
+	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
+		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	return fs
 }
 
 // orderSpawnArgs moves the flags in front of the task.
@@ -537,7 +543,10 @@ var spawnFlagTakesValue = map[string]bool{
 //
 // Anything after a bare "--" is task text, which is how a task whose own first
 // word begins with a dash is written.
-func orderSpawnArgs(args []string) []string {
+// Which flags take a value is read from fs rather than listed here, so a flag
+// added to the command later cannot have its value swallowed into the task by
+// a list nobody remembered to extend.
+func orderSpawnArgs(fs *flag.FlagSet, args []string) []string {
 	var flags, task []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -551,7 +560,7 @@ func orderSpawnArgs(args []string) []string {
 		if len(arg) > 1 && arg[0] == '-' {
 			flags = append(flags, arg)
 			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-			if spawnFlagTakesValue[name] && !hasValue && i+1 < len(args) {
+			if !hasValue && takesValue(fs, name) && i+1 < len(args) {
 				i++
 				flags = append(flags, args[i])
 			}
@@ -562,6 +571,22 @@ func orderSpawnArgs(args []string) []string {
 	// The separator keeps a task word that begins with a dash — which only
 	// reaches here after an explicit "--" — from being read as a flag again.
 	return append(flags, append([]string{"--"}, task...)...)
+}
+
+// takesValue reports whether the named flag is followed by a value of its own.
+// A boolean is not: `-split true` is -split with the word "true" left over,
+// which for this command is the first word of the task.
+//
+// A flag the set does not define is answered no, so it is handed over alone
+// and reported as the unknown flag it is rather than quietly eating the word
+// after it.
+func takesValue(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
 }
 
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.

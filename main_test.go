@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"os"
 	"strings"
 	"testing"
@@ -104,8 +105,9 @@ func TestSpawnFlagsAfterTheTask(t *testing.T) {
 		{"-- ends the flags", []string{"--", "-not-a-flag", "--split"},
 			[]string{"--", "-not-a-flag", "--split"}},
 	}
+	fs := spawnFlagSet(&spawnFlags{})
 	for _, c := range cases {
-		got := orderSpawnArgs(c.args)
+		got := orderSpawnArgs(fs, c.args)
 		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
 			t.Errorf("%s: orderSpawnArgs(%q) = %q, want %q", c.name, c.args, got, c.want)
 		}
@@ -172,5 +174,26 @@ func TestInterruptsForceQuitOnTheSecond(t *testing.T) {
 	case <-forced:
 	case <-time.After(time.Second):
 		t.Fatal("the second interrupt was ignored")
+	}
+}
+
+// The reordering has to know which flags are followed by a value, and reading
+// that from the flag set is what keeps a flag added later from having its
+// value swallowed into the task.
+func TestOrderSpawnArgsLearnsArityFromTheFlagSet(t *testing.T) {
+	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
+	fs.String("base", "", "branch to start from")
+	fs.Bool("split", false, "beside this pane")
+
+	got := orderSpawnArgs(fs, []string{"repair the token refresh", "-base", "main", "-split"})
+	want := []string{"-base", "main", "-split", "--", "repair the token refresh"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// A boolean takes no value, so the word after it stays part of the task.
+	got = orderSpawnArgs(fs, []string{"-split", "watch", "the", "build"})
+	want = []string{"-split", "--", "watch", "the", "build"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
