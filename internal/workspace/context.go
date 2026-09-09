@@ -90,17 +90,16 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		CanSpawn: w.hookSrv != nil,
 	}
 
-	// The tab the pane lives in also identifies its project: a fan-out child
-	// in a worktree works well outside its project root.
 	own := w.tabOf(paneID)
 	if own != nil {
 		c.Tab = own.Title
 		c.TabPanes = len(own.Tree.Panes())
-		c.ProjectRoot = own.Root
 	}
-	if c.ProjectRoot == "" {
-		c.ProjectRoot = w.activeRoot
-	}
+	// The pane's own project, not the project of the tab it is drawn on. A tab
+	// can show agents from more than one project, and a borrowed pane told it
+	// belongs to the tab's project is told the wrong root — which it would then
+	// read as a worktree of a project it has nothing to do with.
+	c.ProjectRoot = w.rootOf(paneID)
 	// Projects are named the way the switcher names them, so an agent and the
 	// user looking at it call the same thing by the same word — and so two
 	// checkouts of one repository are not both simply "the project".
@@ -120,15 +119,23 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	// that get dropped.
 	var sameTab, elsewhere []Sibling
 	for _, t := range w.Tabs {
-		if t.Root != c.ProjectRoot {
-			continue
-		}
 		for _, id := range t.Tree.Panes() {
 			if id == paneID {
 				continue
 			}
 			sib := w.Pane(id)
 			if sib == nil {
+				continue
+			}
+			// Membership follows the pane rather than the tab, for the same
+			// reason the reader's own project does: an agent borrowed by
+			// another project's tab is still working in this one, and one
+			// borrowed from elsewhere is not.
+			sibRoot := sib.Root
+			if sibRoot == "" {
+				sibRoot = t.Root
+			}
+			if !sameDir(sibRoot, c.ProjectRoot) {
 				continue
 			}
 			st, _ := sib.Status()

@@ -548,3 +548,69 @@ func TestOtherProjectsAreNamedApart(t *testing.T) {
 		t.Errorf("the rendered context does not name the project:\n%s", text)
 	}
 }
+
+// TestPaneContextFollowsThePanesOwnProject covers an agent borrowed by another
+// project's tab: it works in the project it was started in, and the context has
+// to say so. Reading the project off the tab told it that it was working in a
+// project it has never touched, that its own checkout was a worktree of that
+// project, and that its real project was somebody else's.
+func TestPaneContextFollowsThePanesOwnProject(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+
+	// A tab of the first project showing an agent of the second, which is what
+	// working on two projects at once looks like.
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+	tab := ws.CurrentTab()
+	if tab.Root != first {
+		t.Fatalf("tab root = %q, want the first project %q", tab.Root, first)
+	}
+	borrowed := borrowedPane(t, ws, tab)
+	if borrowed == nil {
+		t.Fatal("no pane of the second project on the first project's tab")
+	}
+
+	c, ok := ws.PaneContext(borrowed.ID)
+	if !ok {
+		t.Fatal("no context for the borrowed pane")
+	}
+	if c.ProjectRoot != second {
+		t.Errorf("project root = %q, want the pane's own project %q", c.ProjectRoot, second)
+	}
+	if c.Worktree {
+		t.Error("a pane sitting in its own project root is not in a worktree")
+	}
+	// The other agent of its own project — sitting on that project's own tab —
+	// is a sibling; the pane it shares a tab with belongs to the first project
+	// and is not.
+	if len(c.Siblings) != 1 {
+		t.Fatalf("siblings = %#v, want only the second project's own pane", c.Siblings)
+	}
+	if !sameDir(c.Siblings[0].Cwd, second) {
+		t.Errorf("sibling works in %q, want the second project %q", c.Siblings[0].Cwd, second)
+	}
+	if len(c.OtherProjects) != 1 {
+		t.Errorf("other projects = %v, want just the first project", c.OtherProjects)
+	}
+
+	// And the pane that lent the tab still sees its own project, with the
+	// borrowed agent left out of its siblings.
+	host := ""
+	for _, id := range tab.Tree.Panes() {
+		if id != borrowed.ID {
+			host = id
+		}
+	}
+	hc, ok := ws.PaneContext(host)
+	if !ok {
+		t.Fatal("no context for the host pane")
+	}
+	if hc.ProjectRoot != first {
+		t.Errorf("host project root = %q, want %q", hc.ProjectRoot, first)
+	}
+	for _, s := range hc.Siblings {
+		if s.Cwd == borrowed.Cwd {
+			t.Errorf("the borrowed pane is listed as a sibling of the project it is only shown in")
+		}
+	}
+}
