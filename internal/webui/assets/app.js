@@ -1125,6 +1125,10 @@
 
       if (was.status !== v.status) {
         was.status = v.status;
+        // On the pane as well as on its dot: a tab of six agents is six small
+        // discs, and the one that has stopped and is waiting on you should not
+        // have to be found by reading each header in turn.
+        p.wrap.dataset.status = v.status;
         p.dot.className = "dot " + v.status;
         // The dot is nothing but a coloured circle, so it has to say the whole
         // sentence itself; the bare status word left the colour unexplained.

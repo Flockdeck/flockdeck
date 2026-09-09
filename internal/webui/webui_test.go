@@ -130,6 +130,7 @@ func runFrontEnd(t *testing.T, body string) string {
 	}
 	write("app.js", readAsset(t, "app.js"))
 	write("index.html", readAsset(t, "index.html"))
+	write("app.css", readAsset(t, "app.css"))
 	write("harness.js", frontEndHarness)
 
 	// The real action table, so a test presses the binding that ships rather
@@ -1034,6 +1035,46 @@ assert.ok(h.$("overlay").hidden, "the dialog stayed open after going to the pane
 `)
 }
 
+// Across six panes an eight-pixel disc is not enough to find the one agent
+// that has stopped and is waiting on you.
+func TestAWaitingPaneIsMarkedOnThePaneItself(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const six = { tabs: [{ id: "t1", title: "six", focus: "p0", root:
+  split("h", [leaf("n0", "p0"), leaf("n1", "p1"), leaf("n2", "p2"),
+              leaf("n3", "p3"), leaf("n4", "p4"), leaf("n5", "p5")]) }], panes: {} };
+const at = (status) => {
+  const panes = {};
+  for (let i = 0; i < 6; i++) panes["p" + i] = pane("p" + i, { status: i === 4 ? status : "working" });
+  return fixture(Object.assign({}, six, { panes: panes, waiting: status === "waiting" ? 1 : 0 }));
+};
+h.recv(at("working"));
+
+const wraps = h.doc.querySelectorAll("div.pane");
+assert.strictEqual(wraps.length, 6);
+assert.ok(wraps.every((w) => w.dataset.status === "working"), "the panes do not carry their status");
+
+h.recv(at("waiting"));
+assert.strictEqual(wraps[4].dataset.status, "waiting", "the blocked pane is not marked");
+assert.ok(wraps.filter((w) => w.dataset.status === "waiting").length === 1,
+  "more than one pane is marked as blocked");
+// The mark on the pane and the mark on its disc say the same thing.
+assert.ok(wraps[4].querySelector("span.dot").classList.contains("waiting"));
+
+// The answer is given and the mark goes.
+h.recv(at("working"));
+assert.strictEqual(wraps[4].dataset.status, "working", "the mark outlived the question");
+
+// It is the header that is coloured, not the border: the border still has to
+// answer which pane the keyboard is in while agents are waiting.
+const css = h.css();
+assert.ok(/\.pane\[data-status="waiting"\] \.pane-header/.test(css),
+  "nothing in the style sheet acts on a waiting pane");
+assert.ok(!/\.pane\[data-status="waiting"\] *\{[^}]*border-color/.test(css),
+  "the waiting mark takes the border, which says where the keyboard is");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1580,6 +1621,9 @@ function boot() {
     },
     keyTable() { return JSON.parse(fs.readFileSync(path.join(ASSETS, "keys.json"), "utf8")); },
     sleep(ms) { return new Promise((done) => setTimeout(done, ms)); },
+    /** css is the style sheet, for the few things that are only expressible
+     *  there and still have to hold. */
+    css() { return fs.readFileSync(path.join(ASSETS, "app.css"), "utf8"); },
     /** made counts every element ever built, so a test can say how much of the
      *  screen an action puts together again. */
     made() { return SERIAL; },

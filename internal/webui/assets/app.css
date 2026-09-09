@@ -266,6 +266,24 @@ textarea:focus-visible {
 }
 .pane.focused .pane-header { color: var(--fg); }
 
+/* An agent that has stopped and is waiting on you is the only thing on this
+ * screen that needs a person, and across six panes an eight-pixel disc is not
+ * enough to find it by. Its header takes the colour the disc already has, so
+ * the pane the answer is owed to is the one that stands out.
+ *
+ * The header rather than the border, because the border says which pane the
+ * keyboard is in and that question still has to be answerable while three
+ * agents are waiting. color-mix keeps the palette the one source of the
+ * colour; where it is not understood the header is simply not tinted, which is
+ * where this started. */
+.pane[data-status="waiting"] .pane-header {
+  background: color-mix(in srgb, var(--waiting) 20%, var(--bg-raised));
+  color: var(--fg);
+}
+.pane[data-status="exited"] .pane-header {
+  background: color-mix(in srgb, var(--exited) 18%, var(--bg-raised));
+}
+
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--idle); }
 .dot.working { background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
 .dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
