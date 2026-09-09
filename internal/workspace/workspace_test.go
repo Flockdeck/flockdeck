@@ -527,3 +527,111 @@ func TestAPaneKnowsItsProjectWhateverTheSpellingSaved(t *testing.T) {
 		t.Error("the tab holding it is not among the ones the window would draw")
 	}
 }
+
+// TestClosingProjectsAtRandomKeepsEveryAgentAccountedFor drives the other half
+// of the model: projects closing under a workspace whose tabs hold each
+// other's agents. Every agent has to end up either stopped with its own
+// project or running on a tab of a project that is still open — never running
+// where nothing draws it, and never stopped because somebody else's project
+// went away.
+func TestClosingProjectsAtRandomKeepsEveryAgentAccountedFor(t *testing.T) {
+	isolateConfig(t)
+	for seed := int64(0); seed < 40; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		w := benchWorkspace(4, 2, 3)
+		w.settingsDir = t.TempDir()
+		roots := map[string]string{}
+		for id, p := range w.panes {
+			roots[id] = p.Root
+		}
+		// Lend some agents to other projects' tabs, which is what makes
+		// closing one of them interesting.
+		for _, tab := range w.Tabs {
+			for _, id := range tab.Tree.Panes() {
+				if rnd.Intn(3) == 0 {
+					lender := w.openRoots[rnd.Intn(len(w.openRoots))]
+					w.panes[id].Root = lender
+					roots[id] = lender
+				}
+			}
+		}
+		var hist []string
+
+		for len(w.openRoots) > 1 {
+			closing := w.openRoots[rnd.Intn(len(w.openRoots))]
+			hist = append(hist, "CloseProject("+closing+")")
+			w.CloseProject(closing)
+
+			if w.isOpen(closing) {
+				t.Fatalf("%s is still open after being closed", closing)
+			}
+			for id, home := range roots {
+				_, running := w.panes[id]
+				switch {
+				case sameDir(home, closing) && running:
+					t.Fatalf("an agent of the closed project %s is still running", closing)
+				case !sameDir(home, closing) && !running:
+					t.Fatalf("an agent of %s was stopped when %s closed", home, closing)
+				}
+			}
+			for _, tab := range w.Tabs {
+				if !w.isOpen(tab.Root) {
+					t.Fatalf("tab %q belongs to %s, which is not open", tab.Title, tab.Root)
+				}
+			}
+			for id := range roots {
+				if _, running := w.panes[id]; !running {
+					delete(roots, id)
+				}
+			}
+			checkWorkspace(t, w, roots, hist)
+		}
+	}
+}
+
+// TestClosingAProjectDropsATabLeftHoldingNothing names the case the random
+// closes found: a tab whose panes are all borrowed. A layout tree refuses to
+// give up its last pane, so removing them one at a time left the tab drawing
+// an agent that had already been stopped — a pane with nothing behind it that
+// only closing the tab would get rid of.
+func TestClosingAProjectDropsATabLeftHoldingNothing(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+
+	tab := ws.CurrentTab()
+	borrowed := borrowedPane(t, ws, tab)
+	if borrowed == nil {
+		t.Fatal("no pane of the second project on the first project's tab")
+	}
+	// Close the tab's own agent, leaving it showing nothing but the borrowed
+	// one. This is a tab of the first project holding only the second's work.
+	for _, id := range tab.Tree.Panes() {
+		if id != borrowed.ID {
+			ws.FocusPane(id)
+			ws.ClosePane()
+		}
+	}
+	if panes := tab.Tree.Panes(); len(panes) != 1 || panes[0] != borrowed.ID {
+		t.Fatalf("tab holds %v, want just the borrowed pane", panes)
+	}
+
+	ws.CloseProject(second)
+
+	if ws.Pane(borrowed.ID) != nil {
+		t.Error("the closed project's agent is still running")
+	}
+	for _, open := range ws.Tabs {
+		for _, id := range open.Tree.Panes() {
+			if id == borrowed.ID {
+				t.Errorf("tab %q still draws the stopped agent", open.Title)
+			}
+			if ws.Pane(id) == nil {
+				t.Errorf("tab %q draws pane %s, which no longer exists", open.Title, id)
+			}
+		}
+	}
+	if sameDir(first, second) {
+		t.Fatal("the projects should be different directories")
+	}
+}

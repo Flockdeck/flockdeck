@@ -494,12 +494,30 @@ func (w *Workspace) CloseProject(root string) {
 		// A tab belonging to another project may still be showing this one's
 		// agents. Closing a project stops its agents, so they have to be found
 		// where they are rather than only among its own tabs.
-		emptied := false
+		//
+		// Which panes are going is settled before any of them do. A tree
+		// refuses to give up its last pane, so taking them out one at a time
+		// would leave a tab whose whole contents were borrowed still drawing
+		// the last of them — a pane with no process and nothing behind it,
+		// which only closing the tab could get rid of.
+		var going []string
+		keeping := 0
 		for _, id := range t.Tree.Panes() {
-			p := w.Pane(id)
-			if p == nil || !sameDir(w.rootOf(id), root) {
+			if p := w.Pane(id); p != nil && !sameDir(w.rootOf(id), root) {
+				keeping++
 				continue
 			}
+			going = append(going, id)
+		}
+		if keeping == 0 {
+			for _, id := range going {
+				w.destroyPane(id)
+			}
+			// Nothing of this tab is left once the closing project's panes
+			// have gone.
+			continue
+		}
+		for _, id := range going {
 			// Losing the pane you were typing into leaves the focus beside the
 			// space it left, the way closing it by hand would, rather than
 			// throwing it to the front of the tab.
@@ -508,15 +526,12 @@ func (w *Workspace) CloseProject(root string) {
 			}
 			t.Tree.Remove(id)
 			w.destroyPane(id)
-			emptied = true
 		}
 		panes := t.Tree.Panes()
 		if len(panes) == 0 {
-			// Nothing of this tab is left once the closing project's panes
-			// have gone.
 			continue
 		}
-		if emptied {
+		if len(going) > 0 {
 			// A tab that lost panes underneath it comes back showing what is
 			// left of it, not one survivor filling the window.
 			t.Zoom = false
