@@ -254,6 +254,7 @@ func (n *Node) Compute(r Rect) {
 				w -= paid
 				over -= paid
 			}
+			x, w = fit(x, w, r.X, r.W)
 			c.Compute(Rect{X: x, Y: r.Y, W: w, H: r.H})
 			x += w + separatorWidth
 		}
@@ -285,6 +286,7 @@ func (n *Node) Compute(r Rect) {
 			h -= paid
 			over -= paid
 		}
+		y, h = fit(y, h, r.Y, r.H)
 		c.Compute(Rect{X: r.X, Y: y, W: r.W, H: h})
 		y += h
 	}
@@ -322,6 +324,30 @@ func (n *Node) overrun(avail int, total, tightest float64) int {
 		used += size
 	}
 	return used - avail
+}
+
+// fit pulls a child of size cells, laid out at at, back inside a box of
+// boxSize cells starting at box.
+//
+// Splitting a pane and turning the axis each time halves the box at every
+// level, so about twenty levels down there is no longer a cell for each pane.
+// There is no right answer there — a pane needs a cell and there are not
+// enough — but a pane must still be somewhere in the tab it belongs to. Left
+// to run off the end it would sit on top of whatever the split next door had
+// drawn, and "what is left of this" and "what did I just click on" would then
+// be answered from a part of the screen the user is not looking at. Panes that
+// will not fit pile up in the last cells of their own box instead.
+func fit(at, size, box, boxSize int) (int, int) {
+	if size > boxSize {
+		size = boxSize
+	}
+	if end := box + boxSize; at+size > end {
+		at = end - size
+	}
+	if at < box {
+		at = box
+	}
+	return at, size
 }
 
 // Separators returns the vertical rules between horizontally adjacent panes,

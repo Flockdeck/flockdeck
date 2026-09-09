@@ -1706,10 +1706,11 @@ func TestComputeFillsAnyBoxWithAnyWeights(t *testing.T) {
 			room = box.W - separatorWidth*(n-1)
 		}
 
-		pos, end := box.Y, box.Y+box.H
+		pos, start, end := box.Y, box.Y, box.Y+box.H
 		if dir == Horizontal {
-			pos, end = box.X, box.X+box.W
+			pos, start, end = box.X, box.X, box.X+box.W
 		}
+		last := start
 		for j, c := range root.Children {
 			r := c.Rect()
 			at, size := r.Y, r.H
@@ -1719,12 +1720,22 @@ func TestComputeFillsAnyBoxWithAnyWeights(t *testing.T) {
 			if size < 1 {
 				t.Fatalf("case %d: pane %d of %d in %+v got %d cells", i, j, n, box, size)
 			}
-			if at != pos {
-				t.Fatalf("case %d: pane %d of %d in %+v starts at %d, want %d", i, j, n, box, at, pos)
+			if at < start || at+size > end {
+				t.Fatalf("case %d: pane %d of %d at %d+%d is outside the box %+v", i, j, n, at, size, box)
 			}
-			pos += size
-			if dir == Horizontal && j < n-1 {
-				pos += separatorWidth
+			if at < last {
+				t.Fatalf("case %d: pane %d of %d starts at %d, behind the pane before it at %d", i, j, n, at, last)
+			}
+			last = at
+			if room >= n {
+				// With a cell for each of them they tile the box exactly.
+				if at != pos {
+					t.Fatalf("case %d: pane %d of %d in %+v starts at %d, want %d", i, j, n, box, at, pos)
+				}
+				pos += size
+				if dir == Horizontal && j < n-1 {
+					pos += separatorWidth
+				}
 			}
 			// The cross axis is handed straight down.
 			if dir == Horizontal && (r.Y != box.Y || r.H != box.H) {
@@ -1737,8 +1748,48 @@ func TestComputeFillsAnyBoxWithAnyWeights(t *testing.T) {
 		if room >= n && pos != end {
 			t.Fatalf("case %d: %d panes weighted %v end at %d in %+v, want %d", i, n, weights, pos, box, end)
 		}
-		if room < n && pos-end > n-room {
-			t.Fatalf("case %d: %d panes in %d cells run to %d, further than the %d they are owed", i, n, room, pos, n)
+	}
+}
+
+// TestDeeplyNestedSplitsStayInsideTheTab covers splitting the pane you just
+// made, over and over, turning the axis each time. Every split nests inside
+// the last, so the box each one divides is half the size of the one before it,
+// and around twenty levels down there is no longer a cell for each pane.
+//
+// The layout there cannot be right — a pane needs a cell and there are not
+// enough — but it must still be about the tab on screen. Panes laid out past
+// the end of their parent land on top of whatever the split next door drew,
+// and the answers to "what is left of this" and "what did I just click on"
+// then come from a part of the screen the user is not looking at.
+func TestDeeplyNestedSplitsStayInsideTheTab(t *testing.T) {
+	for _, depth := range []int{4, 12, 20, 30} {
+		root := NewLeaf("p0")
+		for i := 1; i <= depth; i++ {
+			if !root.Split("p"+strconv.Itoa(i-1), "p"+strconv.Itoa(i), Dir(i%2)) {
+				t.Fatalf("depth %d: split %d failed", depth, i)
+			}
+		}
+		view := Rect{X: 0, Y: 0, W: 1000, H: 1000}
+		root.Compute(view)
+
+		for _, l := range root.Leaves() {
+			r := l.Rect()
+			if r.W < 1 || r.H < 1 {
+				t.Errorf("depth %d: %s got %+v, every pane needs a cell", depth, l.Pane, r)
+			}
+			if r.X < view.X || r.Y < view.Y || r.X+r.W > view.X+view.W || r.Y+r.H > view.Y+view.H {
+				t.Errorf("depth %d: %s at %+v is outside a tab of %+v", depth, l.Pane, r, view)
+			}
+		}
+		// Nothing at this depth has room to spare, so the panes are on top of
+		// one another; what matters is that they are still in reading order,
+		// which is what makes the answers point the right way.
+		leaves := root.Leaves()
+		for i := 1; i < len(leaves); i++ {
+			a, b := leaves[i-1].Rect(), leaves[i].Rect()
+			if b.X < a.X || (b.X == a.X && b.Y < a.Y) {
+				t.Errorf("depth %d: %s at %+v comes after %s at %+v", depth, leaves[i].Pane, b, leaves[i-1].Pane, a)
+			}
 		}
 	}
 }
