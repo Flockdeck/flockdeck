@@ -1447,3 +1447,56 @@ func TestProcessAliveKnowsThisProcess(t *testing.T) {
 		t.Error("a process id that cannot name a process reads as running")
 	}
 }
+
+// TestConfigDirFollowsTheInstanceThatWonTheUpgrade checks the run that loses
+// the race to rename the old state directory ends up in the same place as the
+// run that won it.
+//
+// Two instances starting together on the first run after the rename both find
+// nothing under the name in use now and both try the move. One succeeds. The
+// loser's rename fails with the source already gone, and if it carries on
+// under the old name it creates that directory again, empty, and writes its
+// layouts, its recent projects and its instance record into somewhere nothing
+// will ever adopt — including the other instance, which is looking for a
+// record it will not find.
+func TestConfigDirFollowsTheInstanceThatWonTheUpgrade(t *testing.T) {
+	isolateConfig(t)
+	base, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("user config dir: %v", err)
+	}
+	old := filepath.Join(base, legacyDirName)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatalf("create legacy dir: %v", err)
+	}
+	saved := []byte(`[{"root":"/repo/kept"}]`)
+	if err := os.WriteFile(filepath.Join(old, recentsFile), saved, 0o600); err != nil {
+		t.Fatalf("write legacy state: %v", err)
+	}
+
+	// The other instance, getting its move in between our look and our rename.
+	real := renameDir
+	t.Cleanup(func() { renameDir = real })
+	renameDir = func(from, to string) error {
+		if err := real(from, to); err != nil {
+			return err
+		}
+		return errors.New("the other instance moved it first")
+	}
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	want := filepath.Join(base, "perch")
+	if dir != want {
+		t.Fatalf("state dir is %s, want %s: this run would write where nothing looks", dir, want)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, recentsFile))
+	if err != nil {
+		t.Fatalf("the moved state is not in the directory being used: %v", err)
+	}
+	if string(got) != string(saved) {
+		t.Errorf("recents = %q, want %q", got, saved)
+	}
+}

@@ -114,11 +114,28 @@ func adoptLegacyDir(base, dir string) string {
 	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
 		return dir
 	}
-	if err := os.Rename(old, dir); err != nil {
+	if err := renameDir(old, dir); err != nil {
+		// A second instance starting at the same moment can be part-way through
+		// this very move: it looked for the name in use now, found nothing, and
+		// got its rename in first. Ours then fails and the old directory is
+		// already gone. Handing back the old name there would have this run
+		// create it again, empty, and write every layout, the recent list and
+		// its own instance record into a directory nothing will ever adopt,
+		// because the name in use now exists and the old one is never looked at
+		// again. The two instances would not even find each other, each reading
+		// an instance record the other never wrote.
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
 		return old
 	}
 	return dir
 }
+
+// renameDir moves a directory. It is a variable so a test can stand in for the
+// instant between one instance finding nothing under the name in use now and
+// another moving the old directory onto it.
+var renameDir = os.Rename
 
 // makePrivate narrows a directory that was created before it was kept private,
 // or by a umask that let group and other in. Windows does not express
