@@ -1500,3 +1500,183 @@ func TestConfigDirFollowsTheInstanceThatWonTheUpgrade(t *testing.T) {
 		t.Errorf("recents = %q, want %q", got, saved)
 	}
 }
+
+// modTime is the file's own record of when it was last written, used below to
+// tell a write that did not happen from one that wrote the same bytes again.
+func modTime(t *testing.T, path string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return fi.ModTime()
+}
+
+// TestSaveSkipsAFileThatAlreadyHoldsIt checks a save with nothing to say does
+// not touch the file. Quitting saves every open project, and all but the one
+// the user was working in are unchanged; each of those was a file creation, a
+// flush to the device and a rename, and each was also a chance for a second
+// instance's save to be the one that lost.
+func TestSaveSkipsAFileThatAlreadyHoldsIt(t *testing.T) {
+	isolateConfig(t)
+
+	st := &State{Tabs: []Tab{{Title: "alpha", Root: &Node{Pane: &Pane{ID: "1", Kind: "claude", Cwd: "/repo/a"}}}}}
+	if err := Save("/repo/a", st); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	if err := Save("/repo/a", st); err != nil {
+		t.Fatalf("save again: %v", err)
+	}
+	if got := modTime(t, p); !got.Equal(old) {
+		t.Errorf("the file was written again (mtime %v, want %v); nothing about it had changed", got, old)
+	}
+}
+
+// TestSaveStillWritesWhenTheLengthIsUnchanged checks the shortcut is a
+// shortcut and not a way to lose a save. The length is only a filter on
+// whether the bytes are worth comparing; a tab switch changes an index and not
+// a single character of the file's size.
+func TestSaveStillWritesWhenTheLengthIsUnchanged(t *testing.T) {
+	isolateConfig(t)
+
+	st := &State{Tabs: []Tab{{Title: "alpha"}, {Title: "bravo"}, {Title: "charlie"}}}
+	if err := Save("/repo/b", st); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/b")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	before, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	st.Active = 2
+	if err := Save("/repo/b", st); err != nil {
+		t.Fatalf("save again: %v", err)
+	}
+	after, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("this case is meant to keep the file the same length: %d then %d", len(before), len(after))
+	}
+	got, err := Load("/repo/b")
+	if err != nil || got == nil {
+		t.Fatalf("Load = %v, %v", got, err)
+	}
+	if got.Active != 2 {
+		t.Errorf("active tab is %d, want 2: the save was skipped over a file of the same length", got.Active)
+	}
+}
+
+// TestSaveReplacesAFileOfTheSameLengthThatIsNotOurs is the same guard from the
+// other side: a file left by something else that happens to be the same size
+// must still be replaced, not mistaken for what we were about to write.
+func TestSaveReplacesAFileOfTheSameLengthThatIsNotOurs(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	p := filepath.Join(dir, sessionFile)
+
+	want := &Session{Open: []string{"/repo/a"}, Active: "/repo/a"}
+	if err := SaveSession(want); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	good, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Same number of bytes, different ones: a run of spaces where the file was.
+	if err := os.WriteFile(p, []byte(strings.Repeat(" ", len(good))), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := SaveSession(want); err != nil {
+		t.Fatalf("save session again: %v", err)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(good) {
+		t.Errorf("the file was left as %q; a save must replace what it did not write", got)
+	}
+}
+
+// benchState builds a layout the size of a workspace someone actually runs:
+// eight tabs of six agents each.
+func benchState(tabs, panes int) *State {
+	st := &State{}
+	for t := 0; t < tabs; t++ {
+		root := &Node{Dir: "h"}
+		for p := 0; p < panes; p++ {
+			root.Children = append(root.Children, &Node{Pane: &Pane{
+				ID:   fmt.Sprintf("%d-%d-9f6a1c34-2b7e-4d51-8a0c", t, p),
+				Kind: "claude", Cwd: "/repo/project/sub", Name: "agent",
+				Task: "keep the build green",
+			}})
+		}
+		st.Tabs = append(st.Tabs, Tab{Title: fmt.Sprintf("tab %d", t), Root: root})
+	}
+	return st
+}
+
+func benchIsolate(b *testing.B) {
+	dir := b.TempDir()
+	b.Setenv("APPDATA", dir)
+	b.Setenv("XDG_CONFIG_HOME", dir)
+	b.Setenv("HOME", dir)
+}
+
+// BenchmarkRunSavesUnchangedLayout is what a run does to a project the user
+// did not touch: read the layout at startup, write it on the way out. Quitting
+// with several projects open does this for every one of them.
+func BenchmarkRunSavesUnchangedLayout(b *testing.B) {
+	benchIsolate(b)
+	st := benchState(8, 6)
+	if err := Save("/repo/project", st); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Load("/repo/project"); err != nil {
+			b.Fatal(err)
+		}
+		if err := Save("/repo/project", st); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkRunSavesChangedLayout is the same for the project that did change,
+// and is here to show what the comparison costs when it cannot save the write.
+func BenchmarkRunSavesChangedLayout(b *testing.B) {
+	benchIsolate(b)
+	st := benchState(8, 6)
+	if err := Save("/repo/project", st); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Load("/repo/project"); err != nil {
+			b.Fatal(err)
+		}
+		st.Active = 1 + i%7
+		if err := Save("/repo/project", st); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

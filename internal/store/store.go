@@ -7,6 +7,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -338,6 +339,26 @@ func Save(root string, s *State) error {
 // a rename that reaches the disk ahead of the contents it names would leave an
 // empty file after a crash.
 func writeAtomic(path string, data []byte) error {
+	// A file already holding these bytes does not need writing. The save on the
+	// way out writes every open project's layout and the list of which ones
+	// were open, and all but the one project the user was actually working in
+	// are unchanged: for each of those this is a file creation, a flush to the
+	// device and a rename that buy nothing. It also takes away a chance for a
+	// second instance's save to be the one that loses, which is the reason
+	// ForgetRecent already declines to rewrite a list it did not change.
+	//
+	// The length is looked at before the contents. Reading a file that has
+	// changed since the last look is not free on Windows — it is the moment
+	// the virus scanner reads it too, and here that costs several times what
+	// the whole write does — while reading one that has not is served from the
+	// cache. A layout that has changed has nearly always changed length, so
+	// the stat sends those straight to the write and the read is paid almost
+	// only where it is about to save one.
+	if fi, err := os.Stat(path); err == nil && fi.Size() == int64(len(data)) {
+		if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+			return nil
+		}
+	}
 	dir, base := filepath.Split(path)
 	f, err := os.CreateTemp(dir, base+".tmp*")
 	if err != nil {
