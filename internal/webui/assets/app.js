@@ -151,10 +151,13 @@
 
   /** Live pane records, keyed by pane id. */
   const panes = new Map();
-  /** Rendered tab pages, in tab order. */
-  let tabPages = [];
-  /** Structure of the last render, so state pushes do not rebuild needlessly. */
-  let lastStructure = "";
+  /** The page each tab is drawn on, and the shape it was drawn with, both by
+   *  tab id. Keeping them per tab is what lets one tab change without the
+   *  others being taken apart. */
+  const tabPages = new Map();
+  const tabShapes = new Map();
+  /** The "no tabs open" placeholder, which is not a tab page. */
+  let emptyPage = null;
   /** Which tab is currently on screen, so a switch can be told from a redraw. */
   let shownTab = "";
   /** Which pane the keyboard was last handed to, so a new pane, a closed one
@@ -168,6 +171,8 @@
   let dialog = null;
   let recents = [];
   let browseState = null;
+  /** A path typed into the folder browser and not yet gone to. */
+  let browseDraft = null;
   /** The actions this application offers, sent by the Go side on connect.
    *  The palette, the keyboard and the help pages are all drawn from it, so a
    *  binding cannot be changed in one of them and left stale in the others. */
@@ -186,23 +191,43 @@
 
   function connectControl() {
     clearTimeout(reconnectTimer);
-    control = new WebSocket(wsBase + "/ws/control");
+    // An attempt that has been superseded is abandoned rather than left to
+    // finish: pressing Reconnect twice, which is what people do to a button
+    // that has not visibly worked yet, would otherwise leave the first attempt
+    // connecting with its handlers live. It would then open a second control
+    // connection of its own, and when it eventually failed it would put the
+    // disconnected panel back over a working one and start reconnecting again.
+    const abandoned = control;
+    control = null; // so the close below is seen for what it is
+    if (abandoned) { try { abandoned.close(); } catch { /* already gone */ } }
+    const ws = new WebSocket(wsBase + "/ws/control");
+    control = ws;
 
-    control.onopen = () => {
+    // Every handler asks whether this is still the connection, the way the
+    // terminal streams already do. Closing the old socket above is what
+    // normally settles it; this is what settles the events already in flight.
+    ws.onopen = () => {
+      if (control !== ws) return;
       $("disconnected").hidden = true;
+      // Whatever a dialog is showing was read before the connection went, and
+      // the working tree it describes has had time to move on. Asking again is
+      // also what releases a button left waiting for a reply that the drop
+      // took with it.
+      refreshDialog();
     };
-    control.onmessage = (ev) => {
+    ws.onmessage = (ev) => {
+      if (control !== ws) return;
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
       else if (msg.type === "prefs") { prefs = msg.prefs || prefs; renderHints(); }
-      else if (msg.type === "worktrees") renderWorktrees(msg);
-      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") renderProjects(); }
-      else if (msg.type === "browse") { browseState = msg; if (dialog === "projects") renderProjects(); }
-      else if (msg.type === "conversations") renderHistory(msg);
-      else if (msg.type === "changes") renderChanges(msg);
-      else if (msg.type === "agents") renderAgents(msg);
+      else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
+      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
+      else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
+      else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -212,12 +237,16 @@
       }
       else if (msg.type === "notice") notice(msg.text, msg.error);
     };
-    control.onclose = () => {
+    ws.onclose = () => {
+      if (control !== ws) return; // an attempt that was given up on
       if (detaching) return; // the window is on its way out
       $("disconnected").hidden = false;
+      // Nothing behind this can be used and the terminal it is covering has
+      // the keyboard, so typing would go nowhere until the pointer was used.
+      $("retry").focus();
       reconnectTimer = setTimeout(connectControl, 1500);
     };
-    control.onerror = () => control.close();
+    ws.onerror = () => ws.close();
   }
 
   function send(cmd) {
@@ -230,19 +259,7 @@
 
   function applyState(s) {
     state = s;
-    // Zoom changes which panes are on screen, so it belongs in the structural
-    // signature; while zoomed, so does the focused pane.
-    const structure = JSON.stringify(s.tabs.map((t) => ({
-      tree: structureOf(t.root),
-      zoom: t.zoom,
-      focus: t.zoom ? t.focus : "",
-    }))) + "|" + s.tabs.length;
-    let rebuilt = false;
-    if (structure !== lastStructure) {
-      lastStructure = structure;
-      rebuildLayout(s);
-      rebuilt = true;
-    }
+    const rebuilt = rebuildChangedTabs(s);
     applyWeights(s);
     showActiveTab(s, rebuilt);
     renderTabs(s);
@@ -273,12 +290,35 @@
 
   // ----------------------------------------------------------------- layout
 
-  function rebuildLayout(s) {
+  /** shapeOf is what a tab has to be redrawn for. Weights are left out so a
+   *  drag does not rebuild anything; zoom is in, because it changes which
+   *  panes are on screen, and while zoomed so is the focused pane. */
+  function shapeOf(tab) {
+    return JSON.stringify({
+      tree: structureOf(tab.root),
+      zoom: tab.zoom,
+      focus: tab.zoom ? tab.focus : "",
+    });
+  }
+
+  /** rebuildChangedTabs redraws the tabs whose shape has changed, leaves the
+   *  rest standing, and reports whether the tab on screen was one of them.
+   *
+   *  The panes survive a rebuild — they are kept in the registry and put back —
+   *  but being taken out of the document and returned is not nothing. A
+   *  terminal loses the selection in it, which is how output is copied out of
+   *  one, and anything part-typed through an input method. Rebuilding every tab
+   *  because one of them changed meant that fanning a plan out, which changes
+   *  another tab's shape once per agent it starts, did that to the pane you
+   *  were reading, several times in a row. */
+  function rebuildChangedTabs(s) {
     const host = $("workspace");
-    host.textContent = "";
-    tabPages = [];
 
     if (!s.tabs.length) {
+      host.textContent = "";
+      tabPages.clear();
+      tabShapes.clear();
+      splitNodes.clear();
       const empty = el("div", "empty");
       empty.append(el("p", null, "No tabs open."));
       const b = el("button", "chip primary", "New agent tab");
@@ -287,22 +327,43 @@
       h.onclick = () => openHelp("getting-started");
       empty.append(b, h);
       host.append(empty);
-      return;
+      emptyPage = empty;
+      return true;
     }
+    // The "no tabs" placeholder is not a tab page, so it goes by hand.
+    if (emptyPage) { emptyPage.remove(); emptyPage = null; }
 
-    s.tabs.forEach((tab) => {
-      const page = el("div", "tab-page");
-      if (tab.zoom && tab.focus) {
-        // A zoomed pane takes the whole tab. The others stay in the pane
-        // registry with their terminals and connections intact, simply
-        // detached from the document until the zoom is released.
-        page.append(ensurePane(tab.focus).wrap);
-      } else {
-        page.append(buildNode(tab.root, tab));
+    let activeRebuilt = false;
+    s.tabs.forEach((tab, i) => {
+      const shape = shapeOf(tab);
+      let page = tabPages.get(tab.id);
+      if (!page || tabShapes.get(tab.id) !== shape) {
+        if (page) page.remove();
+        page = el("div", "tab-page");
+        if (tab.zoom && tab.focus) {
+          // A zoomed pane takes the whole tab. The others stay in the pane
+          // registry with their terminals and connections intact, simply
+          // detached from the document until the zoom is released.
+          page.append(ensurePane(tab.focus).wrap);
+        } else {
+          page.append(buildNode(tab.root, tab));
+        }
+        tabPages.set(tab.id, page);
+        tabShapes.set(tab.id, shape);
+        if (tab.id === s.activeTab) activeRebuilt = true;
       }
-      host.append(page);
-      tabPages.push(page);
+      if (host.childNodes[i] !== page) host.insertBefore(page, host.childNodes[i] || null);
     });
+
+    for (const [id, page] of tabPages) {
+      if (s.tabs.some((t) => t.id === id)) continue;
+      page.remove();
+      tabPages.delete(id);
+      tabShapes.delete(id);
+    }
+    // Splits that went with a page that has been replaced.
+    for (const [id, node] of splitNodes) if (!node.isConnected) splitNodes.delete(id);
+    return activeRebuilt;
   }
 
   function buildNode(node, tab) {
@@ -315,6 +376,7 @@
 
     const split = el("div", "split " + (node.dir === "h" ? "h" : "v"));
     split.dataset.node = node.id;
+    splitNodes.set(node.id, split);
     const kids = node.children || [];
     kids.forEach((child, i) => {
       if (i > 0) split.append(makeDivider(split, node));
@@ -323,8 +385,20 @@
     return split;
   }
 
+  /** The divider being dragged, if one is. A state push carries the weights the
+   *  Go side has stored, which while a drag is in progress are the ones from
+   *  before it started: applying them snapped the panes back to where the drag
+   *  began until the pointer moved again, and pushes arrive continuously while
+   *  agents are working, so the whole drag fought itself. The structural
+   *  signature already leaves weights out for the same reason. */
+  let resizing = null;
+
   /** applyWeights sets flex-grow from the tree without rebuilding the DOM. */
   function applyWeights(s) {
+    // A divider that is no longer in the document belongs to a layout that has
+    // been rebuilt under it, so its drag is over whether or not it said so.
+    if (resizing && resizing.isConnected) return;
+    resizing = null;
     for (const tab of s.tabs) walkWeights(tab.root);
   }
   function walkWeights(node) {
@@ -336,22 +410,101 @@
     }
     (node.children || []).forEach(walkWeights);
   }
+  /** The split containers by node id, recorded as they are built. Weights are
+   *  applied on every state push, and every push arrives while agents are
+   *  working, so looking each one up used to mean a search of the whole
+   *  document — six panes deep in xterm's own elements — once per split. */
+  const splitNodes = new Map();
+
   function findSplit(id) {
-    return document.querySelector('.split[data-node="' + CSS.escape(id) + '"]');
+    const split = splitNodes.get(id);
+    return split && split.isConnected ? split : null;
   }
 
-  /** makeDivider returns a draggable separator that reweights its siblings. */
+  /** panelsAround returns the two panels a divider sits between, and every
+   *  panel in the split — the weights are saved as a set. */
+  function panelsAround(split, d) {
+    const kids = [...split.children];
+    const panels = kids.filter((c) => !c.classList.contains("divider"));
+    // The divider follows the panel it belongs to, so the count of panels
+    // before it, less one, is that panel's place in the list.
+    const at = kids.slice(0, kids.indexOf(d)).filter((c) => !c.classList.contains("divider")).length - 1;
+    const a = panels[at], b = panels[at + 1];
+    return a && b ? { panels, a, b } : null;
+  }
+
+  /** saveWeights tells the Go side how the split was left, so it comes back
+   *  the same way, and refits the terminals to their new size. */
+  function saveWeights(node, panels) {
+    send({ cmd: "setWeights", node: node.id, weights: panels.map((p) => parseFloat(p.style.flexGrow) || 1) });
+    panels.forEach(refitWithin);
+  }
+
+  /** sayShare puts the split on the separator, which is the only way a screen
+   *  reader can tell that an arrow key did anything. */
+  function sayShare(d, a, b) {
+    const aGrow = parseFloat(a.style.flexGrow) || 1;
+    const bGrow = parseFloat(b.style.flexGrow) || 1;
+    d.setAttribute("aria-valuenow", String(Math.round((aGrow / (aGrow + bGrow)) * 100)));
+  }
+
+  /** One press of an arrow key moves this much of the pair across. */
+  const RESIZE_STEP = 0.04;
+
+  /** makeDivider returns a separator that reweights its siblings, by dragging
+   *  or from the keyboard. A row of six agents is unreadable until some of them
+   *  are given more room than others, and until now that could only be done
+   *  with a mouse. */
   function makeDivider(split, node) {
     const d = el("div", "divider");
-    d.addEventListener("mousedown", (ev) => {
+    const acrossIsWidth = node.dir === "h";
+    d.tabIndex = 0;
+    d.setAttribute("role", "separator");
+    // The bar itself lies across the split: a row of panes is divided by an
+    // upright one, which is what a reader is told about.
+    d.setAttribute("aria-orientation", acrossIsWidth ? "vertical" : "horizontal");
+    d.setAttribute("aria-valuemin", "10");
+    d.setAttribute("aria-valuemax", "90");
+    const how = acrossIsWidth
+      ? "Sets how the width is shared between the panes either side. Drag it, or use the left and right arrow keys; Home makes them equal."
+      : "Sets how the height is shared between the panes either side. Drag it, or use the up and down arrow keys; Home makes them equal.";
+    d.setAttribute("aria-label", how);
+    describe(d, how);
+
+    d.addEventListener("keydown", (ev) => {
+      const less = ev.key === (acrossIsWidth ? "ArrowLeft" : "ArrowUp");
+      const more = ev.key === (acrossIsWidth ? "ArrowRight" : "ArrowDown");
+      if (!less && !more && ev.key !== "Home") return;
+      const pair = panelsAround(split, d);
+      if (!pair) return;
       ev.preventDefault();
-      const horizontal = node.dir === "h";
+      // The window handler dispatches bindings from the action table; a bare
+      // arrow is not one, but stopping here says so rather than relying on it.
+      ev.stopPropagation();
+      const aGrow = parseFloat(pair.a.style.flexGrow) || 1;
+      const bGrow = parseFloat(pair.b.style.flexGrow) || 1;
+      const total = aGrow + bGrow;
+      const share = ev.key === "Home"
+        ? 0.5
+        : Math.max(0.1, Math.min(0.9, aGrow / total + (more ? RESIZE_STEP : -RESIZE_STEP)));
+      pair.a.style.flexGrow = String(total * share);
+      pair.b.style.flexGrow = String(total * (1 - share));
+      sayShare(d, pair.a, pair.b);
+      saveWeights(node, pair.panels);
+    });
+
+    d.addEventListener("pointerdown", (ev) => {
+      // The secondary button opens a menu; it does not start a resize. Without
+      // this, a right-click on a divider began one and the panes then followed
+      // the pointer around until something released the primary button.
+      if (ev.button !== 0) return;
       // Only the two panels either side of this divider are affected.
-      const panels = [...split.children].filter((c) => !c.classList.contains("divider"));
-      const idx = [...split.children].indexOf(d);
-      const before = [...split.children].slice(0, idx).filter((c) => !c.classList.contains("divider")).length - 1;
-      const a = panels[before], b = panels[before + 1];
-      if (!a || !b) return;
+      const pair = panelsAround(split, d);
+      if (!pair) return;
+      ev.preventDefault();
+      const { panels, a, b } = pair;
+      const horizontal = acrossIsWidth;
+      resizing = d;
 
       const startPos = horizontal ? ev.clientX : ev.clientY;
       const aSize = horizontal ? a.offsetWidth : a.offsetHeight;
@@ -362,24 +515,36 @@
       const totalGrow = aGrow + bGrow;
 
       d.classList.add("dragging");
+      // Capturing sends every move and the release to the divider itself, so a
+      // drag that leaves the window — which is easy, the panes reach the edge
+      // of it — is still delivered here. Listening on the document instead
+      // meant a button released outside never arrived, and the panes went on
+      // following the pointer with nothing held down.
+      try { d.setPointerCapture(ev.pointerId); } catch { /* older engines */ }
       const onMove = (m) => {
+        if (m.pointerId !== ev.pointerId) return;
         const delta = (horizontal ? m.clientX : m.clientY) - startPos;
-        let aPx = Math.max(60, Math.min(total - 60, aSize + delta));
+        const aPx = Math.max(60, Math.min(total - 60, aSize + delta));
         const ratio = aPx / total;
         a.style.flexGrow = String(totalGrow * ratio);
         b.style.flexGrow = String(totalGrow * (1 - ratio));
       };
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
+      // pointercancel is the system taking the pointer away — a touch turning
+      // into a scroll, the window losing it. The drag has to end there too, or
+      // it never ends at all.
+      const onUp = (u) => {
+        if (u.pointerId !== ev.pointerId) return;
+        d.removeEventListener("pointermove", onMove);
+        d.removeEventListener("pointerup", onUp);
+        d.removeEventListener("pointercancel", onUp);
         d.classList.remove("dragging");
-        // Persist every child's weight, so the split is restored as drawn.
-        const weights = panels.map((p) => parseFloat(p.style.flexGrow) || 1);
-        send({ cmd: "setWeights", node: node.id, weights });
-        panels.forEach(refitWithin);
+        resizing = null;
+        sayShare(d, a, b);
+        saveWeights(node, panels);
       };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
+      d.addEventListener("pointermove", onMove);
+      d.addEventListener("pointerup", onUp);
+      d.addEventListener("pointercancel", onUp);
     });
     return d;
   }
@@ -393,9 +558,9 @@
   function showActiveTab(s, rebuilt) {
     let idx = s.tabs.findIndex((t) => t.id === s.activeTab);
     if (idx < 0) idx = 0;
-    tabPages.forEach((page, i) => { page.hidden = i !== idx; });
-    // A terminal cannot measure itself while hidden, so refit on reveal.
     const tab = s.tabs[idx];
+    for (const [id, page] of tabPages) page.hidden = !tab || id !== tab.id;
+    // A terminal cannot measure itself while hidden, so refit on reveal.
     if (!tab) { shownTab = ""; shownFocus = ""; return; }
     const ids = new Set();
     collectPanes(tab.root, ids);
@@ -407,11 +572,12 @@
     // the click that caused the switch left the focus on the tab button, and
     // the revealed terminal would ignore everything typed at it.
     //
-    // A rebuild needs the same treatment for a different reason: it empties
-    // the workspace and puts the panes back, which blurs whatever the
-    // keyboard was in. Splitting, closing, zooming and dragging all rebuild,
-    // so without this a fresh pane would arrive with nowhere to type and the
-    // pane you were in would go deaf.
+    // Rebuilding this tab needs the same treatment for a different reason: it
+    // takes the panes out of the document and puts them back, which blurs
+    // whatever the keyboard was in. Splitting, closing, zooming and dragging
+    // all rebuild, so without this a fresh pane would arrive with nowhere to
+    // type and the pane you were in would go deaf. A rebuild of some other
+    // tab leaves this one alone and is none of its business.
     const moved = tab.id !== shownTab || tab.focus !== shownFocus || rebuilt;
     shownTab = tab.id;
     shownFocus = tab.focus;
@@ -430,48 +596,124 @@
     return n;
   }
 
+  /** The button for each tab, by tab id. A status push arrives every time any
+   *  agent changes what it is doing, which with six of them running is most of
+   *  the time; throwing the strip away and building it again on each one loses
+   *  whatever the keyboard was on, resets how far the strip is scrolled, and
+   *  pulls the element out from under a tooltip that was about to open. So the
+   *  buttons outlive the pushes and only what changed is written. */
+  const tabNodes = new Map();
+  /** The tab the strip was last scrolled to. */
+  let scrolledTab = "";
+
   function renderTabs(s) {
     // Rebuilding the strip would destroy the element a drag is holding, and
     // the drag would end nowhere. Status pushes arrive constantly, so this is
     // not a rare case; the bar catches up when the drag finishes.
     if (dragging && dragging.kind === "tab") return;
     const bar = $("tabs");
-    bar.textContent = "";
     s.tabs.forEach((tab, i) => {
+      const node = tabNode(tab.id);
+      const title = tab.title || "tab " + (i + 1);
+      if (node.label.textContent !== title) node.label.textContent = title;
       const active = tab.id === s.activeTab;
-      const b = el("button", "tab" + (active ? " active" : "") + (tab.attention ? " attention" : ""));
-      b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", String(active));
-      b.append(el("span", "label", tab.title || "tab " + (i + 1)));
-      // The triangle used to be appended by CSS, where no tooltip could reach
-      // it and no screen reader was told what it meant. As a real element it
-      // can say, in both channels, why the tab is calling for you.
-      if (tab.attention) {
-        const attn = el("span", "attn", "▲");
-        attn.setAttribute("role", "img");
-        attn.setAttribute("aria-label", TIPS.waiting);
-        describe(attn, TIPS.waiting);
-        b.append(attn);
-      }
-      const x = el("button", "close", "×");
-      describe(x, "Close tab");
-      x.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id: tab.id }); };
-      b.append(x);
-      b.onclick = () => {
-        // Re-clicking the tab already on screen produces no state change for
-        // showActiveTab to react to, so hand the keyboard back here.
-        if (active) focusTerminal();
-        else send({ cmd: "selectTab", id: tab.id });
-      };
-      b.ondblclick = () => renameTab(tab);
-      makeTabDraggable(tab, b);
-      bar.append(b);
+      node.btn.classList.toggle("active", active);
+      node.btn.setAttribute("aria-selected", String(active));
+      node.btn.classList.toggle("attention", !!tab.attention);
+      setAttention(node, !!tab.attention);
+      // One stop on the way through the window rather than two per tab. With
+      // a dozen agents open, tabbing past the strip to reach the terminal
+      // behind it took twenty-four presses; the arrow keys walk it instead,
+      // which is what a tab strip is expected to answer to anyway.
+      const stop = active ? 0 : -1;
+      if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
+      if (bar.childNodes[i] !== node.btn) bar.insertBefore(node.btn, bar.childNodes[i] || null);
     });
+    for (const [id, node] of tabNodes) {
+      if (s.tabs.some((t) => t.id === id)) continue;
+      node.btn.remove();
+      tabNodes.delete(id);
+    }
+    // The strip is only as wide as the bar and scrolls when there are more
+    // tabs than fit, so switching to one that is off the end has to bring it
+    // into view — otherwise walking the tabs from the keyboard or the palette
+    // moves to a tab that cannot be seen. Only when the tab actually changes,
+    // so an ordinary status push never moves the strip under the pointer.
+    if (s.activeTab !== scrolledTab) {
+      scrolledTab = s.activeTab;
+      const node = tabNodes.get(s.activeTab);
+      if (node) node.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   }
 
-  function renameTab(tab) {
+  /** tabStripKey walks the strip with the arrow keys. Moving the focus does not
+   *  switch tab: switching means switching agent, and arrowing past four of
+   *  them to reach the fifth should not visit all four on the way. */
+  function tabStripKey(ev, id) {
+    const tabs = state ? state.tabs : [];
+    const at = tabs.findIndex((t) => t.id === id);
+    if (at < 0 || !tabs.length) return;
+    let to;
+    if (ev.key === "ArrowRight") to = (at + 1) % tabs.length;
+    else if (ev.key === "ArrowLeft") to = (at - 1 + tabs.length) % tabs.length;
+    else if (ev.key === "Home") to = 0;
+    else if (ev.key === "End") to = tabs.length - 1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const node = tabNodes.get(tabs[to].id);
+    if (!node) return;
+    node.btn.focus();
+    node.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /** tabNode returns the button for a tab, making it the first time. Every
+   *  handler is bound to the tab's id rather than to the record it arrived in,
+   *  because the record is replaced by each push and the button is not. */
+  function tabNode(id) {
+    let node = tabNodes.get(id);
+    if (node) return node;
+    const btn = el("button", "tab");
+    btn.setAttribute("role", "tab");
+    const label = el("span", "label");
+    const close = el("button", "close", "×");
+    describe(close, "Close tab");
+    close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id }); };
+    btn.append(label, close);
+    btn.onclick = () => {
+      // Re-clicking the tab already on screen produces no state change for
+      // showActiveTab to react to, so hand the keyboard back here.
+      if (state && state.activeTab === id) focusTerminal();
+      else send({ cmd: "selectTab", id });
+    };
+    btn.ondblclick = () => renameTab(id);
+    btn.onkeydown = (ev) => tabStripKey(ev, id);
+    makeTabDraggable(id, btn);
+    node = { btn, label, close, attn: null };
+    tabNodes.set(id, node);
+    return node;
+  }
+
+  /** setAttention adds or removes the marker saying an agent in this tab is
+   *  blocked. The triangle used to be appended by CSS, where no tooltip could
+   *  reach it and no screen reader was told what it meant. As a real element it
+   *  can say, in both channels, why the tab is calling for you. */
+  function setAttention(node, on) {
+    if (on === !!node.attn) return;
+    if (!on) { node.attn.remove(); node.attn = null; return; }
+    const attn = el("span", "attn", "▲");
+    attn.setAttribute("role", "img");
+    attn.setAttribute("aria-label", TIPS.waiting);
+    describe(attn, TIPS.waiting);
+    node.btn.insertBefore(attn, node.close);
+    node.attn = attn;
+  }
+
+  function renameTab(id) {
+    const tab = (state ? state.tabs : []).find((t) => t.id === id);
+    if (!tab) return;
     const name = window.prompt("Rename tab", tab.title || "");
-    if (name) send({ cmd: "renameTab", id: tab.id, text: name });
+    if (name) send({ cmd: "renameTab", id, text: name });
   }
 
   /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
@@ -505,21 +747,32 @@
     link.href = ICONS[state];
   }
 
+  /** The counts the summary is currently showing. It is a live region, so
+   *  rewriting it is not free the way rewriting an ordinary element is: a
+   *  screen reader reads out whatever appears in it, and a status push arrives
+   *  every time any agent changes what it is doing. Left to rewrite itself
+   *  unconditionally it spoke the same tally over and over, which with several
+   *  agents running is continuously. */
+  let summaryShown = "";
+
   function renderSummary(s) {
-    const box = $("summary");
-    box.textContent = "";
-    // The button's own tooltip is set once from the action table, in
-    // describeChrome; re-titling it here would put a stale binding back.
-    // Each count says what its own glyph means: the button's tooltip explains
-    // where clicking leads, which is not the same question.
-    if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
-    if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
-    if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
-    const state = s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle");
-    document.title = s.waiting > 0
-      ? `▲ ${s.waiting} waiting · perch`
-      : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
-    setFavicon(state);
+    const shown = s.waiting + " " + s.working;
+    if (shown !== summaryShown) {
+      summaryShown = shown;
+      const box = $("summary");
+      box.textContent = "";
+      // The button's own tooltip is set once from the action table, in
+      // describeChrome; re-titling it here would put a stale binding back.
+      // Each count says what its own glyph means: the button's tooltip explains
+      // where clicking leads, which is not the same question.
+      if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
+      if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
+      if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
+      document.title = s.waiting > 0
+        ? `▲ ${s.waiting} waiting · perch`
+        : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
+      setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
+    }
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     renderProjectChip(s);
   }
@@ -527,12 +780,20 @@
   /** renderProjectChip labels the switcher with the active project. */
   function renderProjectChip(s) {
     const active = (s.projects || []).find((p) => p.active);
-    $("project-name").textContent = active ? active.name : "project";
-    $("project-btn").title = active ? active.root : "Projects";
+    const name = active ? active.name : "project";
+    if ($("project-name").textContent !== name) $("project-name").textContent = name;
+    // The path goes into the same bubble as what the button does and the key
+    // that does it, rather than into a title of its own. A title is taken over
+    // as the tooltip the first time an element is hovered, so writing one here
+    // replaced the button's description with a bare path and took the binding
+    // away with it — the one thing the action table exists to prevent.
+    const btn = $("project-btn");
+    const tip = actionTip("projects", active ? active.root : "");
+    if (btn.dataset.tip !== tip) describe(btn, tip);
     // Highlight when another project needs attention, so switching away does
     // not hide the fact that an agent there is blocked.
     const elsewhere = (s.projects || []).some((p) => !p.active && p.waiting > 0);
-    $("project-btn").classList.toggle("attention", elsewhere);
+    btn.classList.toggle("attention", elsewhere);
   }
 
   // ------------------------------------------------- rearranging the layout
@@ -656,11 +917,11 @@
 
   /** makeTabDraggable makes a tab reorderable, mergeable into another tab, and
    * a place to drop a pane. */
-  function makeTabDraggable(tab, node) {
+  function makeTabDraggable(tabId, node) {
     node.draggable = true;
     node.addEventListener("dragstart", (ev) => {
       if (ev.target.closest(".close")) { ev.preventDefault(); return; }
-      beginDrag("tab", tab.id, ev, node);
+      beginDrag("tab", tabId, ev, node);
     });
     node.addEventListener("dragend", endDrag);
 
@@ -671,10 +932,10 @@
       : tabDropZone(node.getBoundingClientRect(), ev.clientX);
 
     node.addEventListener("dragover", (ev) => {
-      if (!dragging || dragging.id === tab.id) return;
+      if (!dragging || dragging.id === tabId) return;
       // Offering to move a pane into the tab it is already in would be a
       // no-op dressed up as an action.
-      if (dragging.kind === "pane" && tabIdOfPane(dragging.id) === tab.id) return;
+      if (dragging.kind === "pane" && tabIdOfPane(dragging.id) === tabId) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = "move";
       const zone = zoneAt(ev);
@@ -686,14 +947,14 @@
       node.classList.remove("drop-into", "drop-before", "drop-after");
     });
     node.addEventListener("drop", (ev) => {
-      if (!dragging || dragging.id === tab.id) return;
+      if (!dragging || dragging.id === tabId) return;
       ev.preventDefault();
       const { kind, id } = dragging;
       const zone = zoneAt(ev);
       clearDropMarks();
-      if (kind === "pane") send({ cmd: "movePaneToTab", id, target: tab.id });
-      else if (zone === "merge") send({ cmd: "mergeTab", id, target: tab.id, dir: "h" });
-      else send({ cmd: "moveTab", id, target: zone === "before" ? tab.id : tabAfter(tab.id) });
+      if (kind === "pane") send({ cmd: "movePaneToTab", id, target: tabId });
+      else if (zone === "merge") send({ cmd: "mergeTab", id, target: tabId, dir: "h" });
+      else send({ cmd: "moveTab", id, target: zone === "before" ? tabId : tabAfter(tabId) });
     });
   }
 
@@ -784,6 +1045,7 @@
       btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
+    makeToolbar(actions);
     header.append(dot, project, name, branch, git, detail, cast, actions);
 
     const body = el("div", "pane-body");
@@ -833,7 +1095,10 @@
     }
 
     p = { id, wrap, header, dot, name, project, branch, git, detail, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone };
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
+          // What each part of the header is currently showing. Empty to begin
+          // with, so the first push draws all of it.
+          shown: {} };
     panes.set(id, p);
 
     term.onData((data) => sendInput(p, data));
@@ -843,9 +1108,45 @@
       sendBytes(p, bytes);
     });
 
-    new ResizeObserver(() => scheduleFit(p)).observe(host);
+    // Kept, because it has to be disconnected when the pane closes: an
+    // observer with a live observation is held by the document whether or not
+    // the element it is watching is still in it, and through its callback it
+    // holds this whole record — the terminal, the socket and the header.
+    p.resize = new ResizeObserver(() => scheduleFit(p));
+    p.resize.observe(host);
     connectPTY(p);
     return p;
+  }
+
+  /** makeToolbar makes a row of buttons one stop on the way through the window,
+   *  walked with the arrow keys.
+   *
+   *  Five buttons per pane is thirty tab stops in a tab of six agents, and they
+   *  sit between the top bar and the terminals, so reaching a terminal from the
+   *  keyboard meant pressing Tab past every one of them. A toolbar is the shape
+   *  this already is; it just did not say so. */
+  function makeToolbar(bar) {
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "What to do with this pane");
+    const buttons = [...bar.children];
+    buttons.forEach((b, i) => { b.tabIndex = i === 0 ? 0 : -1; });
+    bar.addEventListener("keydown", (ev) => {
+      const at = buttons.indexOf(document.activeElement);
+      if (at < 0) return;
+      let to;
+      if (ev.key === "ArrowRight") to = (at + 1) % buttons.length;
+      else if (ev.key === "ArrowLeft") to = (at - 1 + buttons.length) % buttons.length;
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = buttons.length - 1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      // The stop stays where it was left, so coming back to this pane's
+      // buttons returns to the one last used rather than to the start.
+      buttons[at].tabIndex = -1;
+      buttons[to].tabIndex = 0;
+      buttons[to].focus();
+    });
   }
 
   function sendInput(p, data) {
@@ -900,38 +1201,73 @@
     }
   }
 
+  /* A status push carries the whole workspace and arrives every time any agent
+   * changes what it is doing or prints another line of detail, so with several
+   * running they are close to continuous. Almost none of a pane's header moves
+   * between two of them: the name never changes, the branch and the project
+   * hardly ever, the git counts only when a file is written. Redrawing all of
+   * it anyway meant building the branch, the git markers and the broadcast
+   * label from scratch several times a second per pane — and taking the
+   * elements a tooltip was anchored to away with them. So each part remembers
+   * what it is showing and is left alone until that differs.
+   */
   function updatePaneChrome(s) {
     const tab = activeTabOf(s);
     for (const [id, p] of panes) {
       const v = s.panes[id];
       if (!v) continue;
-      p.dot.className = "dot " + v.status;
-      // The dot is nothing but a coloured circle, so it has to say the whole
-      // sentence itself; the bare status word left the colour unexplained.
-      p.dot.setAttribute("role", "img");
-      p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
-      describe(p.dot, TIPS[v.status] || v.status);
-      p.name.textContent = v.name;
-      renderPaneProject(p, v);
-      renderPaneBranch(p, v);
-      p.detail.textContent = v.detail || "";
-      renderPaneGit(p, v);
-      // Membership is worth showing even when broadcast is off, otherwise the
-      // button that toggles it appears to do nothing at all.
-      p.cast.textContent = "";
-      if (v.broadcast) {
-        p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
-        describe(p.cast, s.broadcast
-          ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
-          : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
-      } else {
-        delete p.cast.dataset.tip;
+      const was = p.shown;
+
+      if (was.status !== v.status) {
+        was.status = v.status;
+        // On the pane as well as on its dot: a tab of six agents is six small
+        // discs, and the one that has stopped and is waiting on you should not
+        // have to be found by reading each header in turn.
+        p.wrap.dataset.status = v.status;
+        p.dot.className = "dot " + v.status;
+        // The dot is nothing but a coloured circle, so it has to say the whole
+        // sentence itself; the bare status word left the colour unexplained.
+        p.dot.setAttribute("role", "img");
+        p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
+        describe(p.dot, TIPS[v.status] || v.status);
       }
-      p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
-      p.actions.firstChild.classList.toggle("on", !!v.broadcast);
+      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; }
+
+      const project = v.project || "";
+      if (was.project !== project) { was.project = project; renderPaneProject(p, v); }
+
+      const branch = v.branch || "";
+      if (was.branch !== branch) { was.branch = branch; renderPaneBranch(p, v); }
+
+      const detail = v.detail || "";
+      if (was.detail !== detail) { was.detail = detail; p.detail.textContent = detail; }
+
+      const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
+      if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
+
+      const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
+      if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
+
       p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
       renderPaneOverlay(p, v);
     }
+  }
+
+  /** renderPaneCast says whether what is typed in the prompt bar reaches this
+   *  pane. Membership is worth showing even when broadcast is off, otherwise
+   *  the button that toggles it appears to do nothing at all. */
+  function renderPaneCast(p, v, s) {
+    p.cast.textContent = "";
+    if (v.broadcast) {
+      p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
+      describe(p.cast, s.broadcast
+        ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
+        : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
+    } else {
+      delete p.cast.dataset.tip;
+    }
+    p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
+    p.actions.firstChild.classList.toggle("on", !!v.broadcast);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -977,14 +1313,24 @@
     p.overlay = box;
   }
 
+  /** prunePanes takes down the panes the workspace no longer has. Everything a
+   *  pane holds that outlives its elements has to be given up here: the layout
+   *  tree is the only record of which panes exist, so nothing else will ever
+   *  come back to this one. */
   function prunePanes(s) {
     const live = paneIdsIn(s);
     for (const [id, p] of panes) {
       if (live.has(id)) continue;
       clearTimeout(p.retryTimer);
+      clearTimeout(p.fitTimer);
       panes.delete(id); // stop the close handler from reconnecting
       try { p.ws && p.ws.close(); } catch {}
+      p.resize.disconnect();
       p.term.dispose();
+      // A pane can go while the pointer is resting on something in its header,
+      // which would leave the bubble describing it hanging over the pane that
+      // takes its place.
+      if (tipFor && p.wrap.contains(tipFor)) hideTip();
       p.wrap.remove();
     }
   }
@@ -1064,6 +1410,54 @@
     return !!(a && a.closest && a.closest("#overlay, #palette, #promptbar, #searchbar"));
   }
 
+  /* A modal covers the window and nothing behind it can be used — but the Tab
+   * key does not know that. Left alone it walks out of the dialog and into the
+   * terminal underneath, where the box that appeared to have the keyboard no
+   * longer does and the next thing typed is delivered to an agent. So Tab is
+   * kept inside whichever of the three is on screen, and opening one puts the
+   * keyboard in it to begin with.
+   */
+
+  /** FOCUSABLE names everything Tab can land on. Disabled controls and
+   *  anything a dialog has hidden are filtered out afterwards. */
+  const FOCUSABLE = "button, input, textarea, select, a[href], [tabindex]";
+
+  /** modalRoot is the panel of the dialog that has taken the window over, if
+   *  one has. The prompt and find bars are strips rather than modals: they
+   *  leave the panes visible and usable, so Tab may leave them. */
+  function modalRoot() {
+    if (!$("disconnected").hidden) return $("disconnected").querySelector(".panel");
+    if (!$("palette").hidden) return $("palette-box");
+    if (!$("overlay").hidden) return $("overlay-panel");
+    return null;
+  }
+
+  function focusablesIn(root) {
+    return [...root.querySelectorAll(FOCUSABLE)].filter((n) => {
+      if (n.disabled || n.getAttribute("tabindex") === "-1") return false;
+      for (let p = n; p && p !== root.parentElement; p = p.parentElement) if (p.hidden) return false;
+      return true;
+    });
+  }
+
+  /** trapTab moves the focus on itself and reports that it has, so the key
+   *  never reaches the browser's own idea of what follows this element. */
+  function trapTab(e) {
+    const root = modalRoot();
+    if (!root) return false;
+    e.preventDefault();
+    const items = focusablesIn(root);
+    if (!items.length) { root.focus(); return true; }
+    const at = items.indexOf(document.activeElement);
+    // Focus that has fallen outside — onto the body, because the dialog
+    // redrew — comes back in at whichever end it was heading for.
+    const next = at < 0
+      ? (e.shiftKey ? items[items.length - 1] : items[0])
+      : items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length];
+    next.focus();
+    return true;
+  }
+
   // --------------------------------------------------------------- overlays
 
   /** openOverlay shows the dialog panel. `page` names the help page that
@@ -1084,7 +1478,59 @@
       $("overlay-head").insertBefore(b, $("overlay-close"));
     }
     $("overlay").hidden = false;
+    // The dialog names itself through its heading, so landing here is what
+    // announces which one opened; the pages that have a field of their own
+    // take the keyboard off it a moment later.
+    $("overlay-panel").focus();
   }
+  /** keepFocus redraws the dialog's body and puts the keyboard back on the
+   *  control it was on.
+   *
+   *  These dialogs are drawn whole from the reply that comes back, so pressing
+   *  Refresh, or Fetch, or Remove throws away the button that was pressed along
+   *  with everything else — and the keyboard with it, onto the body, with no way
+   *  back into the dialog but tabbing from the top. The control is found again
+   *  by what it is and what it says, which is how a person finds it too, and
+   *  the text caret is put back where it was for a field.
+   */
+  function keepFocus(draw) {
+    const body = $("overlay-body");
+    const was = document.activeElement;
+    const key = was && body.contains(was) ? identify(was) : "";
+    const at = was && was.selectionStart;
+    draw();
+    if (!key) return;
+    for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
+      if (identify(node) !== key) continue;
+      node.focus();
+      if (at != null && node.setSelectionRange) {
+        try { node.setSelectionRange(at, at); } catch { /* not that kind of field */ }
+      }
+      return;
+    }
+  }
+
+  /** identify is what makes a control the same control across a redraw. An id
+   *  is that on its own; otherwise it is what the control is and what it says,
+   *  which is how a person finds it again too. A control whose wording changes
+   *  while it is working needs the id. */
+  function identify(node) {
+    return node.id ? "#" + node.id
+      : [node.tagName, node.className, (node.textContent || "").trim()].join("|");
+  }
+
+  /** refreshDialog asks again for whatever the open dialog is showing. */
+  function refreshDialog() {
+    if (dialog === "worktrees") send({ cmd: "worktrees" });
+    else if (dialog === "changes") send({ cmd: "changes", path: (changes && changes.cwd) || "" });
+    else if (dialog === "agents") send({ cmd: "agents" });
+    else if (dialog === "history") send({ cmd: "conversations" });
+    else if (dialog === "projects") {
+      send({ cmd: "recents" });
+      send({ cmd: "browse", path: browseState ? browseState.path : "" });
+    }
+  }
+
   function closeOverlay() {
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide");
@@ -1095,11 +1541,17 @@
   // ------------------------------------------------------------- worktrees
 
   let worktrees = null;
+  /** What has been typed into the new-worktree form. The dialog is drawn whole
+   *  from each reply, so without this a branch name half-typed when a worktree
+   *  was removed, or Refresh was pressed, went with the redraw. It is kept for
+   *  as long as the dialog is open and no longer. */
+  let wtDraft = { branch: "", base: "" };
 
   function renderWorktrees(msg) {
     if (msg) worktrees = msg;
     if ($("overlay").hidden || dialog !== "worktrees") {
       dialog = "worktrees";
+      wtDraft = { branch: "", base: "" };
       openOverlay("Worktrees", "worktrees");
     }
     const m = worktrees || {};
@@ -1205,9 +1657,12 @@
     const branch = el("input");
     branch.placeholder = "Branch name, e.g. fix-auth";
     branch.id = "wt-branch";
+    branch.value = wtDraft.branch;
+    branch.oninput = () => { wtDraft.branch = branch.value; };
     const base = el("input");
     base.placeholder = "Base";
-    base.value = m.defaultBase || "";
+    base.value = wtDraft.base || m.defaultBase || "";
+    base.oninput = () => { wtDraft.base = base.value; };
     base.id = "wt-base";
     base.title = "The commit or branch the new branch starts from";
     base.setAttribute("list", "wt-bases");
@@ -1225,6 +1680,7 @@
       if (!branch.value.trim()) return;
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
+      wtDraft.branch = "";
     };
     go.onclick = submit;
     branch.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
@@ -1264,6 +1720,7 @@
 
   function openProjects() {
     dialog = "projects";
+    browseDraft = null;
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -1280,12 +1737,18 @@
     const openSection = section("Open");
     open.forEach((p) => {
       const row = el("div", "proj-row" + (p.active ? " active" : ""));
-      const main = el("div", "proj-main");
-      main.append(el("div", "proj-name", p.name));
-      main.append(el("div", "proj-path", p.root));
-      row.append(main);
+      // The row's own action — switch to this project — is a real button
+      // wrapping everything that describes it, rather than a click handler on
+      // the row. A handler on a div cannot be tabbed to and does not answer
+      // Enter, and the icon buttons beside it could not have been nested
+      // inside something that claimed to be a button itself.
+      const go = el("button", "proj-go");
+      const main = el("span", "proj-main");
+      main.append(el("span", "proj-name", p.name));
+      main.append(el("span", "proj-path", p.root));
+      go.append(main);
 
-      const badge = el("div", "proj-badge");
+      const badge = el("span", "proj-badge");
       // The triangle and the disc are the marks the pane headers already use,
       // so they take the same copy; the label keeps the count the glyph hides.
       if (p.waiting) {
@@ -1301,15 +1764,16 @@
         badge.append(describe(n, TIPS.working), document.createTextNode(" "));
       }
       badge.append(document.createTextNode(p.tabs + (p.tabs === 1 ? " tab" : " tabs")));
-      row.append(badge);
+      go.append(badge);
+      go.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
+      row.append(go);
 
       // Splitting into the project already on screen is just an ordinary
       // split, so the button is offered on the others.
       if (!p.active) {
         const split = el("button", "icon-btn", "⊞");
         describe(split, TIPS.splitHere);
-        split.onclick = (ev) => {
-          ev.stopPropagation();
+        split.onclick = () => {
           send({ cmd: "splitPane", dir: "h", root: p.root });
           closeOverlay();
         };
@@ -1319,10 +1783,9 @@
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
         describe(close, "Close this project. The agents running in it stop.");
-        close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeProject", root: p.root }); };
+        close.onclick = () => send({ cmd: "closeProject", root: p.root });
         row.append(close);
       }
-      row.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
       openSection.append(row);
     });
     body.append(openSection);
@@ -1333,21 +1796,46 @@
       const rec = section("Recent");
       notOpen.slice(0, 8).forEach((r) => {
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
-        const main = el("div", "proj-main");
-        main.append(el("div", "proj-name", r.name));
-        main.append(el("div", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
-        row.append(main);
+        const main = el("span", "proj-main");
+        main.append(el("span", "proj-name", r.name));
+        main.append(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
+        // A project whose folder has gone cannot be opened, so it stays text
+        // rather than becoming a button that does nothing when it is pressed.
+        if (r.exists) {
+          const go = el("button", "proj-go");
+          go.append(main);
+          go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
+          row.append(go);
+        } else {
+          row.append(main);
+        }
         const forget = el("button", "icon-btn", "\u00d7");
         describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "forgetRecent", root: r.root }); };
+        forget.onclick = () => send({ cmd: "forgetRecent", root: r.root });
         row.append(forget);
-        if (r.exists) row.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
         rec.append(row);
       });
       body.append(rec);
     }
 
     body.append(renderBrowser());
+  }
+
+  /** rowAction makes a whole row behave as the button it already is to a
+   *  mouse. A div carrying an onclick cannot be reached with Tab and does not
+   *  answer Enter, so a list built out of them is a list only a pointer can
+   *  use — and these lists are how the file an agent changed gets read and how
+   *  the agent that is blocked gets found. */
+  function rowAction(row, fn) {
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.onclick = fn;
+    row.onkeydown = (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      ev.preventDefault();
+      fn(ev);
+    };
+    return row;
   }
 
   function section(title) {
@@ -1367,7 +1855,11 @@
     up.disabled = !b || !b.parent;
     up.onclick = () => send({ cmd: "browse", path: b.parent });
     const path = el("input");
-    path.value = b ? b.path : "";
+    // A path being typed survives a redraw of the dialog — dropping a project
+    // from the recent list redraws it — and gives way to wherever the browser
+    // has actually been sent, which is what arriving somewhere new means.
+    path.value = browseDraft !== null ? browseDraft : (b ? b.path : "");
+    path.oninput = () => { browseDraft = path.value; };
     path.placeholder = "Type or paste a path, then press Enter";
     path.onkeydown = (ev) => {
       if (ev.key !== "Enter") return;
@@ -1400,18 +1892,25 @@
     } else {
       b.entries.forEach((e) => {
         const row = el("div", "dir-row" + (e.isRepo ? " repo" : "") + (e.hidden ? " hidden-dir" : ""));
+        // Looking inside the folder is this row's own action, and the only way
+        // to reach anywhere that is not already on the list, so it is a button
+        // rather than a click handler on a div. Opening the folder as a
+        // project is the chip beside it, which is why neither can contain the
+        // other.
+        const into = el("button", "dir-into");
         // One glyph for a repository and another for a plain folder: the whole
         // distinction lives in the shape, so it has to be spelled out.
         const icon = el("span", "dir-icon", e.isRepo ? "\u25c6" : "\u25b8");
         icon.setAttribute("role", "img");
         icon.setAttribute("aria-label", e.isRepo ? "Git repository" : "Folder");
-        row.append(describe(icon, e.isRepo ? TIPS.repoFolder : TIPS.plainFolder));
-        row.append(el("span", "dir-name", e.name));
-        if (e.isRepo) row.append(el("span", "dir-repo", "git"));
+        into.append(describe(icon, e.isRepo ? TIPS.repoFolder : TIPS.plainFolder));
+        into.append(el("span", "dir-name", e.name));
+        if (e.isRepo) into.append(el("span", "dir-repo", "git"));
+        into.onclick = () => send({ cmd: "browse", path: e.path });
+        row.append(into);
         const openBtn = el("button", "chip", "Open");
-        openBtn.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "openProject", path: e.path }); closeOverlay(); };
+        openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
         row.append(openBtn);
-        row.onclick = () => send({ cmd: "browse", path: e.path });
         list.append(row);
       });
     }
@@ -1474,27 +1973,49 @@
 
   // ----------------------------------------------------------------- search
 
+  /** The pane the find bar was opened on. It is not always the focused one by
+   *  the time a search runs: clicking into another pane while the bar is up
+   *  moves the focus, and a search that followed it would jump to a pane the
+   *  user was not looking at and leave the first one marked for good, since
+   *  only the focused pane's marks were ever cleared. */
+  let searchPane = "";
+
   function openSearch() {
+    searchPane = focusedPaneId();
     $("searchbar").hidden = false;
+    // With six panes on screen, "Find" alone does not say where it is looking.
+    const v = state && state.panes ? state.panes[searchPane] : null;
+    $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
     const input = $("search-input");
     input.value = "";
+    noMatch(false);
     input.focus();
   }
   function closeSearch() {
     $("searchbar").hidden = true;
-    const p = panes.get(focusedPaneId());
+    const p = panes.get(searchPane);
     if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
+    searchPane = "";
     focusTerminal();
   }
   function runSearch(back) {
-    const p = panes.get(focusedPaneId());
+    const p = panes.get(searchPane);
     const q = $("search-input").value;
-    if (!p || !p.search || !q) return;
+    if (!p || !p.search || !q) { noMatch(false); return; }
     const opts = { decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
+    let found = false;
     try {
-      if (back) p.search.findPrevious(q, opts);
-      else p.search.findNext(q, opts);
+      found = back ? p.search.findPrevious(q, opts) : p.search.findNext(q, opts);
     } catch { /* the addon is optional */ }
+    // Nothing else changes when a search fails — the terminal sits where it
+    // was — so without this, pressing Enter on a word that is not there looks
+    // exactly like pressing Enter on one that is.
+    noMatch(!found);
+  }
+  function noMatch(on) {
+    const input = $("search-input");
+    input.classList.toggle("nomatch", on);
+    input.setAttribute("aria-invalid", String(on));
   }
 
   // --------------------------------------------------------- notifications
@@ -1505,25 +2026,48 @@
   const lastStatus = new Map();
 
   function notifyAttention(s) {
+    const fresh = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
       const before = lastStatus.get(id);
       lastStatus.set(id, v.status);
+      // Never on the first sighting of a pane: arriving at a workspace where
+      // three agents are already waiting is not news that they just stopped.
       if (v.status !== "waiting" || before === "waiting" || before === undefined) continue;
-      // Only when the window is not in front: otherwise the tab marker is
-      // enough and a toast would be noise.
-      if (document.hasFocus() && !document.hidden) continue;
-      showNotification(v.name + " needs you", (v.branch ? v.branch + " — " : "") + "waiting for input");
+      fresh.push({ id, name: v.name, branch: v.branch });
     }
     for (const id of [...lastStatus.keys()]) {
       if (!s.panes || !s.panes[id]) lastStatus.delete(id);
     }
+    // Only when the window is not in front: otherwise the marker on the tab is
+    // enough and a notification would be noise.
+    if (!fresh.length || (document.hasFocus() && !document.hidden)) return;
+
+    // One notification for however many stopped at once. They all carry the
+    // same tag, so several sent together replace each other on the desktop and
+    // only the last survives — and a plan fanned out into six agents is six of
+    // them reaching the same permission question within a second of each
+    // other, of which you would have been told about exactly one, chosen by
+    // whatever order the panes happened to arrive in.
+    const one = fresh.length === 1;
+    showNotification(
+      one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
+      one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
+          : fresh.map((f) => f.name).join(", "),
+      fresh[0].id);
   }
 
-  function showNotification(title, body) {
+  function showNotification(title, body, paneID) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
       const n = new Notification(title, { body, tag: "perch" });
-      n.onclick = () => { window.focus(); n.close(); };
+      n.onclick = () => {
+        window.focus();
+        // Raising the window in front of whichever tab happened to be on
+        // screen does not answer the question. The pane that asked it does,
+        // and it may well be on a tab that is not the one showing.
+        if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
+        n.close();
+      };
     } catch { /* notifications are best effort */ }
   }
 
@@ -1609,11 +2153,10 @@
    *  table instead, once it has arrived. */
   function describeChrome() {
     const label = (id, node, extra) => {
-      const k = keyTable.find((x) => x.id === id);
-      if (!node || !k) return;
-      describe(node, k.label + (k.keys ? " (" + k.keys + ")" : "") + (extra ? " — " + extra : ""));
+      if (node && keyTable.some((k) => k.id === id)) describe(node, actionTip(id, extra));
     };
-    label("projects", $("project-btn"));
+    // The project switcher is not in this list: its bubble names the project
+    // as well, so renderProjectChip writes it as the project changes.
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("agents", $("summary"));
     label("toggleBroadcast", $("btn-broadcast"));
@@ -1621,6 +2164,15 @@
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("help", $("btn-help"));
+  }
+
+  /** actionTip is the copy for a control that runs an action: what it does and
+   *  the key that does it, both taken from the table, and whatever else this
+   *  particular control has to say. */
+  function actionTip(id, extra) {
+    const k = keyTable.find((x) => x.id === id);
+    if (!k) return extra || "";
+    return k.label + (k.keys ? " (" + k.keys + ")" : "") + (extra ? " — " + extra : "");
   }
 
   /** runAction runs one action by id, asking first where the table says the
@@ -1667,6 +2219,9 @@
 
   let palItems = [];
   let palIndex = 0;
+  /** The rows on screen, so moving the highlight can move the highlight
+   *  rather than building the list again. */
+  let palRows = [];
 
   function paletteCommands() {
     const s = state || {};
@@ -1723,23 +2278,57 @@
 
     const list = $("palette-list");
     list.textContent = "";
+    palRows = [];
     if (!palItems.length) {
       list.append(el("div", "pal-empty", "No matching command."));
+      markPaletteRow();
       return;
     }
     palItems.forEach((c, i) => {
-      const row = el("div", "pal-row" + (i === palIndex ? " sel" : ""));
+      const row = el("div", "pal-row");
+      row.id = "pal-row-" + i;
+      row.setAttribute("role", "option");
       row.append(el("span", "pal-label", c.label));
       if (c.hint) row.append(el("span", "pal-hint", c.hint));
-      row.onmouseenter = () => { palIndex = i; renderPalette(); };
+      row.onmouseenter = () => selectPaletteRow(i);
       row.onclick = () => { closePalette(); c.run(); };
+      palRows.push(row);
       list.append(row);
     });
+    markPaletteRow();
+  }
+
+  /** selectPaletteRow moves the highlight. Building the list again to move it
+   *  destroyed the row the pointer was resting on, so a mouse crossing the
+   *  palette rebuilt every row in it for each row it passed; and forty rows
+   *  were assembled for each press of an arrow key. */
+  function selectPaletteRow(i) {
+    if (i === palIndex || i < 0 || i >= palRows.length) return;
+    palIndex = i;
+    markPaletteRow();
+  }
+
+  function markPaletteRow() {
+    palRows.forEach((row, i) => {
+      const on = i === palIndex;
+      row.classList.toggle("sel", on);
+      row.setAttribute("aria-selected", String(on));
+    });
+    const sel = palRows[palIndex];
+    // The keyboard never leaves the field while the list is being walked, so
+    // it is the field that has to name the command currently picked out; a
+    // colour on a row says nothing to anyone who cannot see it.
+    const input = $("palette-input");
+    if (!sel) { input.removeAttribute("aria-activedescendant"); return; }
+    input.setAttribute("aria-activedescendant", sel.id);
+    // The list is taller than the box it is in, so the highlight has to be
+    // brought along or arrowing down walks it off the bottom and out of sight.
+    sel.scrollIntoView({ block: "nearest" });
   }
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); palIndex = Math.min(palIndex + 1, palItems.length - 1); renderPalette(); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); palIndex = Math.max(palIndex - 1, 0); renderPalette(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); selectPaletteRow(Math.min(palIndex + 1, palRows.length - 1)); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); selectPaletteRow(Math.max(palIndex - 1, 0)); return; }
     if (e.key === "Enter") {
       e.preventDefault();
       const c = palItems[palIndex];
@@ -1819,6 +2408,11 @@
   let changes = null;
   let selectedFile = null;
   let diffText = "";
+  /** The two parts of the dialog that change on their own: the file rows, so
+   *  the chosen one can be marked, and the panel the diff is drawn in. Picking
+   *  a file and the diff coming back leave the rest of the page alone — above
+   *  all the commit message, which is being typed into. */
+  let changeView = null;
 
   /** openChanges reviews a working tree: which files an agent touched, what it
    *  did to them, and committing or pushing the result without dropping to a
@@ -1835,6 +2429,7 @@
   }
 
   function renderChanges(msg) {
+    changeView = null;
     if (msg) {
       changes = msg;
       // Keep the selection if that file is still in the list.
@@ -1881,23 +2476,43 @@
     }
 
     const actions = el("div", "rev-actions");
+
+    /* Fetching, pulling, pushing and committing all talk to a remote, which
+     * takes seconds and sometimes considerably longer. Nothing on screen said
+     * so: the button looked exactly as it had, so the natural reading was that
+     * the press had not registered, and pressing it again sent a second push
+     * while the first was still in flight.
+     *
+     * Every one of these ends by sending the working tree back, whether it
+     * worked or not, which redraws this dialog with its buttons as they should
+     * be. So saying so and refusing further presses until then needs nothing
+     * to undo it. */
+    const running = (btn, saying) => {
+      btn.textContent = saying;
+      for (const b of body.querySelectorAll("button")) b.disabled = true;
+    };
+
     if (m.hasRemote) {
       const fetch = el("button", "chip", "Fetch");
-      fetch.onclick = () => send({ cmd: "gitFetch", path: m.cwd });
+      fetch.id = "rev-fetch";
+      fetch.onclick = () => { running(fetch, "Fetching…"); send({ cmd: "gitFetch", path: m.cwd }); };
       actions.append(fetch);
       if (m.behind) {
         const pull = el("button", "chip", "Pull " + m.behind);
+        pull.id = "rev-pull";
         pull.title = "Fast-forward from " + m.upstream;
-        pull.onclick = () => send({ cmd: "gitPull", path: m.cwd });
+        pull.onclick = () => { running(pull, "Pulling…"); send({ cmd: "gitPull", path: m.cwd }); };
         actions.append(pull);
       }
       const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
+      push.id = "rev-push";
       push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
-      push.onclick = () => send({ cmd: "gitPush", path: m.cwd });
+      push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
       actions.append(push);
     }
     const refresh = el("button", "chip", "Refresh");
-    refresh.onclick = () => send({ cmd: "changes", path: m.cwd });
+    refresh.id = "rev-refresh";
+    refresh.onclick = () => { running(refresh, "Reading…"); send({ cmd: "changes", path: m.cwd }); };
     actions.append(refresh);
     head.append(actions);
     body.append(head);
@@ -1909,6 +2524,7 @@
       // --- file list and diff ---------------------------------------------
       const split = el("div", "rev-body");
       const list = el("div", "rev-files");
+      const rows = new Map();
       files.forEach((f) => {
         const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
         row.append(el("span", "rev-kind", f.label));
@@ -1930,22 +2546,17 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        row.onclick = () => {
-          selectedFile = f.path;
-          diffText = "";
-          renderChanges();
-          send({ cmd: "diff", path: m.cwd, text: f.path });
-        };
+        rowAction(row, () => selectChangedFile(f.path, m.cwd));
+        rows.set(f.path, row);
         list.append(row);
       });
       split.append(list);
 
       const diff = el("div", "rev-diff");
-      if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
-      else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
-      else renderDiffInto(diff, diffText);
       split.append(diff);
       body.append(split);
+      changeView = { rows, diff };
+      fillDiff();
 
       // --- commit -----------------------------------------------------------
       const commit = el("div", "rev-commit");
@@ -1955,18 +2566,21 @@
       box.value = commitDraft;
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
-      const doCommit = (push) => {
+      const doCommit = (btn, push) => {
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
+        running(btn, push ? "Committing and pushing…" : "Committing…");
         send({ cmd: "commit", path: m.cwd, text: message, push });
         commitDraft = "";
       };
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
-      c1.onclick = () => doCommit(false);
+      c1.id = "rev-commit";
+      c1.onclick = () => doCommit(c1, false);
       buttons.append(c1);
       if (m.hasRemote) {
         const c2 = el("button", "chip", "Commit and push");
-        c2.onclick = () => doCommit(true);
+        c2.id = "rev-commit-push";
+        c2.onclick = () => doCommit(c2, true);
         buttons.append(c2);
       }
       commit.append(box, buttons);
@@ -1980,23 +2594,83 @@
 
   let commitDraft = "";
 
+  /** selectChangedFile shows one file's diff. Only the marking on the rows and
+   *  the diff panel change: rebuilding the dialog would take the commit box
+   *  away from under the caret, and the message half-written in it with the
+   *  caret. */
+  function selectChangedFile(path, cwd) {
+    if (selectedFile === path) return;
+    selectedFile = path;
+    diffText = "";
+    markSelectedFile();
+    fillDiff();
+    send({ cmd: "diff", path: cwd, text: path });
+  }
+
+  function markSelectedFile() {
+    if (!changeView) return;
+    for (const [path, row] of changeView.rows) {
+      const on = path === selectedFile;
+      row.classList.toggle("sel", on);
+      // The diff beside the list is of this row, which the colouring says to
+      // the eye and nothing said otherwise.
+      row.setAttribute("aria-current", String(on));
+    }
+  }
+
+  /** fillDiff draws whatever the diff panel should be showing now. */
+  function fillDiff() {
+    if (!changeView) return;
+    const diff = changeView.diff;
+    diff.textContent = "";
+    if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
+    else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
+    else renderDiffInto(diff, diffText);
+    diff.scrollTop = 0;
+  }
+
   function showDiff(msg) {
     if (msg.file !== selectedFile) return; // a stale reply for another file
     diffText = msg.error ? msg.error : msg.text;
-    renderChanges();
+    if (changeView) fillDiff();
+    else renderChanges();
   }
+
+  /** How many lines of a diff are drawn before the rest are offered rather than
+   *  built. The Go side caps a diff at 400KB, which bounds the bytes it sends
+   *  but says nothing about the lines: a generated file of short lines reaches
+   *  that in something like two hundred thousand of them, and an element per
+   *  line is then two hundred thousand elements built and laid out inside a
+   *  panel three hundred pixels tall, while the window does nothing else.
+   *  Three thousand is more than anyone reads in one panel. */
+  const DIFF_LINES = 3000;
 
   /** renderDiffInto colours a unified diff without a syntax highlighter. */
   function renderDiffInto(host, text) {
-    text.split("\n").forEach((line) => {
-      let cls = "";
-      if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
-      else if (line.startsWith("@@")) cls = "hunk";
-      else if (line.startsWith("+")) cls = "add";
-      else if (line.startsWith("-")) cls = "del";
-      else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
-      host.append(el("div", cls, line || " "));
-    });
+    const lines = text.split("\n");
+    const shown = Math.min(lines.length, DIFF_LINES);
+    for (let i = 0; i < shown; i++) host.append(diffLine(lines[i]));
+    if (shown === lines.length) return;
+
+    const rest = lines.length - shown;
+    const note = el("div", "meta", rest + " more lines are not drawn.");
+    const more = el("button", "chip", "Show them");
+    more.onclick = () => {
+      note.remove();
+      more.remove();
+      for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+    };
+    host.append(note, more);
+  }
+
+  function diffLine(line) {
+    let cls = "";
+    if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
+    else if (line.startsWith("@@")) cls = "hunk";
+    else if (line.startsWith("+")) cls = "add";
+    else if (line.startsWith("-")) cls = "del";
+    else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
+    return el("div", cls, line || " ");
   }
 
   // ---------------------------------------------------------------- agents
@@ -2035,9 +2709,10 @@
       const title = el("div", "agent-title");
       // The dot is the only thing carrying status here, and it has no text
       // at all, so it needs both the copy and a name of its own.
+      // The row writes the status out in words further along, so the disc is
+      // decoration here — unlike in a pane header, where it is all there is.
       const dot = el("span", "dot " + a.status);
-      dot.setAttribute("role", "img");
-      dot.setAttribute("aria-label", a.status);
+      dot.setAttribute("aria-hidden", "true");
       title.append(describe(dot, TIPS[a.status] || a.status));
       title.append(el("span", "agent-tab", a.tab || a.name));
       title.append(el("span", "agent-project", a.project));
@@ -2065,10 +2740,10 @@
       row.append(status);
       if (a.for) row.append(el("span", "agent-for", "for " + a.for));
 
-      row.onclick = () => {
+      rowAction(row, () => {
         send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
         closeOverlay();
-      };
+      });
       wrap.append(row);
     });
     body.append(wrap);
@@ -2309,6 +2984,11 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
       .then((data) => {
         helpPages = data.pages || [];
+        // The search matches against the whole of every page. Folding the case
+        // once here rather than on each keystroke is the difference between
+        // searching a few kilobytes and rebuilding them for every character.
+        helpPages.forEach((p) => { p.hay = (p.title + " " + p.text).toLowerCase(); });
+        helpHitsFor = null;
       })
       .catch((err) => {
         helpError = "The help pages could not be loaded (" + err.message + ").";
@@ -2418,17 +3098,29 @@
   /** helpMatches is the contents list, filtered by the search box. Each hit
    *  carries the piece of the page the words were found in, so the list
    *  answers "which page is this in" without opening each one. */
+  /** The hits for the search as it currently reads. One keystroke asks for
+   *  them from the contents list, from the page beside it and, on an arrow key,
+   *  from the key handler as well; there is one answer between them. */
+  let helpHits = null;
+  let helpHitsFor = null;
+
   function helpMatches() {
+    if (helpHitsFor === helpQuery && helpHits) return helpHits;
     const pages = helpPages || [];
     const q = helpQuery.trim().toLowerCase();
-    if (!q) return pages.map((p) => ({ page: p, snippet: "" }));
-    const words = q.split(/\s+/);
-    const out = [];
-    pages.forEach((p) => {
-      const hay = (p.title + " " + p.text).toLowerCase();
-      if (!words.every((w) => hay.includes(w))) return;
-      out.push({ page: p, snippet: snippetFor(p.text, words[0]) });
-    });
+    let out;
+    if (!q) {
+      out = pages.map((p) => ({ page: p, snippet: "" }));
+    } else {
+      const words = q.split(/\s+/);
+      out = [];
+      pages.forEach((p) => {
+        if (!words.every((w) => p.hay.includes(w))) return;
+        out.push({ page: p, snippet: snippetFor(p.text, words[0]) });
+      });
+    }
+    helpHitsFor = helpQuery;
+    helpHits = out;
     return out;
   }
 
@@ -2457,18 +3149,40 @@
     }
   }
 
+  /** How long a message stays. An error is not just news: something you asked
+   *  for did not happen, and this toast is the only place it is ever said —
+   *  there is no log to go back to. Four seconds is long enough for a message
+   *  about the thing you are looking at and not long enough for one about a
+   *  push you started before turning to another pane. */
+  const NOTICE_MS = 4000;
+  const ERROR_MS = 12000;
+
   function notice(text, isError) {
     const n = $("notice");
-    n.textContent = text;
     n.classList.toggle("error", !!isError);
+    // Set before the text, because it is the text changing that a screen
+    // reader acts on and it acts with whatever politeness is in force then. An
+    // error interrupts: waiting for a pause to mention that a push was
+    // rejected is waiting for the moment it stops mattering.
+    n.setAttribute("aria-live", isError ? "assertive" : "polite");
+    n.textContent = text;
     n.hidden = false;
     clearTimeout(notice.timer);
-    notice.timer = setTimeout(() => { n.hidden = true; }, 4000);
+    notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
+  }
+
+  /** hideNotice takes the message away. It is also what a click on it does:
+   *  the toast is drawn over the terminals and takes the pointer, so a click
+   *  meant for the pane underneath was going nowhere at all. */
+  function hideNotice() {
+    clearTimeout(notice.timer);
+    $("notice").hidden = true;
   }
 
   // -------------------------------------------------------------- shortcuts
 
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
     if (!$("searchbar").hidden && document.activeElement === $("search-input")) {
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
@@ -2527,9 +3241,20 @@
   $("search-next").onclick = () => runSearch(false);
   $("search-prev").onclick = () => runSearch(true);
   $("search-close").onclick = closeSearch;
+  $("notice").onclick = hideNotice;
   // Asking on the first interaction rather than at load avoids a permission
-  // prompt before the user has done anything.
-  window.addEventListener("pointerdown", askForNotifications, { once: true });
+  // prompt before the user has done anything. A keystroke is an interaction as
+  // much as a click, and this is an application built to be driven from the
+  // keyboard: waiting for a pointer meant someone who never reaches for one was
+  // never asked, and so never got the one signal that reaches them while the
+  // window is behind something else.
+  const askOnFirstUse = () => {
+    window.removeEventListener("pointerdown", askOnFirstUse, true);
+    window.removeEventListener("keydown", askOnFirstUse, true);
+    askForNotifications();
+  };
+  window.addEventListener("pointerdown", askOnFirstUse, true);
+  window.addEventListener("keydown", askOnFirstUse, true);
 
   window.addEventListener("beforeunload", () => send({ cmd: "save" }));
 

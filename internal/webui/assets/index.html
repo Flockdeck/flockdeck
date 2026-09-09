@@ -45,7 +45,7 @@
   </div>
 
   <div id="searchbar" hidden>
-    <label for="search-input">Find</label>
+    <label for="search-input" id="search-label">Find</label>
     <input id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search this terminal">
     <button id="search-prev" class="chip" title="Previous (Shift+Enter)" aria-label="Previous match (Shift+Enter)">↑</button>
     <button id="search-next" class="chip" title="Next (Enter)" aria-label="Next match (Enter)">↓</button>
@@ -53,19 +53,24 @@
   </div>
 
   <div id="palette" hidden>
-    <div id="palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div id="palette-box" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <!-- The field keeps the keyboard while the list below is walked with the
+           arrow keys, so it is the field that has to say which command is
+           currently picked out: aria-activedescendant, written by app.js. -->
       <input id="palette-input" type="text" autocomplete="off" spellcheck="false"
-             aria-label="Command" placeholder="Type a command…">
-      <div id="palette-list"></div>
+             aria-label="Command" placeholder="Type a command…"
+             role="combobox" aria-expanded="true" aria-autocomplete="list"
+             aria-controls="palette-list">
+      <div id="palette-list" role="listbox" aria-label="Commands"></div>
     </div>
   </div>
 
   <!-- Transient toast. It is the only feedback for a command that succeeds or
        fails without changing the screen, so it has to be spoken as well. -->
-  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <div id="notice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
   <div id="overlay" hidden>
-    <div id="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+    <div id="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title" tabindex="-1">
       <div id="overlay-head">
         <h2 id="overlay-title">Worktrees</h2>
         <button id="overlay-close" class="icon-btn" aria-label="Close this dialog (Esc)" data-tip="Close this dialog (Esc)">×</button>

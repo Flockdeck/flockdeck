@@ -146,7 +146,12 @@ body { display: flex; flex-direction: column; }
 .tab:focus-visible,
 .tab .close:focus-visible,
 .pane-actions button:focus-visible,
+.divider:focus-visible,
 .help-item:focus-visible,
+.rev-file:focus-visible,
+.agent-row:focus-visible,
+.proj-go:focus-visible,
+.dir-into:focus-visible,
 .places button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
@@ -190,6 +195,10 @@ textarea:focus-visible {
 .split.h > .divider { cursor: col-resize; }
 .split.v > .divider { cursor: row-resize; }
 .divider:hover::after, .divider.dragging::after { background: var(--accent); }
+/* The bar is four pixels wide, so a ring drawn around it would be most of what
+ * you saw. Lighting the line itself says the same thing in the space there is,
+ * and the ring above still draws for anything that does have room. */
+.divider:focus-visible::after { background: var(--accent); }
 
 /* ------------------------------------------------------------------- panes */
 
@@ -259,6 +268,24 @@ textarea:focus-visible {
 }
 .pane.focused .pane-header { color: var(--fg); }
 
+/* An agent that has stopped and is waiting on you is the only thing on this
+ * screen that needs a person, and across six panes an eight-pixel disc is not
+ * enough to find it by. Its header takes the colour the disc already has, so
+ * the pane the answer is owed to is the one that stands out.
+ *
+ * The header rather than the border, because the border says which pane the
+ * keyboard is in and that question still has to be answerable while three
+ * agents are waiting. color-mix keeps the palette the one source of the
+ * colour; where it is not understood the header is simply not tinted, which is
+ * where this started. */
+.pane[data-status="waiting"] .pane-header {
+  background: color-mix(in srgb, var(--waiting) 20%, var(--bg-raised));
+  color: var(--fg);
+}
+.pane[data-status="exited"] .pane-header {
+  background: color-mix(in srgb, var(--exited) 18%, var(--bg-raised));
+}
+
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--idle); }
 .dot.working { background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
 .dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
@@ -281,7 +308,7 @@ textarea:focus-visible {
   padding: 1px 5px;
   border-radius: 3px;
   color: var(--fg);
-  background: var(--sep);
+  background: var(--line-strong);
   white-space: nowrap;
 }
 /* Everything to the left of the actions has to be able to collapse. The
@@ -404,14 +431,22 @@ textarea:focus-visible {
 }
 .proj-row {
   display: flex; align-items: center; gap: 10px; padding: 7px 8px;
-  border: 1px solid transparent; border-radius: var(--radius); cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius);
 }
 .proj-row:hover { background: #22262e; border-color: var(--line); }
 .proj-row.active { background: var(--bg-inset); border-color: var(--accent); }
 .proj-row.missing { opacity: .55; }
-.proj-main { flex: 1 1 auto; min-width: 0; }
-.proj-name { font-weight: 600; }
-.proj-path { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Switching to the project is a real button covering everything that describes
+ * it, so it takes the row's own layout and gives up every part of looking like
+ * a button. The buttons that are meant to look like buttons sit beside it. */
+.proj-go {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px;
+  background: transparent; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.proj-main { flex: 1 1 auto; min-width: 0; display: block; }
+.proj-name { display: block; font-weight: 600; }
+.proj-path { display: block; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-badge { font-size: 11px; color: var(--fg-dim); white-space: nowrap; }
 .proj-badge .waiting { color: var(--waiting); font-weight: 600; }
 .proj-badge .working { color: var(--working); }
@@ -428,8 +463,16 @@ textarea:focus-visible {
 .places button { font-size: 11px; padding: 3px 8px; }
 .dir-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .dir-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
   border-bottom: 1px solid var(--line);
+}
+/* Looking inside the folder, which is what most of the row is. Same shape as
+ * .proj-go and for the same reason: it has to be a button and must not look
+ * like one, because the chip beside it is the one that does. */
+.dir-into {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .dir-row:last-child { border-bottom: 0; }
 .dir-row:hover { background: #22262e; }
@@ -686,6 +729,9 @@ kbd {
   border-radius: var(--radius); color: var(--fg); padding: 5px 9px; font: inherit;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
+/* A search that found nothing leaves the terminal exactly where it was, so the
+ * field has to be the thing that says so. */
+#searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); }
 
 /* ---------------------------------------------------------- command palette */
 
@@ -731,6 +777,9 @@ kbd {
    * unbreakable one - a git error quoting a full path - ran off the edge. */
   max-width: min(560px, calc(100vw - 28px));
   overflow-wrap: break-word;
+  /* It sits over the terminals and takes the pointer either way, so a click on
+   * it may as well be the way to put it away. */
+  cursor: pointer;
 }
 #notice[hidden] { display: none; }
 #notice.error { border-color: var(--exited); color: var(--exited); }
