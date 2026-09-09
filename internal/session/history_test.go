@@ -1617,3 +1617,31 @@ func FuzzDescribeATranscript(f *testing.F) {
 		}
 	})
 }
+
+// TestTranscriptReaderIsCleanWhenItComesBack covers readers being kept and
+// handed out again rather than made afresh for every transcript. One is
+// released the moment its transcript has said what it needed to, which is
+// usually a couple of entries in and with a bufferful of that transcript
+// still inside it. Whatever it was holding must not turn up in the next one:
+// that would be one conversation's entries counted against another, or one
+// project's prompt shown against another's row.
+func TestTranscriptReaderIsCleanWhenItComesBack(t *testing.T) {
+	first := newTranscriptReader(strings.NewReader("one\ntwo\nthree\n"))
+	if _, ok := first.next(); !ok {
+		t.Fatal("nothing was read from the first transcript")
+	}
+	first.release()
+
+	second := newTranscriptReader(strings.NewReader("only\n"))
+	defer second.release()
+	got, ok := second.next()
+	if !ok {
+		t.Fatal("nothing was read from the second transcript")
+	}
+	if entry := strings.TrimRight(string(got), "\r\n"); entry != "only" {
+		t.Errorf("read %q from the second transcript", entry)
+	}
+	if leftover, ok := second.next(); ok {
+		t.Errorf("the reader still had %q from the transcript before it", strings.TrimRight(string(leftover), "\r\n"))
+	}
+}

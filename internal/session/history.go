@@ -655,6 +655,7 @@ func transcriptCwd(path string) string {
 	}
 	defer f.Close()
 	lines := newTranscriptReader(f)
+	defer lines.release()
 	for i := 0; i < cwdScanLimit; i++ {
 		raw, ok := lines.next()
 		if !ok {
@@ -764,6 +765,7 @@ var aiTitleMark = []byte(`"ai-title"`)
 // looking for a mark in the bytes costs a fraction of parsing them as JSON.
 func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 	lines := newTranscriptReader(r)
+	defer lines.release()
 	for i := 0; i < summaryScanLimit; i++ {
 		if prompt != "" && title != "" && cwd != "" {
 			break
@@ -819,11 +821,24 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// scratch hands out the buffers a transcript is read through.
+//
+// A folder is read a few transcripts at a time, so a handful of buffers serve
+// the whole of it, but a buffer for each left tens of megabytes of rubbish
+// behind on every listing that read the files -- and this runs in an
+// application whose other windows are pushing terminal output around, where
+// the collector's time is somebody's typing not appearing.
+var scratch = sync.Pool{New: func() any {
+	buf := make([]byte, 256<<10)
+	return &buf
+}}
+
 // drain reads the rest of a reader and throws it away.
 func drain(r io.Reader) {
-	buf := make([]byte, 256<<10)
+	buf := scratch.Get().(*[]byte)
+	defer scratch.Put(buf)
 	for {
-		if _, err := r.Read(buf); err != nil {
+		if _, err := r.Read(*buf); err != nil {
 			return
 		}
 	}
@@ -928,8 +943,33 @@ type transcriptReader struct {
 	buf []byte
 }
 
+// transcriptReaders keeps readers between transcripts, for the same reason
+// the buffers they read through are kept: one per file is one per file's
+// worth of rubbish.
+var transcriptReaders = sync.Pool{New: func() any {
+	return &transcriptReader{br: bufio.NewReaderSize(nil, 64<<10)}
+}}
+
 func newTranscriptReader(r io.Reader) *transcriptReader {
-	return &transcriptReader{br: bufio.NewReaderSize(r, 64<<10)}
+	t := transcriptReaders.Get().(*transcriptReader)
+	t.br.Reset(r)
+	t.buf = t.buf[:0]
+	return t
+}
+
+// keptEntrySize bounds how large a reader's own buffer may be to be worth
+// keeping. One transcript with a pasted image in it grows a reader to the
+// size of the paste, and holding that for the rest of the run to save an
+// allocation is the wrong way round.
+const keptEntrySize = 1 << 20
+
+// release hands a reader back once a transcript has been walked.
+func (t *transcriptReader) release() {
+	t.br.Reset(nil)
+	if cap(t.buf) > keptEntrySize {
+		t.buf = nil
+	}
+	transcriptReaders.Put(t)
 }
 
 // next returns the next entry, or ok=false once there are no more. An entry
