@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jmwri/perch/internal/session"
@@ -25,10 +26,46 @@ type conversationsMsg struct {
 	Error string             `json:"error,omitempty"`
 }
 
+// listings remembers the newest conversation listing each window has asked
+// for.
+//
+// Reading a project's transcripts takes as long as the project is old, so two
+// answers can finish out of order: open the history of a project with years
+// behind it, close it, open a younger project's, and the first answer lands
+// on top of the second. The panel redraws itself from whichever message
+// arrived last, so the window would be left looking at another project's
+// conversations under this project's heading. Only the newest request a
+// window has made is allowed to answer it.
+var listings = struct {
+	sync.Mutex
+	seq map[*controlClient]uint64
+}{seq: make(map[*controlClient]uint64)}
+
+// askedForListing records that a window has asked, and numbers the request.
+func askedForListing(c *controlClient) uint64 {
+	listings.Lock()
+	defer listings.Unlock()
+	listings.seq[c]++
+	return listings.seq[c]
+}
+
+// answerListing reports whether a finished listing is still the one its
+// window is waiting for, and forgets the window when it is.
+func answerListing(c *controlClient, n uint64) bool {
+	listings.Lock()
+	defer listings.Unlock()
+	if listings.seq[c] != n {
+		return false
+	}
+	delete(listings.seq, c)
+	return true
+}
+
 // listConversations answers a window's request for the project's conversation
 // history. Reading transcripts touches the disk, so it happens away from the
 // goroutine that owns the workspace.
 func (s *Server) listConversations(c *controlClient, cwd string) {
+	asked := askedForListing(c)
 	done := make(chan string, 1)
 	s.do(func() {
 		if cwd == "" {
@@ -44,6 +81,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 	select {
 	case dir = <-done:
 	case <-s.closed:
+		answerListing(c, asked)
 		return
 	}
 
@@ -52,7 +90,9 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		items, err := session.Conversations(dir)
 		if err != nil {
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			if answerListing(c, asked) {
+				c.sendJSON(msg)
+			}
 			return
 		}
 		open := s.openConversationIDs()
@@ -67,7 +107,9 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 				Open:     open[conv.ID],
 			})
 		}
-		c.sendJSON(msg)
+		if answerListing(c, asked) {
+			c.sendJSON(msg)
+		}
 	}()
 }
 

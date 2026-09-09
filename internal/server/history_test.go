@@ -90,6 +90,46 @@ func TestListConversationsAnswersTheWindow(t *testing.T) {
 	if !byID[openID].Open {
 		t.Errorf("the conversation in a pane was not marked as open: %+v", byID[openID])
 	}
+
+	listings.Lock()
+	defer listings.Unlock()
+	if len(listings.seq) != 0 {
+		t.Errorf("an answered listing was still being tracked: %v", listings.seq)
+	}
+}
+
+// TestOnlyTheNewestListingAnswersAWindow covers two requests from the same
+// window overlapping. Reading a project's transcripts takes as long as the
+// project is old, so an answer about a large project can finish after an
+// answer about a small one that was asked for later -- and the panel draws
+// whichever message arrived last, so the older answer would leave the window
+// looking at another project's conversations.
+func TestOnlyTheNewestListingAnswersAWindow(t *testing.T) {
+	c := &controlClient{out: make(chan []byte, 8)}
+	other := &controlClient{out: make(chan []byte, 8)}
+
+	slow := askedForListing(c)
+	quick := askedForListing(c)
+	elsewhere := askedForListing(other)
+
+	if answerListing(c, slow) {
+		t.Error("a listing the window has already asked again about was allowed to answer")
+	}
+	if !answerListing(other, elsewhere) {
+		t.Error("a second window's listing was overtaken by the first window's")
+	}
+	if !answerListing(c, quick) {
+		t.Error("the newest listing was not allowed to answer")
+	}
+	if answerListing(c, quick) {
+		t.Error("a listing answered twice")
+	}
+
+	listings.Lock()
+	defer listings.Unlock()
+	if len(listings.seq) != 0 {
+		t.Errorf("answered listings were still being tracked: %v", listings.seq)
+	}
 }
 
 // TestListConversationsGivesUpWhenTheServerCloses covers a window asking for
