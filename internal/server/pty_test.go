@@ -342,7 +342,7 @@ func TestRestartedPaneComesBackAtTheMeasuredSize(t *testing.T) {
 		return ok && p.Cols == 137 && p.Rows == 41
 	})
 
-	before, _ := srv.paneSession(paneID)
+	before, _, _ := srv.paneSession(paneID)
 	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
 
 	// The window never re-reports the size here, exactly as it would not until
@@ -350,7 +350,7 @@ func TestRestartedPaneComesBackAtTheMeasuredSize(t *testing.T) {
 	var cols, rows int
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if sess, _ := srv.paneSession(paneID); sess != nil && sess != before {
+		if sess, _, _ := srv.paneSession(paneID); sess != nil && sess != before {
 			cols, rows = sess.Size()
 			if cols == 137 && rows == 41 {
 				return
@@ -379,7 +379,7 @@ func awaitSize(t *testing.T, srv *Server, paneID string, cols, rows int) {
 	deadline := time.Now().Add(10 * time.Second)
 	var gotC, gotR int
 	for time.Now().Before(deadline) {
-		if sess, _ := srv.paneSession(paneID); sess != nil {
+		if sess, _, _ := srv.paneSession(paneID); sess != nil {
 			if gotC, gotR = sess.Size(); gotC == cols && gotR == rows {
 				return
 			}
@@ -662,8 +662,8 @@ func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
 
 	ctl := dialControl(t, srv)
 	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
-	if sess, ok := srv.paneSession(paneID); !ok || sess != nil {
-		t.Fatalf("expected a pane with no process; got session %v, exists %v", sess, ok)
+	if sess, found, err := srv.paneSession(paneID); err != nil || !found || sess != nil {
+		t.Fatalf("expected a pane with no process; got session %v, found %v, err %v", sess, found, err)
 	}
 
 	pty := dialPTY(t, srv, paneID)
@@ -788,4 +788,66 @@ func TestTypingSurvivesABusyWorkspace(t *testing.T) {
 
 	sendResize(t, pty, 90, 25)
 	awaitOutput(t, pty, "echo typed_through\r", "typed_through")
+}
+
+// TestABusyWorkspaceIsNotAGonePane covers the socket held open over an exited
+// pane, waiting for someone to restart it. Deciding whether the pane is still
+// there means asking the workspace goroutine, and that goroutine can be busy
+// for seconds at a time; an unanswered question is not the same as an answer
+// of "gone", and treating it as one hangs up on a pane that is still on screen.
+func TestABusyWorkspaceIsNotAGonePane(t *testing.T) {
+	defer func(d time.Duration) { paneLookup = d }(paneLookup)
+	paneLookup = 200 * time.Millisecond
+
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	pty := dialPTY(t, srv, paneID)
+	awaitOutput(t, pty, "echo pane_ready\r", "pane_ready")
+
+	// End the process in the pane, so its socket is being held for a restart.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := pty.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("write exit: %v", err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		sess, _, err := srv.paneSession(paneID)
+		if err == nil && sess != nil && sess.Exited() {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatal("the process in the pane never ended")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Now make the workspace unable to answer for longer than a look waits.
+	release := make(chan struct{})
+	var backlog sync.WaitGroup
+	defer backlog.Wait()
+	defer close(release)
+	srv.do(func() { <-release })
+	for range cap(srv.cmds) * 2 {
+		backlog.Add(1)
+		go func() { defer backlog.Done(); srv.do(func() {}) }()
+	}
+	time.Sleep(4 * paneLookup)
+
+	// The pane is still there, so the socket serving it must be too. Our own
+	// deadline expiring is the pass: nothing hung up on us.
+	readCtx, stop := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer stop()
+	for {
+		_, _, err := pty.Read(readCtx)
+		if err == nil {
+			continue
+		}
+		if readCtx.Err() != nil {
+			return
+		}
+		t.Fatalf("the socket was hung up on while the workspace was busy: %v", err)
+	}
 }

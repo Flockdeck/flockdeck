@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,11 @@ type ptyControl struct {
 // restartPoll is how often a terminal socket whose process has ended looks to
 // see whether the pane has been given a new one.
 const restartPoll = 400 * time.Millisecond
+
+// paneLookup is how long a look at a pane waits on the workspace goroutine
+// before giving up and reporting that it learned nothing. It is a variable so
+// a test does not have to hold the workspace for the whole of it.
+var paneLookup = 5 * time.Second
 
 // pingInterval is how often an idle terminal socket is checked, and
 // pingTimeout how long the answer is waited for. They are variables so a test
@@ -54,8 +60,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// the window away -- doing so had it redial the pane every few seconds for
 	// as long as it was open, which on a machine without Claude Code installed
 	// is every agent pane there is. The socket waits for a process instead.
-	sess, ok := s.paneSession(id)
-	if !ok {
+	sess, found, err := s.paneSession(id)
+	if err != nil {
+		http.Error(w, "the workspace is busy", http.StatusServiceUnavailable)
+		return
+	}
+	if !found {
 		http.Error(w, "no such pane", http.StatusNotFound)
 		return
 	}
@@ -264,11 +274,14 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 		// time this is reached the replacement is usually already there. A
 		// pane that was closed rather than restarted is already gone too, and
 		// this connection has no reason to outlive it by a poll.
-		sess, ok := s.paneSession(id)
-		if !ok {
+		switch sess, found, err := s.paneSession(id); {
+		case err != nil:
+			// Nothing was learned. Ask again rather than hang up on a pane
+			// that is very likely still there and only waiting for a
+			// workspace that is busy with something else.
+		case !found:
 			return nil
-		}
-		if sess != nil && sess != old {
+		case sess != nil && sess != old:
 			return sess
 		}
 		select {
@@ -281,30 +294,48 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 	}
 }
 
+// errNoAnswer means the workspace goroutine did not answer in time, so nothing
+// at all was learned about the pane. It is not the same as the pane being gone,
+// and concluding that from it would hang up on a pane that is still there.
+var errNoAnswer = errors.New("the workspace is not answering")
+
 // paneSession reads a pane's current session on the workspace goroutine, which
 // is the only place it is safe to look: restarting a pane clears the field and
-// then replaces it. ok reports whether the pane still exists at all, which is
-// what separates one mid-restart from one that has been closed.
-func (s *Server) paneSession(id string) (sess *session.Session, ok bool) {
+// then replaces it.
+//
+// found reports whether the pane still exists at all, which is what separates
+// one whose process failed to start from one that has been closed. sess is nil
+// for the former.
+func (s *Server) paneSession(id string) (sess *session.Session, found bool, err error) {
 	type result struct {
-		sess *session.Session
-		ok   bool
+		sess  *session.Session
+		found bool
 	}
 	done := make(chan result, 1)
-	s.do(func() {
+	// One budget covers handing the question over and getting the answer, as
+	// waiting to hand it over has no deadline of its own and the queue in
+	// front of the workspace fills up exactly when the workspace is slow.
+	deadline := time.After(paneLookup)
+	select {
+	case s.cmds <- func() {
 		if p := s.ws.Pane(id); p != nil {
 			done <- result{p.Sess, true}
 			return
 		}
 		done <- result{}
-	})
+	}:
+	case <-s.closed:
+		return nil, false, errNoAnswer
+	case <-deadline:
+		return nil, false, errNoAnswer
+	}
 	select {
 	case r := <-done:
-		return r.sess, r.ok
+		return r.sess, r.found, nil
 	case <-s.closed:
-		return nil, false
-	case <-time.After(5 * time.Second):
-		return nil, false
+		return nil, false, errNoAnswer
+	case <-deadline:
+		return nil, false, errNoAnswer
 	}
 }
 
