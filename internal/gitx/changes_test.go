@@ -687,6 +687,38 @@ func TestPushSetsUpstreamOnFirstPush(t *testing.T) {
 	}
 }
 
+// TestUpstreamOfAgreesWithStatus checks the cheap upstream lookup Push relies
+// on against the one that walks the working tree to find out.
+func TestUpstreamOfAgreesWithStatus(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("upstream = %q before anything is pushed, want none", got)
+	}
+
+	gitRun(t, repo, "push", "--set-upstream", "origin", "main")
+	want := StatusOf(repo).Upstream
+	if want == "" {
+		t.Fatal("status reports no upstream after one was set")
+	}
+	if got := UpstreamOf(repo); got != want {
+		t.Errorf("upstream = %q, want %q as status reports it", got, want)
+	}
+
+	// A branch with no upstream of its own must not borrow the one beside it.
+	gitRun(t, repo, "checkout", "-b", "solo")
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("upstream = %q on a branch that tracks nothing", got)
+	}
+}
+
 // TestHasRemoteWithoutOrigin covers a repository that cannot be pushed.
 func TestHasRemoteWithoutOrigin(t *testing.T) {
 	repo := newRepo(t)
