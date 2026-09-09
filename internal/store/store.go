@@ -211,7 +211,7 @@ func readLegacy(root string) (string, []byte, error) {
 	if old == "" {
 		return "", nil, fs.ErrNotExist
 	}
-	data, err := os.ReadFile(old)
+	data, err := readState(old)
 	if err != nil {
 		return "", nil, err
 	}
@@ -238,7 +238,7 @@ func Load(root string) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(p)
+	data, err := readState(p)
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
@@ -433,6 +433,37 @@ func renameWithRetry(src, dst string) error {
 	return err
 }
 
+// readState reads a state file, retrying briefly on a failure that means
+// somebody else has the file open rather than that there is nothing to read.
+//
+// Windows refuses an open with a sharing violation while another process is
+// part-way through replacing the file. That is the same contention
+// renameWithRetry deals with from the writing side, and no reader here was
+// ready for it. Under two instances saving at once, around one read in thirty
+// fails this way, and what it costs is not a slow read: Load returning an
+// error is a project that restores no tabs, and the save on the way out then
+// writes that emptiness over the layout the user still had.
+//
+// A file that is not there and a file this user may not read are answers, not
+// contention, and are handed straight back. A sharing violation is neither of
+// those, so it is not caught by those two and does get retried.
+func readState(path string) ([]byte, error) {
+	delay := time.Millisecond
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		var data []byte
+		if data, err = os.ReadFile(path); err == nil {
+			return data, nil
+		}
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return nil, err
+		}
+		time.Sleep(delay)
+		delay *= 2
+	}
+	return nil, err
+}
+
 // hashRoot turns a path into a short stable filename component.
 func hashRoot(root string) string {
 	return hashString(normalizeRoot(root))
@@ -555,7 +586,7 @@ func Recents() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, recentsFile))
+	data, err := readState(filepath.Join(dir, recentsFile))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -688,7 +719,7 @@ func LoadSession() (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, sessionFile))
+	data, err := readState(filepath.Join(dir, sessionFile))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -795,7 +826,7 @@ func LoadInstance() (*Instance, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readState(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

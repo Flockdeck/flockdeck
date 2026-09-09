@@ -1805,3 +1805,103 @@ func TestStateFileNamesAreFixed(t *testing.T) {
 		t.Errorf("state dir is %s, want %s", dir, filepath.Join(base, "perch"))
 	}
 }
+
+// TestEverythingAtOnceLeavesEveryFileReadable runs the whole package against
+// itself: layouts being saved and loaded, the project list being touched and
+// forgotten, the session and the instance record being rewritten, and the
+// sweep walking the same directory while all of it happens.
+//
+// One instance already does several of these at once — the interface saves on
+// its own goroutine while the hook server touches projects on another — and
+// two instances do all of them. Nothing here may leave a file that the next
+// start cannot read, and nothing may leave debris in the state directory: a
+// half-written layout is a workspace the user does not get back.
+func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("dir: %v", err)
+	}
+	roots := []string{"/repo/one", "/repo/two", "/repo/three"}
+	for _, root := range roots {
+		if err := Save(root, &State{Tabs: []Tab{{Title: "seed"}}}); err != nil {
+			t.Fatalf("seed %s: %v", root, err)
+		}
+	}
+
+	const rounds = 40
+	var wg sync.WaitGroup
+	fail := func(what string, err error) {
+		if err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	for w := 0; w < 2; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				root := roots[(w+i)%len(roots)]
+				st := &State{Active: i % 3}
+				for tab := 0; tab <= i%4; tab++ {
+					st.Tabs = append(st.Tabs, Tab{
+						Title: fmt.Sprintf("w%d-%d", w, tab),
+						Root:  &Node{Pane: &Pane{ID: fmt.Sprintf("%d-%d", w, tab), Kind: "claude", Cwd: root}},
+					})
+				}
+				fail("save layout", Save(root, st))
+				if _, err := Load(root); err != nil {
+					t.Errorf("load layout: %v", err)
+				}
+				fail("touch recent", TouchRecent(fmt.Sprintf("/repo/p%d", i%7)))
+				fail("forget recent", ForgetRecent(fmt.Sprintf("/repo/p%d", (i+3)%7)))
+				if _, err := Recents(); err != nil {
+					t.Errorf("recents: %v", err)
+				}
+				fail("save session", SaveSession(&Session{Open: roots, Active: root}))
+				if _, err := LoadSession(); err != nil {
+					t.Errorf("load session: %v", err)
+				}
+				fail("save instance", SaveInstance(&Instance{PID: os.Getpid(), URL: "http://127.0.0.1:1/", Started: time.Now()}))
+				if _, err := LoadInstance(); err != nil {
+					t.Errorf("load instance: %v", err)
+				}
+				// The sweep another instance runs at startup, walking the same
+				// directory these writes are landing in.
+				if _, err := SweepSessions(time.Hour); err != nil {
+					t.Errorf("sweep: %v", err)
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	for _, root := range roots {
+		st, err := Load(root)
+		if err != nil {
+			t.Errorf("load %s afterwards: %v", root, err)
+			continue
+		}
+		if st == nil {
+			t.Errorf("layout for %s is no longer readable", root)
+		}
+	}
+	if _, err := Recents(); err != nil {
+		t.Errorf("recents afterwards: %v", err)
+	}
+	if sess, err := LoadSession(); err != nil || sess == nil {
+		t.Errorf("session afterwards: %v, %v", sess, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("temporary file %s was left behind", e.Name())
+		}
+		if strings.HasSuffix(e.Name(), damagedSuffix) {
+			t.Errorf("%s was written badly enough that it had to be quarantined", e.Name())
+		}
+	}
+}

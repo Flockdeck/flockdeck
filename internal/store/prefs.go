@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -51,7 +50,7 @@ func LoadPrefs() Prefs {
 	if err != nil {
 		return Prefs{}
 	}
-	data, err := os.ReadFile(filepath.Join(dir, prefsFile))
+	data, err := readState(filepath.Join(dir, prefsFile))
 	if err != nil {
 		return Prefs{}
 	}
