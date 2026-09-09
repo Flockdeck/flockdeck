@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -404,9 +405,25 @@ func probeFolder(dir string, files []os.DirEntry) []string {
 	return cwds
 }
 
+// pathsIgnoreCase is whether two paths differing only in case are expected to
+// be the same directory. They are on Windows and on a Mac as it comes; they
+// are not on Linux, where "~/src/App" and "~/src/app" are two projects that
+// happen to look alike.
+var pathsIgnoreCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
 // sameDir compares two recorded working directories.
+//
+// Whether case matters is the filesystem's business rather than ours. Where
+// it does not, Claude Code recorded whichever spelling the session was
+// started with and this has to see through that; where it does, treating two
+// directories as one shows a project its neighbour's conversations and offers
+// to resume one of them here.
 func sameDir(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if pathsIgnoreCase {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // cwdScanLimit bounds how far into a transcript the working directory it

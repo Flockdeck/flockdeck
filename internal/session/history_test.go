@@ -1153,3 +1153,61 @@ func TestCountingReaderCountsWhatThePromptScanAlreadyRead(t *testing.T) {
 		t.Error("the transcript ends with a line break and should not be read as ending mid-entry")
 	}
 }
+
+// TestSameDirFollowsWhetherTheFilesystemCaresAboutCase covers the comparison
+// everything else here rests on: which transcripts are this directory's, and
+// which project folder belongs to it. Case has to be seen through where the
+// filesystem sees through it, because Claude Code recorded whichever spelling
+// the session was started with -- and must not be where it does not, because
+// on Linux the neighbouring directory really is a different project.
+func TestSameDirFollowsWhetherTheFilesystemCaresAboutCase(t *testing.T) {
+	was := pathsIgnoreCase
+	t.Cleanup(func() { pathsIgnoreCase = was })
+
+	pathsIgnoreCase = true
+	if !sameDir(`C:\Repos\App`, `c:\repos\app`) {
+		t.Error("a Windows path spelled differently was taken for another directory")
+	}
+
+	pathsIgnoreCase = false
+	if sameDir("/home/j/src/App", "/home/j/src/app") {
+		t.Error("two directories on a case-sensitive filesystem were taken for one")
+	}
+	if !sameDir("/home/j/src/app/", "/home/j/src/app") {
+		t.Error("the same directory written with a trailing separator was not recognised")
+	}
+}
+
+// TestConversationsOnACaseSensitiveFilesystemStayApart is the same thing
+// through the front door: the folder search matches a project folder by the
+// directory its transcripts record, and on Linux a neighbour whose name
+// differs only in case is not that directory.
+func TestConversationsOnACaseSensitiveFilesystemStayApart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	was := pathsIgnoreCase
+	pathsIgnoreCase = false
+	t.Cleanup(func() { pathsIgnoreCase = was })
+
+	// The directory that is asked about, and the neighbour that recorded the
+	// conversations, spelled the way Linux would tell them apart.
+	parent := t.TempDir()
+	asked := filepath.Join(parent, "app")
+	neighbour := filepath.Join(parent, "App")
+	if err := os.MkdirAll(asked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTranscript(t, filepath.Join(home, "projects", "a-name-of-its-own"), "aaaaaaaa-7777-7777-7777-777777777777",
+		`{"type":"user","cwd":"`+jsonPath(neighbour)+`","message":{"role":"user","content":"the neighbour's work"}}`)
+
+	got, err := Conversations(asked)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("listed %d of a differently spelled directory's conversations: %+v", len(got), got)
+	}
+}
