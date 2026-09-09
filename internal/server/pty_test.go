@@ -422,16 +422,30 @@ func TestPaneFitsEveryWindowWatchingIt(t *testing.T) {
 func TestViewerSizesForgetsTheLastWindow(t *testing.T) {
 	v := &viewerSizes{panes: map[string]map[int64]termSize{}}
 
-	if cols, rows := v.set("pane", 1, 120, 40); cols != 120 || rows != 40 {
-		t.Errorf("one window gave %dx%d, want its own 120x40", cols, rows)
+	if cols, rows := v.smallest("pane"); cols != 0 || rows != 0 {
+		t.Errorf("an unwatched pane gave %dx%d, want nothing", cols, rows)
 	}
-	if _, _, ok := v.drop("pane", 1); ok {
+
+	v.set("pane", 1, 120, 40)
+	v.set("pane", 2, 90, 60)
+	if cols, rows := v.smallest("pane"); cols != 90 || rows != 40 {
+		t.Errorf("two windows gave %dx%d, want the least of each, 90x40", cols, rows)
+	}
+
+	if !v.drop("pane", 2) {
+		t.Error("dropping one of two windows left nothing to resize for")
+	}
+	if cols, rows := v.smallest("pane"); cols != 120 || rows != 40 {
+		t.Errorf("after the second window left, %dx%d, want the first's 120x40", cols, rows)
+	}
+
+	if v.drop("pane", 1) {
 		t.Error("dropping the only window asked for a resize; there is nobody to resize for")
 	}
 	if len(v.panes) != 0 {
 		t.Errorf("registry still holds %d panes after the last window left", len(v.panes))
 	}
-	if _, _, ok := v.drop("pane", 1); ok {
+	if v.drop("pane", 1) {
 		t.Error("dropping a window twice asked for a resize")
 	}
 }

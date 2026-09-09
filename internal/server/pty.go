@@ -79,9 +79,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 	viewer := nextViewer.Add(1)
 	defer func() {
-		// This window is no longer one the pane has to fit inside.
-		if cols, rows, ok := viewers.drop(id, viewer); ok {
-			s.do(func() { s.ws.ResizePaneTerminal(id, cols, rows) })
+		// This window is no longer one the pane has to fit inside, so it is
+		// free to grow back to whatever the rest can show. Handed over rather
+		// than waited on: letting go of a connection should not queue behind
+		// whatever the workspace is busy with.
+		if viewers.drop(id, viewer) {
+			go s.do(func() { s.fitPane(id) })
 		}
 	}()
 
@@ -90,9 +93,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// the pane has been restarted.
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
-	sizes := make(chan termSize, 1)
-	go s.applyResizes(ctx, id, sizes)
-	go s.readInput(ctx, cancel, conn, id, viewer, sizes, &live)
+	measured := make(chan struct{}, 1)
+	go s.applyResizes(ctx, id, measured)
+	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
 	go keepalive(ctx, cancel, conn)
 
 	for {
@@ -174,7 +177,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, sizes chan termSize, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	for {
 		typ, data, err := conn.Read(ctx)
@@ -195,38 +198,52 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			continue
 		}
 		if ctl.Resize != nil {
-			cols, rows := viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
-			// Handed on rather than applied here, and replacing whatever was
-			// waiting: applying it means reaching the workspace goroutine,
-			// which can be busy for seconds at a time opening a project, and
-			// waiting for it here would stop this window's keystrokes dead
-			// behind a measurement. Only the newest measurement is worth
-			// having, so a queue of them is not kept either.
+			viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
+			// Recorded here and applied elsewhere. Applying it means reaching
+			// the workspace goroutine, which can be busy for seconds at a
+			// time opening a project, and waiting for that here would stop
+			// this window's keystrokes dead behind a measurement. The nudge
+			// says only that something changed, so one waiting is as good as
+			// ten.
 			select {
-			case <-sizes:
+			case measured <- struct{}{}:
 			default:
 			}
-			sizes <- termSize{cols, rows}
 		}
 	}
 }
 
-// applyResizes records what this window has measured, on the goroutine that
-// owns the workspace.
+// applyResizes takes what this window has measured to the goroutine that owns
+// the workspace.
+func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-measured:
+			s.do(func() { s.fitPane(id) })
+		}
+	}
+}
+
+// fitPane sizes a pane to fit every window watching it. It must run on the
+// workspace goroutine.
+//
+// The size is read here rather than carried in, so that whichever order these
+// reach the workspace in, the size that ends up applied is the one that is
+// true now. Carrying it meant a measurement worked out before a window closed
+// could be applied after, leaving the pane fitted to a window that had gone --
+// and nothing would correct it, because the windows that remain have not
+// changed shape and will not report again.
 //
 // It goes through the workspace rather than straight at the session so the
 // pane remembers the size. That is the only place the measurement exists --
 // the server has no idea what the font metrics are -- and a pane started or
 // restarted without it runs its process at a conventional 80x24 and draws its
 // first screen at the wrong width.
-func (s *Server) applyResizes(ctx context.Context, id string, sizes <-chan termSize) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case sz := <-sizes:
-			s.do(func() { s.ws.ResizePaneTerminal(id, sz.cols, sz.rows) })
-		}
+func (s *Server) fitPane(id string) {
+	if cols, rows := viewers.smallest(id); cols > 0 && rows > 0 {
+		s.ws.ResizePaneTerminal(id, cols, rows)
 	}
 }
 
@@ -435,10 +452,8 @@ type viewerSizes struct {
 	panes map[string]map[int64]termSize
 }
 
-// set records what one window measured and returns the size the pane should
-// actually be: the smallest any of its windows can show, taken per dimension,
-// which is the only size all of them draw correctly.
-func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) (int, int) {
+// set records what one window measured for a pane.
+func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	byViewer := v.panes[pane]
@@ -447,29 +462,32 @@ func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) (int, int) 
 		v.panes[pane] = byViewer
 	}
 	byViewer[viewer] = termSize{cols, rows}
-	return smallest(byViewer, cols, rows)
 }
 
-// drop forgets a window that has gone away and reports the size the pane is
-// free to grow back to, if anything is still watching it.
-func (v *viewerSizes) drop(pane string, viewer int64) (cols, rows int, ok bool) {
+// drop forgets a window that has gone away, and reports whether anything is
+// still watching the pane -- which is whether it is worth being resized for.
+func (v *viewerSizes) drop(pane string, viewer int64) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	byViewer := v.panes[pane]
 	if _, had := byViewer[viewer]; !had {
-		return 0, 0, false
+		return false
 	}
 	delete(byViewer, viewer)
 	if len(byViewer) == 0 {
 		delete(v.panes, pane)
-		return 0, 0, false
+		return false
 	}
-	cols, rows = smallest(byViewer, 0, 0)
-	return cols, rows, true
+	return true
 }
 
-func smallest(byViewer map[int64]termSize, cols, rows int) (int, int) {
-	for _, sz := range byViewer {
+// smallest is the size the pane should be: the least any of its windows can
+// show, taken per dimension, which is the only size all of them draw
+// correctly. It is zero when nothing has measured the pane.
+func (v *viewerSizes) smallest(pane string) (cols, rows int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, sz := range v.panes[pane] {
 		if sz.cols > 0 && (cols <= 0 || sz.cols < cols) {
 			cols = sz.cols
 		}
