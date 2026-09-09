@@ -64,6 +64,51 @@ func TestChangesReportsWhatMoved(t *testing.T) {
 	}
 }
 
+// TestDiffOfAGlobbyNameIsNotAPattern covers a file whose name contains the
+// characters git reads as a pathspec pattern.
+func TestDiffOfAGlobbyNameIsNotAPattern(t *testing.T) {
+	repo := newRepo(t)
+
+	// "a1.txt" is exactly what the pattern "a[1].txt" matches, so a bare
+	// pathspec picks up the sibling and misses the file that was asked for.
+	write(t, repo, "a1.txt", "one\n")
+	write(t, repo, "a[1].txt", "bracket\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "two files")
+	write(t, repo, "a1.txt", "one\nsibling edit\n")
+	write(t, repo, "a[1].txt", "bracket\nthe edit under review\n")
+
+	diff, err := Diff(repo, "a[1].txt")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff, "+the edit under review") {
+		t.Errorf("diff missing the file's own change:\n%s", diff)
+	}
+	if strings.Contains(diff, "sibling edit") || strings.Contains(diff, "a/a1.txt") {
+		t.Errorf("diff of a[1].txt also showed a1.txt:\n%s", diff)
+	}
+
+	// The same pathspec decides whether a file counts as untracked, which is
+	// what makes it render as one addition rather than as a diff.
+	write(t, repo, "b[2].txt", "brand new\n")
+	diff, err = Diff(repo, "b[2].txt")
+	if err != nil {
+		t.Fatalf("diff of untracked: %v", err)
+	}
+	if !strings.Contains(diff, "+brand new") {
+		t.Errorf("untracked bracketed file did not render as an addition:\n%s", diff)
+	}
+}
+
+// write puts a file in the repository, failing the test if it cannot.
+func write(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestDiffCoversTrackedAndUntracked checks both paths the panel needs.
 func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 	repo := newRepo(t)

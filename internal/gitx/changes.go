@@ -260,18 +260,28 @@ func Diff(dir, path string) (string, error) {
 	if !hasHead(dir) {
 		against = "--cached"
 	}
-	out, err := run(dir, "diff", against, "--", path)
+	out, err := run(dir, "diff", against, "--", pathspec(path))
 	if err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(out) == "" {
-		out, err = run(dir, "diff", "--", path)
+		out, err = run(dir, "diff", "--", pathspec(path))
 		if err != nil {
 			return "", err
 		}
 	}
 	return truncateDiff(out), nil
 }
+
+// pathspec wraps a file name so git reads it as the name of one file rather
+// than as a pattern.
+//
+// A bare pathspec is glob-matched, so a file genuinely called "report[1].csv"
+// -- what a browser calls a second download -- does not match itself, and does
+// match "report1.csv" instead: clicking the first in the review panel showed
+// the diff of the second alongside it. ":(literal)" turns matching off, and
+// stops a name that begins with a colon being read as magic in its own right.
+func pathspec(path string) string { return ":(literal)" + path }
 
 // hasHead reports whether the repository has a commit to compare against.
 func hasHead(dir string) bool {
@@ -302,7 +312,7 @@ func insideTree(path string) bool {
 // that used to make a tracked file's contents appear as one huge addition
 // whenever git failed for any reason.
 func untracked(dir, path string) bool {
-	out, err := run(dir, "ls-files", "--others", "--", path)
+	out, err := run(dir, "ls-files", "--others", "--", pathspec(path))
 	return err == nil && strings.TrimSpace(out) != ""
 }
 
