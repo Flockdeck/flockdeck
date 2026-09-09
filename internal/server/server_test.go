@@ -534,3 +534,40 @@ func TestUnchangedStateIsNotResent(t *testing.T) {
 		t.Fatal("a real change was not broadcast")
 	}
 }
+
+// TestSnapshotsSupersedeRatherThanQueue covers a window that has stopped
+// draining its socket. The queue behind it fills, and what is dropped once it
+// is full is the newest message — so the window is left showing state that has
+// since changed, with nothing to put it right now that an unchanged snapshot
+// is no longer re-sent. A snapshot supersedes whichever one is still waiting
+// instead of queueing behind the backlog, and does not spend the queue that
+// the notices need, since those do not supersede each other.
+func TestSnapshotsSupersedeRatherThanQueue(t *testing.T) {
+	c := &controlClient{out: make(chan []byte, 2), ready: make(chan struct{}, 1)}
+
+	c.send([]byte("notice one"))
+	c.send([]byte("notice two"))
+	c.send([]byte("notice three")) // the queue is full; this one is lost
+
+	c.sendState([]byte("state one"))
+	c.sendState([]byte("state two"))
+
+	if got := string(c.takeState()); got != "state two" {
+		t.Errorf("waiting snapshot = %q, want the newest one", got)
+	}
+	if got := c.takeState(); got != nil {
+		t.Errorf("a snapshot was taken twice: %q", got)
+	}
+
+	// The notices already queued are still there to be written.
+	for _, want := range []string{"notice one", "notice two"} {
+		select {
+		case got := <-c.out:
+			if string(got) != want {
+				t.Errorf("queued message = %q, want %q", got, want)
+			}
+		default:
+			t.Errorf("%q was pushed out of the queue by a snapshot", want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -318,7 +319,7 @@ func (s *Server) broadcastState() {
 		}
 		s.mu.Unlock()
 		for _, c := range clients {
-			c.send(data)
+			c.sendState(data)
 		}
 	})
 }
@@ -330,14 +331,51 @@ func (s *Server) broadcastState() {
 type controlClient struct {
 	conn *websocket.Conn
 	out  chan []byte
+
+	// pending is the newest snapshot not yet written, held apart from out
+	// because snapshots supersede one another. See sendState.
+	mu      sync.Mutex
+	pending []byte
+	ready   chan struct{}
 }
 
-// send queues a message, dropping the client if it cannot keep up.
+// send queues a one-off message, dropping it if the window cannot keep up.
 func (c *controlClient) send(data []byte) {
 	select {
 	case c.out <- data:
 	default:
 	}
+}
+
+// sendState queues a snapshot, replacing any earlier one still waiting.
+//
+// A window that has fallen behind — busy rendering, or on a socket that has
+// stopped draining — used to have its newest snapshot dropped once the queue
+// filled, and would then sit showing state that had since changed. It was
+// covered up by the flood of identical snapshots that followed, one of which
+// would eventually get through; now that an unchanged snapshot is not sent
+// again, nothing would correct it until the next real change. Keeping the
+// newest one aside instead means a slow window skips the snapshots it missed
+// and lands on the current one, which is all it ever wanted, and leaves the
+// queue for the notices, which do not supersede each other and must not be
+// pushed out by a burst of state.
+func (c *controlClient) sendState(data []byte) {
+	c.mu.Lock()
+	c.pending = data
+	c.mu.Unlock()
+	select {
+	case c.ready <- struct{}{}:
+	default:
+	}
+}
+
+// takeState removes the waiting snapshot, if there still is one.
+func (c *controlClient) takeState() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data := c.pending
+	c.pending = nil
+	return data
 }
 
 func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +391,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(1 << 20)
 
-	c := &controlClient{conn: conn, out: make(chan []byte, 64)}
+	c := &controlClient{
+		conn:  conn,
+		out:   make(chan []byte, 64),
+		ready: make(chan struct{}, 1),
+	}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -381,7 +423,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	s.do(func() {
 		s.sendHello(c)
 		if data, err := json.Marshal(s.snapshot()); err == nil {
-			c.send(data)
+			c.sendState(data)
 		}
 	})
 
@@ -415,15 +457,27 @@ func (c *controlClient) writeLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-c.ready:
+			data := c.takeState()
+			if data == nil {
+				continue
+			}
+			if !c.write(ctx, data) {
+				return
+			}
 		case data := <-c.out:
-			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.conn.Write(writeCtx, websocket.MessageText, data)
-			cancel()
-			if err != nil {
+			if !c.write(ctx, data) {
 				return
 			}
 		}
 	}
+}
+
+// write sends one message and reports whether the connection is still usable.
+func (c *controlClient) write(ctx context.Context, data []byte) bool {
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.conn.Write(writeCtx, websocket.MessageText, data) == nil
 }
 
 // sendJSON encodes a message to a single window.
