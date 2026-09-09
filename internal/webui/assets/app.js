@@ -3200,8 +3200,18 @@
   $("search-prev").onclick = () => runSearch(true);
   $("search-close").onclick = closeSearch;
   // Asking on the first interaction rather than at load avoids a permission
-  // prompt before the user has done anything.
-  window.addEventListener("pointerdown", askForNotifications, { once: true });
+  // prompt before the user has done anything. A keystroke is an interaction as
+  // much as a click, and this is an application built to be driven from the
+  // keyboard: waiting for a pointer meant someone who never reaches for one was
+  // never asked, and so never got the one signal that reaches them while the
+  // window is behind something else.
+  const askOnFirstUse = () => {
+    window.removeEventListener("pointerdown", askOnFirstUse, true);
+    window.removeEventListener("keydown", askOnFirstUse, true);
+    askForNotifications();
+  };
+  window.addEventListener("pointerdown", askOnFirstUse, true);
+  window.addEventListener("keydown", askOnFirstUse, true);
 
   window.addEventListener("beforeunload", () => send({ cmd: "save" }));
 

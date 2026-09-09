@@ -1604,6 +1604,38 @@ assert.ok(h.commands().some((c) => c.cmd === "changes" && c.path === "C:/repo"),
 `)
 }
 
+// A desktop notification is the one signal that reaches someone whose window
+// is behind something else, and the browser will only be asked for permission
+// during an interaction. Waiting for a pointer meant an application built to be
+// driven from the keyboard never asked at all.
+func TestNotificationsAreAskedForOnTheFirstKeystroke(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.win.Notification.permission = "default";
+assert.strictEqual(h.win.Notification.asked, 0, "asked before the user had done anything");
+
+h.key({ key: "a" });
+assert.strictEqual(h.win.Notification.asked, 1, "typing did not count as using the application");
+
+// Once, and then never again however it is used.
+h.key({ key: "b" });
+h.dispatch(h.doc.body, new h.Ev("pointerdown", { pointerType: "mouse" }));
+assert.strictEqual(h.win.Notification.asked, 1, "asked again after the question had been put");
+`)
+
+	// And the pointer, which is where this started, still asks.
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.win.Notification.permission = "default";
+h.dispatch(h.doc.body, new h.Ev("pointerdown", { pointerType: "mouse" }));
+assert.strictEqual(h.win.Notification.asked, 1, "a click no longer asks");
+h.key({ key: "a" });
+assert.strictEqual(h.win.Notification.asked, 1, "asked again after the question had been put");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -2013,9 +2045,13 @@ const notifications = [];
 class FakeNotification {
   constructor(title, opts) { this.title = title; Object.assign(this, opts || {}); notifications.push(this); }
   close() { this.closed = true; }
-  static requestPermission() { return Promise.resolve(FakeNotification.permission); }
+  static requestPermission() {
+    FakeNotification.asked++;
+    return Promise.resolve(FakeNotification.permission);
+  }
 }
 FakeNotification.permission = "granted";
+FakeNotification.asked = 0;
 
 const observers = [];
 class FakeResizeObserver {
@@ -2096,6 +2132,8 @@ function tabTo(doc, back) {
 function boot() {
   sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
   notifications.length = 0;
+  FakeNotification.permission = "granted";
+  FakeNotification.asked = 0;
   const doc = new Doc();
   parseInto(fs.readFileSync(path.join(ASSETS, "index.html"), "utf8"), doc);
 
