@@ -45,6 +45,11 @@ type Usage struct {
 	Known bool
 }
 
+// instantCPU is the share of one core used over a single interval.
+func instantCPU(used, over time.Duration) float64 {
+	return 100 * used.Seconds() / over.Seconds()
+}
+
 // procTable is a view of the processes on the machine, taken once and shared
 // by every pane. Building it is the part that costs something, and it does not
 // cost more because there are more panes.
@@ -183,6 +188,7 @@ func (s *Session) usageAsOf(now time.Time) Usage {
 	s.usageAt = table.at
 	if count == 0 {
 		s.usage = Usage{}
+		s.cpuSeeded = false
 		return s.usage
 	}
 
@@ -193,18 +199,22 @@ func (s *Session) usageAsOf(now time.Time) Usage {
 		// The first reading has nothing to compare against: report the memory,
 		// which is true straight away, and no CPU share yet.
 		next.CPUPercent = 0
+	case !s.cpuSeeded:
+		// The first interval that can be measured is taken as it stands.
+		// Averaging it against the nothing that came before would start every
+		// pane at zero and creep towards the truth over a minute, which is a
+		// minute of the reading saying the opposite of what is happening --
+		// and an agent's first minute is exactly when someone is watching to
+		// see whether it has got going.
+		next.CPUPercent = instantCPU(delta, dt)
+		s.cpuSeeded = true
 	default:
-		instant := 100 * delta.Seconds() / dt.Seconds()
-		if !s.usage.Known {
-			next.CPUPercent = instant
-			break
-		}
 		// Readings are not evenly spaced -- the interface refreshes when
 		// something happens as well as on its timer -- so the weight of a new
 		// one has to follow how much time it covers, or a burst of refreshes
 		// would drag the average about far faster than the window says.
 		alpha := 1 - math.Exp(-dt.Seconds()/cpuWindow.Seconds())
-		next.CPUPercent = s.usage.CPUPercent + alpha*(instant-s.usage.CPUPercent)
+		next.CPUPercent = s.usage.CPUPercent + alpha*(instantCPU(delta, dt)-s.usage.CPUPercent)
 	}
 	if next.CPUPercent < 0 {
 		next.CPUPercent = 0

@@ -115,10 +115,12 @@ func TestUsageSkipsAProcessThatEndsMidSample(t *testing.T) {
 	}
 }
 
-// TestUsageCPUIsAveragedNotSnapped covers the number a person reads to find
-// which agent is eating the machine. One interval on its own swings between
-// nothing and a whole core as an agent thinks, calls a tool and thinks again.
-func TestUsageCPUIsAveragedNotSnapped(t *testing.T) {
+// TestUsageCPUSettlesQuicklyThenSmoothly covers the number a person reads to
+// find which agent is eating the machine. It has to mean something within a
+// reading or two of a pane opening, and then stop swinging: one interval on
+// its own goes from nothing to a whole core as an agent thinks, calls a tool
+// and thinks again.
+func TestUsageCPUSettlesQuicklyThenSmoothly(t *testing.T) {
 	root := &fakeProc{ppid: 1, rss: 1 << 20}
 	fakeProcs(t, map[int]*fakeProc{100: root})
 	s := usagePane(100)
@@ -128,23 +130,29 @@ func TestUsageCPUIsAveragedNotSnapped(t *testing.T) {
 		t.Errorf("the first reading has nothing to compare against, got %v%%", u.CPUPercent)
 	}
 
-	// Half a core, steadily.
+	// Half a core, steadily. The first interval that can be measured is the
+	// answer, not a first step towards it.
 	step := 10 * time.Second
+	now = now.Add(step)
+	root.cpu += step / 2
+	if u := s.usageAsOf(now); u.CPUPercent < 45 || u.CPUPercent > 55 {
+		t.Errorf("the first measured interval reads %v%%, want the 50%% it measured", u.CPUPercent)
+	}
+
 	var last Usage
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 6; i++ {
 		now = now.Add(step)
 		root.cpu += step / 2
 		last = s.usageAsOf(now)
 	}
-	if last.CPUPercent < 40 || last.CPUPercent > 50 {
-		t.Errorf("after eight intervals at half a core the average is %v%%, want near 50", last.CPUPercent)
+	if last.CPUPercent < 45 || last.CPUPercent > 55 {
+		t.Errorf("a steady half core reads %v%%", last.CPUPercent)
 	}
 
 	// A single quiet interval must not wipe the reading out, and a single busy
 	// one must not take it straight to the top.
 	now = now.Add(step)
-	quiet := s.usageAsOf(now)
-	if quiet.CPUPercent < 20 {
+	if quiet := s.usageAsOf(now); quiet.CPUPercent < 20 {
 		t.Errorf("one idle interval dropped the average to %v%%", quiet.CPUPercent)
 	}
 	now = now.Add(step)

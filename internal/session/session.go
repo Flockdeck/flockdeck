@@ -111,6 +111,10 @@ type Session struct {
 	usage    Usage
 	usageAt  time.Time
 	usageCPU map[int]time.Duration
+	// cpuSeeded records that a CPU share has been measured at least once, so
+	// the first measurable interval is reported rather than averaged against
+	// the nothing before it.
+	cpuSeeded bool
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
