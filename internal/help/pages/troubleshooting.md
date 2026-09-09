@@ -10,7 +10,7 @@ the path is looked up once at startup.
 
 ## A pane is dead, with a Restart button
 
-The process exited. **Restart** starts it again in the same directory and
+The process exited. [[action:restartPane]] starts it again in the same directory and
 resumes the same conversation. If it exits immediately every time, run
 `claude` yourself in that directory to see what it says.
 
@@ -66,6 +66,6 @@ survives a restart is the conversation, deliberately.
 
 ## Everything stopped when I closed the window
 
-Closing the window quits the application. Use **Detach** in the command
+Closing the window quits the application. Use [[action:detach]] in the command
 palette to close the window and leave the agents running, and
 `perch` to come back to them.

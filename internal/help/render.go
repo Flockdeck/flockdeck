@@ -27,7 +27,11 @@ func expand(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return expandInlineKeys(out)
+	out, err = expandInlineKeys(out)
+	if err != nil {
+		return "", err
+	}
+	return expandActions(out)
 }
 
 // expandKeyTables replaces `{{keys}}` with every section and `{{keys:Name}}`
@@ -68,37 +72,75 @@ func expandKeyTables(src string) (string, error) {
 
 // expandInlineKeys replaces `[[key:id]]` with the binding for that action.
 func expandInlineKeys(src string) (string, error) {
-	return expandInlineKeysWith(src, func(keys string) string { return "<kbd>" + keys + "</kbd>" })
+	return expandInlineKeysWith(src, kbd)
 }
 
 // expandInlineKeysWith does the same with the binding wrapped however the
 // destination wants it: <kbd> for the rendered page, the bare keys for the
 // contents summary, which the interface shows as text.
 func expandInlineKeysWith(src string, wrap func(string) string) (string, error) {
+	return expandPlaceholders(src, "[[key:", func(id string) (string, error) {
+		k, ok := Lookup(id)
+		if !ok {
+			return "", fmt.Errorf("[[key:%s]]: no such action", id)
+		}
+		if k.Keys == "" {
+			return "", fmt.Errorf("[[key:%s]]: %q has no binding; use [[action:%s]] instead", id, k.Label, id)
+		}
+		return wrap(k.Keys), nil
+	})
+}
+
+// expandActions replaces `[[action:id]]` with the way to reach that action.
+func expandActions(src string) (string, error) {
+	return expandActionsWith(src, kbd)
+}
+
+// expandActionsWith replaces `[[action:id]]` with the action's binding when it
+// has one and its name in bold when the command palette is the only way there.
+//
+// It exists for the actions `[[key:…]]` cannot name, which are exactly the ones
+// most at risk of going stale: an action with no binding could only be written
+// into a page by hand, so renaming it in the key table left every page that
+// mentioned it saying the old name with nothing to say so.
+func expandActionsWith(src string, wrap func(string) string) (string, error) {
+	return expandPlaceholders(src, "[[action:", func(id string) (string, error) {
+		k, ok := Lookup(id)
+		if !ok {
+			return "", fmt.Errorf("[[action:%s]]: no such action", id)
+		}
+		if k.Keys != "" {
+			return wrap(k.Keys), nil
+		}
+		return "**" + k.Name() + "**", nil
+	})
+}
+
+// kbd is how a binding is written into a rendered page.
+func kbd(keys string) string { return "<kbd>" + keys + "</kbd>" }
+
+// expandPlaceholders replaces every `<open>id]]` in src with what render makes
+// of the id inside it.
+func expandPlaceholders(src, open string, render func(id string) (string, error)) (string, error) {
 	var b strings.Builder
 	rest := src
 	for {
-		i := strings.Index(rest, "[[key:")
+		i := strings.Index(rest, open)
 		if i < 0 {
 			b.WriteString(rest)
 			return b.String(), nil
 		}
 		end := strings.Index(rest[i:], "]]")
 		if end < 0 {
-			return "", fmt.Errorf("unterminated [[key: placeholder")
+			return "", fmt.Errorf("unterminated %s placeholder", open)
 		}
 		end += i
 		b.WriteString(rest[:i])
-
-		id := rest[i+len("[[key:") : end]
-		k, ok := Lookup(id)
-		if !ok {
-			return "", fmt.Errorf("[[key:%s]]: no such action", id)
+		out, err := render(rest[i+len(open) : end])
+		if err != nil {
+			return "", err
 		}
-		if k.Keys == "" {
-			return "", fmt.Errorf("[[key:%s]]: %q has no binding; name the palette instead", id, k.Label)
-		}
-		b.WriteString(wrap(k.Keys))
+		b.WriteString(out)
 		rest = rest[end+2:]
 	}
 }

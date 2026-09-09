@@ -39,3 +39,9 @@ application, searchable. If you remember one shortcut, remember that one.
 Two agents editing the same files will fight. Give each its own checkout
 instead: worktrees creates them, and fan out turns one agent's plan into a set
 of agents that each take a task in a worktree of their own.
+
+## Finding the rest of it
+
+[[key:help]] brings this back from anywhere, and [[key:palette]] opens the
+command palette, which lists every action there is — including the ones with
+no shortcut of their own.

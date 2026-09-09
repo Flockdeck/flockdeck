@@ -140,6 +140,10 @@ func summaryText(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	expanded, err = expandActionsWith(expanded, func(keys string) string { return keys })
+	if err != nil {
+		return "", err
+	}
 	htmlText, err := toHTML(expanded)
 	if err != nil {
 		return "", err

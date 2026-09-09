@@ -1,6 +1,7 @@
 package help
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
 )
@@ -29,7 +30,7 @@ func TestPagesRender(t *testing.T) {
 		// A placeholder that survived rendering would be shown to the reader.
 		// The summary matters as much as the page: the contents list shows it
 		// as text, so markup and placeholders both arrive on screen verbatim.
-		for _, leftover := range []string{"{{keys", "[[key:"} {
+		for _, leftover := range []string{"{{keys", "[[key:", "[[action:"} {
 			if strings.Contains(p.HTML, leftover) {
 				t.Errorf("%s: unexpanded %q in the rendered page", p.Slug, leftover)
 			}
@@ -167,5 +168,56 @@ func TestPlainTextKeepsPunctuationAttached(t *testing.T) {
 	want := "Press F1. Then wait, please."
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Key.Page says which page explains an action, and the interface sends the
+// reader there. A page that never names the action is a promise the reader
+// follows and finds nothing behind — and it is how an action comes to be
+// undocumented while still looking documented.
+//
+// The reference has to be a placeholder rather than the action's name written
+// out, because a name written out is exactly what goes stale when the key
+// table is edited.
+func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
+	for _, k := range Keys {
+		if k.Page == "" {
+			continue
+		}
+		src, err := fs.ReadFile(pagesFS, "pages/"+k.Page+".md")
+		if err != nil {
+			t.Errorf("%s: page %q: %v", k.ID, k.Page, err)
+			continue
+		}
+		if strings.Contains(string(src), "[[key:"+k.ID+"]]") ||
+			strings.Contains(string(src), "[[action:"+k.ID+"]]") {
+			continue
+		}
+		t.Errorf("%s (%q) says it is explained on the %s page, which never refers to it; "+
+			"add [[action:%s]] there, or clear its Page", k.ID, k.Label, k.Page, k.ID)
+	}
+}
+
+// An action with a binding is reached by its keys; one without is reached by
+// its name, and the name is the part of the label a sentence would use.
+func TestExpandAction(t *testing.T) {
+	cases := map[string]string{
+		"[[action:splitRight]]":      "<kbd>Ctrl+Shift+D</kbd>",
+		"[[action:splitRightShell]]": "**Split right (shell)**",
+		// The palette needs the gloss after the dash; a page does not.
+		"[[action:detach]]": "**Detach**",
+	}
+	for src, want := range cases {
+		got, err := expand(src)
+		if err != nil {
+			t.Errorf("expand(%s): %v", src, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("expand(%s) = %q, want %q", src, got, want)
+		}
+	}
+	if _, err := expand("[[action:nosuchthing]]"); err == nil {
+		t.Error("expand accepted an action that does not exist")
 	}
 }
