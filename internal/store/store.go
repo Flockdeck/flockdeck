@@ -1,9 +1,9 @@
 // Package store persists the window layout between runs.
 //
-// Only the shape of the workspace is saved — tabs, splits, working directories
-// and pane ids. Conversation history lives in Claude Code's own session store
-// and is reattached with `claude --resume <id>`, which is why pane ids are
-// generated as UUIDs.
+// Only the shape of the workspace is saved — tabs, splits, working
+// directories, pane ids, and which agent and model each pane runs.
+// Conversation history lives in the agent's own transcript store and is
+// reattached by id, which is why pane ids are generated as UUIDs.
 package store
 
 import (
@@ -22,7 +22,13 @@ import (
 )
 
 // Version is the schema version of the persisted state.
-const Version = 1
+//
+// Version 2 is where a pane began saying which agent it runs and which model
+// it was asked for. Version 1 knew only one agent, so its panes are "claude"
+// or "shell"; they are brought forward on the way in rather than being thrown
+// away, because a layout is the user's open tabs and losing them on an upgrade
+// would be unforgivable.
+const Version = 2
 
 // State is the whole persisted workspace.
 type State struct {
@@ -50,9 +56,16 @@ type Node struct {
 // Pane is a single restored pane.
 type Pane struct {
 	ID   string `json:"id"`
-	Kind string `json:"kind"` // "claude" or "shell"
+	Kind string `json:"kind"` // "agent" or "shell"
 	Cwd  string `json:"cwd"`
 	Name string `json:"name,omitempty"`
+	// Agent is the id of the agent an agent pane runs, and Model the model it
+	// was asked for. Both are absent for a shell pane, and an absent Agent on
+	// an agent pane means whatever the catalog's default is — which is what a
+	// layout written before panes could choose meant, and what a fresh pane
+	// opened with one keystroke still means.
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
 	// Task is what a spawned pane was asked to do. It is kept so a restored
 	// agent can still be told why its pane exists.
 	Task string `json:"task,omitempty"`
@@ -294,7 +307,7 @@ func Load(root string) (*State, error) {
 		quarantine(from(p, legacy))
 		return nil, nil
 	}
-	if s.Version != Version {
+	if !migrate(&s) {
 		// Not damage but a layout from a build that numbered the format
 		// differently, most often a newer one the user has just stepped back
 		// from. It meets the same end as a damaged file, ignored now and
@@ -320,6 +333,50 @@ func Load(root string) (*State, error) {
 		_ = os.Rename(legacy, p)
 	}
 	return &s, nil
+}
+
+// migrate brings a layout read from disk up to the schema this build writes,
+// reporting whether it could. A version it does not recognise — a newer one,
+// or a zero from a file that is not a layout at all — is left for the caller
+// to put aside.
+//
+// It works on the value in memory and leaves the file alone. The next save
+// writes the current version over it, so a run that only looks at a layout
+// does not rewrite it, and an upgrade costs the user nothing and asks them
+// nothing.
+func migrate(s *State) bool {
+	switch s.Version {
+	case Version:
+		return true
+	case 1:
+		// Version 1 had one agent, so a pane was "claude" or "shell" and there
+		// was nothing else to say about it. Every one of those Claude panes is
+		// an agent pane running the agent named "claude", with whatever model
+		// the CLI was already configured with — which is an empty model, not a
+		// guess at which one it was.
+		for i := range s.Tabs {
+			migratePaneKinds(s.Tabs[i].Root)
+		}
+		s.Version = Version
+		return true
+	}
+	return false
+}
+
+// migratePaneKinds rewrites version 1's pane kinds throughout one tab's tree.
+func migratePaneKinds(n *Node) {
+	if n == nil {
+		return
+	}
+	if n.Pane != nil && n.Pane.Kind != "shell" {
+		n.Pane.Kind = "agent"
+		if n.Pane.Agent == "" {
+			n.Pane.Agent = "claude"
+		}
+	}
+	for _, c := range n.Children {
+		migratePaneKinds(c)
+	}
 }
 
 // from returns the file a layout was actually read from: the name in use now,

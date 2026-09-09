@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -670,7 +671,7 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 					Dir:    "h",
 					Weight: 0.5,
 					Children: []*Node{
-						{Pane: &Pane{ID: "pane-1", Kind: "claude", Cwd: "/repo/a", Name: "worker", Task: "fix the parser"}, Weight: 0.7},
+						{Pane: &Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5"}, Weight: 0.7},
 						{
 							Dir: "v",
 							Children: []*Node{
@@ -680,7 +681,7 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 					},
 				},
 			},
-			{Title: "docs", Root: &Node{Pane: &Pane{ID: "pane-3", Kind: "claude", Cwd: "/repo/a"}}},
+			{Title: "docs", Root: &Node{Pane: &Pane{ID: "pane-3", Kind: "agent", Cwd: "/repo/a"}}},
 		},
 	}
 
@@ -716,7 +717,7 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 	if left.Pane == nil {
 		t.Fatal("the left leaf lost its pane")
 	}
-	if *left.Pane != (Pane{ID: "pane-1", Kind: "claude", Cwd: "/repo/a", Name: "worker", Task: "fix the parser"}) {
+	if *left.Pane != (Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5"}) {
 		t.Errorf("pane came back as %+v", *left.Pane)
 	}
 	if left.Weight != 0.7 {
@@ -742,7 +743,9 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v", err)
 	}
-	for _, version := range []int{0, Version - 1, Version + 1} {
+	// Version 1 is left out: it is not another schema but the one this build
+	// migrates, and it has a test of its own below.
+	for _, version := range []int{0, Version + 1} {
 		data, err := json.MarshalIndent(&State{
 			Version: version,
 			Root:    filepath.Clean("/repo/a"),
@@ -770,6 +773,97 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 	}
 	if got, err := Load("/repo/a"); err != nil || got == nil {
 		t.Fatalf("the current version did not survive a round trip: %v", err)
+	}
+}
+
+// TestVersion1LayoutIsMigrated covers the upgrade a user gets for nothing: a
+// layout saved by a build that knew only Claude comes back with every tab and
+// every pane, each agent pane now saying which agent it runs.
+//
+// This is the promise that somebody who only ever runs Claude notices nothing.
+// Getting it wrong quarantines the file, and the first they would know of it
+// is an empty workspace where their tabs were.
+func TestVersion1LayoutIsMigrated(t *testing.T) {
+	isolateConfig(t)
+
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	// Written out by hand rather than through Save, because Save stamps the
+	// version this build writes and there is no way back to version 1.
+	v1 := []byte(`{
+	  "version": 1,
+	  "root": ` + strconv.Quote(filepath.Clean("/repo/a")) + `,
+	  "active": 1,
+	  "tabs": [
+	    {"title": "api", "focus": "pane-1", "root": {"dir": "h", "children": [
+	      {"pane": {"id": "pane-1", "kind": "claude", "cwd": "/repo/a", "name": "worker"}},
+	      {"pane": {"id": "pane-2", "kind": "shell", "cwd": "/repo/a/sub"}}
+	    ]}},
+	    {"title": "docs", "root": {"pane": {"id": "pane-3", "kind": "claude", "cwd": "/repo/a"}}}
+	  ]
+	}`)
+	if err := os.WriteFile(p, v1, 0o600); err != nil {
+		t.Fatalf("write layout: %v", err)
+	}
+
+	got, err := Load("/repo/a")
+	if err != nil || got == nil {
+		t.Fatalf("Load = %v, %v; a version 1 layout must still restore", got, err)
+	}
+	if got.Version != Version {
+		t.Errorf("version %d, want %d", got.Version, Version)
+	}
+	if len(got.Tabs) != 2 || got.Active != 1 {
+		t.Fatalf("restored %d tabs, active %d; want 2 and 1", len(got.Tabs), got.Active)
+	}
+
+	tests := []struct {
+		name  string
+		pane  *Pane
+		kind  string
+		agent string
+	}{
+		{"a claude pane becomes an agent pane running claude",
+			got.Tabs[0].Root.Children[0].Pane, "agent", "claude"},
+		{"a shell pane stays a shell with no agent",
+			got.Tabs[0].Root.Children[1].Pane, "shell", ""},
+		{"panes in later tabs are migrated too",
+			got.Tabs[1].Root.Pane, "agent", "claude"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.pane == nil {
+				t.Fatal("the leaf lost its pane")
+			}
+			if tc.pane.Kind != tc.kind {
+				t.Errorf("kind %q, want %q", tc.pane.Kind, tc.kind)
+			}
+			if tc.pane.Agent != tc.agent {
+				t.Errorf("agent %q, want %q", tc.pane.Agent, tc.agent)
+			}
+			// Version 1 never recorded a model, and inventing one here would
+			// pin a pane to a model the user never chose.
+			if tc.pane.Model != "" {
+				t.Errorf("model %q, want none", tc.pane.Model)
+			}
+		})
+	}
+
+	// The migration happens in memory: the file on disk is left as it was
+	// until something saves over it, so a run that only looks does not rewrite
+	// the user's layout and a step back to the older build still finds one it
+	// can read.
+	after, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(after) != string(v1) {
+		t.Errorf("Load rewrote the layout on disk: %s", after)
+	}
+	if _, err := os.Stat(p + damagedSuffix); err == nil {
+		t.Error("a version 1 layout was quarantined; it should have been migrated")
 	}
 }
 

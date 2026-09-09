@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/gitx"
 	"github.com/jmwri/perch/internal/hooks"
 	"github.com/jmwri/perch/internal/layout"
@@ -42,6 +43,14 @@ type Pane struct {
 	Kind session.Kind
 	Cwd  string
 	Name string
+	// Agent is the id of the agent this pane runs, and Model the model it was
+	// asked for. Both are empty on a shell pane; an empty Agent on an agent
+	// pane means the catalog's default, so a pane opened with one keystroke
+	// and a layout written before panes could choose both still mean the same
+	// thing. An empty Model means whatever the agent is already set to, which
+	// is not the same as naming its default model.
+	Agent string
+	Model string
 	// Root is the open project this pane belongs to. It is usually the project
 	// of the tab the pane sits on, but need not be: a tab can show agents from
 	// more than one project side by side, and this is what says which one an
@@ -77,6 +86,14 @@ type Pane struct {
 
 // Alive reports whether the pane has a running process.
 func (p *Pane) Alive() bool { return p.Sess != nil && !p.Sess.Exited() }
+
+// IsAgent reports whether the pane runs an agent rather than a plain shell.
+//
+// A pane is one or the other, so this is written as "not a shell": which agent
+// it runs is the Spec's business, and everything the workspace does with the
+// distinction — resuming on restart, renaming a tab after the first prompt,
+// counting a project as waiting — is true of every agent and of none of them.
+func (p *Pane) IsAgent() bool { return p.Kind != session.KindShell }
 
 // Status returns the pane's status and detail, accounting for panes that never
 // started.
@@ -749,7 +766,7 @@ func paneTabTitle(p *Pane) (title string, auto bool) {
 	if title = summarisePrompt(p.Task); title != "" {
 		return title, false
 	}
-	return p.Name, p.Kind == session.KindClaude
+	return p.Name, p.IsAgent()
 }
 
 // Pane returns the pane with the given id.
@@ -794,33 +811,83 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	}
 
 	var argv, env []string
-	switch p.Kind {
-	case session.KindClaude:
-		if w.claudeExe == "" {
-			p.Err = fmt.Errorf("the `claude` CLI was not found on PATH")
-			return
-		}
-		settings, err := session.WriteHookSettings(
-			w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token())
-		if err != nil {
-			p.Err = err
-			return
-		}
-		// Resuming a session Claude has no transcript for fails immediately, so
-		// a pane that was never prompted must start fresh instead.
-		resuming := resume && session.ConversationExists(p.ID)
-		var extra []string
-		if !resuming && p.initial != "" {
-			// Handing the task to Claude as its opening argument is far more
-			// reliable than typing into the terminal, which would mean guessing
-			// when the interface is ready to accept it.
-			extra = []string{p.initial}
-		}
-		argv = session.ClaudeArgs(p.ID, settings, resuming, extra)
-		env = session.Env(w.paneEnv(p)...)
-	default:
+	if !p.IsAgent() {
 		argv = session.ShellArgs()
-		env = session.Env(w.paneEnv(p)...)
+		env = session.Env(w.paneEnv(p, "", "")...)
+	} else {
+		// An empty agent is not a missing one: it means whichever agent this
+		// pane would be opened with today, which is how a layout written
+		// before panes could choose still restores.
+		agentID := p.Agent
+		if agentID == "" {
+			agentID = DefaultAgent
+		}
+		spec, ok := w.specFor(agentID)
+		if !ok {
+			// A layout can name an agent this machine has no entry for — one
+			// removed from the user's agents.json, or a layout carried over
+			// from a machine that had it. That is this pane's problem and no
+			// other's, so it is reported in place.
+			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
+			return
+		}
+		// A CLI runner is somebody else's program and may simply not be on the
+		// machine; an API runner is this binary, which is by definition here.
+		if spec.Runner != agent.RunnerAPI && spec.Exe != "" {
+			if _, err := exec.LookPath(spec.Exe); err != nil {
+				p.Err = fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+				return
+			}
+		}
+		// The model the pane was asked for, falling back to the agent's own
+		// default. Both may be empty, which leaves the choice to the agent --
+		// how a CLI keeps whatever it was already configured with.
+		model := p.Model
+		if model == "" {
+			model = spec.DefaultModel
+		}
+		tokens := agent.Tokens{
+			Session: p.ID,
+			Model:   model,
+			Cwd:     p.Cwd,
+			// A pane's id is also its conversation id, so the two tokens hold
+			// the same value here. They are separate because they answer
+			// different questions — which conversation to reattach, and which
+			// pane to report a lifecycle event against — and an agent whose
+			// two ids are not the same thing would need them apart.
+			Pane: p.ID,
+		}
+		// Only an agent that reports its own lifecycle has anything to do with
+		// a settings file; for the rest the pane's status comes from watching
+		// what it prints, and writing one would leave a file behind per pane
+		// that nothing ever reads.
+		if spec.Caps.Hooks {
+			settings, err := session.WriteHookSettings(
+				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token())
+			if err != nil {
+				p.Err = err
+				return
+			}
+			tokens.Settings = settings
+		}
+		// Resuming an agent that has no transcript for this session fails
+		// immediately — `claude --resume` prints "No conversation found" and
+		// exits — so a pane that was never prompted must start fresh instead.
+		resuming := resume && spec.Caps.Resume && w.transcriptExists(spec, p.ID)
+		if !resuming {
+			// Handing the task over as an opening argument is far more
+			// reliable than typing into the terminal, which would mean
+			// guessing when the interface is ready to accept it.
+			tokens.Prompt = p.initial
+		}
+		argv = agent.BuildArgv(spec, resuming, tokens)
+		if spec.Runner == agent.RunnerAPI {
+			// An API agent is Perch's own chat client. BuildArgv leaves the
+			// program off because only this side knows where the running
+			// binary is.
+			argv = append([]string{w.selfExe, "chat"}, argv...)
+		}
+		env = session.Env(append(append([]string{}, spec.Env...), w.paneEnv(p, spec.ID, model)...)...)
 	}
 
 	s, err := session.Start(session.Config{
@@ -853,7 +920,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 
 // paneEnv gives a pane what it needs to call back into the application, so an
 // agent can spawn helpers of its own with `perch spawn`.
-func (w *Workspace) paneEnv(p *Pane) []string {
+//
+// The agent id and model are passed in rather than read off the pane because
+// the model a pane actually runs under is the one left after the agent's
+// default has been applied, which is not always the one the pane recorded.
+func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 	if w.hookSrv == nil {
 		return nil
 	}
@@ -871,11 +942,79 @@ func (w *Workspace) paneEnv(p *Pane) []string {
 	// prompt written against the names an earlier build used would go blank on
 	// upgrade with nothing on screen to say why. The old set can be dropped a
 	// release after the rename.
-	env := make([]string, 0, 2*len(vars))
+	env := make([]string, 0, 2*len(vars)+2)
 	for _, v := range vars {
 		env = append(env, "PERCH_"+v[0]+"="+v[1], "AGENT_WRAPPER_"+v[0]+"="+v[1])
 	}
+	// Which agent and model the pane is running only under the name in use
+	// now: they are new, so there is no prompt or script written against an
+	// older spelling of them to keep working. A shell pane is neither and is
+	// told nothing, rather than being told it is an agent with no name.
+	if agentID != "" {
+		env = append(env, "PERCH_AGENT="+agentID)
+	}
+	if model != "" {
+		env = append(env, "PERCH_MODEL="+model)
+	}
 	return env
+}
+
+// DefaultAgent is the agent a pane runs when nothing else has been chosen: for
+// it, by its project, or by the user's own defaults.
+const DefaultAgent = "claude"
+
+// specFor resolves the agent id recorded on a pane to the Spec that says how
+// to start it, reporting whether there is one.
+//
+// This is a placeholder for the catalog — the built-in Specs overlaid by the
+// user's agents.json — and knows only the one agent every earlier build ran.
+// It is written where it is so that the pane-starting code above is already
+// asking the question the catalog will answer, and so that this branch builds
+// on its own; it goes when the catalog arrives.
+func (w *Workspace) specFor(id string) (agent.Spec, bool) {
+	if id == "" {
+		id = DefaultAgent
+	}
+	if id != "claude" {
+		return agent.Spec{}, false
+	}
+	return agent.Spec{
+		ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
+		Args: []agent.Arg{
+			agent.Group("session", "--session-id", "{{session}}"),
+			agent.Group("settings", "--settings", "{{settings}}"),
+			agent.Group("model", "--model", "{{model}}"),
+			agent.Lit("{{prompt}}"),
+		},
+		ResumeArgs: []agent.Arg{
+			agent.Group("session", "--resume", "{{session}}"),
+			agent.Group("settings", "--settings", "{{settings}}"),
+			agent.Group("model", "--model", "{{model}}"),
+		},
+		Caps: agent.Caps{Hooks: true, Resume: true, Transcript: true, Trust: true, Context: agent.ContextHook},
+		Models: []agent.Model{
+			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
+			{ID: "opus", Name: "Opus", Note: "most capable"},
+			{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
+			{ID: "haiku", Name: "Haiku", Note: "fastest"},
+		},
+		StripEnv: []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+			"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"},
+		Install: "https://claude.com/claude-code",
+	}, true
+}
+
+// transcriptExists reports whether the agent has a stored conversation for a
+// session id, which is what decides whether resuming one is worth trying.
+//
+// This is the question the transcript Reader will answer for every agent. Only
+// two answers are known here: an agent that records nothing has nothing to
+// resume, and Claude's transcripts are where they have always been.
+func (w *Workspace) transcriptExists(spec agent.Spec, sessionID string) bool {
+	if !spec.Caps.Transcript {
+		return false
+	}
+	return session.ConversationExists(sessionID)
 }
 
 // RootOf reports the project a pane belongs to, for callers outside the
@@ -922,9 +1061,19 @@ func (w *Workspace) projectFor(cwd string) string {
 	return best
 }
 
+// Choice is what a new pane should run: a shell, or an agent and one of its
+// models. An empty Agent means the default one, and an empty Model whatever
+// that agent is already set to, so a caller with nothing to say passes the
+// kind alone and gets exactly what one keystroke has always given.
+type Choice struct {
+	Kind  session.Kind
+	Agent string
+	Model string
+}
+
 // newPane creates and starts a pane, registering it in the workspace. An empty
 // root works the project out from the directory.
-func (w *Workspace) newPane(kind session.Kind, cwd, name, root string) *Pane {
+func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	if cwd == "" {
 		cwd = w.activeRoot
 	}
@@ -934,7 +1083,16 @@ func (w *Workspace) newPane(kind session.Kind, cwd, name, root string) *Pane {
 	if root == "" {
 		root = w.projectFor(cwd)
 	}
-	p := &Pane{ID: uuid.NewString(), Kind: kind, Cwd: cwd, Name: name, Root: root, Branch: branchOf(cwd)}
+	p := &Pane{
+		ID: uuid.NewString(), Kind: c.Kind, Cwd: cwd, Name: name, Root: root,
+		Branch: branchOf(cwd),
+	}
+	// A shell runs no agent, so it is never given one to remember: a kind and
+	// an agent that disagreed would be written to the layout and read back as
+	// a pane that is somehow both.
+	if p.IsAgent() {
+		p.Agent, p.Model = c.Agent, c.Model
+	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
 	w.mu.Unlock()
@@ -975,10 +1133,16 @@ func branchOf(dir string) string {
 // project, which is how a worktree usually reaches a new tab, otherwise gave an
 // agent working in one project every reason to think it was in another.
 func (w *Workspace) NewTab(kind session.Kind, cwd, title string) *Tab {
-	p := w.newPane(kind, cwd, "", "")
+	return w.NewTabWith(Choice{Kind: kind}, cwd, title)
+}
+
+// NewTabWith is NewTab with the agent and model to run in the new tab's pane
+// named, which is what the agent picker asks for.
+func (w *Workspace) NewTabWith(c Choice, cwd, title string) *Tab {
+	p := w.newPane(c, cwd, "", "")
 	// A tab with no title of its own is named after the directory for now, and
 	// renames itself when the agent is first asked something.
-	autoTitle := title == "" && kind == session.KindClaude
+	autoTitle := title == "" && p.IsAgent()
 	if title == "" {
 		title = p.Name
 	}
@@ -1089,17 +1253,28 @@ func (w *Workspace) SplitPane(dir layout.Dir, kind session.Kind) {
 	w.SplitPaneIn(dir, kind, "")
 }
 
+// SplitPaneWith is SplitPane with the agent and model to run named, which is
+// what the agent picker asks for.
+func (w *Workspace) SplitPaneWith(dir layout.Dir, c Choice) {
+	w.splitPaneIn(dir, c, "", "")
+}
+
 // SplitPaneInProject splits the focused pane and starts the new session in
 // another open project, which is how two projects come to be worked on side by
 // side in one tab. An unknown or empty project falls back to an ordinary
 // split.
 func (w *Workspace) SplitPaneInProject(dir layout.Dir, kind session.Kind, root string) {
+	w.SplitPaneInProjectWith(dir, Choice{Kind: kind}, root)
+}
+
+// SplitPaneInProjectWith is SplitPaneInProject with the agent and model named.
+func (w *Workspace) SplitPaneInProjectWith(dir layout.Dir, c Choice, root string) {
 	open, ok := w.openRootFor(root)
 	if !ok {
-		w.SplitPaneIn(dir, kind, "")
+		w.splitPaneIn(dir, c, "", "")
 		return
 	}
-	w.splitPaneIn(dir, kind, open, open)
+	w.splitPaneIn(dir, c, open, open)
 }
 
 // SplitPaneIn splits the focused pane, starting the new session in cwd. An
@@ -1107,13 +1282,18 @@ func (w *Workspace) SplitPaneInProject(dir layout.Dir, kind session.Kind, root s
 // should do; the worktree panel passes a directory to put an agent straight
 // into another checkout.
 func (w *Workspace) SplitPaneIn(dir layout.Dir, kind session.Kind, cwd string) {
-	w.splitPaneIn(dir, kind, cwd, "")
+	w.splitPaneIn(dir, Choice{Kind: kind}, cwd, "")
+}
+
+// SplitPaneInWith is SplitPaneIn with the agent and model named.
+func (w *Workspace) SplitPaneInWith(dir layout.Dir, c Choice, cwd string) {
+	w.splitPaneIn(dir, c, cwd, "")
 }
 
 // splitPaneIn is the whole of the split, with the project the new pane belongs
 // to given separately from its directory: the two differ when an agent is put
 // into a worktree, which sits under the project it was made from.
-func (w *Workspace) splitPaneIn(dir layout.Dir, kind session.Kind, cwd, root string) {
+func (w *Workspace) splitPaneIn(dir layout.Dir, c Choice, cwd, root string) {
 	t := w.CurrentTab()
 	if t == nil {
 		return
@@ -1130,7 +1310,7 @@ func (w *Workspace) splitPaneIn(dir layout.Dir, kind session.Kind, cwd, root str
 			}
 		}
 	}
-	np := w.newPane(kind, cwd, "", root)
+	np := w.newPane(c, cwd, "", root)
 	if !t.Tree.Split(t.Focus, np.ID, dir) {
 		w.destroyPane(np.ID)
 		return
@@ -1178,7 +1358,7 @@ func (w *Workspace) RestartPane() {
 		p.Sess = nil
 		w.mu.Unlock()
 	}
-	w.startPane(p, p.Kind == session.KindClaude)
+	w.startPane(p, p.IsAgent())
 	w.wake()
 }
 
@@ -1294,7 +1474,7 @@ func (w *Workspace) ToggleBroadcastMember() {
 func (w *Workspace) autoBroadcastMembers(t *Tab) []string {
 	var out []string
 	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
+		if p := w.Pane(id); p != nil && p.IsAgent() {
 			out = append(out, id)
 		}
 	}
@@ -1309,7 +1489,7 @@ func (w *Workspace) InBroadcast(id string) bool {
 			return false
 		}
 		p := w.Pane(id)
-		return p != nil && p.Kind == session.KindClaude
+		return p != nil && p.IsAgent()
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -1508,8 +1688,12 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	}
 
 	p := &Pane{
-		ID:     id,
-		Kind:   session.KindClaude,
+		ID:   id,
+		Kind: session.KindClaude,
+		// The conversation being reopened is one Claude recorded, so the pane
+		// has to run Claude to reattach to it, whichever agent this project
+		// opens new panes with.
+		Agent:  "claude",
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),
 		Root:   w.projectFor(cwd),

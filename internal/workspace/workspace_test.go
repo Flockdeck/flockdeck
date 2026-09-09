@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
 )
@@ -653,5 +654,178 @@ func TestClosingAProjectDropsATabLeftHoldingNothing(t *testing.T) {
 	}
 	if sameDir(first, second) {
 		t.Fatal("the projects should be different directories")
+	}
+}
+
+// TestClaudeArgvIsUnchanged is the promise that somebody who only ever runs
+// Claude notices nothing: the argv a Claude pane is started with now comes out
+// of its Spec rather than out of session.ClaudeArgs, and the two must agree
+// exactly. A stray or missing argument here is a pane that dies at launch, or
+// a conversation that starts fresh where it should have resumed.
+func TestClaudeArgvIsUnchanged(t *testing.T) {
+	var w Workspace
+	spec, ok := w.specFor("")
+	if !ok {
+		t.Fatal("the default agent has no spec")
+	}
+
+	const (
+		id       = "11111111-2222-4333-8444-555555555555"
+		settings = "/state/sessions/11111111.settings.json"
+	)
+	tests := []struct {
+		name   string
+		resume bool
+		prompt string
+	}{
+		{name: "a fresh pane with no task"},
+		{name: "a fresh pane with a task", prompt: "fix the parser"},
+		{name: "a task that begins with a dash", prompt: "-p is not what I meant"},
+		{name: "a pane resuming its conversation", resume: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var extra []string
+			if tc.prompt != "" {
+				extra = []string{tc.prompt}
+			}
+			want := session.ClaudeArgs(id, settings, tc.resume, extra)
+			got := agent.BuildArgv(spec, tc.resume, agent.Tokens{
+				Session:  id,
+				Settings: settings,
+				Prompt:   tc.prompt,
+			})
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("argv = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestClaudeArgvNamesTheModelOnlyWhenOneIsChosen covers the one argument the
+// Spec adds. An empty model is not a default to be filled in: it means
+// whatever the CLI is already set to, and passing --model with nothing after
+// it would swallow the next argument.
+func TestClaudeArgvNamesTheModelOnlyWhenOneIsChosen(t *testing.T) {
+	var w Workspace
+	spec, _ := w.specFor("claude")
+
+	tests := []struct {
+		name  string
+		model string
+		want  bool
+	}{
+		{name: "no model chosen"},
+		{name: "a model chosen", model: "opus", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			argv := agent.BuildArgv(spec, false, agent.Tokens{Session: "s", Model: tc.model})
+			var named bool
+			for i, a := range argv {
+				if a == "--model" {
+					named = true
+					if i+1 >= len(argv) || argv[i+1] != tc.model {
+						t.Fatalf("--model is not followed by %q in %q", tc.model, argv)
+					}
+				}
+			}
+			if named != tc.want {
+				t.Errorf("--model present = %v, want %v (argv %q)", named, tc.want, argv)
+			}
+		})
+	}
+}
+
+// TestUnknownAgentFailsThePaneRatherThanTheWindow checks a pane whose agent is
+// not in the catalog — one named in a layout written on a machine that had it,
+// or in a hand-edited agents.json — reports itself in place. Everything else
+// in the window has to carry on around it.
+func TestUnknownAgentFailsThePaneRatherThanTheWindow(t *testing.T) {
+	var w Workspace
+	if _, ok := w.specFor("no-such-agent"); ok {
+		t.Fatal("an agent that does not exist resolved to a spec")
+	}
+}
+
+// TestNewPaneRecordsTheChoice covers what a new pane remembers of the agent
+// picker. A shell runs no agent, so one handed to it is dropped rather than
+// written to the layout and read back as a pane that is somehow both.
+func TestNewPaneRecordsTheChoice(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	tests := []struct {
+		name        string
+		choice      Choice
+		wantAgent   string
+		wantModel   string
+		wantIsAgent bool
+	}{
+		{
+			name:   "a shell keeps neither",
+			choice: Choice{Kind: session.KindShell, Agent: "claude", Model: "opus"},
+		},
+		{
+			name:        "an agent keeps both",
+			choice:      Choice{Kind: session.KindClaude, Agent: "codex", Model: "gpt-5"},
+			wantAgent:   "codex",
+			wantModel:   "gpt-5",
+			wantIsAgent: true,
+		},
+		{
+			name:        "an agent chosen by neither name falls to the defaults",
+			choice:      Choice{Kind: session.KindClaude},
+			wantIsAgent: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := newTestWorkspace(t, root)
+			p := ws.newPane(tc.choice, root, "", "")
+			if p.IsAgent() != tc.wantIsAgent {
+				t.Errorf("IsAgent = %v, want %v", p.IsAgent(), tc.wantIsAgent)
+			}
+			if p.Agent != tc.wantAgent {
+				t.Errorf("agent = %q, want %q", p.Agent, tc.wantAgent)
+			}
+			if p.Model != tc.wantModel {
+				t.Errorf("model = %q, want %q", p.Model, tc.wantModel)
+			}
+		})
+	}
+}
+
+// TestNoTranscriptMeansNoResume covers the gate in front of resuming. An agent
+// that records nothing has nothing to reattach to, and asking it to resume is
+// how a pane dies on restart: `claude --resume` with no transcript prints "No
+// conversation found" and exits, and a restored layout would lose every pane
+// at once.
+func TestNoTranscriptMeansNoResume(t *testing.T) {
+	var w Workspace
+	claude, _ := w.specFor("claude")
+
+	tests := []struct {
+		name string
+		spec agent.Spec
+		want bool
+	}{
+		{
+			name: "an agent that records nothing",
+			spec: agent.Spec{ID: "codex", Caps: agent.Caps{Resume: true}},
+		},
+		{
+			// There is no conversation under this id, because the id is not
+			// one anything has ever been started with.
+			name: "an agent that records, with nothing recorded",
+			spec: claude,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := w.transcriptExists(tc.spec, uuid.NewString()); got != tc.want {
+				t.Errorf("transcriptExists = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
