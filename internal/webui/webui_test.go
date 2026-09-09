@@ -1389,6 +1389,47 @@ assert.strictEqual(boxLast.value, "C:/elsewhere", "the box did not follow the br
 `)
 }
 
+// Reconnect is a button that shows nothing for as long as the attempt takes,
+// so it is a button people press twice.
+func TestReconnectingTwiceLeavesOneConnection(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.controls().length, 1);
+
+// The Go process goes away.
+h.controls()[0].close();
+assert.ok(!h.$("disconnected").hidden, "the disconnected panel did not appear");
+
+// Two presses, because the first one showed nothing.
+h.click(h.$("retry"));
+h.click(h.$("retry"));
+const opened = h.controls();
+assert.strictEqual(opened.length, 3, "one connection per press, plus the first");
+const abandoned = opened[1], live = opened[2];
+assert.strictEqual(abandoned.readyState, 3, "the superseded attempt was left connecting");
+
+// The live one comes up.
+live.onopen();
+assert.ok(h.$("disconnected").hidden, "the panel stayed up over a live connection");
+
+// The abandoned attempt now finishes what it was doing. None of it counts.
+if (abandoned.onopen) abandoned.onopen();
+if (abandoned.onmessage) abandoned.onmessage({ data: JSON.stringify(fixture({ tabs: [], panes: {} })) });
+if (abandoned.onclose) abandoned.onclose();
+assert.ok(h.$("disconnected").hidden,
+  "an abandoned attempt closing put the panel back over a working connection");
+assert.ok(!h.doc.querySelector("div.empty"),
+  "state from an abandoned connection was drawn over the workspace");
+assert.strictEqual(h.controls().length, 3, "the abandoned attempt started reconnecting on its own");
+
+// And the live one still works.
+h.recv(fixture({ waiting: 1, panes: {
+  p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.ok(h.$("summary").textContent.includes("1 waiting"), "got: " + h.$("summary").textContent);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -1932,9 +1973,12 @@ function boot() {
     doc, win, sockets, terms, observers, searchers,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
+    /** controls lists every control socket the page has opened, in order. */
+    controls() { return sockets.filter((s) => s.url.includes("/ws/control")); },
     recv(msg) {
-      if (!h.control || !h.control.onmessage) throw new Error("harness: the control socket has no reader");
-      h.control.onmessage({ data: JSON.stringify(msg) });
+      const c = h.controls().pop();
+      if (!c || !c.onmessage) throw new Error("harness: the control socket has no reader");
+      c.onmessage({ data: JSON.stringify(msg) });
     },
     /** hello delivers the real action table, read from the Go side, so the
      *  palette and the keyboard are tested against the bindings that ship. */

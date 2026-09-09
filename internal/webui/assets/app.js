@@ -191,12 +191,27 @@
 
   function connectControl() {
     clearTimeout(reconnectTimer);
-    control = new WebSocket(wsBase + "/ws/control");
+    // An attempt that has been superseded is abandoned rather than left to
+    // finish: pressing Reconnect twice, which is what people do to a button
+    // that has not visibly worked yet, would otherwise leave the first attempt
+    // connecting with its handlers live. It would then open a second control
+    // connection of its own, and when it eventually failed it would put the
+    // disconnected panel back over a working one and start reconnecting again.
+    const abandoned = control;
+    control = null; // so the close below is seen for what it is
+    if (abandoned) { try { abandoned.close(); } catch { /* already gone */ } }
+    const ws = new WebSocket(wsBase + "/ws/control");
+    control = ws;
 
-    control.onopen = () => {
+    // Every handler asks whether this is still the connection, the way the
+    // terminal streams already do. Closing the old socket above is what
+    // normally settles it; this is what settles the events already in flight.
+    ws.onopen = () => {
+      if (control !== ws) return;
       $("disconnected").hidden = true;
     };
-    control.onmessage = (ev) => {
+    ws.onmessage = (ev) => {
+      if (control !== ws) return;
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
@@ -217,7 +232,8 @@
       }
       else if (msg.type === "notice") notice(msg.text, msg.error);
     };
-    control.onclose = () => {
+    ws.onclose = () => {
+      if (control !== ws) return; // an attempt that was given up on
       if (detaching) return; // the window is on its way out
       $("disconnected").hidden = false;
       // Nothing behind this can be used and the terminal it is covering has
@@ -225,7 +241,7 @@
       $("retry").focus();
       reconnectTimer = setTimeout(connectControl, 1500);
     };
-    control.onerror = () => control.close();
+    ws.onerror = () => ws.close();
   }
 
   function send(cmd) {
