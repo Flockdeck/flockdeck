@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jmwri/perch/internal/session"
@@ -25,10 +26,46 @@ type conversationsMsg struct {
 	Error string             `json:"error,omitempty"`
 }
 
+// listings remembers the newest conversation listing each window has asked
+// for.
+//
+// Reading a project's transcripts takes as long as the project is old, so two
+// answers can finish out of order: open the history of a project with years
+// behind it, close it, open a younger project's, and the first answer lands
+// on top of the second. The panel redraws itself from whichever message
+// arrived last, so the window would be left looking at another project's
+// conversations under this project's heading. Only the newest request a
+// window has made is allowed to answer it.
+var listings = struct {
+	sync.Mutex
+	seq map[*controlClient]uint64
+}{seq: make(map[*controlClient]uint64)}
+
+// askedForListing records that a window has asked, and numbers the request.
+func askedForListing(c *controlClient) uint64 {
+	listings.Lock()
+	defer listings.Unlock()
+	listings.seq[c]++
+	return listings.seq[c]
+}
+
+// answerListing reports whether a finished listing is still the one its
+// window is waiting for, and forgets the window when it is.
+func answerListing(c *controlClient, n uint64) bool {
+	listings.Lock()
+	defer listings.Unlock()
+	if listings.seq[c] != n {
+		return false
+	}
+	delete(listings.seq, c)
+	return true
+}
+
 // listConversations answers a window's request for the project's conversation
 // history. Reading transcripts touches the disk, so it happens away from the
 // goroutine that owns the workspace.
 func (s *Server) listConversations(c *controlClient, cwd string) {
+	asked := askedForListing(c)
 	done := make(chan string, 1)
 	s.do(func() {
 		if cwd == "" {
@@ -36,14 +73,26 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		}
 		done <- cwd
 	})
-	dir := <-done
+	// A request handed to a workspace that has already stopped is never run,
+	// so waiting on its answer waits for good. This runs on the goroutine
+	// that reads the window's socket, and that goroutine wedged is a window
+	// that cannot be closed and a shutdown that does not finish.
+	var dir string
+	select {
+	case dir = <-done:
+	case <-s.closed:
+		answerListing(c, asked)
+		return
+	}
 
 	go func() {
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
 		items, err := session.Conversations(dir)
 		if err != nil {
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			if answerListing(c, asked) {
+				c.sendJSON(msg)
+			}
 			return
 		}
 		open := s.openConversationIDs()
@@ -58,11 +107,15 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 				Open:     open[conv.ID],
 			})
 		}
-		c.sendJSON(msg)
+		if answerListing(c, asked) {
+			c.sendJSON(msg)
+		}
 	}()
 }
 
-// openConversationIDs reports which conversations already have a pane.
+// openConversationIDs reports which conversations already have a pane. On a
+// workspace that has stopped it reports none, which is what a list nobody
+// will see needs it to be.
 func (s *Server) openConversationIDs() map[string]bool {
 	done := make(chan map[string]bool, 1)
 	s.do(func() {
@@ -74,7 +127,12 @@ func (s *Server) openConversationIDs() map[string]bool {
 		}
 		done <- ids
 	})
-	return <-done
+	select {
+	case ids := <-done:
+		return ids
+	case <-s.closed:
+		return nil
+	}
 }
 
 // resumeConversation opens a stored conversation in a new tab.
@@ -128,6 +186,12 @@ func itoa(n int) string {
 // titleFor names a resumed tab after its opening prompt, which is far more
 // useful in a tab bar than a session id.
 func titleFor(summary, cwd string) string {
+	if summary == session.NoPrompt {
+		// The stand-in the history panel shows for a conversation that says
+		// nothing about itself. It reads as a row in a list; as the name of a
+		// pane it says even less than the directory does.
+		summary = ""
+	}
 	words := []rune(summary)
 	if len(words) == 0 {
 		return filepath.Base(cwd)
