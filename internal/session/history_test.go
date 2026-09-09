@@ -570,3 +570,27 @@ func BenchmarkConversationsRefresh(b *testing.B) {
 		}
 	}
 }
+
+// TestConversationsIgnoreAFileWhereTheFolderBelongs covers a project whose
+// derived folder name is taken by something that is not a folder. The listing
+// has to fall back to searching rather than report the project as unreadable.
+func TestConversationsIgnoreAFileWhereTheFolderBelongs(t *testing.T) {
+	cwd, dir := historyFixture(t, "blocked")
+
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeTranscript(t, filepath.Join(filepath.Dir(dir), "somewhere-else"), "eeeeeeee-0000-0000-0000-000000000000",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"found anyway"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "found anyway" {
+		t.Fatalf("expected the folder to be found by search, got %+v (err %v)", got, err)
+	}
+}

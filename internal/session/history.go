@@ -120,25 +120,31 @@ func Conversations(cwd string) ([]Conversation, error) {
 	// The derived name is only a guess, and a lossy one: every character that
 	// is not a letter or a digit becomes a dash, so "my-app" and "my_app"
 	// derive the same folder. Take it only when its transcripts agree they
-	// were recorded here, or say nothing either way.
+	// were recorded here, or say nothing either way. The listing that decides
+	// that is the listing the conversations are read from: on a folder of
+	// hundreds of transcripts, reading the directory is most of what a
+	// refresh costs, and it was being done twice.
 	dir := filepath.Join(projects, projectSlug(cwd))
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() || !folderCouldBe(dir, cwd) {
-		found, err := findProjectDir(projects, cwd)
-		if err != nil || found == "" {
-			return nil, err
-		}
-		dir = found
-	}
-
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		// Never having used Claude Code here is not a failure; being unable to
-		// read what is there is, and reporting it as an empty list leaves
-		// somebody looking for conversations they know they had.
-		if os.IsNotExist(err) {
+	if err != nil || !folderCouldBe(dir, entries, cwd) {
+		found, ferr := findProjectDir(projects, cwd)
+		if ferr != nil {
+			return nil, ferr
+		}
+		if found == "" {
+			// Never having used Claude Code here is not a failure; being
+			// unable to read what is there is, and reporting that as an empty
+			// list leaves somebody looking for conversations they know they
+			// had.
+			if err != nil && !os.IsNotExist(err) {
+				return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
+			}
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
+		dir = found
+		if entries, err = os.ReadDir(dir); err != nil {
+			return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
+		}
 	}
 
 	cached := cachedFacts(dir)
@@ -240,6 +246,11 @@ func folderCwd(dir string) string {
 	if err != nil {
 		return ""
 	}
+	return folderCwdIn(dir, files)
+}
+
+// folderCwdIn is folderCwd for a folder that has already been read.
+func folderCwdIn(dir string, files []os.DirEntry) string {
 	tried := 0
 	for _, f := range files {
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
@@ -258,8 +269,8 @@ func folderCwd(dir string) string {
 // folderCouldBe reports whether a project folder may hold cwd's conversations:
 // either its transcripts say so, or they say nothing at all, which is what a
 // folder holding only abandoned sessions looks like.
-func folderCouldBe(dir, cwd string) bool {
-	got := folderCwd(dir)
+func folderCouldBe(dir string, files []os.DirEntry, cwd string) bool {
+	got := folderCwdIn(dir, files)
 	return got == "" || sameDir(got, cwd)
 }
 
