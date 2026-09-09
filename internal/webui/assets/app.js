@@ -430,48 +430,84 @@
     return n;
   }
 
+  /** The button for each tab, by tab id. A status push arrives every time any
+   *  agent changes what it is doing, which with six of them running is most of
+   *  the time; throwing the strip away and building it again on each one loses
+   *  whatever the keyboard was on, resets how far the strip is scrolled, and
+   *  pulls the element out from under a tooltip that was about to open. So the
+   *  buttons outlive the pushes and only what changed is written. */
+  const tabNodes = new Map();
+
   function renderTabs(s) {
     // Rebuilding the strip would destroy the element a drag is holding, and
     // the drag would end nowhere. Status pushes arrive constantly, so this is
     // not a rare case; the bar catches up when the drag finishes.
     if (dragging && dragging.kind === "tab") return;
     const bar = $("tabs");
-    bar.textContent = "";
     s.tabs.forEach((tab, i) => {
+      const node = tabNode(tab.id);
+      const title = tab.title || "tab " + (i + 1);
+      if (node.label.textContent !== title) node.label.textContent = title;
       const active = tab.id === s.activeTab;
-      const b = el("button", "tab" + (active ? " active" : "") + (tab.attention ? " attention" : ""));
-      b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", String(active));
-      b.append(el("span", "label", tab.title || "tab " + (i + 1)));
-      // The triangle used to be appended by CSS, where no tooltip could reach
-      // it and no screen reader was told what it meant. As a real element it
-      // can say, in both channels, why the tab is calling for you.
-      if (tab.attention) {
-        const attn = el("span", "attn", "▲");
-        attn.setAttribute("role", "img");
-        attn.setAttribute("aria-label", TIPS.waiting);
-        describe(attn, TIPS.waiting);
-        b.append(attn);
-      }
-      const x = el("button", "close", "×");
-      describe(x, "Close tab");
-      x.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id: tab.id }); };
-      b.append(x);
-      b.onclick = () => {
-        // Re-clicking the tab already on screen produces no state change for
-        // showActiveTab to react to, so hand the keyboard back here.
-        if (active) focusTerminal();
-        else send({ cmd: "selectTab", id: tab.id });
-      };
-      b.ondblclick = () => renameTab(tab);
-      makeTabDraggable(tab, b);
-      bar.append(b);
+      node.btn.classList.toggle("active", active);
+      node.btn.setAttribute("aria-selected", String(active));
+      node.btn.classList.toggle("attention", !!tab.attention);
+      setAttention(node, !!tab.attention);
+      if (bar.childNodes[i] !== node.btn) bar.insertBefore(node.btn, bar.childNodes[i] || null);
     });
+    for (const [id, node] of tabNodes) {
+      if (s.tabs.some((t) => t.id === id)) continue;
+      node.btn.remove();
+      tabNodes.delete(id);
+    }
   }
 
-  function renameTab(tab) {
+  /** tabNode returns the button for a tab, making it the first time. Every
+   *  handler is bound to the tab's id rather than to the record it arrived in,
+   *  because the record is replaced by each push and the button is not. */
+  function tabNode(id) {
+    let node = tabNodes.get(id);
+    if (node) return node;
+    const btn = el("button", "tab");
+    btn.setAttribute("role", "tab");
+    const label = el("span", "label");
+    const close = el("button", "close", "×");
+    describe(close, "Close tab");
+    close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id }); };
+    btn.append(label, close);
+    btn.onclick = () => {
+      // Re-clicking the tab already on screen produces no state change for
+      // showActiveTab to react to, so hand the keyboard back here.
+      if (state && state.activeTab === id) focusTerminal();
+      else send({ cmd: "selectTab", id });
+    };
+    btn.ondblclick = () => renameTab(id);
+    makeTabDraggable(id, btn);
+    node = { btn, label, close, attn: null };
+    tabNodes.set(id, node);
+    return node;
+  }
+
+  /** setAttention adds or removes the marker saying an agent in this tab is
+   *  blocked. The triangle used to be appended by CSS, where no tooltip could
+   *  reach it and no screen reader was told what it meant. As a real element it
+   *  can say, in both channels, why the tab is calling for you. */
+  function setAttention(node, on) {
+    if (on === !!node.attn) return;
+    if (!on) { node.attn.remove(); node.attn = null; return; }
+    const attn = el("span", "attn", "▲");
+    attn.setAttribute("role", "img");
+    attn.setAttribute("aria-label", TIPS.waiting);
+    describe(attn, TIPS.waiting);
+    node.btn.insertBefore(attn, node.close);
+    node.attn = attn;
+  }
+
+  function renameTab(id) {
+    const tab = (state ? state.tabs : []).find((t) => t.id === id);
+    if (!tab) return;
     const name = window.prompt("Rename tab", tab.title || "");
-    if (name) send({ cmd: "renameTab", id: tab.id, text: name });
+    if (name) send({ cmd: "renameTab", id, text: name });
   }
 
   /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
@@ -656,11 +692,11 @@
 
   /** makeTabDraggable makes a tab reorderable, mergeable into another tab, and
    * a place to drop a pane. */
-  function makeTabDraggable(tab, node) {
+  function makeTabDraggable(tabId, node) {
     node.draggable = true;
     node.addEventListener("dragstart", (ev) => {
       if (ev.target.closest(".close")) { ev.preventDefault(); return; }
-      beginDrag("tab", tab.id, ev, node);
+      beginDrag("tab", tabId, ev, node);
     });
     node.addEventListener("dragend", endDrag);
 
@@ -671,10 +707,10 @@
       : tabDropZone(node.getBoundingClientRect(), ev.clientX);
 
     node.addEventListener("dragover", (ev) => {
-      if (!dragging || dragging.id === tab.id) return;
+      if (!dragging || dragging.id === tabId) return;
       // Offering to move a pane into the tab it is already in would be a
       // no-op dressed up as an action.
-      if (dragging.kind === "pane" && tabIdOfPane(dragging.id) === tab.id) return;
+      if (dragging.kind === "pane" && tabIdOfPane(dragging.id) === tabId) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = "move";
       const zone = zoneAt(ev);
@@ -686,14 +722,14 @@
       node.classList.remove("drop-into", "drop-before", "drop-after");
     });
     node.addEventListener("drop", (ev) => {
-      if (!dragging || dragging.id === tab.id) return;
+      if (!dragging || dragging.id === tabId) return;
       ev.preventDefault();
       const { kind, id } = dragging;
       const zone = zoneAt(ev);
       clearDropMarks();
-      if (kind === "pane") send({ cmd: "movePaneToTab", id, target: tab.id });
-      else if (zone === "merge") send({ cmd: "mergeTab", id, target: tab.id, dir: "h" });
-      else send({ cmd: "moveTab", id, target: zone === "before" ? tab.id : tabAfter(tab.id) });
+      if (kind === "pane") send({ cmd: "movePaneToTab", id, target: tabId });
+      else if (zone === "merge") send({ cmd: "mergeTab", id, target: tabId, dir: "h" });
+      else send({ cmd: "moveTab", id, target: zone === "before" ? tabId : tabAfter(tabId) });
     });
   }
 
