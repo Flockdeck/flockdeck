@@ -41,14 +41,16 @@ var Version = "dev"
 const (
 	probeTimeout  = 2 * time.Second
 	healthTimeout = probeTimeout / 2
-	busyGrace     = 5 * time.Second
-	busyRetry     = 250 * time.Millisecond
 )
 
-// quitGrace is how long RequestQuit waits for an instance it has asked to stop
-// to actually stop, and quitPoll how often it looks. They are variables so a
-// test does not have to wait out the real grace to see it give up.
+// The two graces are variables so a test does not have to wait either of them
+// out in full to see the giving up they end in.
 var (
+	busyGrace = 5 * time.Second
+	busyRetry = 250 * time.Millisecond
+
+	// quitGrace is how long RequestQuit waits for an instance it has asked to
+	// stop to actually stop, and quitPoll how often it looks.
 	quitGrace = 15 * time.Second
 	quitPoll  = 100 * time.Millisecond
 )

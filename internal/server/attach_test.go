@@ -151,6 +151,9 @@ func TestDetachCommandFromTheWindow(t *testing.T) {
 // anything. The probe has to come back as a failure so the launch starts its
 // own instance rather than handing its directory to a wedged one.
 func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
+	defer func(g, r time.Duration) { busyGrace, busyRetry = g, r }(busyGrace, busyRetry)
+	busyGrace, busyRetry = 600*time.Millisecond, 100*time.Millisecond
+
 	srv, _ := newTestServer(t)
 
 	// Occupy the workspace goroutine for longer than a probe will wait.
