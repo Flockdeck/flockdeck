@@ -444,12 +444,16 @@ func transcriptCwd(path string) string {
 // describeTranscript returns what a transcript holds: the opening prompt, and
 // how many entries there are.
 //
-// The two are found separately because they cost very different things. The
-// prompt is near the top, so parsing stops after the opening entries. The
-// count has to reach the end of the file, but counting line breaks is a scan
-// rather than a parse and stays quick on the tens of megabytes a long
-// conversation runs to -- and, unlike a parse, is not stopped by a single
-// entry too large to hold in memory.
+// The two cost very different things. The prompt is near the top, so parsing
+// stops after the opening entries. The count has to reach the end of the
+// file, but counting line breaks is a scan rather than a parse and stays
+// quick on the tens of megabytes a long conversation runs to -- and, unlike a
+// parse, is not stopped by a single entry too large to hold in memory. They
+// are found in one pass all the same: the entries the prompt is parsed out of
+// are counted as they go past, and the rest of the file is then scanned from
+// where that stopped. Reading the opening entries can be a good fraction of
+// reading the file -- across the transcripts on this machine, an eighth --
+// and reading them twice bought nothing.
 //
 // prev is what the last listing found, and lets most of even that be skipped.
 // An untouched file is not opened at all. A transcript is only ever appended
@@ -478,28 +482,29 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 	defer f.Close()
 
 	tail := now.size
-	if grown := prev.size > 0 && now.size > prev.size; grown {
+	grown := prev.size > 0 && now.size > prev.size
+	if grown {
 		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
 			return now, false
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
 		tail = now.size - prev.size
-	} else {
+	}
+
+	counted := &countingReader{r: io.LimitReader(f, tail), last: '\n'}
+	if !grown {
 		var title string
-		now.summary, title, now.cwd = openingPrompt(f)
+		now.summary, title, now.cwd = openingPrompt(counted)
 		if now.summary == "" {
 			// Nothing was typed here that a person would recognise the
 			// conversation by, but Claude Code may have named it.
 			now.summary = title
 		}
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return now, false
-		}
 	}
+	drain(counted)
 
-	n, partial := countNewlines(io.LimitReader(f, tail))
-	now.newlines += n
-	now.partial = partial
+	now.newlines += counted.newlines
+	now.partial = counted.last != '\n'
 	return now, true
 }
 
@@ -543,25 +548,34 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 	return "", title, cwd
 }
 
-// countNewlines counts the line breaks in what is left of a reader, and
-// reports whether the last byte it read was not one. A transcript has one
-// entry per line, so a file that ends without a line break still has an entry
-// on that last line: a transcript being written to at this moment usually
-// does.
-func countNewlines(r io.Reader) (int, bool) {
+// countingReader counts the line breaks in everything read through it, and
+// keeps the last byte that went past. A transcript has one entry per line, so
+// a file that ends without a line break still has an entry on that last line:
+// a transcript being written to at this moment usually does. last starts as a
+// line break so that a reader nothing is read from is not one entry.
+type countingReader struct {
+	r        io.Reader
+	newlines int
+	last     byte
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.newlines += bytes.Count(p[:n], []byte{'\n'})
+		c.last = p[n-1]
+	}
+	return n, err
+}
+
+// drain reads the rest of a reader and throws it away.
+func drain(r io.Reader) {
 	buf := make([]byte, 256<<10)
-	n, partial := 0, false
 	for {
-		read, err := r.Read(buf)
-		if read > 0 {
-			n += bytes.Count(buf[:read], []byte{'\n'})
-			partial = buf[read-1] != '\n'
-		}
-		if err != nil {
-			break
+		if _, err := r.Read(buf); err != nil {
+			return
 		}
 	}
-	return n, partial
 }
 
 // contentText pulls readable text out of a message's content, which is either

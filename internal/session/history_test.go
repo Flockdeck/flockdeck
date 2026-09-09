@@ -335,8 +335,10 @@ func TestCountEntriesCountsAnUnfinishedLastLine(t *testing.T) {
 		{"\n\n", 2},
 	}
 	for _, c := range cases {
-		n, partial := countNewlines(strings.NewReader(c.in))
-		if got := (transcriptFacts{newlines: n, partial: partial}).entries(); got != c.want {
+		counted := &countingReader{r: strings.NewReader(c.in), last: '\n'}
+		drain(counted)
+		facts := transcriptFacts{newlines: counted.newlines, partial: counted.last != '\n'}
+		if got := facts.entries(); got != c.want {
 			t.Errorf("entries(%q) = %d, want %d", c.in, got, c.want)
 		}
 	}
@@ -1118,5 +1120,36 @@ func TestConversationsFromSeveralWindowsAtOnce(t *testing.T) {
 	case msg := <-failed:
 		t.Fatal(msg)
 	default:
+	}
+}
+
+// TestCountingReaderCountsWhatThePromptScanAlreadyRead covers the two jobs a
+// read of a transcript does at once: the opening entries are parsed for a
+// prompt, and every entry is counted. The counting has to include the ones
+// the prompt scan pulled in -- including whatever it buffered past the entry
+// it stopped at -- and must not count any of them twice.
+func TestCountingReaderCountsWhatThePromptScanAlreadyRead(t *testing.T) {
+	var lines []string
+	lines = append(lines, `{"type":"user","cwd":"C:\\somewhere","message":{"role":"user","content":"the prompt"}}`)
+	for len(lines) < 500 {
+		lines = append(lines, `{"type":"assistant","message":{"role":"assistant","content":"`+strings.Repeat("x", 400)+`"}}`)
+	}
+	body := strings.Join(lines, "\n") + "\n"
+
+	counted := &countingReader{r: strings.NewReader(body), last: '\n'}
+	prompt, _, cwd := openingPrompt(counted)
+	drain(counted)
+
+	if prompt != "the prompt" {
+		t.Errorf("prompt = %q", prompt)
+	}
+	if cwd != `C:\somewhere` {
+		t.Errorf("cwd = %q", cwd)
+	}
+	if counted.newlines != len(lines) {
+		t.Errorf("counted %d entries, want %d", counted.newlines, len(lines))
+	}
+	if counted.last != '\n' {
+		t.Error("the transcript ends with a line break and should not be read as ending mid-entry")
 	}
 }
