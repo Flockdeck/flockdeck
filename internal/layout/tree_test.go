@@ -1922,3 +1922,119 @@ func TestPanesWeightedAlikeGiveUpTheSameRoom(t *testing.T) {
 		t.Errorf("the panes cover %d rows of 30", rows)
 	}
 }
+
+// reachedFrom walks out of every cell of a pane's edge in one direction and
+// returns, for each pane the walk lands on first, how many of those cells
+// reached it and how far the nearest of them travelled.
+//
+// It is the question the arrow keys are really asking — what is out that way,
+// and how much of it — worked out from the cells on screen rather than from
+// the tree, so it knows nothing of weights, splits or the order the panes were
+// created in.
+func reachedFrom(root *Node, view Rect, pane string, d Direction) (votes, nearest map[string]int) {
+	from := root.Find(pane).Rect()
+	votes, nearest = map[string]int{}, map[string]int{}
+
+	cells := from.H
+	if d == Up || d == Down {
+		cells = from.W
+	}
+	for i := 0; i < cells; i++ {
+		x, y := from.X+from.W, from.Y+i
+		dx, dy := 1, 0
+		switch d {
+		case Left:
+			x, dx = from.X-1, -1
+		case Up:
+			x, y, dx, dy = from.X+i, from.Y-1, 0, -1
+		case Down:
+			x, y, dx, dy = from.X+i, from.Y+from.H, 0, 1
+		}
+		for dist := 0; x >= view.X && y >= view.Y && x < view.X+view.W && y < view.Y+view.H; dist++ {
+			if p := root.PaneAt(x, y); p != "" && p != pane {
+				votes[p]++
+				if was, seen := nearest[p]; !seen || dist < was {
+					nearest[p] = dist
+				}
+				break
+			}
+			x, y = x+dx, y+dy
+		}
+	}
+	return votes, nearest
+}
+
+// TestNeighborIsWhatThePaneLooksOnto checks the whole of Neighbor against what
+// is actually on screen: for every pane of a few hundred random tabs, in every
+// direction, the pane it names must be the pane that most of that edge looks
+// onto.
+//
+// The two are worked out from opposite ends — one from the tree and its
+// weights, the other by walking cell by cell out of the pane and asking what
+// is there — so agreeing on every pane of every tab is a real statement that
+// focus movement goes where the layout says it should. Where the same amount
+// of the edge looks onto two panes the tab itself cannot answer, and the walk
+// is told the same tie-breaks Neighbor uses: the nearer pane, then the one
+// better lined up with this one, then the first in the tree.
+func TestNeighborIsWhatThePaneLooksOnto(t *testing.T) {
+	view := Rect{X: 0, Y: 0, W: 200, H: 120}
+
+	for seed := int64(0); seed < 600; seed++ {
+		rnd := rand.New(rand.NewSource(seed))
+		root := NewLeaf("p0")
+		next := 1
+		for step := 0; step < 12; step++ {
+			panes := root.Panes()
+			victim := panes[rnd.Intn(len(panes))]
+			switch rnd.Intn(4) {
+			case 0, 1:
+				root.Split(victim, "p"+strconv.Itoa(next), Dir(rnd.Intn(2)))
+				next++
+			case 2:
+				root.MovePane(victim, panes[rnd.Intn(len(panes))], Edge(rnd.Intn(4)))
+			case 3:
+				if s := randomSplit(root, rnd); s != nil {
+					weights := make([]float64, len(s.Children))
+					for i := range weights {
+						weights[i] = math.Pow(10, rnd.Float64()*2-1)
+					}
+					s.SetChildWeights(weights)
+				}
+			}
+		}
+		root.Compute(view)
+		if !roomFor(root) {
+			continue // the panes are on top of each other; nothing is right
+		}
+
+		for _, l := range root.Leaves() {
+			from := l.Rect()
+			for _, d := range []Direction{Left, Right, Up, Down} {
+				votes, nearest := reachedFrom(root, view, l.Pane, d)
+				aligned := func(r Rect) int {
+					if d == Left || d == Right {
+						return abs(r.centerY() - from.centerY())
+					}
+					return abs(r.centerX() - from.centerX())
+				}
+				want, most, closest, lined := "", 0, 1<<30, 1<<30
+				for _, other := range root.Leaves() {
+					v := votes[other.Pane]
+					if v == 0 {
+						continue
+					}
+					dist, off := nearest[other.Pane], aligned(other.Rect())
+					if v > most ||
+						(v == most && dist < closest) ||
+						(v == most && dist == closest && off < lined) {
+						want, most, closest, lined = other.Pane, v, dist, off
+					}
+				}
+				if got := root.Neighbor(l.Pane, d); got != want {
+					t.Fatalf("seed %d: %d of %s at %+v is %q, but %q is what most of that edge looks onto",
+						seed, d, l.Pane, from, got, want)
+				}
+			}
+		}
+	}
+}
