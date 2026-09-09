@@ -1288,3 +1288,45 @@ func TestKeyboardMoveReversesBetweenPanesOfEqualSpan(t *testing.T) {
 		t.Fatalf("only %d moves were of equal span, too few to mean anything", checked)
 	}
 }
+
+// TestNeighborPrefersTheWiderSharedEdge covers moving focus out of a pane that
+// faces two panes of very different sizes. The one a person is looking at is
+// the one most of the edge is against; picking by how well the centres line up
+// instead hands the focus to a sliver in the corner.
+func TestNeighborPrefersTheWiderSharedEdge(t *testing.T) {
+	// Layout:  a | c      c is nine tenths of the right-hand column,
+	//          b | c      so b, the lower-left pane, faces mostly c
+	//          b | d      and only clips the corner of d.
+	root := NewLeaf("a")
+	root.Split("a", "c", Horizontal)
+	root.Split("a", "b", Vertical)
+	root.Split("c", "d", Vertical)
+
+	right, _ := root.parentOf(root.Find("d"))
+	if !right.SetChildWeights([]float64{9, 1}) {
+		t.Fatal("could not make the right-hand column lopsided")
+	}
+	root.Compute(Rect{X: 0, Y: 0, W: 101, H: 100})
+
+	b, c, d := root.Find("b").Rect(), root.Find("c").Rect(), root.Find("d").Rect()
+	if d.H >= b.H || c.Y+c.H != d.Y {
+		t.Fatalf("this test needs a sliver under a tall pane, got c=%+v d=%+v b=%+v", c, d, b)
+	}
+	if abs(d.centerY()-b.centerY()) >= abs(c.centerY()-b.centerY()) {
+		t.Fatal("this test needs the sliver to be the better centre match")
+	}
+
+	if got := root.Neighbor("b", Right); got != "c" {
+		t.Errorf("right of b = %q, want c: b shares %d rows with c and %d with d",
+			got, c.Y+c.H-b.Y, b.Y+b.H-d.Y)
+	}
+	if got := root.Neighbor("a", Right); got != "c" {
+		t.Errorf("right of a = %q, want c", got)
+	}
+	if got := root.Neighbor("d", Left); got != "b" {
+		t.Errorf("left of d = %q, want b", got)
+	}
+	if got := root.Neighbor("c", Left); got != "a" {
+		t.Errorf("left of c = %q, want a", got)
+	}
+}

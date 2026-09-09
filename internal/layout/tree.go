@@ -607,9 +607,10 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 
 	type cand struct {
 		pane string
-		// primary is distance along the movement axis, secondary is
-		// misalignment across it, order is the leaf's position in the tree.
-		primary, secondary, order int
+		// primary is distance along the movement axis, shared is how much of
+		// the two panes' edges face each other across it, secondary is the
+		// misalignment of their centres, order is the leaf's tree position.
+		primary, shared, secondary, order int
 	}
 	var cands []cand
 
@@ -621,45 +622,58 @@ func (root *Node) Neighbor(pane string, dir Direction) string {
 		if r.W <= 0 || r.H <= 0 {
 			continue
 		}
-		var primary, secondary int
+		var primary, shared, secondary int
 		switch dir {
 		case Left:
 			if r.X+r.W > from.X {
 				continue
 			}
 			primary = from.X - (r.X + r.W)
+			shared = overlap(r.Y, r.H, from.Y, from.H)
 			secondary = abs(r.centerY() - from.centerY())
 		case Right:
 			if r.X < from.X+from.W {
 				continue
 			}
 			primary = r.X - (from.X + from.W)
+			shared = overlap(r.Y, r.H, from.Y, from.H)
 			secondary = abs(r.centerY() - from.centerY())
 		case Up:
 			if r.Y+r.H > from.Y {
 				continue
 			}
 			primary = from.Y - (r.Y + r.H)
+			shared = overlap(r.X, r.W, from.X, from.W)
 			secondary = abs(r.centerX() - from.centerX())
 		case Down:
 			if r.Y < from.Y+from.H {
 				continue
 			}
 			primary = r.Y - (from.Y + from.H)
+			shared = overlap(r.X, r.W, from.X, from.W)
 			secondary = abs(r.centerX() - from.centerX())
 		}
-		cands = append(cands, cand{l.Pane, primary, secondary, i})
+		cands = append(cands, cand{l.Pane, primary, shared, secondary, i})
 	}
 	if len(cands) == 0 {
 		return ""
 	}
-	// Distance and alignment tie whenever the layout is symmetric about the
-	// pane being left, which two stacked panes beside one tall one already
-	// are. Fall back to tree order so the winner is the topmost, leftmost of
-	// the tied panes rather than whichever the sort happened to leave first.
+	// The pane a person is looking at when they press an arrow is the one most
+	// of that edge is against, so the widest shared edge wins before the
+	// closest centres: a full-height pane beside a tall one and a sliver under
+	// it must not hand the focus to the sliver because the sliver's centre
+	// happens to sit nearer.
+	//
+	// Centres still separate panes sharing the edge equally, and after that
+	// everything can tie — two stacked panes beside one tall one already do.
+	// Fall back to tree order so the winner is the topmost, leftmost of the
+	// tied panes rather than whichever the sort happened to leave first.
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].primary != cands[j].primary {
 			return cands[i].primary < cands[j].primary
+		}
+		if cands[i].shared != cands[j].shared {
+			return cands[i].shared > cands[j].shared
 		}
 		if cands[i].secondary != cands[j].secondary {
 			return cands[i].secondary < cands[j].secondary
@@ -689,6 +703,21 @@ const (
 	Up
 	Down
 )
+
+// overlap returns how much of two spans, each given as a start and a length,
+// lie against each other. It is negative when they do not meet at all, which
+// orders panes that miss the edge entirely by how far they miss it by.
+func overlap(aStart, aLen, bStart, bLen int) int {
+	end := aStart + aLen
+	if o := bStart + bLen; o < end {
+		end = o
+	}
+	start := aStart
+	if bStart > start {
+		start = bStart
+	}
+	return end - start
+}
 
 func abs(v int) int {
 	if v < 0 {
