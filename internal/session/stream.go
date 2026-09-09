@@ -51,6 +51,30 @@ func (r *ring) bytes() []byte {
 	return out
 }
 
+// tail returns the last n bytes written, oldest first, and reports whether
+// anything older than them was left behind. n of zero or less means all of it.
+//
+// Reading a tail through bytes() would copy the whole buffer to keep a
+// fraction of it, and the buffer is half a megabyte for every open pane.
+func (r *ring) tail(n int) (b []byte, truncated bool) {
+	held := r.pos
+	if r.full {
+		held = len(r.buf)
+	}
+	if n <= 0 || n >= held {
+		return r.bytes(), false
+	}
+	out := make([]byte, 0, n)
+	start := (r.pos - n + len(r.buf)) % len(r.buf)
+	if start+n <= len(r.buf) {
+		out = append(out, r.buf[start:start+n]...)
+	} else {
+		out = append(out, r.buf[start:]...)
+		out = append(out, r.buf[:n-(len(r.buf)-start)]...)
+	}
+	return out, true
+}
+
 // bellScanner finds terminal bells in a byte stream.
 //
 // A naive search for 0x07 is wrong: BEL is also the terminator of an OSC
@@ -267,24 +291,23 @@ func breaksLine(final byte) bool {
 // lead agent has proposed.
 func (s *Session) RecentText(maxBytes int) string {
 	s.mu.RLock()
-	raw := s.history.bytes()
+	raw, truncated := s.history.tail(maxBytes)
 	s.mu.RUnlock()
 
-	return stripANSI(tailLines(raw, maxBytes))
+	if truncated {
+		raw = dropPartialLine(raw)
+	}
+	return stripANSI(raw)
 }
 
-// tailLines returns the last whole lines of p that fit in maxBytes, or all of
-// p when maxBytes is zero or negative.
+// dropPartialLine drops everything up to and including the first line break,
+// which is the line a byte-counted tail was cut in the middle of.
 //
-// Cutting at a byte offset lands mid-line, and a line of terminal output is
-// mostly escape sequences: starting inside one leaves the reader looking at
-// "38;5;42mgreen" where it expected a word, and can halve a UTF-8 rune
-// besides. The partial line the cut opens with is dropped.
-func tailLines(p []byte, maxBytes int) []byte {
-	if maxBytes <= 0 || len(p) <= maxBytes {
-		return p
-	}
-	p = p[len(p)-maxBytes:]
+// A line of terminal output is mostly escape sequences: opening inside one
+// leaves the reader looking at "38;5;42mgreen" where it expected a word, and
+// can halve a UTF-8 rune besides. Output holding no line break at all is
+// better shown truncated than dropped entirely.
+func dropPartialLine(p []byte) []byte {
 	if i := bytes.IndexByte(p, '\n'); i >= 0 {
 		return p[i+1:]
 	}

@@ -152,15 +152,20 @@ func TestRecentTextReadsTheTail(t *testing.T) {
 	}
 }
 
-// TestTailLinesDropsThePartialFirstLine covers the byte cut the tail of a
+// TestRecentTextDropsThePartialFirstLine covers the byte cut the tail of a
 // pane's output is taken at. Landing inside an escape sequence spills its
 // parameters into the text as if they were words, which is what the fan-out
 // dialog then shows to the user.
-func TestTailLinesDropsThePartialFirstLine(t *testing.T) {
+func TestRecentTextDropsThePartialFirstLine(t *testing.T) {
 	raw := []byte("\x1b[38;5;42mearlier line\x1b[m\r\n\x1b[1mlater line\x1b[m\r\n")
+	pane := func() *Session {
+		s := &Session{history: newRing(1024)}
+		s.history.write(raw)
+		return s
+	}
 
 	// A budget that lands part way through the first line's colour sequence.
-	got := stripANSI(tailLines(raw, 41))
+	got := pane().RecentText(41)
 	if strings.Contains(got, "5;42") {
 		t.Errorf("escape parameters leaked into the text: %q", got)
 	}
@@ -173,13 +178,58 @@ func TestTailLinesDropsThePartialFirstLine(t *testing.T) {
 
 	// A budget bigger than the output keeps all of it, and so does no budget.
 	for _, n := range []int{0, -1, len(raw), len(raw) * 2} {
-		if got := stripANSI(tailLines(raw, n)); !strings.Contains(got, "earlier line") {
-			t.Errorf("tailLines(_, %d) dropped output that fitted: %q", n, got)
+		if got := pane().RecentText(n); !strings.Contains(got, "earlier line") {
+			t.Errorf("RecentText(%d) dropped output that fitted: %q", n, got)
 		}
 	}
 
 	// Output with no line break at all is better shown truncated than lost.
-	if got := tailLines([]byte("no breaks here"), 5); string(got) != " here" {
+	s := &Session{history: newRing(1024)}
+	s.history.write([]byte("no breaks here"))
+	if got := s.RecentText(5); got != " here" {
 		t.Errorf("unbroken output = %q, want the tail", got)
+	}
+}
+
+// TestRingTailMatchesBytes checks the cheap tail against the whole-buffer read
+// it replaces, across every wrap position a ring can be in.
+func TestRingTailMatchesBytes(t *testing.T) {
+	for _, size := range []int{1, 4, 7, 16} {
+		for written := 0; written < size*3; written++ {
+			r := newRing(size)
+			for i := 0; i < written; i++ {
+				r.write([]byte{byte('a' + i%26)})
+			}
+			all := r.bytes()
+			for n := -1; n <= size+2; n++ {
+				got, truncated := r.tail(n)
+				want := all
+				if n > 0 && n < len(all) {
+					want = all[len(all)-n:]
+				}
+				if !bytes.Equal(got, want) {
+					t.Fatalf("size %d, %d written, tail(%d) = %q, want %q", size, written, n, got, want)
+				}
+				if truncated != (len(got) < len(all)) {
+					t.Fatalf("size %d, %d written, tail(%d) reported truncated = %v", size, written, n, truncated)
+				}
+			}
+		}
+	}
+}
+
+// BenchmarkRecentText measures reading the tail of a pane's output, which the
+// fan-out dialog does for every open pane at once.
+func BenchmarkRecentText(b *testing.B) {
+	s := &Session{history: newRing(replayBytes)}
+	line := []byte(strings.Repeat("x", 79) + "\n")
+	for s.history.pos != 0 || !s.history.full {
+		s.history.write(line)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if len(s.RecentText(64<<10)) == 0 {
+			b.Fatal("no text")
+		}
 	}
 }
