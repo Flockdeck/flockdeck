@@ -557,6 +557,14 @@ func (w *Workspace) isOpen(root string) bool {
 // second copy of a project that was already there, with its own tabs and its
 // own idea of the layout to save.
 func (w *Workspace) openRootFor(root string) (string, bool) {
+	// Almost every caller already holds the spelling the project was opened
+	// with, and this runs once per pane on every redraw, so the exact match is
+	// tried before cleaning and folding both paths.
+	for _, r := range w.openRoots {
+		if r == root {
+			return r, true
+		}
+	}
 	for _, r := range w.openRoots {
 		if sameDir(r, root) {
 			return r, true
@@ -860,6 +868,13 @@ func (w *Workspace) RootOf(paneID string) string { return w.rootOf(paneID) }
 // pane restored from a layout written before panes recorded their own.
 func (w *Workspace) rootOf(paneID string) string {
 	if p := w.Pane(paneID); p != nil && p.Root != "" {
+		// Under the spelling the project is open with. A pane restored from a
+		// layout carries the spelling that was saved, and everything that
+		// groups tabs and panes by project — which tabs are shown, which tabs
+		// belong to what — compares those strings directly.
+		if open, ok := w.openRootFor(p.Root); ok {
+			return open
+		}
 		return p.Root
 	}
 	if t := w.tabOf(paneID); t != nil {

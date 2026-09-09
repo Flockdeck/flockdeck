@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -479,5 +480,50 @@ func TestClosingAProjectLeavesTheFocusBesideTheGap(t *testing.T) {
 	}
 	if tab.Zoom {
 		t.Error("the tab is still zoomed, on a pane the user did not choose")
+	}
+}
+
+// TestAPaneKnowsItsProjectWhateverTheSpellingSaved covers a pane restored from
+// a layout written under another spelling of the same directory, which is what
+// a project opened as "c:epo" once and "C:\Repo" the next time leaves
+// behind. Everything that groups tabs and panes by project compares those
+// strings, so a pane naming its project in the wrong case belongs to nothing.
+func TestAPaneKnowsItsProjectWhateverTheSpellingSaved(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
+
+	borrowed := borrowedPane(t, ws, ws.CurrentTab())
+	if borrowed == nil {
+		t.Fatal("no pane of the second project on the first project's tab")
+	}
+	// As a layout saved under a differently cased path would restore it.
+	borrowed.Root = strings.ToUpper(second)
+
+	if got := ws.RootOf(borrowed.ID); got != second {
+		t.Errorf("project of the pane = %q, want it under the spelling it is open with, %q", got, second)
+	}
+	c, ok := ws.PaneContext(borrowed.ID)
+	if !ok || c.ProjectRoot != second {
+		t.Errorf("context project root = %q, want %q", c.ProjectRoot, second)
+	}
+
+	// And it is still that project's agent when the tab lending it space goes.
+	ws.CloseProject(first)
+	tab := ws.tabOf(borrowed.ID)
+	if tab == nil {
+		t.Fatal("the agent was stopped or left on no tab")
+	}
+	if tab.Root != second {
+		t.Errorf("its tab belongs to %q, want %q, the project as it is open", tab.Root, second)
+	}
+	shown := false
+	for _, visible := range ws.VisibleTabs() {
+		if visible == tab {
+			shown = true
+		}
+	}
+	if !shown {
+		t.Error("the tab holding it is not among the ones the window would draw")
 	}
 }
