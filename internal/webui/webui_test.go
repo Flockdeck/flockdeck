@@ -733,6 +733,48 @@ assert.ok(ev, "an up arrow on an upright separator is not its business");
 `)
 }
 
+// A status push arrives every time any agent says anything, so during a drag
+// they arrive continuously — and each one carries the weights the Go side has,
+// which until the drag is finished are the ones it started from.
+func TestADragIsNotUndoneByAStatusPush(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const twoUp = {
+  tabs: [{ id: "t1", title: "two up", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2") },
+};
+h.recv(fixture(twoUp));
+
+const bar = h.doc.querySelector("div.divider");
+const panes = () => h.doc.querySelectorAll("div.pane").map((p) => Number(p.style.flexGrow));
+assert.deepStrictEqual(panes(), [1, 1]);
+
+h.dispatch(bar, new h.Ev("pointerdown", { button: 0, pointerId: 1, clientX: 400, clientY: 300 }));
+h.dispatch(bar, new h.Ev("pointermove", { pointerId: 1, clientX: 340, clientY: 300 }));
+const dragged = panes();
+assert.ok(dragged[0] < 1, "the drag did not narrow the left pane");
+
+// The agents keep working while the divider is held.
+for (let i = 0; i < 5; i++) {
+  h.recv(fixture(Object.assign({}, twoUp, { working: 1,
+    panes: { p1: pane("p1", { status: "working", detail: "line " + i }), p2: pane("p2") } })));
+  assert.deepStrictEqual(panes(), dragged, "push " + (i + 1) + " put the panes back where the drag started");
+}
+
+h.dispatch(bar, new h.Ev("pointerup", { pointerId: 1, clientX: 340, clientY: 300 }));
+const saved = h.commands().filter((c) => c.cmd === "setWeights").pop();
+assert.ok(saved, "the drag was not saved");
+assert.ok(Math.abs(saved.weights[0] - dragged[0]) < 1e-9, "what was saved is not what was drawn");
+
+// Once it is over the Go side is in charge of the weights again.
+h.recv(fixture(Object.assign({}, twoUp, { tabs: [{ id: "t1", title: "two up", focus: "p1", root:
+  { id: "s-h-2", dir: "h", weight: 1, children: [
+    { id: "n1", pane: "p1", weight: 3 }, { id: "n2", pane: "p2", weight: 1 }] } }] })));
+assert.deepStrictEqual(panes(), [3, 1], "the weights from the Go side were not applied after the drag");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

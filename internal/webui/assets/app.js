@@ -326,8 +326,20 @@
     return split;
   }
 
+  /** The divider being dragged, if one is. A state push carries the weights the
+   *  Go side has stored, which while a drag is in progress are the ones from
+   *  before it started: applying them snapped the panes back to where the drag
+   *  began until the pointer moved again, and pushes arrive continuously while
+   *  agents are working, so the whole drag fought itself. The structural
+   *  signature already leaves weights out for the same reason. */
+  let resizing = null;
+
   /** applyWeights sets flex-grow from the tree without rebuilding the DOM. */
   function applyWeights(s) {
+    // A divider that is no longer in the document belongs to a layout that has
+    // been rebuilt under it, so its drag is over whether or not it said so.
+    if (resizing && resizing.isConnected) return;
+    resizing = null;
     for (const tab of s.tabs) walkWeights(tab.root);
   }
   function walkWeights(node) {
@@ -426,6 +438,7 @@
       ev.preventDefault();
       const { panels, a, b } = pair;
       const horizontal = acrossIsWidth;
+      resizing = d;
 
       const startPos = horizontal ? ev.clientX : ev.clientY;
       const aSize = horizontal ? a.offsetWidth : a.offsetHeight;
@@ -459,6 +472,7 @@
         d.removeEventListener("pointerup", onUp);
         d.removeEventListener("pointercancel", onUp);
         d.classList.remove("dragging");
+        resizing = null;
         sayShare(d, a, b);
         saveWeights(node, panels);
       };
