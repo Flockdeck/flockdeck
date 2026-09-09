@@ -21,6 +21,20 @@ will not ask again for that directory; to avoid it entirely when fanning out,
 use the trust checkbox in the fan-out dialog, which carries over the answer
 already given for the project.
 
+## A pane stopped saying what its agent is doing
+
+The status in a pane's header comes from Claude Code's own lifecycle hooks,
+which each pane reports back to the application over loopback. When that
+reporting stops, only the reporting has stopped: the agent carries on working,
+and its terminal is still the truth.
+
+**Restart** the pane. It is launched with a freshly written settings file
+pointing at the address and token this run is listening on, which is what a
+pane running against a settings file from an earlier run is missing. If it
+happens repeatedly, run `claude --debug` in that directory: a hook that cannot
+reach the application, or that is turned away by it, says so on its standard
+error, and that is where Claude Code shows it.
+
 ## The window looks like a browser tab
 
 The interface is a local web page shown in a chromeless application window,
