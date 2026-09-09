@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // recv collects events delivered to a server.
@@ -231,5 +232,65 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 	if got.Parent != "parent-pane" || got.Task != "review the docs" || !got.Split {
 		t.Errorf("handler saw %+v, want the request as sent", got)
+	}
+}
+
+// A PreToolUse payload carries the whole tool input, so a Write of a generated
+// file is megabytes of JSON. Reading a fixed slice of it leaves the payload
+// unparseable and loses the tool name, the directory and the prompt together —
+// which is the pane's status for that tool call.
+func TestEmitReadsALargeToolPayload(t *testing.T) {
+	srv, r := newServer(t)
+
+	big := strings.Repeat("x", 4<<20)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Write","cwd":"/repo","tool_input":{"content":"` + big + `"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-big", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.Tool != "Write" {
+		t.Errorf("tool = %q, want Write", got.Tool)
+	}
+	if got.Cwd != "/repo" {
+		t.Errorf("cwd = %q, want /repo", got.Cwd)
+	}
+}
+
+// A prompt with a pasted file in it is bigger than the body the server will
+// read, so forwarding it whole loses the event itself — and with it the change
+// of status that says the pane is working.
+func TestEmitClipsAHugePrompt(t *testing.T) {
+	srv, r := newServer(t)
+
+	prompt := "rewrite this: " + strings.Repeat("y", 2<<20)
+	stdin := strings.NewReader(`{"session_id":"s","prompt":"` + prompt + `"}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-prompt", "UserPromptSubmit"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.Event != "UserPromptSubmit" {
+		t.Errorf("event = %q, want UserPromptSubmit", got.Event)
+	}
+	if len(got.Prompt) > maxPromptBytes {
+		t.Errorf("prompt is %d bytes, want at most %d", len(got.Prompt), maxPromptBytes)
+	}
+	// What survives has to be the start of it: that is what names the tab.
+	if !strings.HasPrefix(got.Prompt, "rewrite this: ") {
+		t.Errorf("prompt = %.40q…, want it to open on the words the user typed", got.Prompt)
+	}
+}
+
+// clip must not cut a multi-byte character in half: what it produces is put in
+// a tab title and sent through JSON.
+func TestClipKeepsRunesWhole(t *testing.T) {
+	s := strings.Repeat("é", 8) // two bytes each
+	for n := 0; n <= len(s); n++ {
+		got := clip(s, n)
+		if len(got) > n {
+			t.Fatalf("clip(%d) is %d bytes", n, len(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("clip(%d) = %q, which is not valid UTF-8", n, got)
+		}
 	}
 }

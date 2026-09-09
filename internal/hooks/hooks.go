@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Event is a lifecycle notification from one pane.
@@ -159,6 +160,35 @@ func (s *Server) Close() error {
 	return s.srv.Shutdown(ctx)
 }
 
+// maxHookPayload bounds what a hook will read from Claude Code.
+//
+// A PreToolUse payload carries the whole tool input, which for a Write is the
+// file being written and for an Edit is the text on both sides of it. A
+// megabyte is a size real work reaches, and a payload cut short is not a
+// payload with a field missing: the JSON no longer parses, so the tool name,
+// the directory and the source are lost together — which is the pane's status
+// for that tool call. This is a generous ceiling on something a subprocess
+// reads once and throws away.
+const maxHookPayload = 64 << 20
+
+// maxPromptBytes is how much of a prompt is worth carrying back. All the
+// receiving end does with it is name a tab after the first few words, and the
+// server that receives it reads a bounded body — so a prompt with a pasted
+// file in it would push the whole event past that limit and lose the event
+// along with the prompt, leaving the pane's status stuck on the turn before.
+const maxPromptBytes = 4 << 10
+
+// clip cuts s to at most n bytes, on a rune boundary.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // Emit is the client half, run inside the hook subprocess. It reads Claude's
 // hook JSON from stdin to pick up the tool name, then posts the event.
 //
@@ -168,16 +198,14 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 	p := payload{Event: Event{SessionID: sessionID, Event: event}, Token: token}
 
 	if stdin != nil {
-		if raw, err := io.ReadAll(io.LimitReader(stdin, 1<<20)); err == nil && len(raw) > 0 {
-			var cp claudePayload
-			if json.Unmarshal(raw, &cp) == nil {
-				p.Tool = cp.ToolName
-				p.Cwd = cp.Cwd
-				p.Prompt = cp.Prompt
-				p.Source = cp.Source
-				if p.Source == "" {
-					p.Source = cp.How
-				}
+		var cp claudePayload
+		if json.NewDecoder(io.LimitReader(stdin, maxHookPayload)).Decode(&cp) == nil {
+			p.Tool = cp.ToolName
+			p.Cwd = cp.Cwd
+			p.Prompt = clip(cp.Prompt, maxPromptBytes)
+			p.Source = cp.Source
+			if p.Source == "" {
+				p.Source = cp.How
 			}
 		}
 	}
