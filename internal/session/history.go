@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,6 +30,67 @@ type Conversation struct {
 // opening prompt. Transcripts can be very large and the first user message is
 // near the top.
 const summaryScanLimit = 200
+
+// transcriptFacts is what one read of a transcript found, together with what
+// the file looked like at the time, so a later listing can tell whether the
+// answer still holds.
+type transcriptFacts struct {
+	modTime time.Time
+	size    int64
+	summary string
+	// newlines is the raw count of line breaks, kept apart from the entry
+	// count so that an appended tail can be added to it.
+	newlines int
+	// partial records that the file ended mid-entry, which is what a
+	// transcript being written to right now looks like.
+	partial bool
+}
+
+// entries is how many entries the transcript holds.
+func (f transcriptFacts) entries() int {
+	if f.partial {
+		return f.newlines + 1
+	}
+	return f.newlines
+}
+
+// transcriptCache remembers what each transcript in a project folder said.
+//
+// Listing history is dominated by reading the files: every refresh of the
+// panel would otherwise parse the opening entries of every transcript and
+// then read all of each one to the end, and a project in daily use
+// accumulates hundreds of them running to tens of megabytes. Almost none of
+// that changes between one refresh and the next.
+//
+// The cache is per folder and replaced whole on every listing, so transcripts
+// deleted from a folder drop out of it rather than accumulating.
+var transcriptCache = struct {
+	sync.Mutex
+	dirs map[string]map[string]transcriptFacts
+}{dirs: make(map[string]map[string]transcriptFacts)}
+
+// cachedFolderLimit bounds how many project folders are remembered at once.
+// Someone who opens a great many projects in one sitting should not grow the
+// cache without end; starting over costs one slow listing.
+const cachedFolderLimit = 64
+
+// cachedFacts returns what the last listing of a folder found. The map is
+// never written to once published, so reading it needs no lock of its own.
+func cachedFacts(dir string) map[string]transcriptFacts {
+	transcriptCache.Lock()
+	defer transcriptCache.Unlock()
+	return transcriptCache.dirs[dir]
+}
+
+// rememberFacts publishes what this listing of a folder found.
+func rememberFacts(dir string, facts map[string]transcriptFacts) {
+	transcriptCache.Lock()
+	defer transcriptCache.Unlock()
+	if len(transcriptCache.dirs) >= cachedFolderLimit {
+		transcriptCache.dirs = make(map[string]map[string]transcriptFacts, 1)
+	}
+	transcriptCache.dirs[dir] = facts
+}
 
 // transcriptLine is the part of a transcript entry that identifies the first
 // real prompt.
@@ -79,6 +141,9 @@ func Conversations(cwd string) ([]Conversation, error) {
 		return nil, fmt.Errorf("read conversations in %s: %w", dir, err)
 	}
 
+	cached := cachedFacts(dir)
+	fresh := make(map[string]transcriptFacts, len(entries))
+
 	var out []Conversation
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
@@ -95,18 +160,23 @@ func Conversations(cwd string) ([]Conversation, error) {
 		if info.Size() == 0 {
 			continue
 		}
+		facts := describeTranscript(filepath.Join(dir, e.Name()), info, cached[e.Name()])
+		fresh[e.Name()] = facts
+
 		c := Conversation{
 			ID:       strings.TrimSuffix(e.Name(), ".jsonl"),
 			Cwd:      cwd,
 			Modified: info.ModTime(),
 			Size:     info.Size(),
+			Summary:  facts.summary,
+			Messages: facts.entries(),
 		}
-		c.Summary, c.Messages = describeTranscript(filepath.Join(dir, e.Name()))
 		if c.Summary == "" {
 			c.Summary = "(no prompt recorded)"
 		}
 		out = append(out, c)
 	}
+	rememberFacts(dir, fresh)
 	// Most recently used first, with the id breaking a tie so that two
 	// conversations started together do not swap places between refreshes.
 	sort.Slice(out, func(i, j int) bool {
@@ -215,8 +285,8 @@ func transcriptCwd(path string) string {
 	return ""
 }
 
-// describeTranscript returns the opening prompt and how many entries the
-// transcript holds.
+// describeTranscript returns what a transcript holds: the opening prompt, and
+// how many entries there are.
 //
 // The two are found separately because they cost very different things. The
 // prompt is near the top, so parsing stops after the opening entries. The
@@ -224,18 +294,41 @@ func transcriptCwd(path string) string {
 // rather than a parse and stays quick on the tens of megabytes a long
 // conversation runs to -- and, unlike a parse, is not stopped by a single
 // entry too large to hold in memory.
-func describeTranscript(path string) (string, int) {
+//
+// prev is what the last listing found, and lets most of even that be skipped.
+// An untouched file is not opened at all. A transcript is only ever appended
+// to, so one that has merely grown still opens with the same prompt and still
+// holds the line breaks already counted: only the new tail is read. Anything
+// else -- a first look, a file that shrank, one replaced at the same size --
+// is read whole.
+func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) transcriptFacts {
+	now := transcriptFacts{modTime: info.ModTime(), size: info.Size()}
+	if prev.size == now.size && prev.modTime.Equal(now.modTime) {
+		return prev
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
-		return "", 0
+		return now
 	}
 	defer f.Close()
 
-	summary := openingPrompt(f)
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return summary, 0
+	if grown := prev.size > 0 && now.size > prev.size; grown {
+		if _, err := f.Seek(prev.size, io.SeekStart); err != nil {
+			return now
+		}
+		now.summary, now.newlines = prev.summary, prev.newlines
+	} else {
+		now.summary = openingPrompt(f)
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return now
+		}
 	}
-	return summary, countEntries(f)
+
+	n, partial := countNewlines(f)
+	now.newlines += n
+	now.partial = partial
+	return now
 }
 
 // openingPrompt reads the first thing the user asked, looking only at the
@@ -257,27 +350,25 @@ func openingPrompt(r io.Reader) string {
 	return ""
 }
 
-// countEntries counts the entries in a transcript, which is one per line.
-func countEntries(r io.Reader) int {
+// countNewlines counts the line breaks in what is left of a reader, and
+// reports whether the last byte it read was not one. A transcript has one
+// entry per line, so a file that ends without a line break still has an entry
+// on that last line: a transcript being written to at this moment usually
+// does.
+func countNewlines(r io.Reader) (int, bool) {
 	buf := make([]byte, 256<<10)
-	n := 0
-	// A file that ends without a line break still has an entry on that last
-	// line: a transcript being written to at this moment usually does.
-	last := byte('\n')
+	n, partial := 0, false
 	for {
 		read, err := r.Read(buf)
 		if read > 0 {
 			n += bytes.Count(buf[:read], []byte{'\n'})
-			last = buf[read-1]
+			partial = buf[read-1] != '\n'
 		}
 		if err != nil {
 			break
 		}
 	}
-	if last != '\n' {
-		n++
-	}
-	return n
+	return n, partial
 }
 
 // contentText pulls readable text out of a message's content, which is either

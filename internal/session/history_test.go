@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,7 +11,7 @@ import (
 )
 
 // writeTranscript creates a transcript file with the given JSONL lines.
-func writeTranscript(t *testing.T, dir, id string, lines ...string) string {
+func writeTranscript(t testing.TB, dir, id string, lines ...string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestFirstPromptTidiesText(t *testing.T) {
 	}
 }
 
-func touch(t *testing.T, path string, when time.Time) {
+func touch(t testing.TB, path string, when time.Time) {
 	t.Helper()
 	if err := os.Chtimes(path, when, when); err != nil {
 		t.Fatal(err)
@@ -333,8 +334,9 @@ func TestCountEntriesCountsAnUnfinishedLastLine(t *testing.T) {
 		{"\n\n", 2},
 	}
 	for _, c := range cases {
-		if got := countEntries(strings.NewReader(c.in)); got != c.want {
-			t.Errorf("countEntries(%q) = %d, want %d", c.in, got, c.want)
+		n, partial := countNewlines(strings.NewReader(c.in))
+		if got := (transcriptFacts{newlines: n, partial: partial}).entries(); got != c.want {
+			t.Errorf("entries(%q) = %d, want %d", c.in, got, c.want)
 		}
 	}
 }
@@ -361,5 +363,210 @@ func TestConversationsReportAnUnreadableStateDirectory(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "projects") {
 		t.Errorf("error = %q; it should name what could not be read", err)
+	}
+}
+
+// forgetTranscripts empties the cache of what transcripts said, so that a test
+// or a benchmark sees a first listing rather than a refresh.
+func forgetTranscripts() {
+	transcriptCache.Lock()
+	defer transcriptCache.Unlock()
+	transcriptCache.dirs = make(map[string]map[string]transcriptFacts)
+}
+
+// historyFixture sets up a Claude state directory and returns a working
+// directory whose transcripts live in dir.
+func historyFixture(t testing.TB, name string) (cwd, dir string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	cwd = filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return cwd, filepath.Join(home, "projects", projectSlug(cwd))
+}
+
+// TestConversationsReuseWhatTheyAlreadyRead pins the rule the cache turns on:
+// a transcript whose size and modification time have not moved is not read
+// again. Refreshing the panel otherwise re-reads every byte of every
+// transcript in the project, which for a folder of long conversations is
+// hundreds of megabytes for an answer that has not changed.
+func TestConversationsReuseWhatTheyAlreadyRead(t *testing.T) {
+	cwd, dir := historyFixture(t, "cached")
+
+	path := writeTranscript(t, dir, "aaaaaaaa-0000-0000-0000-000000000000",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"the first prompt"}}`)
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "the first prompt" {
+		t.Fatalf("first listing: %+v", got)
+	}
+
+	// Replace the contents with something else of exactly the same length and
+	// put the modification time back. Nothing the listing looks at has moved,
+	// so nothing should be read: the answer is the one already in hand.
+	replacement := []byte(strings.Repeat("x", int(before.Size()-1)) + "\n")
+	if err := os.WriteFile(path, replacement, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, path, before.ModTime())
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("second listing found %d conversations, want 1", len(got))
+	}
+	if got[0].Summary != "the first prompt" {
+		t.Errorf("summary = %q; an unchanged transcript should not be read again", got[0].Summary)
+	}
+}
+
+// TestConversationsFollowAGrowingTranscript covers the conversation that is
+// still being had: the file grows between refreshes, and the count has to
+// follow it. Only the new tail is read, so the arithmetic that adds it to what
+// was counted before has to be right -- including when the last entry was
+// still being written when the previous listing looked.
+func TestConversationsFollowAGrowingTranscript(t *testing.T) {
+	cwd, dir := historyFixture(t, "growing")
+
+	path := writeTranscript(t, dir, "bbbbbbbb-0000-0000-0000-000000000000",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"keep going"}}`)
+
+	// An entry half written: no line break after it yet.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"type":"assistant","message":{"role":"ass`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 || got[0].Messages != 2 {
+		t.Fatalf("entry count = %+v, want 2 entries", got)
+	}
+
+	// The rest of that entry arrives, and two more after it.
+	f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("istant\",\"content\":\"ok\"}}\n" +
+		`{"type":"user","message":{"role":"user","content":"more"}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":"done"}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Messages != 4 {
+		t.Errorf("entry count = %d, want 4", got[0].Messages)
+	}
+	if got[0].Summary != "keep going" {
+		t.Errorf("summary = %q, want the prompt the transcript opens with", got[0].Summary)
+	}
+}
+
+// TestConversationsRereadAReplacedTranscript covers the other side of the
+// cache: a file that did not simply grow is no longer the file that was read,
+// and has to be read again from the top.
+func TestConversationsRereadAReplacedTranscript(t *testing.T) {
+	cwd, dir := historyFixture(t, "replaced")
+
+	writeTranscript(t, dir, "cccccccc-0000-0000-0000-000000000000",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"the original prompt"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":"one"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":"two"}}`)
+
+	if _, err := Conversations(cwd); err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+
+	writeTranscript(t, dir, "cccccccc-0000-0000-0000-000000000000",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"a shorter one"}}`)
+
+	got, err := Conversations(cwd)
+	if err != nil {
+		t.Fatalf("conversations: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d conversations, want 1", len(got))
+	}
+	if got[0].Summary != "a shorter one" {
+		t.Errorf("summary = %q, want the replacement read afresh", got[0].Summary)
+	}
+	if got[0].Messages != 1 {
+		t.Errorf("entry count = %d, want 1", got[0].Messages)
+	}
+}
+
+// benchTranscripts fills a project folder with plausible transcripts: a
+// prompt, then enough exchanges to make a file worth not reading twice.
+func benchTranscripts(b *testing.B, count, kb int) string {
+	b.Helper()
+	cwd, dir := historyFixture(b, "bench")
+	filler := `{"type":"assistant","message":{"role":"assistant","content":"` + strings.Repeat("x", 500) + `"}}`
+	lines := []string{`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"benchmark me"}}`}
+	for len(lines)*len(filler) < kb<<10 {
+		lines = append(lines, filler)
+	}
+	for i := 0; i < count; i++ {
+		writeTranscript(b, dir, fmt.Sprintf("%08d-0000-0000-0000-000000000000", i), lines...)
+	}
+	return cwd
+}
+
+// BenchmarkConversationsFirstListing is the cost of a folder nothing is known
+// about yet: every transcript is opened, parsed at the top and read to the end.
+func BenchmarkConversationsFirstListing(b *testing.B) {
+	cwd := benchTranscripts(b, 100, 512)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		forgetTranscripts()
+		if _, err := Conversations(cwd); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkConversationsRefresh is the cost of the same folder when the panel
+// is opened again and nothing has changed, which is what most listings are.
+func BenchmarkConversationsRefresh(b *testing.B) {
+	cwd := benchTranscripts(b, 100, 512)
+	if _, err := Conversations(cwd); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Conversations(cwd); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
