@@ -45,6 +45,11 @@ type Server struct {
 	mu      sync.Mutex
 	clients map[*controlClient]struct{}
 
+	// lastState is the encoded snapshot that was last broadcast, kept so an
+	// unchanged one is not sent again. It is touched only from broadcastState,
+	// which runs on the workspace goroutine.
+	lastState []byte
+
 	// cmds serialises every access to the workspace, which is not safe for
 	// concurrent use and is now reached from many connection goroutines.
 	cmds   chan func()

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -288,13 +289,28 @@ func parseDirection(s string) layout.Direction {
 	}
 }
 
-// broadcastState pushes the current state to every connected window.
+// broadcastState pushes the current state to every connected window, unless
+// that state is the one they were last sent.
+//
+// Wake fires on every chunk of output an agent produces, so with a few agents
+// talking this runs many times a second. Almost none of those bursts change
+// anything the window draws: the snapshot carries statuses, names and counts,
+// not terminal output. Re-sending an identical one costs a frame per window
+// and, on the far side, a parse and a full re-render of the tab bar, every
+// pane header and the summary. Comparing the encoded bytes is far cheaper
+// than either, and skipping the send cannot leave a window behind, since
+// lastState is by definition what every window already holds and one that
+// connected later was handed a snapshot of its own that is at least as new.
 func (s *Server) broadcastState() {
 	s.do(func() {
 		data, err := json.Marshal(s.snapshot())
 		if err != nil {
 			return
 		}
+		if bytes.Equal(data, s.lastState) {
+			return
+		}
+		s.lastState = data
 		s.mu.Lock()
 		clients := make([]*controlClient, 0, len(s.clients))
 		for c := range s.clients {

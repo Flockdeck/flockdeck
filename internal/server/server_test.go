@@ -442,3 +442,95 @@ func TestStalePaneCommandDoesNotHitTheWrongPane(t *testing.T) {
 		t.Fatal("the focused pane was closed by a command aimed at another one")
 	}
 }
+
+// controlReader reads a control connection in the background. A test that
+// wants to prove a message did *not* arrive cannot simply read with a short
+// deadline: cancelling a read closes the websocket, so the connection would be
+// gone before the test could check anything else on it. Reading continuously
+// and letting the test wait on a channel keeps the connection intact.
+type controlReader struct{ msgs chan []byte }
+
+func readControl(conn *websocket.Conn) *controlReader {
+	r := &controlReader{msgs: make(chan []byte, 256)}
+	go func() {
+		defer close(r.msgs)
+		for {
+			_, data, err := conn.Read(context.Background())
+			if err != nil {
+				return
+			}
+			r.msgs <- data
+		}
+	}()
+	return r
+}
+
+// stateWithin waits up to d for a state snapshot satisfying cond.
+func (r *controlReader) stateWithin(d time.Duration, cond func(stateMsg) bool) (stateMsg, bool) {
+	deadline := time.After(d)
+	for {
+		select {
+		case data, ok := <-r.msgs:
+			if !ok {
+				return stateMsg{}, false
+			}
+			var probe struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(data, &probe) != nil || probe.Type != "state" {
+				continue
+			}
+			var st stateMsg
+			if json.Unmarshal(data, &st) != nil {
+				continue
+			}
+			if cond == nil || cond(st) {
+				return st, true
+			}
+		case <-deadline:
+			return stateMsg{}, false
+		}
+	}
+}
+
+// settle waits for the opening flurry to stop: the first snapshot, the shell's
+// own start-up chatter and the git refresh a new window asks for all land in
+// the first second or so.
+func (r *controlReader) settle(t *testing.T) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		if _, ok := r.stateWithin(800*time.Millisecond, nil); !ok {
+			return
+		}
+	}
+	t.Fatal("the control connection never went quiet")
+}
+
+// TestUnchangedStateIsNotResent covers the cost of a talkative agent. Every
+// chunk of output a session produces wakes the server, but almost none of them
+// change anything the snapshot carries, and a window that is handed the state
+// it already holds parses it and re-renders the whole interface for nothing.
+func TestUnchangedStateIsNotResent(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	r.settle(t)
+
+	// Twenty wakes at roughly the rate an agent streaming output produces
+	// them, with nothing behind them that a window would draw differently.
+	for i := 0; i < 20; i++ {
+		srv.Wake()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st, ok := r.stateWithin(time.Second, nil); ok {
+		t.Fatalf("an unchanged snapshot was broadcast again: %+v", st)
+	}
+
+	// A real change must still get through, or the window would freeze.
+	sendCmd(t, conn, command{Cmd: "newTab", Kind: "shell", Text: "second"})
+	if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 2 && s.Tabs[1].Title == "second"
+	}); !ok {
+		t.Fatal("a real change was not broadcast")
+	}
+}
