@@ -2062,3 +2062,38 @@ func TestNeighborIsWhatThePaneLooksOnto(t *testing.T) {
 		}
 	}
 }
+
+// TestAWeightThatIsNotANumberIsAnEqualShare covers a weight that reaches the
+// tree without going through SetChildWeights, which refuses the ones that
+// cannot be divided by. Weight is an exported field and a layout file is JSON
+// on disk, so a tab can arrive holding a number that is not one.
+//
+// Everything that lays out a box adds the weights up and divides by the total.
+// One NaN among them makes the total a NaN, every share a NaN, and the cell
+// count that comes out of it is not large but hugely negative: the panes were
+// each given the single cell the floor allows and the middle one was left
+// covering the whole tab, on top of both of the others.
+func TestAWeightThatIsNotANumberIsAnEqualShare(t *testing.T) {
+	root := NewLeaf("a")
+	root.Split("a", "b", Horizontal)
+	root.Split("b", "c", Horizontal)
+	root.Children[1].Weight = math.NaN()
+	root.Compute(Rect{X: 0, Y: 0, W: 100, H: 10})
+
+	widths := []int{}
+	for _, l := range root.Leaves() {
+		widths = append(widths, l.Rect().W)
+	}
+	if !reflect.DeepEqual(widths, []int{32, 33, 33}) {
+		t.Errorf("widths = %v, want the panes sharing 98 columns evenly", widths)
+	}
+	if !roomFor(root) {
+		t.Fatal("three panes have room in a hundred columns")
+	}
+	for i, l := range root.Leaves() {
+		r := l.Rect()
+		if r.X < 0 || r.X+r.W > 100 {
+			t.Errorf("pane %d at %+v is outside the tab", i, r)
+		}
+	}
+}

@@ -139,9 +139,17 @@ func (n *Node) IsLeaf() bool { return len(n.Children) == 0 }
 // come out of a layout file, and the tree has to survive one.
 const maxWeight = 1e12
 
-// weight returns the node's effective weight.
+// weight returns the node's effective weight, which is always a positive
+// number no larger than maxWeight, whatever is stored in the node.
+//
+// Everything that divides a box relies on that: the weights are summed and
+// divided by, so one that is not a number at all takes the whole tab with it.
+// SetChildWeights refuses those, but Weight is an exported field and a layout
+// file is JSON on disk, so this is where the guarantee has to be made. A pane
+// weighted with a nothing is given an equal share, which is what a pane with
+// no weight recorded at all gets.
 func (n *Node) weight() float64 {
-	if n.Weight <= 0 {
+	if !(n.Weight > 0) { // false for zero, for a negative, and for a NaN
 		return 1
 	}
 	if n.Weight > maxWeight {
@@ -257,9 +265,6 @@ func (n *Node) Compute(r Rect) {
 		if w < tightest {
 			tightest = w
 		}
-	}
-	if total <= 0 {
-		total = 1
 	}
 
 	// Everything below works along the split's own axis, so the box is named
@@ -616,9 +621,6 @@ func shareOf(n *Node, dir Dir) []*Node {
 	for _, c := range n.Children {
 		total += c.weight()
 	}
-	if total <= 0 {
-		total = 1
-	}
 	for _, c := range n.Children {
 		c.Weight = c.weight() / total
 	}
@@ -660,9 +662,6 @@ func (root *Node) Remove(pane string) bool {
 	total := 0.0
 	for _, c := range parent.Children {
 		total += c.weight()
-	}
-	if total <= 0 {
-		total = 1
 	}
 	for _, c := range parent.Children {
 		c.Weight = c.weight() * parent.weight() / total
