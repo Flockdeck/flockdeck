@@ -695,6 +695,12 @@ func checkInvariants(t *testing.T, root *Node, hist string) {
 	// neither a pane nor a separator.
 	const w, h = 61, 25
 	root.Compute(Rect{X: 0, Y: 0, W: w, H: h})
+	if !roomFor(root) {
+		// A split with more children than cells cannot tile anything: every
+		// pane is owed a cell and there are not enough to go round. Nothing
+		// below is a promise the package can keep there.
+		return
+	}
 	leaves := root.Leaves()
 	for i := range leaves {
 		for j := i + 1; j < len(leaves); j++ {
@@ -731,6 +737,48 @@ func checkInvariants(t *testing.T, root *Node, hist string) {
 	}
 }
 
+// randomSplit returns one of the tree's split nodes, or nil if it holds only
+// a single pane.
+func randomSplit(root *Node, rnd *rand.Rand) *Node {
+	var splits []*Node
+	var walk func(*Node)
+	walk = func(n *Node) {
+		if n.IsLeaf() {
+			return
+		}
+		splits = append(splits, n)
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(root)
+	if len(splits) == 0 {
+		return nil
+	}
+	return splits[rnd.Intn(len(splits))]
+}
+
+// roomFor reports whether every split in the tree was given at least one cell
+// along its axis for each of its children.
+func roomFor(n *Node) bool {
+	if n.IsLeaf() {
+		return true
+	}
+	if n.Dir == Horizontal {
+		if n.Rect().W-separatorWidth*(len(n.Children)-1) < len(n.Children) {
+			return false
+		}
+	} else if n.Rect().H < len(n.Children) {
+		return false
+	}
+	for _, c := range n.Children {
+		if !roomFor(c) {
+			return false
+		}
+	}
+	return true
+}
+
 // TestTreeInvariantsUnderRandomEditing drives the tree through sequences of
 // splits, removals, drags and merges that no hand-written case would think of,
 // checking after every one that the tree is still something the app can draw.
@@ -744,7 +792,23 @@ func TestTreeInvariantsUnderRandomEditing(t *testing.T) {
 		for step := 0; step < 14; step++ {
 			panes := root.Panes()
 			victim := panes[rnd.Intn(len(panes))]
-			switch rnd.Intn(4) {
+			switch rnd.Intn(5) {
+			case 4:
+				// A divider dragged hard against one end, which is the case
+				// the even weights every other operation produces never
+				// reaches: several panes are then owed less than a cell each.
+				split := randomSplit(root, rnd)
+				if split == nil {
+					break
+				}
+				weights := make([]float64, len(split.Children))
+				for i := range weights {
+					weights[i] = math.Pow(10, rnd.Float64()*4-2)
+				}
+				hist += fmt.Sprintf("; drag %s to %v", split.ID, weights)
+				if !split.SetChildWeights(weights) {
+					t.Fatalf("%s: the drag was refused", hist)
+				}
 			case 0:
 				id := "p" + strconv.Itoa(next)
 				next++
