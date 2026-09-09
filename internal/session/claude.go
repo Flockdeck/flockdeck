@@ -209,7 +209,15 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	case "Stop":
 		return StatusIdle, "", true
 	case "SessionEnd":
-		return StatusExited, "", true
+		// The conversation has ended; the process has not, necessarily.
+		// Clearing a conversation fires this and carries straight on, and even
+		// on a real exit the pane is still drawing its last screen. Only the
+		// reader watching the process go away knows that it has, so this says
+		// nothing rather than handing every caller a status that has to be
+		// recognised and thrown away -- a pane marked exited under a live
+		// process stops accepting what is typed into it and hands new viewers
+		// a closed stream, with nothing to put it right again.
+		return StatusIdle, "", false
 	default:
 		return StatusIdle, "", false
 	}
