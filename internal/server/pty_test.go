@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/workspace"
 )
 
 // streamPair runs streamOutput over a real websocket and hands back the client
@@ -610,4 +613,51 @@ func port(addr string) string {
 		return addr[i+1:]
 	}
 	return addr
+}
+
+// TestAPaneThatNeverStartedStillTakesASocket covers the first run on a machine
+// without Claude Code installed: every agent pane exists and has no process.
+// Turning the window away had it redial each of them every few seconds for as
+// long as it was open.
+func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	// Nothing on PATH, so the `claude` CLI cannot be found and the pane's
+	// process never starts.
+	t.Setenv("PATH", t.TempDir())
+
+	ws, err := workspace.New(workspace.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("workspace: %v", err)
+	}
+	t.Cleanup(ws.Close)
+	if ws.ClaudeAvailable() {
+		t.Skip("the claude CLI is still resolvable with an empty PATH")
+	}
+	ws.NewTab(session.KindClaude, ws.ActiveRoot(), "agent")
+
+	srv, err := New(ws)
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	ws.SetWake(srv.Wake)
+
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+	if sess, ok := srv.paneSession(paneID); !ok || sess != nil {
+		t.Fatalf("expected a pane with no process; got session %v, exists %v", sess, ok)
+	}
+
+	pty := dialPTY(t, srv, paneID)
+
+	// It must stay open rather than be hung up on, so the window has no reason
+	// to come back and ask again.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, _, err := pty.Read(ctx); ctx.Err() == nil {
+		t.Errorf("the socket was closed under the window: %v", err)
+	}
 }

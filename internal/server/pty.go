@@ -49,8 +49,13 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
-	sess, _ := s.paneSession(id)
-	if sess == nil {
+	// sess may be nil for a pane that exists: one whose process never started,
+	// because the `claude` CLI was not on PATH. That is not a reason to turn
+	// the window away -- doing so had it redial the pane every few seconds for
+	// as long as it was open, which on a machine without Claude Code installed
+	// is every agent pane there is. The socket waits for a process instead.
+	sess, ok := s.paneSession(id)
+	if !ok {
 		http.Error(w, "no such pane", http.StatusNotFound)
 		return
 	}
@@ -89,21 +94,24 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	go keepalive(ctx, cancel, conn)
 
 	for {
-		subID, replay, out := sess.Subscribe()
-		ended := streamOutput(ctx, conn, replay, out)
-		if subID >= 0 {
-			sess.Unsubscribe(subID)
-		}
-		if !ended {
-			// The window went away; there is nothing left to serve.
-			return
-		}
-		if !sess.Exited() {
-			// This viewer fell too far behind and was dropped. Hanging up is
-			// the recovery: the window reconnects and rebuilds its screen from
-			// the history rather than carrying on with a hole in it.
-			_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
-			return
+		if sess != nil {
+			subID, replay, out := sess.Subscribe()
+			ended := streamOutput(ctx, conn, replay, out)
+			if subID >= 0 {
+				sess.Unsubscribe(subID)
+			}
+			if !ended {
+				// The window went away; there is nothing left to serve.
+				return
+			}
+			if !sess.Exited() {
+				// This viewer fell too far behind and was dropped. Hanging up
+				// is the recovery: the window reconnects and rebuilds its
+				// screen from the history rather than carrying on with a hole
+				// in it.
+				_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
+				return
+			}
 		}
 		next := s.waitForRestart(ctx, id, sess)
 		if next == nil {
@@ -114,9 +122,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// set it up -- alternate screen, mouse reporting, application cursor
 		// keys, an odd character set. The replacement has no idea any of that
 		// is on, so it is reset before it draws anything. The window did this
-		// for itself while a restart still cost it a reconnection.
-		if err := writeChunk(ctx, conn, termReset); err != nil {
-			return
+		// for itself while a restart still cost it a reconnection. A pane that
+		// never started anything has nothing to undo.
+		if sess != nil {
+			if err := writeChunk(ctx, conn, termReset); err != nil {
+				return
+			}
 		}
 		sess = next
 		live.Store(sess)
