@@ -757,14 +757,17 @@ var aiTitleMark = []byte(`"ai-title"`)
 // there is one. Walking past the prompt to find it is what makes ten agents
 // sent the same instruction tell apart in the panel.
 //
-// Once the prompt and the directory are known the only thing left to look for
-// is that name, so entries that cannot carry one are not parsed at all. The
-// entries here are the ones that run to megabytes -- a tool result, a pasted
-// file -- and looking for a mark in the bytes costs a fraction of parsing
-// them as JSON.
+// The walk stops as soon as all three are in hand, which on the transcripts
+// on this machine is around the twenty-fifth entry. Until then, entries that
+// cannot carry what is still missing are not parsed at all: the ones in the
+// way are the megabyte-long ones -- a tool result, a pasted file -- and
+// looking for a mark in the bytes costs a fraction of parsing them as JSON.
 func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 	lines := newTranscriptReader(r)
 	for i := 0; i < summaryScanLimit; i++ {
+		if prompt != "" && title != "" && cwd != "" {
+			break
+		}
 		raw, ok := lines.next()
 		if !ok {
 			break
@@ -781,10 +784,10 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string) {
 			cwd = line.Cwd
 		}
 		if line.Type == "ai-title" {
-			// Claude Code renames a conversation as it goes, so the last name
-			// it settled on is the one that describes it.
-			if got := firstPrompt(line.AiTitle); got != "" {
-				title = got
+			// Claude Code writes the name out again every turn or so, the
+			// same name each time, so the first one is the name.
+			if title == "" {
+				title = firstPrompt(line.AiTitle)
 			}
 			continue
 		}

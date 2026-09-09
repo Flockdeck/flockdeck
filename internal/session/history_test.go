@@ -541,7 +541,10 @@ func benchTranscripts(b *testing.B, count, kb int) string {
 	b.Helper()
 	cwd, dir := historyFixture(b, "bench")
 	filler := `{"type":"assistant","message":{"role":"assistant","content":"` + strings.Repeat("x", 500) + `"}}`
-	lines := []string{`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"benchmark me"}}`}
+	lines := []string{
+		`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"benchmark me"}}`,
+		`{"type":"ai-title","aiTitle":"what this conversation turned out to be about"}`,
+	}
 	for len(lines)*len(filler) < kb<<10 {
 		lines = append(lines, filler)
 	}
