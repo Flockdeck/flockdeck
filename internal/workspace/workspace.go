@@ -257,31 +257,65 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 // ----------------------------------------------------------------- projects
 
 // Projects returns the open projects with a summary of each.
+//
+// An agent is counted against the project it belongs to rather than the
+// project of the tab it is drawn on. The switcher's badge is what says a
+// project is waiting on you, and a borrowed pane counted against the tab it
+// sits on lights up a project that is not the one whose work has stopped —
+// while the project that is actually blocked shows nothing.
 func (w *Workspace) Projects() []Project {
 	w.applyPendingTitles()
 	names := projectNames(w.openRoots)
-	out := make([]Project, 0, len(w.openRoots))
+	out := make([]Project, len(w.openRoots))
+	byRoot := make(map[string]int, len(w.openRoots))
 	for i, root := range w.openRoots {
-		p := Project{Root: root, Name: names[i], Active: root == w.activeRoot}
-		for _, t := range w.Tabs {
-			if t.Root != root {
-				continue
-			}
-			p.Tabs++
-			for _, id := range t.Tree.Panes() {
-				pane := w.Pane(id)
-				if pane == nil {
-					continue
-				}
-				switch st, _ := pane.Status(); st {
-				case session.StatusWaiting:
-					p.Waiting++
-				case session.StatusWorking:
-					p.Working++
-				}
+		out[i] = Project{Root: root, Name: names[i], Active: root == w.activeRoot}
+		byRoot[root] = i
+	}
+	// Tabs and panes name their project with the string it was opened under,
+	// so the map answers almost every lookup; a layout written elsewhere can
+	// spell it in another case, and that falls back to comparing the paths.
+	indexOf := func(root string) int {
+		if i, ok := byRoot[root]; ok {
+			return i
+		}
+		for i, r := range w.openRoots {
+			if sameDir(r, root) {
+				return i
 			}
 		}
-		out = append(out, p)
+		return -1
+	}
+
+	// One pass over the tabs under one lock, rather than a walk of every tab
+	// once per open project and a separately locked lookup for every pane in
+	// it: this is rebuilt every time any pane changes status.
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for _, t := range w.Tabs {
+		if i := indexOf(t.Root); i >= 0 {
+			out[i].Tabs++
+		}
+		for _, id := range t.Tree.Panes() {
+			pane := w.panes[id]
+			if pane == nil || pane.Sess == nil {
+				continue
+			}
+			root := pane.Root
+			if root == "" {
+				root = t.Root
+			}
+			i := indexOf(root)
+			if i < 0 {
+				continue
+			}
+			switch st, _ := pane.Sess.Status(); st {
+			case session.StatusWaiting:
+				out[i].Waiting++
+			case session.StatusWorking:
+				out[i].Working++
+			}
+		}
 	}
 	return out
 }
