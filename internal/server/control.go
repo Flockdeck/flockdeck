@@ -206,6 +206,13 @@ type command struct {
 	// nothing it has to say.
 	Agent string `json:"agent"`
 	Model string `json:"model"`
+	// TaskAgents and TaskModels are a fan-out's per-row overrides, positional
+	// against Tasks. They are parallel arrays rather than a list of objects so
+	// that the tasks stay exactly where they have always been on the wire: a
+	// window that knows nothing about agents still sends a fan-out this side
+	// reads.
+	TaskAgents []string `json:"taskAgents"`
+	TaskModels []string `json:"taskModels"`
 }
 
 // ---------------------------------------------------------------------------
@@ -675,7 +682,17 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.previewFanout(c, cmd.ID)
 		return
 	case "fanout":
-		s.runFanout(c, cmd.ID, cmd.Tasks, cmd.Worktrees, cmd.Split, cmd.Trust)
+		s.fanout(c, fanoutRequest{
+			Parent:     cmd.ID,
+			Tasks:      cmd.Tasks,
+			Agent:      cmd.Agent,
+			Model:      cmd.Model,
+			TaskAgents: cmd.TaskAgents,
+			TaskModels: cmd.TaskModels,
+			Worktrees:  cmd.Worktrees,
+			Split:      cmd.Split,
+			Trust:      cmd.Trust,
+		})
 		return
 	case "agents":
 		s.listAgents(c)

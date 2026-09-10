@@ -310,7 +310,7 @@ func TestPlanJobsStopsAtTheCap(t *testing.T) {
 	for i := 0; i < workspace.MaxTasks+5; i++ {
 		tasks = append(tasks, fmt.Sprintf("task %d", i))
 	}
-	jobs, capped := planJobs(tasks, "/repo")
+	jobs, capped := planJobs(fanoutRequest{Tasks: tasks}, "/repo")
 	if !capped {
 		t.Error("a list past the cap was not reported as capped")
 	}
@@ -319,7 +319,7 @@ func TestPlanJobsStopsAtTheCap(t *testing.T) {
 	}
 
 	// Exactly the cap is not over it.
-	if _, capped := planJobs(tasks[:workspace.MaxTasks], "/repo"); capped {
+	if _, capped := planJobs(fanoutRequest{Tasks: tasks[:workspace.MaxTasks]}, "/repo"); capped {
 		t.Error("a list of exactly the cap was reported as capped")
 	}
 }
@@ -338,7 +338,7 @@ func TestPlanJobsIgnoresBlankRows(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		tasks = append(tasks, "")
 	}
-	jobs, capped := planJobs(tasks, `C:epo`)
+	jobs, capped := planJobs(fanoutRequest{Tasks: tasks}, `C:epo`)
 	if capped {
 		t.Error("blank rows were counted towards the cap")
 	}
@@ -359,7 +359,7 @@ func TestPlanJobsIgnoresBlankRows(t *testing.T) {
 // A list of nothing but blank rows is not a fan-out of nought agents, it is a
 // fan-out that has to say so.
 func TestPlanJobsOnAnEmptyList(t *testing.T) {
-	jobs, capped := planJobs([]string{"", "   ", ""}, "/repo")
+	jobs, capped := planJobs(fanoutRequest{Tasks: []string{"", "   ", ""}}, "/repo")
 	if len(jobs) != 0 || capped {
 		t.Errorf("planJobs on blank rows = %d jobs, capped=%v; want none and not capped", len(jobs), capped)
 	}
@@ -450,5 +450,174 @@ func TestPreparingNotice(t *testing.T) {
 	}
 	if !strings.Contains(got, strconv.Itoa(workspace.MaxTasks)) {
 		t.Errorf("preparingNotice(%d) = %q, want it to say how many", workspace.MaxTasks, got)
+	}
+}
+
+// A fan-out is one run but not necessarily one agent: the dialog offers a
+// choice for the whole run and an override on each row, and each has to reach
+// the job it was made for.
+func TestPlanJobsCarriesTheChosenAgent(t *testing.T) {
+	type want struct{ task, agent, model string }
+	cases := []struct {
+		name string
+		req  fanoutRequest
+		want []want
+	}{{
+		name: "nothing chosen is the default agent",
+		req:  fanoutRequest{Tasks: []string{"one", "two"}},
+		want: []want{{"one", "", ""}, {"two", "", ""}},
+	}, {
+		name: "one agent for the whole run",
+		req:  fanoutRequest{Tasks: []string{"one", "two"}, Agent: "claude", Model: "sonnet"},
+		want: []want{{"one", "claude", "sonnet"}, {"two", "claude", "sonnet"}},
+	}, {
+		// The point of the whole exercise: twelve tasks split between two
+		// agents deliberately, in one run.
+		name: "a row of its own",
+		req: fanoutRequest{
+			Tasks: []string{"one", "two"}, Agent: "claude", Model: "sonnet",
+			TaskAgents: []string{"", "codex"}, TaskModels: []string{"", "gpt-5"},
+		},
+		want: []want{{"one", "claude", "sonnet"}, {"two", "codex", "gpt-5"}},
+	}, {
+		// A row that changes the agent and says nothing about the model does
+		// not keep the run's model. It belongs to the run's agent, and asking
+		// Codex for "sonnet" is asking for a model it has never heard of.
+		name: "a row that names an agent and no model",
+		req: fanoutRequest{
+			Tasks: []string{"one", "two"}, Agent: "claude", Model: "sonnet",
+			TaskAgents: []string{"", "codex"},
+		},
+		want: []want{{"one", "claude", "sonnet"}, {"two", "codex", ""}},
+	}, {
+		name: "a row that names only a model stays on the run's agent",
+		req: fanoutRequest{
+			Tasks: []string{"one", "two"}, Agent: "claude", Model: "sonnet",
+			TaskModels: []string{"", "haiku"},
+		},
+		want: []want{{"one", "claude", "sonnet"}, {"two", "claude", "haiku"}},
+	}, {
+		// The overrides are positional against the list as it was sent, blank
+		// rows included. Counting only the rows that became jobs would slide
+		// every override up onto somebody else's task.
+		name: "blank rows do not shift the overrides",
+		req: fanoutRequest{
+			Tasks: []string{"", "one", "  ", "two"}, Agent: "claude",
+			TaskAgents: []string{"", "codex", "", ""},
+		},
+		want: []want{{"one", "codex", ""}, {"two", "claude", ""}},
+	}, {
+		// A window is free to send a shorter list of overrides, or none.
+		name: "fewer overrides than tasks",
+		req: fanoutRequest{
+			Tasks: []string{"one", "two", "three"}, Agent: "claude",
+			TaskAgents: []string{"codex"},
+		},
+		want: []want{{"one", "codex", ""}, {"two", "claude", ""}, {"three", "claude", ""}},
+	}}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			jobs, capped := planJobs(c.req, "/repo")
+			if capped {
+				t.Fatal("a short list was reported as capped")
+			}
+			if len(jobs) != len(c.want) {
+				t.Fatalf("planned %d jobs, want %d", len(jobs), len(c.want))
+			}
+			for i, w := range c.want {
+				got := want{jobs[i].task, jobs[i].agent, jobs[i].model}
+				if got != w {
+					t.Errorf("job %d = %+v, want %+v", i, got, w)
+				}
+			}
+		})
+	}
+}
+
+// An agent that is not installed stops its own rows and nothing else. Before
+// this, one missing CLI was the end of the whole run — which was right while
+// there was only ever one agent in it, and is not once a run can be split.
+func TestPartitionDropsOnlyTheRowsOfAMissingAgent(t *testing.T) {
+	missing := errors.New("the `codex` CLI was not found on PATH")
+	jobs := []*fanoutJob{
+		{task: "one", agent: "claude"},
+		{task: "two", agent: "codex"},
+		{task: "three", agent: "codex"},
+		{task: "four", agent: "claude"},
+	}
+
+	keep, notices, dropped := partitionRunnable(jobs, map[string]error{"codex": missing})
+	if dropped != 2 {
+		t.Errorf("dropped = %d, want the two codex rows", dropped)
+	}
+	got := []string{}
+	for _, j := range keep {
+		got = append(got, j.task)
+	}
+	if strings.Join(got, ",") != "one,four" {
+		t.Errorf("kept %v, want the claude rows in the order of the plan", got)
+	}
+	// One notice for the agent, not one per row, and it says how many rows it
+	// cost so they are not looked for among the panes that did open.
+	if len(notices) != 1 {
+		t.Fatalf("notices = %v, want one for the one missing agent", notices)
+	}
+	if !strings.Contains(notices[0], "codex") || !strings.Contains(notices[0], "2 tasks were not started") {
+		t.Errorf("notice = %q, want it to name the agent and the two rows", notices[0])
+	}
+}
+
+// With one agent for the whole run, a missing CLI says exactly what it always
+// said: nothing about this has changed for somebody who only runs Claude.
+func TestPartitionKeepsTheOldWordsForAWholeRun(t *testing.T) {
+	missing := errors.New("the `claude` CLI was not found on PATH")
+	jobs := []*fanoutJob{{task: "one", agent: "claude"}, {task: "two", agent: "claude"}}
+
+	keep, notices, dropped := partitionRunnable(jobs, map[string]error{"claude": missing})
+	if len(keep) != 0 || dropped != 2 {
+		t.Errorf("kept %d and dropped %d, want none kept and both dropped", len(keep), dropped)
+	}
+	const want = "the `claude` CLI was not found on PATH, so no agents can be started"
+	if len(notices) != 1 || notices[0] != want {
+		t.Errorf("notices = %v, want exactly [%q]", notices, want)
+	}
+}
+
+// Two missing agents are named in the order their rows appear, because the map
+// they arrive in has none and a notice nobody can line up against the list is
+// a notice that has to be read twice.
+func TestPartitionNamesMissingAgentsInPlanOrder(t *testing.T) {
+	bad := map[string]error{
+		"codex":  errors.New("the `codex` CLI was not found on PATH"),
+		"gemini": errors.New("the `gemini` CLI was not found on PATH"),
+	}
+	jobs := []*fanoutJob{
+		{task: "one", agent: "gemini"},
+		{task: "two", agent: "claude"},
+		{task: "three", agent: "codex"},
+	}
+	for i := 0; i < 20; i++ {
+		keep, notices, dropped := partitionRunnable(jobs, bad)
+		if len(keep) != 1 || keep[0].task != "two" || dropped != 2 {
+			t.Fatalf("kept %d jobs and dropped %d, want only the claude row", len(keep), dropped)
+		}
+		if len(notices) != 2 {
+			t.Fatalf("notices = %v, want one per missing agent", notices)
+		}
+		if !strings.Contains(notices[0], "gemini") || !strings.Contains(notices[1], "codex") {
+			t.Fatalf("notices = %v, want gemini before codex", notices)
+		}
+	}
+}
+
+// Nothing missing changes nothing: the same jobs, in the same order, and not a
+// word said about them.
+func TestPartitionSaysNothingWhenEveryAgentIsThere(t *testing.T) {
+	jobs := []*fanoutJob{{task: "one", agent: "claude"}, {task: "two", agent: "codex"}}
+	keep, notices, dropped := partitionRunnable(jobs, nil)
+	if len(keep) != len(jobs) || dropped != 0 || notices != nil {
+		t.Errorf("partition with nothing missing = %d kept, %d dropped, %v; want everything kept and nothing said",
+			len(keep), dropped, notices)
 	}
 }
