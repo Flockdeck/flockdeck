@@ -6,11 +6,17 @@ import (
 	"time"
 
 	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/perch/internal/session/transcript"
 )
 
 // conversationView is one stored conversation as the history panel shows it.
 type conversationView struct {
-	ID       string `json:"id"`
+	ID string `json:"id"`
+	// Agent is the id of the agent that held the conversation. The panel lists
+	// every agent's conversations in one place, and two rows can otherwise say
+	// nothing that tells them apart -- the same project, the same prompt, one
+	// held by Claude Code and one by a model spoken to directly.
+	Agent    string `json:"agent,omitempty"`
 	Summary  string `json:"summary"`
 	Modified string `json:"modified"`
 	Ago      string `json:"ago"`
@@ -87,18 +93,24 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 
 	go func() {
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
-		items, err := session.Conversations(dir)
+		items, err := transcript.All(transcript.Agents(), dir)
+		// One agent's store being unreadable is worth saying, but not at the
+		// price of what the others found: the panel draws the conversations
+		// there are and the notice explains what is missing from among them.
 		if err != nil {
 			msg.Error = err.Error()
-			if answerListing(c, asked) {
-				c.sendJSON(msg)
+			if len(items) == 0 {
+				if answerListing(c, asked) {
+					c.sendJSON(msg)
+				}
+				return
 			}
-			return
 		}
 		open := s.openConversationIDs()
 		for _, conv := range items {
 			msg.Items = append(msg.Items, conversationView{
 				ID:       conv.ID,
+				Agent:    conv.Agent,
 				Summary:  conv.Summary,
 				Modified: conv.Modified.Format("2006-01-02 15:04"),
 				Ago:      humanAgo(time.Since(conv.Modified)),

@@ -1,4 +1,4 @@
-package session
+package transcript
 
 import (
 	"fmt"
@@ -55,7 +55,7 @@ func TestConversationsListsAndSummarises(t *testing.T) {
 	touch(t, filepath.Join(dir, "22222222-2222-2222-2222-222222222222.jsonl"), now.Add(-1*time.Hour))
 	touch(t, filepath.Join(dir, "33333333-3333-3333-3333-333333333333.jsonl"), now)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestConversationsFindsRelocatedProjectFolder(t *testing.T) {
 	writeTranscript(t, dir, "44444444-4444-4444-4444-444444444444",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"hello there"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestConversationsFindsRelocatedProjectFolder(t *testing.T) {
 // TestConversationsWithNoHistory covers a project that has never been used.
 func TestConversationsWithNoHistory(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	got, err := Conversations(t.TempDir())
+	got, err := claudeConversations(t.TempDir())
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestConversationsCountsEveryEntry(t *testing.T) {
 	}
 	writeTranscript(t, filepath.Join(home, "projects", projectSlug(cwd)), "55555555-5555-5555-5555-555555555555", lines...)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestConversationsSkipsEmptyTranscriptsWhenSearching(t *testing.T) {
 	writeTranscript(t, dir, "66666666-6666-6666-6666-666666666666",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"still findable"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestConversationsDoNotLeakBetweenCollidingSlugs(t *testing.T) {
 	writeTranscript(t, filepath.Join(home, "projects", projectSlug(dashed)), "88888888-8888-8888-8888-888888888888",
 		`{"type":"user","cwd":"`+jsonPath(dashed)+`","message":{"role":"user","content":"work on my-app"}}`)
 
-	got, err := Conversations(dashed)
+	got, err := claudeConversations(dashed)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestConversationsDoNotLeakBetweenCollidingSlugs(t *testing.T) {
 		t.Fatalf("the directory that owns the folder found %d conversations, want 1", len(got))
 	}
 
-	got, err = Conversations(scored)
+	got, err = claudeConversations(scored)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestConversationsOmitEmptyTranscriptsAndOrderStably(t *testing.T) {
 	}
 	touch(t, empty, time.Now())
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestConversationsCountPastAnEntryTooLargeToParse(t *testing.T) {
 		huge,
 		`{"type":"assistant","message":{"role":"assistant","content":"I see it"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestConversationsReportAnUnreadableStateDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Conversations(t.TempDir())
+	got, err := claudeConversations(t.TempDir())
 	if err == nil {
 		t.Fatalf("Conversations = %+v with no error; the failure should be reported", got)
 	}
@@ -413,7 +413,7 @@ func TestConversationsReuseWhatTheyAlreadyRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestConversationsReuseWhatTheyAlreadyRead(t *testing.T) {
 	}
 	touch(t, path, before.ModTime())
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestConversationsFollowAGrowingTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestConversationsFollowAGrowingTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -513,14 +513,14 @@ func TestConversationsRereadAReplacedTranscript(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":"one"}}`,
 		`{"type":"assistant","message":{"role":"assistant","content":"two"}}`)
 
-	if _, err := Conversations(cwd); err != nil {
+	if _, err := claudeConversations(cwd); err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
 
 	writeTranscript(t, dir, "cccccccc-0000-0000-0000-000000000000",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"a shorter one"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -561,7 +561,7 @@ func BenchmarkConversationsFirstListing(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		forgetTranscripts()
-		if _, err := Conversations(cwd); err != nil {
+		if _, err := claudeConversations(cwd); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -571,12 +571,12 @@ func BenchmarkConversationsFirstListing(b *testing.B) {
 // is opened again and nothing has changed, which is what most listings are.
 func BenchmarkConversationsRefresh(b *testing.B) {
 	cwd := benchTranscripts(b, 100, 512)
-	if _, err := Conversations(cwd); err != nil {
+	if _, err := claudeConversations(cwd); err != nil {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := Conversations(cwd); err != nil {
+		if _, err := claudeConversations(cwd); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -597,7 +597,7 @@ func TestConversationsIgnoreAFileWhereTheFolderBelongs(t *testing.T) {
 	writeTranscript(t, filepath.Join(filepath.Dir(dir), "somewhere-else"), "eeeeeeee-0000-0000-0000-000000000000",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"found anyway"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestConversationsSummariseAfterAnEntryTooLargeToHold(t *testing.T) {
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"what is in this image"}}`,
 		`{"type":"assistant","message":{"role":"assistant","content":"a cat"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -715,7 +715,7 @@ func TestConversationsSplitAFolderTwoProjectsShare(t *testing.T) {
 		{dashed, "work on my-app"},
 		{scored, "work on my_app"},
 	} {
-		got, err := Conversations(c.cwd)
+		got, err := claudeConversations(c.cwd)
 		if err != nil {
 			t.Fatalf("conversations in %s: %v", c.cwd, err)
 		}
@@ -754,7 +754,7 @@ func TestConversationsDescribeEveryTranscriptCorrectly(t *testing.T) {
 	}
 
 	for _, pass := range []string{"first listing", "refresh"} {
-		got, err := Conversations(cwd)
+		got, err := claudeConversations(cwd)
 		if err != nil {
 			t.Fatalf("%s: %v", pass, err)
 		}
@@ -811,7 +811,7 @@ func TestConversationsFindAFolderWhoseTranscriptsOpenWithBookkeeping(t *testing.
 	writeTranscript(t, filepath.Join(home, "projects", "a-name-of-its-own"),
 		"eeeeeeee-1111-1111-1111-111111111111", lines...)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestConversationsSeeAFolderThatFillsUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -893,7 +893,7 @@ func TestConversationsSeeAFolderThatFillsUp(t *testing.T) {
 	writeTranscript(t, dir, "bbbbbbbb-2222-2222-2222-222222222222",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"the first one"}}`)
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -922,7 +922,7 @@ func TestConversationsFallBackToTheNameClaudeGaveIt(t *testing.T) {
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"what I actually asked"}}`,
 		`{"type":"ai-title","aiTitle":"A better generated title"}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
 	}
 	touch(t, path, listed.ModTime())
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1106,7 +1106,7 @@ func TestConversationsFromSeveralWindowsAtOnce(t *testing.T) {
 				want = "the second project"
 			}
 			for i := 0; i < 25; i++ {
-				got, err := Conversations(cwd)
+				got, err := claudeConversations(cwd)
 				if err != nil {
 					failed <- fmt.Sprintf("conversations: %v", err)
 					return
@@ -1209,7 +1209,7 @@ func TestConversationsOnACaseSensitiveFilesystemStayApart(t *testing.T) {
 	writeTranscript(t, filepath.Join(home, "projects", "a-name-of-its-own"), "aaaaaaaa-7777-7777-7777-777777777777",
 		`{"type":"user","cwd":"`+jsonPath(neighbour)+`","message":{"role":"user","content":"the neighbour's work"}}`)
 
-	got, err := Conversations(asked)
+	got, err := claudeConversations(asked)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1234,7 +1234,7 @@ func TestConversationsPickUpAPromptWrittenAfterTheFirstLook(t *testing.T) {
 	named := writeTranscript(t, dir, "bbbbbbbb-8888-8888-8888-888888888888",
 		`{"type":"ai-title","aiTitle":"a generated name"}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1259,7 +1259,7 @@ func TestConversationsPickUpAPromptWrittenAfterTheFirstLook(t *testing.T) {
 		}
 	}
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1323,7 +1323,7 @@ func TestConversationsOfferAConversationThatMovedIntoAWorktree(t *testing.T) {
 	writeTranscript(t, filepath.Join(home, "projects", projectSlug(sibling)), "eeeeeeee-9999-9999-9999-999999999999",
 		`{"type":"user","cwd":"`+jsonPath(sibling)+`","message":{"role":"user","content":"the neighbour's work"}}`)
 
-	got, err := Conversations(project)
+	got, err := claudeConversations(project)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1339,7 +1339,7 @@ func TestConversationsOfferAConversationThatMovedIntoAWorktree(t *testing.T) {
 	}
 
 	// The worktree still offers what is stored under it, its own included.
-	got, err = Conversations(worktree)
+	got, err = claudeConversations(worktree)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1372,7 +1372,7 @@ func TestConversationsListAConversationCopiedIntoTwoFoldersOnce(t *testing.T) {
 	touch(t, stale, time.Now().Add(-2*time.Hour))
 	touch(t, live, time.Now())
 
-	got, err := Conversations(project)
+	got, err := claudeConversations(project)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1398,7 +1398,7 @@ func TestConversationsSkipATranscriptClaudeOrphaned(t *testing.T) {
 	writeTranscript(t, dir, "aaaaaaaa-0101-0101-0101-010101010101", line)
 	writeTranscript(t, dir, "aaaaaaaa-0101-0101-0101-010101010101.orphaned-1788557454976-69dd3a08", line)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1448,7 +1448,7 @@ func TestConversationsTellApartTheAgentsSentTheSamePrompt(t *testing.T) {
 		`{"type":"ai-title","aiTitle":"a name nobody needs"}`,
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"tidy the imports"}}`)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1484,7 +1484,7 @@ func TestConversationsPickUpTheNameWrittenAfterThePrompt(t *testing.T) {
 	first := writeTranscript(t, dir, "aaaaaaaa-1313-1313-1313-131313131313", prompt)
 	second := writeTranscript(t, dir, "bbbbbbbb-1313-1313-1313-131313131313", prompt)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1514,7 +1514,7 @@ func TestConversationsPickUpTheNameWrittenAfterThePrompt(t *testing.T) {
 		}
 	}
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1702,7 +1702,7 @@ func TestConversationsForAProjectInFullSwing(t *testing.T) {
 	writeTranscript(t, filepath.Join(home, "projects", projectSlug(sibling)), "88888888-1414-1414-1414-141414141414",
 		`{"type":"user","cwd":"`+jsonPath(sibling)+`","message":{"role":"user","content":"the neighbour's work"}}`)
 
-	got, err := Conversations(project)
+	got, err := claudeConversations(project)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1766,7 +1766,7 @@ func TestConversationsStopRereadingATranscriptClaudeNeverNamed(t *testing.T) {
 	const id = "aaaaaaaa-1515-1515-1515-151515151515"
 	writeTranscript(t, dir, id, body("the original prompt")...)
 
-	got, err := Conversations(cwd)
+	got, err := claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
@@ -1783,7 +1783,7 @@ func TestConversationsStopRereadingATranscriptClaudeNeverNamed(t *testing.T) {
 	lines = append(lines, `{"type":"assistant","message":{"role":"assistant","content":"more"}}`)
 	writeTranscript(t, dir, id, lines...)
 
-	got, err = Conversations(cwd)
+	got, err = claudeConversations(cwd)
 	if err != nil {
 		t.Fatalf("conversations: %v", err)
 	}
