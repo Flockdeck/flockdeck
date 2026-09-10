@@ -34,12 +34,27 @@ busy.
 
 ## Where it comes from
 
-This is not screen scraping. Each agent pane is launched with a generated
-`--settings` file registering Claude Code's lifecycle hooks —
-`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and the rest. Those
-hooks re-invoke this same binary in a hidden mode, which reports the event to
-the application over the loopback interface.
+For an agent that can report its own lifecycle, this is not screen scraping.
+Claude Code is launched with a generated `--settings` file registering its
+lifecycle hooks — `UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
+the rest — and an API agent, which is Perch's own chat client, reports the same
+events itself. Either way the event re-invokes this same binary in a hidden
+mode, which reports it to the application over the loopback interface.
 
 Status therefore reflects what the agent is actually doing rather than what
 its output happens to look like. Those settings are additive: your own
 settings, hooks and permissions still apply.
+
+## An agent that cannot report
+
+Not every coding agent has a lifecycle to report, and Perch runs those too. For
+their panes the status is read from the terminal instead: the bell an agent
+rings when it wants you, a quiet timer for when it has stopped producing
+output, and the lines it prints — the shape of a permission question, the shape
+of a prompt waiting to be typed at. Only the last few hundred bytes are looked
+at, with the escape sequences stripped, so a question two screens back does not
+keep a finished pane amber.
+
+That is a guess where the other is a fact, and it is worth knowing which you
+are looking at: **Agents and models** says which agents report and which are
+read. Where both exist, a reported event always wins.

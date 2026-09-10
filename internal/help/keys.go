@@ -45,6 +45,11 @@ var Keys = []Key{
 	// --- panes -------------------------------------------------------------
 	{ID: "splitRight", Keys: "Ctrl+Shift+D", Label: "Split right (agent)", Section: "Panes", Page: "panes"},
 	{ID: "splitDown", Keys: "Ctrl+Shift+E", Label: "Split down (agent)", Section: "Panes", Page: "panes"},
+	// The plain splits and the plain new tab take the default agent and stay one
+	// keystroke; these two are the same thing with the picker in front of it, and
+	// they have no binding of their own because they are reached by holding the
+	// split button, by the caret beside New tab, and from the palette.
+	{ID: "splitRightChoose", Label: "Split right (choose agent)…", Section: "Panes", Page: "agents"},
 	{ID: "splitRightShell", Label: "Split right (shell)", Section: "Panes", Page: "panes"},
 	{ID: "movePaneLeft", Keys: "Ctrl+Shift+←", Label: "Move pane left", Section: "Panes", Page: "rearranging"},
 	{ID: "movePaneRight", Keys: "Ctrl+Shift+→", Label: "Move pane right", Section: "Panes", Page: "rearranging"},
@@ -58,6 +63,7 @@ var Keys = []Key{
 
 	// --- tabs --------------------------------------------------------------
 	{ID: "newAgentTab", Keys: "Ctrl+Shift+T", Label: "New agent tab", Section: "Tabs", Page: "panes"},
+	{ID: "newAgentTabChoose", Label: "New agent tab (choose agent)…", Section: "Tabs", Page: "agents"},
 	{ID: "newShellTab", Keys: "Ctrl+Shift+N", Label: "New shell tab", Section: "Tabs", Page: "panes"},
 	{ID: "nextTab", Keys: "Ctrl+Tab", Label: "Next tab", Section: "Tabs", NoPalette: true},
 	{ID: "prevTab", Keys: "Ctrl+Shift+Tab", Label: "Previous tab", Section: "Tabs", NoPalette: true},

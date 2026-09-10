@@ -7,8 +7,10 @@ Several projects stay open at once and **switching does not stop anything** —
 the other project's agents keep working, and its marker turns amber if one of
 them starts waiting on you while you are elsewhere.
 
-Each project keeps its own tabs, its own layout and its own restored
-conversations.
+Each project keeps its own tabs, its own layout, its own restored
+conversations, and its own default agent and model — so the repository you
+want Codex on gets Codex from the plain one-keystroke split, while everything
+else goes on getting Claude Code.
 
 ## Two at once, side by side
 

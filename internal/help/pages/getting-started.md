@@ -1,12 +1,14 @@
 # Getting started
 
-Perch runs several Claude Code agents at once, each in a real terminal,
-and answers one question at a glance: which agent needs you right now.
+Perch runs several coding agents at once, each in a real terminal, and
+answers one question at a glance: which agent needs you right now.
 
-Every pane is the `claude` CLI running in a genuine pseudo-terminal, so it
-behaves exactly as it does in a normal terminal — permission prompts, slash
-commands, plan mode, colours, mouse. What the app adds is everything you need
-once there is more than one of them.
+Every agent pane is a real program in a genuine pseudo-terminal, so it behaves
+exactly as it does in a normal terminal — permission prompts, slash commands,
+plan mode, colours, mouse. Claude Code is what a pane runs unless you say
+otherwise; any other coding agent, and any model API spoken to directly, is a
+pick away. What the app adds is everything you need once there is more than one
+of them.
 
 ## The three things to know first
 
@@ -26,7 +28,9 @@ application, searchable. If you remember one shortcut, remember that one.
 ## A first session
 
 1. Press [[key:newAgentTab]] for an agent tab, or [[key:splitRight]] to put a
-   second agent beside the one you have.
+   second agent beside the one you have. Both take the default agent;
+   [[action:newAgentTabChoose]] is the same thing with the picker in front of
+   it, for when you want a different agent or a different model.
 2. Type into a pane as you would in any terminal. Click a pane to give it the
    keyboard.
 3. When an agent blocks on a permission prompt its dot turns amber and its tab
@@ -39,6 +43,12 @@ application, searchable. If you remember one shortcut, remember that one.
 Two agents editing the same files will fight. Give each its own checkout
 instead: worktrees creates them, and fan out turns one agent's plan into a set
 of agents that each take a task in a worktree of their own.
+
+## Which agent, which model
+
+A pane's header names what is in it — `claude · sonnet`, `codex · gpt-5` —
+beside its branch. **Agents and models** explains the picker, what changes when
+an agent cannot report its own status, and how to add one of your own.
 
 ## Finding the rest of it
 

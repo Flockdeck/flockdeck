@@ -5,14 +5,23 @@ list out of the pane's output and offers to start an agent for each item.
 
 Press [[key:fanout]], or use the `⑂` button in the pane header.
 
+The list is read out of the agent's own transcript where it wrote one — the
+markdown it actually produced, rather than the wrapped and redrawn version of
+it on screen. A pane whose agent keeps no transcript Perch can read, a shell
+among them, falls back to the screen and is more often wrong for it.
+
 ## What the dialog does
 
 The extracted tasks appear in an editable box, one per line. **Nothing runs
 until you say so** — the list is a suggestion, not a decision. Edit it, delete
 the items you did not mean, add ones the agent missed.
 
-Three choices go with it:
+These choices go with it:
 
+- **Which agent, and which model.** One control at the top sets what the whole
+  run uses; each line carries an override of its own, so twelve tasks can be
+  split between two agents on purpose — the one that is good at the refactor
+  and the cheap one that is good enough for the six renames.
 - **Give each agent its own git worktree.** On by default in a repository.
   Each child gets a branch named after its task, so they work in parallel
   without touching each other's files.
@@ -20,14 +29,15 @@ Three choices go with it:
   children get a new tab of their own, called **Fan out**. Either way they end
   up in one tab together rather than a tab each: a dozen agents is a dozen tabs
   nobody can read, and a fan-out is precisely when you want to see them at once.
-- **Trust the new worktrees.** A fresh worktree is a directory Claude Code has
-  never seen, so it would stop and ask whether the folder is trusted before
-  doing any work — once per child. If the project you are fanning out from is
-  already trusted, this carries that same answer over. It will not invent
-  trust: the box is disabled unless the source directory is genuinely trusted
-  already.
+- **Trust the new worktrees.** A fresh worktree is a directory the agent has
+  never seen, so an agent with a trust question of its own — Claude Code has
+  one — would stop and ask whether the folder is trusted before doing any work,
+  once per child. If the project you are fanning out from is already trusted,
+  this carries that same answer over. It will not invent trust: the box is
+  disabled unless the source directory is genuinely trusted already, and it is
+  not offered at all for an agent that has nothing to ask.
 
-Each task is handed to Claude as its opening argument rather than typed into
+Each task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts rather than
 depending on guessing when the interface is ready.
 
@@ -46,11 +56,11 @@ its work from **Changes**.
 
 ## How many at once
 
-A fan-out will start at most **12** agents. Each one is a real Claude session
-in a real terminal, and past a dozen it is the machine rather than the plan
-that decides how well they run. If the list you have edited is longer, the
-first 12 are started and it says so; start the rest as a second fan-out once
-some of the first have finished.
+A fan-out will start at most **12** agents. Each one is a real agent in a real
+terminal, and past a dozen it is the machine rather than the plan that decides
+how well they run. If the list you have edited is longer, the first 12 are
+started and it says so; start the rest as a second fan-out once some of the
+first have finished.
 
 Blank lines in the box are not tasks and do not count towards it.
 

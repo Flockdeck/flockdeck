@@ -1,23 +1,31 @@
 # Perch
 
-A desktop application for running several Claude Code agents at once.
+A desktop application for running several coding agents at once.
 
-Each agent runs in a real pseudo-terminal driving the `claude` CLI, so it
-behaves exactly as it does in a normal terminal — permission prompts, slash
-commands, plan mode, colours, mouse. Around them the app adds what you need to
-run six at a time: tabs, split panes, per-agent status, layout persistence, git
-worktrees and broadcast input. Each agent is told which pane it is and who else
-is working, so being one of several is something it can act on.
+Each agent runs in a real pseudo-terminal, so it behaves exactly as it does in
+a normal terminal — permission prompts, slash commands, plan mode, colours,
+mouse. Around them the app adds what you need to run six at a time: tabs, split
+panes, per-agent status, layout persistence, git worktrees and broadcast input.
+Each agent is told which pane it is and who else is working, so being one of
+several is something it can act on.
 
-It uses your existing Claude Code login. No API keys, no tokens, no separate
-account.
+The agent and the model are chosen per pane. Claude Code is the default and
+nothing about it changed; beside it Perch will run Codex, Gemini, Aider,
+opencode or Cursor's agent, and it will talk to a model API directly — its own
+chat client in the pane, no wrapper CLI, no node, no Python — including a local
+Ollama or any other OpenAI-compatible endpoint.
+
+A CLI agent uses whatever login it already has, so Claude Code panes need no
+key and no separate account. Talking to an API directly needs one, and `perch
+keys` keeps it.
 
 ```
 ┌ perch ──────────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
 │ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
-│  (live Claude terminal)   │  (live Claude terminal)      │
+│   claude · sonnet         │   codex · gpt-5              │
+│  (live agent terminal)    │  (live agent terminal)       │
 ├───────────────────────────┴──────────────────────────────┤
 │ ○ shell ⎇ main                                           │
 └──────────────────────────────────────────────────────────┘
@@ -27,14 +35,17 @@ account.
 ## What it gives you
 
 - **Several agents at once**, each in a real terminal, in tabs and split panes.
+- **Any agent, any model, per pane** — a CLI you already have, or a model API
+  spoken to directly by the binary itself, picked per pane and remembered per
+  project.
 - **Rearrange what is already running** — drag a pane to another edge, another
   tab or a tab of its own, or merge two tabs into one, without restarting the
   agent in any of them.
 - **Each agent knows where it is** — its own conversation, its own checkout, and
   a briefing at session start on which pane it is and who else is working.
-- **One glance tells you who needs you** — per-pane status driven by Claude's own
-  lifecycle hooks, tab and project markers, and a desktop notification when an
-  agent blocks while you are looking elsewhere.
+- **One glance tells you who needs you** — per-pane status driven by the agent's
+  own lifecycle where it reports one, tab and project markers, and a desktop
+  notification when an agent blocks while you are looking elsewhere.
 - **Multiple projects open together**, switched without stopping anything.
 - **Worktrees as a first-class thing**: create, inspect, occupy and remove them
   without leaving the app.
@@ -54,7 +65,11 @@ needs me right now** — and gives each agent its own branch to work on.
 
 ## Install
 
-Requires the [Claude Code](https://claude.com/claude-code) CLI on your `PATH`.
+Perch itself needs nothing but the binary. What a pane runs is another matter:
+a CLI agent has to be on your `PATH` — [Claude Code](https://claude.com/claude-code)
+for the default — and an API agent needs a key. The picker shows every agent it
+knows about either way, greying out the ones this machine has not got and
+saying where to get them.
 
 ```sh
 go install github.com/jmwri/perch@latest
@@ -86,10 +101,13 @@ perch -detach         # run with no window; attach to it later
 perch -quit           # stop a running instance and its agents
 perch -no-window      # just serve; print the URL and open it yourself
 perch -solo           # start a separate instance instead of attaching
+
+perch keys set openai # give an API agent a key, read from stdin
+perch keys list       # which agents have one, not what it is
 ```
 
 Once it is running you rarely need the command line again: projects are opened
-and switched from inside the window.
+and switched from inside the window, and so is the agent each pane runs.
 
 ### One instance, attached and detached
 
@@ -140,6 +158,7 @@ which the command palette and the in-app help are also drawn from; run
 | --- | --- |
 | `Ctrl+Shift+D` | Split right (agent) |
 | `Ctrl+Shift+E` | Split down (agent) |
+| Command palette | Split right (choose agent)… |
 | Command palette | Split right (shell) |
 | `Ctrl+Shift+←` | Move pane left |
 | `Ctrl+Shift+→` | Move pane right |
@@ -156,6 +175,7 @@ which the command palette and the in-app help are also drawn from; run
 | Keys | Action |
 | --- | --- |
 | `Ctrl+Shift+T` | New agent tab |
+| Command palette | New agent tab (choose agent)… |
 | `Ctrl+Shift+N` | New shell tab |
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
@@ -206,6 +226,63 @@ buttons in their header.
 
 ## How each feature works
 
+### Agents and models
+
+A pane is a shell or an agent, and an agent is two choices: which agent, and
+which model. Both are made per pane, defaulted per project, and remembered with
+the layout.
+
+The plain split and new-tab keystrokes take the project's default and stay one
+keystroke, because that is what you want almost every time. The picker — held
+split button, the caret beside **New tab**, or the command palette — is for
+choosing deliberately. It lists agents as **installed** and **not installed**,
+each expanding to its models with the default marked, and offers *set as
+default for this project* at the foot. An agent you have not got is greyed with
+where to get it rather than hidden: somebody who has never installed Codex
+should still learn that Perch would run it. The pane header then names what it
+got beside the branch, in the same dim weight — `claude · sonnet`,
+`codex · gpt-5`.
+
+There are two ways an agent gets run:
+
+- **A CLI**, started in the pane's pseudo-terminal exactly as you would start
+  it yourself, using whatever login it already has. Claude Code, Codex, Gemini,
+  Aider, opencode and Cursor's agent are built in.
+- **An API, spoken to directly.** `perch chat` is Perch's own terminal chat
+  client, run in the pane, talking straight to a model API: Anthropic, OpenAI,
+  Google, and any OpenAI-compatible endpoint, which is how a local Ollama, LM
+  Studio or vLLM — or a gateway — becomes an agent. No wrapper CLI, no node, no
+  Python; one binary. It streams, it renders code and tool calls, it carries the
+  model and the running cost on a status line, and it has the file and command
+  tools an agent needs, each confined to the pane's working directory and each
+  asking before it writes or runs anything. That ask is reported as a
+  lifecycle event, so the pane turns amber and the user is told which pane
+  wants them — which is the whole point of this application.
+
+An agent is a table entry rather than a branch in the code. Each one says what
+it runs, what models it offers, and which of Perch's facilities it can support:
+whether it reports its own lifecycle (so status is a fact rather than a guess),
+whether it can reattach a conversation by id (so restoring a layout is more
+than cosmetic), whether it writes a transcript somewhere readable (so fan out
+reads its plan and the history overlay lists it), whether it has a trust
+question worth answering ahead of a fan-out, and how its briefing reaches it.
+An agent that supports none of it still works: it is a terminal with a program
+in it, and every one of these features falls back rather than failing.
+
+Your own agents go in `agents.json` in the state directory, which is overlaid
+on the built-ins by `id` — field by field, so `{"id": "claude", "defaultModel":
+"sonnet"}` changes the default model and nothing else. An unknown id is a new
+agent; `"hidden": true` takes one out of the picker. The file is re-read every
+time the picker opens, so editing it by hand needs no restart, and a file that
+does not parse is a notice in the interface rather than a failure to start.
+
+Keys for the API agents are resolved from that agent's own environment
+variables first and then from `keys.json` in the state directory, written by
+`perch keys set <agent>` reading stdin. A key reaches exactly one place — the
+environment of the chat process for the pane that needs it — and is never
+logged, never in a snapshot, never in an error message. The interface shows
+*set* or *not set*, offers *set…* and *clear*, and never reads one back.
+
 ### Attention indicators
 
 Each pane header shows a status dot, any tab containing an agent that is
@@ -226,17 +303,27 @@ knows, not decorating the window.
 | grey | Idle — finished its turn, ready for a new prompt |
 | red | The process exited |
 
-This is not screen scraping. Each agent pane is launched with a generated
-`--settings` file registering Claude Code lifecycle hooks (`UserPromptSubmit`,
-`PreToolUse`, `Notification`, `Stop`, …). Those hooks re-invoke this same binary
-in a hidden `hook` mode, which posts the event to a loopback server the app
-runs, authenticated with a per-run token. Status therefore reflects what the
-agent is actually doing rather than what its output happens to look like, and
-`PreToolUse` even surfaces the running tool's name in the pane header.
+For an agent that reports its own lifecycle, this is not screen scraping. A
+Claude Code pane is launched with a generated `--settings` file registering its
+lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop`, …),
+and an API pane's chat client reports the same event names itself, so nothing
+in the workspace has to learn a second protocol. Either way the event re-invokes
+this same binary in a hidden `hook` mode, which posts it to a loopback server
+the app runs, authenticated with a per-run token. Status therefore reflects
+what the agent is actually doing rather than what its output happens to look
+like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 
 The settings are additive — your own settings, hooks and permissions still
-apply. The terminal bell is kept only as a fallback for when hooks never
-report.
+apply.
+
+Not every coding agent has a lifecycle to register, and Perch runs those too.
+For them the status is read from the terminal instead: the bell, a quiet timer,
+and per-agent patterns for the two lines that matter — the shape of a
+permission question, and the shape of a prompt waiting to be typed at. It is
+matched against the last few hundred bytes with the escape sequences stripped,
+never against the whole scrollback, and a reported event always beats a
+pattern. It is a guess where the other is a fact, and the help says which
+agents are which so you know which you are looking at.
 
 ### Rearranging what is already running
 
@@ -296,16 +383,18 @@ does not know that its neighbour is editing the same repository on another
 branch, that the directory it was dropped into is a worktree rather than the
 project, or that the thing it was asked to do came from another agent's plan.
 
-So every Claude pane is told, in its own words, at the start of its session:
+So every agent pane is told, in its own words, when it starts:
 
 - which pane it is, in which tab and which project;
 - the directory and branch it has, and whether that is a worktree of its own
   rather than the project root;
 - what it was spawned to do, when it was started by a fan-out or by another
   agent rather than by hand;
-- which other agents are running beside it, where each of them is working, and
-  what each was asked for — and that their conversations are separate, so
-  nothing passes between panes except through the user or a commit;
+- which other agents are running beside it, where each of them is working,
+  which agent and model each of them is — `codex · gpt-5`, because what is in
+  the next pane changes what is worth asking of it — and what each was asked
+  for, and that their conversations are separate, so nothing passes between
+  panes except through the user or a commit;
 - that it can start agents of its own with `perch spawn`;
 - what the application around it can do — the status the user is watching, the
   fan-out that reads its own output, broadcast, the diff and the worktree
@@ -316,42 +405,61 @@ So every Claude pane is told, in its own words, at the start of its session:
   line does — including that `-quit` stops every agent in every project rather
   than only this pane.
 
-It is one more Claude Code lifecycle hook, `SessionStart`, answered by the same
-loopback server that receives the status events. The reply is returned as
-`additionalContext`, which is the supported way to add to a session, so nothing
-is typed into the terminal and no settings of the user's are overwritten.
-`SessionStart` fires again after a compaction and on resume, so a pane that has
-been running all day is still oriented after its context has been summarised
-away.
+Where the agent has a session-start hook — Claude Code does, and so does the
+built-in chat client — it is one more lifecycle event, `SessionStart`, answered
+by the same loopback server that receives the status events. The reply is
+returned as `additionalContext`, which is the supported way to add to a session,
+so nothing is typed into the terminal and no settings of the user's are
+overwritten. `SessionStart` fires again after a compaction and on resume, so a
+pane that has been running all day is still oriented after its context has been
+summarised away.
 
-Panes also carry `PERCH_PANE`, `PERCH_PANE_NAME` and
-`PERCH_PROJECT` in their environment, which is what a shell pane — with
-no lifecycle hooks of its own — has to go on. These were `AGENT_WRAPPER_*`
-before the rename; both spellings are set for now, so a shell prompt written
-against the old names keeps working until a later release drops them.
+An agent with no hook to answer gets the same briefing in front of its opening
+prompt instead, fenced in a `<perch-context>` block so it can tell the two
+apart — and gets it alone if there is no opening task. That is once per launch
+rather than once per compaction, which is honest as long as the briefing says
+when it was taken, and it does.
+
+Panes also carry `PERCH_PANE`, `PERCH_PANE_NAME`, `PERCH_PROJECT`,
+`PERCH_AGENT` and `PERCH_MODEL` in their environment. The first three are what
+a shell pane — with no lifecycle hooks of its own — has to go on; the last two
+are how a script or a prompt can say what it is sitting in. The first three
+were `AGENT_WRAPPER_*` before the rename; both spellings are set for now, so a
+shell prompt written against the old names keeps working until a later release
+drops them.
 
 The isolation this describes is real rather than advisory. Each pane is a
-separate top-level Claude session with its own `--session-id`, its own
-generated settings file, and an environment scrubbed of the markers a parent
-Claude session would otherwise pass down; nothing is shared between two panes.
+separate top-level session with its own session id, its own generated settings
+file, and an environment scrubbed of the markers a parent agent session would
+otherwise pass down. Those markers are stripped for every agent in the catalog
+rather than only the one in this pane, because Perch may have been launched
+from inside any of them; nothing is shared between two panes.
 
 ### Session persistence
 
 Layouts are saved per project. On the next run the tabs, splits, proportions
 and working directories come back, **every project you had open is reopened**,
-and each agent pane resumes the conversation it had before rather than starting
-an empty one. The project you name on the command line is the one you land in;
-the rest are restored around it.
+each pane starts the agent and model it had, and each one resumes the
+conversation it had before rather than starting an empty one. The project you
+name on the command line is the one you land in; the rest are restored around
+it.
 
-That works because panes are identified by a UUID passed to
-`claude --session-id` when the pane is created, and to `claude --resume` when it
-is restored. Pane identity and conversation identity are the same thing, which
-is what makes restore meaningful rather than cosmetic.
+That works because panes are identified by a UUID handed to the agent as its
+session id when the pane is created, and handed back to reattach when it is
+restored. Pane identity and conversation identity are the same thing, which is
+what makes restore meaningful rather than cosmetic.
 
-A pane only resumes when Claude actually has a transcript for it. `claude
---resume` exits immediately if there is nothing to resume, so a pane that was
-opened but never prompted starts a fresh conversation instead of dying on
-restore or restart.
+Resuming is attempted only where the agent can reattach by id **and** has
+actually written a transcript. `claude --resume` exits immediately if there is
+nothing to resume, so a pane that was opened but never prompted starts a fresh
+conversation instead of dying on restore or restart; and a pane running an
+agent that cannot resume comes back in the right tab, in the right directory,
+with an empty conversation rather than an error.
+
+A layout written by a build that only knew about Claude is read without a
+murmur: its `claude` panes become agent panes running `claude` with no model
+pinned, migrated in memory and written back in the current format. Nothing is
+lost and nobody is asked anything.
 
 ### Fan out: one agent's plan, several agents doing it
 
@@ -360,13 +468,13 @@ what that agent last said, pulls the list items out of it, and offers them —
 editable, one per line — as a set of agents to start. Nothing runs until you say
 so; the extracted list is a suggestion, not a decision.
 
-What it reads is Claude Code's own transcript, not the pane's screen. The screen
+What it reads is the agent's own transcript, not the pane's screen. The screen
 is a redrawn interface: bullets are wrapped to the pane's width and so cut
 mid-sentence, the status line begins with a glyph indistinguishable from a
 bullet, and the agent's thinking sits in the same column as its answer — all of
-which arrives looking like a plan. The transcript is the markdown the agent
-actually wrote. A pane with no transcript, a shell among them, still falls back
-to the screen.
+of which arrives looking like a plan. The transcript is the markdown the agent
+actually wrote. A pane with no transcript Perch can read — a shell, or an agent
+that keeps none — still falls back to the screen.
 
 The list is narrowed to what reads as work. Nested bullets are detail about a
 job rather than jobs of their own; entries under a line that announces a plan
@@ -386,17 +494,24 @@ called **Fan out**. A tab each was the old behaviour and it was the wrong one:
 a dozen agents made a dozen tabs nobody could read, and a fan-out is exactly
 when you want to see them all at once.
 
-The task is handed to Claude as its opening argument rather than typed into the
-terminal, so it is submitted the moment the agent starts rather than depending
-on guessing when the interface is ready.
+The dialog carries one agent-and-model control for the whole run and an
+override on each row, so twelve tasks can be split between two agents
+deliberately — the capable one for the refactor, the cheap one for the six
+renames.
+
+The task is handed to the agent as its opening argument rather than typed into
+the terminal, so it is submitted the moment the agent starts rather than
+depending on guessing when the interface is ready.
 
 There is one wrinkle worth knowing about, and the dialog handles it: a fresh
-worktree is a directory Claude Code has never seen, so it would stop and ask
-whether the folder is trusted before doing any work — once per child. If the
-project you are fanning out from is already trusted, the dialog offers to carry
-that same answer over to the worktrees it creates. It is a checkbox, it says
-what it does, and it will not invent trust: inheriting is refused unless the
-source directory is genuinely trusted already.
+worktree is a directory the agent has never seen, and an agent with a trust
+question of its own — Claude Code has one — would stop and ask whether the
+folder is trusted before doing any work, once per child. If the project you are
+fanning out from is already trusted, the dialog offers to carry that same
+answer over to the worktrees it creates. It is a checkbox, it says what it
+does, it is not offered for an agent that has nothing to ask, and it will not
+invent trust: inheriting is refused unless the source directory is genuinely
+trusted already.
 
 #### An agent starting its own helpers
 
@@ -427,16 +542,21 @@ you get here: see which agent produced something, then look at what it did.
 
 ### Conversation history
 
-`Ctrl+Shift+R` lists the project's stored Claude conversations — the opening
-prompt of each, how long ago it was touched, how many entries it holds, and its
-session id — and resumes any of them into a new tab. That covers the
-conversations no pane is currently attached to: the one from yesterday, or one
-whose pane you closed.
+`Ctrl+Shift+R` lists the project's stored conversations — the opening prompt of
+each, how long ago it was touched, how many entries it holds, and its session
+id — and resumes any of them into a new tab. That covers the conversations no
+pane is currently attached to: the one from yesterday, or one whose pane you
+closed.
 
-The list is read from Claude Code's own transcripts. The folder they live in is
-derived from the working directory, but since that mangling is Claude's
-business, a folder that does not match is found by reading which directory its
-transcripts record. A conversation already open in a pane is shown as such
+The list is read from the agents' own transcripts, each behind the same small
+interface: where a conversation is, what was last said in it, and what this
+directory has. Claude Code's implementation is the one that was already here —
+the folder is derived from the working directory, and since that mangling is
+Claude's business, a folder that does not match is found by reading which
+directory its transcripts record. The built-in chat client keeps JSONL of its
+own and reads it the same way. An agent that writes nothing Perch can read
+contributes nothing to the list, and every caller copes with that rather than
+special-casing it. A conversation already open in a pane is shown as such
 rather than offered twice, because two panes on one transcript would fight.
 
 ### Projects
@@ -451,8 +571,10 @@ you have opened before and a directory browser that flags git repositories, so
 a project is two clicks away. (The browser is served by the Go side: a web page
 cannot be handed a real directory path.)
 
-Each project keeps its own tabs, its own layout file and its own restored
-conversations.
+Each project keeps its own tabs, its own layout file, its own restored
+conversations, and its own default agent and model — so the repository you want
+Codex on gets Codex from the plain one-keystroke split, while everything else
+goes on getting Claude Code.
 
 ### Git worktrees
 
@@ -514,6 +636,16 @@ breaks" across several worktrees.
   ([`go-pty`](https://github.com/aymanbagabas/go-pty), ConPTY on Windows).
   Fidelity comes from running the CLI in a terminal, not from parsing its
   output.
+- **An agent is data, not a branch.** Which program to run, which models it
+  offers, how its status is known, where its transcript is and how its briefing
+  reaches it are fields on one struct. Adding an agent is a table entry, and
+  for a user it is a few lines of JSON — which is the only reason a second
+  agent did not become a second copy of every feature.
+- **The API agent is the same binary.** Talking to a model API directly is a
+  subcommand run in the pane's own terminal, reporting the same lifecycle
+  events over the same loopback endpoint as a CLI agent's hooks. Nothing in the
+  workspace learns a second protocol, and there is still one artifact to
+  install.
 - **Emulation happens in the browser.** xterm.js renders the terminal and
   encodes keystrokes for whatever modes the application has enabled, so raw
   bytes pass through Go untouched in both directions. Go never has to
@@ -536,7 +668,8 @@ breaks" across several worktrees.
 - **Panes get a clean environment.** An instance launched from inside Claude
   Code would otherwise leak `CLAUDE_CODE_CHILD_SESSION` and friends into every
   pane, making each behave as a nested child session. Those markers are
-  stripped.
+  stripped — every agent's, from every pane, because Perch may have been
+  launched from inside any of them.
 
 ## Development
 
@@ -552,6 +685,12 @@ process and its output comes back. It also holds the documentation to the
 code: every action in the key table has to be implemented in the front end and
 listed in the help, no binding may be written into the front end by hand, and
 the README table above has to match the key table.
+
+To add an agent, add a `Spec` to the built-in catalog under `internal/agent`.
+Verify its flags against the tool itself before you do: an entry that claims a
+resume flag the CLI does not have is worse than one that claims nothing, and an
+agent with no declared capabilities still runs perfectly well as a terminal
+with a program in it.
 
 To add a help page, write `internal/help/pages/<slug>.md` — starting with an
 `#` heading and a paragraph of summary, which the contents list takes — and add
@@ -574,7 +713,7 @@ Two development aids live under `cmd/` and are not part of the product:
 
 ```sh
 go build -o perch.exe . && ./perch.exe -no-window
-go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"claude"}'
+go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"agent","agent":"claude"}'
 ```
 
 The front end is vendored, not fetched at build time. To update it, replace the
@@ -583,6 +722,10 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 
 ## Limitations
 
+- An agent that reports nothing about its own lifecycle is watched from its
+  terminal instead, so its status is a guess and can be a beat behind. Status
+  is a fact only for the agents that report one — Claude Code, and the built-in
+  API client.
 - Commits take the working tree as it stands; there is no selective staging in
   the Changes panel. A shell pane is the answer for anything finer.
 - The window needs a browser engine present. Every supported platform ships one

@@ -1,6 +1,6 @@
 # Past conversations
 
-[[key:history]] lists the project's stored Claude conversations and resumes any
+[[key:history]] lists the conversations stored for this project and resumes any
 of them into a new tab.
 
 For each one it shows the opening prompt, how long ago it was touched, how many
@@ -12,5 +12,8 @@ yesterday, or one whose pane you closed. A conversation that *is* open in a
 pane is shown as such rather than offered twice, because two panes on one
 transcript would fight.
 
-The list is read from Claude Code's own transcripts, so it includes
-conversations from sessions that had nothing to do with this application.
+The list is read from the agents' own transcripts rather than from anything
+Perch keeps, so Claude Code conversations from sessions that had nothing to do
+with this application are in it too. An agent that writes no transcript Perch
+can read contributes nothing to the list and cannot be resumed from it —
+**Agents and models** says which agents those are.
