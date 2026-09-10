@@ -554,6 +554,12 @@ type SpawnOptions struct {
 	Branch string
 	// Split places the child beside its parent instead of in a new tab.
 	Split bool
+	// Tab names an existing tab for the child to join, where it is arranged
+	// into a grid with the panes already there. It is how a fan-out gathers a
+	// dozen children into one tab rather than scattering them a tab each, and
+	// it takes precedence over Split. A tab that has since been closed is
+	// ignored, and the child is placed as it would have been without it.
+	Tab   string
 	Kind  session.Kind
 	Title string
 }
@@ -619,9 +625,18 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		return "", err
 	}
 
-	// Place it: beside its parent, or as a tab of its own.
+	// Place it: in the tab it was asked to join, beside its parent, or as a tab
+	// of its own.
 	placed := false
-	if o.Split && parent != nil {
+	if t := w.Tab(o.Tab); t != nil {
+		// Rebuilt as a grid rather than split off whichever pane happens to be
+		// there, because this is the path a fan-out arrives on: a dozen panes
+		// added one at a time, each of which would otherwise halve the last.
+		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
+		t.Zoom = false
+		placed = true
+	}
+	if !placed && o.Split && parent != nil {
 		for _, t := range w.Tabs {
 			if t.Tree.Find(parentPaneID) == nil {
 				continue

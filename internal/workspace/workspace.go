@@ -772,6 +772,17 @@ func (w *Workspace) Tab(id string) *Tab {
 	return nil
 }
 
+// TabIDOf returns the id of the tab a pane is drawn in, or "" when the pane is
+// not on screen. It is what a caller starting several panes into one tab needs
+// after the first of them, since that first one is what created the tab.
+func (w *Workspace) TabIDOf(paneID string) string {
+	t := w.tabOf(paneID)
+	if t == nil {
+		return ""
+	}
+	return t.ID
+}
+
 // ActiveTabID returns the id of the focused tab.
 func (w *Workspace) ActiveTabID() string { return w.activeTab }
 

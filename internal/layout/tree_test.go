@@ -322,7 +322,8 @@ func TestSwapPanesKeepsTheShape(t *testing.T) {
 
 // TestCombineFlattensAndSharesTheSpace covers merging two trees: every pane
 // comes across, a split along the same axis is flattened rather than nested,
-// and each tree keeps half the room however many panes it brought.
+// and the room is shared out per column, so a tab holding one pane merged into
+// a row of three is one of four even columns.
 func TestCombineFlattensAndSharesTheSpace(t *testing.T) {
 	left := NewLeaf("a")
 	left.Split("a", "b", Horizontal)
@@ -337,8 +338,8 @@ func TestCombineFlattensAndSharesTheSpace(t *testing.T) {
 		t.Fatalf("children = %d, want the row flattened rather than nested", len(root.Children))
 	}
 	root.Compute(Rect{W: 1000, H: 100})
-	if w := root.Find("d").Rect().W; w < 450 || w > 550 {
-		t.Errorf("the lone pane got %d of 1000 columns, want about half", w)
+	if w := root.Find("d").Rect().W; w < 225 || w > 275 {
+		t.Errorf("the lone pane got %d of 1000 columns, want about a quarter", w)
 	}
 	if a, b := root.Find("a").Rect().W, root.Find("b").Rect().W; a != b {
 		t.Errorf("the merged row's panes = %d and %d wide, want its proportions kept", a, b)
@@ -541,7 +542,7 @@ func TestResizeGrowsTheLastPaneToo(t *testing.T) {
 
 // TestCombineIgnoresAnEmptyTree covers merging with a tab that has already been
 // emptied. Its tree is a split with no children, which held no panes but would
-// still have claimed half the room.
+// still have claimed a column and left it blank.
 func TestCombineIgnoresAnEmptyTree(t *testing.T) {
 	occupied := NewLeaf("a")
 	occupied.Split("a", "b", Horizontal)
@@ -1302,8 +1303,9 @@ func TestEveryDropEdgePutsThePaneWhereItWasDropped(t *testing.T) {
 }
 
 // TestCombineKeepsEachSidesProportions covers the weights a merge produces
-// rather than just its shape: each tab gets half the room, and inside its half
-// its panes stay in the proportions the user had dragged them to.
+// rather than just its shape: the columns share the room evenly, and the ones
+// that came from a tab the user had dragged a divider in stay in the
+// proportions they were left at.
 func TestCombineKeepsEachSidesProportions(t *testing.T) {
 	// A row dragged to 3:1, merged with a tab holding a single pane.
 	row := NewLeaf("wide")
@@ -1315,11 +1317,11 @@ func TestCombineKeepsEachSidesProportions(t *testing.T) {
 
 	root.Compute(Rect{W: 1002, H: 100}) // 1000 columns once the rules are paid for
 	wide, narrow, lone := root.Find("wide").Rect().W, root.Find("narrow").Rect().W, root.Find("lone").Rect().W
-	if lone < 495 || lone > 505 {
-		t.Errorf("the lone pane got %d of 1000 columns, want about half", lone)
+	if lone < 328 || lone > 338 {
+		t.Errorf("the lone pane got %d of 1000 columns, want one of the three", lone)
 	}
-	if wide < 370 || wide > 380 || narrow < 120 || narrow > 130 {
-		t.Errorf("the merged row is %d and %d wide, want its 3:1 kept inside its half", wide, narrow)
+	if wide < 495 || wide > 505 || narrow < 162 || narrow > 172 {
+		t.Errorf("the merged row is %d and %d wide, want its 3:1 kept across its two columns", wide, narrow)
 	}
 
 	// Two columns merged side by side each keep their own stacking.
@@ -1344,13 +1346,12 @@ func TestCombineKeepsEachSidesProportions(t *testing.T) {
 	}
 }
 
-// TestCombineHalvesTheRoomEachTimeATabIsFoldedIn states what folding tabs in
-// one at a time actually produces. Each merge is an even split between the two
-// trees, which is right for a single drag, but repeated it compounds: the last
-// tab in takes half the tab and the first ones are squeezed to nothing. A
-// caller gathering a whole project this way needs to share the room out across
-// all the tabs at once instead.
-func TestCombineHalvesTheRoomEachTimeATabIsFoldedIn(t *testing.T) {
+// TestCombineStaysEvenAsTabsAreFoldedIn covers the case the halving rule got
+// wrong: tabs dragged into one another one at a time. Sharing the room between
+// the two trees compounds, so the last tab in took half of it and the first was
+// squeezed to a sliver nobody could drag back out. Shared per column, five tabs
+// folded in one after another are five even columns.
+func TestCombineStaysEvenAsTabsAreFoldedIn(t *testing.T) {
 	root := NewLeaf("t0")
 	for i := 1; i < 5; i++ {
 		root = Combine(root, NewLeaf("t"+strconv.Itoa(i)), Horizontal)
@@ -1367,9 +1368,102 @@ func TestCombineHalvesTheRoomEachTimeATabIsFoldedIn(t *testing.T) {
 	for _, l := range root.Leaves() {
 		widths = append(widths, l.Rect().W)
 	}
-	// 1/16, 1/16, 1/8, 1/4, 1/2 of the room.
-	if !reflect.DeepEqual(widths, []int{62, 63, 125, 250, 500}) {
-		t.Errorf("widths = %v, want the halving this merge compounds to", widths)
+	if !reflect.DeepEqual(widths, []int{200, 200, 200, 200, 200}) {
+		t.Errorf("widths = %v, want a fifth of the room each", widths)
+	}
+}
+
+// TestGridIsEvenAtEverySize covers the arrangement a fan-out lands its
+// children in: every pane the same size, in rows of columns, for every count
+// up to the cap on a fan-out and a good way past it.
+func TestGridIsEvenAtEverySize(t *testing.T) {
+	for n := 1; n <= 20; n++ {
+		panes := make([]string, n)
+		for i := range panes {
+			panes[i] = "p" + strconv.Itoa(i)
+		}
+		root := Grid(panes)
+		if got := root.Panes(); !reflect.DeepEqual(got, panes) {
+			t.Fatalf("%d panes: Grid gave %v, want them in the order asked for", n, got)
+		}
+		// A big box with room to spare, so the rounding is a column here and
+		// there rather than the difference between two panes and three.
+		root.Compute(Rect{W: 2400, H: 2400})
+		areas := map[int]int{}
+		for _, l := range root.Leaves() {
+			r := l.Rect()
+			if r.W < 1 || r.H < 1 {
+				t.Fatalf("%d panes: a pane came out %dx%d", n, r.W, r.H)
+			}
+			areas[r.W*r.H]++
+		}
+		small, large := 1<<62, 0
+		for area := range areas {
+			if area < small {
+				small = area
+			}
+			if area > large {
+				large = area
+			}
+		}
+		// Rounding, not a shape that gives one pane more room than another: a
+		// tenth is far inside a halving and far outside a spare column.
+		if float64(large-small) > float64(small)/10 {
+			t.Errorf("%d panes: areas run from %d to %d, want them even", n, small, large)
+		}
+	}
+}
+
+// TestGridShapes pins the rows a count is drawn in, since that is the whole
+// judgement Grid makes: wide rather than tall, and as square as it can be.
+func TestGridShapes(t *testing.T) {
+	for _, tc := range []struct {
+		panes int
+		rows  []int // how many panes in each row, top to bottom
+	}{
+		{1, []int{1}},
+		{2, []int{2}},
+		{3, []int{3}},
+		{4, []int{2, 2}},
+		{5, []int{3, 2}},
+		{7, []int{4, 3}},
+		{9, []int{3, 3, 3}},
+		{12, []int{4, 4, 4}},
+	} {
+		panes := make([]string, tc.panes)
+		for i := range panes {
+			panes[i] = "p" + strconv.Itoa(i)
+		}
+		root := Grid(panes)
+		var got []int
+		if len(tc.rows) == 1 {
+			got = []int{root.Count()}
+			if tc.panes > 1 && root.Dir != Horizontal {
+				t.Errorf("%d panes came out as a column, want a single row", tc.panes)
+			}
+		} else {
+			if root.Dir != Vertical {
+				t.Errorf("%d panes: the rows are not stacked", tc.panes)
+			}
+			for _, row := range root.Children {
+				got = append(got, row.Count())
+			}
+		}
+		if !reflect.DeepEqual(got, tc.rows) {
+			t.Errorf("Grid of %d panes = rows of %v, want %v", tc.panes, got, tc.rows)
+		}
+	}
+}
+
+// TestGridIgnoresRepeatsAndBlanks keeps the tree's one rule — a pane appears in
+// it once — even when the caller hands over a list that breaks it.
+func TestGridIgnoresRepeatsAndBlanks(t *testing.T) {
+	root := Grid([]string{"a", "", "b", "a", "c", ""})
+	if got := root.Panes(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Errorf("panes = %v, want each one once and no blanks", got)
+	}
+	if got := Grid(nil).Count(); got != 0 {
+		t.Errorf("an empty grid holds %d panes, want none", got)
 	}
 }
 

@@ -146,6 +146,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+Shift+↑` | Move pane up |
 | `Ctrl+Shift+↓` | Move pane down |
 | Command palette | Move pane to a tab of its own |
+| Command palette | Tile these panes evenly |
 | `Ctrl+Shift+Z` | Zoom pane |
 | Command palette | Restart pane |
 | `Ctrl+Shift+W` | Close pane |
@@ -259,9 +260,10 @@ happens:
 
 - onto the **left or right end** of another tab — it is reordered to there;
 - onto the **middle** of another tab — the two tabs are **merged**, and one tab
-  is left holding every pane of both. Each tab keeps the arrangement it had and
-  takes half the room, so two agents started in separate tabs end up side by
-  side without either being restarted;
+  is left holding every pane of both. Each tab keeps the arrangement it had, and
+  the room is shared out a column at a time rather than half to each tab, so
+  five tabs folded in one after another are five even columns rather than a half,
+  a quarter, an eighth and two slivers;
 - onto the **`+` button** — it goes to the end of the bar.
 
 A tab emptied by dragging its last pane away closes itself, and **the pane is
@@ -276,6 +278,11 @@ command palette carries the same moves, plus "Move this pane to tab: …" and
 "Merge tab into this one: …" for every open tab, and "Merge every tab into this
 one" for when the agents you want to watch together are scattered across all of
 them.
+
+Every one of those moves is relative — beside this pane, past that one — and
+enough of them leaves a tab with panes too narrow to grab a divider in. "Tile
+these panes evenly" is the way back: rows of even columns, in the order the
+panes are already in.
 
 Nothing is started or stopped by any of it. A move relocates the pane's leaf in
 the layout tree, so the process, its conversation, its working directory and its
@@ -368,9 +375,16 @@ something to do. It is a heuristic over prose, so it will still be wrong
 sometimes — which is why the list arrives in a text box.
 
 Each child can take **its own git worktree**, on a branch named after its task,
-so several agents work in parallel without touching each other's files. Their
-tabs are named after the task, and each is a normal pane: watch it, type into
-it, review and commit its work from the Changes panel.
+so several agents work in parallel without touching each other's files. Each is
+a normal pane: watch it, type into it, review and commit its work from the
+Changes panel.
+
+The children share **one tab**, laid out in rows of even columns — three panes
+are a row of three, twelve are three rows of four. A tick box puts them in the
+tab the plan came from, beside the agent that wrote it, instead of a new one
+called **Fan out**. A tab each was the old behaviour and it was the wrong one:
+a dozen agents made a dozen tabs nobody could read, and a fan-out is exactly
+when you want to see them all at once.
 
 The task is handed to Claude as its opening argument rather than typed into the
 terminal, so it is submitted the moment the agent starts rather than depending

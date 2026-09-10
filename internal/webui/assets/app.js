@@ -977,7 +977,11 @@
       if (!dragging || ev.target.closest(".tab")) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = "move";
-      strip.classList.toggle("drop-end", dragging.kind === "tab");
+      // The rule at the end of the bar means the same for either: a tab moves
+      // there, and a pane arrives there as a tab of its own. Shown only for a
+      // tab, dragging a pane to the bar looked like a gesture that does
+      // nothing right up until it was released.
+      strip.classList.add("drop-end");
     });
     strip.addEventListener("dragleave", (ev) => {
       if (!strip.contains(ev.relatedTarget)) strip.classList.remove("drop-end");
@@ -2140,6 +2144,7 @@
     movePaneUp: () => send({ cmd: "movePaneDir", dir: "up" }),
     movePaneDown: () => send({ cmd: "movePaneDir", dir: "down" }),
     movePaneToNewTab: () => send({ cmd: "movePaneToNewTab", id: focusedPaneId() }),
+    tilePanes: () => send({ cmd: "tilePanes" }),
     zoomPane: () => send({ cmd: "toggleZoom", id: focusedPaneId() }),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
@@ -2851,10 +2856,13 @@
       m.isRepo ? "Give each agent its own git worktree" : "Not a git repository — agents share this directory"));
     opts.append(wt);
 
+    // The children always end up in one tab, gridded; the only question is
+    // whether that tab is this one or a new one.
     const sp = el("label", "fan-opt");
     const spBox = el("input");
     spBox.type = "checkbox";
-    sp.append(spBox, document.createTextNode("Split into this tab instead of new tabs"));
+    sp.append(spBox, document.createTextNode("Put them in this tab, beside the agent that planned them"));
+    sp.title = "Off, the agents share a new tab of their own";
     opts.append(sp);
 
     // Each worktree is a directory Claude has not seen, so it would stop and

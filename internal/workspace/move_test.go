@@ -25,6 +25,68 @@ func tabTitles(w *Workspace) []string {
 	return out
 }
 
+// TestTilePanesPutsATabBackInOrder covers the way out of a tab dragged into a
+// shape with no room left in it: the same panes, in the same order, as an even
+// grid — and, like every other move here, nothing restarted.
+func TestTilePanesPutsATabBackInOrder(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+
+	// Five panes, each split off the last, which is the shape that squeezes
+	// the first ones to nothing.
+	for i := 0; i < 4; i++ {
+		ws.SplitPane(layout.Horizontal, session.KindShell)
+	}
+	tab := ws.CurrentTab()
+	before := panesOfTab(tab)
+	if len(before) != 5 {
+		t.Fatalf("expected five panes, got %v", before)
+	}
+	sess := ws.Pane(before[0]).Sess
+
+	if err := ws.TilePanes(); err != nil {
+		t.Fatalf("tile: %v", err)
+	}
+	if got := panesOfTab(tab); !reflect.DeepEqual(got, before) {
+		t.Errorf("panes = %v, want the order they were already in, %v", got, before)
+	}
+	if got := ws.Pane(before[0]).Sess; got != sess || sess.Exited() {
+		t.Error("tiling restarted a pane")
+	}
+
+	// Five panes are a row of three over a row of two, every cell the same
+	// size — which is the whole point of asking.
+	tab.Tree.Compute(layout.Rect{W: 600, H: 600})
+	small, large := 1<<62, 0
+	for _, l := range tab.Tree.Leaves() {
+		area := l.Rect().W * l.Rect().H
+		if area < small {
+			small = area
+		}
+		if area > large {
+			large = area
+		}
+	}
+	if float64(large-small) > float64(small)/10 {
+		t.Errorf("tiled panes run from %d to %d in area, want them even", small, large)
+	}
+}
+
+// TestTilePanesNeedsSomethingToTile covers the tab with nothing to rearrange:
+// saying so beats silently redrawing the one pane that is there.
+func TestTilePanesNeedsSomethingToTile(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+
+	if err := ws.TilePanes(); err == nil {
+		t.Error("tiling a tab holding one pane should say there is nothing to do")
+	}
+}
+
 // TestMovePaneKeepsTheSession is the point of the whole feature: rearranging a
 // pane must not restart the agent in it.
 func TestMovePaneKeepsTheSession(t *testing.T) {
@@ -349,8 +411,10 @@ func TestMergeTabCombinesBothLayouts(t *testing.T) {
 	}
 }
 
-// TestMergeTabSharesTheSpaceEqually checks that a merge gives each tab half
-// the room rather than letting the busier one shrink the other away.
+// TestMergeTabSharesTheSpaceEqually checks that a merge leaves every column the
+// same width. Half the room to each tab is the other way of being fair, and it
+// is the wrong one: it compounds over a run of merges until the tabs folded in
+// first are slivers.
 func TestMergeTabSharesTheSpaceEqually(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -372,9 +436,13 @@ func TestMergeTabSharesTheSpaceEqually(t *testing.T) {
 		t.Fatalf("children = %d, want the rows flattened into one", got)
 	}
 	wide.Tree.Compute(layout.Rect{W: 1000, H: 100})
-	got := wide.Tree.Find(only).Rect().W
-	if got < 450 || got > 550 {
-		t.Errorf("the merged pane got %d of 1000 columns, want about half", got)
+	for _, l := range wide.Tree.Leaves() {
+		if w := l.Rect().W; w < 225 || w > 275 {
+			t.Errorf("a pane got %d of 1000 columns, want a quarter each", w)
+		}
+	}
+	if got := wide.Tree.Find(only).Rect().W; got < 225 || got > 275 {
+		t.Errorf("the merged pane got %d of 1000 columns, want a column like the rest", got)
 	}
 }
 

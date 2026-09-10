@@ -220,6 +220,22 @@ func TestFanoutSummary(t *testing.T) {
 	}
 }
 
+// The children of a fan-out share a tab, so the tab is named after the fan-out
+// rather than after one of them. A single task is not a fan-out in that sense:
+// its pane gets the tab to itself and is named after the work, exactly as a
+// pane spawned any other way is.
+func TestFanoutTabTitle(t *testing.T) {
+	jobs := []*fanoutJob{{task: "add a health endpoint"}, {task: "write parser tests"}}
+	if got := fanoutTabTitle(jobs); got != "Fan out" {
+		t.Errorf("fanoutTabTitle of %d tasks = %q, want the fan-out named", len(jobs), got)
+	}
+	for _, few := range [][]*fanoutJob{jobs[:1], nil} {
+		if got := fanoutTabTitle(few); got != "" {
+			t.Errorf("fanoutTabTitle of %d tasks = %q, want the task to name its own tab", len(few), got)
+		}
+	}
+}
+
 // Whatever it says, it says something: an outcome the user is never told about
 // is the one that reads as an accepted fan-out that quietly did the work.
 func TestFanoutSummaryIsNeverSilent(t *testing.T) {

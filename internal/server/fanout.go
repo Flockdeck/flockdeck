@@ -95,6 +95,12 @@ func gitRoot(dir string) string {
 
 // runFanout starts one agent per task.
 //
+// The children are gathered into a single tab, arranged as a grid: either the
+// parent's tab, when the fan-out was asked to split into it, or one new tab of
+// their own. A tab each was what this did before, and a dozen agents is a tab
+// bar nobody can read — the fan-out that opens twelve of them is exactly the
+// one where seeing them at once is the point.
+//
 // Worktrees are created before anything touches the workspace, because git is
 // slow and the workspace goroutine also serves every window's state.
 func (s *Server) runFanout(c *controlClient, parent string, tasks []string, worktrees, split, trust bool) {
@@ -107,6 +113,7 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 		// Resolve the parent's directory once, off the workspace goroutine.
 		type start struct {
 			cwd    string
+			tab    string
 			claude bool
 		}
 		done := make(chan start, 1)
@@ -122,7 +129,11 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				cwd = p.Cwd
 			}
 			parent = id
-			done <- start{cwd: cwd, claude: s.ws.ClaudeAvailable()}
+			tab := ""
+			if split {
+				tab = s.ws.TabIDOf(id)
+			}
+			done <- start{cwd: cwd, tab: tab, claude: s.ws.ClaudeAvailable()}
 		})
 		var in start
 		select {
@@ -176,6 +187,19 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 			}
 		}
 
+		// The tab the children share. When the fan-out is not splitting into
+		// the parent's, the first child to start makes one and the rest join
+		// it — a tab cannot be created empty, so there is nothing to join
+		// until an agent is actually running in it.
+		tab := in.tab
+		title := fanoutTabTitle(jobs)
+
+		// Where the child landed, so the next one can be sent to the same tab.
+		type spawned struct {
+			tab string
+			err error
+		}
+
 		started, failed := 0, 0
 		for _, j := range jobs {
 			if j.err != nil {
@@ -183,24 +207,29 @@ func (s *Server) runFanout(c *controlClient, parent string, tasks []string, work
 				failed++
 				continue
 			}
-			res := make(chan error, 1)
+			res := make(chan spawned, 1)
 			s.do(func() {
-				_, err := s.ws.Spawn(parent, workspace.SpawnOptions{
+				id, err := s.ws.Spawn(parent, workspace.SpawnOptions{
 					Task:  j.task,
 					Cwd:   j.cwd,
+					Tab:   tab,
 					Split: split,
 					Kind:  session.KindClaude,
+					Title: title,
 				})
-				res <- err
+				res <- spawned{tab: s.ws.TabIDOf(id), err: err}
 			})
-			var err error
+			var r spawned
 			select {
-			case err = <-res:
+			case r = <-res:
 			case <-s.closed:
 				return
 			}
-			if err != nil {
-				c.notify(fmt.Sprintf("%s: %v", short(j.task), err), true)
+			if tab == "" {
+				tab = r.tab
+			}
+			if r.err != nil {
+				c.notify(fmt.Sprintf("%s: %v", short(j.task), r.err), true)
 				failed++
 				discardWorktree(repo, baseCwd, j)
 				continue
@@ -343,6 +372,20 @@ func discardWorktree(repo, baseCwd string, j *fanoutJob) {
 		return
 	}
 	_ = gitx.Remove(repo, j.cwd, true)
+}
+
+// fanoutTabTitle names the tab a fan-out's children share, or "" to let the
+// tab be named the way any other spawned pane's is.
+//
+// One task is one agent, and its tab is named after the work like every other.
+// Several share a tab that is about the fan-out rather than about any one of
+// them: named after the first task, eleven agents would sit under a title
+// describing the twelfth.
+func fanoutTabTitle(jobs []*fanoutJob) string {
+	if len(jobs) < 2 {
+		return ""
+	}
+	return "Fan out"
 }
 
 // fanoutSummary is the line a fan-out closes on, and whether it is a failure.

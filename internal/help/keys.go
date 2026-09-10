@@ -51,6 +51,7 @@ var Keys = []Key{
 	{ID: "movePaneUp", Keys: "Ctrl+Shift+↑", Label: "Move pane up", Section: "Panes", Page: "rearranging"},
 	{ID: "movePaneDown", Keys: "Ctrl+Shift+↓", Label: "Move pane down", Section: "Panes", Page: "rearranging"},
 	{ID: "movePaneToNewTab", Label: "Move pane to a tab of its own", Section: "Panes", Page: "rearranging"},
+	{ID: "tilePanes", Label: "Tile these panes evenly", Section: "Panes", Page: "rearranging"},
 	{ID: "zoomPane", Keys: "Ctrl+Shift+Z", Label: "Zoom pane", Section: "Panes", Page: "panes"},
 	{ID: "restartPane", Label: "Restart pane", Section: "Panes", Page: "panes"},
 	{ID: "closePane", Keys: "Ctrl+Shift+W", Label: "Close pane", Section: "Panes", Page: "panes"},

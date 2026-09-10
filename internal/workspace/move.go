@@ -140,6 +140,27 @@ func (w *Workspace) MovePaneToTab(paneID, tabID string) error {
 	return nil
 }
 
+// TilePanes lays the current tab's panes out as an even grid, in the order
+// they are already in.
+//
+// It is the way back. Every other move here is relative — beside this one,
+// past that one — and a tab that has been rearranged a dozen times ends up
+// with panes so narrow there is no divider left to take hold of and no room to
+// drop anything into. Rather than ask the user to drag their way out of that,
+// this puts the tab back into rows of even columns in one go.
+func (w *Workspace) TilePanes() error {
+	t := w.CurrentTab()
+	if t == nil {
+		return fmt.Errorf("there is no tab to tile")
+	}
+	if t.Tree.Count() < 2 {
+		return fmt.Errorf("there is nothing to tile: this tab has one pane")
+	}
+	t.Tree = layout.Grid(t.Tree.Panes())
+	t.Zoom = false
+	return nil
+}
+
 // MovePaneToNewTab pulls a pane out into a tab of its own, which is how a pane
 // that has outgrown its split gets the room to itself.
 func (w *Workspace) MovePaneToNewTab(paneID string) error {

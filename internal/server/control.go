@@ -816,6 +816,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(err.Error(), true)
 				return
 			}
+		case "tilePanes":
+			if err := ws.TilePanes(); err != nil {
+				c.notify(err.Error(), true)
+				return
+			}
 		case "moveTab":
 			if err := ws.MoveTab(cmd.ID, cmd.Target); err != nil {
 				c.notify(err.Error(), true)

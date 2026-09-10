@@ -578,19 +578,21 @@ func (root *Node) SwapPanes(a, b string) bool {
 // as they are, so a pane keeps its node id and the splits inside each tree
 // keep their shape and proportions.
 //
-// The two trees share the space equally. Each side's weights are scaled to add
-// up to one share between them, so merging a lone pane with a row of three
-// gives that pane half the width rather than a quarter of it. A tree that is
-// already a split along dir is flattened into the result instead of nested
+// The space is shared out a column at a time rather than a tree at a time, so
+// merging a lone pane with a row of three gives four even columns. A tree that
+// is already a split along dir is flattened into the result instead of nested
 // inside it, for the same reason Split and InsertBeside append to an existing
 // split: a row of two merged with a row of two is four columns, not a row of
 // rows.
 //
-// That halving is per merge, and it compounds. Folding tabs in one at a time
-// gives the last one half the room, the one before a quarter, and so on, so a
-// caller gathering a whole project's tabs this way ends up with the earliest
-// ones a column wide. Gathering many tabs evenly needs their shares worked out
-// across all of them at once rather than a pairwise merge repeated.
+// Half the room each is the obvious rule and the wrong one, because it
+// compounds. Folding tabs in one at a time gave the last one half the width,
+// the one before a quarter and the one before that an eighth, so gathering a
+// project's tabs left the first of them a column wide — and dragging that back
+// into shape means finding a divider that is no longer there to grab. Per
+// column, a tab folded in behind four others is one of five even columns
+// however it got there, and a divider the user has moved keeps its proportion
+// against its own neighbours.
 func Combine(dst, src *Node, dir Dir) *Node {
 	// A tree with no panes in it, which is what a tab emptied by an earlier
 	// merge is left holding, contributes nothing. Merging it anyway made a
@@ -615,7 +617,9 @@ func Combine(dst, src *Node, dir Dir) *Node {
 }
 
 // shareOf returns the children a tree contributes to a split along dir,
-// weighted so that they add up to 1 between them.
+// weighted so that they average one share each: a tree bringing three columns
+// is worth three of them and a lone pane one, while the proportions those
+// children had against each other are left as they were.
 func shareOf(n *Node, dir Dir) []*Node {
 	if n.IsLeaf() || n.Dir != dir {
 		n.Weight = 1
@@ -625,10 +629,99 @@ func shareOf(n *Node, dir Dir) []*Node {
 	for _, c := range n.Children {
 		total += c.weight()
 	}
+	scale := float64(len(n.Children)) / total
 	for _, c := range n.Children {
-		c.Weight = c.weight() / total
+		c.Weight = c.weight() * scale
 	}
 	return n.Children
+}
+
+// Grid arranges panes into rows of even columns, in the order given.
+//
+// A fan-out puts a dozen agents in one tab, and neither a row of twelve nor a
+// stack of twelve is a tab anyone can read: at that width a terminal wraps
+// every line it prints, and at that height it holds four lines at a time. Rows
+// of columns keeps both dimensions usable, and it is the shape someone
+// arranging a dozen panes by hand would end up dragging out.
+//
+// The tree is built afresh each time, so a divider the user had moved in the
+// old one is not carried over. That is the trade a caller makes by asking for
+// a grid: it is for a tab being filled, where the alternative is each new pane
+// halving the last one.
+func Grid(panes []string) *Node {
+	panes = distinct(panes)
+	switch len(panes) {
+	case 0:
+		// An empty split is what a tab emptied by a move holds, and every
+		// reader of the tree already copes with one.
+		return NewSplit(Horizontal)
+	case 1:
+		return NewLeaf(panes[0])
+	}
+	rows := gridRows(len(panes))
+	if rows == 1 {
+		return gridRow(panes)
+	}
+	root := NewSplit(Vertical)
+	root.Children = make([]*Node, 0, rows)
+	for at := 0; at < len(panes); {
+		// The panes left over are shared among the rows left over, so a count
+		// that does not divide evenly puts the extra panes in the top rows
+		// rather than all of them in the last one.
+		n := (len(panes) - at + rows - len(root.Children) - 1) / (rows - len(root.Children))
+		row := gridRow(panes[at : at+n])
+		// A row is as tall as it is full. Seven panes are a row of four over a
+		// row of three, and given equal heights the three would be half again
+		// the size of the four; weighted by what they hold, every pane in the
+		// grid is the same size as every other.
+		row.Weight = float64(n)
+		root.Children = append(root.Children, row)
+		at += n
+	}
+	return root
+}
+
+// gridRows chooses how many rows a grid of n panes is drawn in.
+//
+// The square root, rounded down, so the grid is as square as it can be while
+// erring towards rows that are wide rather than tall: three panes are a row of
+// three, and twelve are three rows of four. A terminal needs its width more
+// than its height, since what it loses when it runs out of height scrolls back
+// and what it loses when it runs out of width is reflowed away.
+func gridRows(n int) int {
+	if rows := int(math.Sqrt(float64(n))); rows > 1 {
+		return rows
+	}
+	return 1
+}
+
+// gridRow returns one row of a grid: a leaf when it holds a single pane, so
+// that no split is left with one child.
+func gridRow(panes []string) *Node {
+	if len(panes) == 1 {
+		return NewLeaf(panes[0])
+	}
+	row := NewSplit(Horizontal)
+	row.Children = make([]*Node, 0, len(panes))
+	for _, pane := range panes {
+		row.Children = append(row.Children, NewLeaf(pane))
+	}
+	return row
+}
+
+// distinct drops the empty and repeated ids from a list of panes, so that a
+// tree built from it keeps the rule that a pane appears in it once.
+func distinct(panes []string) []string {
+	out := make([]string, 0, len(panes))
+	seen := make(map[string]bool, len(panes))
+	for _, pane := range panes {
+		if pane == "" || seen[pane] {
+			continue
+		}
+		seen[pane] = true
+		out = append(out, pane)
+	}
+	return out
 }
 
 // Remove deletes the pane's leaf, collapsing any split left with one child.

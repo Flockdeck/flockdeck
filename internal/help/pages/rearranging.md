@@ -26,14 +26,23 @@ Where along another tab it lands decides what happens:
 
 - onto the **left or right end** — it is reordered to there;
 - onto the **middle** — the two tabs are **merged**, and one tab is left
-  holding every pane of both. Each keeps the arrangement it had and takes half
-  the room, so two agents started in separate tabs end up side by side without
-  either being restarted;
+  holding every pane of both. Each keeps the arrangement it had, and the room
+  is shared out a column at a time rather than half to each tab: fold five tabs
+  in one after another and you get five even columns, not one half the width
+  and the rest squeezed into slivers you cannot grab a divider in;
 - onto the **`+` button** — it goes to the end of the bar.
 
 A tab emptied by dragging its last pane away closes itself, and **the pane is
 not closed with it**. That is the difference between moving a pane out and
 closing it.
+
+## Putting a tab back in order
+
+Every move here is relative — beside this pane, past that one — and enough of
+them leaves a tab with panes too narrow to grab a divider in or drop anything
+into. [[action:tilePanes]] is the way back: it lays the tab's panes out in rows of
+even columns, in the order they are already in, the same arrangement a fan-out
+starts its agents in.
 
 ## From the keyboard
 

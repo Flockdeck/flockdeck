@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
 )
 
@@ -285,6 +287,84 @@ func TestSpawnPlacesAChild(t *testing.T) {
 	}
 	if n := len(parentTab.Tree.Panes()); n != 2 {
 		t.Errorf("parent tab holds %d panes, want 2", n)
+	}
+}
+
+// TestSpawnGathersChildrenIntoOneTab covers the placement a fan-out uses: the
+// first child makes a tab, the rest are told to join it, and the tab is a grid
+// rather than each new pane halving the last.
+func TestSpawnGathersChildrenIntoOneTab(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	first, err := ws.Spawn(parent, SpawnOptions{Task: "task 1", Kind: session.KindShell, Title: "Fan out"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	shared := ws.TabIDOf(first)
+	if shared == "" {
+		t.Fatal("the first child is not in a tab")
+	}
+	for i := 2; i <= 6; i++ {
+		id, err := ws.Spawn(parent, SpawnOptions{
+			Task: fmt.Sprintf("task %d", i),
+			Kind: session.KindShell,
+			Tab:  shared,
+		})
+		if err != nil {
+			t.Fatalf("spawn %d: %v", i, err)
+		}
+		if got := ws.TabIDOf(id); got != shared {
+			t.Fatalf("child %d landed in tab %q, want the one its siblings are in", i, got)
+		}
+	}
+
+	if n := len(ws.VisibleTabs()); n != 2 {
+		t.Errorf("tabs = %d, want the lead's and the one the children share", n)
+	}
+	tab := ws.Tab(shared)
+	if n := len(tab.Tree.Panes()); n != 6 {
+		t.Errorf("the shared tab holds %d panes, want all six", n)
+	}
+	if tab.Title != "Fan out" {
+		t.Errorf("the shared tab is called %q, want the name the first child brought", tab.Title)
+	}
+
+	// Six panes are two rows of three, all the same size — the point of
+	// gathering them being that you can watch them.
+	tab.Tree.Compute(layout.Rect{W: 900, H: 900})
+	for _, l := range tab.Tree.Leaves() {
+		if r := l.Rect(); r.W < 290 || r.W > 300 || r.H != 450 {
+			t.Errorf("a child came out %dx%d, want a sixth of the tab", r.W, r.H)
+		}
+	}
+}
+
+// TestSpawnFallsBackWhenTheTabIsGone covers a fan-out whose shared tab was
+// closed while it was still starting agents: the child still gets a pane,
+// in a tab of its own, rather than being lost.
+func TestSpawnFallsBackWhenTheTabIsGone(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+
+	id, err := ws.Spawn(ws.CurrentTab().Focus, SpawnOptions{
+		Task: "carry on regardless",
+		Kind: session.KindShell,
+		Tab:  "a tab that closed",
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if ws.TabIDOf(id) == "" {
+		t.Error("the child is not on screen at all")
+	}
+	if n := len(ws.VisibleTabs()); n != 2 {
+		t.Errorf("tabs = %d, want the child to have fallen back to one of its own", n)
 	}
 }
 
