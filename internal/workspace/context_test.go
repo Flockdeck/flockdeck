@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/perch/internal/agent"
 	"github.com/jmwri/perch/internal/help"
 	"github.com/jmwri/perch/internal/layout"
 	"github.com/jmwri/perch/internal/session"
@@ -856,5 +857,191 @@ func TestRenderDocumentsThePaneEnvironment(t *testing.T) {
 	}
 	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "PERCH_TOKEN") {
 		t.Error("a shell pane has no agent to read the environment table")
+	}
+}
+
+// TestOpeningPromptFencesTheBriefingAheadOfTheTask covers the delivery an
+// agent with no lifecycle hooks gets. Both halves are in one string by then,
+// and the fence is the only thing telling the agent which half the user wrote.
+func TestOpeningPromptFencesTheBriefingAheadOfTheTask(t *testing.T) {
+	task := "rewrite the importer: " + strings.Repeat("keep every clause of this; ", 12) + "and stop at the marker"
+	text := PaneContext{PaneName: "one", Cwd: "/repo", Task: task}.OpeningPrompt()
+
+	open := strings.Index(text, "<perch-context>")
+	closed := strings.Index(text, "</perch-context>")
+	if open != 0 || closed < 0 {
+		t.Fatalf("the briefing is not fenced from the start:\n%s", text)
+	}
+	if !strings.Contains(text[open:closed], "Where you are running") {
+		t.Errorf("the fence does not hold the briefing:\n%s", text)
+	}
+	// The task follows the block whole. Cut to the length a sibling's summary
+	// is cut to, it would read as the whole of an instruction it is not.
+	if !strings.Contains(text[closed:], task) {
+		t.Errorf("the task does not follow the briefing in full:\n%s", text)
+	}
+	// And it is not summarised inside the block as well, where the agent would
+	// find a second, shorter copy of what it has just been asked.
+	if strings.Contains(text[:closed], "You were started with this task") {
+		t.Errorf("the task is repeated inside the briefing as well:\n%s", text)
+	}
+}
+
+// TestOpeningPromptWithNoTaskIsTheBlockAlone covers a pane opened by hand: the
+// agent is still told which checkout it has and who else is in the repository,
+// because that changes what it does with the first thing the user types.
+func TestOpeningPromptWithNoTaskIsTheBlockAlone(t *testing.T) {
+	text := PaneContext{PaneName: "one", Cwd: "/repo"}.OpeningPrompt()
+	if !strings.HasPrefix(text, "<perch-context>") {
+		t.Errorf("a pane with no task got no briefing:\n%s", text)
+	}
+	if tail := strings.TrimSpace(text[strings.Index(text, "</perch-context>"):]); tail != "</perch-context>" {
+		t.Errorf("something follows the block for a pane with no task: %q", tail)
+	}
+}
+
+// TestOpeningPromptSaysWhenItWasTaken is the honesty the once-per-launch
+// delivery depends on. A hooked agent is briefed again whenever it starts,
+// resumes or compacts; this one is told a list of other agents that begins
+// going stale the moment it is read, so it has to be told when it was true.
+func TestOpeningPromptSaysWhenItWasTaken(t *testing.T) {
+	taken := time.Date(2026, 9, 9, 15, 4, 0, 0, time.UTC)
+	c := PaneContext{PaneName: "one", Cwd: "/repo", Taken: taken}
+
+	prompt := c.OpeningPrompt()
+	if !strings.Contains(prompt, "2026-09-09 15:04") {
+		t.Errorf("the briefing does not say when it was taken:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "briefed once") {
+		t.Errorf("the briefing does not say it will not be refreshed:\n%s", prompt)
+	}
+
+	// The hook reply is asked for again every time, so the same sentence there
+	// would warn about a staleness that never happens.
+	if hook := c.Render(); strings.Contains(hook, "briefed once") {
+		t.Errorf("the hook briefing claims it is never refreshed:\n%s", hook)
+	}
+
+	// A context assembled without a clock still has to say what it is; only
+	// the time drops out.
+	if plain := (PaneContext{PaneName: "one"}).OpeningPrompt(); !strings.Contains(plain, "briefed once") {
+		t.Errorf("a briefing with no timestamp forgot to say it is a snapshot:\n%s", plain)
+	}
+}
+
+// TestOpeningPromptClaimsNoHooksItDoesNotHave covers the paragraph about the
+// user watching the pane. Told its state is read from lifecycle hooks and a
+// settings file, an agent that fires neither would take a question left on the
+// screen for one the user had been shown.
+func TestOpeningPromptClaimsNoHooksItDoesNotHave(t *testing.T) {
+	prompt := PaneContext{PaneName: "one", Cwd: "/repo"}.OpeningPrompt()
+	for _, unwanted := range []string{"--settings", "lifecycle hooks — your own settings"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Errorf("the briefing describes %q, which this agent does not have:\n%s", unwanted, prompt)
+		}
+	}
+	// It still has to describe what the user sees, because the reason to ask
+	// on a line of its own is that the pane goes amber and the user is told.
+	for _, want := range []string{"amber", "desktop notification"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the briefing never says %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestSiblingsAreDescribedWithTheirAgentAndModel covers what is worth asking
+// of the pane next door, which depends on what is running in it.
+func TestSiblingsAreDescribedWithTheirAgentAndModel(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		sib   Sibling
+		want  string
+		avoid string
+	}{
+		{
+			name: "agent and model",
+			sib:  Sibling{Name: "two", Cwd: "/repo", Status: "working", Agent: "codex", Model: "gpt-5"},
+			want: "running codex · gpt-5",
+		},
+		{
+			// An empty model means whatever the CLI is configured with, which
+			// is not Perch's to report as a choice somebody made.
+			name:  "no model asked for",
+			sib:   Sibling{Name: "two", Cwd: "/repo", Status: "working", Agent: "claude"},
+			want:  "running claude",
+			avoid: "·",
+		},
+		{
+			name:  "nothing recorded",
+			sib:   Sibling{Name: "two", Cwd: "/repo", Status: "working"},
+			avoid: "running",
+		},
+		{
+			name:  "a shell runs no agent",
+			sib:   Sibling{Name: "two", Cwd: "/repo", Shell: true, Agent: "claude"},
+			want:  "a shell, not an agent",
+			avoid: "claude",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.sib.describe()
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("describe() = %q, want it to mention %q", got, tc.want)
+			}
+			if tc.avoid != "" && strings.Contains(got, tc.avoid) {
+				t.Errorf("describe() = %q, want nothing about %q", got, tc.avoid)
+			}
+		})
+	}
+}
+
+// TestTheAgentLabelsAreExplainedWhereThereAreAny keeps the note about them out
+// of a window where every pane is a shell or an agent nobody recorded.
+func TestTheAgentLabelsAreExplainedWhereThereAreAny(t *testing.T) {
+	named := PaneContext{PaneName: "one", Siblings: []Sibling{
+		{Name: "two", Cwd: "/repo", Status: "working", Agent: "codex", Model: "gpt-5"},
+	}}.Render()
+	if !strings.Contains(named, "Where an agent and a model are named") {
+		t.Errorf("the labels are never explained:\n%s", named)
+	}
+
+	plain := PaneContext{PaneName: "one", Siblings: []Sibling{
+		{Name: "two", Cwd: "/repo", Status: "working"},
+	}}.Render()
+	if strings.Contains(plain, "Where an agent and a model are named") {
+		t.Errorf("a list with no labels explains labels anyway:\n%s", plain)
+	}
+}
+
+// TestOpeningPromptOnlyBriefsAnAgentThatCannotBeAsked covers the choice made
+// when a pane starts. An agent with hooks is briefed when it fires the first
+// one, and putting the same text in front of its task as well would spend a
+// large part of its first turn on something it is about to be told anyway.
+func TestOpeningPromptOnlyBriefsAnAgentThatCannotBeAsked(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	pane := ws.CurrentTab().Focus
+
+	if got := ws.OpeningPrompt(pane, "fix the parser", agent.ContextHook); got != "fix the parser" {
+		t.Errorf("a hooked agent's prompt = %q, want the task untouched", got)
+	}
+	if got := ws.OpeningPrompt(pane, "fix the parser", agent.ContextNone); got != "fix the parser" {
+		t.Errorf("an unbriefed agent's prompt = %q, want the task untouched", got)
+	}
+
+	briefed := ws.OpeningPrompt(pane, "fix the parser", agent.ContextPrompt)
+	if !strings.HasPrefix(briefed, "<perch-context>") || !strings.Contains(briefed, root) {
+		t.Errorf("an agent with no hooks was not briefed:\n%s", briefed)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(briefed), "fix the parser") {
+		t.Errorf("the task is not the last thing the agent reads:\n%s", briefed)
+	}
+
+	// A pane closed between the decision to start it and this call still has
+	// work to do; a task with no briefing beats a briefing with no task.
+	if got := ws.OpeningPrompt("no-such-pane", "fix the parser", agent.ContextPrompt); got != "fix the parser" {
+		t.Errorf("an unknown pane's prompt = %q, want the task alone", got)
 	}
 }
