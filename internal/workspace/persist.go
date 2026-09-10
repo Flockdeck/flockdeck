@@ -95,11 +95,13 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			return nil
 		}
 		out.Pane = &store.Pane{
-			ID:   p.ID,
-			Kind: kindName(p.Kind),
-			Cwd:  p.Cwd,
-			Name: p.Name,
-			Task: p.Task,
+			ID:    p.ID,
+			Kind:  kindName(p.Kind),
+			Cwd:   p.Cwd,
+			Name:  p.Name,
+			Task:  p.Task,
+			Agent: p.Agent,
+			Model: p.Model,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -129,8 +131,8 @@ func (w *Workspace) Restore() (bool, error) {
 }
 
 // restoreProject loads a project's saved tabs and appends them, relaunching
-// each pane. Claude panes resume their previous conversation. It returns how
-// many tabs were restored.
+// each pane. An agent pane resumes its previous conversation where its agent
+// can. It returns how many tabs were restored.
 func (w *Workspace) restoreProject(root string) int {
 	st, err := store.Load(root)
 	if err != nil || st == nil || len(st.Tabs) == 0 {
@@ -211,9 +213,9 @@ func (w *Workspace) stillAutoTitled(t *Tab) bool {
 	if t.Title != filepath.Base(t.Root) {
 		return false
 	}
-	// Only Claude panes report the prompts a rename would come from.
+	// Only an agent pane reports the prompts a rename would come from.
 	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.Kind == session.KindClaude {
+		if p := w.Pane(id); p != nil && p.IsAgent() {
 			return true
 		}
 	}
@@ -355,7 +357,7 @@ func (w *Workspace) launch(panes []*Pane) {
 		return
 	}
 	if len(panes) == 1 {
-		w.startPane(panes[0], panes[0].Kind == session.KindClaude)
+		w.startPane(panes[0], panes[0].IsAgent())
 		return
 	}
 	queue := make(chan *Pane)
@@ -369,10 +371,11 @@ func (w *Workspace) launch(panes []*Pane) {
 		go func() {
 			defer wg.Done()
 			for p := range queue {
-				// Resuming reattaches the pane to the same Claude conversation
-				// it had before, which is the point of persisting pane ids as
-				// session UUIDs.
-				w.startPane(p, p.Kind == session.KindClaude)
+				// Resuming reattaches the pane to the same conversation it had
+				// before, which is the point of persisting pane ids as session
+				// UUIDs. Whether the agent can be reattached at all is
+				// startPane's to decide, from its Spec and its transcript.
+				w.startPane(p, p.IsAgent())
 			}
 		}()
 	}
@@ -391,12 +394,14 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	}
 	if n.Pane != nil {
 		p := &Pane{
-			ID:   n.Pane.ID,
-			Kind: parseKind(n.Pane.Kind),
-			Cwd:  n.Pane.Cwd,
-			Name: n.Pane.Name,
-			Task: n.Pane.Task,
-			Root: n.Pane.Root,
+			ID:    n.Pane.ID,
+			Kind:  parseKind(n.Pane.Kind),
+			Cwd:   n.Pane.Cwd,
+			Name:  n.Pane.Name,
+			Task:  n.Pane.Task,
+			Root:  n.Pane.Root,
+			Agent: n.Pane.Agent,
+			Model: n.Pane.Model,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot
@@ -477,9 +482,13 @@ func kindName(k session.Kind) string {
 	if k == session.KindShell {
 		return "shell"
 	}
-	return "claude"
+	return "agent"
 }
 
+// parseKind reads a saved pane kind. Anything that is not a shell is an agent,
+// which takes in "claude" from a layout a build before this one wrote: those
+// files are migrated on the way out of the store, and a hand-edited one that
+// escaped that still restores as the pane its author meant.
 func parseKind(s string) session.Kind {
 	if s == "shell" {
 		return session.KindShell

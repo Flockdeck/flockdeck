@@ -32,6 +32,8 @@ func main() {
 	var st struct {
 		Panes map[string]struct {
 			Kind   string `json:"kind"`
+			Agent  string `json:"agent"`
+			Model  string `json:"model"`
 			Cols   int    `json:"cols"`
 			Rows   int    `json:"rows"`
 			Status string `json:"status"`
@@ -51,8 +53,25 @@ func main() {
 	sort.Strings(ids)
 	for _, id := range ids {
 		p := st.Panes[id]
-		fmt.Printf("pane %s  %-6s %dx%d  %-8s err=%q\n", short(id), p.Kind, p.Cols, p.Rows, p.Status, p.Err)
+		fmt.Printf("pane %s  %-6s %-20s %dx%d  %-8s err=%q\n",
+			short(id), p.Kind, running(p.Agent, p.Model), p.Cols, p.Rows, p.Status, p.Err)
 	}
+}
+
+// running names what an agent pane is running. A shell pane runs neither and
+// gets a dash, so the columns still line up when a dump holds both kinds.
+//
+// The separator is a plain ASCII one rather than the interpunct the pane
+// header uses: this is printed to whatever console the developer happens to
+// have, and a Windows one on a legacy codepage would make mojibake of it.
+func running(agent, model string) string {
+	switch {
+	case agent == "":
+		return "-"
+	case model == "":
+		return agent
+	}
+	return agent + " | " + model
 }
 
 // short trims an id to the prefix that is enough to recognise a pane by eye,

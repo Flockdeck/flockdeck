@@ -920,6 +920,89 @@ func TestSaveRestoreKeepsKindsAndAxes(t *testing.T) {
 	}
 }
 
+// TestSaveRestoreKeepsTheAgentAndModel covers the two fields a pane now
+// carries. Losing them silently moves an agent onto whatever the default is:
+// the tab comes back looking right, and the conversation in it is being
+// continued by a different agent, or by the same one on a different model.
+func TestSaveRestoreKeepsTheAgentAndModel(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+
+	ws := newTestWorkspace(t, root)
+	// One pane the picker chose an agent and a model for, one opened the way a
+	// single keystroke opens it. The chosen agent is deliberately one no
+	// machine running this has an entry for: the pane reports that in place
+	// and starts nothing, which is all this test needs of it.
+	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "codex", Model: "gpt-5"}, root, "mixed")
+	chosen := ws.CurrentTab().Focus
+	ws.SplitPane(layout.Horizontal, session.KindShell)
+	unchosen := ws.CurrentTab().Focus
+
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, root)
+	if ok, err := again.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+
+	tests := []struct {
+		name  string
+		id    string
+		agent string
+		model string
+	}{
+		{"a pane the picker chose for", chosen, "codex", "gpt-5"},
+		{"a pane opened with one keystroke", unchosen, "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := again.Pane(tc.id)
+			if p == nil {
+				t.Fatalf("pane %q was not restored", tc.id)
+			}
+			if p.Agent != tc.agent {
+				t.Errorf("agent = %q, want %q", p.Agent, tc.agent)
+			}
+			if p.Model != tc.model {
+				t.Errorf("model = %q, want %q", p.Model, tc.model)
+			}
+		})
+	}
+}
+
+// TestSavedKindsAreTheOnesTheStoreNames pins the two names a layout file uses
+// for a pane. They are read by a build that may not be this one — an older
+// one stepping back, a newer one migrating forward — so what is written down
+// matters more than what the workspace calls it in memory.
+func TestSavedKindsAreTheOnesTheStoreNames(t *testing.T) {
+	tests := []struct {
+		name string
+		kind session.Kind
+		want string
+	}{
+		{"an agent pane", session.KindClaude, "agent"},
+		{"a shell pane", session.KindShell, "shell"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := kindName(tc.kind); got != tc.want {
+				t.Errorf("kindName = %q, want %q", got, tc.want)
+			}
+			if got := parseKind(tc.want); got != tc.kind {
+				t.Errorf("parseKind(%q) = %v, want %v", tc.want, got, tc.kind)
+			}
+		})
+	}
+	// "claude" is what every layout written before this build says, and a
+	// hand-edited one may say it long after. It has always meant an agent.
+	if got := parseKind("claude"); got != session.KindClaude {
+		t.Errorf("parseKind(\"claude\") = %v, want an agent pane", got)
+	}
+}
+
 // TestSaveRestoreKeepsTheTask covers why a pane's task is persisted at all: a
 // spawned agent is told what it exists to do through the context handed to it
 // at session start, and after a restart that is the only place the task can
