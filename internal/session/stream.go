@@ -1,6 +1,11 @@
 package session
 
-import "bytes"
+import (
+	"bytes"
+	"strings"
+
+	"github.com/jmwri/perch/internal/agent"
+)
 
 // ring is a fixed-size circular buffer of recent output. It keeps the most
 // recent replayBytes of a pane so a viewer that connects late, or reloads, can
@@ -390,6 +395,70 @@ func (s *Session) RecentText(maxBytes int) string {
 		raw = dropPartialLine(raw)
 	}
 	return stripANSI(raw)
+}
+
+// patternStatus reads out of a pane's recent output the state the agent's own
+// lifecycle would have reported, for an agent that reports none. The second
+// return value is false when nothing in it says either way, which leaves the
+// coarser guesses -- the bell, the quiet timer -- to speak for the pane.
+//
+// It is called with s.mu held, from the reader, once per chunk a pane prints.
+// An agent with no patterns is the common case and costs a length check.
+func (s *Session) patternStatus() (Status, bool) {
+	if len(s.patterns.Waiting) == 0 && len(s.patterns.Idle) == 0 {
+		return StatusIdle, false
+	}
+	raw, truncated := s.history.tail(patternBytes)
+	if truncated {
+		raw = dropPartialLine(raw)
+	}
+	return matchPatterns(stripANSI(raw), s.patterns)
+}
+
+// matchPatterns finds the most recent line of output that says what an agent is
+// doing.
+//
+// The most recent wins because the lines arrive in the order the agent printed
+// them: one that asked a question and has since printed its prompt again is no
+// longer waiting for an answer to it. The last line counts even with no newline
+// after it, because the prompt an agent is sitting at is exactly the line it
+// has not finished.
+func matchPatterns(text string, p agent.Patterns) (Status, bool) {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.ToLower(strings.TrimSpace(lines[i]))
+		if line == "" {
+			continue
+		}
+		// Waiting is asked first, so that a line answering to both is read as
+		// the one worth surfacing.
+		if containsAny(line, p.Waiting) {
+			return StatusWaiting, true
+		}
+		if containsAny(line, p.Idle) {
+			return StatusIdle, true
+		}
+	}
+	return StatusIdle, false
+}
+
+// containsAny reports whether a lower-cased line holds any of the patterns.
+//
+// The patterns are plain text rather than expressions. They come from a file
+// the user may edit, and what a mistake in an expression there costs is paid by
+// every pane: one that matches everything leaves a whole workspace reporting
+// the same status, and one that backtracks is run over every chunk every pane
+// prints. The lines worth recognising are fixed prose an agent wrote into
+// itself, so a substring finds them, and case is ignored because whether a
+// prompt is capitalised is not something a catalog entry should have to know.
+func containsAny(lowered string, pats []string) bool {
+	for _, pat := range pats {
+		pat = strings.ToLower(strings.TrimSpace(pat))
+		if pat != "" && strings.Contains(lowered, pat) {
+			return true
+		}
+	}
+	return false
 }
 
 // dropPartialLine drops everything up to and including the first line break,

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jmwri/perch/internal/agent"
 )
 
 func TestRingKeepsMostRecentBytes(t *testing.T) {
@@ -331,5 +333,109 @@ func BenchmarkBellScan(b *testing.B) {
 				s.scan(chunk)
 			}
 		})
+	}
+}
+
+// TestMatchPatternsReadsTheMostRecentLine covers what stands in for a lifecycle
+// for an agent that reports none. Only the newest line that says anything
+// counts: an agent that asked a question and has since printed its prompt again
+// is not still waiting for an answer to it, and a pane left reporting that it
+// is would be the one the user is sent to go and look at.
+func TestMatchPatternsReadsTheMostRecentLine(t *testing.T) {
+	pats := agent.Patterns{
+		Waiting: []string{"do you want to proceed?", "(y/n)"},
+		Idle:    []string{"> ", "ready."},
+	}
+	tests := []struct {
+		name string
+		text string
+		want Status
+		says bool
+	}{
+		{
+			name: "a question it is blocked on",
+			text: "writing the file\nDo you want to proceed? (y/n)",
+			want: StatusWaiting,
+			says: true,
+		},
+		{
+			name: "answered, and back at its prompt",
+			text: "Do you want to proceed? (y/n)\nwrote main.go\n> ",
+			want: StatusIdle,
+			says: true,
+		},
+		{
+			name: "a question after a prompt",
+			text: "> run the tests\nReady.\nDo you want to proceed?",
+			want: StatusWaiting,
+			says: true,
+		},
+		{
+			name: "ordinary work says nothing",
+			text: "compiling internal/session\ncompiling internal/server\n",
+			says: false,
+		},
+		{
+			name: "trailing blank lines are not the last word",
+			text: "Do you want to proceed?\n\n   \n",
+			want: StatusWaiting,
+			says: true,
+		},
+		{
+			name: "case is not something a catalog entry has to know",
+			text: "DO YOU WANT TO PROCEED?",
+			want: StatusWaiting,
+			says: true,
+		},
+		{
+			name: "nothing at all",
+			says: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, says := matchPatterns(tc.text, pats)
+			if says != tc.says {
+				t.Fatalf("matched = %v, want %v", says, tc.says)
+			}
+			if says && got != tc.want {
+				t.Errorf("status = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPatternStatusReadsThroughTheEscapeSequences is why the match is made on
+// stripped text: an agent draws its question in colour and rubs it out again, so
+// the bytes in the ring hold the words of it broken up by sequences no pattern
+// written by a person would survive.
+func TestPatternStatusReadsThroughTheEscapeSequences(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	s.Kind = KindAgent
+	s.patterns = agent.Patterns{Waiting: []string{"do you want to proceed?"}}
+
+	s.history.write([]byte("\x1b[1;33mDo you \x1b[0mwant to \x1b[4mproceed?\x1b[0m\x1b[K"))
+	st, ok := s.patternStatus()
+	if !ok || st != StatusWaiting {
+		t.Fatalf("patternStatus() = %v, %v; want waiting", st, ok)
+	}
+
+	// Only the recent tail is read. A question answered long ago is still in the
+	// replay history, and reading all of that would leave the pane reporting
+	// that one question for the rest of its life.
+	s.history.write([]byte(strings.Repeat("compiling another package\n", 64)))
+	if _, ok := s.patternStatus(); ok {
+		t.Error("a question scrolled out of the recent tail should no longer speak for the pane")
+	}
+}
+
+// TestPatternsSayNothingForAnAgentWithNone keeps the common path honest: this
+// runs in the reader, on every chunk every pane prints, and almost no pane has
+// patterns because almost every agent reports its own lifecycle.
+func TestPatternsSayNothingForAnAgentWithNone(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	s.history.write([]byte("anything at all\n"))
+	if _, ok := s.patternStatus(); ok {
+		t.Error("a pane with no patterns should have nothing to say about its output")
 	}
 }

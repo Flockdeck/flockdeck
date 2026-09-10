@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/jmwri/perch/internal/agent"
 )
 
 // Claude Code asks whether a folder is trusted the first time it runs in one,
@@ -15,6 +17,37 @@ import (
 // Nothing here decides that a directory should be trusted. It only reads the
 // answer already given for one directory and copies it to another, which the
 // caller offers as an explicit, explained choice.
+
+// TrustedFor reports whether the trust question an agent asks has already been
+// answered for a directory.
+//
+// An agent with no such question is reported as trusted, because there is
+// nothing there to stop it: the point of asking is to know whether a fan-out
+// would strand its children on a dialog, and an agent that never shows one
+// never will.
+func TrustedFor(spec agent.Spec, dir string) bool {
+	if !spec.Caps.Trust {
+		return true
+	}
+	return IsTrusted(dir)
+}
+
+// InheritTrustFor carries an agent's answer for one directory to another, for
+// an agent that has an answer to carry. For one that does not it is a no-op
+// rather than an error: nothing was asked, so nothing has to be arranged.
+func InheritTrustFor(spec agent.Spec, from, to string) error {
+	if !spec.Caps.Trust {
+		return nil
+	}
+	return InheritTrust(from, to)
+}
+
+// Everything below reads and writes Claude Code's own configuration, which is
+// the only agent configuration Perch knows the shape of. That is why the
+// capability is declared on the Spec rather than assumed: a second agent that
+// claims Trust needs its own reader here, and until somebody who has that agent
+// installed writes one, claiming it would quietly answer the wrong question in
+// the wrong file.
 
 // configPath is the file Claude Code keeps its per-directory answers in.
 func configPath() string {
