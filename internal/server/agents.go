@@ -1,19 +1,11 @@
 package server
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
 	"github.com/jmwri/perch/internal/workspace"
 )
 
@@ -216,312 +208,66 @@ func (s *Server) refreshAgents() {
 	})
 }
 
-// buildCatalog merges the user's file over the built-ins and probes each one.
+// buildCatalog reads the catalog and asks the machine about each agent in it.
 func buildCatalog(root string) agentCatalog {
-	file, err := readAgentsFile()
-	out := agentCatalog{Default: file.Defaults}
-	if err != nil {
-		out.Err = err.Error()
+	c := agent.Load()
+	base := c.DefaultsFor("")
+	out := agentCatalog{
+		Default: agentChoice{Agent: base.Agent, Model: base.Model},
+		Err:     c.Notice,
 	}
-	if out.Default.Agent == "" {
-		out.Default.Agent = agentIDClaude
+	// A project is reported as having a choice of its own only where it
+	// actually differs. Marking the installation's default as this project's
+	// says something untrue about a project nobody has set anything for.
+	if proj := c.DefaultsFor(root); proj != base {
+		out.Project = &agentChoice{Agent: proj.Agent, Model: proj.Model}
 	}
-	if c, ok := file.projectDefault(root); ok {
-		out.Project = &c
-	}
-	for _, sp := range mergeAgents(builtinAgents(), file.Agents) {
-		if sp.Hidden {
-			continue
-		}
+	for _, sp := range c.Visible() {
 		out.Items = append(out.Items, catalogAgent{
 			ID:           sp.ID,
 			Name:         sp.Name,
 			Runner:       string(sp.Runner),
 			Models:       sp.Models,
 			DefaultModel: sp.DefaultModel,
-			Available:    availableAgent(sp),
+			Available:    agent.Available(sp),
 			Install:      sp.Install,
 		})
 	}
 	return out
 }
 
-// mergeAgents overlays the user's entries on the built-ins, matched by id.
-//
-// Each entry is decoded onto the built-in it names rather than replacing it,
-// so a field the user did not write keeps the built-in's answer -- which is
-// what lets `{"id":"claude","defaultModel":"sonnet"}` change the model and
-// nothing else. An id matching no built-in is a new agent.
-func mergeAgents(builtin []agent.Spec, entries []json.RawMessage) []agent.Spec {
-	out := append([]agent.Spec(nil), builtin...)
-	at := make(map[string]int, len(out))
-	for i, sp := range out {
-		at[sp.ID] = i
-	}
-	for _, raw := range entries {
-		var named struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(raw, &named) != nil || named.ID == "" {
-			continue
-		}
-		if i, ok := at[named.ID]; ok {
-			_ = json.Unmarshal(raw, &out[i])
-			continue
-		}
-		var sp agent.Spec
-		if json.Unmarshal(raw, &sp) != nil {
-			continue
-		}
-		if sp.Name == "" {
-			sp.Name = sp.ID
-		}
-		at[sp.ID] = len(out)
-		out = append(out, sp)
-	}
-	return out
-}
-
-// availableAgent reports whether this machine could start the agent now.
-//
-// A CLI is available when its program is on PATH. An API agent is available
-// when a key can be found for it, or when it needs none: an endpoint on
-// loopback is somebody's own model server, and those ask for nothing.
-//
-// SHIM: the key store of section 10 belongs to internal/creds, which task 10
-// is writing, so only the environment is consulted here. A key that is only in
-// keys.json therefore reads as "not installed" until that arrives.
-func availableAgent(sp agent.Spec) bool {
-	if sp.Runner == agent.RunnerAPI {
-		for _, name := range sp.API.KeyEnv {
-			if os.Getenv(name) != "" {
-				return true
-			}
-		}
-		return loopback(sp.API.BaseURL)
-	}
-	if sp.Exe == "" {
-		return false
-	}
-	_, err := exec.LookPath(sp.Exe)
-	return err == nil
-}
-
-// loopback reports whether a base URL names this machine.
-func loopback(base string) bool {
-	if base == "" {
-		return false
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	switch strings.ToLower(u.Hostname()) {
-	case "127.0.0.1", "localhost", "::1":
-		return true
-	}
-	return false
-}
-
-// ---------------------------------------------------------------------------
-// agents.json
-// ---------------------------------------------------------------------------
-
-// agentsFile is the user's `agents.json`, kept beside the rest of the state.
-//
-// The agents themselves are left undecoded: they are merged onto the built-ins
-// field by field, which is decoding them onto something that already exists.
-type agentsFile struct {
-	Version  int                    `json:"version"`
-	Defaults agentChoice            `json:"defaults"`
-	Projects map[string]agentChoice `json:"projects"`
-	Agents   []json.RawMessage      `json:"agents"`
-}
-
-const agentsFileName = "agents.json"
-
-// projectDefault returns what this project was set to, if anything. The keys
-// are paths as they were when they were written, so they are compared the way
-// every other path in this application is.
-func (f agentsFile) projectDefault(root string) (agentChoice, bool) {
-	if root == "" {
-		return agentChoice{}, false
-	}
-	want := filepath.Clean(root)
-	for k, v := range f.Projects {
-		if strings.EqualFold(filepath.Clean(k), want) {
-			return v, v.Agent != "" || v.Model != ""
-		}
-	}
-	return agentChoice{}, false
-}
-
-// readAgentsFile reads the user's file. A missing one is not an error; a
-// damaged one is reported alongside an empty file, so the built-ins carry on
-// and the picker can say why the entries are not there.
-func readAgentsFile() (agentsFile, error) {
-	var f agentsFile
-	dir, err := store.Dir()
-	if err != nil {
-		return f, nil
-	}
-	data, err := os.ReadFile(filepath.Join(dir, agentsFileName))
-	if err != nil {
-		return f, nil
-	}
-	if err := json.Unmarshal(data, &f); err != nil {
-		return agentsFile{}, fmt.Errorf("%s could not be read (%v), so only the built-in agents are offered", agentsFileName, err)
-	}
-	return f, nil
-}
-
-// setAgentDefault records what a project -- or the whole application, for an
-// empty root -- should run when nobody chooses.
-//
-// The file belongs to the person using Perch and may well have agents of their
-// own in it, so it is edited rather than rewritten: everything but the key
-// being set is carried across exactly as it was found.
+// setAgentDefault records a choice in the user's agents.json: for one project
+// where root names one, and for every project otherwise.
 func setAgentDefault(root string, choice agentChoice) error {
-	dir, err := store.Dir()
+	path, err := agent.ConfigPath()
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, agentsFileName)
-
-	doc := map[string]json.RawMessage{}
-	if data, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(data, &doc) != nil {
-			return fmt.Errorf("%s could not be read, so it has been left alone", agentsFileName)
-		}
-	}
-	if _, ok := doc["version"]; !ok {
-		doc["version"] = json.RawMessage("1")
-	}
-
-	key := "defaults"
-	var value any = choice
-	if root != "" {
-		key = "projects"
-		projects := map[string]agentChoice{}
-		if raw, ok := doc["projects"]; ok {
-			_ = json.Unmarshal(raw, &projects)
-		}
-		// Written under the path as this run spells it, with any older
-		// spelling of the same directory removed, so the file cannot end up
-		// holding two answers for one project.
-		want := filepath.Clean(root)
-		for k := range projects {
-			if strings.EqualFold(filepath.Clean(k), want) {
-				delete(projects, k)
-			}
-		}
-		projects[want] = choice
-		value = projects
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	doc[key] = raw
-
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(path, data)
-}
-
-// writeFileAtomic replaces a file in one step, so an interrupted write cannot
-// leave half a settings file behind for the next run to choke on.
-func writeFileAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, 0o600); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// What this build can start
-// ---------------------------------------------------------------------------
-
-// agentIDClaude names the agent every pane ran before there was a choice.
-const agentIDClaude = "claude"
-
-// builtinAgents is the catalog Perch ships with.
-//
-// SHIM: the built-in table belongs to internal/agent, which task 1 is writing,
-// and will have Codex, Gemini, Aider, Opencode, cursor-agent and the four API
-// runners in it as well. Only the Claude entry is here, copied from section 3
-// of the design, because it is the only agent this build can actually start --
-// and an entry invented for a CLI nobody has checked against would be worse
-// than no entry at all.
-func builtinAgents() []agent.Spec {
-	return []agent.Spec{{
-		ID: agentIDClaude, Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
-		Args: []agent.Arg{
-			agent.Group("session", "--session-id", "{{session}}"),
-			agent.Group("settings", "--settings", "{{settings}}"),
-			agent.Group("model", "--model", "{{model}}"),
-			agent.Lit("{{prompt}}"),
-		},
-		ResumeArgs: []agent.Arg{
-			agent.Group("session", "--resume", "{{session}}"),
-			agent.Group("settings", "--settings", "{{settings}}"),
-			agent.Group("model", "--model", "{{model}}"),
-		},
-		Caps: agent.Caps{Hooks: true, Resume: true, Transcript: true, Trust: true, Context: agent.ContextHook},
-		Models: []agent.Model{
-			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-			{ID: "opus", Name: "Opus", Note: "most capable"},
-			{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
-			{ID: "haiku", Name: "Haiku", Note: "fastest"},
-		},
-		StripEnv: []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
-			"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"},
-		Install: "https://claude.com/claude-code",
-	}}
+	return agent.SetDefaults(filepath.Dir(path), root, agent.Defaults{
+		Agent: choice.Agent,
+		Model: choice.Model,
+	})
 }
 
 // ---------------------------------------------------------------------------
 // Carrying a choice into the workspace
 // ---------------------------------------------------------------------------
 
-/*
-SHIM: these are where a chosen agent and model meet the workspace, and the
-workspace does not take one yet -- `workspace.Pane` gains `Agent` and `Model`,
-and NewTab, the splits and Spawn gain the pair, in task 3's files. They are
-gathered here, in a file this task owns, so the merge has one place to change
-rather than a dozen call sites scattered through control.go. Until then a
-choice is accepted, carried across the protocol and shown, and an agent pane
-runs Claude exactly as it always did.
-*/
-
 // paneAgent reports the agent and model a pane is running, for the header
 // badge and the overview. Both are empty for a shell, which has neither.
 func paneAgent(p *workspace.Pane) (string, string) {
-	if p == nil || p.Kind == session.KindShell {
+	if p == nil || !p.IsAgent() {
 		return "", ""
 	}
-	return agentIDClaude, ""
+	return p.Agent, p.Model
+}
+
+// choiceOf reads what a window asked a new pane to run. A command that names
+// no agent is every keystroke that does not go through the picker, and means
+// the project's default -- so it is passed on empty rather than resolved here,
+// where the pane's own directory is not yet known.
+func choiceOf(cmd command) workspace.Choice {
+	return workspace.Choice{Kind: parseKind(cmd.Kind), Agent: cmd.Agent, Model: cmd.Model}
 }
 
 // newTabFor opens a tab running the agent and model the window asked for.
@@ -532,7 +278,7 @@ func (s *Server) newTabFor(cmd command) {
 	// the bar, and it is written to the layout that way too. An empty title
 	// still means "name it yourself", which is what an agent tab does until it
 	// has been asked something.
-	s.ws.NewTab(parseKind(cmd.Kind), cmd.Path, tabTitle(cmd.Text))
+	s.ws.NewTabWith(choiceOf(cmd), cmd.Path, tabTitle(cmd.Text))
 }
 
 // splitPaneFor splits the focused pane, running the agent and model the window
@@ -543,10 +289,10 @@ func (s *Server) splitPaneFor(cmd command) {
 	// directory, which is how the worktree panel puts an agent into another
 	// checkout of the project it is already in.
 	if cmd.Root != "" {
-		s.ws.SplitPaneInProject(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Root)
+		s.ws.SplitPaneInProjectWith(parseDir(cmd.Dir), choiceOf(cmd), cmd.Root)
 		return
 	}
-	s.ws.SplitPaneIn(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Path)
+	s.ws.SplitPaneInWith(parseDir(cmd.Dir), choiceOf(cmd), cmd.Path)
 }
 
 // applyAgentDefault stores what the active project should run when nobody

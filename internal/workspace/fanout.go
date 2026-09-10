@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -557,7 +556,7 @@ const defaultAgentID = "claude"
 // other half -- which it cannot while the only question Perch knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
-	spec, ok := lookupAgent(id)
+	spec, ok := w.specFor(id)
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}
@@ -573,69 +572,25 @@ func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 	return spec, fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
 }
 
-// AgentCatalog is every agent a pane can be given, in the order they should be
-// offered, and the id of the one taken when nothing is chosen.
-func (w *Workspace) AgentCatalog() ([]agent.Spec, string) {
-	return builtinAgents(), defaultAgentID
-}
-
-// builtinAgents stands in for the catalog: the built-in specs overlaid with
-// the user's agents.json.
-//
-// The catalog is another branch of this work, and until the merge brings it
-// the only agent Perch has ever run is Claude. It is written out here rather
-// than left out because what this task is about is the shape above it -- a
-// fan-out asking about the spec behind each row, and a dialog offering what
-// the catalog holds -- so that the day there are two agents nothing between
-// the dialog and the pane has to change. It goes when the catalog arrives.
-func builtinAgents() []agent.Spec {
-	return []agent.Spec{{
-		ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
-		Models: []agent.Model{
-			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-			{ID: "opus", Name: "Opus", Note: "most capable"},
-			{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
-			{ID: "haiku", Name: "Haiku", Note: "fastest"},
-		},
-		Install: "https://claude.com/claude-code",
-	}}
-}
-
-// lookupAgent finds a spec by id, taking the empty id as the default.
-func lookupAgent(id string) (agent.Spec, bool) {
-	if id == "" {
-		id = defaultAgentID
-	}
-	for _, spec := range builtinAgents() {
-		if spec.ID == id {
-			return spec, true
-		}
-	}
-	return agent.Spec{}, false
-}
-
 // agentAvailable reports whether a spec can be started on this machine.
+//
+// The catalog remembers what it probed for a few seconds, which is what keeps
+// a twelve-row fan-out from walking PATH twelve times over to be told the same
+// thing.
 func (w *Workspace) agentAvailable(spec agent.Spec) bool {
-	switch {
-	case spec.Exe == "claude":
-		// Perch looks for the claude CLI once at start-up, and reusing that
-		// answer keeps a twelve-row fan-out from walking PATH twelve times
-		// over to be told the same thing.
-		return w.ClaudeAvailable()
-	case spec.Runner == agent.RunnerAPI, spec.Exe == "":
+	if spec.Exe == "claude" && w.claudeExe != "" {
+		// Perch looks the claude CLI up once at start-up, and that answer is
+		// older and cheaper than any probe.
 		return true
 	}
-	_, err := exec.LookPath(spec.Exe)
-	return err == nil
+	return agent.Available(spec)
 }
 
-// setPaneAgent records on the pane which agent and model it was started with.
-//
-// Pane belongs to the task that owns the workspace and the store, and until
-// the merge gives it those two fields there is nowhere to put them. This is
-// the seam they arrive at: everything above already carries them this far.
+// setPaneAgent records on the pane which agent and model it was started with,
+// so that a restart and a saved layout both come back as the same agent rather
+// than as whatever the default has since become.
 func setPaneAgent(p *Pane, agentID, model string) {
-	_, _, _ = p, agentID, model
+	p.Agent, p.Model = agentID, model
 }
 
 // SpawnOptions describes a child agent to start.

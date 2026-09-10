@@ -1045,7 +1045,7 @@ func TestAgentCatalogHoldsTheDefault(t *testing.T) {
 	isolateConfig(t)
 	ws := newTestWorkspace(t, t.TempDir())
 
-	specs, def := ws.AgentCatalog()
+	specs, def := ws.Agents()
 	if len(specs) == 0 {
 		t.Fatal("the catalog is empty")
 	}

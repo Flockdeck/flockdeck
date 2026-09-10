@@ -408,7 +408,7 @@ func testCatalog() []agent.Spec {
 			},
 			Install: "https://claude.com/claude-code"},
 		{ID: "codex", Name: "Codex", Runner: agent.RunnerCLI, Exe: "codex",
-			Models: []agent.Model{{ID: "gpt-5"}},
+			Models:  []agent.Model{{ID: "gpt-5"}},
 			Install: "npm i -g @openai/codex"},
 		{ID: "local", Name: "Local llama", Runner: agent.RunnerAPI},
 		{ID: "retired", Name: "Retired", Hidden: true},
@@ -527,42 +527,6 @@ func TestModelSummary(t *testing.T) {
 		if got := modelSummary(c.spec); got != c.want {
 			t.Errorf("%s: modelSummary = %q, want %q", c.name, got, c.want)
 		}
-	}
-}
-
-// An endpoint on this machine wants no key, and that is the whole of what
-// tells a local runner from a vendor's.
-func TestLoopbackEndpoint(t *testing.T) {
-	cases := []struct {
-		base string
-		want bool
-	}{
-		{"", false},
-		{"http://127.0.0.1:11434/v1", true},
-		{"http://localhost:1234/v1", true},
-		{"http://[::1]:8080/v1", true},
-		{"https://api.openai.com/v1", false},
-		{"://nonsense", false},
-	}
-	for _, c := range cases {
-		if got := loopbackEndpoint(c.base); got != c.want {
-			t.Errorf("loopbackEndpoint(%q) = %v, want %v", c.base, got, c.want)
-		}
-	}
-}
-
-// A key in the environment is enough to say an API agent can be started, and
-// without one — and without a local endpoint — it cannot.
-func TestInstalledAgentReadsTheKeyEnvironment(t *testing.T) {
-	spec := agent.Spec{ID: "openai", Runner: agent.RunnerAPI,
-		API: agent.APISpec{Wire: "openai", KeyEnv: []string{"PERCH_TEST_OPENAI_KEY"}}}
-	t.Setenv("PERCH_TEST_OPENAI_KEY", "")
-	if installedAgent(spec) {
-		t.Error("an API agent with no key was reported as ready to start")
-	}
-	t.Setenv("PERCH_TEST_OPENAI_KEY", "sk-whatever")
-	if !installedAgent(spec) {
-		t.Error("an API agent with a key in the environment was reported as missing")
 	}
 }
 

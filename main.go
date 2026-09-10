@@ -13,10 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
-	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -65,6 +62,26 @@ func main() {
 	// because it is the only place to find out what an -agent name may be.
 	if len(os.Args) > 1 && os.Args[1] == "agents" {
 		printAgents(os.Stdout)
+		return
+	}
+	// `chat` is Perch's own chat client, which is what an API agent's pane
+	// runs. It is started by the pane rather than by a person, and it is a
+	// subcommand for the same reason `hook` is: one artifact to ship, and a
+	// pane that can run Perch can run everything Perch does.
+	if len(os.Args) > 1 && os.Args[1] == "chat" {
+		if err := runChat(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "perch chat:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	// `keys` is where an API agent's key is set, and it reads the key from
+	// stdin so that it never lands in shell history.
+	if len(os.Args) > 1 && os.Args[1] == "keys" {
+		if err := runKeys(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "perch keys:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -901,71 +918,21 @@ func checkAgent(id, model string) error {
 // can run -- the built-in ones overlaid with the user's agents.json -- and the
 // id of the one a pane takes when nothing has been chosen.
 //
-// It is a variable so a test can hand it a catalog of its own, and because the
-// catalog itself is another task's file in this work. Until that lands it
-// answers with the one agent Perch has always run, so that the command line
-// can be finished and checked against something real; the merge repoints this
-// at internal/agent and deletes what is below it.
-var agentCatalog = func() ([]agent.Spec, string) { return []agent.Spec{claudeSpec}, claudeSpec.ID }
-
-// claudeSpec is the catalog Perch has always had: one entry. Only the fields
-// the command line itself reads are here -- the argument lists, the
-// capabilities and the environment it strips belong with the real catalog.
-var claudeSpec = agent.Spec{
-	ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
-	Models: []agent.Model{
-		{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-		{ID: "opus", Name: "Opus", Note: "most capable"},
-		{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
-		{ID: "haiku", Name: "Haiku", Note: "fastest"},
-	},
-	Install: "https://claude.com/claude-code",
+// It is a variable so that a test can hand it a catalog of its own.
+var agentCatalog = func() ([]agent.Spec, string) {
+	c := agent.Load()
+	// The command line is not standing in any one project, so what it checks a
+	// name against is the installation's default rather than a project's. A
+	// project that runs something else of its own is answered where the pane is
+	// made, which is the only place the directory is known.
+	return c.Visible(), c.DefaultsFor("").Agent
 }
 
 // agentAvailable reports whether an agent could actually be started here.
-var agentAvailable = installedAgent
-
-// installedAgent is availability as far as the command line can tell on its
-// own: a CLI has to be on PATH, and an API needs a key in the environment or
-// an endpoint on this machine that wants none.
-//
-// The catalog's own answer also looks in Perch's key store, which is another
-// task's file in this work; until that lands an API agent whose key lives only
-// there is listed as not installed, which understates what Perch can do rather
-// than promising something that will not start.
-func installedAgent(s agent.Spec) bool {
-	if s.Runner == agent.RunnerAPI {
-		for _, name := range s.API.KeyEnv {
-			if os.Getenv(name) != "" {
-				return true
-			}
-		}
-		return loopbackEndpoint(s.API.BaseURL)
-	}
-	if s.Exe == "" {
-		return false
-	}
-	_, err := exec.LookPath(s.Exe)
-	return err == nil
-}
-
-// loopbackEndpoint reports whether a base URL points at this machine, which is
-// how an endpoint that wants no key -- Ollama, LM Studio, a gateway of one's
-// own -- is told from a vendor's.
-func loopbackEndpoint(base string) bool {
-	if base == "" {
-		return false
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	if u.Hostname() == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(u.Hostname())
-	return ip != nil && ip.IsLoopback()
-}
+// The catalog's own answer is the whole of it: a CLI on PATH, or an API whose
+// key is in the environment or in Perch's own store, or an endpoint on this
+// machine that wants no key at all.
+var agentAvailable = agent.Available
 
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.
 // It must never fail loudly: a broken hook would disrupt the agent session it

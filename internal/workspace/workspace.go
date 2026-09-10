@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/perch/internal/creds"
 	"github.com/jmwri/perch/internal/gitx"
 	"github.com/jmwri/perch/internal/hooks"
 	"github.com/jmwri/perch/internal/layout"
@@ -169,6 +170,16 @@ type Workspace struct {
 	hookSrv     *hooks.Server
 	claudeExe   string
 
+	// catalogMu guards the catalog, which is read from the goroutine that
+	// starts panes and replaced by whoever asks for it to be read again.
+	catalogMu sync.RWMutex
+	// catalog is the agents this workspace can run: the built-in specs
+	// overlaid with the user's agents.json. It is held rather than read per
+	// pane because starting twelve of them would otherwise open the same file
+	// twelve times, and ReloadAgents is how an edit made by hand takes effect
+	// without a restart.
+	catalog *agent.Catalog
+
 	onWake func()
 }
 
@@ -221,6 +232,7 @@ func New(opts Options) (*Workspace, error) {
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
 	w.spawnCmd = spawnCommand(selfExe)
+	w.catalog = agent.Load()
 
 	srv, err := hooks.Serve(w.handleHook)
 	if err != nil {
@@ -827,18 +839,20 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		env = session.Env(w.paneEnv(p, "", "")...)
 	} else {
 		// An empty agent is not a missing one: it means whichever agent this
-		// pane would be opened with today, which is how a layout written
-		// before panes could choose still restores.
+		// pane would be opened with today -- the project's default, or the
+		// installation's -- which is how a layout written before panes could
+		// choose still restores, and how a project that has settled on another
+		// agent gets it without every pane having to record the name.
 		agentID := p.Agent
-		if agentID == "" {
-			agentID = DefaultAgent
-		}
 		spec, ok := w.specFor(agentID)
 		if !ok {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
 			// from a machine that had it. That is this pane's problem and no
 			// other's, so it is reported in place.
+			if agentID == "" {
+				agentID = w.agents().DefaultsFor(w.activeRoot).Agent
+			}
 			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
 			return
 		}
@@ -892,13 +906,19 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			tokens.Prompt = p.initial
 		}
 		argv = agent.BuildArgv(spec, resuming, tokens)
+		extra := append([]string{}, spec.Env...)
 		if spec.Runner == agent.RunnerAPI {
 			// An API agent is Perch's own chat client. BuildArgv leaves the
 			// program off because only this side knows where the running
 			// binary is.
 			argv = append([]string{w.selfExe, "chat"}, argv...)
+			// A key Perch is keeping for this agent goes into the environment
+			// of this pane and no other. One the user has already exported is
+			// inherited and needs nothing added, so nothing is: a second copy
+			// of a secret is a second place it can be read from.
+			extra = append(extra, creds.Env(spec)...)
 		}
-		env = session.Env(append(append([]string{}, spec.Env...), w.paneEnv(p, spec.ID, model)...)...)
+		env = session.Env(append(extra, w.paneEnv(p, spec.ID, model)...)...)
 	}
 
 	s, err := session.Start(session.Config{
@@ -970,49 +990,54 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 	return env
 }
 
-// DefaultAgent is the agent a pane runs when nothing else has been chosen: for
-// it, by its project, or by the user's own defaults.
-const DefaultAgent = "claude"
+// Agents returns the catalog this workspace runs from: every agent that is not
+// hidden, and the id of the one a pane takes when nothing has chosen.
+func (w *Workspace) Agents() ([]agent.Spec, string) {
+	c := w.agents()
+	return c.Visible(), c.DefaultsFor(w.activeRoot).Agent
+}
+
+// ReloadAgents reads agents.json again, so that an edit made by hand takes
+// effect without restarting. It also returns what the file had to say for
+// itself, which is empty unless it could not be read.
+func (w *Workspace) ReloadAgents() string {
+	c := agent.Load()
+	w.catalogMu.Lock()
+	w.catalog = c
+	w.catalogMu.Unlock()
+	return c.Notice
+}
+
+// agents returns the catalog, reading it once if the workspace was built
+// without one -- which is how every test that assembles a Workspace directly
+// arrives here.
+func (w *Workspace) agents() *agent.Catalog {
+	w.catalogMu.RLock()
+	c := w.catalog
+	w.catalogMu.RUnlock()
+	if c != nil {
+		return c
+	}
+	c = agent.Load()
+	w.catalogMu.Lock()
+	if w.catalog == nil {
+		w.catalog = c
+	}
+	c = w.catalog
+	w.catalogMu.Unlock()
+	return c
+}
 
 // specFor resolves the agent id recorded on a pane to the Spec that says how
-// to start it, reporting whether there is one.
-//
-// This is a placeholder for the catalog — the built-in Specs overlaid by the
-// user's agents.json — and knows only the one agent every earlier build ran.
-// It is written where it is so that the pane-starting code above is already
-// asking the question the catalog will answer, and so that this branch builds
-// on its own; it goes when the catalog arrives.
+// to start it, reporting whether the catalog has one. An empty id is the
+// project's default rather than a missing answer, which is how a layout
+// written before panes could choose still restores.
 func (w *Workspace) specFor(id string) (agent.Spec, bool) {
+	c := w.agents()
 	if id == "" {
-		id = DefaultAgent
+		id = c.DefaultsFor(w.activeRoot).Agent
 	}
-	if id != "claude" {
-		return agent.Spec{}, false
-	}
-	return agent.Spec{
-		ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
-		Args: []agent.Arg{
-			agent.Group("session", "--session-id", "{{session}}"),
-			agent.Group("settings", "--settings", "{{settings}}"),
-			agent.Group("model", "--model", "{{model}}"),
-			agent.Lit("{{prompt}}"),
-		},
-		ResumeArgs: []agent.Arg{
-			agent.Group("session", "--resume", "{{session}}"),
-			agent.Group("settings", "--settings", "{{settings}}"),
-			agent.Group("model", "--model", "{{model}}"),
-		},
-		Caps: agent.Caps{Hooks: true, Resume: true, Transcript: true, Trust: true, Context: agent.ContextHook},
-		Models: []agent.Model{
-			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-			{ID: "opus", Name: "Opus", Note: "most capable"},
-			{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
-			{ID: "haiku", Name: "Haiku", Note: "fastest"},
-		},
-		StripEnv: []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
-			"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"},
-		Install: "https://claude.com/claude-code",
-	}, true
+	return c.Find(id)
 }
 
 // transcriptExists reports whether the agent has a stored conversation for a

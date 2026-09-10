@@ -35,23 +35,7 @@ func runKeys(args []string) error {
 	return keysCmd(args, k)
 }
 
-// init dispatches `perch keys` ahead of the top-level flag parsing.
-//
-// This is a shim. The subcommand belongs in main's own dispatch beside `hook`
-// and `spawn`, in main.go, which another task owns and this branch may not
-// touch; running it from an init keeps the command working here without
-// editing that file. Once main.go dispatches `keys` itself this whole function
-// goes, and until then the two agree: this one runs first and exits, so the
-// branch there is simply never reached.
-func init() {
-	if len(os.Args) > 1 && os.Args[1] == "keys" {
-		if err := runKeys(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "perch keys:", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-}
+// `perch keys` is dispatched by main, beside `hook`, `spawn` and `chat`.
 
 // keysIO is where the subcommand reads the key from and writes its output to,
 // gathered so the command can be driven by a test without a terminal. A nil

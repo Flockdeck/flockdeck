@@ -60,7 +60,7 @@ type fanoutAgentView struct {
 // on the workspace goroutine like every other read of it -- both are cheap,
 // and it happens once, when the dialog is opened.
 func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
-	specs, def := s.ws.AgentCatalog()
+	specs, def := s.ws.Agents()
 	out := make([]fanoutAgentView, 0, len(specs))
 	for _, spec := range specs {
 		if spec.Hidden {
