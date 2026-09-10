@@ -241,6 +241,7 @@
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
+      else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -1614,6 +1615,7 @@
     else if (dialog === "agents") send({ cmd: "agents" });
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
+    else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "projects") {
       send({ cmd: "recents" });
       send({ cmd: "browse", path: browseState ? browseState.path : "" });
@@ -2207,6 +2209,7 @@
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
     agents: () => openAgents(),
+    apiKeys: () => openKeys(),
 
     worktrees: () => send({ cmd: "worktrees" }),
     changes: () => openChanges(),
@@ -3119,6 +3122,137 @@
       }
     }
     if (e.key === "Enter") { e.preventDefault(); takePickerRow(); }
+  }
+
+  // ------------------------------------------------------------------ keys
+
+  let apiKeys = null;
+  /** Which agent's key is being typed, and only which. The key itself lives in
+   *  the input and nowhere else: parking it in a variable would keep it for the
+   *  rest of the session, and losing a half-typed key to a redraw is the
+   *  cheaper of the two mistakes. */
+  let keyEditing = null;
+
+  /** openKeys shows which agents have an API key.
+   *
+   *  It never shows a key. What is worth knowing here is that there is one and
+   *  where it came from; the answer to "what is it" is the vendor's own
+   *  console, and a key that can be read back out of the interface is one more
+   *  place it can be read out of. */
+  function openKeys() {
+    dialog = "keys";
+    apiKeys = null;
+    keyEditing = null;
+    openOverlay("API keys");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    send({ cmd: "keys" });
+  }
+
+  function renderKeys(msg) {
+    if (msg) apiKeys = msg;
+    if (dialog !== "keys") { dialog = "keys"; openOverlay("API keys"); }
+    const items = (apiKeys && apiKeys.items) || [];
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    body.append(el("div", "fan-hint",
+      "Agents that talk to a model API need a key. One already exported in your " +
+      "environment is used where it is; anything set here is kept in perch's own " +
+      "file, readable only by you, and reaches nothing but the pane that needs it."));
+
+    if (!items.length) {
+      body.append(el("div", "dir-empty", "None of the agents here use an API key."));
+      return;
+    }
+
+    const wrap = section(items.length === 1 ? "1 agent" : items.length + " agents");
+    items.forEach((k) => {
+      const row = el("div", "wt-row");
+      const main = el("div", "wt-main");
+
+      const title = el("div", "wt-title");
+      title.append(el("span", "wt-label", k.name || k.agent));
+      if (k.name && k.name !== k.agent) title.append(el("span", "wt-flag", k.agent));
+      main.append(title);
+
+      const meta = el("div", "wt-meta");
+      if (k.set) {
+        meta.append(el("span", "wt-clean",
+          k.source === "env" ? "set — from " + k.env : "set — stored by perch"));
+      } else {
+        meta.append(el("span", "wt-untracked", "not set"));
+        // Somebody who keeps their keys in a shell profile or a secrets
+        // manager should be told the names that are looked for rather than
+        // being pushed into storing a second copy here.
+        if (k.vars && k.vars.length) {
+          meta.append(el("span", null, "or export " + k.vars.join(" or ")));
+        }
+      }
+      main.append(meta);
+      row.append(main);
+
+      const actions = el("div", "wt-actions");
+      const set = el("button", "chip", k.set ? "Replace…" : "Set…");
+      set.onclick = () => { keyEditing = k.agent; renderKeys(); };
+      actions.append(set);
+      // Only a stored key can be forgotten. A key that came from the
+      // environment is the user's own arrangement and this dialog has no
+      // business unsetting a variable it did not set.
+      if (k.set && k.source === "store") {
+        const clear = el("button", "chip danger", "Clear");
+        clear.onclick = () => send({ cmd: "keyClear", id: k.agent });
+        actions.append(clear);
+      }
+      row.append(actions);
+      wrap.append(row);
+
+      if (keyEditing === k.agent) wrap.append(keyForm(k));
+    });
+    body.append(wrap);
+
+    // Whatever was being typed is what the keyboard should be on, and after a
+    // save or a clear the button that did it is gone with the redraw.
+    const field = body.querySelector("input[type=password]");
+    if (field) field.focus();
+  }
+
+  /** keyForm is the one place a key is typed. It starts empty every time,
+   *  because there is nothing to prefill it from: the front end is never told
+   *  what a key is, only that there is one. */
+  function keyForm(k) {
+    const form = el("div", "wt-form");
+    const field = el("input");
+    field.type = "password";
+    field.placeholder = "Paste the key for " + k.agent;
+    field.autocomplete = "off";
+    field.spellcheck = false;
+
+    const save = () => {
+      const value = field.value.trim();
+      field.value = "";
+      keyEditing = null;
+      if (!value) { renderKeys(); return; }
+      send({ cmd: "keySet", id: k.agent, text: value });
+      // Drawn again without waiting for the reply, so the field goes as
+      // soon as it is sent rather than sitting there emptied.
+      renderKeys();
+    };
+    const cancel = () => { field.value = ""; keyEditing = null; renderKeys(); };
+
+    field.onkeydown = (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); save(); return; }
+      // Escape closes the whole overlay everywhere else, which here would take
+      // a half-typed key with it and leave the user wondering what was saved.
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); cancel(); }
+    };
+
+    const ok = el("button", "chip primary", "Save");
+    ok.onclick = save;
+    const no = el("button", "chip", "Cancel");
+    no.onclick = cancel;
+    form.append(field, ok, no);
+    return form;
   }
 
   // --------------------------------------------------------------- fan out
