@@ -53,6 +53,9 @@
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back.",
     close:       "Closes this pane and stops the process running in it.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
+    agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
+    chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
+    notInstalled: "Perch would run this agent, but it is not on this machine yet.",
     repoFolder:  "A folder with a git repository in it - opening it makes it a project.",
     plainFolder: "A folder with no git repository in it - open it to look further in.",
   };
@@ -184,6 +187,15 @@
    *  fresh port each run means the browser treats every run as a new origin
    *  and forgets anything stored here. */
   let prefs = { helpSeen: false, dismissedTips: [] };
+  /** The agent catalog, which rides along on every state push: which agents
+   *  there are, which of them this machine could start, and what runs when
+   *  nobody chooses. Kept rather than read out of `state` each time, so the
+   *  picker survives a push that arrives while it is open. */
+  let catalog = { items: [], default: {} };
+  /** The catalog as it was last encoded, so a status push — which arrives
+   *  whenever any agent changes what it is doing — is not mistaken for the
+   *  catalog changing and does not redraw the picker under the keyboard. */
+  let catalogKey = "";
   let fontSize = (() => {
     try { return Number(localStorage.getItem("fontSize")) || 13; } catch { return 13; }
   })();
@@ -260,6 +272,14 @@
 
   function applyState(s) {
     state = s;
+    if (s.agents) {
+      const encoded = JSON.stringify(s.agents);
+      if (encoded !== catalogKey) {
+        catalogKey = encoded;
+        catalog = s.agents;
+        if (dialog === "agentPicker") keepFocus(renderAgentPicker);
+      }
+    }
     const rebuilt = rebuildChangedTabs(s);
     applyWeights(s);
     showActiveTab(s, rebuilt);
@@ -1028,6 +1048,7 @@
     const name = el("span", "pane-name");
     const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
+    const agent = el("span", "pane-agent");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
     const usage = el("span", "pane-usage");
@@ -1052,7 +1073,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions);
-    header.append(dot, project, name, branch, git, detail, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, git, detail, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -1100,7 +1121,7 @@
       /* Canvas rendering is a fine fallback. */
     }
 
-    p = { id, wrap, header, dot, name, project, branch, git, detail, usage, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -1245,6 +1266,11 @@
       const branch = v.branch || "";
       if (was.branch !== branch) { was.branch = branch; renderPaneBranch(p, v); }
 
+      // Keyed on the pair, because a pane can change model without changing
+      // agent and the badge writes both.
+      const agent = (v.agent || "") + "\u0000" + (v.model || "");
+      if (was.agent !== agent) { was.agent = agent; renderPaneAgent(p, v); }
+
       const detail = v.detail || "";
       if (was.detail !== detail) { was.detail = detail; p.detail.textContent = detail; }
 
@@ -1302,6 +1328,17 @@
     if (!v.branch) { delete p.branch.dataset.tip; return; }
     p.branch.append(glyph("⎇"), document.createTextNode(" " + v.branch));
     describe(p.branch, TIPS.branch);
+  }
+
+  /** renderPaneAgent names what is running in the pane: the agent, and the
+   *  model it was asked for. It sits beside the branch and reads like it,
+   *  because it answers the same sort of question — which of these six panes
+   *  is the one I want. A shell has neither and shows nothing. */
+  function renderPaneAgent(p, v) {
+    p.agent.textContent = "";
+    if (!v.agent) { delete p.agent.dataset.tip; return; }
+    p.agent.textContent = v.model ? v.agent + " · " + v.model : v.agent;
+    describe(p.agent, TIPS.agent);
   }
 
   /** renderPaneUsage shows what the pane is costing the machine: its share of a
@@ -1575,6 +1612,7 @@
     if (dialog === "worktrees") send({ cmd: "worktrees" });
     else if (dialog === "changes") send({ cmd: "changes", path: (changes && changes.cwd) || "" });
     else if (dialog === "agents") send({ cmd: "agents" });
+    else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "projects") {
       send({ cmd: "recents" });
@@ -1583,6 +1621,7 @@
   }
 
   function closeOverlay() {
+    picker = null;
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide");
     dialog = null;
@@ -1670,13 +1709,13 @@
       const actions = el("div", "wt-actions");
       const agent = el("button", "chip primary", "Agent");
       agent.title = "Open an agent tab in this worktree";
-      agent.onclick = () => { send({ cmd: "newTab", kind: "claude", path: wt.path, text: wt.label }); closeOverlay(); };
+      agent.onclick = () => { send({ cmd: "newTab", kind: "agent", path: wt.path, text: wt.label }); closeOverlay(); };
       const shell = el("button", "chip", "Shell");
       shell.onclick = () => { send({ cmd: "newTab", kind: "shell", path: wt.path, text: wt.label }); closeOverlay(); };
       const split = el("button", "chip", "Split");
       split.title = "Add an agent for this worktree beside the current pane";
       split.onclick = () => {
-        send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "claude", path: wt.path });
+        send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", path: wt.path });
         closeOverlay();
       };
       const review = el("button", "chip", "Review");
@@ -2136,9 +2175,11 @@
    * of the three and left stale in the other two.
    */
   const ACTIONS = {
-    splitRight: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "claude" }),
-    splitDown: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "v", kind: "claude" }),
+    splitRight: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent" }),
+    splitDown: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "v", kind: "agent" }),
     splitRightShell: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "shell" }),
+    splitRightChoose: () => chooseAgent("Split right", (agent, model) =>
+      send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", agent, model })),
     movePaneLeft: () => send({ cmd: "movePaneDir", dir: "left" }),
     movePaneRight: () => send({ cmd: "movePaneDir", dir: "right" }),
     movePaneUp: () => send({ cmd: "movePaneDir", dir: "up" }),
@@ -2149,7 +2190,9 @@
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
 
-    newAgentTab: () => send({ cmd: "newTab", kind: "claude" }),
+    newAgentTab: () => send({ cmd: "newTab", kind: "agent" }),
+    newAgentTabChoose: () => chooseAgent("New agent tab", (agent, model) =>
+      send({ cmd: "newTab", kind: "agent", agent, model })),
     newShellTab: () => send({ cmd: "newTab", kind: "shell" }),
     nextTab: () => send({ cmd: "nextTab" }),
     prevTab: () => send({ cmd: "prevTab" }),
@@ -2210,6 +2253,7 @@
     // The project switcher is not in this list: its bubble names the project
     // as well, so renderProjectChip writes it as the project changes.
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
+    label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
     label("toggleBroadcast", $("btn-broadcast"));
     label("changes", $("btn-changes"));
@@ -2284,6 +2328,15 @@
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
       .map((k) => ({ label: k.label, hint: k.keys, run: () => runAction(k.id) }));
+    // The picker's own entries belong in the action table with everything
+    // else, and are offered here only for as long as the table has not caught
+    // up — so choosing an agent is reachable from the palette either way, and
+    // never twice.
+    [["newAgentTabChoose", "New agent tab (choose agent)…"],
+     ["splitRightChoose", "Split right (choose agent)…"]].forEach(([id, label]) => {
+      if (keyTable.some((k) => k.id === id)) return;
+      cmds.push({ label: label, run: () => runAction(id) });
+    });
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
@@ -2783,6 +2836,13 @@
         n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
         meta.append(describe(n, TIPS.changed));
       }
+      // The same badge the pane header carries. With a dozen panes across
+      // three projects, "waiting" means a different thing from Claude than
+      // from a local model, and this is the list you scan to decide which to
+      // go to first.
+      if (a.agent) {
+        meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
+      }
       if (a.kind === "shell") meta.append(el("span", null, "shell"));
       if (a.detail) meta.append(el("span", null, a.detail));
       main.append(meta);
@@ -2805,6 +2865,260 @@
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
     body.append(tools);
+  }
+
+  // ---------------------------------------------------------- agent picker
+
+  /* Which agent runs in a pane is one keystroke away when it is the one this
+   * project always runs, and this is the other way round: the whole catalog,
+   * grouped by whether the machine has it, each agent opening onto its models.
+   * It is worked from the keyboard like the palette — the filter keeps the
+   * keyboard throughout and the arrows walk the list under it — because that
+   * is how everything else here is worked.
+   */
+
+  /** picker holds what is open: what to do with the answer, what has been
+   *  typed, which row is picked out, which agents are opened onto their
+   *  models, and whether the answer is also to become this project's default. */
+  let picker = null;
+  /** The rows on screen, in the order the arrows walk them. */
+  let pickRows = [];
+
+  function chooseAgent(title, onPick) {
+    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false };
+    dialog = "agentPicker";
+    openOverlay(title, "panes");
+    // The probe behind `available` is a few seconds old at most, but an agent
+    // installed while this window was open is exactly what somebody opening
+    // this dialog is about to look for.
+    send({ cmd: "refreshAgents" });
+    renderAgentPicker();
+  }
+
+  /** defaultChoice is what a pane starts with when nobody chooses: this
+   *  project's own answer where it has one, and the overall one otherwise. */
+  function defaultChoice() {
+    const c = catalog || {};
+    if (c.project && (c.project.agent || c.project.model)) return c.project;
+    return c.default || {};
+  }
+
+  /** pickerItems is the catalog as the dialog lists it: the agents that match
+   *  what has been typed, in two groups, each opened agent followed by its
+   *  models. Group headings are drawn from this too, so an empty group simply
+   *  does not appear. */
+  function pickerItems() {
+    const q = (picker.query || "").trim().toLowerCase();
+    const words = q ? q.split(/\s+/) : [];
+    const matches = (a) => {
+      const hay = (a.id + " " + a.name + " " + (a.models || []).map((m) => m.id + " " + (m.name || "")).join(" ")).toLowerCase();
+      return words.every((w) => hay.includes(w));
+    };
+    const items = (catalog.items || []).filter(matches);
+    const out = [];
+    [["Installed", true], ["Not installed", false]].forEach(([title, want]) => {
+      const group = items.filter((a) => !!a.available === want);
+      if (!group.length) return;
+      out.push({ type: "head", title: title });
+      group.forEach((a) => {
+        out.push({ type: "agent", agent: a });
+        if (!picker.open.has(a.id)) return;
+        (a.models || []).forEach((m) => out.push({ type: "model", agent: a, model: m }));
+      });
+    });
+    return out;
+  }
+
+  /** markedAgent and markedModel say which entries carry the "default" mark. */
+  function markedAgent(a) {
+    const d = defaultChoice();
+    return !!d.agent && d.agent === a.id;
+  }
+  function markedModel(a, m) {
+    const d = defaultChoice();
+    const want = markedAgent(a) && d.model !== undefined && d.model !== "" ? d.model : (a.defaultModel || "");
+    return (m.id || "") === want;
+  }
+
+  function renderAgentPicker() {
+    if (dialog !== "agentPicker" || !picker) return;
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    if (catalog.err) body.append(el("div", "pick-warn", catalog.err));
+
+    const field = el("input", "pick-filter");
+    field.id = "agent-filter";
+    field.type = "text";
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = "Type to narrow the list…";
+    field.value = picker.query;
+    field.setAttribute("aria-label", "Which agent");
+    field.setAttribute("role", "combobox");
+    field.setAttribute("aria-expanded", "true");
+    field.setAttribute("aria-autocomplete", "list");
+    field.setAttribute("aria-controls", "agent-list");
+    field.oninput = () => { picker.query = field.value; picker.index = 0; drawPickerList(); };
+    field.onkeydown = pickerKey;
+    body.append(field);
+
+    const list = el("div", "pick-list");
+    list.id = "agent-list";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", "Agents");
+    body.append(list);
+
+    const foot = el("div", "pick-foot");
+    const box = el("label", "pick-default");
+    const tick = el("input");
+    tick.type = "checkbox";
+    tick.checked = picker.setDefault;
+    tick.onchange = () => { picker.setDefault = tick.checked; };
+    box.append(tick, document.createTextNode(" Set as default for this project"));
+    foot.append(describe(box, "Remembers this choice in agents.json, so every pane opened in this project starts with it."));
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = closeOverlay;
+    foot.append(cancel);
+    body.append(foot);
+
+    drawPickerList();
+    field.focus();
+  }
+
+  /** drawPickerList rebuilds the list under the filter. The field is left
+   *  alone, because it has the keyboard and the caret in it. */
+  function drawPickerList() {
+    const list = $("agent-list");
+    if (!list) return;
+    list.textContent = "";
+    pickRows = [];
+    const items = pickerItems();
+    if (!items.length) {
+      list.append(el("div", "dir-empty", "No agent matches that."));
+      markPickerRow();
+      return;
+    }
+    items.forEach((item) => {
+      if (item.type === "head") {
+        list.append(el("div", "pick-head", item.title));
+        return;
+      }
+      const row = item.type === "agent" ? pickerAgentRow(item.agent) : pickerModelRow(item.agent, item.model);
+      row.id = "pick-row-" + pickRows.length;
+      row.setAttribute("role", "option");
+      const at = pickRows.length;
+      row.onmouseenter = () => selectPickerRow(at);
+      row.onclick = () => { picker.index = at; takePickerRow(); };
+      row.item = item;
+      pickRows.push(row);
+      list.append(row);
+    });
+    if (picker.index >= pickRows.length) picker.index = Math.max(0, pickRows.length - 1);
+    markPickerRow();
+  }
+
+  function pickerAgentRow(a) {
+    const row = el("div", "pick-row agent" + (a.available ? "" : " unavailable"));
+    const open = picker.open.has(a.id);
+    row.append(glyph(open ? "▾" : "▸"));
+    row.append(el("span", "pick-name", a.name || a.id));
+    if (markedAgent(a)) row.append(el("span", "pick-mark", "default"));
+    if (!a.available) {
+      const why = el("span", "pick-note", a.install || "not installed");
+      row.append(describe(why, TIPS.notInstalled));
+    } else if (a.models && a.models.length) {
+      row.append(el("span", "pick-note", a.models.length + " models"));
+    }
+    row.setAttribute("aria-expanded", String(open));
+    return row;
+  }
+
+  function pickerModelRow(a, m) {
+    const row = el("div", "pick-row model");
+    row.append(el("span", "pick-name", m.name || m.id || "Default"));
+    if (markedModel(a, m)) row.append(el("span", "pick-mark", "default"));
+    if (m.note) row.append(el("span", "pick-note", m.note));
+    return row;
+  }
+
+  function selectPickerRow(i) {
+    if (!picker || i === picker.index || i < 0 || i >= pickRows.length) return;
+    picker.index = i;
+    markPickerRow();
+  }
+
+  function markPickerRow() {
+    pickRows.forEach((row, i) => {
+      const on = i === picker.index;
+      row.classList.toggle("sel", on);
+      row.setAttribute("aria-selected", String(on));
+    });
+    const field = $("agent-filter");
+    const sel = pickRows[picker.index];
+    if (!field) return;
+    // The keyboard never leaves the filter while the list is walked, so it is
+    // the filter that has to name the row picked out.
+    if (!sel) { field.removeAttribute("aria-activedescendant"); return; }
+    field.setAttribute("aria-activedescendant", sel.id);
+    sel.scrollIntoView({ block: "nearest" });
+  }
+
+  /** takePickerRow acts on the row picked out: an agent with models opens onto
+   *  them if it is not open already, and starts with its own default if it is;
+   *  a model starts with that model. An agent this machine does not have says
+   *  so rather than starting a process that is not there. */
+  function takePickerRow() {
+    const row = pickRows[picker.index];
+    if (!row) return;
+    const item = row.item;
+    const a = item.agent;
+    if (!a.available) {
+      notice(a.name + " is not installed. " + (a.install || ""), true);
+      return;
+    }
+    if (item.type === "agent" && (a.models || []).length && !picker.open.has(a.id)) {
+      picker.open.add(a.id);
+      drawPickerList();
+      return;
+    }
+    startPicked(a.id, item.type === "model" ? (item.model.id || "") : (a.defaultModel || ""));
+  }
+
+  /** startPicked is what the whole dialog is for: hand the choice to whoever
+   *  opened it, remembering it first if that was asked for. */
+  function startPicked(agentID, model) {
+    const run = picker.onPick;
+    if (picker.setDefault) send({ cmd: "setAgentDefault", agent: agentID, model: model });
+    closeOverlay();
+    run(agentID, model);
+  }
+
+  function pickerKey(e) {
+    if (!picker) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); selectPickerRow(Math.min(picker.index + 1, pickRows.length - 1)); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); selectPickerRow(Math.max(picker.index - 1, 0)); return; }
+    const row = pickRows[picker.index];
+    const item = row && row.item;
+    // Left and right open and close an agent — but only while nothing has been
+    // typed. They belong to the text caret the moment there is text to move it
+    // through, and taking them from someone correcting a typo in the filter
+    // would be worse than making them press Enter to open a row.
+    if (!picker.query && item) {
+      if (e.key === "ArrowRight" && item.type === "agent" && (item.agent.models || []).length) {
+        e.preventDefault();
+        picker.open.add(item.agent.id);
+        drawPickerList();
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        picker.open.delete(item.agent.id);
+        drawPickerList();
+        return;
+      }
+    }
+    if (e.key === "Enter") { e.preventDefault(); takePickerRow(); }
   }
 
   // --------------------------------------------------------------- fan out
@@ -3274,7 +3588,11 @@
 
   // ------------------------------------------------------------------ wiring
 
-  $("new-tab").onclick = () => send({ cmd: "newTab", kind: "claude" });
+  $("new-tab").onclick = () => send({ cmd: "newTab", kind: "agent" });
+  // Described here rather than only in describeChrome, which writes what the
+  // action table says and can only do so once the table names this one.
+  describe($("new-tab-pick"), TIPS.chooseAgent);
+  $("new-tab-pick").onclick = () => runAction("newAgentTabChoose");
   wireTabStripDrops();
   wireDragSafetyNet();
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });

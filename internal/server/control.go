@@ -98,6 +98,11 @@ type stateMsg struct {
 	Projects        []projectView       `json:"projects"`
 	Tabs            []tabView           `json:"tabs"`
 	Panes           map[string]paneView `json:"panes"`
+	// Agents is the catalog: which agents there are, which of them this
+	// machine could start, and what runs when nobody chooses. It rides on the
+	// snapshot rather than being asked for, because the picker is opened from
+	// a keystroke and should draw itself in the frame that follows it.
+	Agents agentCatalog `json:"agents"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -137,9 +142,13 @@ type paneView struct {
 	// the project of the tab the pane is drawn on. The header shows it so that
 	// a tab holding agents from two projects says which is which; leaving it
 	// out for the ordinary pane keeps the header uncluttered.
-	Project   string `json:"project,omitempty"`
-	Status    string `json:"status"`
-	Detail    string `json:"detail"`
+	Project string `json:"project,omitempty"`
+	Status  string `json:"status"`
+	Detail  string `json:"detail"`
+	// Agent and Model are what the pane is running, drawn in the header beside
+	// the branch. Both are left out for a shell, which is running neither.
+	Agent     string `json:"agent,omitempty"`
+	Model     string `json:"model,omitempty"`
 	Err       string `json:"err,omitempty"`
 	Broadcast bool   `json:"broadcast"`
 	Cols      int    `json:"cols"`
@@ -190,6 +199,13 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
+	// Agent and Model are what the picker chose, carried on newTab, splitPane
+	// and spawn. Both empty means "whatever this project runs by default",
+	// which is what every keystroke that does not go through the picker sends
+	// — so splitting with the default agent stays one keystroke and gains
+	// nothing it has to say.
+	Agent string `json:"agent"`
+	Model string `json:"model"`
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +225,7 @@ func (s *Server) snapshot() stateMsg {
 		Broadcast:       ws.Broadcast,
 		Waiting:         waiting,
 		Working:         working,
+		Agents:          s.catalog(),
 		Panes:           map[string]paneView{},
 	}
 	// These are sized rather than grown, and made rather than left nil: the
@@ -269,6 +286,7 @@ func (s *Server) snapshot() stateMsg {
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
 			}
+			pv.Agent, pv.Model = paneAgent(p)
 			// The common case is a pane of the tab's own project, where the
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
@@ -330,13 +348,18 @@ func encodeNode(n *layout.Node, panes *[]string) *nodeView {
 	return out
 }
 
+// kindName is what a pane is on the wire. A pane is an agent or a shell:
+// which agent it is travels beside this rather than in it, so that a second
+// agent is a row in the catalog rather than a third kind of pane.
 func kindName(k session.Kind) string {
 	if k == session.KindShell {
 		return "shell"
 	}
-	return "claude"
+	return "agent"
 }
 
+// parseKind reads one back. "claude" is still accepted because a window left
+// open across an upgrade goes on sending the word it was built with.
 func parseKind(s string) session.Kind {
 	if s == "shell" {
 		return session.KindShell
@@ -657,6 +680,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "agents":
 		s.listAgents(c)
 		return
+	case "refreshAgents":
+		s.refreshAgents()
+		return
+	case "setAgentDefault":
+		s.applyAgentDefault(c, cmd)
+		return
 	case "revealPane":
 		s.revealPane(cmd.Root, cmd.Node, cmd.ID)
 		return
@@ -707,13 +736,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		ws := s.ws
 		switch cmd.Cmd {
 		case "newTab":
-			// Cleaned the same way a rename is. The worktree panel opens a tab
-			// named after a branch, and a branch name has no length to it —
-			// one written out of a ticket title is long enough to push every
-			// other tab off the bar, and it is written to the layout that way
-			// too. An empty title still means "name it yourself", which is
-			// what an agent tab does until it has been asked something.
-			ws.NewTab(parseKind(cmd.Kind), cmd.Path, tabTitle(cmd.Text))
+			s.newTabFor(cmd)
 		case "closeTab":
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
@@ -762,15 +785,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(paneGone, true)
 				return
 			}
-			// A root names another open project to split into, which is how a
-			// tab comes to hold agents from two projects at once. A path names
-			// a directory, which is how the worktree panel puts an agent into
-			// another checkout of the project it is already in.
-			if cmd.Root != "" {
-				ws.SplitPaneInProject(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Root)
-				break
-			}
-			ws.SplitPaneIn(parseDir(cmd.Dir), parseKind(cmd.Kind), cmd.Path)
+			s.splitPaneFor(cmd)
 		case "closePane":
 			if !focusFor(ws, cmd.ID) {
 				c.notify(paneGone, true)
