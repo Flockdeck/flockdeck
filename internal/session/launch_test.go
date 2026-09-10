@@ -14,7 +14,7 @@ import (
 // the tests below pin the argv against the contract rather than against
 // whatever the catalog happens to say today. The catalog is written elsewhere;
 // what must not drift is what a Claude pane is actually run with.
-func claudeSpec() agent.Spec {
+func claudeLaunchSpec() agent.Spec {
 	return agent.Spec{
 		ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude",
 		Args: []agent.Arg{
@@ -64,7 +64,7 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			cfg, err := Launch{
-				Spec:        claudeSpec(),
+				Spec:        claudeLaunchSpec(),
 				ID:          testSession,
 				Prompt:      tc.prompt,
 				Resume:      tc.resume,
@@ -120,7 +120,7 @@ func TestModelIsAskedForOnlyWhenThereIsOne(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := claudeSpec()
+			spec := claudeLaunchSpec()
 			spec.DefaultModel = tc.dflt
 			cfg, err := Launch{Spec: spec, Model: tc.model, ID: testSession, SettingsDir: t.TempDir()}.Config()
 			if err != nil {
@@ -149,7 +149,7 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	}{
 		{
 			name: "hooks and a settings argument",
-			spec: claudeSpec(),
+			spec: claudeLaunchSpec(),
 			want: true,
 		},
 		{
@@ -242,7 +242,7 @@ func TestStripEnvComesFromTheSpecs(t *testing.T) {
 	t.Setenv("PERCH_TEST_KEPT", "yes")
 
 	specs := []agent.Spec{
-		claudeSpec(),
+		claudeLaunchSpec(),
 		{ID: "codex", Runner: agent.RunnerCLI, Exe: "codex", StripEnv: []string{"CODEX_SANDBOX"}},
 	}
 	union := StripEnvUnion(specs)
@@ -319,10 +319,10 @@ func TestTrustIsOnlyAskedOfAnAgentWithATrustQuestion(t *testing.T) {
 		t.Errorf("arranging trust for an agent that asks nothing should be a no-op: %v", err)
 	}
 
-	if TrustedFor(claudeSpec(), cwd) {
+	if TrustedFor(claudeLaunchSpec(), cwd) {
 		t.Error("Claude's own question has not been answered for this directory")
 	}
-	if err := InheritTrustFor(claudeSpec(), cwd, filepath.Join(dir, "worktree")); err == nil {
+	if err := InheritTrustFor(claudeLaunchSpec(), cwd, filepath.Join(dir, "worktree")); err == nil {
 		t.Error("trust must never be invented for a directory that does not have it")
 	}
 }
