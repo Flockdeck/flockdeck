@@ -170,7 +170,11 @@ func keysClear(agentID string, out io.Writer) error {
 // so an EOF with something before it is not an error.
 func readKeyLine(r io.Reader) (string, error) {
 	line, err := bufio.NewReader(r).ReadString('\n')
-	line = strings.TrimSpace(line)
+	// A byte-order mark is what PowerShell puts in front of piped input when
+	// its output encoding is set to UTF-8, and `type` passes on the one a file
+	// saved by Notepad starts with. It is not part of any key, and stored with
+	// one the key is refused by the vendor for reasons nobody could see.
+	line = strings.TrimSpace(strings.TrimPrefix(line, "\xef\xbb\xbf"))
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("read the key: %w", err)
 	}

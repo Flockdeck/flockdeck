@@ -73,6 +73,7 @@ func TestKeysSetReadsStdin(t *testing.T) {
 		{name: "no trailing newline", stdin: "sk-piped", want: "sk-piped"},
 		{name: "surrounding space", stdin: "  sk-padded  \r\n", want: "sk-padded"},
 		{name: "only the first line", stdin: "sk-first\nsk-second\n", want: "sk-first"},
+		{name: "a byte-order mark in front", stdin: "\xef\xbb\xbfsk-marked\r\n", want: "sk-marked"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
