@@ -172,9 +172,7 @@ func expandPlaceholders(src, open string, render func(id string) (string, error)
 // keyTable renders one group of actions as a Markdown table. Actions with no
 // binding are still listed: "in the palette" is where they are, and leaving
 // them out is how they came to be undocumented in the first place.
-func keyTable(rows []Key) string {
-	return keyTableWith(rows, func(keys string) string { return "<kbd>" + keys + "</kbd>" })
-}
+func keyTable(rows []Key) string { return keyTableWith(rows, kbd) }
 
 // keyTableWith renders the same table with the binding wrapped however the
 // destination wants it: <kbd> for the help pages, backticks for the README.
