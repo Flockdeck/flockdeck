@@ -211,8 +211,13 @@ var flagLike = regexp.MustCompile(`(?:^|[\s(\[` + "`" + `])(--?[A-Za-z][A-Za-z0-
 // flag sets, without their dashes.
 func cliFlagNames() map[string]bool {
 	names := map[string]bool{}
-	flockdeckFlagSet(&cliFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
-	spawnFlagSet(&spawnFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
+	for _, fs := range []*flag.FlagSet{
+		flockdeckFlagSet(&cliFlags{}),
+		spawnFlagSet(&spawnFlags{}),
+		updateFlagSet(&updateFlags{}),
+	} {
+		fs.VisitAll(func(f *flag.Flag) { names[f.Name] = true })
+	}
 	return names
 }
 
@@ -256,10 +261,10 @@ func TestHelpPageMatchesTheCommandLine(t *testing.T) {
 }
 
 // pendingHelpFlags are the flags whose entry on the command-line help page has
-// not been written yet, because that page belongs to another task of the
-// multi-agent work. Naming the two of them keeps the check strict for every
-// other flag rather than turning it off, and the set goes empty at the merge.
-var pendingHelpFlags = map[string]bool{"agent": true, "model": true}
+// not been written yet. It held -agent and -model for as long as the page and
+// the flags were being written by different agents; both are documented now, so
+// there is nothing here and the check is strict about every flag.
+var pendingHelpFlags = map[string]bool{}
 
 // The usage printed for a wrong command line is the other hand-written copy.
 func TestUsageNamesEveryFlag(t *testing.T) {

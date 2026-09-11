@@ -36,16 +36,8 @@ func updatesDir() (string, error) {
 // operating system already has — so the only difference the user sees is that
 // the next start is the new version.
 func runUpdate(args []string) error {
-	fs := flag.NewFlagSet("flockdeck update", flag.ContinueOnError)
-	check := fs.Bool("check", false, "report whether a newer release exists and stop")
-	fs.Usage = func() {
-		out := fs.Output()
-		fmt.Fprintf(out, "Usage: flockdeck update [-check]\n\n")
-		fmt.Fprintf(out, "Downloads the latest release from GitHub, checks it against the\n")
-		fmt.Fprintf(out, "published SHA-256 and puts it in place. A running instance keeps\n")
-		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
-		fs.PrintDefaults()
-	}
+	var f updateFlags
+	fs := updateFlagSet(&f)
 	if err := fs.Parse(args); err != nil {
 		return errReported
 	}
@@ -72,7 +64,7 @@ func runUpdate(args []string) error {
 	}
 
 	fmt.Printf("A newer release is available: %s (you have %s)\n", rel.Version, version)
-	if *check {
+	if f.check {
 		if rel.URL != "" {
 			fmt.Println(rel.URL)
 		}
@@ -240,4 +232,27 @@ func stageUpdate(ctx context.Context, srv *server.Server, dir string) {
 		return
 	}
 	srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+}
+
+// updateFlags are the flags of `flockdeck update` and where their values land.
+type updateFlags struct {
+	check bool
+}
+
+// updateFlagSet defines the command line of `flockdeck update`. It is built
+// here rather than inline in runUpdate so that a test can walk the same set the
+// program parses with -- which is what keeps the help page and the usage honest
+// about a subcommand's own flags, not only the top-level ones.
+func updateFlagSet(f *updateFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("flockdeck update", flag.ContinueOnError)
+	fs.BoolVar(&f.check, "check", false, "report whether a newer release exists and stop")
+	fs.Usage = func() {
+		out := fs.Output()
+		fmt.Fprintf(out, "Usage: flockdeck update [-check]\n\n")
+		fmt.Fprintf(out, "Downloads the latest release from GitHub, checks it against the\n")
+		fmt.Fprintf(out, "published SHA-256 and puts it in place. A running instance keeps\n")
+		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	return fs
 }

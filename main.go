@@ -181,6 +181,10 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
+	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>]\n")
+	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
+	fmt.Fprintf(out, "  update [-check]\n")
+	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }

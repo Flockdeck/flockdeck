@@ -8,6 +8,7 @@ flockdeck                 # open the current directory
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
 flockdeck -new            # ignore the saved layout
 flockdeck -shell          # first pane is a shell, not an agent
+flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
 flockdeck -quit           # stop a running instance and its agents
 flockdeck -no-window      # just serve; print the URL and open it yourself
@@ -24,8 +25,13 @@ window onto it. `-solo` is the escape hatch when you genuinely want two.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [--worktree <branch>] [--split] [--shell] <task>
+flockdeck spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>
 ```
+
+`--agent` and `--model` choose which agent the helper is; without them it is
+whatever the project runs by default. `flockdeck agents` lists the names both
+of them take, and a name neither the catalog nor the agent has is answered here
+rather than becoming a pane that never starts.
 
 The address and token come from the environment the pane was started with —
 `FLOCKDECK_API` and `FLOCKDECK_TOKEN` below — so only processes running inside a pane
