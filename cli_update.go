@@ -114,12 +114,18 @@ func applyStagedUpdate(out io.Writer) {
 	if err != nil {
 		return
 	}
-	p, ok := selfupdate.Load(dir)
-	if !ok {
-		return
-	}
 	exe, err := os.Executable()
 	if err != nil {
+		return
+	}
+	applyStaged(out, dir, exe, version)
+}
+
+// applyStaged is applyStagedUpdate for a given staging directory, program and
+// running version, so that a test can hand it all three.
+func applyStaged(out io.Writer, dir, exe, current string) {
+	p, ok := stagedUpdate(dir, current)
+	if !ok {
 		return
 	}
 	if err := selfupdate.Apply(dir, exe); err != nil {
@@ -127,6 +133,25 @@ func applyStagedUpdate(out io.Writer) {
 		return
 	}
 	fmt.Fprintf(out, "flockdeck: updated to %s\n", p.Version)
+}
+
+// stagedUpdate returns the update waiting in dir, if it would move the running
+// version forward.
+//
+// A staged release is only an update to the build that staged it, and the
+// program may since have been replaced by something else: a newer release
+// installed by hand, or a build of the user's own, stamped `dev`. Every one of
+// them shares the state directory, so each would otherwise find the leftover,
+// offer it in the top bar and put it in place on the way out — an older version
+// over a newer one, and a release over a local build, which is exactly what the
+// updater promises never to do. The record is left where it is, because the
+// build that staged it may yet be run again and still wants it.
+func stagedUpdate(dir, current string) (*selfupdate.Pending, bool) {
+	p, ok := selfupdate.Load(dir)
+	if !ok || !selfupdate.Newer(p.Version, current) {
+		return nil, false
+	}
+	return p, true
 }
 
 // relaunch starts the program again and returns once it is on its own feet.
@@ -195,12 +220,12 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 
 	// An update staged by an earlier run is still waiting, and the badge
 	// should be there in the first frame rather than after the first check.
-	if p, ok := selfupdate.Load(dir); ok {
+	if p, ok := stagedUpdate(dir, version); ok {
 		srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 	}
 
 	for {
-		if p, ok := selfupdate.Load(dir); !ok || selfupdate.Newer(latestSeen(ctx), p.Version) {
+		if p, ok := stagedUpdate(dir, version); !ok || selfupdate.Newer(latestSeen(ctx), p.Version) {
 			stageUpdate(ctx, srv, dir)
 		}
 		select {
