@@ -9,7 +9,27 @@
 <meta property="og:title" content="Flockdeck | Run all your coding agents at once">
 <meta property="og:description" content="Run all your coding agents side by side and see which one needs you.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="{{ .URL }}/">
+<meta property="og:image" content="{{ .URL }}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Flockdeck: run all your coding agents at once. A window of four agents, one waiting on you.">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{ .URL }}/og.png">
+<link rel="canonical" href="{{ .URL }}/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Flockdeck",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, and shows which one needs your input.",
+  "url": {{ .URL }},
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "license": "https://opensource.org/licenses/MIT",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -23,6 +43,7 @@
     <a href="#what">Features</a>
     <a href="#remote">Remote</a>
     <a href="#install">Install</a>
+    <a href="#faq">FAQ</a>
     <a href="{{ .Repo }}">Source</a>
   </nav>
 </header>
@@ -38,7 +59,18 @@
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
   </p>
-  <p class="cta-note">Windows, macOS and Linux · One download, no dependencies</p>
+  <p class="cta-note">Free and open source · Windows, macOS and Linux</p>
+  <ul class="works" aria-label="Works with">
+    <li class="works-label">Works with</li>
+    <li>Claude Code</li>
+    <li>Codex</li>
+    <li>Gemini CLI</li>
+    <li>Aider</li>
+    <li>opencode</li>
+    <li>Cursor Agent</li>
+    <li>Ollama</li>
+    <li>any OpenAI-compatible API</li>
+  </ul>
 </section>
 
 <!-- The hero is the application rather than a picture of it: the panes below
@@ -228,8 +260,11 @@
          route it, so remote access is not end-to-end encrypted.</p>
     </div>
   </div>
-  <p class="aside">Remote access is off until you turn it on. Turn it off and your
-     desktop is removed from the relay.</p>
+  <p>Turn it on from any terminal, then pair your phone:</p>
+  <pre><code>flockdeck remote enable
+flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
+  <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
+     turn it on. Turn it off and your desktop is removed from the relay.</p>
 </section>
 <section class="band shot">
   <p class="eyebrow">Built in</p>
@@ -253,10 +288,20 @@
     <li>macos · amd64 · arm64</li>
     <li>linux · amd64 · arm64</li>
   </ul>
-  <p>macOS and Linux:</p>
-  <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
-  <p>Windows (PowerShell):</p>
-  <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
+  <!-- Both commands are in the markup. With scripting on, the tabs show the one
+       for the visitor's own system; with it off, both are simply listed. -->
+  <div class="os-tabs" role="tablist" aria-label="Your operating system" hidden>
+    <button type="button" role="tab" data-os="unix">macOS &amp; Linux</button>
+    <button type="button" role="tab" data-os="windows">Windows</button>
+  </div>
+  <div class="os" data-os="unix">
+    <p class="os-label">macOS and Linux:</p>
+    <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
+  </div>
+  <div class="os" data-os="windows">
+    <p class="os-label">Windows (PowerShell):</p>
+    <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
+  </div>
   <p>The installer downloads the latest release for your machine, verifies it,
      and installs it to <code>~/.local/bin</code>. On Windows it goes to
      <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
@@ -278,14 +323,67 @@ make package    <span class="c"># archives for all six platforms</span></code></
      shortcuts.</p>
 </section>
 
+<section class="band" id="faq">
+  <p class="eyebrow">FAQ</p>
+  <h2>Questions, answered.</h2>
+  <div class="faq">
+    <details open>
+      <summary>Is Flockdeck free?</summary>
+      <p>Yes. Flockdeck is free and open source under the MIT licence.</p>
+    </details>
+    <details>
+      <summary>Which agents does it work with?</summary>
+      <p>Claude Code, Codex, Gemini CLI, Aider, opencode and Cursor Agent out of
+         the box. It can also talk to Anthropic, OpenAI and Google models
+         directly, or to any OpenAI-compatible endpoint such as Ollama. Any
+         other command-line agent can be added in <code>agents.json</code>.</p>
+    </details>
+    <details>
+      <summary>Does my code leave my machine?</summary>
+      <p>Flockdeck runs on your computer and doesn't collect your code. Your
+         agents talk to their own providers, just as they would in a terminal.
+         Flockdeck itself only contacts GitHub to check for updates, and the
+         relay if you turn on remote access.</p>
+    </details>
+    <details>
+      <summary>Do I need API keys?</summary>
+      <p>Not for command-line agents. Claude Code and the others use the login
+         they already have. You only need a key to talk to a model API directly,
+         and <code>flockdeck keys</code> stores it for you.</p>
+    </details>
+    <details>
+      <summary>Can I use it from my phone?</summary>
+      <p>Yes. Turn on remote access and pair your phone with a QR code. Traffic
+         is encrypted with TLS in both directions and routed through the
+         Flockdeck relay, which decrypts it to route it, so remote access is not
+         end-to-end encrypted.</p>
+    </details>
+    <details>
+      <summary>How do updates work?</summary>
+      <p>Flockdeck checks GitHub for new releases, verifies each download
+         against its published checksum and asks before it restarts. To turn
+         update checks off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
+    </details>
+    <details>
+      <summary>Which platforms are supported?</summary>
+      <p>Windows, macOS and Linux, on both Intel and AMD (amd64) and ARM
+         (arm64) machines.</p>
+    </details>
+  </div>
+</section>
+
 </main>
 
 <footer class="foot">
   <div class="wrap">
-    <p>Flockdeck. Run all your coding agents at once.</p>
+    <p>Flockdeck. Run all your coding agents at once.<br>
+       <span class="foot-note">Free and open source under the MIT licence.</span></p>
     <nav>
-      <a href="{{ .Repo }}">Source</a>
+      <a href="#install">Install</a>
+      <a href="#remote">Remote access</a>
+      <a href="#faq">FAQ</a>
       <a href="{{ .Repo }}/releases">Releases</a>
+      <a href="{{ .Repo }}">Source</a>
       <a href="{{ .Repo }}/blob/main/LICENSE">Licence</a>
     </nav>
   </div>
@@ -412,6 +510,49 @@ make package    <span class="c"># archives for all six platforms</span></code></
   }, { threshold: 0.25 });
   io.observe(deck);
   settle();
+})();
+</script>
+<script>
+// Install tabs and copy buttons. Both are conveniences over markup that
+// already works: without this script every command is listed and can be
+// selected and copied by hand.
+(() => {
+  const tabs = document.querySelector(".os-tabs");
+  const panels = document.querySelectorAll(".os");
+  if (tabs && panels.length) {
+    const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    const show = (os) => {
+      panels.forEach((p) => { p.hidden = p.dataset.os !== os; });
+      tabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.os === os)));
+    };
+    tabs.hidden = false;
+    document.body.classList.add("has-os-tabs");
+    tabs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.os); });
+    show(/win/i.test(platform) ? "windows" : "unix");
+  }
+
+  if (!navigator.clipboard) return;
+  document.querySelectorAll("#install pre, #remote pre").forEach((pre) => {
+    const code = pre.querySelector("code");
+    if (!code) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy";
+    btn.textContent = "Copy";
+    btn.addEventListener("click", async () => {
+      // Comments are for reading, not for pasting into a shell.
+      const text = [...code.childNodes].filter((n) => !(n.classList && n.classList.contains("c"))).map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "");
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "Copied";
+      } catch {
+        btn.textContent = "Press Ctrl+C";
+      }
+      setTimeout(() => { btn.textContent = "Copy"; }, 1600);
+    });
+    pre.classList.add("has-copy");
+    pre.append(btn);
+  });
 })();
 </script>
 </body>

@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- The social preview card, 1200x630. This is its source: it is rendered to
+     shots/og.png once, with a headless browser, rather than on every build,
+     because sitegen writes files and has no browser to draw with.
+
+       chrome --headless=new --window-size=1200,630 --hide-scrollbars \
+         --screenshot=shots/og.png og.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: #0F1418; color: #E6EDF1;
+    font-family: Archivo, "Segoe UI", sans-serif;
+    position: relative;
+  }
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(55% 70% at 12% 0%, rgba(79,209,219,.18), transparent 70%),
+      radial-gradient(40% 50% at 90% 10%, rgba(226,179,65,.10), transparent 70%);
+  }
+  .text { position: absolute; left: 72px; top: 76px; width: 560px; z-index: 1; }
+  .mark { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 26px; letter-spacing: -.01em; }
+  .kicker {
+    display: inline-flex; gap: 8px; align-items: center; margin-top: 44px;
+    font: 500 15px/1 "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase;
+    color: #4FD1DB; background: #0E2B2E; border: 1px solid #1F4E53; border-radius: 999px; padding: 8px 14px;
+  }
+  .kicker b { color: #E2B341; font-weight: 500; }
+  h1 { margin-top: 22px; font-weight: 800; font-size: 68px; line-height: 1.02; letter-spacing: -.035em; }
+  h1 em { font-style: normal; color: #4FD1DB; }
+  .agents { margin-top: 26px; font: 400 19px/1.5 "JetBrains Mono", monospace; color: #93A1A9; }
+  .url { position: absolute; left: 72px; bottom: 56px; font: 500 20px "JetBrains Mono", monospace; color: #7BE0E8; z-index: 1; }
+  .shot {
+    position: absolute; left: 670px; top: 92px; width: 900px;
+    border: 1px solid #2C363D; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 40px 90px -30px rgba(0,0,0,.95);
+  }
+  .shot img { display: block; width: 100%; }
+</style>
+</head>
+<body>
+  <div class="text">
+    <div class="mark">
+      <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+        <rect fill="#93A1A9" x="3" y="22" width="26" height="2.6" rx="1.3"/>
+        <circle fill="#93A1A9" cx="8.4" cy="18" r="3.4"/>
+        <circle fill="#93A1A9" cx="23.6" cy="18" r="3.4"/>
+        <path fill="#4FD1DB" d="M16 3.4L21 12.2H11Z"/>
+      </svg>
+      Flockdeck
+    </div>
+    <div class="kicker"><b>▲</b> 1 waiting · 2 working</div>
+    <h1>Run all your coding agents <em>at once</em>.</h1>
+    <p class="agents">Claude Code · Codex · Gemini CLI<br>Aider · opencode · any model API</p>
+  </div>
+  <div class="url">flockdeck.ai</div>
+  <div class="shot"><img src="shots/deck.png" alt=""></div>
+</body>
+</html>
