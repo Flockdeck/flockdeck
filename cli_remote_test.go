@@ -191,7 +191,12 @@ func TestRemoteEnableReplacesARevokedEnrolment(t *testing.T) {
 	f.mu.Lock()
 	f.revoked = true
 	f.mu.Unlock()
-	out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "again")
+	// Enabling again is all it takes, so that is all status says to do.
+	out, _, err := runRemoteCmd(t, "status")
+	if err != nil || !strings.Contains(out, "`flockdeck remote enable` enrols it again") || strings.Contains(out, "-force") {
+		t.Errorf("status of a revoked enrolment = %q, %v", out, err)
+	}
+	out, _, err = runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "again")
 	if err != nil || !strings.Contains(out, "no longer knows") {
 		t.Fatalf("enable over a revoked enrolment = %q, %v", out, err)
 	}
