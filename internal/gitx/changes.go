@@ -551,14 +551,20 @@ func truncateDiff(s string) string {
 }
 
 // CommitAll stages everything and commits it.
+//
+// Both steps run the user's own programs -- a clean filter such as LFS for
+// the add, the pre-commit hooks for the commit, which as often as not lint or
+// run the tests -- so neither is held to the deadline for reading the
+// repository. A hook still going at twenty seconds was killed there, and the
+// commit it guarded reported as a hang.
 func CommitAll(dir, message string) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
-	if _, err := run(dir, "add", "--all"); err != nil {
+	if _, _, err := runCapture(context.Background(), networkTimeout, dir, "add", "--all"); err != nil {
 		return err
 	}
-	_, err := run(dir, "commit", "-m", message)
+	_, _, err := runCapture(context.Background(), networkTimeout, dir, "commit", "-m", message)
 	return err
 }
 

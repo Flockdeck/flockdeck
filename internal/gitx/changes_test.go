@@ -991,6 +991,24 @@ func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
 	}
 }
 
+// TestCommitGetsTheLongerDeadline is about the hooks a commit runs, which lint
+// or test as often as not and were killed at the twenty seconds meant for
+// reading the repository.
+func TestCommitGetsTheLongerDeadline(t *testing.T) {
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "added.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restore := networkTimeout
+	t.Cleanup(func() { networkTimeout = restore })
+	networkTimeout = time.Nanosecond
+
+	err := CommitAll(repo, "slow hooks")
+	if err == nil || !strings.Contains(err.Error(), "gave up after 1ns") {
+		t.Errorf("commit did not run under the longer deadline: %v", err)
+	}
+}
+
 // TestHasRemoteWithoutOrigin covers a repository that cannot be pushed.
 func TestHasRemoteWithoutOrigin(t *testing.T) {
 	repo := newRepo(t)

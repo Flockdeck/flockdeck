@@ -35,6 +35,8 @@ const commandTimeout = 20 * time.Second
 // when they are done. Asking for a password is already refused outright, so
 // the hang these guard against cannot happen here in the first place.
 //
+// A commit gets it too, for its hooks, which are just as free to take their time.
+//
 // It is a variable so a test can shorten it; nothing else assigns to it.
 var networkTimeout = 10 * time.Minute
 
