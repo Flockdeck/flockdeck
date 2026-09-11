@@ -895,7 +895,13 @@
     s.tabs.forEach((tab, i) => {
       const node = tabNode(tab.id);
       const title = tab.title || "tab " + (i + 1);
-      if (node.label.textContent !== title) node.label.textContent = title;
+      if (node.label.textContent !== title) {
+        node.label.textContent = title;
+        // A title is cut short at the tab's width, and the ones written from
+        // an agent's task usually are. The bubble is the only place the rest
+        // can be read, and the only thing saying how to change it.
+        describe(node.btn, title + " — double-click to rename");
+      }
       const active = tab.id === s.activeTab;
       node.btn.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));

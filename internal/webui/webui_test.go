@@ -2407,6 +2407,26 @@ assert.ok(!idle.defaultPrevented, "a strip that fits took the wheel");
 `)
 }
 
+// A tab's title is cut short at 220 pixels, and a title written from an
+// agent's task nearly always is. Nothing let the rest be read, and nothing
+// said that a double-click renames it.
+func TestATabSaysItsWholeTitle(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const long = "Identify and fix every bug in the desktop front end, one per commit";
+h.recv(fixture({ tabs: [
+  { id: "t1", title: long, focus: "p1", zoom: false, attention: false, root: { id: "n1", pane: "p1", weight: 1 } },
+  { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: { id: "n2", pane: "p2", weight: 1 } },
+] }));
+const tab = h.$("tabs").children[0];
+assert.ok((tab.dataset.tip || "").startsWith(long), "the whole title cannot be read anywhere");
+assert.ok(/rename/.test(tab.dataset.tip), "nothing says how to rename the tab");
+
+h.recv(fixture());
+assert.ok(h.$("tabs").children[0].dataset.tip.startsWith("one"), "the bubble kept the old title");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
