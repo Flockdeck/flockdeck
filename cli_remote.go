@@ -163,8 +163,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteEnableFlagSet(&f), args); err != nil {
 		return err
 	}
-	relay, name, join, invite := &f.relay, &f.name, &f.join, &f.invite
-	relayURL, err := remote.RelayURL(*relay)
+	relayURL, err := remote.RelayURL(f.relay)
 	if err != nil {
 		return err
 	}
@@ -189,12 +188,12 @@ func remoteEnable(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "the relay no longer knows this machine, so it is being enrolled again")
 	}
 
-	hostName := strings.TrimSpace(*name)
+	hostName := strings.TrimSpace(f.name)
 	if hostName == "" {
 		hostName, _ = os.Hostname()
 	}
 	reg, err := remote.Register(ctx, relayURL, version, remote.RegisterRequest{
-		Name: hostName, Join: strings.TrimSpace(*join), Invite: strings.TrimSpace(*invite),
+		Name: hostName, Join: strings.TrimSpace(f.join), Invite: strings.TrimSpace(f.invite),
 	})
 	if err != nil {
 		return err
@@ -228,13 +227,12 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	if err := parseRemote(remotePairFlagSet(&f), args); err != nil {
 		return err
 	}
-	desktop := &f.desktop
 	cfg, err := enrolled()
 	if err != nil {
 		return err
 	}
 	kind := remote.KindDevice
-	if *desktop {
+	if f.desktop {
 		kind = remote.KindHost
 	}
 	p, err := remote.NewClient(cfg, version).Pair(context.Background(), kind)
@@ -242,7 +240,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 		return relayRefusal(err)
 	}
 	until := describeExpiry(p.ExpiresAt, time.Now())
-	if *desktop {
+	if f.desktop {
 		fmt.Fprintf(rio.out, "On the other machine, run:\n\n  flockdeck remote enable -relay %s -join %s\n\n", cfg.Relay, p.Code)
 		fmt.Fprintf(rio.out, "The code works once, %s.\n", until)
 		return nil
@@ -381,10 +379,9 @@ func remoteDisable(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteDisableFlagSet(&f), args); err != nil {
 		return err
 	}
-	force := &f.force
 	cfg, err := remote.Load()
 	if err != nil {
-		if !*force {
+		if !f.force {
 			return fmt.Errorf("%w (-force removes it anyway)", err)
 		}
 		cfg = nil
@@ -394,12 +391,12 @@ func remoteDisable(args []string, rio remoteIO) error {
 		switch {
 		case err == nil, remote.IsRevoked(err):
 			// Gone either way: removed now, or already.
-		case !*force:
+		case !f.force:
 			return fmt.Errorf("could not tell the relay (%v); run again with -force to forget the enrolment here anyway — the relay will list this machine until it is removed from a paired device", err)
 		default:
 			fmt.Fprintf(rio.out, "could not tell the relay (%v); forgetting the enrolment here anyway\n", err)
 		}
-	} else if !*force {
+	} else if !f.force {
 		fmt.Fprintln(rio.out, "remote access is not enabled")
 		return nil
 	}
