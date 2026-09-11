@@ -24,7 +24,6 @@ type Client struct {
 	Relay   string
 	Token   string
 	Version string
-	HTTP    *http.Client
 }
 
 // NewClient is a client for an enrolment.
@@ -189,11 +188,7 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 		req.Header.Set("Flockdeck-Version", c.Version)
 	}
 
-	hc := c.HTTP
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	resp, err := hc.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("reach the relay at %s: no answer within %s", c.Relay, requestTimeout)
