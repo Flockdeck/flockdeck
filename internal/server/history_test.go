@@ -297,17 +297,22 @@ func TestHumanAgoReadsLikeAList(t *testing.T) {
 }
 
 // TestTitleForNamesATabAfterThePrompt covers what a resumed pane is called.
+//
+// The directory is written for the platform the test runs on. A pane's
+// directory always is, and on Linux a Windows path is one long file name with
+// backslashes in it, which Base rightly hands back whole.
 func TestTitleForNamesATabAfterThePrompt(t *testing.T) {
-	if got := titleFor("add a health endpoint", `C:\repos\app`); got != "add a health endpoint" {
+	dir := filepath.FromSlash("/repos/app")
+	if got := titleFor("add a health endpoint", dir); got != "add a health endpoint" {
 		t.Errorf("title = %q", got)
 	}
-	if got := titleFor("", `C:\repos\app`); got != "app" {
+	if got := titleFor("", dir); got != "app" {
 		t.Errorf("a conversation with no prompt should be named after its directory, got %q", got)
 	}
-	if got := titleFor(session.NoPrompt, `C:\repos\app`); got != "app" {
+	if got := titleFor(session.NoPrompt, dir); got != "app" {
 		t.Errorf("a conversation that says nothing about itself should name its pane after the directory, got %q", got)
 	}
-	long := titleFor(strings.Repeat("a", 100), `C:\repos\app`)
+	long := titleFor(strings.Repeat("a", 100), dir)
 	if len([]rune(long)) != 25 {
 		t.Errorf("a long prompt should be cut to fit a tab, got %d runes", len([]rune(long)))
 	}

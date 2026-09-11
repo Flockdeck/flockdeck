@@ -79,6 +79,13 @@ func TestTokenGatesEverything(t *testing.T) {
 	// Nothing at all, a token that is not ours, one that is a prefix of ours,
 	// and ours with a character changed — all of them somebody else's guess.
 	real := srv.Token()
+	// Changed to something it is not: a fixed replacement is the token itself
+	// whenever the token already starts with it, which a hex token does one
+	// time in sixteen, and then every route rightly lets it through.
+	changed := "0" + real[1:]
+	if real[0] == '0' {
+		changed = "1" + real[1:]
+	}
 	for _, creds := range []struct {
 		name   string
 		query  string
@@ -87,7 +94,7 @@ func TestTokenGatesEverything(t *testing.T) {
 		{name: "no token"},
 		{name: "a token from somewhere else", query: "not-the-token"},
 		{name: "a prefix of the token", query: real[:len(real)-1]},
-		{name: "the token with one character changed", query: "0" + real[1:]},
+		{name: "the token with one character changed", query: changed},
 		{name: "somebody else's cookie", cookie: "not-the-token"},
 		{name: "a prefix of the token as a cookie", cookie: real[:len(real)-1]},
 	} {

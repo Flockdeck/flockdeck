@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1009,10 +1010,13 @@ func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The folder as it was read, with the file's size and date as the listing
+	// gave them. Windows fills those in while the folder is read; Linux looks
+	// them up when they are asked for, and a file gone by then is left out of
+	// the listing -- which is right, but it is not the gap this is about.
+	// Taking the answer from before the removal puts every platform where
+	// Windows already is.
+	entries := []os.DirEntry{fs.FileInfoToDirEntry(listed)}
 
 	// Gone between the folder being read and the file being opened.
 	if err := os.Remove(path); err != nil {
