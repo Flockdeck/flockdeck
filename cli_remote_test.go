@@ -196,6 +196,11 @@ func TestRemoteEnableReplacesARevokedEnrolment(t *testing.T) {
 	if err != nil || !strings.Contains(out, "`flockdeck remote enable` enrols it again") || strings.Contains(out, "-force") {
 		t.Errorf("status of a revoked enrolment = %q, %v", out, err)
 	}
+	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
+		if _, _, err := runRemoteCmd(t, args...); err == nil || !strings.Contains(err.Error(), "`flockdeck remote enable` enrols this machine again") {
+			t.Errorf("remote %v on a revoked enrolment = %v, want it to say enable puts it right", args, err)
+		}
+	}
 	out, _, err = runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "again")
 	if err != nil || !strings.Contains(out, "no longer knows") {
 		t.Fatalf("enable over a revoked enrolment = %q, %v", out, err)

@@ -208,6 +208,15 @@ func remoteEnable(args []string, rio remoteIO) error {
 	return nil
 }
 
+// relayRefusal adds what to do to the relay refusing this machine, which on
+// its own says what is wrong but not that `enable` puts it right.
+func relayRefusal(err error) error {
+	if remote.IsRevoked(err) {
+		return fmt.Errorf("%w; `flockdeck remote enable` enrols this machine again", err)
+	}
+	return err
+}
+
 func remotePairCmd(args []string, rio remoteIO) error {
 	var f remotePairFlags
 	if err := parseRemote(remotePairFlagSet(&f), args); err != nil {
@@ -224,7 +233,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	}
 	p, err := remote.NewClient(cfg, version).Pair(context.Background(), kind)
 	if err != nil {
-		return err
+		return relayRefusal(err)
 	}
 	until := describeExpiry(p.ExpiresAt, time.Now())
 	if *desktop {
@@ -292,7 +301,7 @@ func remoteDevicesCmd(args []string, rio remoteIO) error {
 	}
 	roster, err := remote.NewClient(cfg, version).Devices(context.Background())
 	if err != nil {
-		return err
+		return relayRefusal(err)
 	}
 	printRoster(rio.out, roster, time.Now())
 	return nil
@@ -352,7 +361,7 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		return err
 	}
 	if err := remote.NewClient(cfg, version).Revoke(context.Background(), id); err != nil {
-		return err
+		return relayRefusal(err)
 	}
 	fmt.Fprintf(rio.out, "unpaired %s; any window it had open has been closed\n", id)
 	return nil
