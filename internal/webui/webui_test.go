@@ -2427,6 +2427,22 @@ assert.ok(h.$("tabs").children[0].dataset.tip.startsWith("one"), "the bubble kep
 `)
 }
 
+// A pane is dragged by its header, and the grab cursor is the only thing on
+// screen that says so. A later rule for the same selector set the cursor back
+// to the default, so it never showed.
+func TestAPaneHeaderLooksDraggable(t *testing.T) {
+	css := readAsset(t, "app.css")
+	var last string
+	for _, block := range regexp.MustCompile(`(?m)^\.pane-header\s*\{([^}]*)\}`).FindAllStringSubmatch(css, -1) {
+		if m := regexp.MustCompile(`(?:^|[;\s])cursor:\s*([\w-]+)`).FindStringSubmatch(block[1]); m != nil {
+			last = m[1]
+		}
+	}
+	if last != "grab" {
+		t.Fatalf("the last .pane-header rule to set a cursor sets %q, so the header does not look draggable", last)
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
