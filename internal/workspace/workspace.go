@@ -470,6 +470,9 @@ func (w *Workspace) OpenProject(path string) error {
 		return nil
 	}
 
+	// Restoring the new project's tabs, or making it one, moves the focus onto
+	// them, so the tab this project is being left on has to be noted first.
+	w.rememberTab()
 	w.openRoots = append(w.openRoots, root)
 	w.activeRoot = root
 	_ = store.TouchRecent(root)
@@ -637,17 +640,10 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 // back would put you somewhere other than where you were working, with the
 // tab you had open still to find.
 func (w *Workspace) focusFirstTabOf(root string) {
-	if t := w.CurrentTab(); t != nil {
-		if t.Root == root {
-			return
-		}
-		// The project being left is noted on the way out, which is the only
-		// moment it is known which tab it is being left on.
-		if w.lastTab == nil {
-			w.lastTab = map[string]string{}
-		}
-		w.lastTab[t.Root] = t.ID
+	if t := w.CurrentTab(); t != nil && t.Root == root {
+		return
 	}
+	w.rememberTab()
 	if t := w.Tab(w.lastTab[root]); t != nil && t.Root == root {
 		w.activeTab = t.ID
 		return
@@ -1297,16 +1293,32 @@ func (w *Workspace) destroyPane(id string) {
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
 }
 
+// rememberTab notes which tab the project on screen is being left on, so that
+// coming back to it comes back there. Everything that moves to another project
+// calls it before the focus moves, since afterwards the tab being left is no
+// longer the one on screen and there is nothing left to ask.
+func (w *Workspace) rememberTab() {
+	t := w.CurrentTab()
+	if t == nil {
+		return
+	}
+	if w.lastTab == nil {
+		w.lastTab = map[string]string{}
+	}
+	w.lastTab[t.Root] = t.ID
+}
+
 // SelectTab focuses a tab, switching project if it belongs to another.
 func (w *Workspace) SelectTab(id string) {
 	t := w.Tab(id)
 	if t == nil {
 		return
 	}
-	w.activeTab = id
 	if t.Root != w.activeRoot && w.isOpen(t.Root) {
+		w.rememberTab()
 		w.activeRoot = t.Root
 	}
+	w.activeTab = id
 }
 
 // NextTab and PrevTab cycle through the active project's tabs, wrapping.

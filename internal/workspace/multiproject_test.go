@@ -151,6 +151,48 @@ func TestABorrowedPaneComesBackWithItsProject(t *testing.T) {
 	}
 }
 
+// TestEveryWayOutOfAProjectRemembersItsTab checks that coming back to a project
+// comes back to the tab it was left on, however it was left. Only the project
+// switcher used to note it: opening another project, or picking another
+// project's tab by name, moved the focus first, and by the time anything asked
+// which tab was being left the answer was already the new one.
+func TestEveryWayOutOfAProjectRemembersItsTab(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		leave func(ws *Workspace, other string, theirs *Tab)
+	}{
+		{"opening another project", func(ws *Workspace, other string, _ *Tab) {
+			if err := ws.OpenProject(other); err != nil {
+				t.Fatalf("open: %v", err)
+			}
+		}},
+		{"selecting another project's tab", func(ws *Workspace, _ string, theirs *Tab) {
+			ws.SelectTab(theirs.ID)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateConfig(t)
+			ws, first, second := twoProjects(t)
+			theirs := ws.tabsOf(second)[0]
+			if tc.name == "opening another project" {
+				// A project already open is only selected, which notes the tab
+				// properly; this is about one opened for the first time.
+				ws.CloseProject(second)
+				second = t.TempDir()
+			}
+			ws.NewTab(session.KindShell, first, "beta")
+			beta := ws.ActiveTabID()
+
+			tc.leave(ws, second, theirs)
+			ws.SelectProject(first)
+
+			if got := ws.ActiveTabID(); got != beta {
+				t.Errorf("came back to tab %q, want beta, the one the project was left on", ws.Tab(got).Title)
+			}
+		})
+	}
+}
+
 // TestALayoutWithoutPaneProjectsUsesTheTabs covers every layout written before
 // panes recorded a project of their own. Those files mean "the tab's project",
 // and reading them as "no project" would leave restored panes owned by nothing.
