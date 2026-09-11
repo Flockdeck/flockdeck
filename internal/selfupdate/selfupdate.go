@@ -436,8 +436,15 @@ func Apply(dir, exePath string) error {
 		return fmt.Errorf("write the new version beside the old one: %w", err)
 	}
 
+	// The running program normally goes to <name>.old, but what is there can
+	// still be running itself: an instance started before one update runs
+	// from it when a second is put in place, and Windows will neither delete
+	// it nor rename anything over it. That one is left alone and this one
+	// takes a name of its own, which the sweep clears as well.
 	old := exePath + ".old"
-	os.Remove(old)
+	if err := os.Remove(old); err != nil && !errors.Is(err, os.ErrNotExist) {
+		old = fmt.Sprintf("%s.old-%d", exePath, time.Now().UnixNano())
+	}
 	if err := os.Rename(exePath, old); err != nil {
 		os.Remove(next)
 		return fmt.Errorf("move the running version aside: %w", err)
@@ -454,14 +461,22 @@ func Apply(dir, exePath string) error {
 	return nil
 }
 
-// Sweep removes the file a previous Apply moved aside. It is called at startup,
-// by which time nothing holds the old program open.
+// Sweep removes the files previous Applies moved aside. It is called at
+// startup, by which time nothing holds the old program open — or, for one an
+// instance still running is using, fails to and leaves it for next time.
 func Sweep(exePath string) {
 	if exePath == "" {
 		return
 	}
 	os.Remove(exePath + ".old")
 	os.Remove(exePath + ".new")
+	dir, base := filepath.Split(exePath)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), base+".old-") {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func copyFile(src, dst string) error {

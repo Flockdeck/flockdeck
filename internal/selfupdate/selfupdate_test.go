@@ -12,11 +12,70 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+// runningOld makes this test binary stand in for a program still running: set,
+// it sleeps rather than running the tests.
+const runningOld = "SELFUPDATE_TEST_RUNNING_OLD"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(runningOld) != "" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// A second update put in place before a restart finds the first one's .old
+// still running — the instance started before either update is running from
+// it — and Windows will neither delete that file nor rename anything over it.
+// The update has to go in all the same, not send the user off to an
+// administrator shell.
+func TestApplyWhileTheLastReplacedProgramIsStillRunning(t *testing.T) {
+	dir, install := t.TempDir(), t.TempDir()
+	exe := filepath.Join(install, binaryName)
+
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(self, exe+".old"); err != nil {
+		t.Fatal(err)
+	}
+	old := exec.Command(exe + ".old")
+	old.Env = append(os.Environ(), runningOld+"=1")
+	if err := old.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { old.Process.Kill(); old.Wait() })
+
+	if err := os.WriteFile(exe, []byte("the version the first update put in"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(dir, "staging", binaryName)
+	if err := os.MkdirAll(filepath.Dir(staged), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, []byte("the new program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := save(dir, &Pending{Version: "v9.9.9", Binary: staged}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Apply(dir, exe); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "the new program" {
+		t.Errorf("installed binary = %q, want the new program", got)
+	}
+}
 
 // buildArchive makes a release archive of the shape cmd/release produces, in
 // the format this platform's release uses, holding body as the binary.
