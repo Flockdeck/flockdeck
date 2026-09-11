@@ -7,11 +7,11 @@
 <!-- The window is a Chromium app-mode window, so this is the application icon
      as much as the tab icon: it is what the taskbar and alt-tab show. app.js
      retargets the first link as the agents change state. -->
-<link id="favicon" rel="icon" href="/assets/icon.svg" type="image/svg+xml">
-<link rel="alternate icon" href="/assets/icon-32.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="/assets/icon-128.png">
-<link rel="stylesheet" href="/assets/vendor/xterm.css">
-<link rel="stylesheet" href="/assets/app.css">
+<link id="favicon" rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="assets/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-128.png">
+<link rel="stylesheet" href="assets/vendor/xterm.css">
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
   <header id="topbar">
@@ -33,6 +33,9 @@
     <!-- A bare "?" is not a name a screen reader can read out, and the same
          goes for the two arrows in the find bar below. -->
     <button id="btn-update" class="chip update" hidden></button>
+    <!-- Shown only on a machine enrolled for remote access: the tunnel to the
+         relay, and how many windows are open through it. -->
+    <button id="btn-remote" class="chip remote" hidden>Remote</button>
     <button id="btn-help" class="chip" aria-label="Help">?</button>
   </header>
 
@@ -95,10 +98,10 @@
     </div>
   </div>
 
-  <script src="/assets/vendor/xterm.js"></script>
-  <script src="/assets/vendor/addon-fit.js"></script>
-  <script src="/assets/vendor/addon-webgl.js"></script>
-  <script src="/assets/vendor/addon-search.js"></script>
-  <script src="/assets/app.js"></script>
+  <script src="assets/vendor/xterm.js"></script>
+  <script src="assets/vendor/addon-fit.js"></script>
+  <script src="assets/vendor/addon-webgl.js"></script>
+  <script src="assets/vendor/addon-search.js"></script>
+  <script src="assets/app.js"></script>
 </body>
 </html>

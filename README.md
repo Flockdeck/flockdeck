@@ -52,6 +52,8 @@ keys` keeps it.
 - **Everything comes back**: layouts, the set of projects you had open, and
   each pane's conversation.
 - **Agents can outlive the window** — detach, close it, reattach later.
+- **Reach them from another device** — pair a laptop, tablet or phone through
+  a relay, with no port opened on this machine.
 - **One agent's plan becomes several agents doing the work**, each in its own
   git worktree.
 - **Review, commit and push** what an agent did without leaving the app.
@@ -130,6 +132,9 @@ flockdeck -solo           # start a separate instance instead of attaching
 
 flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
+
+flockdeck remote enable   # reach this machine from another device, via a relay
+flockdeck remote pair     # a one-time link and QR code that pairs a device
 ```
 
 Once it is running you rarely need the command line again: projects are opened
@@ -164,7 +169,8 @@ like an application. `FLOCKDECK_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run.
+generated fresh for each run. Remote access, below, does not change that: it
+is a connection this machine makes outward, not one it accepts.
 
 ## Keyboard shortcuts
 
@@ -241,6 +247,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
+| Command palette | Remote access… |
 | Command palette | Detach — close the window, leave agents running |
 | Command palette | Quit — stop every agent in every project |
 
@@ -655,6 +662,50 @@ every agent in the current tab, adjustable with the `⇉` button in each pane
 header. The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it to
 all of them at once, which is what you want for "run the tests and fix what
 breaks" across several worktrees.
+
+### Remote access
+
+The agents are on the desktop; the person is not always at it. Remote access
+opens the same window from another device — a laptop, a tablet, a phone —
+through a relay, without a VPN and without opening a port on this machine.
+
+```sh
+flockdeck remote enable           # enrol this machine with the relay
+flockdeck remote pair             # a one-time link, and a QR code of it, for a device
+flockdeck remote devices          # what is paired
+flockdeck remote revoke <id>      # unpair one
+flockdeck remote disable          # remove this machine from the relay
+```
+
+Flockdeck dials *out* to the relay — `https://relay.flockdeck.ai` unless
+`-relay` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open
+while it runs, carrying a stream multiplexer. Each connection a paired browser
+makes becomes a stream, and each stream is served in-process by the very
+handlers the local window uses. So the remote window is not a second interface
+kept level with the first: it is the first, every pane and every dialog, and
+the front end asks for everything relative to wherever it was served from so
+that it works under the relay's per-machine prefix unchanged.
+
+Pairing is a link that works once and expires in minutes, shown as a QR code
+by **Remote access…** in the command palette (and the **Remote** chip in the
+top bar of an enrolled machine) or printed by `flockdeck remote pair`. The
+device that opens it can open this window until it is unpaired, from that
+dialog or from the command line, which ends its session at once.
+
+What the relay can see is stated plainly: traffic is TLS between the browser
+and the relay and between the relay and this machine, and the relay decrypts
+it to route it. It is **trusted**, not end-to-end encrypted. It never sees the
+local server's token or any API key — a request is let in here because it came
+through the tunnel, which only the relay can put one on, and the relay has
+already checked the device is paired with the account. The endpoints only
+another launch of the binary uses (`-quit`, opening a project from the command
+line) still insist on the local token, so no remote window can reach them. The
+credential the relay knows this machine by is in `remote.json` in the state
+directory, readable only by you.
+
+A remote window needs Flockdeck running here. Closing the window on this
+machine still quits it, remote window or not — detach instead to leave the
+agents running for later. A remote window closing never stops anything.
 
 ## Design notes
 

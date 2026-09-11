@@ -64,7 +64,11 @@ Copyright (c) 2023 Ayman Bagabas
 
 Copyright (c) 2019 Yusuke Inuzuka
 
-Both are under the MIT licence, whose full text is reproduced above and in
+### github.com/xtaci/smux — MIT
+
+Copyright (c) 2016-2017 xtaci
+
+All three are under the MIT licence, whose full text is reproduced above and in
 [LICENSE](LICENSE).
 
 ### github.com/coder/websocket — ISC
@@ -89,9 +93,12 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 Copyright (c) 2009, 2014 Google Inc. All rights reserved.
 
-### golang.org/x/crypto, golang.org/x/sys — BSD 3-Clause
+### golang.org/x/crypto, golang.org/x/sys, rsc.io/qr — BSD 3-Clause
 
 Copyright (c) 2009 The Go Authors. All rights reserved.
+
+`rsc.io/qr` names Google Inc. rather than Google LLC in its third clause, and
+is otherwise the text below.
 
 ```
 Redistribution and use in source and binary forms, with or without

@@ -114,6 +114,12 @@ type Server struct {
 	// releases, so it is held as a pointer that is swapped rather than a
 	// struct that is edited.
 	update atomic.Pointer[UpdateView]
+
+	// mux is every route the window uses. It is kept so that the same routes
+	// can be served a second time, to windows reached through the relay.
+	mux *http.ServeMux
+	// remote is remote access, when this instance has any. See remote.go.
+	remote atomic.Pointer[remoteHolder]
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -164,6 +170,8 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/open", s.handleOpen)
 	mux.HandleFunc("/quit", s.handleQuit)
+	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
+	s.mux = mux
 
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = s.http.Serve(ln) }()
@@ -326,8 +334,12 @@ func (s *Server) gitLoop() {
 }
 
 // authorised reports whether a request carries the token, either as the query
-// parameter used on first load or as the cookie set from it.
+// parameter used on first load or as the cookie set from it — or came through
+// the relay, which is authorisation of another kind (see remote.go).
 func (s *Server) authorised(r *http.Request) bool {
+	if fromRemote(r) {
+		return true
+	}
 	if t := r.URL.Query().Get("t"); t != "" && s.tokenMatches(t) {
 		return true
 	}

@@ -1,0 +1,123 @@
+package remote
+
+import (
+	"errors"
+	"net"
+	"sync"
+)
+
+// ErrNotEnabled is what anything that needs an enrolment is told when there is
+// none.
+var ErrNotEnabled = errors.New("remote access is not enabled on this machine; run `flockdeck remote enable` in a terminal")
+
+// Manager is remote access as a running instance has it: the enrolment on
+// disk, and the tunnel that goes with it.
+//
+// The enrolment is written by `flockdeck remote`, from another process, and
+// the instance is told to look again. Reload is that looking: it brings the
+// tunnel in line with whatever the file now says — opened, reopened to a
+// different relay, or closed.
+type Manager struct {
+	version string
+	serve   func(net.Listener) error
+	changed func()
+	// load reads the enrolment. It is a field so a test can hand one over
+	// without a state directory.
+	load func() (*Config, error)
+
+	// reloading keeps two reloads from interleaving their stop and start.
+	reloading sync.Mutex
+
+	mu   sync.Mutex
+	cfg  *Config
+	conn *Connector
+}
+
+// NewManager makes a manager with nothing running. serve answers each tunnel's
+// connections; changed is told whenever what the window should show moves.
+func NewManager(version string, serve func(net.Listener) error, changed func()) *Manager {
+	return &Manager{version: version, serve: serve, changed: changed, load: Load}
+}
+
+// Reload reads the enrolment again and makes the tunnel match it.
+//
+// A tunnel that already matches is left alone, so reloading costs a working
+// connection nothing. One that has given up — revoked, or displaced by another
+// instance — is started again, because being asked to reload is somebody
+// saying that whatever stopped it has been dealt with.
+//
+// A file that cannot be read is reported and the tunnel left as it was: there
+// is no telling what the file meant, and dropping every remote window over a
+// half-written file is the worse guess.
+func (m *Manager) Reload() error {
+	m.reloading.Lock()
+	defer m.reloading.Unlock()
+
+	cfg, err := m.load()
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	old := m.conn
+	if cfg != nil && m.cfg != nil && *cfg == *m.cfg && old != nil {
+		switch old.Status().State {
+		case StateConnecting, StateConnected, StateError:
+			m.mu.Unlock()
+			return nil
+		}
+	}
+	var next *Connector
+	if cfg != nil {
+		next = NewConnector(*cfg, m.version, m.serve, m.changed)
+	}
+	m.cfg, m.conn = cfg, next
+	m.mu.Unlock()
+
+	if old != nil {
+		old.Stop()
+	}
+	if next != nil {
+		next.Start()
+	}
+	if m.changed != nil {
+		m.changed()
+	}
+	return nil
+}
+
+// Status reports the tunnel's state, and whether this machine is enrolled at
+// all.
+func (m *Manager) Status() (Status, bool) {
+	m.mu.Lock()
+	c := m.conn
+	m.mu.Unlock()
+	if c == nil {
+		return Status{}, false
+	}
+	return c.Status(), true
+}
+
+// Client is a client for the relay this machine is enrolled with.
+func (m *Manager) Client() (*Client, error) {
+	m.mu.Lock()
+	cfg := m.cfg
+	m.mu.Unlock()
+	if cfg == nil {
+		return nil, ErrNotEnabled
+	}
+	return NewClient(cfg, m.version), nil
+}
+
+// Close closes the tunnel, and every remote window with it.
+func (m *Manager) Close() {
+	m.reloading.Lock()
+	defer m.reloading.Unlock()
+	m.mu.Lock()
+	c := m.conn
+	m.conn = nil
+	m.mu.Unlock()
+	if c != nil {
+		c.Stop()
+	}
+}

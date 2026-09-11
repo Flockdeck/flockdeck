@@ -107,6 +107,10 @@ type stateMsg struct {
 	// restart, or nil when there is nothing to apply. It rides on the snapshot
 	// so the badge appears without the page having to ask.
 	Update *UpdateView `json:"update,omitempty"`
+	// Remote is the tunnel to the relay, or nil when this machine is not
+	// enrolled for remote access — in which case the window shows nothing
+	// about it at all.
+	Remote *remoteView `json:"remote,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -239,6 +243,7 @@ func (s *Server) snapshot() stateMsg {
 		Agents:          s.catalog(),
 		Panes:           map[string]paneView{},
 		Update:          s.Update(),
+		Remote:          s.remoteSnapshot(),
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -470,6 +475,11 @@ type controlClient struct {
 	conn *websocket.Conn
 	out  chan []byte
 
+	// remote marks a window reached through the relay, and device is which
+	// paired device it is on, as the relay reported it.
+	remote bool
+	device string
+
 	// pending is the newest snapshot not yet written, held apart from out
 	// because snapshots supersede one another. See sendState.
 	mu      sync.Mutex
@@ -521,18 +531,30 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"127.0.0.1:*", "localhost:*"},
-	})
+	// Through the relay the page and this socket share the relay's address,
+	// so the origin is held to exactly that, as the terminal socket always
+	// is. The loopback allowance is for the local window and has no business
+	// admitting a page from somebody's own localhost on the far side of the
+	// relay.
+	opts := &websocket.AcceptOptions{OriginPatterns: []string{"127.0.0.1:*", "localhost:*"}}
+	isRemote := fromRemote(r)
+	if isRemote {
+		opts = nil
+	}
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		return
 	}
 	conn.SetReadLimit(1 << 20)
 
 	c := &controlClient{
-		conn:  conn,
-		out:   make(chan []byte, 64),
-		ready: make(chan struct{}, 1),
+		conn:   conn,
+		out:    make(chan []byte, 64),
+		ready:  make(chan struct{}, 1),
+		remote: isRemote,
+	}
+	if isRemote {
+		c.device = r.Header.Get("Flockdeck-Remote-Device")
 	}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
@@ -574,11 +596,19 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, c)
-		remaining := len(s.clients)
+		// Only the windows on this machine count towards the last one going:
+		// see LocalClientCount for why a remote window neither keeps the
+		// application alive nor ends it.
+		remaining := 0
+		for other := range s.clients {
+			if !other.remote {
+				remaining++
+			}
+		}
 		s.mu.Unlock()
 		cancel()
 		_ = conn.CloseNow()
-		if remaining == 0 && s.OnLastClientGone != nil {
+		if !c.remote && remaining == 0 && s.OnLastClientGone != nil {
 			s.OnLastClientGone()
 		}
 	}()
@@ -737,6 +767,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "recents":
 		s.recents(c)
+		return
+	case "remoteDevices":
+		s.remoteDevices(c)
+		return
+	case "remotePair":
+		s.remotePair(c, cmd.Kind)
+		return
+	case "remoteRevoke":
+		s.remoteRevoke(c, cmd.ID)
 		return
 	case "helpSeen":
 		s.markHelpSeen()

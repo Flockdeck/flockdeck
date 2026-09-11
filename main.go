@@ -23,6 +23,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -81,6 +82,17 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		if err := runKeys(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flockdeck keys:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	// `remote` enrols this machine with a relay, so the window can be opened
+	// from another device, and manages what is paired with it.
+	if len(os.Args) > 1 && os.Args[1] == "remote" {
+		if err := runRemote(os.Args[2:]); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck remote:", err)
+			}
 			os.Exit(1)
 		}
 		return
@@ -183,6 +195,10 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
+	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
+	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
+	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id> | disable [-force]\n")
+	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
@@ -453,6 +469,17 @@ func run(opts options) error {
 	}
 	defer store.ClearInstance()
 
+	// Remote access, for a machine enrolled with a relay. It is started from
+	// whatever the enrolment says now and told to look again whenever
+	// `flockdeck remote` changes it. A machine that is not enrolled runs none of
+	// it: nothing is dialled and nothing is shown.
+	remoteAccess := remote.NewManager(version, srv.ServeRemote, srv.Wake)
+	srv.SetRemote(remoteAccess)
+	if err := remoteAccess.Reload(); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck: remote access:", err)
+	}
+	defer remoteAccess.Close()
+
 	// Shutdown can be requested by the window closing, by a signal, or by the
 	// user quitting from the UI.
 	quit := make(chan struct{})
@@ -542,11 +569,14 @@ func run(opts options) error {
 		}
 
 		// Whichever way the UI is shown, losing every connected window for
-		// more than a moment means nobody is looking any more.
+		// more than a moment means nobody is looking any more. Only the
+		// windows on this machine count: one open through the relay is
+		// somebody elsewhere, and detaching is how the agents are left
+		// running for them.
 		srv.OnLastClientGone = func() {
 			go func() {
 				time.Sleep(windowGrace)
-				if srv.ClientCount() == 0 && !srv.Detached() {
+				if srv.LocalClientCount() == 0 && !srv.Detached() {
 					stop()
 				}
 			}()
@@ -555,7 +585,13 @@ func run(opts options) error {
 
 	<-quit
 
-	if err := shutdown(srv.Close, ws.SaveAll); err != nil {
+	// The tunnel is a way in like the local port, so it is closed with it,
+	// before anything is saved.
+	stopServing := func() error {
+		remoteAccess.Close()
+		return srv.Close()
+	}
+	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
 	}
 
