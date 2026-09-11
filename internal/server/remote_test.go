@@ -54,7 +54,7 @@ func TestRemoteRequestsNeedNoToken(t *testing.T) {
 			t.Errorf("GET %s through the tunnel = %d, want 200", path, resp.StatusCode)
 		}
 		for _, c := range resp.Cookies() {
-			if c.Name == tokenCookie {
+			if strings.HasPrefix(c.Name, tokenCookie) {
 				t.Errorf("GET %s through the tunnel set the local token cookie", path)
 			}
 		}

@@ -272,7 +272,7 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 		srv.BaseURL() + "/open?path=" + queryEscape(t.TempDir()),
 	}
 	for _, url := range posts {
-		resp := sendWithCookie(t, http.MethodPost, url, srv.Token())
+		resp := sendWithCookie(t, http.MethodPost, url, srv)
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("POST %s with only the cookie = %d, want 403", url, resp.StatusCode)
 		}
@@ -283,7 +283,7 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 
 	// Reporting on the instance is not for a page either: the reply names the
 	// process and what it has open.
-	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv.Token())
+	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("GET /health with only the cookie = %d, want 403", resp.StatusCode)
 	}
@@ -297,13 +297,13 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 
 // sendWithCookie makes the request a page in a browser would: no token of its
 // own, and the cookie attached for it.
-func sendWithCookie(t *testing.T, method, url, token string) *http.Response {
+func sendWithCookie(t *testing.T, method, url string, srv *Server) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: token})
+	req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: srv.Token()})
 	req.Header.Set("Origin", "http://127.0.0.1:9999")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

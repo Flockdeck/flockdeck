@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -113,7 +114,7 @@ func TestTokenGatesEverything(t *testing.T) {
 				t.Fatalf("build request for %s: %v", path, err)
 			}
 			if creds.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: tokenCookie, Value: creds.cookie})
+				req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: creds.cookie})
 			}
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -153,7 +154,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 
 	var cookie *http.Cookie
 	for _, c := range resp.Cookies() {
-		if c.Name == tokenCookie {
+		if c.Name == srv.cookieName() {
 			cookie = c
 		}
 	}
@@ -390,7 +391,7 @@ func TestStaleTokenInURLKeepsWorkingCookie(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	req, _ := http.NewRequest(http.MethodGet, srv.baseURL()+"/?t=stale-token-from-a-previous-run", nil)
-	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: srv.Token()})
+	req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: srv.Token()})
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET index: %v", err)
@@ -400,8 +401,40 @@ func TestStaleTokenInURLKeepsWorkingCookie(t *testing.T) {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == tokenCookie && c.Value != srv.Token() {
+		if c.Name == srv.cookieName() && c.Value != srv.Token() {
 			t.Fatalf("index replaced the working cookie with %q", c.Value)
+		}
+	}
+}
+
+// TestTwoInstancesKeepTheirOwnCookies covers a -solo instance beside the usual
+// one. Both windows live in the one browser profile, and a cookie takes no
+// notice of the port, so the second window to load used to replace the first
+// one's token -- and the first window was refused the next socket it opened.
+func TestTwoInstancesKeepTheirOwnCookies(t *testing.T) {
+	first, _ := newTestServer(t)
+	second, _ := newTestServer(t)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := &http.Client{Jar: jar}
+	get := func(url string) int {
+		t.Helper()
+		resp, err := browser.Get(url)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	get(first.URL())
+	get(second.URL())
+	for _, srv := range []*Server{first, second} {
+		if code := get(srv.baseURL() + "/assets/app.js"); code != http.StatusOK {
+			t.Errorf("a window of the instance on %s was refused its own asset: %d", srv.Addr(), code)
 		}
 	}
 }

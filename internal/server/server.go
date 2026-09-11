@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,8 +27,22 @@ import (
 )
 
 // tokenCookie carries the session token once the window has loaded, so asset
-// and WebSocket requests do not have to repeat it in every URL.
+// and WebSocket requests do not have to repeat it in every URL. It is the stem
+// of the cookie's name rather than the whole of it: see cookieName.
 const tokenCookie = "flockdeck_token"
+
+// cookieName is the cookie this instance keeps its token in, named for the
+// port it listens on.
+//
+// A cookie belongs to a host and takes no notice of the port. Two instances on
+// 127.0.0.1 -- a -solo run beside the usual one, whose windows share the one
+// browser profile in the state directory -- therefore wrote the same cookie,
+// and the second window to load replaced the first one's token with its own.
+// The first window carried on only until it next opened a socket, for a new
+// pane or a reconnect, and was then turned away by its own instance.
+func (s *Server) cookieName() string {
+	return tokenCookie + "_" + strconv.Itoa(s.ln.Addr().(*net.TCPAddr).Port)
+}
 
 // stateInterval is the shortest gap between two state pushes made for the
 // agents' own account. They produce output continuously; the tab bar does not
@@ -343,7 +358,7 @@ func (s *Server) authorised(r *http.Request) bool {
 	if t := r.URL.Query().Get("t"); t != "" && s.tokenMatches(t) {
 		return true
 	}
-	if c, err := r.Cookie(tokenCookie); err == nil {
+	if c, err := r.Cookie(s.cookieName()); err == nil {
 		return s.tokenMatches(c.Value)
 	}
 	return false
@@ -370,7 +385,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// working cookie with one that no longer opens anything.
 	if t := r.URL.Query().Get("t"); s.tokenMatches(t) {
 		http.SetCookie(w, &http.Cookie{
-			Name:     tokenCookie,
+			Name:     s.cookieName(),
 			Value:    t,
 			Path:     "/",
 			HttpOnly: true,
