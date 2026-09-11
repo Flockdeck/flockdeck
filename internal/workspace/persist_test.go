@@ -616,6 +616,40 @@ func TestRestoreSessionKeepsTheTabTheUserLeftOn(t *testing.T) {
 	}
 }
 
+// TestAProjectNotOnScreenComesBackOnItsOwnTab covers every open project but
+// the one being looked at when the window closed. Each was saved as sitting on
+// its first tab, since the tab it had been left on was known only while it was
+// on screen, and the tab it was restored on was then thrown away in favour of
+// the first one anyway.
+func TestAProjectNotOnScreenComesBackOnItsOwnTab(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "theirs")
+	// Leave the second project on its second tab, and quit from the first.
+	ws.SelectProject(first)
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, first)
+	if _, err := again.Restore(); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	again.RestoreSession()
+	again.SelectProject(second)
+
+	if current := again.CurrentTab(); current == nil || current.Title != "theirs" {
+		t.Errorf("the second project came back on %v, want the tab it was left on", current)
+	}
+}
+
 // TestRestoreSessionKeepsReopenedProjectsRecent checks that a project brought
 // back by the saved session counts as used. The recent list is capped, so a
 // project that is always open but never opened by hand would otherwise be the

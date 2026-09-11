@@ -39,10 +39,13 @@ func (w *Workspace) SaveAll() error {
 func (w *Workspace) SaveProject(root string) error {
 	tabs := w.tabsOf(root)
 	st := &store.State{}
-	onScreen := -1
+	onScreen, leftOn := -1, -1
 	for i, t := range tabs {
 		if t.ID == w.activeTab {
 			onScreen = i
+		}
+		if t.ID == w.lastTab[root] {
+			leftOn = i
 		}
 		st.Tabs = append(st.Tabs, store.Tab{
 			Title: t.Title,
@@ -50,12 +53,19 @@ func (w *Workspace) SaveProject(root string) error {
 			Root:  w.encodeNode(t.Tree, t.Root),
 		})
 	}
+	// A project that is not on screen is saved on the tab it was last left on,
+	// which is where switching back to it would land.
+	//
 	// Reading the last saved index back is a whole file read, and it is only
-	// an answer for a project with no tab on screen. Asking for it first and
-	// then throwing it away put that read on the way out of every run and on
-	// every project closed, for the one project it can never apply to.
+	// an answer for a project nobody has been in since it was opened. Asking
+	// for it first and then throwing it away put that read on the way out of
+	// every run and on every project closed, for projects it can never apply
+	// to.
 	st.Active = onScreen
-	if onScreen < 0 {
+	if st.Active < 0 {
+		st.Active = leftOn
+	}
+	if st.Active < 0 {
 		st.Active = w.rememberedActive(root, len(tabs))
 	}
 	return store.Save(root, st)
@@ -194,6 +204,12 @@ func (w *Workspace) restoreProject(root string) int {
 		activeTab = firstTab
 	}
 	w.activeTab = activeTab
+	// Restoring a project alongside the one on screen hands the focus straight
+	// back to that one, so this is also what switching to it should land on.
+	if w.lastTab == nil {
+		w.lastTab = map[string]string{}
+	}
+	w.lastTab[root] = activeTab
 	return added
 }
 
