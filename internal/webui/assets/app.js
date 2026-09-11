@@ -1889,13 +1889,25 @@
    *  as long as the dialog is open and no longer. */
   let wtDraft = { branch: "", base: "" };
 
+  /** openWorktrees opens the dialog and asks for what goes in it. It opens at
+   *  once rather than when the answer arrives, because the same answer comes
+   *  back after every add, remove and prune, and those take seconds: opened
+   *  by its answer, a dialog closed while one of them ran came back over the
+   *  terminals on its own and took the keyboard from the pane being typed
+   *  into. The other dialogs already opened this way; their answers are now
+   *  drawn only into the dialog they belong to. */
+  function openWorktrees() {
+    dialog = "worktrees";
+    worktrees = null;
+    wtDraft = { branch: "", base: "" };
+    openOverlay("Worktrees", "worktrees");
+    $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
+    send({ cmd: "worktrees" });
+  }
+
   function renderWorktrees(msg) {
     if (msg) worktrees = msg;
-    if ($("overlay").hidden || dialog !== "worktrees") {
-      dialog = "worktrees";
-      wtDraft = { branch: "", base: "" };
-      openOverlay("Worktrees", "worktrees");
-    }
+    if (dialog !== "worktrees") return; // closed, or replaced by another
     const m = worktrees || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -2461,7 +2473,7 @@
     agents: () => openAgents(),
     apiKeys: () => openKeys(),
 
-    worktrees: () => send({ cmd: "worktrees" }),
+    worktrees: () => openWorktrees(),
     changes: () => openChanges(),
 
     palette: () => openPalette(),
@@ -2716,10 +2728,7 @@
    *  them can be picked up again, not just the ones a pane is attached to. */
   function renderHistory(msg) {
     if (msg) history = msg;
-    if (dialog !== "history") {
-      dialog = "history";
-      openOverlay("Conversations", "history");
-    }
+    if (dialog !== "history") return; // see openWorktrees
     const m = history || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -2800,7 +2809,7 @@
         diffText = "";
       }
     }
-    if (dialog !== "changes") { dialog = "changes"; openOverlay("Changes", "changes"); }
+    if (dialog !== "changes") return; // see openWorktrees
     const m = changes || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -3052,7 +3061,7 @@
 
   function renderAgents(msg) {
     if (msg) agents = msg;
-    if (dialog !== "agents") { dialog = "agents"; openOverlay("Agents", "status"); }
+    if (dialog !== "agents") return; // see openWorktrees
     const m = agents || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -3405,7 +3414,7 @@
 
   function renderKeys(msg) {
     if (msg) apiKeys = msg;
-    if (dialog !== "keys") { dialog = "keys"; openOverlay("API keys"); }
+    if (dialog !== "keys") return; // see openWorktrees
     const items = (apiKeys && apiKeys.items) || [];
     const body = $("overlay-body");
     body.textContent = "";
@@ -3582,7 +3591,7 @@
 
   function renderFanout(msg) {
     if (msg) fanout = msg;
-    if (dialog !== "fanout") { dialog = "fanout"; openOverlay("Fan out", "fanout"); }
+    if (dialog !== "fanout") return; // see openWorktrees
     const m = fanout || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -4125,7 +4134,7 @@
   wireTabStripDrops();
   wireDragSafetyNet();
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
-  $("btn-worktrees").onclick = () => send({ cmd: "worktrees" });
+  $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;

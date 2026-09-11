@@ -2049,6 +2049,41 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
 `)
 }
 
+// A dialog is opened by asking for it, not by its answer arriving. The answer
+// also comes back after a push, a commit or a worktree being removed, which
+// take seconds, and a dialog closed in the meantime used to come back over the
+// terminals by itself and take the keyboard from the pane being typed into.
+func TestAClosedDialogStaysClosedWhenItsAnswerArrives(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const changes = { type: "changes", cwd: "C:/repo", branch: "main", upstream: "origin/main",
+  hasRemote: true, ahead: 1, files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] };
+h.click(h.$("btn-changes"));
+h.recv(changes);
+const push = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Push 1")[0];
+h.click(push);
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape did not close the dialog");
+h.recv(changes);
+assert.ok(h.$("overlay").hidden, "the push's answer opened the dialog again");
+
+// Worktrees open when asked for, so their answer has nothing to open either.
+h.click(h.$("btn-worktrees"));
+assert.ok(!h.$("overlay").hidden, "the Worktrees button did not open the dialog");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
+h.key({ key: "Escape" });
+h.recv({ type: "worktrees", root: "C:/repo", items: [], branches: [] });
+assert.ok(h.$("overlay").hidden, "a worktree list arriving opened the dialog again");
+
+// Nor does one dialog's answer land in another.
+h.click(h.$("btn-history"));
+h.recv(changes);
+assert.strictEqual(h.$("overlay-title").textContent, "Conversations");
+assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn into the history dialog");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
