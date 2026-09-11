@@ -33,7 +33,12 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<!-- The fonts are a refinement, not the page: loaded as print first and
+     switched on when they arrive, they no longer hold up the first paint
+     while a third-party stylesheet is fetched, and the system faces named in
+     site.css stand in until then. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
