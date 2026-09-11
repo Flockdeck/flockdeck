@@ -261,6 +261,17 @@ func (s *Server) requestQuit() {
 	}
 }
 
+// requestRestart asks the application to stop and come back up. Where nothing
+// is listening it falls back to a plain quit, so the interface's button can
+// never leave the user with a window that did nothing.
+func (s *Server) requestRestart() {
+	if s.OnRestart != nil {
+		s.OnRestart()
+		return
+	}
+	s.requestQuit()
+}
+
 // Detach makes the application keep running after its last window closes, so
 // the agents carry on and can be reattached to later.
 func (s *Server) Detach() {

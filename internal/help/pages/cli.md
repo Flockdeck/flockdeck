@@ -58,6 +58,29 @@ fills all three in, which is why you meet it as a pane rather than type it. Run
 outside a pane it still works, but there is nothing listening for the lifecycle
 events it reports, so nothing turns amber when it wants you.
 
+## update
+
+```sh
+flockdeck update          # fetch the latest release and put it in place
+flockdeck update -check   # say whether there is one, and stop
+```
+
+Releases are published on GitHub as one archive per platform, with a
+`checksums.txt` beside them. The download is checked against its published
+SHA-256 before anything is replaced, and a download that does not match is
+thrown away rather than installed.
+
+Replacing the binary does not disturb an instance that is already running: it
+is running from an image the operating system already holds, so the new version
+is simply what starts next time. The old file is moved aside and swept up by
+the following start.
+
+A build you made yourself is stamped `dev` rather than a version, and is never
+replaced by a release — there is no sense in which it is behind one.
+
+Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own. The
+subcommand still works; it is the background check that goes.
+
 ## Environment
 
 | Variable | Effect |

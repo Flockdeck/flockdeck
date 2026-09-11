@@ -1,0 +1,478 @@
+// Package selfupdate keeps a running Flockdeck up to date from its GitHub
+// releases.
+//
+// The work is split into three steps that are deliberately kept apart, because
+// the application can afford to do the first two at any time and can only ever
+// do the third at a moment of the user's choosing:
+//
+//   - Check asks GitHub what the latest release is.
+//   - Stage downloads it, checks it against the published SHA-256 and unpacks
+//     the binary into the state directory. Nothing about the installation has
+//     changed yet.
+//   - Apply swaps the staged binary into place. This is the only step that
+//     touches the installed program, and it is never done under a running
+//     session: panes hold live agents, and replacing the binary beneath them
+//     to save a restart would cost far more work than it saved.
+//
+// Staging is recorded on disk, so an update downloaded in one run is still
+// there to be applied by the next, and a half-finished download is never
+// mistaken for a finished one.
+package selfupdate
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+// Repo is the repository releases are read from, as owner/name.
+const Repo = "jmwri/flockdeck"
+
+// binaryName is what the binary is called inside a release archive.
+var binaryName = func() string {
+	if runtime.GOOS == "windows" {
+		return "flockdeck.exe"
+	}
+	return "flockdeck"
+}()
+
+// ErrNoAsset is returned when a release carries nothing built for this
+// platform, which is what a partly-uploaded release looks like from here.
+var ErrNoAsset = errors.New("this release has no build for this platform")
+
+// Asset is one file attached to a release.
+type Asset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
+	Size int64  `json:"size"`
+}
+
+// Release is a published release, reduced to what an update needs.
+type Release struct {
+	Version string  `json:"tag_name"`
+	Notes   string  `json:"body"`
+	URL     string  `json:"html_url"`
+	Draft   bool    `json:"draft"`
+	Pre     bool    `json:"prerelease"`
+	Assets  []Asset `json:"assets"`
+}
+
+// Pending is an update that has been downloaded, checked and unpacked, and is
+// waiting for a restart to be applied.
+type Pending struct {
+	Version string    `json:"version"`
+	Binary  string    `json:"binary"`
+	Notes   string    `json:"notes,omitempty"`
+	URL     string    `json:"url,omitempty"`
+	Staged  time.Time `json:"staged"`
+}
+
+// client is given a timeout because an update is never urgent: a check that
+// hangs must not be able to hold a shutdown open or keep a goroutine for the
+// life of the process.
+var client = &http.Client{Timeout: 5 * time.Minute}
+
+func get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "flockdeck-updater")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+	}
+	return resp, nil
+}
+
+// Latest returns the most recent published release.
+func Latest(ctx context.Context) (*Release, error) {
+	resp, err := get(ctx, "https://api.github.com/repos/"+Repo+"/releases/latest")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rel Release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
+		return nil, fmt.Errorf("read release: %w", err)
+	}
+	return &rel, nil
+}
+
+// Check returns the latest release when it is newer than the version given,
+// and nil when there is nothing to do.
+//
+// An unreadable current version — `dev`, which is what a build with no tag
+// behind it is stamped — means nothing to do, so a local build is never
+// replaced by a published one.
+func Check(ctx context.Context, current string) (*Release, error) {
+	rel, err := Latest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if rel.Draft || !Newer(rel.Version, current) {
+		return nil, nil
+	}
+	return rel, nil
+}
+
+// assetFor picks the archive built for this platform. The name is the contract
+// with cmd/release, which writes flockdeck_<version>_<os>_<arch>.<ext>.
+func (r *Release) assetFor(goos, goarch string) (Asset, bool) {
+	suffix := fmt.Sprintf("_%s_%s.", goos, goarch)
+	for _, a := range r.Assets {
+		if strings.Contains(a.Name, suffix) {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
+func (r *Release) checksums() (Asset, bool) {
+	for _, a := range r.Assets {
+		if a.Name == "checksums.txt" {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
+// Stage downloads the release, checks it and unpacks the binary under dir.
+//
+// The download is hashed as it is written rather than read back afterwards, so
+// a file that does not match is never on disk in a state anything could mistake
+// for finished, and a truncated transfer fails here rather than at the swap.
+func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+	asset, ok := rel.assetFor(runtime.GOOS, runtime.GOARCH)
+	if !ok {
+		return nil, ErrNoAsset
+	}
+	sumsAsset, ok := rel.checksums()
+	if !ok {
+		return nil, errors.New("release has no checksums.txt to check the download against")
+	}
+
+	want, err := fetchSum(ctx, sumsAsset.URL, asset.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Anything left from an interrupted attempt goes first: a stale archive or
+	// a half-unpacked binary under the same name would otherwise be picked up
+	// as though this run had produced it.
+	staging := filepath.Join(dir, "staging")
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return nil, err
+	}
+
+	archive := filepath.Join(staging, asset.Name)
+	if err := download(ctx, asset.URL, archive, want); err != nil {
+		return nil, err
+	}
+
+	binary := filepath.Join(staging, binaryName)
+	if err := unpack(archive, binary); err != nil {
+		return nil, err
+	}
+	if err := os.Remove(archive); err != nil {
+		return nil, err
+	}
+
+	p := &Pending{
+		Version: rel.Version,
+		Binary:  binary,
+		Notes:   rel.Notes,
+		URL:     rel.URL,
+		Staged:  time.Now().UTC(),
+	}
+	if err := save(dir, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// fetchSum reads checksums.txt and returns the hash recorded for one file.
+func fetchSum(ctx context.Context, url, name string) (string, error) {
+	resp, err := get(ctx, url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && f[1] == name {
+			return strings.ToLower(f[0]), nil
+		}
+	}
+	return "", fmt.Errorf("checksums.txt does not list %s", name)
+}
+
+func download(ctx context.Context, url, dest, want string) error {
+	resp, err := get(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(dest)
+		return err
+	}
+
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		os.Remove(dest)
+		return fmt.Errorf("download does not match its published checksum (got %s, want %s)", got[:12], want[:12])
+	}
+	return nil
+}
+
+// unpack writes the one file that matters — the binary — out of the archive.
+func unpack(archive, dest string) error {
+	if strings.HasSuffix(archive, ".zip") {
+		return unzip(archive, dest)
+	}
+	return untar(archive, dest)
+}
+
+func unzip(archive, dest string) error {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if filepath.Base(f.Name) != binaryName {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		return writeBinary(dest, rc)
+	}
+	return fmt.Errorf("archive does not contain %s", binaryName)
+}
+
+func untar(archive, dest string) error {
+	f, err := os.Open(archive)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if h.Typeflag != tar.TypeReg || filepath.Base(h.Name) != binaryName {
+			continue
+		}
+		return writeBinary(dest, tr)
+	}
+	return fmt.Errorf("archive does not contain %s", binaryName)
+}
+
+func writeBinary(dest string, r io.Reader) error {
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(dest)
+		return err
+	}
+	// The mode given to OpenFile is only a request, and an existing file keeps
+	// the mode it had. On the platforms where it matters an unexecutable binary
+	// would fail at the worst possible moment, after the swap.
+	return os.Chmod(dest, 0o755)
+}
+
+// --- what has been staged -------------------------------------------------
+
+func pendingPath(dir string) string { return filepath.Join(dir, "pending.json") }
+
+func save(dir string, p *Pending) error {
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := pendingPath(dir) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, pendingPath(dir))
+}
+
+// Load returns the update waiting to be applied, if there is one.
+//
+// A record whose binary has gone is not an update: the file can be cleared out
+// from under us by anything that tidies temporary directories, and reporting an
+// update that could not possibly be applied would put a badge in the interface
+// that a restart would never clear.
+func Load(dir string) (*Pending, bool) {
+	data, err := os.ReadFile(pendingPath(dir))
+	if err != nil {
+		return nil, false
+	}
+	var p Pending
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, false
+	}
+	if p.Version == "" || p.Binary == "" {
+		return nil, false
+	}
+	if _, err := os.Stat(p.Binary); err != nil {
+		return nil, false
+	}
+	return &p, true
+}
+
+// Discard forgets a staged update and removes what it downloaded.
+func Discard(dir string) {
+	os.Remove(pendingPath(dir))
+	os.RemoveAll(filepath.Join(dir, "staging"))
+}
+
+// --- putting it in place --------------------------------------------------
+
+// Apply replaces the running program's file with the staged binary.
+//
+// The running file is moved aside rather than written over. Windows will not
+// let an executable that is running be replaced, but it will let it be
+// renamed, so moving it out of the way and putting the new one at the old name
+// works while the program is still running from it. The moved-aside file is
+// swept up by the next start, once nothing holds it open.
+//
+// The staged binary is copied rather than renamed into place because the state
+// directory and the installation are frequently on different volumes, and a
+// rename across volumes fails.
+func Apply(dir, exePath string) error {
+	p, ok := Load(dir)
+	if !ok {
+		return errors.New("no update has been staged")
+	}
+
+	exePath, err := filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return err
+	}
+
+	// Landing the copy beside the program, rather than copying straight over
+	// it, keeps the window in which the file exists but is incomplete off the
+	// name that is about to be run.
+	next := exePath + ".new"
+	if err := copyFile(p.Binary, next); err != nil {
+		return fmt.Errorf("write the new version beside the old one: %w", err)
+	}
+
+	old := exePath + ".old"
+	os.Remove(old)
+	if err := os.Rename(exePath, old); err != nil {
+		os.Remove(next)
+		return fmt.Errorf("move the running version aside: %w", err)
+	}
+	if err := os.Rename(next, exePath); err != nil {
+		// Put back what was there. Leaving no program at all under the name
+		// the user starts is far worse than failing to update.
+		os.Rename(old, exePath)
+		os.Remove(next)
+		return fmt.Errorf("put the new version in place: %w", err)
+	}
+
+	Discard(dir)
+	return nil
+}
+
+// Sweep removes the file a previous Apply moved aside. It is called at startup,
+// by which time nothing holds the old program open.
+func Sweep(exePath string) {
+	if exePath == "" {
+		return
+	}
+	os.Remove(exePath + ".old")
+	os.Remove(exePath + ".new")
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(dst)
+		return err
+	}
+	return os.Chmod(dst, 0o755)
+}
+
+// Dir is where updates are staged, given the application's state directory.
+func Dir(state string) (string, error) {
+	dir := filepath.Join(state, "updates")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}

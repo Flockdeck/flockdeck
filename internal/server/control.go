@@ -103,6 +103,10 @@ type stateMsg struct {
 	// snapshot rather than being asked for, because the picker is opened from
 	// a keystroke and should draw itself in the frame that follows it.
 	Agents agentCatalog `json:"agents"`
+	// Update is the release that has been downloaded and is waiting for a
+	// restart, or nil when there is nothing to apply. It rides on the snapshot
+	// so the badge appears without the page having to ask.
+	Update *UpdateView `json:"update,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -234,6 +238,7 @@ func (s *Server) snapshot() stateMsg {
 		Working:         working,
 		Agents:          s.catalog(),
 		Panes:           map[string]paneView{},
+		Update:          s.Update(),
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -897,6 +902,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "quit":
 			_ = ws.SaveAll()
 			go s.requestQuit()
+		case "restart":
+			// The layout is saved here as well as by the shutdown, because a
+			// restart is the one quit the user expects to come back to exactly
+			// what they were looking at.
+			_ = ws.SaveAll()
+			go s.requestRestart()
 		default:
 			return
 		}

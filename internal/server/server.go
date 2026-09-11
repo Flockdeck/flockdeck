@@ -104,7 +104,31 @@ type Server struct {
 	// OnQuit is called when a shutdown is requested from the interface or by
 	// another launch of the binary.
 	OnQuit func()
+	// OnRestart is called when the interface asks to come back up on a newly
+	// downloaded version. It is separate from OnQuit because the shutdown has
+	// to know whether to start the program again once it has replaced it.
+	OnRestart func()
+
+	// update is the release waiting to be applied, if one has been downloaded.
+	// It is read on every snapshot and written by whatever is watching for
+	// releases, so it is held as a pointer that is swapped rather than a
+	// struct that is edited.
+	update atomic.Pointer[UpdateView]
 }
+
+// UpdateView is a downloaded release as the interface shows it.
+type UpdateView struct {
+	Version string `json:"version"`
+	Notes   string `json:"notes,omitempty"`
+	URL     string `json:"url,omitempty"`
+}
+
+// SetUpdate records that a release has been staged and is ready to be applied
+// by a restart, so the next snapshot tells the windows about it.
+func (s *Server) SetUpdate(u *UpdateView) { s.update.Store(u) }
+
+// Update returns the staged release, or nil when there is none.
+func (s *Server) Update() *UpdateView { return s.update.Load() }
 
 // New starts a server for the workspace on a free loopback port.
 func New(ws *workspace.Workspace) (*Server, error) {

@@ -1,0 +1,252 @@
+package selfupdate
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+// buildArchive makes a release archive of the shape cmd/release produces, in
+// the format this platform's release uses, holding body as the binary.
+func buildArchive(t *testing.T, body string) (name string, data []byte) {
+	t.Helper()
+	var buf strings.Builder
+
+	if runtime.GOOS == "windows" {
+		var b []byte
+		bw := &byteWriter{}
+		zw := zip.NewWriter(bw)
+		h := &zip.FileHeader{Name: binaryName, Method: zip.Deflate}
+		h.SetMode(0o755)
+		w, err := zw.CreateHeader(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		b = bw.b
+		return "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".zip", b
+	}
+
+	bw := &byteWriter{}
+	gz := gzip.NewWriter(bw)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: binaryName, Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = buf
+	return "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", bw.b
+}
+
+type byteWriter struct{ b []byte }
+
+func (w *byteWriter) Write(p []byte) (int, error) { w.b = append(w.b, p...); return len(p), nil }
+
+// releaseServer stands in for GitHub, serving one release whose checksums file
+// can be made to disagree with the archive so the checking path can be tested.
+func releaseServer(t *testing.T, archiveName string, archive []byte, sum string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) { w.Write(archive) })
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n", sum, archiveName)
+	})
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Release{
+			Version: "v9.9.9",
+			Notes:   "notes",
+			URL:     "https://example.invalid/rel",
+			Assets: []Asset{
+				{Name: archiveName, URL: srv.URL + "/archive"},
+				{Name: "checksums.txt", URL: srv.URL + "/checksums.txt"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func fetchRelease(t *testing.T, url string) *Release {
+	t.Helper()
+	resp, err := get(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var rel Release
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		t.Fatal(err)
+	}
+	return &rel
+}
+
+func TestStageUnpacksTheBinaryAndRecordsIt(t *testing.T) {
+	const body = "the new program"
+	name, archive := buildArchive(t, body)
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+
+	dir := t.TempDir()
+	p, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if p.Version != "v9.9.9" {
+		t.Errorf("version = %q, want v9.9.9", p.Version)
+	}
+	got, err := os.ReadFile(p.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Errorf("staged binary = %q, want %q", got, body)
+	}
+
+	loaded, ok := Load(dir)
+	if !ok || loaded.Version != "v9.9.9" {
+		t.Errorf("Load = %+v, %v; want the staged update", loaded, ok)
+	}
+}
+
+func TestStageRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	// A hash of something else entirely: what a corrupted or swapped download
+	// looks like from here.
+	wrong := sha256.Sum256([]byte("not what was served"))
+	srv := releaseServer(t, name, archive, hex.EncodeToString(wrong[:]))
+
+	dir := t.TempDir()
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err == nil {
+		t.Fatal("Stage accepted an archive that did not match its published checksum")
+	}
+	if _, ok := Load(dir); ok {
+		t.Error("a rejected download was still recorded as staged")
+	}
+}
+
+func TestStageRefusesAReleaseWithNothingForThisPlatform(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Release{
+			Version: "v9.9.9",
+			Assets:  []Asset{{Name: "flockdeck_v9.9.9_plan9_mips.tar.gz"}, {Name: "checksums.txt"}},
+		})
+	}))
+	defer srv.Close()
+
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL), t.TempDir()); err != ErrNoAsset {
+		t.Errorf("err = %v, want ErrNoAsset", err)
+	}
+}
+
+func TestApplySwapsTheBinaryAndMovesTheOldOneAside(t *testing.T) {
+	dir := t.TempDir()
+	install := t.TempDir()
+
+	exe := filepath.Join(install, binaryName)
+	if err := os.WriteFile(exe, []byte("the old program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(staging, binaryName)
+	if err := os.WriteFile(staged, []byte("the new program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := save(dir, &Pending{Version: "v9.9.9", Binary: staged}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Apply(dir, exe); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "the new program" {
+		t.Errorf("installed binary = %q, want the new program", got)
+	}
+	if _, err := os.Stat(exe + ".old"); err != nil {
+		t.Error("the replaced program was not moved aside for the next start to sweep")
+	}
+	if _, ok := Load(dir); ok {
+		t.Error("the update was still recorded as pending after being applied")
+	}
+
+	Sweep(exe)
+	if _, err := os.Stat(exe + ".old"); !os.IsNotExist(err) {
+		t.Error("Sweep left the moved-aside program behind")
+	}
+}
+
+func TestApplyLeavesTheProgramInPlaceWhenNothingIsStaged(t *testing.T) {
+	install := t.TempDir()
+	exe := filepath.Join(install, binaryName)
+	if err := os.WriteFile(exe, []byte("the old program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Apply(t.TempDir(), exe); err == nil {
+		t.Fatal("Apply reported success with nothing staged")
+	}
+	got, _ := os.ReadFile(exe)
+	if string(got) != "the old program" {
+		t.Errorf("installed binary = %q; a failed Apply must not disturb it", got)
+	}
+}
+
+func TestLoadIgnoresARecordWhoseDownloadHasGone(t *testing.T) {
+	dir := t.TempDir()
+	if err := save(dir, &Pending{Version: "v9.9.9", Binary: filepath.Join(dir, "staging", binaryName)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Load(dir); ok {
+		t.Error("an update whose binary is missing was reported as ready to apply")
+	}
+}
+
+func TestCheckIgnoresAnUntaggedLocalBuild(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Release{Version: "v9.9.9"})
+	}))
+	defer srv.Close()
+
+	rel := fetchRelease(t, srv.URL)
+	if Newer(rel.Version, "dev") {
+		t.Error("a published release was treated as newer than an untagged local build")
+	}
+}

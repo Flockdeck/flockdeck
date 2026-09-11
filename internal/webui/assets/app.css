@@ -421,6 +421,19 @@ textarea:focus-visible {
 .wt-flag.agents { color: var(--accent); border-color: var(--accent); }
 .wt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .chip.danger { border-color: var(--exited); color: var(--exited); }
+
+/* The update chip is the only thing in the bar that appears on its own
+   account rather than because the user opened something, so it is given the
+   accent to be findable, and nothing louder because it is never urgent. */
+.chip.update { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip.update:hover { background: var(--accent); border-color: var(--accent); color: #06101f; }
+.update-notes {
+  max-height: 220px; overflow: auto; white-space: pre-wrap;
+  background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);
+  border-radius: 6px; padding: 10px 12px; margin: 12px 0;
+  font-size: 12px; line-height: 1.5;
+}
+.update-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .chip.danger:hover { background: var(--exited); color: #1a0d0c; }
 
 /* A text field's automatic minimum width is its default twenty-character size,

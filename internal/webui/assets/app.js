@@ -263,6 +263,50 @@
     ws.onerror = () => ws.close();
   }
 
+  /** renderUpdate shows the chip when a release has been downloaded.
+   *
+   *  It is keyed on the version so the chip is not rebuilt on every snapshot,
+   *  which arrive several times a second while agents are working. */
+  let updateShown = null;
+  function renderUpdate(s) {
+    const u = s.update || null;
+    const key = u ? u.version : "";
+    if (key === updateShown) return;
+    updateShown = key;
+    const b = $("btn-update");
+    if (!u) { b.hidden = true; return; }
+    b.textContent = "Update " + u.version;
+    describe(b, "Version " + u.version + " has been downloaded and is ready to install");
+    b.hidden = false;
+  }
+
+  /** openUpdate explains what installing costs before it is done.
+   *
+   *  What it costs is the running agents: the layout comes back, but a pane is
+   *  a live process and restarting stops it. Saying so here is the difference
+   *  between a restart the user chose and one they regret. */
+  function openUpdate() {
+    const u = state && state.update;
+    if (!u) return;
+    openOverlay("Update to " + u.version);
+    const body = $("overlay-body");
+    body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
+    if (u.notes) body.append(el("pre", "update-notes", u.notes));
+    if (u.url) {
+      const a = el("a", "", "Release notes on GitHub");
+      a.href = u.url; a.target = "_blank"; a.rel = "noreferrer noopener";
+      body.append(a);
+    }
+    const row = el("div", "update-row");
+    const go = el("button", "chip primary", "Restart now");
+    go.onclick = () => { closeOverlay(); send({ cmd: "restart" }); };
+    const later = el("button", "chip", "Later");
+    later.onclick = closeOverlay;
+    row.append(go, later);
+    body.append(row);
+    go.focus();
+  }
+
   function send(cmd) {
     if (control && control.readyState === WebSocket.OPEN) {
       control.send(JSON.stringify(cmd));
@@ -286,6 +330,7 @@
     showActiveTab(s, rebuilt);
     renderTabs(s);
     renderSummary(s);
+    renderUpdate(s);
     updatePaneChrome(s);
     prunePanes(s);
     notifyAttention(s);
@@ -2225,6 +2270,7 @@
     fontReset: () => setFontSize(13),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
+    update: openUpdate,
   };
 
   /** applyHello takes the action table and the preferences, which arrive
@@ -3879,6 +3925,7 @@
   // Bound through a closure rather than passed straight in: the click event
   // would otherwise arrive as the page to open.
   $("btn-help").onclick = () => openHelp();
+  $("btn-update").onclick = () => openUpdate();
   $("overlay-close").onclick = closeOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;

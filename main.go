@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -80,6 +81,19 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		if err := runKeys(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flockdeck keys:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	// `update` fetches the latest release and puts it in place. It is a
+	// subcommand rather than something only the interface can do, so that a
+	// detached instance, or one being run from a terminal, can be updated
+	// without opening a window to click in.
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if err := runUpdate(os.Args[2:]); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck update:", err)
+			}
 			os.Exit(1)
 		}
 		return
@@ -350,6 +364,10 @@ var useAgent = func(ws *workspace.Workspace, agentID string) {}
 
 // run starts the workspace, serves it and shows the window.
 func run(opts options) error {
+	// Anything a previous update moved aside can go now, before the interface
+	// is up and while nothing is looking.
+	sweepReplacedBinary()
+
 	root, err := filepath.Abs(opts.dir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
@@ -456,6 +474,19 @@ func run(opts options) error {
 	go interrupts(sigs, stop, forceQuit)
 
 	srv.OnQuit = stop
+	// A restart is a quit that comes back. The server only asks; the shutdown
+	// path decides what that means, which keeps the order — save, replace,
+	// start again — in one place.
+	srv.OnRestart = func() {
+		restarting.Store(true)
+		stop()
+	}
+
+	// Watching for releases runs for the life of the server and stops with it,
+	// so a check in flight cannot hold the shutdown open.
+	updateCtx, stopUpdates := context.WithCancel(context.Background())
+	defer stopUpdates()
+	go watchForUpdates(updateCtx, srv)
 	if opts.detach {
 		srv.Detach()
 	}
@@ -518,6 +549,17 @@ func run(opts options) error {
 
 	if err := shutdown(srv.Close, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
+	}
+
+	// The interface is closed and the panes are gone, which is the only moment
+	// the program's own file can be replaced without pulling it out from under
+	// a running session. A staged update goes in now, so the next start —
+	// whether the user's or the relaunch just below — is the new version.
+	applyStagedUpdate(os.Stderr)
+	if restarting.Load() {
+		if err := relaunch(); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+		}
 	}
 	return nil
 }

@@ -87,6 +87,32 @@ front end, so `windows`, `linux` and `darwin` on both `amd64` and `arm64` all
 cross-compile from any one machine with nothing but the Go toolchain. There is
 one artifact: a single binary with no assets to install beside it.
 
+### Staying up to date
+
+Every release is published on GitHub as one archive per platform — a `.zip` for
+Windows, a `.tar.gz` elsewhere — with a `checksums.txt` beside them. Tagging a
+commit `v1.2.3` is the whole of cutting one: the workflow vets, tests,
+cross-builds all six and publishes them.
+
+A running Flockdeck watches for releases and downloads anything newer in the
+background, checking it against its published SHA-256. Nothing is replaced
+while you are working. When a release is ready a chip appears in the top bar,
+and installing it is a restart you ask for: the layout is saved and reopened,
+though the agents running in panes are stopped, which is why it is never done
+for you.
+
+From a terminal:
+
+```sh
+flockdeck update          # fetch the latest release and put it in place
+flockdeck update -check   # say whether there is one, and stop
+```
+
+Replacing the binary leaves a running instance alone — it is already loaded —
+so the new version is what starts next time. A build you made yourself is
+stamped `dev` and is never replaced by a release. `FLOCKDECK_UPDATE=off` turns
+the background check off; the subcommand still works.
+
 ## Running it
 
 Double-click the binary, launch it from a shortcut, or run it from a terminal —
