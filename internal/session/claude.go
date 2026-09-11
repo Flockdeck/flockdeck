@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // LookClaude returns the path to the claude CLI, or an error explaining that
@@ -180,13 +182,5 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 // resuming one would kill it on restart, and would kill every such pane when a
 // saved layout is restored.
 func ConversationExists(sessionID string) bool {
-	path := TranscriptPath(sessionID)
-	if path == "" {
-		return false
-	}
-	// The file existing is not enough: a session that was interrupted before
-	// it recorded anything leaves an empty one behind, and Claude Code refuses
-	// that the same way it refuses a missing one.
-	fi, err := os.Stat(path)
-	return err == nil && fi.Size() > 0
+	return transcript.Exists(claudeSpec, sessionID)
 }
