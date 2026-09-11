@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -81,10 +80,7 @@ func TestApplyWhileTheLastReplacedProgramIsStillRunning(t *testing.T) {
 // the format this platform's release uses, holding body as the binary.
 func buildArchive(t *testing.T, body string) (name string, data []byte) {
 	t.Helper()
-	var buf strings.Builder
-
 	if runtime.GOOS == "windows" {
-		var b []byte
 		bw := &byteWriter{}
 		zw := zip.NewWriter(bw)
 		h := &zip.FileHeader{Name: binaryName, Method: zip.Deflate}
@@ -99,8 +95,7 @@ func buildArchive(t *testing.T, body string) (name string, data []byte) {
 		if err := zw.Close(); err != nil {
 			t.Fatal(err)
 		}
-		b = bw.b
-		return "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".zip", b
+		return "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".zip", bw.b
 	}
 
 	bw := &byteWriter{}
@@ -120,7 +115,6 @@ func buildArchive(t *testing.T, body string) (name string, data []byte) {
 	if err := gz.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_ = buf
 	return "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", bw.b
 }
 
