@@ -2,12 +2,16 @@
 
 The things that go wrong most often, and what they mean.
 
-## An agent pane opened as a shell
+## A pane says its CLI was not found on PATH
 
-The agent's command was not found on your `PATH`. Install it — the picker shows
-where to get every agent it knows about, and Claude Code is at
-[claude.com/claude-code](https://claude.com/claude-code) — then restart the
-application, because the lookup is done at startup.
+The agent's command is not on your `PATH`, so the pane shows that message where
+its terminal would be. Install it — the picker shows where to get every agent it
+knows about, and Claude Code is at
+[claude.com/claude-code](https://claude.com/claude-code) — then press
+**Restart** on the pane. The command is looked for each time a pane starts, but
+in the `PATH` Flockdeck itself was started with: if the installer added a new
+directory to `PATH` rather than using one already on it, quit Flockdeck and
+start it again so that it sees the change.
 
 ## An agent is greyed out in the picker
 
