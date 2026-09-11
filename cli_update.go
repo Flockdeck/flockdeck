@@ -114,12 +114,22 @@ func applyStagedUpdate(out io.Writer) {
 	if err != nil {
 		return
 	}
-	exe, err := os.Executable()
-	if err != nil {
+	if startedAs == "" {
 		return
 	}
-	applyStaged(out, dir, exe, version)
+	applyStaged(out, dir, startedAs, version)
 }
+
+// startedAs is the program this process was started from, asked once, as it
+// starts.
+//
+// Asking later is not the same question. On Linux the answer follows the file
+// to wherever it has since been renamed, and `flockdeck update` run from a
+// terminal renames a running instance's program to <name>.old to put the new
+// one in its place. That instance then applied its own staged update at exit
+// to the .old file — the next start swept it away — and restarted into it,
+// while reporting that it had updated.
+var startedAs, _ = os.Executable()
 
 // applyStaged is applyStagedUpdate for a given staging directory, program and
 // running version, so that a test can hand it all three.
@@ -166,11 +176,10 @@ func stagedUpdate(dir, current string) (*selfupdate.Pending, bool) {
 // a project nobody asked for, given a fresh agent pane of its own beside the
 // ones the saved session brought back.
 func relaunch(root string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
+	if startedAs == "" {
+		return errors.New("could not tell where the program is")
 	}
-	cmd := relaunchCommand(exe, root)
+	cmd := relaunchCommand(startedAs, root)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -200,9 +209,7 @@ var restarting atomic.Bool
 // program open: the run that replaced it was still executing from it right up
 // until it exited.
 func sweepReplacedBinary() {
-	if exe, err := os.Executable(); err == nil {
-		selfupdate.Sweep(exe)
-	}
+	selfupdate.Sweep(startedAs)
 }
 
 // updateEnv turns the check off. It is read rather than kept as a setting
