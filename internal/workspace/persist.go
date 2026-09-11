@@ -218,24 +218,29 @@ func (w *Workspace) restoreProject(root string) int {
 //
 // The saved layout carries the title but nothing saying who chose it, so the
 // test is whether it is still the name the tab would have been given
-// automatically: the directory it was opened on. Without this, a tab created
-// but never prompted before a restart would keep its directory name forever,
-// while an identical tab created after one would rename itself — the same tab
+// automatically: the name of the pane it was opened with, which is that pane's
+// directory — the project's only for a tab opened in the project itself, and
+// the worktree's for one opened on a worktree. Without this, a tab created but
+// never prompted before a restart would keep its directory name forever, while
+// an identical tab created after one would rename itself — the same tab
 // behaving differently for no reason the user can see.
 //
 // A tab the user deliberately named after its own directory loses nothing much
 // by being renamed once more; a tab named after a prompt keeps that name.
 func (w *Workspace) stillAutoTitled(t *Tab) bool {
-	if t.Title != filepath.Base(t.Root) {
-		return false
-	}
 	// Only an agent pane reports the prompts a rename would come from.
+	agents := false
 	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.IsAgent() {
+		p := w.Pane(id)
+		if p == nil || !p.IsAgent() {
+			continue
+		}
+		if t.Title == p.Name {
 			return true
 		}
+		agents = true
 	}
-	return false
+	return agents && t.Title == filepath.Base(t.Root)
 }
 
 // ensureProjectOpen opens the project a restored pane belongs to, so a tab

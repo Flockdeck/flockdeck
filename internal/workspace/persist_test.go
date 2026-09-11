@@ -544,6 +544,24 @@ func TestRestoredShellTabKeepsItsName(t *testing.T) {
 	}
 }
 
+// TestARestoredWorktreeTabStillNamesItself covers a tab opened on a worktree,
+// which is named after the worktree rather than after the project. Only the
+// project's own name was recognised as automatic, so a tab like that stopped
+// renaming itself after its first prompt as soon as it had been restored.
+func TestARestoredWorktreeTabStillNamesItself(t *testing.T) {
+	w := &Workspace{panes: map[string]*Pane{
+		"a": {ID: "a", Kind: session.KindClaude, Cwd: "/src/api-fix-auth", Name: "api-fix-auth"},
+	}}
+	tab := &Tab{Root: "/src/api", Title: "api-fix-auth", Tree: layout.NewLeaf("a")}
+	if !w.stillAutoTitled(tab) {
+		t.Error("a worktree tab under its automatic name is not waiting to be renamed")
+	}
+	tab.Title = "fix the token refresh"
+	if w.stillAutoTitled(tab) {
+		t.Error("a tab named after a prompt would be renamed again")
+	}
+}
+
 // TestRestoreSessionDoesNotReopenTheActiveProject covers a saved session that
 // spells the project the window was started on differently — a trailing
 // separator here, but on Windows and macOS it is as likely to be the case of a
