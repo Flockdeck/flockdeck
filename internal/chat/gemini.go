@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -25,6 +26,11 @@ type geminiPart struct {
 	Text         string            `json:"text,omitempty"`
 	FunctionCall *geminiCall       `json:"functionCall,omitempty"`
 	Response     *geminiCallAnswer `json:"functionResponse,omitempty"`
+	// Thought marks a part that is the model's reasoning rather than its
+	// answer, and ThoughtSignature is what has to come back with a call the
+	// model made after thinking.
+	Thought          bool   `json:"thought,omitempty"`
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 type geminiCall struct {
@@ -64,6 +70,11 @@ type geminiConfig struct {
 }
 
 func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) error {
+	if req.Model == "" {
+		// The model is part of the address here, so there is no endpoint
+		// default to fall back on, and asking anyway is a 404 naming a path.
+		return errors.New("the Gemini API needs a model named: choose one with /model, for example /model gemini-2.5-pro")
+	}
 	body := geminiRequest{Contents: geminiContents(req.Messages)}
 	if req.System != "" {
 		body.SystemInstruction = &geminiContent{Parts: []geminiPart{{Text: req.System}}}
@@ -105,6 +116,9 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			UsageMetadata struct {
 				PromptTokenCount     int `json:"promptTokenCount"`
 				CandidatesTokenCount int `json:"candidatesTokenCount"`
+				// The reasoning a thinking model did is billed as output
+				// but counted apart from the answer.
+				ThoughtsTokenCount int `json:"thoughtsTokenCount"`
 			} `json:"usageMetadata"`
 			Error struct {
 				Message string `json:"message"`
@@ -121,21 +135,25 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		if chunk.UsageMetadata.PromptTokenCount > 0 || chunk.UsageMetadata.CandidatesTokenCount > 0 {
 			usage = Usage{
 				In:  chunk.UsageMetadata.PromptTokenCount,
-				Out: chunk.UsageMetadata.CandidatesTokenCount,
+				Out: chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
 			}
 		}
 		for _, c := range chunk.Candidates {
 			for _, p := range c.Content.Parts {
-				if p.Text != "" {
+				switch {
+				case p.Text != "" && p.Thought:
+					emit(Event{Kind: EventThinking, Text: p.Text})
+				case p.Text != "":
 					emit(Event{Kind: EventText, Text: p.Text})
 				}
 				if p.FunctionCall != nil {
 					calls = append(calls, ToolCall{
 						// The name doubles as the id: there is nothing else to
 						// quote in the answer, and the answer names the tool.
-						ID:   p.FunctionCall.Name,
-						Name: p.FunctionCall.Name,
-						Args: argsOrEmpty(p.FunctionCall.Args),
+						ID:        p.FunctionCall.Name,
+						Name:      p.FunctionCall.Name,
+						Args:      argsOrEmpty(p.FunctionCall.Args),
+						Signature: p.ThoughtSignature,
 					})
 				}
 			}
@@ -179,7 +197,8 @@ func geminiContents(msgs []Message) []geminiContent {
 			}
 			for _, c := range m.Calls {
 				parts = append(parts, geminiPart{
-					FunctionCall: &geminiCall{Name: c.Name, Args: argsOrEmpty(c.Args)},
+					FunctionCall:     &geminiCall{Name: c.Name, Args: argsOrEmpty(c.Args)},
+					ThoughtSignature: c.Signature,
 				})
 			}
 			if len(parts) == 0 {

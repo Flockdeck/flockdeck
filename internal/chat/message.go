@@ -38,6 +38,10 @@ type ToolCall struct {
 	// the way to the tool because a tool's own schema is the only thing that
 	// knows their shape.
 	Args json.RawMessage
+	// Signature is an opaque token a vendor attached to the call and wants
+	// back with it: Gemini's thought signature, without which a model that
+	// thought before calling refuses the request carrying the answer.
+	Signature string
 }
 
 // Message is one entry in a conversation, in the single shape all three wires
