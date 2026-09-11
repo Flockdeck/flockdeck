@@ -584,6 +584,16 @@ func (r *controlReader) settle(t *testing.T) {
 // change anything the snapshot carries, and a window that is handed the state
 // it already holds parses it and re-renders the whole interface for nothing.
 func TestUnchangedStateIsNotResent(t *testing.T) {
+	// The process table is read every few seconds and the shell's figures move
+	// with it, which is a real change and rightly sent. Held still here, so that
+	// whether a reading lands inside the window below is not what decides the
+	// test.
+	was := usageOf
+	usageOf = func(*session.Session) session.Usage {
+		return session.Usage{CPUPercent: 3, RSSBytes: 50 << 20, Procs: 2, Known: true}
+	}
+	t.Cleanup(func() { usageOf = was })
+
 	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	r := readControl(conn)
@@ -605,6 +615,35 @@ func TestUnchangedStateIsNotResent(t *testing.T) {
 		return len(s.Tabs) == 2 && s.Tabs[1].Title == "second"
 	}); !ok {
 		t.Fatal("a real change was not broadcast")
+	}
+}
+
+// TestUsageIsSentAsShown covers the figures the process table gives, which are
+// different at every reading. Sent raw, each reading made a new snapshot for
+// every window even when the header then drew exactly what it drew before.
+func TestUsageIsSentAsShown(t *testing.T) {
+	for _, c := range []struct {
+		cpu     float64
+		rss     uint64
+		wantCPU float64
+		wantRSS uint64
+	}{
+		{0, 0, 0, 0},
+		{0.4, 900, 0, 900},
+		{12.6, 1536, 13, 1536},
+		{99.5, 12_345_678, 100, 12_373_196},    // 11.8 MB
+		{250.2, 130_000_000, 250, 130_023_424}, // 124 MB
+	} {
+		cpu, rss, _ := shownUsage(session.Usage{CPUPercent: c.cpu, RSSBytes: c.rss})
+		if cpu != c.wantCPU || rss != c.wantRSS {
+			t.Errorf("shownUsage(%v, %d) = %v, %d; want %v, %d", c.cpu, c.rss, cpu, rss, c.wantCPU, c.wantRSS)
+		}
+	}
+	// Two readings that the window would draw alike are sent alike.
+	_, a, _ := shownUsage(session.Usage{RSSBytes: 50 << 20})
+	_, b, _ := shownUsage(session.Usage{RSSBytes: 50<<20 + 4096})
+	if a != b {
+		t.Errorf("50 MB and 50 MB and a page were sent as %d and %d", a, b)
 	}
 }
 

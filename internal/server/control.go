@@ -316,8 +316,7 @@ func (s *Server) snapshot() stateMsg {
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
 				if sampleUsage {
-					u := p.Sess.Usage()
-					pv.CPU, pv.RSS, pv.Procs = u.CPUPercent, u.RSSBytes, u.Procs
+					pv.CPU, pv.RSS, pv.Procs = shownUsage(usageOf(p.Sess))
 				}
 			}
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
@@ -326,6 +325,33 @@ func (s *Server) snapshot() stateMsg {
 		}
 	}
 	return msg
+}
+
+// usageOf reads what a pane's process tree is costing the machine. It is a
+// variable so a test can hold the figures still, which the real ones never are.
+var usageOf = (*session.Session).Usage
+
+// shownUsage rounds a pane's usage to the precision the window draws it at: a
+// whole percent of a processor, and memory to the three significant figures
+// the window's formatBytes writes it in.
+//
+// The process table is read afresh every few seconds, and the raw figures come
+// out different every time — the processor share is a smoothed average and the
+// memory a count of bytes — so sent as they stood they made every snapshot a
+// new one. Each of those was a broadcast to every window, and a parse and a
+// re-render there, of a header that then drew exactly what it drew before.
+func shownUsage(u session.Usage) (cpu float64, rss uint64, procs int) {
+	unit := uint64(1)
+	for unit < 1<<40 && u.RSSBytes >= unit*1024 {
+		unit *= 1024
+	}
+	v := float64(u.RSSBytes) / float64(unit)
+	if unit > 1 && v < 100 {
+		v = math.Round(v*10) / 10
+	} else {
+		v = math.Round(v)
+	}
+	return math.Round(u.CPUPercent), uint64(v * float64(unit)), u.Procs
 }
 
 // encodeNode turns a layout tree into what the window lays out, appending the
