@@ -19,7 +19,8 @@ For a CLI agent, its command is not on your `PATH`; the line under it says
 where to get it. For an API agent, no key was found: nothing in the
 environment variables it looks at, and nothing in Flockdeck's own store. `flockdeck
 keys set <agent>` reads one from stdin, and **Agents and models** covers the
-rest. Unavailable agents are shown rather than hidden on purpose, so that an
+rest. The OpenAI-compatible endpoint is greyed until `agents.json` gives it a
+`baseURL`, because there is no address that would be right for everybody. Unavailable agents are shown rather than hidden on purpose, so that an
 agent you have not installed is a decision rather than an absence.
 
 ## A pane is dead, with a Restart button
