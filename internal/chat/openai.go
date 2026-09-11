@@ -28,10 +28,23 @@ type openaiToolCall struct {
 	} `json:"function"`
 }
 
+// openaiCallOut is a call as a request carries it back. It is not
+// openaiToolCall because a request's calls have no index -- that belongs to the
+// stream, where it says which call a fragment continues -- and a server strict
+// about its schema refuses a field it does not know.
+type openaiCallOut struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type openaiMessage struct {
-	Role      string           `json:"role"`
-	Content   string           `json:"content,omitempty"`
-	ToolCalls []openaiToolCall `json:"tool_calls,omitempty"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content,omitempty"`
+	ToolCalls []openaiCallOut `json:"tool_calls,omitempty"`
 	// ToolCallID is what a tool entry answers, and the only way the server can
 	// pair an answer with the call that asked for it.
 	ToolCallID string `json:"tool_call_id,omitempty"`
@@ -180,9 +193,8 @@ func openaiMessages(system string, msgs []Message) []openaiMessage {
 			out = append(out, openaiMessage{Role: "tool", ToolCallID: m.Call.ID, Content: m.Text})
 		case RoleAssistant:
 			e := openaiMessage{Role: "assistant", Content: m.Text}
-			for i, c := range m.Calls {
-				var tc openaiToolCall
-				tc.Index = i
+			for _, c := range m.Calls {
+				var tc openaiCallOut
 				tc.ID = c.ID
 				tc.Type = "function"
 				tc.Function.Name = c.Name
