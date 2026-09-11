@@ -184,7 +184,17 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			if !sameDir(sibRoot, c.ProjectRoot) {
 				continue
 			}
-			st, _ := sib.Status()
+			// The session is taken under the lock. A restore starts its panes
+			// on several goroutines at once, and one briefed through its
+			// opening prompt is described while the others' sessions are
+			// still being put in place.
+			w.mu.RLock()
+			sess := sib.Sess
+			w.mu.RUnlock()
+			st := session.StatusExited
+			if sess != nil {
+				st, _ = sess.Status()
+			}
 			if st == session.StatusExited {
 				continue
 			}
