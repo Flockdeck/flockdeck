@@ -690,13 +690,6 @@ var errReported = errors.New("already reported")
 // nothing left to do, so the command succeeds rather than failing.
 var errHelpAsked = errors.New("usage shown")
 
-// runSpawn implements the `spawn` subcommand, which starts another agent from
-// inside a pane.
-//
-// It exists so a lead agent can split its own work up: given a plan, it can run
-// this once per task and watch the helpers appear beside it. The address and
-// token come from the environment its pane was started with, so only processes
-// running inside a pane can use it.
 // paneEnv reads one of the variables a pane carries, accepting the name an
 // earlier build used alongside the one in use now. A pane started by an
 // instance of that build is still running with the old names in its
@@ -710,6 +703,13 @@ func paneEnv(name string) string {
 	return os.Getenv("PERCH_" + name)
 }
 
+// runSpawn implements the `spawn` subcommand, which starts another agent from
+// inside a pane.
+//
+// It exists so a lead agent can split its own work up: given a plan, it can run
+// this once per task and watch the helpers appear beside it. The address and
+// token come from the environment its pane was started with, so only processes
+// running inside a pane can use it.
 func runSpawn(args []string) error {
 	req, err := parseSpawn(args)
 	if errors.Is(err, errHelpAsked) {
