@@ -236,6 +236,19 @@ func jitter(d time.Duration) time.Duration {
 	return half + rand.N(half)
 }
 
+// dialFailure says why the relay could not be reached. The window puts it
+// after "Cannot reach <relay>:", so it says what went wrong and not again
+// where, and in words rather than as the error of a context or a handshake.
+func dialFailure(err error, resp *http.Response) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("no answer within %s", dialTimeout)
+	case resp != nil && resp.StatusCode != http.StatusSwitchingProtocols:
+		return fmt.Errorf("it answered %s rather than opening the tunnel", resp.Status)
+	}
+	return unwrapURLError(err)
+}
+
 // session is one tunnel, from dialling to losing it.
 func (c *Connector) session(ctx context.Context) error {
 	dialCtx, cancelDial := context.WithTimeout(ctx, dialTimeout)
@@ -259,7 +272,7 @@ func (c *Connector) session(ctx context.Context) error {
 			}
 			return decodeError(resp.StatusCode, body)
 		}
-		return fmt.Errorf("reach the relay at %s: %w", c.cfg.Relay, unwrapURLError(err))
+		return dialFailure(err, resp)
 	}
 
 	// The tunnel lives for as long as this session does, so the byte stream

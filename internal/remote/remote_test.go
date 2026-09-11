@@ -410,8 +410,37 @@ func TestUnreachableRelayIsRetried(t *testing.T) {
 	defer c.Stop()
 	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
 	st := c.Status()
-	if st.RetryAt.IsZero() || !strings.Contains(st.Detail, "reach the relay") {
-		t.Errorf("status = %+v, want an error saying the relay could not be reached, with a retry time", st)
+	if st.RetryAt.IsZero() || st.Detail == "" || strings.Contains(st.Detail, cfg.Relay) {
+		t.Errorf("status = %+v, want why the relay could not be reached, without naming it again, and a retry time", st)
+	}
+}
+
+// The window says "Cannot reach <relay>:" and then this, so a relay that
+// never answers, or a network that answers in its place, is said in words.
+func TestUnreachableRelaySaysWhy(t *testing.T) {
+	quick(t)
+	old := dialTimeout
+	dialTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { dialTimeout = old })
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer hang.Close()
+	defer close(release)
+	portal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<html>Sign in to use this Wi-Fi</html>")
+	}))
+	defer portal.Close()
+	for relay, want := range map[string]string{
+		hang.URL:   "no answer within 100ms",
+		portal.URL: "it answered 200 OK rather than opening the tunnel",
+	} {
+		c := NewConnector(Config{Relay: relay, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+		c.Start()
+		waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+		if got := c.Status().Detail; got != want {
+			t.Errorf("detail = %q, want %q", got, want)
+		}
+		c.Stop()
 	}
 }
 
