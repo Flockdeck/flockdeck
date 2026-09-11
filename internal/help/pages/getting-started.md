@@ -41,8 +41,9 @@ application, searchable. If you remember one shortcut, remember that one.
 ## When one agent is not enough
 
 Two agents editing the same files will fight. Give each its own checkout
-instead: worktrees creates them, and fan out turns one agent's plan into a set
-of agents that each take a task in a worktree of their own.
+instead: [[key:worktrees]] opens the worktrees, where you can create them, and
+[[key:fanout]] fans out — it turns one agent's plan into a set of agents that
+each take a task in a worktree of their own.
 
 ## Which agent, which model
 
