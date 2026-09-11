@@ -286,6 +286,15 @@ func stripANSI(p []byte) string {
 			}
 			state = scanNormal
 			switch {
+			// Moving up is how a program redraws what it drew last: a spinner
+			// and the lines under it, a block of progress bars, a whole frame
+			// of an Ink interface. What it moves back over is about to be
+			// drawn again, so it is dropped rather than left standing above
+			// the redraw -- where a question already answered went on being
+			// read as the most recent thing the pane said.
+			case c == 'A' || c == 'F':
+				lineStart = lineAbove(out, lineStart, csiCount(params))
+				out = out[:lineStart]
 			// A terminal application often moves the cursor to the next
 			// line rather than printing a newline, so dropping these
 			// outright would run separate lines together. Treat the
@@ -379,16 +388,26 @@ func csiCount(params []byte) int {
 }
 
 // breaksLine reports whether a CSI final byte represents moving off the
-// current line. Horizontal moves and erase-in-line do not.
+// current line. Horizontal moves and erase-in-line do not, and moving up is
+// handled as the redraw it is.
 func breaksLine(final byte) bool {
 	switch final {
 	case 'H', 'f', // cursor position
-		'A', 'B', // up, down
-		'E', 'F', // next line, previous line
+		'B', // down
+		'E', // next line
 		'J': // erase in display
 		return true
 	}
 	return false
+}
+
+// lineAbove returns where the line n lines above the one beginning at start
+// begins, stopping at the first line there is.
+func lineAbove(out []byte, start, n int) int {
+	for ; n > 0 && start > 0; n-- {
+		start = bytes.LastIndexByte(out[:start-1], '\n') + 1
+	}
+	return start
 }
 
 // RecentText returns the tail of the pane's output as plain text, with escape

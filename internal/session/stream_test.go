@@ -115,7 +115,14 @@ func TestStripANSIRecoversText(t *testing.T) {
 		// A terminal application moves the cursor instead of printing newlines,
 		// so those moves have to stand in as line breaks or separate lines run
 		// together.
-		{"cursor moves break lines", "a\x1b[2Ab\x1b[1;5Hc", "a\nb\nc"},
+		{"cursor moves break lines", "a\x1b[2Bb\x1b[1;5Hc", "a\nb\nc"},
+		// Moving up is a redraw of what it moves back over. Ink erases its
+		// last frame that way before drawing the next, and leaving the old
+		// frame in the text kept an answered question on the pane's last line
+		// but one.
+		{"moving up drops a frame being redrawn", "Do you want to proceed? (y/n)\r\n> \x1b[2K\x1b[1A\x1b[2K\x1b[GWrote main.go\r\n> ", "Wrote main.go\n> "},
+		{"moving up keeps what is above the redraw", "kept\nold 1\nold 2\x1b[1Anew 1\nnew 2", "kept\nnew 1\nnew 2"},
+		{"moving up stops at the first line", "only\x1b[5Afresh", "fresh"},
 		// A horizontal move does not break the line: it is how a full-screen
 		// program draws blanks, so it has to come back as the blanks it stood
 		// for. Losing them is how "the words" arrives as "thewords".
