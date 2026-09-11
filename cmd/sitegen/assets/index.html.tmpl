@@ -496,19 +496,26 @@ make package    <span class="c"># archives for all six platforms</span></code></
     after(9000, run);
   }
 
-  // Nothing animates until the deck has been seen, so a visitor who scrolls
-  // straight past has not missed it, and a background tab is not spending
-  // anything.
+  // Nothing animates while the deck is out of sight: not before it has been
+  // seen, so a visitor who scrolls straight past has not missed it, and not
+  // after it has been scrolled away or its tab put in the background, where a
+  // loop that goes round every nine seconds would otherwise go on for as long
+  // as the page is open.
   var deck = document.getElementById("deck");
   if (!deck || !("IntersectionObserver" in window)) { run(); return; }
 
-  var started = false;
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (e.isIntersecting && !started) { started = true; run(); }
-    });
-  }, { threshold: 0.25 });
-  io.observe(deck);
+  var inView = false, playing = false;
+  function update() {
+    var want = inView && !document.hidden;
+    if (want === playing) return;
+    playing = want;
+    if (want) { run(); } else { clear(); settle(); }
+  }
+  new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { inView = e.isIntersecting; });
+    update();
+  }, { threshold: 0.25 }).observe(deck);
+  document.addEventListener("visibilitychange", update);
   settle();
 })();
 </script>
