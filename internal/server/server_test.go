@@ -147,6 +147,11 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
+	// A page on another local port is the same site, so its frame of this one
+	// would carry the cookie. Only the header keeps the window out of it.
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != "frame-ancestors 'self'" {
+		t.Errorf("index Content-Security-Policy = %q, want frame-ancestors 'self'", csp)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "flockdeck") {
 		t.Error("index does not look like the app page")

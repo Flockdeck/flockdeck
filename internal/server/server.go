@@ -400,6 +400,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	// Nothing frames this page legitimately, locally or through the relay. A
+	// page on another local port could, though -- it counts as the same site,
+	// so the cookie goes with the request -- and then lay a decoy over the
+	// window to have the person click Quit or type into an agent for it. The
+	// sockets refuse such a page; this keeps it from borrowing the window.
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 	_, _ = w.Write(data)
 }
 
