@@ -1061,3 +1061,28 @@ func gitRun(t testing.TB, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+// TestTruncatedUntrackedFileCountsWhatWasNeverRead is about the note a large
+// new file's diff ends on. The lines left over were counted in the part that
+// was read, so a file with a quarter of a million lines still to go was said
+// to have a few tens of thousands.
+func TestTruncatedUntrackedFileCountsWhatWasNeverRead(t *testing.T) {
+	repo := newRepo(t)
+	const size = 800_000
+	if err := os.WriteFile(filepath.Join(repo, "short-lines.txt"), []byte(strings.Repeat("x\n", size/2)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := Diff(repo, "short-lines.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	tail := diff[strings.LastIndex(strings.TrimSuffix(diff, "\n"), "\n")+1:]
+	if _, err := fmt.Sscanf(tail, "… truncated, %d more bytes", &left); err != nil {
+		t.Fatalf("diff ends %q, want what is left given in bytes", tail)
+	}
+	shown := strings.Count(diff, "\n+x")
+	if want := size - 2*shown; left != want {
+		t.Errorf("%d more bytes, want %d", left, want)
+	}
+}

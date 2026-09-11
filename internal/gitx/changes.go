@@ -516,14 +516,26 @@ func renderAsAddition(path, content string, omitted int64) string {
 	var b strings.Builder
 	b.WriteString("--- /dev/null\n+++ b/" + path + "\n")
 	b.WriteString(fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines)))
-	var capped bool
+	var (
+		capped bool
+		shown  int // bytes of content written out so far
+	)
 	for i, line := range lines {
 		b.WriteString("+" + line + "\n")
+		shown += len(line) + 1
 		if !endsWithNewline && i == len(lines)-1 {
 			b.WriteString("\\ No newline at end of file\n")
 		}
 		if b.Len() > maxDiffBytes {
-			b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
+			if omitted > 0 {
+				// The lines left over are only those of the part that was
+				// read. Counting them said "68282 more lines" of a file with
+				// a quarter of a million still to go, so what is left is
+				// given in bytes, which are known for all of it.
+				b.WriteString(fmt.Sprintf("… truncated, %d more bytes\n", max(0, int64(len(content)-shown))+omitted))
+			} else {
+				b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
+			}
 			capped = true
 			break
 		}
