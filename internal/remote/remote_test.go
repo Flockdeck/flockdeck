@@ -359,11 +359,13 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 		refuse    int
 		closeWith websocket.StatusCode
 		want      State
+		// says is what the status tells the user to do about it.
+		says string
 	}{
-		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked},
-		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked},
-		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked},
-		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced},
+		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked, says: "flockdeck remote enable"},
+		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked, says: "flockdeck remote enable"},
+		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked, says: "flockdeck remote enable"},
+		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced, says: "restart this one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			quick(t)
@@ -377,8 +379,8 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 			if n := f.count(); n != 1 {
 				t.Errorf("the relay saw %d connections, want 1 and no retrying", n)
 			}
-			if c.Status().Detail == "" {
-				t.Error("the status does not say why it stopped")
+			if d := c.Status().Detail; !strings.Contains(d, tc.says) {
+				t.Errorf("the status says %q, which does not say what to do (%q)", d, tc.says)
 			}
 		})
 	}

@@ -173,8 +173,9 @@ func (c *Connector) set(state State, detail string, retryAt time.Time) {
 }
 
 // errReplaced is the relay saying another connection has taken this host's
-// place.
-var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside")
+// place. This one does not come back of its own accord, even once the other
+// has gone, so it says what does bring it back.
+var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside; restart this one to take remote access back")
 
 // run is the life of the tunnel: connect, serve, and on losing it, wait and
 // connect again — longer each time it keeps failing, and not at all once the
