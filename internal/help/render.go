@@ -6,8 +6,12 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // The help pages are Markdown so they can be written as prose rather than as
@@ -16,8 +20,28 @@ import (
 // is what makes `[[key:…]]` able to expand to a real <kbd>.
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.Table, extension.Strikethrough),
+	goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(externalLinks{}, 100))),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
 )
+
+// externalLinks sends a link to the web somewhere other than the help's own
+// window. The help is shown inside the application window, and a plain link
+// followed there replaces the whole interface — every pane — with the page it
+// points at, with no address bar to come back by.
+type externalLinks struct{}
+
+func (externalLinks) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if l, ok := n.(*ast.Link); ok && entering {
+			dest := string(l.Destination)
+			if strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://") {
+				l.SetAttributeString("target", []byte("_blank"))
+				l.SetAttributeString("rel", []byte("noopener noreferrer"))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // expand replaces the placeholders that keep a page's shortcuts tied to the
 // key table. Anything naming an action that does not exist is an error rather

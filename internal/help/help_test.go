@@ -199,6 +199,30 @@ func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
 	}
 }
 
+// The help is shown inside the application window, so a link out of it has to
+// open somewhere else rather than replace the interface.
+func TestExternalLinksOpenElsewhere(t *testing.T) {
+	got, err := toHTML("See [Claude Code](https://claude.com/claude-code).")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `<a href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">`
+	if !strings.Contains(got, want) {
+		t.Errorf("got %s, want it to contain %s", got, want)
+	}
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		for _, l := range strings.Split(p.HTML, `<a href="http`)[1:] {
+			if tag, _, _ := strings.Cut(l, ">"); !strings.Contains(tag, `target="_blank"`) {
+				t.Errorf("%s: a link out of the help opens in the application window: <a href=\"http%s>", p.Slug, tag)
+			}
+		}
+	}
+}
+
 // A JSON example in a page is there to be copied into a real file, so one that
 // does not parse hands the reader a settings file the application rejects. A
 // Windows path written with single backslashes is the easy way to get there.
