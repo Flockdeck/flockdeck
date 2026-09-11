@@ -59,6 +59,31 @@ func main() {
 	}
 	fmt.Println("focused pane:", focus)
 
+	// A command the server refuses is answered with a notice and nothing else,
+	// so notices are printed as they arrive; otherwise a command that did
+	// nothing looks exactly like one that worked.
+	go func() {
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			var msg struct {
+				Type  string `json:"type"`
+				Text  string `json:"text"`
+				Error bool   `json:"error"`
+			}
+			if json.Unmarshal(data, &msg) != nil || msg.Type != "notice" {
+				continue
+			}
+			if msg.Error {
+				fmt.Println("refused:", msg.Text)
+			} else {
+				fmt.Println("notice:", msg.Text)
+			}
+		}
+	}()
+
 	for _, c := range os.Args[2:] {
 		var cmd map[string]any
 		if err := json.Unmarshal([]byte(c), &cmd); err != nil {
