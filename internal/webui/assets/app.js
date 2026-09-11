@@ -2588,6 +2588,20 @@
     return (ctrl ? "c" : "") + (shift ? "s" : "") + (alt ? "a" : "") + ":" + key;
   }
 
+  /** editsText reports whether a keydown belongs to the text field it was
+   *  typed into rather than to the window. Ctrl+Shift with an arrow selects
+   *  by the word, and Ctrl+Shift+Z is redo, in every text field there is. The
+   *  table gives both to the panes, which is right in a terminal and wrong in
+   *  a commit message: selecting a word there moved a pane behind the dialog
+   *  instead. xterm types through a textarea of its own, which keeps them. */
+  function editsText(e) {
+    const t = e.target;
+    if (!t || (t.tagName !== "TEXTAREA" && t.tagName !== "INPUT")) return false;
+    if (t.classList.contains("xterm-helper-textarea") || /^(checkbox|radio|button)$/.test(t.type || "")) return false;
+    const k = (e.key || "").toLowerCase();
+    return e.ctrlKey && e.shiftKey && (k.startsWith("arrow") || k === "z");
+  }
+
   /** actionFor reports which action a keydown is, if it is one. */
   function actionFor(e) {
     let key = (e.key || "").toLowerCase();
@@ -4132,7 +4146,7 @@
     // Every other binding is dispatched from the action table, so what the
     // help says a key does is what the key does.
     const id = actionFor(e);
-    if (id) { e.preventDefault(); runAction(id); return; }
+    if (id && !editsText(e)) { e.preventDefault(); runAction(id); return; }
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.

@@ -2149,6 +2149,35 @@ assert.ok(!other.defaultPrevented, "a drag that is not a file was claimed as wel
 `)
 }
 
+// Ctrl+Shift+Left selects the word before the caret and Ctrl+Shift+Z redoes,
+// in any text field. Taken as the bindings for moving and zooming a pane, they
+// did that to the panes behind the dialog while the field lost the gesture.
+func TestATextFieldKeepsItsOwnEditingKeys(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+h.$("commit-message").focus();
+const before = h.commands().length;
+for (const id of ["movePaneLeft", "movePaneRight", "movePaneUp", "movePaneDown", "zoomPane"]) {
+  const ev = h.press(id);
+  assert.ok(!ev.defaultPrevented, id + " took the key away from the commit message");
+}
+assert.strictEqual(h.commands().length, before, "a pane was moved from inside a text field");
+
+// In a terminal they are the bindings they always were.
+h.key({ key: "Escape" });
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+term.focus();
+h.press("movePaneLeft");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "movePaneDir", dir: "left" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
