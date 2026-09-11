@@ -130,7 +130,7 @@ type globArgs struct {
 // and a path outside it is refused rather than asked about.
 func (t *globTool) Approval(json.RawMessage) string { return "" }
 
-func (t *globTool) Run(_ context.Context, args json.RawMessage) (string, error) {
+func (t *globTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var a globArgs
 	if err := decode(args, &a); err != nil {
 		return "", err
@@ -144,7 +144,7 @@ func (t *globTool) Run(_ context.Context, args json.RawMessage) (string, error) 
 	}
 	var found []string
 	truncated := false
-	err = walkFiles(base, func(_, rel string, _ fs.DirEntry) error {
+	err = walkFiles(ctx, base, func(_, rel string, _ fs.DirEntry) error {
 		if !matchGlob(a.Pattern, rel) {
 			return nil
 		}
@@ -226,8 +226,13 @@ func joinRel(base, rel string) string {
 // link. The links are the important half: confinement here is by path, and a
 // link inside the tree is free to point outside it, so a walk that followed
 // one would hand back a file the tools are not allowed to open.
-func walkFiles(root string, fn func(abs, rel string, d fs.DirEntry) error) error {
+func walkFiles(ctx context.Context, root string, fn func(abs, rel string, d fs.DirEntry) error) error {
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		// A walk of a large tree is the one read long enough for somebody to
+		// give up on, and Ctrl+C has to reach it wherever it has got to.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			// A directory that cannot be read is skipped rather than ending
 			// the search: one unreadable corner should not cost the model the

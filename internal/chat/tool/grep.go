@@ -119,7 +119,7 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (string, error
 			return "", err
 		}
 	} else {
-		err = walkFiles(base, func(abs, rel string, _ fs.DirEntry) error {
+		err = walkFiles(ctx, base, func(abs, rel string, _ fs.DirEntry) error {
 			if a.Glob != "" && !matchGlob(a.Glob, rel) {
 				return nil
 			}
