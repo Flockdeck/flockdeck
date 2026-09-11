@@ -254,8 +254,8 @@ func remotePairCmd(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, code)
 	}
 	fmt.Fprintf(rio.out, "Scan the code, or open this link on the device you want to pair:\n\n  %s\n\n", p.URL)
-	fmt.Fprintf(rio.out, "It works once, %s. Whoever opens it can drive every agent here,\n", until)
-	fmt.Fprintf(rio.out, "so treat it like a password until then.\n")
+	fmt.Fprintf(rio.out, "It works once, %s.\n", until)
+	fmt.Fprintf(rio.out, "Whoever opens it can drive every agent here, so treat it like a password\nuntil then.\n")
 	return nil
 }
 

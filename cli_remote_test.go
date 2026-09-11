@@ -129,6 +129,12 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, f.URL+"/pair#fdp_code") || !strings.Contains(out, "█") {
 		t.Errorf("pair = %q, %v; want the link and a QR code", out, err)
 	}
+	// It is read in a terminal, which is often 80 columns wide.
+	for _, l := range strings.Split(out, "\n") {
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("pair printed a line %d wide: %q", n, l)
+		}
+	}
 	out, _, err = runRemoteCmd(t, "pair", "-desktop")
 	if err != nil || !strings.Contains(out, "-join fdp_code") || strings.Contains(out, "█") {
 		t.Errorf("pair -desktop = %q, %v; want the enable command to run elsewhere", out, err)
