@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -114,17 +115,25 @@ func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string,
 	return path, nil
 }
 
-// quoteArg wraps an argument in double quotes when it contains characters that
-// would otherwise split it. Double quoting behaves the same way in cmd.exe and
-// in POSIX shells for the paths and tokens we generate.
-func quoteArg(s string) string {
-	if s == "" {
-		return `""`
-	}
-	if !strings.ContainsAny(s, " \t\"'&|<>()^%$`\\") {
+// quoteArg quotes an argument for the shell that runs the hook command, when
+// it contains anything that shell would otherwise act on.
+func quoteArg(s string) string { return quoteArgFor(runtime.GOOS, s) }
+
+// quoteArgFor is quoteArg for a given platform.
+//
+// On Windows the shell may be cmd.exe, where only double quotes group
+// anything. Elsewhere it is sh, where double quotes still expand "$" and a
+// backtick: a binary installed under a directory with either in its name ran
+// something else or nothing at all, and every pane's status stopped changing.
+// Single quotes there take everything literally.
+func quoteArgFor(goos, s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n\"'&|<>()^%$`\\;*?[]{}~#!") {
 		return s
 	}
-	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	if goos == "windows" {
+		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // StatusForEvent maps a Claude lifecycle event to the pane status it implies.

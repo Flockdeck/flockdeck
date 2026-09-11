@@ -112,6 +112,28 @@ func TestHookSettingsRegisterSessionStart(t *testing.T) {
 	}
 }
 
+// TestHookCommandQuotingIsLiteral covers the paths the hook command is written
+// with. sh expands "$" and a backtick inside double quotes, so a binary under
+// such a directory ran something else on macOS and Linux.
+func TestHookCommandQuotingIsLiteral(t *testing.T) {
+	cases := []struct{ goos, in, want string }{
+		{"linux", "/usr/local/bin/flockdeck", "/usr/local/bin/flockdeck"},
+		{"linux", "/home/me/$work/flockdeck", `'/home/me/$work/flockdeck'`},
+		{"darwin", "/Users/me/`x`/flockdeck", "'/Users/me/`x`/flockdeck'"},
+		{"linux", "/home/it's/flockdeck", `'/home/it'\''s/flockdeck'`},
+		{"linux", "/home/a;b/flockdeck", `'/home/a;b/flockdeck'`},
+		{"linux", "", `''`},
+		{"windows", `C:\Program Files\flockdeck.exe`, `"C:\Program Files\flockdeck.exe"`},
+		{"windows", "", `""`},
+		{"windows", "0123abcdef", "0123abcdef"},
+	}
+	for _, c := range cases {
+		if got := quoteArgFor(c.goos, c.in); got != c.want {
+			t.Errorf("quoteArgFor(%s, %q) = %s, want %s", c.goos, c.in, got, c.want)
+		}
+	}
+}
+
 // TestSessionStartDoesNotMoveTheStatusDot keeps a compaction, which reports as
 // a session start of its own, from showing a busy agent as idle.
 func TestSessionStartDoesNotMoveTheStatusDot(t *testing.T) {
