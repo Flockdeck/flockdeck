@@ -515,6 +515,12 @@ func TestChangesReportsADirtySubmodule(t *testing.T) {
 	// Moving the submodule on by a commit is what makes the outer repository
 	// dirty, without changing a single file the outer one tracks.
 	mod := filepath.Join(outer, "mod")
+	// The submodule is a clone of its own, and a clone takes none of the
+	// configuration newRepo gave the repository it came from. A machine with
+	// a global identity hides that; a CI runner has none and refuses to commit.
+	gitRun(t, mod, "config", "user.email", "test@example.com")
+	gitRun(t, mod, "config", "user.name", "Test")
+	gitRun(t, mod, "config", "commit.gpgsign", "false")
 	write(t, mod, "README.md", "hello\nand more\n")
 	gitRun(t, mod, "commit", "-am", "work inside the submodule")
 

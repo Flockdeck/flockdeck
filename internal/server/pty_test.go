@@ -298,7 +298,24 @@ func TestTerminalSocketFollowsARestartedPane(t *testing.T) {
 	pty := dialPTY(t, srv, paneID)
 	awaitOutput(t, pty, "echo before_restart\r", "before_restart")
 
+	before, _, _ := srv.paneSession(paneID)
 	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
+
+	// The restart is a command like any other and is applied when the
+	// workspace gets to it. A line typed before then reaches the old process,
+	// which echoes it -- marker and all -- and the wait below ends on that
+	// echo before the new process has drawn anything. A fast Linux runner gets
+	// there first, so the typing waits for the new process.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if sess, _, _ := srv.paneSession(paneID); sess != nil && sess != before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane was never restarted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// The same socket, never reconnected, must reach the new process.
 	after := awaitOutput(t, pty, "echo after_restart\r", "after_restart")
