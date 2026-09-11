@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -95,6 +96,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	// so a call or a piece of reasoning being accumulated is kept per index.
 	calls := map[int]*callBuffer{}
 	thoughts := map[int]*Thinking{}
+	stopReason, finished := "", false
 	err = readSSE(rc, func(event, data string) error {
 		var ev struct {
 			Type  string `json:"type"`
@@ -105,6 +107,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 				Thinking    string `json:"thinking"`
 				Signature   string `json:"signature"`
 				PartialJSON string `json:"partial_json"`
+				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			ContentBlock struct {
 				Type      string `json:"type"`
@@ -158,7 +161,12 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 					c.args.WriteString(ev.Delta.PartialJSON)
 				}
 			}
+		case "message_stop":
+			finished = true
 		case "message_delta":
+			if ev.Delta.StopReason != "" {
+				stopReason = ev.Delta.StopReason
+			}
 			// These are running totals for the whole answer rather than what
 			// was added since message_start, and the input count is repeated
 			// here as well: adding them to the opening counts read every
@@ -174,6 +182,21 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	})
 	if err != nil {
 		return err
+	}
+	// What was read is spent whether or not the answer is whole.
+	if !finished || stopReason == "max_tokens" || stopReason == "refusal" {
+		emit(Event{Kind: EventUsage, Usage: usage})
+	}
+	switch {
+	case !finished:
+		// The body ended without the event that says the answer has: the
+		// connection dropped, or something between here and the API cut it.
+		// A call whose arguments were still arriving is not one to run.
+		return errors.New("the connection closed before the answer was finished")
+	case stopReason == "max_tokens":
+		return fmt.Errorf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)
+	case stopReason == "refusal":
+		return errors.New("the model declined to go on with this")
 	}
 	// The reasoning and the calls go out in index order: that is the order the
 	// model wrote them in, and a tool loop that runs them in map order runs

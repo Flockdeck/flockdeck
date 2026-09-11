@@ -482,7 +482,7 @@ func TestChatTalksToAnEndpointForReal(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte("event: content_block_delta\n" +
 			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"# Right here"}}` +
-			"\n\n"))
+			"\n\n" + `data: {"type":"message_stop"}` + "\n\n"))
 	}))
 	defer srv.Close()
 

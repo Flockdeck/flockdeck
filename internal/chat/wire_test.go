@@ -68,6 +68,9 @@ func TestWiresStream(t *testing.T) {
 				`event: message_delta`,
 				`data: {"type":"message_delta","usage":{"output_tokens":7}}`,
 				``,
+				`event: message_stop`,
+				`data: {"type":"message_stop"}`,
+				``,
 			}, "\n"),
 			verify: func(t *testing.T, sent map[string]any, path string) {
 				if path != "/v1/messages" {
