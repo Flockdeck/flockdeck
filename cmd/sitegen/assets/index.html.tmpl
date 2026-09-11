@@ -470,7 +470,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
   function clear() { timers.forEach(clearTimeout); timers = []; }
 
   function play(id, whenDone) {
-    var lines = SCRIPT[id], t = term(id), at = 0, elapsed = 0;
+    var lines = SCRIPT[id], t = term(id), elapsed = 0;
     if (!t) return;
     t.innerHTML = "";
     lines.forEach(function (line, i) {
@@ -478,7 +478,6 @@ make package    <span class="c"># archives for all six platforms</span></code></
       after(elapsed, function () {
         t.innerHTML = lines.slice(0, i + 1).map(function (l) { return l[0]; }).join("\n") +
           (i === lines.length - 1 ? "" : '\n<span class="caret"></span>');
-        at = i;
         if (i === lines.length - 1 && whenDone) whenDone();
       });
     });
