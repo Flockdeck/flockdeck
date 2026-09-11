@@ -795,7 +795,7 @@ go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","d
 
 The front end is vendored, not fetched at build time. To update it, replace the
 files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
-`@xterm/addon-fit` and `@xterm/addon-webgl` packages.
+`@xterm/addon-fit`, `@xterm/addon-search` and `@xterm/addon-webgl` packages.
 
 ## Limitations
 
