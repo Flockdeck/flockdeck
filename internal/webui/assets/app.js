@@ -257,7 +257,7 @@
         detaching = true;
         window.close();
       }
-      else if (msg.type === "notice") notice(msg.text, msg.error);
+      else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
     };
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
@@ -3002,7 +3002,7 @@
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
         send({ cmd: "commit", path: m.cwd, text: message, push });
-        commitDraft = "";
+        commitPending = true;
       };
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
       c1.id = "rev-commit";
@@ -3024,6 +3024,19 @@
   }
 
   let commitDraft = "";
+  /** Whether a commit has been asked for and not yet answered. The message
+   *  stays in the box until it has: a commit that fails - a hook refusing it,
+   *  an identity git has not been given - answers by redrawing the dialog, and
+   *  clearing the draft when the commit was sent meant the message went with
+   *  the redraw and had to be written again. The server's first word on a
+   *  commit is a notice saying whether it was made. */
+  let commitPending = false;
+
+  function commitAnswered(isError) {
+    if (!commitPending) return;
+    commitPending = false;
+    if (!isError) commitDraft = "";
+  }
 
   /** selectChangedFile shows one file's diff. Only the marking on the rows and
    *  the diff panel change: rebuilding the dialog would take the commit box

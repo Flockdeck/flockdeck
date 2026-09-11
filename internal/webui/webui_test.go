@@ -2352,6 +2352,37 @@ assert.ok(fits >= 2, "the panes either side were not fitted when the drag ended"
 `)
 }
 
+// A commit that fails - a hook refusing it, say - is answered with an error and
+// the working tree again, which redraws the dialog. The message had already
+// been let go of, so it went with the redraw and had to be written again.
+func TestAFailedCommitKeepsItsMessage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (file) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: file, label: "M", added: 1, removed: 0 }] });
+h.recv(tree("a.go"));
+const box = h.$("commit-message");
+box.value = "webui: a message worth keeping";
+box.oninput();
+h.click(h.$("rev-commit"));
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false });
+
+// The hook refuses it; the server says so and sends the tree back.
+h.recv({ type: "notice", text: "pre-commit hook failed", error: true });
+h.recv(tree("a.go"));
+assert.strictEqual(h.$("commit-message").value, "webui: a message worth keeping", "the message went with the failed commit");
+
+// When it goes through, the box is emptied for the next one.
+h.click(h.$("rev-commit"));
+h.recv({ type: "notice", text: "committed in repo", error: false });
+h.recv(tree("b.go"));
+assert.strictEqual(h.$("commit-message").value, "", "a message that was committed was left in the box");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
