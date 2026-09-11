@@ -130,8 +130,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		case "error":
 			return fmt.Errorf("%s", firstNonEmpty(ev.Error.Message, ev.Error.Type, "the stream reported an error"))
 		case "message_start":
-			usage.In += ev.Message.Usage.InputTokens
-			usage.Out += ev.Message.Usage.OutputTokens
+			usage = Usage{In: ev.Message.Usage.InputTokens, Out: ev.Message.Usage.OutputTokens}
 		case "content_block_start":
 			switch ev.ContentBlock.Type {
 			case "tool_use":
@@ -160,8 +159,16 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 				}
 			}
 		case "message_delta":
-			usage.Out += ev.Usage.OutputTokens
-			usage.In += ev.Usage.InputTokens
+			// These are running totals for the whole answer rather than what
+			// was added since message_start, and the input count is repeated
+			// here as well: adding them to the opening counts read every
+			// prompt twice.
+			if ev.Usage.InputTokens > 0 {
+				usage.In = ev.Usage.InputTokens
+			}
+			if ev.Usage.OutputTokens > 0 {
+				usage.Out = ev.Usage.OutputTokens
+			}
 		}
 		return nil
 	})
