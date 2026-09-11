@@ -228,7 +228,15 @@ func fetchSum(ctx context.Context, url, name string) (string, error) {
 	for _, line := range strings.Split(string(body), "\n") {
 		f := strings.Fields(line)
 		if len(f) == 2 && f[1] == name {
-			return strings.ToLower(f[0]), nil
+			// Anything but a SHA-256 can only fail the comparison, and failing
+			// it used to panic on the way to saying so: the message quotes a
+			// prefix of each hash. That was in the background watcher, where a
+			// panic takes the application and every agent in it down.
+			sum := strings.ToLower(f[0])
+			if _, err := hex.DecodeString(sum); err != nil || len(sum) != 2*sha256.Size {
+				return "", fmt.Errorf("checksums.txt lists %s without a SHA-256", name)
+			}
+			return sum, nil
 		}
 	}
 	return "", fmt.Errorf("checksums.txt does not list %s", name)

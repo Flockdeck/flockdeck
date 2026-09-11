@@ -154,6 +154,22 @@ func TestStageRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
 	}
 }
 
+// A checksums file whose entry is not a SHA-256 at all has to be refused, not
+// compared. Comparing it panicked, in the background watcher, which ends the
+// whole application.
+func TestStageRefusesAChecksumThatIsNotASHA256(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	srv := releaseServer(t, name, archive, "abc123")
+
+	dir := t.TempDir()
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err == nil {
+		t.Fatal("Stage accepted a checksum that is not a SHA-256")
+	}
+	if _, ok := Load(dir); ok {
+		t.Error("a download with no usable checksum was recorded as staged")
+	}
+}
+
 func TestStageRefusesAReleaseWithNothingForThisPlatform(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{
