@@ -2024,6 +2024,31 @@ assert.deepStrictEqual(heads, ["Installed"], "the newly installed agent is still
 `)
 }
 
+// paletteRun is the prelude for a case that opens something from the palette:
+// open it, type the words, press Enter.
+const paletteRun = `
+const paletteRun = (words) => {
+  h.press("palette");
+  const input = h.$("palette-input");
+  input.value = words;
+  input.oninput();
+  h.key({ key: "Enter" });
+};
+`
+
+// The key dialog has an implementation and no entry in the action table, so
+// the palette, which lists the table, never offered it and nothing else opened
+// it either.
+func TestTheKeyDialogCanBeOpened(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("api keys");
+assert.ok(!h.$("overlay").hidden, "the palette did not open the key dialog");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

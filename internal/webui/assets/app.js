@@ -2586,9 +2586,11 @@
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
-    // never twice.
+    // never twice. The key dialog is in the same position: the table has no
+    // entry for it, and without this there was no way to open it at all.
     [["newAgentTabChoose", "New agent tab (choose agent)…"],
-     ["splitRightChoose", "Split right (choose agent)…"]].forEach(([id, label]) => {
+     ["splitRightChoose", "Split right (choose agent)…"],
+     ["apiKeys", "API keys…"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
     });
