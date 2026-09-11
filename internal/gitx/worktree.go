@@ -175,7 +175,7 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 4))
+		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 5))
 	}
 	return out.String(), errb.String(), nil
 }
@@ -201,10 +201,20 @@ func withoutHints(msg string) string {
 
 // firstLines keeps an error message short enough to sit in a toast: git can
 // answer with a dozen lines of advice, of which the first few carry the point.
+//
+// Blank lines are left out rather than counted. git spaces its longer answers
+// out with them, and a commit with no identity set kept "Author identity
+// unknown", "*** Please tell me who you are." and two blank lines -- and not
+// the two commands that would fix it.
 func firstLines(msg string, n int) string {
-	lines := strings.Split(msg, "\n")
+	var lines []string
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
 	if len(lines) <= n {
-		return msg
+		return strings.Join(lines, "\n")
 	}
 	return strings.Join(lines[:n], "\n") + "\n…"
 }

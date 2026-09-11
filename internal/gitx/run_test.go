@@ -33,10 +33,22 @@ func TestErrorsKeepTheLineThatSaysWhatHappened(t *testing.T) {
 		"hint:\nhint: \tgit merge --no-ff\nhint:\nhint: or:\nhint:\nhint: \tgit rebase\n" +
 		"hint:\nhint: Disable this message with \"git config set advice.diverging false\"\n" +
 		"fatal: Not possible to fast-forward, aborting."
-	if got := firstLines(withoutHints(pull), 4); got != "fatal: Not possible to fast-forward, aborting." {
+	if got := firstLines(withoutHints(pull), 5); got != "fatal: Not possible to fast-forward, aborting." {
 		t.Errorf("pull failure reads %q", got)
 	}
 	if only := "hint: nothing but advice"; withoutHints(only) != only {
 		t.Errorf("a message that is all advice should be kept whole, got %q", withoutHints(only))
+	}
+}
+
+// TestErrorsSkipBlankLines: git spaces its longer answers out, and the blank
+// lines used up the few a toast has room for.
+func TestErrorsSkipBlankLines(t *testing.T) {
+	identity := "Author identity unknown\n\n*** Please tell me who you are.\n\nRun\n\n" +
+		"  git config --global user.email \"you@example.com\"\n" +
+		"  git config --global user.name \"Your Name\"\n\n" +
+		"to set your account's default identity.\n"
+	if got := firstLines(identity, 5); !strings.Contains(got, "user.name") {
+		t.Errorf("identity failure reads %q, want the commands that fix it", got)
 	}
 }
