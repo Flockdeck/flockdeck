@@ -181,6 +181,7 @@ type session struct {
 	system   string
 	messages []Message
 	total    Usage
+	spent    spend
 	tools    map[string]Tool
 	// always remembers the families of calls the user has agreed to for the
 	// rest of the session.
@@ -290,7 +291,7 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 	for {
 		if len(gathered) == 0 {
 			s.out.blankLine()
-			s.out.line(ansiDim, statusLine(s.model, s.total))
+			s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
 			s.out.bare(ansiBold, "you > ")
 		} else {
 			s.out.bare(ansiBold, "   … ")
@@ -425,6 +426,7 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	}
 	s.out.endMessage()
 	s.total.Add(usage)
+	s.spent.add(s.model, usage)
 
 	text := strings.TrimSpace(said.String())
 	if text != "" || len(calls) > 0 {
@@ -613,7 +615,7 @@ func (s *session) command(line string) bool {
 		s.system = compose(systemPrompt, s.reporter.sessionStart("clear"))
 		s.out.line(ansiDim, "(cleared)")
 	case "status":
-		s.out.line(ansiDim, statusLine(s.model, s.total))
+		s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
 		s.out.line(ansiDim, "session "+s.opts.Session)
 		s.out.line(ansiDim, "transcript "+s.log.Path())
 	default:

@@ -54,9 +54,32 @@ func cost(model string, u Usage) (float64, bool) {
 	return float64(u.In)/1e6*best.in + float64(u.Out)/1e6*best.out, true
 }
 
+// spend is what a conversation has cost so far.
+//
+// It is added up a turn at a time, at the rate of the model that answered that
+// turn, because /model changes the model in the middle of a conversation and
+// pricing every token so far at the new model's rate says something that never
+// happened.
+type spend struct {
+	dollars float64
+	// unpriced is set once any turn was answered by a model with no price here.
+	unpriced bool
+}
+
+func (s *spend) add(model string, u Usage) {
+	if u == (Usage{}) {
+		return
+	}
+	if c, ok := cost(model, u); ok {
+		s.dollars += c
+		return
+	}
+	s.unpriced = true
+}
+
 // statusLine is the line under the conversation: which model is answering, what
 // it has read and written, and what that has cost where the cost is known.
-func statusLine(model string, u Usage) string {
+func statusLine(model string, u Usage, spent spend) string {
 	parts := []string{model}
 	if model == "" {
 		// Nothing was asked for, so whatever the endpoint is configured with is
@@ -64,8 +87,13 @@ func statusLine(model string, u Usage) string {
 		parts = []string{"default model"}
 	}
 	parts = append(parts, tokens(u.In)+" in", tokens(u.Out)+" out")
-	if c, ok := cost(model, u); ok {
-		parts = append(parts, money(c))
+	switch {
+	case spent.dollars > 0 && spent.unpriced:
+		// Part of it is known, and the rest was spent at a price nobody here
+		// can say: what is known is a floor, and is shown as one.
+		parts = append(parts, money(spent.dollars)+"+")
+	case spent.dollars > 0:
+		parts = append(parts, money(spent.dollars))
 	}
 	return strings.Join(parts, " · ")
 }

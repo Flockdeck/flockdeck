@@ -44,7 +44,7 @@ func TestAnthropicUsageIsNotCountedTwice(t *testing.T) {
 	if got.In != 1200 || got.Out != 40 {
 		t.Errorf("usage = %+v, want 1200 in and 40 out", got)
 	}
-	if !strings.Contains(statusLine("m", got), "1.2k in") {
-		t.Errorf("status line = %q", statusLine("m", got))
+	if line := statusLine("m", got, spend{}); !strings.Contains(line, "1.2k in") {
+		t.Errorf("status line = %q", line)
 	}
 }
