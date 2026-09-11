@@ -19,6 +19,11 @@ func TestNewer(t *testing.T) {
 		{"v1.4.0", "v1.4.0-rc.1", true, "the release beats its candidate"},
 		{"v1.4.0-rc.1", "v1.4.0", false, "a candidate does not replace the release"},
 		{"v1.4.0-rc.2", "v1.4.0-rc.1", true, "a later candidate"},
+		{"v1.4.0-rc.10", "v1.4.0-rc.9", true, "candidates are counted, not sorted as text"},
+		{"v1.4.0-rc.2", "v1.4.0-rc.10", false, "an earlier candidate with fewer digits"},
+		{"v1.4.0-rc.1.1", "v1.4.0-rc.1", true, "one more part after equal ones"},
+		{"v1.4.0-beta", "v1.4.0-alpha", true, "words sort as text"},
+		{"v1.4.0-alpha", "v1.4.0-1", true, "a word sorts after a number"},
 
 		// Build metadata does not order a version.
 		{"v1.4.0+build.9", "v1.4.0", false, "build metadata alone is not newer"},
