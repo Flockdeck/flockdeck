@@ -13,6 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.
@@ -850,8 +851,10 @@ const planTurns = 4
 
 // PlanSource is where a fan-out looks for the work it should propose.
 type PlanSource struct {
-	// SessionID names the pane's Claude transcript, when it has one.
+	// SessionID names the pane's transcript, when its agent keeps one, and
+	// Spec is that agent, which is what knows where the transcript is.
 	SessionID string
+	Spec      agent.Spec
 	// Screen is the pane's recent terminal output. It is the fallback: a shell
 	// pane has no transcript, and neither has an agent that has not yet spoken.
 	Screen string
@@ -868,9 +871,13 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 	}
 	var src PlanSource
 	// A pane's id is the session id its agent was started with, which is what
-	// names its transcript.
-	if p.Kind == session.KindClaude {
-		src.SessionID = p.ID
+	// names its transcript. Where that transcript is kept is the agent's own
+	// arrangement: asking Claude Code's store about every agent found nothing
+	// for the built-in chat client, whose plan was then read off the screen.
+	if p.IsAgent() {
+		if spec, ok := w.specFor(p.Agent); ok {
+			src.SessionID, src.Spec = p.ID, spec
+		}
 	}
 	if p.Sess != nil {
 		src.Screen = p.Sess.RecentText(recentOutputBytes)
@@ -885,7 +892,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 // workspace. The most recent reply that yields any work wins: an agent that has
 // laid out a plan and then answered a follow-up should not lose the plan.
 func (s PlanSource) Tasks() ([]string, bool) {
-	for _, reply := range session.RecentReplies(s.SessionID, planTurns) {
+	for _, reply := range transcript.For(s.Spec).Replies(s.Spec, s.SessionID, planTurns) {
 		if tasks := ExtractTasks(reply); len(tasks) > 0 {
 			return tasks, true
 		}
