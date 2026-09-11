@@ -44,6 +44,11 @@
 
 * { box-sizing: border-box; }
 
+/* Anything given a display of its own below would otherwise stay on screen
+   with the hidden attribute set, which is how the install tabs showed, and
+   did nothing, with scripting off. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--surface);
