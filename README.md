@@ -757,3 +757,19 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 - The window needs a browser engine present. Every supported platform ships one
   or has one in practice, but on a bare Linux install with no browser at all
   there is nothing to display the interface in.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+The front end is compiled into the binary and the Go dependencies are linked
+into it, so a release carries other people's code as well as this project's.
+All of it is permissive (MIT, ISC and BSD 3-Clause) with no copyleft anywhere,
+and the notices each of those licences asks for are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which ships inside every
+release archive beside the binary.
+
+The agents Flockdeck runs are separate programs and are not redistributed with
+it. Claude Code, Codex, Gemini CLI, Aider, opencode and Cursor's agent each
+keep their own licences and terms, as do the model APIs the built-in client
+talks to.

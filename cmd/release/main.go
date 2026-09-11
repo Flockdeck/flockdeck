@@ -60,6 +60,9 @@ func run(version, out string) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
+	if err := checkExtras(); err != nil {
+		return err
+	}
 
 	// Sums are collected as the archives are written and spilled at the end,
 	// so checksums.txt can never describe an archive that failed to build.
@@ -143,9 +146,35 @@ func build(version, goos, goarch, out string) error {
 	return cmd.Run()
 }
 
-// extras are shipped beside the binary when they exist. They are not required:
-// a checkout without a licence file still produces a release.
-var extras = []string{"README.md", "LICENSE"}
+// extras are shipped inside every archive, beside the binary.
+//
+// They are required rather than optional, and that is the point of the check
+// below. The front end compiled into the binary includes xterm.js, and the
+// Go modules linked into it are MIT, ISC and BSD; every one of those licences
+// asks for its copyright notice to travel with the software. A release built
+// from a checkout missing these files would distribute all of it with none of
+// the notices, and would do it silently, which is exactly what happened for
+// every release cut before this check existed.
+var extras = []string{"README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"}
+
+// checkExtras refuses to build a release that cannot carry its notices.
+//
+// It runs before the first compile rather than at the first archive, so the
+// answer arrives in a second instead of after six cross-compiles.
+func checkExtras() error {
+	var missing []string
+	for _, e := range extras {
+		if _, err := os.Stat(e); err != nil {
+			missing = append(missing, e)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("cannot package a release without %s: these carry the licence "+
+			"and the notices for everything compiled into the binary, and every archive "+
+			"has to contain them (run from the repository root)", strings.Join(missing, " and "))
+	}
+	return nil
+}
 
 func writeZip(archive, binPath, nameInArchive string) error {
 	f, err := os.Create(archive)
