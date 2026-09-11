@@ -357,10 +357,14 @@ func plural(n int, one, many string) string {
 // useAgent tells the workspace which agent a new pane starts as for the rest
 // of this run, which is what -agent asks for.
 //
-// The workspace is another task's file in this work, so until that lands this
-// does nothing beyond the name having been checked; the merge is this one
-// function body.
-var useAgent = func(ws *workspace.Workspace, agentID string) {}
+// It is a variable so that a test can watch the name arrive without building a
+// workspace to hold it.
+var useAgent = func(ws *workspace.Workspace, agentID string) {
+	if agentID == "" {
+		return
+	}
+	ws.UseAgent(agentID)
+}
 
 // run starts the workspace, serves it and shows the window.
 func run(opts options) error {
@@ -699,22 +703,15 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if err := checkAgent(f.agent, f.model); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
-	return withAgent(hooks.SpawnRequest{
+	return hooks.SpawnRequest{
 		Task:   task,
 		Branch: f.worktree,
 		Split:  f.split,
 		Shell:  f.shell,
-	}, f.agent, f.model), nil
+		Agent:  f.agent,
+		Model:  f.model,
+	}, nil
 }
-
-// withAgent puts the agent and model `flockdeck spawn` was given on the request it
-// sends.
-//
-// They are two more fields on hooks.SpawnRequest, which is another task's file
-// in this work. Until that lands this drops them, so the flags are parsed and
-// checked against the catalog but the helper still starts as the default
-// agent; the merge is this one function body.
-var withAgent = func(req hooks.SpawnRequest, agentID, model string) hooks.SpawnRequest { return req }
 
 // spawnFlags are the flags of `flockdeck spawn` and where their values land.
 type spawnFlags struct {

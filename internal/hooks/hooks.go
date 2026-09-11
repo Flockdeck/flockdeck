@@ -279,7 +279,13 @@ type SpawnRequest struct {
 	Branch string `json:"branch,omitempty"`
 	Split  bool   `json:"split,omitempty"`
 	Shell  bool   `json:"shell,omitempty"`
-	Token  string `json:"token"`
+	// Agent and Model are which agent the helper should be, for an agent
+	// handing work to one that is better at it than itself. Both empty is what
+	// every earlier build sent and means the project's default, so a helper
+	// asked for without an opinion is started exactly as it always was.
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
+	Token string `json:"token"`
 }
 
 // SpawnResult is what the application answers a spawn with.

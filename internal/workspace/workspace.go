@@ -31,6 +31,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -179,6 +180,9 @@ type Workspace struct {
 	// twelve times, and ReloadAgents is how an edit made by hand takes effect
 	// without a restart.
 	catalog *agent.Catalog
+	// runAgent is the agent -agent named for this run, which outranks the
+	// catalog's defaults and is outranked by a pane that names one itself.
+	runAgent string
 
 	onWake func()
 }
@@ -903,7 +907,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// Handing the task over as an opening argument is far more
 			// reliable than typing into the terminal, which would mean
 			// guessing when the interface is ready to accept it.
-			tokens.Prompt = p.initial
+			//
+			// An agent with no hooks to answer is briefed here or nowhere, so
+			// the briefing goes in front of the task. One with hooks is briefed
+			// when it fires its first, and gets the task untouched.
+			tokens.Prompt = w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context)
 		}
 		argv = agent.BuildArgv(spec, resuming, tokens)
 		extra := append([]string{}, spec.Env...)
@@ -993,8 +1001,38 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 // Agents returns the catalog this workspace runs from: every agent that is not
 // hidden, and the id of the one a pane takes when nothing has chosen.
 func (w *Workspace) Agents() ([]agent.Spec, string) {
-	c := w.agents()
-	return c.Visible(), c.DefaultsFor(w.activeRoot).Agent
+	return w.agents().Visible(), w.defaultAgent()
+}
+
+// Catalog is the agents this workspace runs from, for a caller that needs more
+// of it than Agents reports -- the defaults a project was given, and what the
+// user's file had to say for itself. It is safe to call from any goroutine, so
+// that probing a catalog full of agents need not happen on the one goroutine
+// that owns the workspace.
+func (w *Workspace) Catalog() *agent.Catalog { return w.agents() }
+
+// UseAgent fixes which agent a new pane starts as for the rest of this run,
+// which is what -agent asks for.
+//
+// It sits between the two answers that already exist: above the catalog's own
+// defaults, because naming an agent on the command line is a more immediate
+// statement than a file written weeks ago, and below a pane that names one
+// itself, because a restored layout knows what it was.
+func (w *Workspace) UseAgent(id string) {
+	w.catalogMu.Lock()
+	w.runAgent = id
+	w.catalogMu.Unlock()
+}
+
+// defaultAgent is the agent a pane with nothing recorded on it runs.
+func (w *Workspace) defaultAgent() string {
+	w.catalogMu.RLock()
+	run := w.runAgent
+	w.catalogMu.RUnlock()
+	if run != "" {
+		return run
+	}
+	return w.agents().DefaultsFor(w.activeRoot).Agent
 }
 
 // ReloadAgents reads agents.json again, so that an edit made by hand takes
@@ -1035,7 +1073,7 @@ func (w *Workspace) agents() *agent.Catalog {
 func (w *Workspace) specFor(id string) (agent.Spec, bool) {
 	c := w.agents()
 	if id == "" {
-		id = c.DefaultsFor(w.activeRoot).Agent
+		id = w.defaultAgent()
 	}
 	return c.Find(id)
 }
@@ -1047,10 +1085,20 @@ func (w *Workspace) specFor(id string) (agent.Spec, bool) {
 // two answers are known here: an agent that records nothing has nothing to
 // resume, and Claude's transcripts are where they have always been.
 func (w *Workspace) transcriptExists(spec agent.Spec, sessionID string) bool {
-	if !spec.Caps.Transcript {
+	// Where an agent keeps what it said is the agent's own arrangement, so the
+	// question goes to its reader. Asking Claude Code's store about every agent
+	// answers "no" for each of them -- an API pane's record is in Flockdeck's own
+	// state directory -- and a pane that has a conversation would be started
+	// fresh on top of it, every restart, for as long as it existed.
+	path := transcript.For(spec).Path(spec, sessionID)
+	if path == "" {
 		return false
 	}
-	return session.ConversationExists(sessionID)
+	// The file existing is not enough: a session interrupted before it recorded
+	// anything leaves an empty one behind, and an agent asked to resume that
+	// refuses it the same way it refuses a missing one.
+	fi, err := os.Stat(path)
+	return err == nil && fi.Size() > 0
 }
 
 // RootOf reports the project a pane belongs to, for callers outside the

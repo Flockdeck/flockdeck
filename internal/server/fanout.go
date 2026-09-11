@@ -767,6 +767,8 @@ func (s *Server) installSpawnHandler() {
 				Cwd:   cwd,
 				Split: req.Split,
 				Kind:  kind,
+				Agent: req.Agent,
+				Model: req.Model,
 			})
 			res <- result{id, err}
 		})

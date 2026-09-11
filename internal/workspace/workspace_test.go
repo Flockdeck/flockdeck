@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // benchWorkspace builds workspace state by hand, with no sessions behind the
@@ -827,5 +829,100 @@ func TestNoTranscriptMeansNoResume(t *testing.T) {
 				t.Errorf("transcriptExists = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// -agent names the agent for a run, and a pane that records none of its own
+// has to take it. Without this the flag is parsed, checked against the catalog
+// and then quietly ignored, which is worse than refusing it.
+func TestUseAgentOutranksTheCatalogDefault(t *testing.T) {
+	isolateConfig(t)
+	w := newTestWorkspace(t, t.TempDir())
+
+	_, def := w.Agents()
+	if def != "claude" {
+		t.Fatalf("default agent = %q, want the catalog's own to begin with", def)
+	}
+
+	w.UseAgent("openai")
+	if _, def := w.Agents(); def != "openai" {
+		t.Errorf("default agent = %q, want the one -agent named", def)
+	}
+	spec, ok := w.specFor("")
+	if !ok || spec.ID != "openai" {
+		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want openai", spec.ID, ok)
+	}
+
+	// A pane that names its own agent still wins: a restored layout knows what
+	// it was, and a run-wide default must not rewrite it.
+	if spec, ok := w.specFor("claude"); !ok || spec.ID != "claude" {
+		t.Errorf("a pane naming claude resolved to %q (found %v)", spec.ID, ok)
+	}
+}
+
+// An agent with no lifecycle hooks is briefed through its opening prompt or
+// not at all, so the briefing has to reach the argv the pane is started with.
+func TestAnAgentWithoutHooksIsBriefedInItsPrompt(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	w := newTestWorkspace(t, root)
+	w.NewTab(session.KindShell, root, "first")
+
+	p := &Pane{ID: uuid.NewString(), Cwd: root, Name: "api", Root: root, Task: "fix the parser"}
+	w.mu.Lock()
+	w.panes[p.ID] = p
+	w.mu.Unlock()
+
+	hooked := w.OpeningPrompt(p.ID, "fix the parser", agent.ContextHook)
+	if hooked != "fix the parser" {
+		t.Errorf("an agent with hooks got %q, want the task untouched", hooked)
+	}
+
+	prompted := w.OpeningPrompt(p.ID, "fix the parser", agent.ContextPrompt)
+	if !strings.Contains(prompted, "fix the parser") {
+		t.Errorf("the task did not survive the briefing: %q", prompted)
+	}
+	if !strings.Contains(prompted, "flockdeck-context") {
+		t.Errorf("an agent with no hooks was given no briefing: %q", prompted)
+	}
+	if len(prompted) <= len("fix the parser") {
+		t.Errorf("the briefing added nothing: %q", prompted)
+	}
+}
+
+// Where an agent keeps what it said is its own arrangement. Asking Claude
+// Code's store about an API pane answers no every time, so such a pane would be
+// started fresh on top of its own conversation at every restart.
+func TestResumeAsksTheAgentsOwnReader(t *testing.T) {
+	isolateConfig(t)
+	w := newTestWorkspace(t, t.TempDir())
+
+	api := agent.Spec{
+		ID:     "openai",
+		Runner: agent.RunnerAPI,
+		Caps:   agent.Caps{Transcript: true, Resume: true},
+	}
+	id := uuid.NewString()
+	if w.transcriptExists(api, id) {
+		t.Error("an API pane with nothing recorded was offered a resume")
+	}
+
+	// The reader for an API agent is the chat client's own, so its answer has
+	// to change when that file appears — not when Claude's store does. The
+	// path is built here rather than asked for, because the reader reports
+	// nothing until the file is there.
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatalf("state directory: %v", err)
+	}
+	path := filepath.Join(dir, "chats", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("make the transcript directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"type":"user","text":"hello"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write the transcript: %v", err)
+	}
+	if !w.transcriptExists(api, id) {
+		t.Error("an API pane with a conversation recorded was not offered a resume")
 	}
 }

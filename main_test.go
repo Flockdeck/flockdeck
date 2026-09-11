@@ -534,13 +534,6 @@ func TestModelSummary(t *testing.T) {
 // helper as whatever the default is and says nothing about it.
 func TestParseSpawnCarriesTheAgentAndModel(t *testing.T) {
 	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
-	var gotAgent, gotModel string
-	carry := withAgent
-	t.Cleanup(func() { withAgent = carry })
-	withAgent = func(req hooks.SpawnRequest, agentID, model string) hooks.SpawnRequest {
-		gotAgent, gotModel = agentID, model
-		return req
-	}
 
 	req, err := parseSpawn([]string{"repair the token refresh", "--agent", "codex", "--model", "gpt-5"})
 	if err != nil {
@@ -549,8 +542,18 @@ func TestParseSpawnCarriesTheAgentAndModel(t *testing.T) {
 	if req.Task != "repair the token refresh" {
 		t.Errorf("task = %q, want the task without the flags in it", req.Task)
 	}
-	if gotAgent != "codex" || gotModel != "gpt-5" {
-		t.Errorf("carried %q/%q, want codex/gpt-5", gotAgent, gotModel)
+	if req.Agent != "codex" || req.Model != "gpt-5" {
+		t.Errorf("request carried %q/%q, want codex/gpt-5", req.Agent, req.Model)
+	}
+
+	// Asking for nothing has to keep looking exactly like every earlier build,
+	// since that is what an agent spawning a helper without an opinion sends.
+	plain, err := parseSpawn([]string{"watch the build"})
+	if err != nil {
+		t.Fatalf("parseSpawn: %v", err)
+	}
+	if plain.Agent != "" || plain.Model != "" {
+		t.Errorf("a spawn with no opinion carried %q/%q, want both empty", plain.Agent, plain.Model)
 	}
 }
 

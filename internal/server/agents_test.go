@@ -76,7 +76,7 @@ func TestSettingADefaultLeavesTheRestOfTheFileAlone(t *testing.T) {
 func TestADamagedFileStillOffersTheBuiltIns(t *testing.T) {
 	writeAgents(t, "{ not json")
 
-	got := buildCatalog(filepath.Join("C:", "code", "api"))
+	got := buildCatalog(agent.Load(), filepath.Join("C:", "code", "api"))
 	if got.Err == "" {
 		t.Error("nothing was said about the damaged file")
 	}
@@ -108,7 +108,7 @@ func TestTheCatalogTheWindowIsSent(t *testing.T) {
   ]
 }`)
 
-	got := buildCatalog(root)
+	got := buildCatalog(agent.Load(), root)
 	if got.Err != "" {
 		t.Fatalf("the file was rejected: %s", got.Err)
 	}

@@ -165,7 +165,7 @@ func (s *Server) catalog() agentCatalog {
 	if s.agentsAt.IsZero() {
 		// The first window is about to draw a picker with nothing in it, and
 		// has nothing else to draw it from. This one is worth waiting for.
-		s.agents, s.agentsRoot, s.agentsAt = buildCatalog(root), root, time.Now()
+		s.agents, s.agentsRoot, s.agentsAt = buildCatalog(s.ws.Catalog(), root), root, time.Now()
 		return s.agents
 	}
 	if s.agentsRoot != root || time.Since(s.agentsAt) >= agentProbeInterval {
@@ -183,7 +183,13 @@ func (s *Server) probeAgents(root string) {
 	}
 	s.agentsProbing = true
 	go func() {
-		built := buildCatalog(root)
+		// Read agents.json again on the way past. A probe happens when the
+		// picker opens and when the last answer has gone stale, which is
+		// exactly when an edit made by hand should start counting — and doing it
+		// here means the catalog the picker offers and the catalog a pane is
+		// started from stay the same object rather than two reads of one file.
+		s.ws.ReloadAgents()
+		built := buildCatalog(s.ws.Catalog(), root)
 		s.do(func() {
 			s.agents, s.agentsRoot, s.agentsAt = built, root, time.Now()
 			s.agentsProbing = false
@@ -208,9 +214,14 @@ func (s *Server) refreshAgents() {
 	})
 }
 
-// buildCatalog reads the catalog and asks the machine about each agent in it.
-func buildCatalog(root string) agentCatalog {
-	c := agent.Load()
+// buildCatalog turns the workspace's catalog into what the picker draws, and
+// asks the machine about each agent in it.
+//
+// The catalog is passed in rather than read here, because the workspace holds
+// the one panes are actually started from. Reading a second copy is how the
+// picker comes to offer an agent that starting a pane then says it has never
+// heard of.
+func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	base := c.DefaultsFor("")
 	out := agentCatalog{
 		Default: agentChoice{Agent: base.Agent, Model: base.Model},
