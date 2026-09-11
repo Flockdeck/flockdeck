@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -313,13 +314,20 @@ func stripANSI(p []byte) string {
 			// as one, which is how a status line that has counted to a
 			// hundred arrives here as every number it passed through.
 			case c == 'G':
+				//
+				// A column is a cell, not a byte. Counting bytes cut a spinner
+				// frame or a box-drawing border in half, and the rest of the
+				// reading came back as invalid UTF-8.
 				col := csiCount(params)
-				if col < 1 {
-					col = 1
-				}
-				target := lineStart + col - 1
-				for len(out) < target {
-					out = append(out, ' ')
+				target := lineStart
+				for ; col > 1; col-- {
+					if target < len(out) {
+						_, size := utf8.DecodeRune(out[target:])
+						target += size
+					} else {
+						out = append(out, ' ')
+						target++
+					}
 				}
 				out = out[:target]
 			// Erasing the line is the rest of that idiom. Only erasing all of
