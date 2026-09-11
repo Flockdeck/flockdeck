@@ -30,7 +30,7 @@ func NewRoot(dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
+	if real, err := realPath(abs); err == nil {
 		abs = real
 	}
 	info, err := os.Stat(abs)
@@ -122,13 +122,13 @@ func normCase(p string) string {
 	return p
 }
 
-// evalExisting resolves the symbolic links in the longest prefix of p that
-// exists, and puts the rest back on the end. A file about to be created has no
-// links of its own to follow, but the directory it is being created in does.
+// evalExisting resolves the links in the longest prefix of p that exists, and
+// puts the rest back on the end. A file about to be created has no links of
+// its own to follow, but the directory it is being created in does.
 func evalExisting(p string) string {
 	cur, rest := p, ""
 	for {
-		if real, err := filepath.EvalSymlinks(cur); err == nil {
+		if real, err := realPath(cur); err == nil {
 			if rest == "" {
 				return real
 			}
