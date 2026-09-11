@@ -175,9 +175,28 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(msg, 4))
+		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 4))
 	}
 	return out.String(), errb.String(), nil
+}
+
+// withoutHints drops git's advice when there is anything else to say.
+//
+// The advice comes first and runs long, so the lines kept for a toast were all
+// of it: a pull that could not fast-forward was reported as four lines of
+// "hint:", with the "fatal: Not possible to fast-forward" that said what had
+// happened cut off below them.
+func withoutHints(msg string) string {
+	var kept []string
+	for _, line := range strings.Split(msg, "\n") {
+		if !strings.HasPrefix(line, "hint:") {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) == 0 {
+		return msg
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 // firstLines keeps an error message short enough to sit in a toast: git can

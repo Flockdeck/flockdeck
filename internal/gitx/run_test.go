@@ -25,3 +25,18 @@ func TestDeadlineHoldsWhenAChildKeepsTheOutputOpen(t *testing.T) {
 		t.Fatalf("returned after %s, long past a 1s deadline", took)
 	}
 }
+
+// TestErrorsKeepTheLineThatSaysWhatHappened: git's advice comes first and
+// runs long, and the few lines kept for a toast were all advice.
+func TestErrorsKeepTheLineThatSaysWhatHappened(t *testing.T) {
+	pull := "hint: Diverging branches can't be fast-forwarded, you need to either:\n" +
+		"hint:\nhint: \tgit merge --no-ff\nhint:\nhint: or:\nhint:\nhint: \tgit rebase\n" +
+		"hint:\nhint: Disable this message with \"git config set advice.diverging false\"\n" +
+		"fatal: Not possible to fast-forward, aborting."
+	if got := firstLines(withoutHints(pull), 4); got != "fatal: Not possible to fast-forward, aborting." {
+		t.Errorf("pull failure reads %q", got)
+	}
+	if only := "hint: nothing but advice"; withoutHints(only) != only {
+		t.Errorf("a message that is all advice should be kept whole, got %q", withoutHints(only))
+	}
+}
