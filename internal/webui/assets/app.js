@@ -838,10 +838,16 @@
     if (!tab) { shownTab = ""; shownFocus = ""; return; }
     const ids = new Set();
     collectPanes(tab.root, ids);
-    ids.forEach((id) => {
-      const p = panes.get(id);
-      if (p) scheduleFit(p);
-    });
+    // Only when the tab has just come on screen. A status push arrives several
+    // times a second while agents work, and measuring every visible terminal
+    // on each one made the browser lay the window out again for nothing: a
+    // pane that changes size is refitted by its own observer.
+    if (tab.id !== shownTab || rebuilt) {
+      ids.forEach((id) => {
+        const p = panes.get(id);
+        if (p) scheduleFit(p);
+      });
+    }
     // Switching tab means switching agent, so the keyboard has to come along:
     // the click that caused the switch left the focus on the tab button, and
     // the revealed terminal would ignore everything typed at it.

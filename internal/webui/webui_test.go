@@ -2292,6 +2292,35 @@ assert.ok(h.doc.activeElement === box, "the keyboard did not go back to the comm
 `)
 }
 
+// Fitting a terminal measures it, which makes the browser lay the window out.
+// Every status push fitted every terminal on screen, and while agents work
+// those pushes arrive several times a second; a pane that has not changed size
+// has nothing to fit.
+func TestAStatusPushDoesNotMeasureTheTerminals(t *testing.T) {
+	runFrontEnd(t, `
+let fits = 0;
+const proto = h.win.FitAddon.FitAddon.prototype;
+const fit = proto.fit;
+proto.fit = function () { fits++; return fit.call(this); };
+h.hello();
+h.recv(fixture());
+await h.sleep(80);
+assert.ok(fits > 0, "the tab on screen was never fitted");
+
+fits = 0;
+for (let i = 0; i < 5; i++) {
+  h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working", detail: "Reading " + i }), p2: pane("p2") } }));
+}
+await h.sleep(80);
+assert.strictEqual(fits, 0, "a status push measured the terminals again");
+
+// A tab coming on screen is still fitted, since it could not be while hidden.
+h.recv(fixture({ activeTab: "t2" }));
+await h.sleep(80);
+assert.ok(fits > 0, "the tab switched to was not fitted");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
