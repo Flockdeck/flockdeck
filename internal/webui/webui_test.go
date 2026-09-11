@@ -2893,6 +2893,8 @@ function tabTo(doc, back) {
 
 // -------------------------------------------------------------------- boot
 
+function unref(t) { t.unref(); return t; }
+
 /** boot starts the front end. opts.pathname is where the page was served
  *  from, which is "/" locally and a machine's own prefix through the relay. */
 function boot(opts) {
@@ -2921,7 +2923,13 @@ function boot(opts) {
     Notification: FakeNotification,
     CSS: { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") },
     TextEncoder, TextDecoder, console,
-    setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    // The page's own timers - a notice taking itself away twelve seconds on,
+    // a reconnect - are not what a case waits for, and holding the process
+    // open they made every case last as long as the longest of them after its
+    // last assertion had run. A case that waits does so with h.sleep.
+    setTimeout: (fn, ms, ...args) => unref(setTimeout(fn, ms, ...args)),
+    setInterval: (fn, ms, ...args) => unref(setInterval(fn, ms, ...args)),
+    clearTimeout, clearInterval, queueMicrotask,
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
       setItem: (k, v) => store.set(k, String(v)),
