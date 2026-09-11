@@ -399,14 +399,14 @@ func run(opts options) error {
 	// open, the old instance still recorded and every old agent still running
 	// — and set about resuming the very conversations those agents still had
 	// open, because closing a pane only signals its process.
-	exiting := false
+	exiting, reopen := false, ""
 	defer func() {
 		if !exiting {
 			return
 		}
 		applyStagedUpdate(os.Stderr)
 		if restarting.Load() {
-			if err := relaunch(); err != nil {
+			if err := relaunch(reopen); err != nil {
 				fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
 			}
 		}
@@ -620,7 +620,7 @@ func run(opts options) error {
 	// replaced without pulling it out from under a running session. The first
 	// defer puts a staged update in then, so the next start — whether the
 	// user's or a restart's — is the new version.
-	exiting = true
+	exiting, reopen = true, ws.ActiveRoot()
 	return nil
 }
 

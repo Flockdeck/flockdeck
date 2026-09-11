@@ -154,18 +154,23 @@ func stagedUpdate(dir, current string) (*selfupdate.Pending, bool) {
 	return p, true
 }
 
-// relaunch starts the program again and returns once it is on its own feet.
+// relaunch starts the program again on root, the project that was on screen,
+// and returns once it is on its own feet.
 //
-// It is started with no arguments on purpose. The flags that a run began with
-// are about how that run started — which project to open, whether to detach —
-// and a restart asked for from the interface should come back the ordinary
-// way, reopening the layout that was just saved.
-func relaunch() error {
+// The project is the only thing carried over, on purpose. The rest of the
+// flags a run began with are about how that run started — whether to detach,
+// which agent new panes take — and a restart asked for from the interface
+// should come back the ordinary way, reopening the layout that was just saved.
+// Without the project it opened whatever directory it had been started from,
+// which after `flockdeck -C ~/code/api` run from home is the home directory:
+// a project nobody asked for, given a fresh agent pane of its own beside the
+// ones the saved session brought back.
+func relaunch(root string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe)
+	cmd := relaunchCommand(exe, root)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -173,6 +178,15 @@ func relaunch() error {
 	// The child is left to run on its own; waiting for it would keep this
 	// process alive for the whole of the next session.
 	return cmd.Process.Release()
+}
+
+// relaunchCommand is the command relaunch runs, kept apart so a test can read
+// it without starting anything.
+func relaunchCommand(exe, root string) *exec.Cmd {
+	if root == "" {
+		return exec.Command(exe)
+	}
+	return exec.Command(exe, "-C", root)
 }
 
 // restarting records that the interface asked for a restart rather than a

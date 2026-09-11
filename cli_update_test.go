@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,20 @@ func stageForTest(t *testing.T, staged string) (dir, exe string) {
 		t.Fatal(err)
 	}
 	return dir, exe
+}
+
+// A restart comes back on the project that was on screen. Started with nothing,
+// it opened the directory the first run was launched from, which after -C is
+// somewhere the user never asked to work.
+func TestRelaunchReopensTheProjectOnScreen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "api")
+	got := relaunchCommand("flockdeck", root).Args
+	if want := []string{"flockdeck", "-C", root}; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("relaunch runs %q, want %q", got, want)
+	}
+	if got := relaunchCommand("flockdeck", "").Args; len(got) != 1 {
+		t.Errorf("with no project known, relaunch runs %q, want the program alone", got)
+	}
 }
 
 // A release staged by one build is not an update to every build that finds it.
