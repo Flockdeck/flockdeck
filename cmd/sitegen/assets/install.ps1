@@ -51,6 +51,9 @@ function Install-Flockdeck {
         }
         if (-not $version) { throw "flockdeck: GitHub's answer did not name a release" }
     }
+    # Releases are tagged v1.2.3, and a version is as often written without
+    # the v; either finds the release rather than a download that is not there.
+    if ($version -notmatch '^v') { $version = "v$version" }
 
     $base = if ($env:FLOCKDECK_DOWNLOAD) { $env:FLOCKDECK_DOWNLOAD } else { "https://github.com/$repo/releases/download" }
     $dir = if ($env:FLOCKDECK_INSTALL_DIR) { $env:FLOCKDECK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\flockdeck' }

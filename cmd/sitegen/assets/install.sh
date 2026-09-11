@@ -88,6 +88,9 @@ main() {
 		version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
 		[ -n "$version" ] || die "GitHub's answer did not name a release"
 	fi
+	# Releases are tagged v1.2.3, and a version is as often written without
+	# the v; either finds the release rather than a download that is not there.
+	case "$version" in v*) ;; *) version="v$version" ;; esac
 
 	archive="flockdeck_${version}_${os}_${arch}.tar.gz"
 	say "downloading $archive"
