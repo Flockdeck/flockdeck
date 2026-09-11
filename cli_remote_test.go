@@ -220,6 +220,10 @@ func TestRemoteUsage(t *testing.T) {
 		if err != nil || !strings.Contains(out, "Usage: flockdeck remote") {
 			t.Errorf("remote %v = %q, %v", args, out, err)
 		}
+		// What the relay can see is said plainly, as the README says it.
+		if !strings.Contains(out, "decrypts") {
+			t.Errorf("remote %v does not say the relay decrypts the traffic: %q", args, out)
+		}
 	}
 	if _, _, err := runRemoteCmd(t, "nonsense"); err == nil {
 		t.Error("an unknown command was accepted")
