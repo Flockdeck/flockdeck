@@ -4158,6 +4158,17 @@
   $("search-prev").onclick = () => runSearch(true);
   $("search-close").onclick = closeSearch;
   $("notice").onclick = hideNotice;
+  // A link out of the application - the help has one, to where Claude Code is
+  // installed from - followed in place replaces the application with the page
+  // it points to. This is an app window, with no address bar and no back
+  // button, so the agents were left running with nothing on screen to reach
+  // them by. A link like that opens a window of its own instead.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a || a.target === "_blank" || !/^https?:/i.test(a.getAttribute("href"))) return;
+    e.preventDefault();
+    window.open(a.getAttribute("href"), "_blank", "noopener,noreferrer");
+  });
   // Asking on the first interaction rather than at load avoids a permission
   // prompt before the user has done anything. A keystroke is an interaction as
   // much as a click, and this is an application built to be driven from the

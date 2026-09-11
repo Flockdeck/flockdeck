@@ -2101,6 +2101,31 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// The help links out to where Claude Code is installed from. Followed in
+// place, that page replaced the application in its own window, which has no
+// address bar or back button to return by.
+func TestALinkOutOfTheHelpOpensAWindowOfItsOwn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const opened = [];
+h.win.open = (url, target) => { opened.push([url, target]); return null; };
+h.press("help");
+await h.sleep(20);
+const content = h.$("help-content");
+assert.ok(content, "the help did not load");
+// The harness does not parse the page's HTML into elements, so the link the
+// troubleshooting page renders is put there by hand.
+const a = h.doc.createElement("a");
+a.setAttribute("href", "https://claude.com/claude-code");
+content.append(a);
+const ev = new h.Ev("click", { target: a });
+h.dispatch(a, ev);
+assert.ok(ev.defaultPrevented, "following the link replaced the application with it");
+assert.deepStrictEqual(opened, [["https://claude.com/claude-code", "_blank"]]);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
