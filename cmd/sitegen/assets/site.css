@@ -82,7 +82,7 @@ a:hover { color: var(--accent-strong); }
 
 .top {
   position: relative; z-index: 2;
-  display: flex; align-items: center; gap: 14px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
   max-width: 1080px; margin: 0 auto;
   padding: 22px 24px;
 }
@@ -92,7 +92,10 @@ a:hover { color: var(--accent-strong); }
   letter-spacing: -.015em; color: var(--text);
 }
 .wordmark svg { display: block; }
-.top nav { margin-left: auto; display: flex; gap: 20px; font-size: 14.5px; }
+/* Both navs wrap rather than run off the side of a phone, where the body's
+   overflow-x: hidden would cut the last links off without a scrollbar. */
+.top nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 14.5px; }
+.top nav a, .foot nav a { white-space: nowrap; }
 .top nav a { color: var(--muted); text-decoration: none; }
 .top nav a:hover { color: var(--text); }
 
@@ -441,7 +444,7 @@ pre.has-copy { padding-right: 78px; }
 }
 .foot .wrap { display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center; padding: 0; }
 .foot p { margin: 0; color: var(--idle); font-size: 14px; }
-.foot nav { margin-left: auto; display: flex; gap: 22px; font-size: 14px; }
+.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 14px; }
 
 /* ------------------------------------------------------------ responsive */
 
@@ -457,7 +460,7 @@ pre.has-copy { padding-right: 78px; }
   .pane { min-height: 140px; }
   .deck-tally { display: none; }
   .band { padding-block: 56px; }
-  .foot nav { margin-left: 0; }
+  .top nav, .foot nav { margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
