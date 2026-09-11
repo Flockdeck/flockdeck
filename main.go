@@ -575,9 +575,13 @@ func run(opts options) error {
 
 		if win.AppMode {
 			// The window process ending is the user closing the application,
-			// unless they asked to leave the agents running.
+			// unless they asked to leave the agents running — or unless it
+			// handed the window to a browser already running, which leaves
+			// only the connection below to tell when it closes.
 			go func() {
-				_ = win.Wait()
+				if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
+					return
+				}
 				if !srv.Detached() {
 					stop()
 				}

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
@@ -40,9 +41,24 @@ func pinnedBrowser() (prog, from string) {
 // ErrNoBrowser is returned when nothing could be found to display the UI.
 var ErrNoBrowser = errors.New("no browser found to display the interface")
 
+// ErrHandedOff is returned by Wait when the browser gave the window to a
+// process of its own that was already running, and exited. The window is open,
+// but nothing here can tell when it closes.
+var ErrHandedOff = errors.New("the window was handed to a browser already running")
+
+// handOffWithin is how soon after starting a successful exit counts as a hand
+// off rather than as the window being closed. A Chromium browser runs one
+// process per profile, and a second launch on a profile in use passes its
+// window to that process and exits at once — which is every launch while
+// another instance's window is open, since they share the profile. Read as the
+// window closing, that stopped the new instance the moment it started. Nobody
+// opens the window and closes it again inside this.
+const handOffWithin = 5 * time.Second
+
 // Window is a running UI window.
 type Window struct {
-	cmd *exec.Cmd
+	cmd     *exec.Cmd
+	started time.Time
 	// AppMode reports whether the window is a dedicated app window rather than
 	// a tab in the user's ordinary browser.
 	AppMode bool
@@ -51,12 +67,17 @@ type Window struct {
 }
 
 // Wait blocks until an app-mode window is closed. It returns immediately for a
-// tab opened in the default browser, whose lifetime cannot be observed.
+// tab opened in the default browser, whose lifetime cannot be observed, and
+// returns ErrHandedOff for a window another browser process took over.
 func (w *Window) Wait() error {
 	if w == nil || w.cmd == nil || !w.AppMode {
 		return nil
 	}
-	return w.cmd.Wait()
+	err := w.cmd.Wait()
+	if err == nil && time.Since(w.started) < handOffWithin {
+		return ErrHandedOff
+	}
+	return err
 }
 
 // Close terminates an app-mode window.
@@ -104,7 +125,7 @@ func startAppMode(path, url, profileDir string) (*Window, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", path, err)
 	}
-	return &Window{cmd: cmd, AppMode: true, Program: path}, nil
+	return &Window{cmd: cmd, started: time.Now(), AppMode: true, Program: path}, nil
 }
 
 // candidates lists the browsers to try, in preference order, for this platform.
