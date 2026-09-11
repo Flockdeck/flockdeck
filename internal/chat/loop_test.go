@@ -24,7 +24,7 @@ func newTestSession(t *testing.T, input string, wire Wire, tools ...Tool) (*sess
 		wire:     wire,
 		log:      log,
 		out:      newPrinter(&out, 70, false),
-		in:       newInput(strings.NewReader(input)),
+		in:       newInput(strings.NewReader(input), false),
 		reporter: newReporter("", "", "session-1", ""),
 		tools:    map[string]Tool{},
 		always:   map[string]bool{},

@@ -145,7 +145,7 @@ func Run(ctx context.Context, o Options) error {
 		wire:     wire,
 		log:      log,
 		out:      newPrinter(o.Out, o.Width, o.Colour),
-		in:       newInput(o.In),
+		in:       newInput(o.In, isConsole(o.In)),
 		reporter: newReporter(o.API, o.Token, o.Session, o.Cwd),
 		model:    o.Model,
 		tools:    map[string]Tool{},
@@ -306,6 +306,7 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 			s.out.line("", "")
 			return "", false
 		case <-s.signals:
+			s.in.interrupt()
 			// Nothing is running, so there is no turn to interrupt. Leaving on
 			// the first Ctrl+C would throw away a conversation over a stray
 			// keystroke; leaving on none of them would trap somebody whose
@@ -343,6 +344,7 @@ func (s *session) turn(ctx context.Context, prompt string) {
 		for {
 			select {
 			case <-s.signals:
+				s.in.interrupt()
 				// Interrupting is drawn once the turn has stopped: the printer
 				// belongs to the goroutine below, and two goroutines writing to
 				// a terminal produce one unreadable line.
