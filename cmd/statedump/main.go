@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/coder/websocket"
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	// A first argument with a dash is a flag somebody hoped for, -h most
+	// likely; dialled as the address it only produced an error naming it.
+	if len(os.Args) < 2 || strings.HasPrefix(os.Args[1], "-") {
 		fmt.Fprintln(os.Stderr, `usage: statedump "ws://127.0.0.1:PORT/ws/control?t=TOKEN"`)
 		os.Exit(2)
 	}

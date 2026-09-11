@@ -37,6 +37,8 @@ func main() {
 		switch {
 		case arg == "-full" || arg == "--full":
 			full = true
+		case strings.HasPrefix(arg, "-"):
+			usage() // -h, most likely, which would otherwise be dialled
 		case url == "":
 			url = arg
 		default:
