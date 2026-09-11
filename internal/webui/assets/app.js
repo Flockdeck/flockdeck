@@ -4128,6 +4128,16 @@
   // -------------------------------------------------------------- shortcuts
 
   window.addEventListener("keydown", (e) => {
+    // A key pressed while an input method is composing belongs to it. Enter
+    // there confirms the characters being composed, and taking it as Enter
+    // sent a prompt, ran a palette command or created a worktree with a name
+    // half-written. The dialog fields that act on Enter are kept from seeing
+    // it too; xterm is not, because it reads these keys to follow the
+    // composition itself.
+    if (e.isComposing || e.keyCode === 229) {
+      if (!(e.target.classList && e.target.classList.contains("xterm-helper-textarea"))) e.stopPropagation();
+      return;
+    }
     if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
     if (!$("searchbar").hidden && document.activeElement === $("search-input")) {

@@ -2207,6 +2207,42 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
 `)
 }
 
+// Typing Chinese or Japanese goes through an input method, and the Enter that
+// confirms the characters it composed arrives as a keydown of its own. Taken
+// as Enter, it sent the half-written prompt and ran whatever palette command
+// was picked out.
+func TestEnterThatConfirmsAnInputMethodIsNotSubmit(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+const composing = { key: "Enter", isComposing: true, keyCode: 229 };
+
+h.press("promptAll");
+h.$("prompt-input").value = "\u4f60\u597d";
+h.key(composing);
+assert.ok(!h.$("promptbar").hidden, "confirming the characters sent the prompt");
+assert.ok(!h.commands().some((c) => c.cmd === "sendPrompt"), "confirming the characters sent the prompt");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "\u4f60\u597d" });
+
+h.press("palette");
+h.$("palette-input").value = "zoom";
+h.$("palette-input").oninput();
+h.key(composing);
+assert.ok(!h.$("palette").hidden, "confirming the characters ran a command");
+
+h.key({ key: "Escape" });
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", items: [], branches: [] });
+const branch = h.$("wt-branch");
+branch.focus();
+branch.value = "fix";
+const before = h.commands().length;
+h.key(composing);
+assert.strictEqual(h.commands().length, before, "confirming the characters created a worktree");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
