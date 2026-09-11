@@ -177,13 +177,23 @@
     <li>macos · amd64 · arm64</li>
     <li>linux · amd64 · arm64</li>
   </ul>
-  <p>It builds with nothing but the Go toolchain, and cross-compiles to all six
-     from any one of them.</p>
+  <p>On macOS or Linux:</p>
+  <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
+  <p>On Windows, in PowerShell:</p>
+  <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
+  <p>Each fetches the latest release for this machine, checks it against the
+     release’s published checksums and puts the one binary somewhere you own —
+     <code>~/.local/bin</code>, or <code>%LOCALAPPDATA%\Programs\flockdeck</code>
+     with a Start menu entry — so it can update itself later without asking for
+     a password. They are short, and worth reading first:
+     <a href="install.sh">install.sh</a>, <a href="install.ps1">install.ps1</a>.</p>
+  <p>With Go, it builds with nothing but the toolchain, and cross-compiles to
+     all six from any one of them:</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
   <p>Or from a clone:</p>
   <pre><code>make build      <span class="c"># a binary for this machine</span>
 make package    <span class="c"># archives for all six platforms</span></code></pre>
-  <p>Released builds are on the
+  <p>Every release is also on the
      <a href="{{ .Repo }}/releases">releases page</a>, and a running Flockdeck
      keeps itself current: it checks for a release, verifies the download
      against its published checksum and offers the restart. Nothing is replaced

@@ -27,7 +27,12 @@ import (
 	"path/filepath"
 )
 
-//go:embed assets/index.html.tmpl assets/site.css
+// The install scripts are served from the site so the line a visitor copies is
+// short and names the product's own domain. They are kept here rather than in
+// the site's repository because they carry the archive names cmd/release
+// writes, and the two should change in the same commit.
+//
+//go:embed assets/index.html.tmpl assets/site.css assets/install.sh assets/install.ps1
 var assets embed.FS
 
 // icon is the application's own mark, which becomes the site's favicon.
@@ -43,6 +48,7 @@ var icon []byte
 const (
 	defaultRepo   = "https://github.com/jmwri/flockdeck"
 	defaultModule = "github.com/jmwri/flockdeck"
+	defaultURL    = "https://flockdeck.ai"
 )
 
 func main() {
@@ -50,9 +56,10 @@ func main() {
 	shot := flag.String("shot", "", "`screenshot` to copy in and show on the page")
 	repo := flag.String("repo", defaultRepo, "`url` of the source repository")
 	module := flag.String("module", defaultModule, "`path` the module is installed from")
+	url := flag.String("url", defaultURL, "`address` the site is served from, which the install lines name")
 	flag.Parse()
 
-	if err := run(*out, *shot, *repo, *module); err != nil {
+	if err := run(*out, *shot, *repo, *module, *url); err != nil {
 		fmt.Fprintln(os.Stderr, "sitegen:", err)
 		os.Exit(1)
 	}
@@ -63,14 +70,17 @@ type site struct {
 	Repo   string
 	Module string
 	Shot   string
+	// URL is where the site itself is served, which the install lines have to
+	// name in full: they are pasted into a terminal, not followed as links.
+	URL string
 }
 
-func run(out, shot, repo, module string) error {
+func run(out, shot, repo, module, url string) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
 
-	s := site{Repo: repo, Module: module}
+	s := site{Repo: repo, Module: module, URL: url}
 	if shot != "" {
 		s.Shot = filepath.Base(shot)
 	}
@@ -94,6 +104,17 @@ func run(out, shot, repo, module string) error {
 		// nothing here for it to do.
 		".nojekyll": nil,
 	}
+	// The scripts are run straight off the wire, and a checkout on Windows can
+	// hand them over with CRLF endings, which sh takes as part of every
+	// command. They are written out with LF whatever the working tree had.
+	for _, name := range []string{"install.sh", "install.ps1"} {
+		body, err := assets.ReadFile("assets/" + name)
+		if err != nil {
+			return err
+		}
+		files[name] = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
+	}
+
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
