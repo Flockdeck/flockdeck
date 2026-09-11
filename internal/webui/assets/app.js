@@ -1238,6 +1238,21 @@
   function wireDragSafetyNet() {
     document.addEventListener("dragend", endDrag);
     document.addEventListener("drop", endDrag);
+    // A file dragged in from outside is none of the above, and the browser's
+    // own answer to one being dropped on a page that does not claim it is to
+    // open the file in the page's place. In this window that took the whole
+    // application away - there is no back button to return by - for a
+    // gesture a terminal user makes expecting the path to be typed. The page
+    // cannot learn a dropped file's path, so the drop is refused outright,
+    // which the pointer shows while the file is still held over the window.
+    const fromOutside = (ev) => !dragging && ev.dataTransfer &&
+      Array.from(ev.dataTransfer.types || []).includes("Files");
+    document.addEventListener("dragover", (ev) => {
+      if (!fromOutside(ev)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "none";
+    });
+    document.addEventListener("drop", (ev) => { if (fromOutside(ev)) ev.preventDefault(); });
   }
 
   /** wireTabStripDrops handles the space past the last tab and the + button:

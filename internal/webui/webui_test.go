@@ -2126,6 +2126,29 @@ assert.deepStrictEqual(opened, [["https://claude.com/claude-code", "_blank"]]);
 `)
 }
 
+// A file dragged in from the desktop and let go over a pane was opened by the
+// browser in place of the application. The page has to claim the drag to stop
+// that, and refuses it.
+func TestAFileDroppedOnTheWindowDoesNotReplaceIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const host = h.terms[0].host;
+const over = new h.Ev("dragover", { target: host, dataTransfer: { types: ["Files"], dropEffect: "copy" } });
+h.dispatch(host, over);
+assert.ok(over.defaultPrevented, "the page left the file to the browser, which opens it in its place");
+assert.strictEqual(over.dataTransfer.dropEffect, "none", "the pointer does not say the drop is refused");
+const drop = new h.Ev("drop", { target: host, dataTransfer: { types: ["Files"] } });
+h.dispatch(host, drop);
+assert.ok(drop.defaultPrevented, "the drop was left to the browser");
+
+// A pane being moved is still a pane being moved.
+const other = new h.Ev("dragover", { target: host, dataTransfer: { types: ["text/plain"], dropEffect: "move" } });
+h.dispatch(host, other);
+assert.ok(!other.defaultPrevented, "a drag that is not a file was claimed as well");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
