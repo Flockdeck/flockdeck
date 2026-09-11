@@ -798,15 +798,15 @@ func Recents() ([]Project, error) {
 
 // TouchRecent records that a project was opened, moving it to the front.
 func TouchRecent(root string) error {
-	// The rewrite below replaces the whole file, so a list we could not read
-	// has to stop us: carrying on would quietly discard every other project
-	// the user has opened. A damaged or absent list reads as empty, which is
-	// the case where starting again is the right answer.
 	// An empty root is not a project. It would be stored as "." and then
 	// offered in the picker as a directory that opens somewhere unpredictable.
 	if strings.TrimSpace(root) == "" {
 		return errors.New("recent project: empty path")
 	}
+	// The rewrite below replaces the whole file, so a list we could not read
+	// has to stop us: carrying on would quietly discard every other project
+	// the user has opened. A damaged or absent list reads as empty, which is
+	// the case where starting again is the right answer.
 	list, err := Recents()
 	if err != nil {
 		return err
