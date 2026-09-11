@@ -424,6 +424,12 @@ func pathTail(path string, n int) string {
 		// The top of a path names nothing worth borrowing: Base of "C:\" and of
 		// "/" is a separator, and Dir stops moving once it is reached.
 		if base == "" || base == "." || (len(base) == 1 && os.IsPathSeparator(base[0])) {
+			// Copies on two drives agree on every element above the drive, so
+			// once those have run out the drive is what is left to tell them
+			// apart. A path with no volume has nothing more to give.
+			if out != "" && filepath.VolumeName(rest) != "" {
+				out = filepath.Join(rest, out)
+			}
 			break
 		}
 		if out == "" {

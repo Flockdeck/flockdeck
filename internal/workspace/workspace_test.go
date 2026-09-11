@@ -180,6 +180,26 @@ func TestProjectNameOfARootDirectory(t *testing.T) {
 	}
 }
 
+// TestProjectNamesTellDrivesApart covers the mirror on another drive, which
+// agrees with the original on every element it has. Both were called
+// code\api, since the names stopped growing at the top of each path without
+// the drive that is the whole of the difference.
+func TestProjectNamesTellDrivesApart(t *testing.T) {
+	if filepath.VolumeName(`C:\`) == "" {
+		t.Skip("paths here have no drive")
+	}
+	roots := []string{`C:\code\api`, `D:\code\api`}
+	names := projectNames(roots)
+	if names[0] == names[1] {
+		t.Errorf("both projects are called %q", names[0])
+	}
+	for i, want := range roots {
+		if names[i] != want {
+			t.Errorf("name of %s = %q, want %q", roots[i], names[i], want)
+		}
+	}
+}
+
 func mustAbs(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs(".")
