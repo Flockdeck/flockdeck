@@ -33,7 +33,11 @@ else
 endif
 
 install:
+ifeq ($(shell go env GOOS),windows)
+	go install -ldflags "$(WINFLAGS)" .
+else
 	go install -ldflags "$(LDFLAGS)" .
+endif
 
 test:
 	go test ./...
