@@ -89,6 +89,15 @@
      keeps each one on its own branch so they never trip over each other.</p>
 </section>
 
+<section class="band shot" id="app">
+  <p class="eyebrow">In the app</p>
+  <h2>Every agent in one window.</h2>
+  <figure class="figure">
+    <img src="deck.png" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
+    <figcaption class="caption">Four agents on four branches. The amber pane is asking for approval.</figcaption>
+  </figure>
+</section>
+
 <section class="band" id="what">
   <p class="eyebrow">Features</p>
   <h2>Everything you need to run a team of agents.</h2>
@@ -157,6 +166,10 @@
       </ul>
     </div>
   </div>
+  <figure class="figure">
+    <img src="fanout.png" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with a model picker for the whole run and for each task, and an option to give each agent its own git worktree.">
+    <figcaption class="caption">Fan out picks up the plan straight from the agent's output.</figcaption>
+  </figure>
 </section>
 
 <!-- Remote access, as the design in flockdeck-relay settles it: dialling out,
@@ -218,14 +231,20 @@
   <p class="aside">Remote access is off until you turn it on. Turn it off and your
      desktop is removed from the relay.</p>
 </section>
-{{ if .Shot }}
 <section class="band shot">
-  <p class="eyebrow">Agent picker</p>
-  <h2>Choose from every agent on your machine.</h2>
-  <img src="{{ .Shot }}" alt="The Flockdeck window with the agent picker open over a pane. Claude Code is listed under Installed with its four models; Codex, Gemini, Aider, opencode, Cursor Agent and the API agents are listed below it, greyed, each with the command that installs it.">
-  <p class="caption">Pick an agent and model for each pane.</p>
+  <p class="eyebrow">Built in</p>
+  <h2>Pick any agent. See every branch.</h2>
+  <div class="pair">
+    <figure class="figure">
+      <img src="agent-picker.png" width="1424" height="805" loading="lazy" alt="The Flockdeck window with the agent picker open over a pane. Claude Code is listed under Installed with its four models; Codex, Gemini, Aider, opencode, Cursor Agent and the API agents are listed below it, greyed, each with the command that installs it.">
+      <figcaption class="caption">Pick an agent and model for each pane.</figcaption>
+    </figure>
+    <figure class="figure">
+      <img src="worktrees.png" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and three feature branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there.">
+      <figcaption class="caption">Every checkout, its branch and the agents in it.</figcaption>
+    </figure>
+  </div>
 </section>
-{{ end }}
 <section class="band" id="install">
   <p class="eyebrow">Install</p>
   <h2>Up and running in one line.</h2>

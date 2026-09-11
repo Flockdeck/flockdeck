@@ -14,7 +14,7 @@
 // The output is plain files with no build step, because the site is served as
 // a container image built from a repository of its own:
 //
-//	go run ./cmd/sitegen -out ../flockdeck-site -shot shot.png
+//	go run ./cmd/sitegen -out ../flockdeck-site
 package main
 
 import (
@@ -32,7 +32,11 @@ import (
 // the site's repository because they carry the archive names cmd/release
 // writes, and the two should change in the same commit.
 //
-//go:embed assets/index.html.tmpl assets/site.css assets/install.sh assets/install.ps1
+// The screenshots are staged captures of the real application. They live
+// here too, so the site builds from the repository alone rather than from
+// whatever image the person running this happens to have lying around.
+//
+//go:embed assets/index.html.tmpl assets/site.css assets/install.sh assets/install.ps1 assets/shots/*.png
 var assets embed.FS
 
 // icon is the application's own mark, which becomes the site's favicon.
@@ -53,13 +57,12 @@ const (
 
 func main() {
 	out := flag.String("out", "site", "`directory` to write the site into")
-	shot := flag.String("shot", "", "`screenshot` to copy in and show on the page")
 	repo := flag.String("repo", defaultRepo, "`url` of the source repository")
 	module := flag.String("module", defaultModule, "`path` the module is installed from")
 	url := flag.String("url", defaultURL, "`address` the site is served from, which the install lines name")
 	flag.Parse()
 
-	if err := run(*out, *shot, *repo, *module, *url); err != nil {
+	if err := run(*out, *repo, *module, *url); err != nil {
 		fmt.Fprintln(os.Stderr, "sitegen:", err)
 		os.Exit(1)
 	}
@@ -69,21 +72,17 @@ func main() {
 type site struct {
 	Repo   string
 	Module string
-	Shot   string
 	// URL is where the site itself is served, which the install lines have to
 	// name in full: they are pasted into a terminal, not followed as links.
 	URL string
 }
 
-func run(out, shot, repo, module, url string) error {
+func run(out, repo, module, url string) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
 
 	s := site{Repo: repo, Module: module, URL: url}
-	if shot != "" {
-		s.Shot = filepath.Base(shot)
-	}
 
 	page, err := render(s)
 	if err != nil {
@@ -121,13 +120,17 @@ func run(out, shot, repo, module, url string) error {
 		}
 	}
 
-	if shot != "" {
-		data, err := os.ReadFile(shot)
+	shots, err := assets.ReadDir("assets/shots")
+	if err != nil {
+		return err
+	}
+	for _, e := range shots {
+		data, err := assets.ReadFile("assets/shots/" + e.Name())
 		if err != nil {
-			return fmt.Errorf("read the screenshot: %w", err)
+			return err
 		}
-		if err := os.WriteFile(filepath.Join(out, s.Shot), data, 0o644); err != nil {
-			return fmt.Errorf("write the screenshot: %w", err)
+		if err := os.WriteFile(filepath.Join(out, e.Name()), data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", e.Name(), err)
 		}
 	}
 
