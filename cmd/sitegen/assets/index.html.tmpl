@@ -291,14 +291,14 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <!-- Both commands are in the markup. With scripting on, the tabs show the one
        for the visitor's own system; with it off, both are simply listed. -->
   <div class="os-tabs" role="tablist" aria-label="Your operating system" hidden>
-    <button type="button" role="tab" data-os="unix">macOS &amp; Linux</button>
-    <button type="button" role="tab" data-os="windows">Windows</button>
+    <button type="button" role="tab" id="os-tab-unix" aria-controls="os-unix" data-os="unix">macOS &amp; Linux</button>
+    <button type="button" role="tab" id="os-tab-windows" aria-controls="os-windows" data-os="windows">Windows</button>
   </div>
-  <div class="os" data-os="unix">
+  <div class="os" id="os-unix" data-os="unix">
     <p class="os-label">macOS and Linux:</p>
     <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
   </div>
-  <div class="os" data-os="windows">
+  <div class="os" id="os-windows" data-os="windows">
     <p class="os-label">Windows (PowerShell):</p>
     <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
   </div>
@@ -528,13 +528,34 @@ make package    <span class="c"># archives for all six platforms</span></code></
   const panels = document.querySelectorAll(".os");
   if (tabs && panels.length) {
     const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
-    const show = (os) => {
+    const buttons = [...tabs.querySelectorAll("button")];
+    // Only the selected tab is in the Tab order; the arrow keys move between
+    // them, which is how a screen reader user expects a tab list to behave.
+    const show = (os, focus) => {
       panels.forEach((p) => { p.hidden = p.dataset.os !== os; });
-      tabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.os === os)));
+      buttons.forEach((b) => {
+        const on = b.dataset.os === os;
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+        if (on && focus) b.focus();
+      });
     };
+    // The panels are only tab panels once the tabs are showing; without this
+    // script they are two plain sections, each with its own label.
+    panels.forEach((p) => {
+      p.setAttribute("role", "tabpanel");
+      p.setAttribute("aria-labelledby", "os-tab-" + p.dataset.os);
+    });
     tabs.hidden = false;
     document.body.classList.add("has-os-tabs");
     tabs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.os); });
+    tabs.addEventListener("keydown", (e) => {
+      const at = buttons.indexOf(document.activeElement);
+      if (at < 0 || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+      e.preventDefault();
+      const next = buttons[(at + (e.key === "ArrowRight" ? 1 : buttons.length - 1)) % buttons.length];
+      show(next.dataset.os, true);
+    });
     show(/win/i.test(platform) ? "windows" : "unix");
   }
 
