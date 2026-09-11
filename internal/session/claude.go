@@ -162,18 +162,6 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	}
 }
 
-// claudeHome returns the directory Claude Code keeps its state in.
-func claudeHome() string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude")
-}
-
 // ConversationExists reports whether Claude Code has a stored transcript for a
 // session id.
 //
