@@ -161,6 +161,70 @@
     </div>
   </div>
 </section>
+
+<!-- Remote access is being built, not shipped, and the section says so rather
+     than letting a visitor go looking for it. It describes what the design in
+     flockdeck-relay settles -- dialling out, pairing, the same interface, what
+     the relay can see -- and leaves out the commands and addresses, which are
+     the parts still free to change. -->
+<section class="band" id="remote">
+  <p class="eyebrow">Coming next · remote access</p>
+  <h2>Your agents, from anywhere.</h2>
+  <p>Detach the window and the agents keep working on your desktop. Soon you
+     will be able to open them from a laptop, a tablet or your phone — and see,
+     from the train, <strong>which one is waiting on you</strong>.</p>
+  <div class="relay" aria-label="A paired device reaches the desktop through the relay, which the desktop dials out to">
+    <div class="relay-node">
+      <span class="g">phone · tablet · laptop</span>
+      <div class="relay-tally"><span class="dot waiting">▲</span> 1 waiting <span class="dot working">●</span> 2 working</div>
+      <span class="t">any browser you have paired</span>
+    </div>
+    <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
+    <div class="relay-node hub">
+      <span class="g">the relay</span>
+      <div class="relay-tally">passes traffic between the two</div>
+      <span class="t">hosted; you only ever see your own</span>
+    </div>
+    <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">dials out · TLS</span></div>
+    <div class="relay-node">
+      <span class="g">your desktop</span>
+      <div class="relay-tally"><span class="dot working">●</span> api <span class="dot waiting">▲</span> ui <span class="dot idle">●</span> docs</div>
+      <span class="t">Flockdeck, running as it does now</span>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <span class="g">dials out</span>
+      <h3>No ports, no VPN</h3>
+      <p>Your desktop connects out to the relay and keeps that one connection
+         open. Nothing on it listens to the internet, and there is nothing to
+         forward on your router.</p>
+    </div>
+    <div class="card">
+      <span class="g">link · QR code</span>
+      <h3>Pair a device in one scan</h3>
+      <p>The desktop makes a one-time link that lasts minutes. Open it, or scan
+         it as a QR code, and that browser is paired — no password to choose or
+         leak. Any device can be revoked from the desktop.</p>
+    </div>
+    <div class="card">
+      <span class="g">the same window</span>
+      <h3>The whole interface, not a viewer</h3>
+      <p>Every pane, every status, the picker, fan out — the remote browser is
+         served the same page the desktop window shows, so what you can do at
+         your desk, you can do from anywhere.</p>
+    </div>
+    <div class="card">
+      <span class="g">yours alone</span>
+      <h3>Honest about what it sees</h3>
+      <p>Each account reaches only its own desktops. Traffic is encrypted in
+         transit on both sides, and the relay decrypts it to pass it on: the
+         first version is not end-to-end encrypted, and says so.</p>
+    </div>
+  </div>
+  <p class="aside">Remote access is being built now and is not in a release yet.
+     It will be opt-in: nothing connects anywhere until you turn it on.</p>
+</section>
 {{ if .Shot }}
 <section class="band shot">
   <p class="eyebrow">The picker</p>

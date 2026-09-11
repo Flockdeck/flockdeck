@@ -283,6 +283,41 @@ h2 {
 }
 .fan-out li .br { margin-left: auto; color: var(--idle); }
 
+/* ---------------------------------------------------------------- remote */
+
+/* The relay drawn the way fan out is: boxes in the raised surface, arrows in
+   the accent. The desktop's arrow points at the relay because that is the
+   direction the connection is made, which is the whole reason no port has to
+   be opened. The status glyphs keep their meanings; nothing here is amber
+   except a pane that is waiting. */
+.relay {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto minmax(0,.9fr) auto minmax(0,1fr);
+  gap: 14px; align-items: center; margin: 0 0 28px;
+}
+.relay-node {
+  border: 1px solid var(--edge-soft); border-radius: var(--radius);
+  background: var(--raised); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.relay-node.hub { border-color: var(--accent-edge); background: var(--accent-subtle); }
+.relay-node .g { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.relay-node .t { font-size: 13.5px; color: var(--muted); }
+.relay-tally {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--text);
+  background: var(--sunken); border: 1px solid var(--edge-soft);
+  border-radius: 6px; padding: 8px 11px;
+}
+.relay-link { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.relay-link .arrow { font-size: 24px; line-height: 1; color: var(--accent); }
+.relay-link .t { font-family: var(--mono); font-size: 11px; color: var(--idle); white-space: nowrap; }
+#remote .grid { margin-bottom: 26px; }
+/* Four cards: two rows of two rather than three and one left over. */
+@media (min-width: 661px) {
+  #remote .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* ------------------------------------------------------------------ shot */
 
 .shot img {
@@ -335,6 +370,9 @@ kbd {
 @media (max-width: 880px) {
   .fan { grid-template-columns: 1fr; }
   .fan-arrow { transform: rotate(90deg); }
+  .relay { grid-template-columns: 1fr; }
+  .relay-link { flex-direction: row; gap: 10px; }
+  .relay-link .arrow { transform: rotate(90deg); }
 }
 @media (max-width: 660px) {
   .deck-panes { grid-template-columns: 1fr; }
