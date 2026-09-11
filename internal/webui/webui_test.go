@@ -2178,6 +2178,21 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "movePaneDir", dir: "left" });
 `)
 }
 
+// On a Russian layout the key marked D types "в", and the bindings were
+// matched on the character alone, so none of the letter bindings worked there.
+func TestBindingsWorkOnALayoutWithoutLatinLetters(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "В", code: "KeyD", ctrlKey: true, shiftKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "splitPane", id: "p1", dir: "h", kind: "agent" });
+// A Latin layout that has moved the letter still gets the letter it typed:
+// on AZERTY the key in QWERTY's Q place types "a", and Ctrl+Shift+A is that.
+h.key({ key: "A", code: "KeyQ", ctrlKey: true, shiftKey: true });
+assert.ok(!h.$("overlay").hidden && h.$("overlay-title").textContent === "Agents", "the typed letter no longer decides");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

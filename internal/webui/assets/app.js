@@ -2607,6 +2607,13 @@
     let key = (e.key || "").toLowerCase();
     // Ctrl+= and Ctrl++ are the same gesture on most layouts.
     if (key === "+") key = "=";
+    // A layout that does not type Latin letters - Russian, Greek, Hebrew -
+    // reports the key marked D as "в", so every Ctrl+Shift binding was dead
+    // on it. There the binding can only mean the physical key.
+    if (/^[^\x00-\x7f]$/.test(key)) {
+      const m = /^Key([A-Z])$/.exec(e.code || "");
+      if (m) key = m[1].toLowerCase();
+    }
     return bindings.get(signature(e.ctrlKey, e.shiftKey, e.altKey, key)) || "";
   }
 
