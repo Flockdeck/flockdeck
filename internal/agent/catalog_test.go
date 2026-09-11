@@ -425,3 +425,29 @@ func TestStripEnvIsTheUnion(t *testing.T) {
 		seen[name] = true
 	}
 }
+
+// TestOverlaidListsDoNotInheritBuiltinElements is about the lists of structs
+// in an entry written over a built-in. Decoding a JSON array reuses the
+// slice's elements, so each new element used to keep every field of the
+// built-in one it landed on that it did not set itself.
+func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "models": [{"id": "opus"}], "args": [{"value": "--foo"}, {"value": "{{prompt}}"}]}`),
+		json.RawMessage(`{"id": "codex", "models": []}`),
+	}})
+	claude, _ := c.Find("claude")
+	if want := []Model{{ID: "opus"}}; !slices.Equal(claude.Models, want) {
+		t.Errorf("models = %+v, want %+v", claude.Models, want)
+	}
+	if got, want := BuildArgv(claude, false, Tokens{Session: "s", Prompt: "go"}), []string{"claude", "--foo", "go"}; !slices.Equal(got, want) {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	// What the entry left alone is still the built-in's.
+	if got := BuildArgv(claude, true, Tokens{Session: "s"}); !slices.Equal(got, []string{"claude", "--resume", "s"}) {
+		t.Errorf("resume argv = %q, want the built-in's", got)
+	}
+	// An empty list is a deliberate one.
+	if codex, _ := c.Find("codex"); len(codex.Models) != 0 {
+		t.Errorf("an entry that empties the models should get none, got %+v", codex.Models)
+	}
+}

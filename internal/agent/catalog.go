@@ -84,7 +84,15 @@ func Merge(f *File) *Catalog {
 			continue
 		}
 		if i, known := index[head.ID]; known {
-			merged := c.Specs[i]
+			builtin := c.Specs[i]
+			merged := builtin
+			// Decoding an array into a slice reuses the slice's elements, and a
+			// struct element keeps every field the new one leaves out: a user's
+			// `"models": [{"id": "opus"}]` came out named "Default", and an
+			// `"args"` entry of a plain value inherited the built-in group it
+			// landed on and vanished inside it. So the lists of structs start
+			// empty, and get the built-in's back only where the entry named none.
+			merged.Args, merged.ResumeArgs, merged.Models = nil, nil, nil
 			if err := json.Unmarshal(raw, &merged); err != nil {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it
@@ -92,6 +100,11 @@ func Merge(f *File) *Catalog {
 				problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
 				continue
 			}
+			// An empty array decodes as an empty slice rather than nil, so an
+			// entry that deliberately clears a list still clears it.
+			merged.Args = orBuiltin(merged.Args, builtin.Args)
+			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
+			merged.Models = orBuiltin(merged.Models, builtin.Models)
 			c.Specs[i] = merged
 			continue
 		}
@@ -108,6 +121,14 @@ func Merge(f *File) *Catalog {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}
 	return c
+}
+
+// orBuiltin is the list an entry set, or the built-in's where it set none.
+func orBuiltin[T any](set, builtin []T) []T {
+	if set == nil {
+		return builtin
+	}
+	return set
 }
 
 // normalizeAll fills in what an entry can be trusted to have meant, so that the
