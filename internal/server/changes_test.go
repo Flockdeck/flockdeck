@@ -255,7 +255,6 @@ func TestWorkspaceQueriesUnblockOnClose(t *testing.T) {
 		srv.reviewDir("")
 		srv.activeRoot()
 		srv.panesPerPath([]string{"."})
-		srv.paneByID("nope")
 	}()
 	select {
 	case <-done:

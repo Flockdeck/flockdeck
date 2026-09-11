@@ -1028,20 +1028,6 @@ func tabTitle(s string) string {
 	return s
 }
 
-// paneByID looks a pane up on the workspace goroutine.
-func (s *Server) paneByID(id string) *workspace.Pane {
-	done := make(chan *workspace.Pane, 1)
-	s.do(func() { done <- s.ws.Pane(id) })
-	select {
-	case p := <-done:
-		return p
-	case <-s.closed:
-		return nil
-	case <-time.After(5 * time.Second):
-		return nil
-	}
-}
-
 // activeRoot reads the active project's root on the workspace goroutine.
 // ActiveRoot is a plain field read with no lock behind it, so the worktree and
 // review commands — which all run on a connection goroutine — cannot call it
