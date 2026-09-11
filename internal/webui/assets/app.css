@@ -81,6 +81,14 @@ body { display: flex; flex-direction: column; }
  * would otherwise be sitting on a button they cannot see. */
 .tab:hover .close, .tab.active .close, .tab .close:focus-visible { opacity: 1; }
 .tab .close:hover { background: #3a414d; color: var(--fg); }
+/* Opacity hides the button from the eye and not from the finger. On a touch
+ * screen - this page is opened on tablets and phones through the relay - there
+ * is no hover to reveal it first, so a tap near the right end of a tab meant
+ * to switch to it closed it instead, and every agent in it. There only the
+ * current tab's close button is there to be pressed. */
+@media (hover: none) {
+  .tab:not(.active) .close { display: none; }
+}
 
 /* An agent in this tab is blocked on the user. */
 .tab.attention { color: var(--waiting); }

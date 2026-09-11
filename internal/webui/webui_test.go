@@ -2443,6 +2443,17 @@ func TestAPaneHeaderLooksDraggable(t *testing.T) {
 	}
 }
 
+// A tab's close button is hidden with opacity until the tab is hovered, which
+// hides it from the eye and not from a finger. On a touch screen there is no
+// hover, so tapping near the end of another tab closed it and its agents.
+func TestATapOnAnotherTabCannotCloseIt(t *testing.T) {
+	css := readAsset(t, "app.css")
+	block := regexp.MustCompile(`@media\s*\(hover:\s*none\)\s*\{([^{}]*\{[^}]*\})*`).FindString(css)
+	if !regexp.MustCompile(`\.tab:not\(\.active\)\s+\.close\s*\{[^}]*display:\s*none`).MatchString(block) {
+		t.Fatal("on a touch screen the close button of a tab that is not current can still be tapped")
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
