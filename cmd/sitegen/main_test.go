@@ -54,6 +54,24 @@ func TestPageReferencesResolve(t *testing.T) {
 	}
 }
 
+// An address given with a trailing slash must not put a doubled one into the
+// lines a visitor pastes into a terminal.
+func TestTrailingSlashIsNotDoubled(t *testing.T) {
+	dir := t.TempDir()
+	if err := run(dir, defaultRepo+"/", defaultModule, defaultURL+"/"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, base := range []string{defaultURL, defaultRepo} {
+		if strings.Contains(string(b), base+"//") {
+			t.Errorf("the page writes %s// into an address", base)
+		}
+	}
+}
+
 // Every picture needs words for a reader who cannot see it, and a size, so
 // that the page does not jump about as each one arrives.
 func TestImagesHaveTextAndSize(t *testing.T) {

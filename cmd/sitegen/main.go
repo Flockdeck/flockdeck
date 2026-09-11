@@ -25,6 +25,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The install scripts are served from the site so the line a visitor copies is
@@ -82,7 +83,10 @@ func run(out, repo, module, url string) error {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
 
-	s := site{Repo: repo, Module: module, URL: url}
+	// The template appends "/install.sh" and the like to both addresses, so a
+	// slash given at the end of one would print a doubled one into every
+	// install line.
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: module, URL: strings.TrimRight(url, "/")}
 
 	page, err := render(s)
 	if err != nil {
