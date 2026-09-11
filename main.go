@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -516,8 +517,13 @@ func run(opts options) error {
 
 	// Two deep, so a second interrupt arriving while the first is still being
 	// acted on is not dropped on the floor.
+	//
+	// SIGTERM is what a logout, a shutdown, `kill` or a service manager
+	// sends, and what Windows makes of the console being closed. Left to the
+	// runtime it ended the process on the spot: no layout or open projects
+	// saved, agents not stopped, the instance record left behind.
 	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go interrupts(sigs, stop, forceQuit)
 
 	srv.OnQuit = stop
