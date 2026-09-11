@@ -187,7 +187,10 @@ textarea:focus-visible {
 .split.h { flex-direction: row; }
 .split.v { flex-direction: column; }
 
-.divider { flex: 0 0 4px; background: var(--bg); position: relative; z-index: 1; }
+/* touch-action: a finger drawn along a divider is otherwise a pan, which the
+ * browser takes for itself with a pointercancel a few pixels in, so a split
+ * could not be resized from a touch screen at all. */
+.divider { flex: 0 0 4px; background: var(--bg); position: relative; z-index: 1; touch-action: none; }
 .divider::after {
   content: ""; position: absolute; inset: 0; background: var(--line);
 }

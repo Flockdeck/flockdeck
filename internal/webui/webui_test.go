@@ -2454,6 +2454,16 @@ func TestATapOnAnotherTabCannotCloseIt(t *testing.T) {
 	}
 }
 
+// A finger drawn along a divider is a pan to the browser unless the element
+// says otherwise, and the browser ends the page's pointer with pointercancel
+// to perform it, so a split could not be resized from a touch screen.
+func TestADividerCanBeDraggedByTouch(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`(?m)^\.divider\s*\{[^}]*touch-action:\s*none`).MatchString(css) {
+		t.Fatal("a divider leaves touch to the browser, which takes a drag along it as a pan")
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
