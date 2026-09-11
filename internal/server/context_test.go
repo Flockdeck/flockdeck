@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/hooks"
 )
 
 // TestSessionStartHookAnswersWithPaneContext covers the whole path a pane's
@@ -24,7 +24,7 @@ func TestSessionStartHookAnswersWithPaneContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if !strings.Contains(ctx, "Perch") {
+	if !strings.Contains(ctx, "Flockdeck") {
 		t.Errorf("context does not describe the application:\n%s", ctx)
 	}
 	if !strings.Contains(ctx, ws.ActiveRoot()) {

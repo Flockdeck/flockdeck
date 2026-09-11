@@ -13,7 +13,7 @@ pane is shown as such rather than offered twice, because two panes on one
 transcript would fight.
 
 The list is read from the agents' own transcripts rather than from anything
-Perch keeps, so Claude Code conversations from sessions that had nothing to do
-with this application are in it too. An agent that writes no transcript Perch
+Flockdeck keeps, so Claude Code conversations from sessions that had nothing to do
+with this application are in it too. An agent that writes no transcript Flockdeck
 can read contributes nothing to the list and cannot be resumed from it —
 **Agents and models** says which agents those are.

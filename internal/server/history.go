@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // conversationView is one stored conversation as the history panel shows it.

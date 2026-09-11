@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Claude reads the transcripts Claude Code writes: one JSONL file per session,
 // under a folder per working directory, below Claude Code's own state
 // directory. None of that comes from the Spec, because it is Claude Code's
-// arrangement rather than Perch's, and Perch only reproduces enough of it to
+// arrangement rather than Flockdeck's, and Flockdeck only reproduces enough of it to
 // find the files.
 type Claude struct{}
 

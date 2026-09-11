@@ -20,14 +20,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jmwri/perch/internal/store"
-	"github.com/jmwri/perch/internal/webui"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/webui"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // tokenCookie carries the session token once the window has loaded, so asset
 // and WebSocket requests do not have to repeat it in every URL.
-const tokenCookie = "perch_token"
+const tokenCookie = "flockdeck_token"
 
 // stateInterval is the shortest gap between two state pushes made for the
 // agents' own account. They produce output continuously; the tab bar does not

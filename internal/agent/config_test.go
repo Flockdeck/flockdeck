@@ -96,7 +96,7 @@ func TestSetDefaults(t *testing.T) {
 	}
 }
 
-// TestSetDefaultsProjectSpelling: the same directory reaches Perch spelled more
+// TestSetDefaultsProjectSpelling: the same directory reaches Flockdeck spelled more
 // than one way, and two entries for one project would sooner or later
 // disagree.
 func TestSetDefaultsProjectSpelling(t *testing.T) {

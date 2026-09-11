@@ -8,10 +8,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/help"
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // TestPaneContextIdentifiesThePane checks the basics an agent cannot work out
@@ -45,7 +45,7 @@ func TestPaneContextIdentifiesThePane(t *testing.T) {
 	}
 
 	text := c.Render()
-	for _, want := range []string{"Perch", `"lead"`, root} {
+	for _, want := range []string{"Flockdeck", `"lead"`, root} {
 		if !strings.Contains(text, want) {
 			t.Errorf("rendered context does not mention %q:\n%s", want, text)
 		}
@@ -502,7 +502,7 @@ func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 			t.Errorf("the spawn section never says where a pane lands: no %q", said)
 		}
 	}
-	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "perch spawn") {
+	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "flockdeck spawn") {
 		t.Error("a shell pane should not be told to spawn agents")
 	}
 }
@@ -666,29 +666,29 @@ func TestTheSharedCheckoutSurvivesTheSiblingCap(t *testing.T) {
 }
 
 // TestSpawnExamplesNameACommandThatExists covers a build that has not been
-// installed. `perch` is only on PATH once it has been, and an agent handed
-// `perch spawn` on a machine without it is handed a command that cannot run,
+// installed. `flockdeck` is only on PATH once it has been, and an agent handed
+// `flockdeck spawn` on a machine without it is handed a command that cannot run,
 // with nothing but the failure to say why.
 func TestSpawnExamplesNameACommandThatExists(t *testing.T) {
-	exe := filepath.Join("C:", "Program Files", "perch", "perch.exe")
+	exe := filepath.Join("C:", "Program Files", "flockdeck", "flockdeck.exe")
 	text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}.Render()
 	quoted := `"` + exe + `" spawn "add tests for the parser"`
 	if !strings.Contains(text, quoted) {
 		t.Errorf("the examples do not run %s, quoted for a path with a space:\n%s", exe, text)
 	}
 	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "perch spawn") {
-			t.Errorf("an example still runs a bare perch: %q", line)
+		if strings.HasPrefix(strings.TrimSpace(line), "flockdeck spawn") {
+			t.Errorf("an example still runs a bare flockdeck: %q", line)
 		}
 	}
 
 	// A name that needs no quoting is left as it is, and a context built
 	// without one still documents something.
-	plain := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: "perch"}.Render()
-	if !strings.Contains(plain, `perch spawn "add tests for the parser"`) {
+	plain := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: "flockdeck"}.Render()
+	if !strings.Contains(plain, `flockdeck spawn "add tests for the parser"`) {
 		t.Errorf("an installed copy should be run by name:\n%s", plain)
 	}
-	if bare := (PaneContext{PaneName: "one", CanSpawn: true}).Render(); !strings.Contains(bare, "perch spawn") {
+	if bare := (PaneContext{PaneName: "one", CanSpawn: true}).Render(); !strings.Contains(bare, "flockdeck spawn") {
 		t.Errorf("a context with no command recorded should still name one:\n%s", bare)
 	}
 }
@@ -706,7 +706,7 @@ func TestTheSpawnCommandIsResolvedOnce(t *testing.T) {
 		t.Fatal("no context for the focused pane")
 	}
 	if c.SpawnCommand == "" {
-		t.Error("the context carries no way of running perch")
+		t.Error("the context carries no way of running flockdeck")
 	}
 }
 
@@ -777,11 +777,11 @@ func TestAPaneBelowTheProjectRootIsNotAWorktree(t *testing.T) {
 // the example gets a parse error rather than a helper.
 func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
 	cases := map[string]string{
-		"perch":                            "perch",
-		`C:\Program Files (x86)\perch.exe`: `"C:\Program Files (x86)\perch.exe"`,
-		`C:\tools\perch-2.1.exe`:           `C:\tools\perch-2.1.exe`,
-		`/usr/local/bin/perch`:             `/usr/local/bin/perch`,
-		`C:\build\perch(1).exe`:            `"C:\build\perch(1).exe"`,
+		"flockdeck":                            "flockdeck",
+		`C:\Program Files (x86)\flockdeck.exe`: `"C:\Program Files (x86)\flockdeck.exe"`,
+		`C:\tools\flockdeck-2.1.exe`:           `C:\tools\flockdeck-2.1.exe`,
+		`/usr/local/bin/flockdeck`:             `/usr/local/bin/flockdeck`,
+		`C:\build\flockdeck(1).exe`:            `"C:\build\flockdeck(1).exe"`,
 	}
 	for in, want := range cases {
 		if got := shellWord(in); got != want {
@@ -835,8 +835,8 @@ func TestRenderExplainsTheFeaturesThatChangeHowAnAgentWorks(t *testing.T) {
 func TestRenderDocumentsThePaneEnvironment(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
 	for _, want := range []string{
-		"PERCH_API", "PERCH_TOKEN", "PERCH_PANE", "PERCH_PANE_NAME", "PERCH_PROJECT",
-		"AGENT_WRAPPER_",
+		"FLOCKDECK_API", "FLOCKDECK_TOKEN", "FLOCKDECK_PANE", "FLOCKDECK_PANE_NAME", "FLOCKDECK_PROJECT",
+		"PERCH_",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the context does not document %s", want)
@@ -852,10 +852,10 @@ func TestRenderDocumentsThePaneEnvironment(t *testing.T) {
 	// A pane with nothing to call back into has none of this in its
 	// environment, and being told otherwise sends it looking for an address
 	// that was never set.
-	if plain := (PaneContext{PaneName: "one"}).Render(); strings.Contains(plain, "PERCH_TOKEN") {
+	if plain := (PaneContext{PaneName: "one"}).Render(); strings.Contains(plain, "FLOCKDECK_TOKEN") {
 		t.Error("a pane with no hook server should not be told about a token it does not carry")
 	}
-	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "PERCH_TOKEN") {
+	if shell := (PaneContext{PaneName: "one", CanSpawn: true, Shell: true}).Render(); strings.Contains(shell, "FLOCKDECK_TOKEN") {
 		t.Error("a shell pane has no agent to read the environment table")
 	}
 }
@@ -867,8 +867,8 @@ func TestOpeningPromptFencesTheBriefingAheadOfTheTask(t *testing.T) {
 	task := "rewrite the importer: " + strings.Repeat("keep every clause of this; ", 12) + "and stop at the marker"
 	text := PaneContext{PaneName: "one", Cwd: "/repo", Task: task}.OpeningPrompt()
 
-	open := strings.Index(text, "<perch-context>")
-	closed := strings.Index(text, "</perch-context>")
+	open := strings.Index(text, "<flockdeck-context>")
+	closed := strings.Index(text, "</flockdeck-context>")
 	if open != 0 || closed < 0 {
 		t.Fatalf("the briefing is not fenced from the start:\n%s", text)
 	}
@@ -892,10 +892,10 @@ func TestOpeningPromptFencesTheBriefingAheadOfTheTask(t *testing.T) {
 // because that changes what it does with the first thing the user types.
 func TestOpeningPromptWithNoTaskIsTheBlockAlone(t *testing.T) {
 	text := PaneContext{PaneName: "one", Cwd: "/repo"}.OpeningPrompt()
-	if !strings.HasPrefix(text, "<perch-context>") {
+	if !strings.HasPrefix(text, "<flockdeck-context>") {
 		t.Errorf("a pane with no task got no briefing:\n%s", text)
 	}
-	if tail := strings.TrimSpace(text[strings.Index(text, "</perch-context>"):]); tail != "</perch-context>" {
+	if tail := strings.TrimSpace(text[strings.Index(text, "</flockdeck-context>"):]); tail != "</flockdeck-context>" {
 		t.Errorf("something follows the block for a pane with no task: %q", tail)
 	}
 }
@@ -965,7 +965,7 @@ func TestSiblingsAreDescribedWithTheirAgentAndModel(t *testing.T) {
 		},
 		{
 			// An empty model means whatever the CLI is configured with, which
-			// is not Perch's to report as a choice somebody made.
+			// is not Flockdeck's to report as a choice somebody made.
 			name:  "no model asked for",
 			sib:   Sibling{Name: "two", Cwd: "/repo", Status: "working", Agent: "claude"},
 			want:  "running claude",
@@ -1032,7 +1032,7 @@ func TestOpeningPromptOnlyBriefsAnAgentThatCannotBeAsked(t *testing.T) {
 	}
 
 	briefed := ws.OpeningPrompt(pane, "fix the parser", agent.ContextPrompt)
-	if !strings.HasPrefix(briefed, "<perch-context>") || !strings.Contains(briefed, root) {
+	if !strings.HasPrefix(briefed, "<flockdeck-context>") || !strings.Contains(briefed, root) {
 		t.Errorf("an agent with no hooks was not briefed:\n%s", briefed)
 	}
 	if !strings.HasSuffix(strings.TrimSpace(briefed), "fix the parser") {

@@ -89,15 +89,15 @@ func TestAvailable(t *testing.T) {
 	}
 }
 
-// TestAvailableFromTheEnvironment: a key exported in the shell Perch was
+// TestAvailableFromTheEnvironment: a key exported in the shell Flockdeck was
 // started from counts, and is looked at before the key store.
 func TestAvailableFromTheEnvironment(t *testing.T) {
 	stubProbes(t, nil, "")
-	spec := Spec{ID: "anthropic", Runner: RunnerAPI, API: APISpec{Wire: "anthropic", KeyEnv: []string{"PERCH_TEST_KEY_A", "PERCH_TEST_KEY_B"}}}
+	spec := Spec{ID: "anthropic", Runner: RunnerAPI, API: APISpec{Wire: "anthropic", KeyEnv: []string{"FLOCKDECK_TEST_KEY_A", "FLOCKDECK_TEST_KEY_B"}}}
 	if Available(spec) {
 		t.Fatal("nothing is set yet")
 	}
-	t.Setenv("PERCH_TEST_KEY_B", "sk-test")
+	t.Setenv("FLOCKDECK_TEST_KEY_B", "sk-test")
 	Refresh()
 	if !Available(spec) {
 		t.Error("the second name in the list should be looked at too")
@@ -155,7 +155,7 @@ func TestProbeAllCoversTheCatalog(t *testing.T) {
 		t.Error("an agent that is not installed should not be")
 	}
 	if got["openai-compatible"] {
-		t.Error("an endpoint with no address is not something Perch can start")
+		t.Error("an endpoint with no address is not something Flockdeck can start")
 	}
 }
 

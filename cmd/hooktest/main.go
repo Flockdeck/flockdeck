@@ -1,5 +1,5 @@
 // Command hooktest verifies end to end that a Claude pane reports its
-// lifecycle back through Perch's hook server: it starts one agent pane,
+// lifecycle back through Flockdeck's hook server: it starts one agent pane,
 // types a prompt, and prints every status transition it observes.
 //
 // It is a development aid, not part of the product.
@@ -11,14 +11,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 func main() {
 	var (
-		hookBin = flag.String("hookbin", "", "path to the built perch binary")
+		hookBin = flag.String("hookbin", "", "path to the built flockdeck binary")
 		prompt  = flag.String("prompt", "Reply with exactly the word OK and nothing else.", "prompt to send")
 		watch   = flag.Duration("watch", 90*time.Second, "how long to watch for transitions")
 	)

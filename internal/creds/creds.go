@@ -1,10 +1,10 @@
 // Package creds resolves the API key an agent needs to talk to a model API.
 //
-// A key is the one piece of state Perch holds that is worth stealing, so this
+// A key is the one piece of state Flockdeck holds that is worth stealing, so this
 // package is built around keeping it in as few places as possible. A key is
 // looked for in the environment the user already keeps it in, and only then in
-// Perch's own store; whatever is found reaches exactly one place, the
-// environment of the `perch chat` process for the pane that needs it. Nothing
+// Flockdeck's own store; whatever is found reaches exactly one place, the
+// environment of the `flockdeck chat` process for the pane that needs it. Nothing
 // else in the application is ever handed the value. The interface, the CLI and
 // the snapshot code are given a Status instead, which says that there is a key
 // and where it came from and never what it is.
@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Source says where a key was found, which is the only thing about a key that
@@ -32,10 +32,10 @@ type Source string
 const (
 	// SourceNone means no key was found.
 	SourceNone Source = ""
-	// SourceEnv means the key was already in the environment Perch was
+	// SourceEnv means the key was already in the environment Flockdeck was
 	// started from, under one of the Spec's own KeyEnv names.
 	SourceEnv Source = "env"
-	// SourceStore means the key came from Perch's own keys.json.
+	// SourceStore means the key came from Flockdeck's own keys.json.
 	SourceStore Source = "store"
 )
 
@@ -79,12 +79,12 @@ func (k Key) String() string {
 func (k Key) GoString() string { return "creds.Key{" + k.String() + "}" }
 
 // Resolve finds the key for a Spec: each name in API.KeyEnv from the
-// environment, in the order the Spec lists them, then Perch's own store under
+// environment, in the order the Spec lists them, then Flockdeck's own store under
 // the Spec's id, then nothing.
 //
 // The environment comes first because a key already exported there is the
 // user's own arrangement — a secrets manager, a shell profile, a CI runner —
-// and Perch quietly preferring its own stale copy of it is a debugging session
+// and Flockdeck quietly preferring its own stale copy of it is a debugging session
 // nobody enjoys.
 func Resolve(spec agent.Spec) Key {
 	for _, name := range spec.API.KeyEnv {
@@ -104,7 +104,7 @@ func Resolve(spec agent.Spec) Key {
 // A key already in the environment needs no entry: the pane inherits it, and
 // writing it out again would only put a second copy of the value somewhere.
 // A stored key is exported under the first name the Spec lists, which is the
-// vendor's own conventional variable, so `perch chat` finds it by resolving
+// vendor's own conventional variable, so `flockdeck chat` finds it by resolving
 // the same Spec at the other end rather than by learning a second convention.
 //
 // A Spec with no KeyEnv names has nowhere to put a stored key, and gets
@@ -121,7 +121,7 @@ func Env(spec agent.Spec) []string {
 // written to a file: that there is one, and where it came from.
 type Status struct {
 	// Agent is the Spec id the key belongs to, which is also the name
-	// `perch keys set` takes and the key in keys.json.
+	// `flockdeck keys set` takes and the key in keys.json.
 	Agent string `json:"agent"`
 	// Name is what the agent is called, for an interface that has the Spec to
 	// hand.
@@ -151,7 +151,7 @@ func StatusOf(spec agent.Spec) Status {
 
 // StatusAll reports on every Spec that could want a key, in the order given.
 // A Spec that is not an API runner is skipped: a CLI keeps its own credentials
-// and Perch has no business offering to hold them.
+// and Flockdeck has no business offering to hold them.
 func StatusAll(specs []agent.Spec) []Status {
 	out := make([]Status, 0, len(specs))
 	for _, s := range specs {
@@ -163,18 +163,18 @@ func StatusAll(specs []agent.Spec) []Status {
 	return out
 }
 
-// Describe is the one-line form used by `perch keys list` and by the notice
+// Describe is the one-line form used by `flockdeck keys list` and by the notice
 // the interface shows. It never contains a key.
 func (s Status) Describe() string {
 	switch {
 	case !s.Set && len(s.Vars) > 0:
-		return fmt.Sprintf("not set — export %s, or run `perch keys set %s`",
+		return fmt.Sprintf("not set — export %s, or run `flockdeck keys set %s`",
 			strings.Join(s.Vars, " or "), s.Agent)
 	case !s.Set:
 		return "not set"
 	case s.Source == SourceEnv:
 		return "set (from " + s.Env + ")"
 	default:
-		return "set (stored by perch)"
+		return "set (stored by flockdeck)"
 	}
 }

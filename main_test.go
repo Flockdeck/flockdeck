@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/help"
-	"github.com/jmwri/perch/internal/hooks"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // The flags that describe a fresh start are dropped when a launch turns into
@@ -59,14 +59,14 @@ func TestSpawnBadFlagIsReportedOnce(t *testing.T) {
 // Outside a pane there is no address to spawn through, and the message has to
 // say that rather than blaming the task.
 func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
-	t.Setenv("PERCH_API", "")
-	t.Setenv("PERCH_TOKEN", "")
+	t.Setenv("FLOCKDECK_API", "")
+	t.Setenv("FLOCKDECK_TOKEN", "")
 	// paneEnv still falls back to the names an earlier build used, so both
 	// spellings have to go. Running this test from inside a pane started by
 	// such a build would otherwise hand it a working address, and the test
 	// would spawn a real agent instead of failing to find one.
-	t.Setenv("AGENT_WRAPPER_API", "")
-	t.Setenv("AGENT_WRAPPER_TOKEN", "")
+	t.Setenv("PERCH_API", "")
+	t.Setenv("PERCH_TOKEN", "")
 
 	err := runSpawn([]string{"tidy", "the", "imports"})
 	if err == nil || !strings.Contains(err.Error(), "pane") {
@@ -77,8 +77,8 @@ func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
 // An agent pane is where spawn is meant to run, so from there the missing
 // piece is the task, and nothing is sent without one.
 func TestSpawnRequiresATask(t *testing.T) {
-	t.Setenv("PERCH_API", "http://127.0.0.1:1")
-	t.Setenv("PERCH_TOKEN", "secret")
+	t.Setenv("FLOCKDECK_API", "http://127.0.0.1:1")
+	t.Setenv("FLOCKDECK_TOKEN", "secret")
 
 	err := runSpawn([]string{"   "})
 	if err == nil || !strings.Contains(err.Error(), "task") {
@@ -211,7 +211,7 @@ var flagLike = regexp.MustCompile(`(?:^|[\s(\[` + "`" + `])(--?[A-Za-z][A-Za-z0-
 // flag sets, without their dashes.
 func cliFlagNames() map[string]bool {
 	names := map[string]bool{}
-	perchFlagSet(&cliFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
+	flockdeckFlagSet(&cliFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
 	spawnFlagSet(&spawnFlags{}).VisitAll(func(f *flag.Flag) { names[f.Name] = true })
 	return names
 }
@@ -264,7 +264,7 @@ var pendingHelpFlags = map[string]bool{"agent": true, "model": true}
 // The usage printed for a wrong command line is the other hand-written copy.
 func TestUsageNamesEveryFlag(t *testing.T) {
 	var buf bytes.Buffer
-	fs := perchFlagSet(&cliFlags{})
+	fs := flockdeckFlagSet(&cliFlags{})
 	fs.SetOutput(&buf)
 	usage(fs)
 	for name := range cliFlagNames() {
@@ -305,7 +305,7 @@ func TestShutdownReportsTheSave(t *testing.T) {
 }
 
 // `-quit` has to wait for the instance to actually go, not just to take the
-// request: until it has, its address still answers, and the next `perch`
+// request: until it has, its address still answers, and the next `flockdeck`
 // attaches to an instance in the middle of shutting down.
 func TestWaitGoneWaitsForTheInstance(t *testing.T) {
 	calls := 0
@@ -479,7 +479,7 @@ func TestCheckAgentCatchesAModelNobodyOffers(t *testing.T) {
 	}
 }
 
-// Somebody who has not installed Codex should still learn from here that Perch
+// Somebody who has not installed Codex should still learn from here that Flockdeck
 // would run it, and be told how — so an agent that is missing is listed with
 // its install line rather than left out.
 func TestPrintAgentsShowsWhatIsNotInstalled(t *testing.T) {

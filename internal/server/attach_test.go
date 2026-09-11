@@ -18,7 +18,7 @@ func TestProbeIdentifiesTheInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
-	if h.App != "perch" {
+	if h.App != "flockdeck" {
 		t.Errorf("app = %q", h.App)
 	}
 	if h.Version != "test-version" {
@@ -50,7 +50,7 @@ func TestProbeFailsWhenNothingIsListening(t *testing.T) {
 	}
 }
 
-// TestRequestOpenAddsAProject covers `perch -C dir` attaching to a
+// TestRequestOpenAddsAProject covers `flockdeck -C dir` attaching to a
 // running instance and handing it the directory.
 func TestRequestOpenAddsAProject(t *testing.T) {
 	srv, ws := newTestServer(t)
@@ -78,7 +78,7 @@ func TestRequestOpenRejectsBadPaths(t *testing.T) {
 	}
 }
 
-// TestQuitEndpointStopsTheApplication covers `perch -quit`. Stopping is what
+// TestQuitEndpointStopsTheApplication covers `flockdeck -quit`. Stopping is what
 // the real OnQuit does, and the request does not report success until it has
 // happened, so the stand-in has to do it too.
 func TestQuitEndpointStopsTheApplication(t *testing.T) {
@@ -229,7 +229,7 @@ func TestActingEndpointsNeedAPost(t *testing.T) {
 	}
 }
 
-// TestQuitAnswersBeforeItActs covers `perch -quit`. Acting on the request ends
+// TestQuitAnswersBeforeItActs covers `flockdeck -quit`. Acting on the request ends
 // the process, so the reply has to have left the connection first; otherwise
 // the command reports a failure for a shutdown that worked.
 func TestQuitAnswersBeforeItActs(t *testing.T) {
@@ -353,7 +353,7 @@ func TestProbeSurvivesABackedUpWorkspace(t *testing.T) {
 	}
 }
 
-// TestOpenIsAcceptedWhileTheWorkspaceIsSlow covers `perch -C dir` against an
+// TestOpenIsAcceptedWhileTheWorkspaceIsSlow covers `flockdeck -C dir` against an
 // instance that is busy. Opening a project can only fail on the directory, and
 // the launch has already checked that; taking longer than the wait is not a
 // failure, and reporting one refused to show a window onto a project that was

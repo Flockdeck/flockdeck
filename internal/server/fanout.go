@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/gitx"
-	"github.com/jmwri/perch/internal/hooks"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // fanoutPreviewMsg offers the work found in a pane's output for the user to
@@ -50,7 +50,7 @@ type fanoutAgentView struct {
 	// Unavailable is why this agent cannot be started on this machine, and
 	// Install is where to get it. An agent the machine does not have is
 	// offered greyed rather than left out: somebody who has not installed
-	// Codex should still learn that Perch would run it.
+	// Codex should still learn that Flockdeck would run it.
 	Unavailable string `json:"unavailable,omitempty"`
 	Install     string `json:"install,omitempty"`
 }
@@ -717,7 +717,7 @@ func (s *Server) installContextHandler() {
 var errShuttingDown = errors.New("the workspace is shutting down")
 
 // installSpawnHandler lets an agent start helpers of its own by running
-// `perch spawn` inside its pane.
+// `flockdeck spawn` inside its pane.
 func (s *Server) installSpawnHandler() {
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
@@ -733,7 +733,7 @@ func (s *Server) installSpawnHandler() {
 			}
 			done <- cwd
 		})
-		// The agent's `perch spawn` is blocked on this reply, so a
+		// The agent's `flockdeck spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
 		// hanging in the pane forever.
 		var cwd string

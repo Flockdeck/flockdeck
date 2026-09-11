@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="perch">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="flockdeck">
   <!-- The mark, and the working state: an agent is running.
-       Two agents at rest on the perch and one raised: the glyphs the pane
+       Two agents at rest on the flockdeck and one raised: the glyphs the pane
        header already uses, ● working and ▲ waiting. Colours are the tokens
        from design/color.css. Keep the geometry identical across the variants —
        only the raised bird changes colour, so the swap reads as a state

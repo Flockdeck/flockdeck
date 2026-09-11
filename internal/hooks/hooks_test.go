@@ -171,7 +171,7 @@ func TestSessionStartSourceIsRead(t *testing.T) {
 }
 
 // TestSpawnReportsRefusal covers the path a lead agent hits when the
-// application will not start a helper: the reason has to survive back to Perch.
+// application will not start a helper: the reason has to survive back to Flockdeck.
 // `spawn` subcommand, since it is the only thing the agent gets to read.
 func TestSpawnReportsRefusal(t *testing.T) {
 	srv, _ := newServer(t)

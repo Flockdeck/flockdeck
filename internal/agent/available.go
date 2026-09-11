@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Availability is whether an agent could be started on this machine right now:
@@ -20,7 +20,7 @@ import (
 //
 // It is not a permission. An unavailable agent is still offered by the picker,
 // greyed, with its Install line beside it, because somebody who has not
-// installed Codex should still learn that Perch would run it.
+// installed Codex should still learn that Flockdeck would run it.
 
 // probeTTL is how long an answer is trusted. The picker asks for every agent
 // each time it opens and the header asks on every render, and a PATH lookup for

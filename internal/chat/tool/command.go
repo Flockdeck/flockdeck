@@ -76,7 +76,7 @@ func (a *Allowlist) List() []string {
 
 // runCommand runs one program in the pane's working directory.
 //
-// There is no shell. Perch runs on Windows as well as on Unix, and a tool that
+// There is no shell. Flockdeck runs on Windows as well as on Unix, and a tool that
 // went through `sh` would work on two of the three platforms and quietly mean
 // something different on the third; a tool that went through `cmd` would do
 // the same in reverse. So the command line is split here, the program is found

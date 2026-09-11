@@ -1,12 +1,12 @@
-// Package hooks carries agents' lifecycle events from panes back to Perch.
+// Package hooks carries agents' lifecycle events from panes back to Flockdeck.
 //
 // Claude Code is the case this was written for: its panes are launched with a
 // generated --settings file registering command hooks that re-invoke this
-// binary in `hook` mode, and those invocations POST to a loopback server Perch
+// binary in `hook` mode, and those invocations POST to a loopback server Flockdeck
 // runs, which is how a pane's status ("working", "waiting on you", "idle") is
 // known accurately rather than being guessed from screen scraping. It is not
 // the only case. The protocol is the event names below and nothing else, so
-// any agent that can report its own lifecycle — including Perch's own chat
+// any agent that can report its own lifecycle — including Flockdeck's own chat
 // client, which speaks straight to a model API — reports it here, and the rest
 // of the application never learns there was more than one kind of pane.
 //
@@ -211,7 +211,7 @@ func clip(s string, n int) string {
 //
 // What it returns is the pane briefing, and only a SessionStart is answered
 // with one: the caller prints it for the agent to read. An agent reporting its
-// own lifecycle rather than being wrapped in a hook command — Perch's chat
+// own lifecycle rather than being wrapped in a hook command — Flockdeck's chat
 // client does — calls this with a nil stdin and shows what comes back the same
 // way.
 //
@@ -271,7 +271,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 // SpawnRequest is a pane asking the application to start another agent.
 //
 // This is what makes a lead agent able to hand work to helpers: it runs
-// `perch spawn`, which posts here using the address and token its pane
+// `flockdeck spawn`, which posts here using the address and token its pane
 // was given in its environment.
 type SpawnRequest struct {
 	Parent string `json:"parent"`

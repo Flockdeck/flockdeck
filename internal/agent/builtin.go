@@ -1,6 +1,6 @@
 package agent
 
-// The built-in catalog: the agents Perch knows about before the user has said
+// The built-in catalog: the agents Flockdeck knows about before the user has said
 // anything. Everything here can be corrected, extended or hidden by the user's
 // own agents.json, so nothing in this file has to be right forever -- but an
 // entry that is wrong is worse than an entry that is modest, because a wrong
@@ -12,7 +12,7 @@ package agent
 // there and could not be asked for their `--help`, so each of them claims
 // nothing beyond how to start the program: empty Caps -- no hooks, no resume,
 // no transcript, no trust -- and no output patterns. Such an agent still works
-// perfectly well; it is a terminal with a program in it, and Perch simply knows
+// perfectly well; it is a terminal with a program in it, and Flockdeck simply knows
 // less about what is happening inside it. Anyone who has one of them installed
 // should check its flags and fill its capabilities in.
 
@@ -38,7 +38,7 @@ func Builtins() []Spec {
 	}
 }
 
-// claudeSpec is the agent Perch ran before it could run any other, expressed
+// claudeSpec is the agent Flockdeck ran before it could run any other, expressed
 // in the same table as the rest. The argument lists are what
 // session.ClaudeArgs has always produced, which is the whole point: somebody
 // who only ever runs Claude sees the same argv as before.
@@ -160,21 +160,21 @@ func cursorAgentSpec() Spec {
 	}
 }
 
-// The API runners below need no CLI at all: each one starts `perch chat`,
-// Perch's own terminal chat client, which talks straight to the endpoint. They
+// The API runners below need no CLI at all: each one starts `flockdeck chat`,
+// Flockdeck's own terminal chat client, which talks straight to the endpoint. They
 // therefore all share the capabilities of that client -- it reports its own
 // lifecycle through the same hook endpoint every Claude pane uses, keeps its
 // own transcript and can replay it -- rather than each claiming something
 // different.
 
-// chatCaps are what `perch chat` supports whatever endpoint it is pointed at.
+// chatCaps are what `flockdeck chat` supports whatever endpoint it is pointed at.
 // It has no per-directory trust question of its own, which is the one thing it
 // cannot do that Claude can.
 func chatCaps() Caps {
 	return Caps{Hooks: true, Resume: true, Transcript: true, Context: ContextHook}
 }
 
-// chatArgs is the argument list of `perch chat` for one agent id. The binary
+// chatArgs is the argument list of `flockdeck chat` for one agent id. The binary
 // and the "chat" subcommand are not here: BuildArgv leaves an API runner's
 // program to the caller, because only the running process knows where its own
 // executable lives.
@@ -195,7 +195,7 @@ func chatArgs(id string, resume bool) []Arg {
 	return append(args, Lit("{{prompt}}"))
 }
 
-// anthropicAPISpec talks to the Messages API directly, which is how Perch runs
+// anthropicAPISpec talks to the Messages API directly, which is how Flockdeck runs
 // a Claude model without the Claude CLI in the way.
 func anthropicAPISpec() Spec {
 	return Spec{
@@ -213,7 +213,7 @@ func anthropicAPISpec() Spec {
 		},
 		DefaultModel: "claude-sonnet-5",
 		Caps:         chatCaps(),
-		Install:      "set a key with `perch keys set anthropic`",
+		Install:      "set a key with `flockdeck keys set anthropic`",
 	}
 }
 
@@ -232,7 +232,7 @@ func openAIAPISpec() Spec {
 		},
 		DefaultModel: "gpt-5",
 		Caps:         chatCaps(),
-		Install:      "set a key with `perch keys set openai`",
+		Install:      "set a key with `flockdeck keys set openai`",
 	}
 }
 
@@ -244,7 +244,7 @@ func googleAPISpec() Spec {
 		API: APISpec{
 			Wire: "gemini",
 			// Google's own tools read either name, and somebody who has one
-			// exported should not have to export the other for Perch.
+			// exported should not have to export the other for Flockdeck.
 			KeyEnv: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 		},
 		Models: []Model{
@@ -253,7 +253,7 @@ func googleAPISpec() Spec {
 		},
 		DefaultModel: "gemini-2.5-pro",
 		Caps:         chatCaps(),
-		Install:      "set a key with `perch keys set google`",
+		Install:      "set a key with `flockdeck keys set google`",
 	}
 }
 

@@ -1,11 +1,11 @@
-// Package chat is Perch's own terminal chat client: the `perch chat`
+// Package chat is Flockdeck's own terminal chat client: the `flockdeck chat`
 // subcommand, run inside a pane's pseudo-terminal, talking straight to a model
 // API.
 //
 // It exists so that a model reached over HTTP is a first-class agent rather
-// than something Perch shells out to. There is no wrapper CLI, no node and no
+// than something Flockdeck shells out to. There is no wrapper CLI, no node and no
 // Python: the pane runs this binary, and this binary speaks the vendor's own
-// protocol. Everything Perch does around a pane -- status, resume, the history
+// protocol. Everything Flockdeck does around a pane -- status, resume, the history
 // overlay, a fan-out reading a plan -- is fed from in here using the machinery
 // the `claude` CLI already drives, so the workspace has nothing new to learn.
 package chat

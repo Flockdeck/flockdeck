@@ -14,7 +14,7 @@ import (
 // command that behaves the same on Windows, macOS and Linux without depending
 // on anything being installed.
 func TestToolHelperProcess(t *testing.T) {
-	if os.Getenv("PERCH_TOOL_HELPER") != "1" {
+	if os.Getenv("FLOCKDECK_TOOL_HELPER") != "1" {
 		return
 	}
 	args := os.Args
@@ -48,7 +48,7 @@ func TestToolHelperProcess(t *testing.T) {
 // helperLine is the command line that runs the helper above with args.
 func helperLine(t *testing.T, args ...string) string {
 	t.Helper()
-	t.Setenv("PERCH_TOOL_HELPER", "1")
+	t.Setenv("FLOCKDECK_TOOL_HELPER", "1")
 	return fmt.Sprintf("%q -test.run=^TestToolHelperProcess$ -- %s", os.Args[0], strings.Join(args, " "))
 }
 
@@ -159,7 +159,7 @@ func TestRunCommand(t *testing.T) {
 	})
 
 	t.Run("a program that is not there", func(t *testing.T) {
-		if _, err := call(t, tl, map[string]any{"command": "perch-no-such-program-exists"}); err == nil {
+		if _, err := call(t, tl, map[string]any{"command": "flockdeck-no-such-program-exists"}); err == nil {
 			t.Error("a command that cannot start is an error")
 		}
 	})

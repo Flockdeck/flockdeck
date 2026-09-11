@@ -167,7 +167,7 @@ func TestBuildArgvDashDash(t *testing.T) {
 
 // TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller: only the running process
 // knows where its own executable is, so an API runner's argv starts at the
-// first flag and workspace puts `perch chat` in front of it.
+// first flag and workspace puts `flockdeck chat` in front of it.
 func TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller(t *testing.T) {
 	spec := anthropicAPISpec()
 	got := BuildArgv(spec, false, Tokens{Session: "s", Model: "claude-sonnet-5", Prompt: "hello"})

@@ -44,11 +44,11 @@ func TestParseArgs(t *testing.T) {
 		{
 			name: "the endpoint can arrive in the environment instead",
 			env: map[string]string{
-				"PERCH_WIRE":     "openai",
-				"PERCH_BASE_URL": "http://127.0.0.1:11434/v1",
-				"PERCH_KEY_ENV":  "OLLAMA_KEY, OPENAI_API_KEY",
-				"PERCH_AGENT":    "local",
-				"PERCH_MODEL":    "qwen3-coder",
+				"FLOCKDECK_WIRE":     "openai",
+				"FLOCKDECK_BASE_URL": "http://127.0.0.1:11434/v1",
+				"FLOCKDECK_KEY_ENV":  "OLLAMA_KEY, OPENAI_API_KEY",
+				"FLOCKDECK_AGENT":    "local",
+				"FLOCKDECK_MODEL":    "qwen3-coder",
 			},
 			check: func(t *testing.T, o Options) {
 				if o.Wire != "openai" || o.BaseURL != "http://127.0.0.1:11434/v1" {
@@ -64,7 +64,7 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "a flag beats the environment",
-			env:  map[string]string{"PERCH_MODEL": "from-the-pane"},
+			env:  map[string]string{"FLOCKDECK_MODEL": "from-the-pane"},
 			args: []string{"--model", "from-the-flag"},
 			check: func(t *testing.T, o Options) {
 				if o.Model != "from-the-flag" {
@@ -75,9 +75,9 @@ func TestParseArgs(t *testing.T) {
 		{
 			name: "the pane is the conversation when no session is named",
 			env: map[string]string{
-				"PERCH_PANE":  "pane-7",
-				"PERCH_API":   "http://127.0.0.1:9/hook",
-				"PERCH_TOKEN": "t",
+				"FLOCKDECK_PANE":  "pane-7",
+				"FLOCKDECK_API":   "http://127.0.0.1:9/hook",
+				"FLOCKDECK_TOKEN": "t",
 			},
 			check: func(t *testing.T, o Options) {
 				if o.Session != "pane-7" {
@@ -90,7 +90,7 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "the names an earlier build used still work",
-			env:  map[string]string{"AGENT_WRAPPER_PANE": "old-pane"},
+			env:  map[string]string{"PERCH_PANE": "old-pane"},
 			check: func(t *testing.T, o Options) {
 				if o.Session != "old-pane" {
 					t.Errorf("session = %q", o.Session)
@@ -102,8 +102,8 @@ func TestParseArgs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, name := range []string{
-				"PERCH_AGENT", "PERCH_MODEL", "PERCH_WIRE", "PERCH_BASE_URL", "PERCH_KEY_ENV",
-				"PERCH_PANE", "PERCH_API", "PERCH_TOKEN", "AGENT_WRAPPER_PANE",
+				"FLOCKDECK_AGENT", "FLOCKDECK_MODEL", "FLOCKDECK_WIRE", "FLOCKDECK_BASE_URL", "FLOCKDECK_KEY_ENV",
+				"FLOCKDECK_PANE", "FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_PANE",
 			} {
 				t.Setenv(name, "")
 			}
@@ -124,7 +124,7 @@ func TestParseArgsSaysNothingMoreAfterTheUsage(t *testing.T) {
 	if _, err := ParseArgs([]string{"-h"}, &out); !errors.Is(err, ErrHelpShown) {
 		t.Errorf("error = %v, want ErrHelpShown", err)
 	}
-	if !strings.Contains(out.String(), "perch chat") {
+	if !strings.Contains(out.String(), "flockdeck chat") {
 		t.Errorf("usage did not describe the command: %q", out.String())
 	}
 	if _, err := ParseArgs([]string{"--nonsense"}, io.Discard); !errors.Is(err, ErrBadFlags) {

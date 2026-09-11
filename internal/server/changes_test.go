@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // newRepoServer starts a server whose project is a real git repository with

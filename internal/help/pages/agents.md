@@ -14,7 +14,7 @@ button in a pane header, or click the caret beside **New tab**.
 
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than
-hidden: somebody who has never installed Codex should still learn that Perch
+hidden: somebody who has never installed Codex should still learn that Flockdeck
 would run it. Expand an agent for its models, with its default marked. **Set
 as default for this project**, at the foot of the picker, makes the choice
 stick for this project, so the one-keystroke split keeps doing the right thing.
@@ -26,13 +26,13 @@ because there is nothing to choose.
 ## Two kinds of agent
 
 **CLI agents** are the tools you would run in a terminal yourself: Claude Code,
-Codex, Gemini, Aider, opencode, Cursor's agent. Perch runs the command in the
+Codex, Gemini, Aider, opencode, Cursor's agent. Flockdeck runs the command in the
 pane's pseudo-terminal, so it behaves exactly as it does anywhere else and uses
 whatever login that tool already has. Nothing is installed for you; an agent
 whose command is not on your `PATH` is the greyed kind.
 
 **API agents** talk to a model API directly. There is no wrapper CLI, no node
-and no Python: Perch runs its own chat client, `perch chat`, in the pane. It is
+and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
 a real terminal chat client — streamed answers, a status line carrying the
 model and the running cost, and tools for reading files, editing them and
 running commands, the last of which ask before they act. Anthropic, OpenAI and
@@ -41,7 +41,7 @@ a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 
 ## Not every agent can do everything
 
-Most of what Perch does beyond drawing a terminal depends on the agent
+Most of what Flockdeck does beyond drawing a terminal depends on the agent
 cooperating, and they do not all cooperate in the same ways.
 
 | If the agent | Then |
@@ -54,20 +54,20 @@ cooperating, and they do not all cooperate in the same ways.
 
 An agent that does none of it still works perfectly well: it is a terminal with
 a program in it, which is where every one of these features started. Where a
-capability is missing Perch falls back rather than failing — status comes from
+capability is missing Flockdeck falls back rather than failing — status comes from
 the terminal bell, a quiet timer and the lines the agent prints; fan out reads
 the screen; resume is not attempted, and the pane starts fresh.
 
 ## Keys, for the API agents
 
-A CLI agent uses the login it already has, and Perch never sees it. An API
+A CLI agent uses the login it already has, and Flockdeck never sees it. An API
 agent needs a key, which is looked for in that agent's own environment
 variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — and then
-in Perch's own store.
+in Flockdeck's own store.
 
 ```sh
-perch keys set openai    # reads the key from stdin, so it misses shell history
-perch keys list          # which agents have one, not what it is
+flockdeck keys set openai    # reads the key from stdin, so it misses shell history
+flockdeck keys list          # which agents have one, not what it is
 ```
 
 Keys are kept in `keys.json` in the state directory, readable only by you. A
@@ -80,8 +80,8 @@ as a local server on loopback, counts as available without one.
 ## Adding your own: agents.json
 
 The picker is the built-in agents overlaid with your own file, `agents.json` in
-the state directory — `%AppData%\perch` on Windows, `~/Library/Application
-Support/perch` on macOS, `~/.config/perch` on Linux.
+the state directory — `%AppData%\flockdeck` on Windows, `~/Library/Application
+Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
 
 ```json
 {

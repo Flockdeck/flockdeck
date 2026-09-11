@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // panesOfTab is the pane order a tab is drawn in.

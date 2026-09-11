@@ -1,8 +1,8 @@
 package session
 
 import (
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // Reading a transcript now belongs to internal/session/transcript, behind a
@@ -14,7 +14,7 @@ import (
 
 // claudeSpec is enough of the catalog's Claude entry to choose its reader.
 // The reader itself takes nothing else from a Spec -- where Claude Code keeps
-// its transcripts is Claude Code's arrangement, not Perch's.
+// its transcripts is Claude Code's arrangement, not Flockdeck's.
 var claudeSpec = agent.Spec{ID: "claude", Caps: agent.Caps{Transcript: true, Resume: true}}
 
 // Conversation is a stored conversation that can be resumed.

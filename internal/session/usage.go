@@ -30,7 +30,7 @@ const (
 
 // Usage is what a pane is costing the machine: its process and everything that
 // process has spawned, because the `claude` CLI does its work in children and
-// a figure covering only the process Perch started would be the wrong one.
+// a figure covering only the process Flockdeck started would be the wrong one.
 type Usage struct {
 	// CPUPercent is the share of a single core, averaged over cpuWindow. A
 	// pane using two cores flat out reads 200.

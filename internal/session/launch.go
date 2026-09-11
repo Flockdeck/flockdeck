@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Launch is a pane about to be started: which agent to run in it, which model
@@ -16,7 +16,7 @@ import (
 // list and environment are written in terms of.
 //
 // It exists so that the knowledge of how a pane is started lives on the Spec
-// rather than in the caller. Every decision Perch once made in line for the
+// rather than in the caller. Every decision Flockdeck once made in line for the
 // `claude` CLI -- which program, which flags, whether a settings file is
 // written and handed over, what is taken out of the environment -- is read off
 // the Spec here, so that a second agent is a table entry rather than another
@@ -43,25 +43,25 @@ type Launch struct {
 	// transcript is there to be resumed -- is the caller's question to answer
 	// before it gets here, because only the caller can read the transcript.
 	Resume bool
-	// SelfExe is Perch's own binary: the hook command an agent calls back on,
-	// and the program itself for an API runner, whose pane runs `perch chat`.
+	// SelfExe is Flockdeck's own binary: the hook command an agent calls back on,
+	// and the program itself for an API runner, whose pane runs `flockdeck chat`.
 	SelfExe string
 	// SettingsDir is where the generated settings file is written, for an agent
 	// whose arguments ask to be handed one.
 	SettingsDir string
 	// Endpoint and Token are where and how a pane reports its lifecycle back
-	// to Perch.
+	// to Flockdeck.
 	Endpoint string
 	Token    string
 	// StripEnv is what to take out of the inherited environment. The caller
 	// passes the union across the whole catalog rather than this Spec's own
 	// list, so that a pane is a clean top-level session whatever is running in
-	// it: the markers of the Claude session Perch was launched from have to go
-	// from a Codex pane too. An empty list falls back to the markers Perch knew
+	// it: the markers of the Claude session Flockdeck was launched from have to go
+	// from a Codex pane too. An empty list falls back to the markers Flockdeck knew
 	// before agents had Specs.
 	StripEnv []string
 	// Env is added to the pane's environment last and wins over everything
-	// before it: these are the PERCH_* variables telling the pane what to call
+	// before it: these are the FLOCKDECK_* variables telling the pane what to call
 	// back on, which nothing in a catalog entry may shadow. The agent and model
 	// are added alongside them without being asked for.
 	Env        []string
@@ -106,12 +106,12 @@ func (l Launch) argv() ([]string, error) {
 		Pane:     l.ID,
 	})
 
-	// An API agent is Perch's own chat client: BuildArgv deliberately leaves
+	// An API agent is Flockdeck's own chat client: BuildArgv deliberately leaves
 	// the program off, because only something holding the running binary's
 	// path knows where to find it again.
 	if l.Spec.Runner == agent.RunnerAPI {
 		if l.SelfExe == "" {
-			return nil, fmt.Errorf("agent %s talks to an API, which needs Perch's own binary to run", l.Spec.ID)
+			return nil, fmt.Errorf("agent %s talks to an API, which needs Flockdeck's own binary to run", l.Spec.ID)
 		}
 		argv = append([]string{l.SelfExe, "chat"}, argv...)
 	}
@@ -133,10 +133,10 @@ func (l Launch) model() string {
 
 // paneVars name the agent and the model in the pane's own environment, so that
 // whatever is running in it -- a shell prompt, a script, an agent spawning a
-// helper of its own with `perch spawn` -- can say which agent it is without
-// having to ask Perch.
+// helper of its own with `flockdeck spawn` -- can say which agent it is without
+// having to ask Flockdeck.
 func (l Launch) paneVars() []string {
-	return []string{"PERCH_AGENT=" + l.Spec.ID, "PERCH_MODEL=" + l.model()}
+	return []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
 }
 
 // Look resolves the program an agent runs, or explains that it is not
@@ -144,7 +144,7 @@ func (l Launch) paneVars() []string {
 // answer to "codex is not on PATH" is wherever Codex comes from, and only the
 // catalog knows that.
 //
-// An API agent has nothing to find: it runs Perch's own binary, which is
+// An API agent has nothing to find: it runs Flockdeck's own binary, which is
 // already running.
 func Look(spec agent.Spec) (string, error) {
 	if spec.Runner == agent.RunnerAPI {
@@ -169,10 +169,10 @@ func Look(spec agent.Spec) (string, error) {
 }
 
 // Settings writes the settings file an agent is handed so that it reports its
-// lifecycle to Perch, and returns its path.
+// lifecycle to Flockdeck, and returns its path.
 //
 // An agent that reports no lifecycle gets none. Neither does one that reports
-// its own without being handed a file to say where -- `perch chat` is told in
+// its own without being handed a file to say where -- `flockdeck chat` is told in
 // its environment -- because the path is only ever used as an argument, and
 // writing one anyway would leave a file in the state directory for every pane
 // ever opened that nothing would read.
@@ -207,7 +207,7 @@ func mentionsToken(args []agent.Arg, name string) bool {
 // whole catalog of agents.
 //
 // The union rather than one Spec's list, because the markers being removed are
-// those of the session Perch itself was launched from, and that session's agent
+// those of the session Flockdeck itself was launched from, and that session's agent
 // has nothing to do with the one about to run in the pane: a pane opened from
 // inside Claude Code must not tell Codex it is a nested Claude session either.
 func StripEnvUnion(specs []agent.Spec) []string {
@@ -229,7 +229,7 @@ func StripEnvUnion(specs []agent.Spec) []string {
 // injects into its children. If we passed them through, every pane we spawn
 // would think it was a nested child session (and, among other things, stop
 // saving its transcript). They are stripped so each pane is a clean top-level
-// session, regardless of whether Perch itself was launched from Claude.
+// session, regardless of whether Flockdeck itself was launched from Claude.
 //
 // They are the fallback rather than the rule: a caller with a catalog to hand
 // passes the union of StripEnv across it, which is where this list lives now.
@@ -242,13 +242,13 @@ var defaultStripEnv = []string{
 	"CLAUDE_CODE_DONT_INHERIT_ENV",
 }
 
-// Env builds the environment for a pane: Perch's own environment minus the
+// Env builds the environment for a pane: Flockdeck's own environment minus the
 // markers of the session it was launched from, plus extra KEY=VALUE entries.
 func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 
 // EnvStripping is Env with the variables to remove named explicitly, which is
 // how a pane's environment comes to be driven by Spec.StripEnv rather than by
-// what Perch happened to know about Claude. An empty list means the built-in
+// what Flockdeck happened to know about Claude. An empty list means the built-in
 // markers, so a caller with no catalog to hand strips what it always did.
 //
 // An extra entry replaces an inherited one of the same name rather than
@@ -287,7 +287,7 @@ func EnvStripping(strip []string, extra ...string) []string {
 //
 // A duplicated name in an environment block is resolved by its first copy, on
 // Windows and on Unix alike, so without this a catalog entry -- a file the user
-// may edit -- could shadow the PERCH_* variables a pane reports its lifecycle
+// may edit -- could shadow the FLOCKDECK_* variables a pane reports its lifecycle
 // on simply by naming one of them.
 func layerEnv(layers ...[]string) []string {
 	taken := map[string]bool{}

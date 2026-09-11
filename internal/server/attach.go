@@ -104,7 +104,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "perch", Version: Version, PID: pid(), Projects: projects, Ready: true,
+		App: "flockdeck", Version: Version, PID: pid(), Projects: projects, Ready: true,
 	})
 }
 
@@ -120,12 +120,12 @@ func (s *Server) notReady(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "perch", Version: Version, PID: pid(),
+		App: "flockdeck", Version: Version, PID: pid(),
 	})
 }
 
 // handleOpen lets a second launch hand its directory to the running instance,
-// so `perch -C somewhere` attaches and opens that project rather than
+// so `flockdeck -C somewhere` attaches and opens that project rather than
 // starting a rival server.
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
@@ -236,7 +236,7 @@ func requirePost(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // handleQuit stops the running instance from outside, which is how
-// `perch -quit` reaches a detached one.
+// `flockdeck -quit` reaches a detached one.
 func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -248,7 +248,7 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 	// The answer has to be on the wire before the shutdown starts. Quitting
 	// ends the process, and a reply still sitting in the connection's buffer
-	// dies with it -- leaving `perch -quit` to report a broken connection for
+	// dies with it -- leaving `flockdeck -quit` to report a broken connection for
 	// a shutdown that in fact worked, and a script around it to retry or fail.
 	_ = http.NewResponseController(w).Flush()
 	go s.requestQuit()
@@ -290,7 +290,7 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	}
 }
 
-// errNotReady marks the one failure worth waiting out: perch is listening on
+// errNotReady marks the one failure worth waiting out: flockdeck is listening on
 // that address, it just cannot answer for its workspace this moment.
 var errNotReady = errors.New("the instance is not ready")
 
@@ -313,7 +313,7 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	var h healthMsg
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
-		if decodeErr == nil && h.App == "perch" {
+		if decodeErr == nil && h.App == "flockdeck" {
 			return nil, fmt.Errorf("%w: %s", errNotReady, resp.Status)
 		}
 		return nil, fmt.Errorf("instance replied %s", resp.Status)
@@ -321,7 +321,7 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	if h.App != "perch" {
+	if h.App != "flockdeck" {
 		return nil, fmt.Errorf("something else is listening on that address")
 	}
 	return &h, nil
@@ -352,8 +352,8 @@ func RequestOpen(baseURL, token, path string) error {
 //
 // The instance answers as soon as it has accepted the request; stopping every
 // agent and saving the layout comes after. Returning on the acceptance made
-// `perch -quit` say "stopped" while it was still going, and left the next
-// launch racing it: a `perch` typed straight afterwards would probe the
+// `flockdeck -quit` say "stopped" while it was still going, and left the next
+// launch racing it: a `flockdeck` typed straight afterwards would probe the
 // instance on its way out, find it answering, and attach to a process that was
 // about to exit -- ending up with a window onto nothing.
 func RequestQuit(baseURL, token string) error {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jmwri/perch/internal/layout"
+	"github.com/jmwri/flockdeck/internal/layout"
 )
 
 // Rearranging panes moves live sessions between positions and between tabs.

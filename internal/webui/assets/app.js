@@ -1,4 +1,4 @@
-/* perch front end.
+/* flockdeck front end.
  *
  * The Go process owns the panes, their processes and the layout tree; this
  * file renders that state and forwards input. Terminal emulation happens here
@@ -55,7 +55,7 @@
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
     chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
-    notInstalled: "Perch would run this agent, but it is not on this machine yet.",
+    notInstalled: "Flockdeck would run this agent, but it is not on this machine yet.",
     repoFolder:  "A folder with a git repository in it - opening it makes it a project.",
     plainFolder: "A folder with no git repository in it - open it to look further in.",
   };
@@ -791,8 +791,8 @@
       if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
       if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
       document.title = s.waiting > 0
-        ? `▲ ${s.waiting} waiting · perch`
-        : (s.working > 0 ? `● ${s.working} working · perch` : "perch");
+        ? `▲ ${s.waiting} waiting · flockdeck`
+        : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
       setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
     }
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
@@ -2151,7 +2151,7 @@
   function showNotification(title, body, paneID) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const n = new Notification(title, { body, tag: "perch" });
+      const n = new Notification(title, { body, tag: "flockdeck" });
       n.onclick = () => {
         window.focus();
         // Raising the window in front of whichever tab happened to be on
@@ -3158,7 +3158,7 @@
 
     body.append(el("div", "fan-hint",
       "Agents that talk to a model API need a key. One already exported in your " +
-      "environment is used where it is; anything set here is kept in perch's own " +
+      "environment is used where it is; anything set here is kept in flockdeck's own " +
       "file, readable only by you, and reaches nothing but the pane that needs it."));
 
     if (!items.length) {
@@ -3179,7 +3179,7 @@
       const meta = el("div", "wt-meta");
       if (k.set) {
         meta.append(el("span", "wt-clean",
-          k.source === "env" ? "set — from " + k.env : "set — stored by perch"));
+          k.source === "env" ? "set — from " + k.env : "set — stored by flockdeck"));
       } else {
         meta.append(el("span", "wt-untracked", "not set"));
         // Somebody who keeps their keys in a shell profile or a secrets
@@ -3292,7 +3292,7 @@
    *
    *  An agent this machine does not have is offered greyed, with the line that
    *  says where to get it, rather than left out: somebody who has not installed
-   *  Codex should still learn that Perch would run it. */
+   *  Codex should still learn that Flockdeck would run it. */
   function agentSelect(agents, value, firstLabel) {
     const sel = el("select", "fan-agent-sel");
     if (firstLabel) sel.append(agentOption(firstLabel, ""));
@@ -3343,7 +3343,7 @@
     body.append(hint);
 
     // The agent controls are drawn only where there is a decision to make. A
-    // Perch that knows one agent with one model has nothing to ask, and a
+    // Flockdeck that knows one agent with one model has nothing to ask, and a
     // dialog that asks it anyway has grown for nobody.
     const catalog = m.agents || [];
     const picks = catalog.reduce((n, a) => n + Math.max(1, (a.models || []).length), 0);

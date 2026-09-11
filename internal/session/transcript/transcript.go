@@ -1,11 +1,11 @@
 // Package transcript reads what agents said.
 //
 // Every agent that keeps a record of its conversations keeps it somewhere of
-// its own and in a shape of its own, and three parts of Perch want to read it:
+// its own and in a shape of its own, and three parts of Flockdeck want to read it:
 // restoring a layout, which resumes a conversation only when there is one to
 // resume; the history overlay, which lists them; and a fan-out, which takes
 // the plan an agent just wrote out of its last few replies rather than off the
-// screen. Each of those asks a Reader, so an agent Perch has never heard of
+// screen. Each of those asks a Reader, so an agent Flockdeck has never heard of
 // costs them nothing: it gets the null reader and they all cope.
 package transcript
 
@@ -14,7 +14,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Conversation is a stored conversation that can be resumed.
@@ -61,7 +61,7 @@ func For(spec agent.Spec) Reader {
 	if !spec.Caps.Transcript {
 		return Null{}
 	}
-	// Every API agent is the same program -- Perch's own chat client -- so the
+	// Every API agent is the same program -- Flockdeck's own chat client -- so the
 	// shape of its record is the same whichever endpoint it was talking to.
 	if spec.Runner == agent.RunnerAPI {
 		return Chat{}
@@ -72,14 +72,14 @@ func For(spec agent.Spec) Reader {
 	return Null{}
 }
 
-// readers are the CLI agents whose stored conversations Perch can read, by id.
+// readers are the CLI agents whose stored conversations Flockdeck can read, by id.
 // A CLI claiming Caps.Transcript that is not in here is one whose format
 // nobody has written a reader for yet, and it is treated as having none.
 var readers = map[string]Reader{
 	"claude": Claude{},
 }
 
-// Null is the reader for an agent that records nothing Perch can read.
+// Null is the reader for an agent that records nothing Flockdeck can read.
 //
 // It answers every question with "there is none", which is the answer each
 // caller already has to cope with: a Claude pane that has not been prompted

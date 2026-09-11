@@ -1661,10 +1661,10 @@ func TestConversationsForAProjectInFullSwing(t *testing.T) {
 	t.Cleanup(forgetTranscripts)
 
 	parent := t.TempDir()
-	project := filepath.Join(parent, "perch")
+	project := filepath.Join(parent, "flockdeck")
 	worktreeA := filepath.Join(project, ".claude-worktrees", "one")
 	worktreeB := filepath.Join(project, ".claude-worktrees", "two")
-	sibling := filepath.Join(parent, "perch-notes")
+	sibling := filepath.Join(parent, "flockdeck-notes")
 	for _, d := range []string{worktreeA, worktreeB, sibling} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)

@@ -34,9 +34,9 @@ set to, and nobody is asked anything.
 running.
 
 ```sh
-perch -detach   # start that way, with no window
-perch           # come back to it
-perch -quit     # stop everything
+flockdeck -detach   # start that way, with no window
+flockdeck           # come back to it
+flockdeck -quit     # stop everything
 ```
 
 Closing the window normally still quits, so nothing is left running by

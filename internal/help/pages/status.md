@@ -37,7 +37,7 @@ busy.
 For an agent that can report its own lifecycle, this is not screen scraping.
 Claude Code is launched with a generated `--settings` file registering its
 lifecycle hooks — `UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
-the rest — and an API agent, which is Perch's own chat client, reports the same
+the rest — and an API agent, which is Flockdeck's own chat client, reports the same
 events itself. Either way the event re-invokes this same binary in a hidden
 mode, which reports it to the application over the loopback interface.
 
@@ -47,7 +47,7 @@ settings, hooks and permissions still apply.
 
 ## An agent that cannot report
 
-Not every coding agent has a lifecycle to report, and Perch runs those too. For
+Not every coding agent has a lifecycle to report, and Flockdeck runs those too. For
 their panes the status is read from the terminal instead: the bell an agent
 rings when it wants you, a quiet timer for when it has stopped producing
 output, and the lines it prints — the shape of a permission question, the shape

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // agentView is one pane in the overview, across every open project.
@@ -126,7 +126,7 @@ type catalogAgent struct {
 	DefaultModel string `json:"defaultModel"`
 	// Available is whether this machine could start it now. An agent that is
 	// not installed is still listed, greyed, with Install beside it: somebody
-	// who has not installed Codex should still learn that Perch would run it.
+	// who has not installed Codex should still learn that Flockdeck would run it.
 	Available bool   `json:"available"`
 	Install   string `json:"install,omitempty"`
 }
@@ -146,7 +146,7 @@ type agentCatalog struct {
 }
 
 // agentProbeInterval is how long an availability probe is believed for. An
-// agent installed while Perch is running is rare enough that a few seconds'
+// agent installed while Flockdeck is running is rare enough that a few seconds'
 // lag is no worse than the install itself.
 const agentProbeInterval = 5 * time.Second
 

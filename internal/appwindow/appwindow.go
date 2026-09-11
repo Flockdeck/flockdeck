@@ -17,13 +17,13 @@ import (
 )
 
 // BrowserEnv names a specific browser binary to use, overriding the search.
-const BrowserEnv = "PERCH_BROWSER"
+const BrowserEnv = "FLOCKDECK_BROWSER"
 
 // legacyBrowserEnv is what this setting was called before the program was
 // renamed. Unlike the variables a pane is handed, this one the user sets
 // themselves — silently ignoring a setting they had already made would look
 // like the override had stopped working. Read a release longer, then drop.
-const legacyBrowserEnv = "AGENT_WRAPPER_BROWSER"
+const legacyBrowserEnv = "PERCH_BROWSER"
 
 // pinnedBrowser returns the browser the user pinned, and the variable it came
 // from so a failure can name the one they actually set rather than the one

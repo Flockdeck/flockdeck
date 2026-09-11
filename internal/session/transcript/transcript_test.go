@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // claudeSpec is the catalog's Claude entry as far as this package cares about
@@ -17,7 +17,7 @@ var claudeSpec = agent.Spec{ID: "claude", Runner: agent.RunnerCLI, Exe: "claude"
 	Caps: agent.Caps{Hooks: true, Resume: true, Transcript: true, Trust: true, Context: agent.ContextHook}}
 
 // TestForChoosesAReaderFromTheSpec covers the decision every caller makes
-// before it reads anything, and in particular that an agent Perch knows
+// before it reads anything, and in particular that an agent Flockdeck knows
 // nothing about is given the null reader rather than a guess at where its
 // conversations might be.
 func TestForChoosesAReaderFromTheSpec(t *testing.T) {
@@ -28,7 +28,7 @@ func TestForChoosesAReaderFromTheSpec(t *testing.T) {
 	}{
 		{"claude", claudeSpec, Claude{}},
 		{"an API agent", agent.Spec{ID: "openai", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true}}, Chat{}},
-		{"a CLI that records nothing Perch reads",
+		{"a CLI that records nothing Flockdeck reads",
 			agent.Spec{ID: "codex", Runner: agent.RunnerCLI, Caps: agent.Caps{Transcript: true}}, Null{}},
 		{"a CLI with no transcript at all", agent.Spec{ID: "aider", Runner: agent.RunnerCLI}, Null{}},
 		// Transcript is what gates all of this, so an agent that claims none

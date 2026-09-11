@@ -1,4 +1,4 @@
-// Command perch is a desktop application for running several Claude
+// Command flockdeck is a desktop application for running several Claude
 // Code agents at once.
 //
 // It drives the `claude` CLI in real pseudo-terminals, so every agent behaves
@@ -19,13 +19,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/appwindow"
-	"github.com/jmwri/perch/internal/hooks"
-	"github.com/jmwri/perch/internal/server"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/appwindow"
+	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/server"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -51,7 +51,7 @@ func main() {
 			// A flag set has already explained a parse failure itself; saying
 			// it a second time only makes the real message harder to find.
 			if !errors.Is(err, errReported) {
-				fmt.Fprintln(os.Stderr, "perch spawn:", err)
+				fmt.Fprintln(os.Stderr, "flockdeck spawn:", err)
 			}
 			os.Exit(1)
 		}
@@ -64,13 +64,13 @@ func main() {
 		printAgents(os.Stdout)
 		return
 	}
-	// `chat` is Perch's own chat client, which is what an API agent's pane
+	// `chat` is Flockdeck's own chat client, which is what an API agent's pane
 	// runs. It is started by the pane rather than by a person, and it is a
 	// subcommand for the same reason `hook` is: one artifact to ship, and a
-	// pane that can run Perch can run everything Perch does.
+	// pane that can run Flockdeck can run everything Flockdeck does.
 	if len(os.Args) > 1 && os.Args[1] == "chat" {
 		if err := runChat(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "perch chat:", err)
+			fmt.Fprintln(os.Stderr, "flockdeck chat:", err)
 			os.Exit(1)
 		}
 		return
@@ -79,30 +79,30 @@ func main() {
 	// stdin so that it never lands in shell history.
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		if err := runKeys(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "perch keys:", err)
+			fmt.Fprintln(os.Stderr, "flockdeck keys:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
 	var c cliFlags
-	fs := perchFlagSet(&c)
+	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
 
 	if c.version {
-		fmt.Println("perch", version)
+		fmt.Println("flockdeck", version)
 		return
 	}
 
 	// Anything left over is a mistyped flag or a subcommand that does not
 	// exist. Ignoring it would open a window on the current directory and
-	// leave the user believing `perch quit` had done something.
+	// leave the user believing `flockdeck quit` had done something.
 	if fs.NArg() > 0 {
 		arg := fs.Arg(0)
-		fmt.Fprintf(os.Stderr, "perch: unrecognised argument %q\n", arg)
+		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument %q\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
-			fmt.Fprintf(os.Stderr, "To open that directory: perch -C %s\n", arg)
+			fmt.Fprintf(os.Stderr, "To open that directory: flockdeck -C %s\n", arg)
 		case fs.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
 		}
@@ -113,7 +113,7 @@ func main() {
 	// An agent the catalog does not have is worth two lines here rather than a
 	// window full of panes that will not start.
 	if err := checkAgent(c.agent, ""); err != nil {
-		fmt.Fprintln(os.Stderr, "perch:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck:", err)
 		os.Exit(2)
 	}
 	server.Version = version
@@ -138,13 +138,13 @@ type cliFlags struct {
 	version bool
 }
 
-// perchFlagSet defines the top-level command line. It is built here rather
+// flockdeckFlagSet defines the top-level command line. It is built here rather
 // than inline in main so that a test can walk the same set the program uses
 // and check the help documents it.
-func perchFlagSet(c *cliFlags) *flag.FlagSet {
-	fs := flag.NewFlagSet("perch", flag.ExitOnError)
+func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
 	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
-	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; perch agents lists them")
+	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
 	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
 	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
 	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window; print the URL and keep serving")
@@ -158,15 +158,15 @@ func perchFlagSet(c *cliFlags) *flag.FlagSet {
 
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "perch — run several Claude Code agents in tabs and split panes.\n\n")
-	fmt.Fprintf(out, "Usage:\n  perch [flags]\n\nFlags:\n")
+	fmt.Fprintf(out, "flockdeck — run several Claude Code agents in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
-	fmt.Fprintf(out, "        run perch spawn -h for what the flags do\n")
+	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  agents\n")
-	fmt.Fprintf(out, "        list the agents perch can run, with their models\n")
+	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
@@ -175,7 +175,7 @@ func usage(fs *flag.FlagSet) {
 // shortcut there is no console to print to, so the message is also written to
 // a log file the user can be pointed at.
 func fail(err error) {
-	fmt.Fprintln(os.Stderr, "perch:", err)
+	fmt.Fprintln(os.Stderr, "flockdeck:", err)
 	if dir, dirErr := store.Dir(); dirErr == nil {
 		path := filepath.Join(dir, "error.log")
 		stamp := time.Now().Format(time.RFC3339)
@@ -208,21 +208,21 @@ func quitRunning() error {
 		return fmt.Errorf("read the record of the running instance: %w", err)
 	}
 	if inst == nil {
-		return fmt.Errorf("no running perch found")
+		return fmt.Errorf("no running flockdeck found")
 	}
 	if err := server.RequestQuit(base, inst.Token); err != nil {
 		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
 	}
 	// The request only asks. What follows it is saving every open project's
 	// layout and stopping a screenful of agent processes, and the instance is
-	// still listening the whole time — so `perch -quit && perch` used to find
+	// still listening the whole time — so `flockdeck -quit && flockdeck` used to find
 	// the old instance still answering and attach to one on its way out,
 	// opening a window onto agents that were in the middle of being killed.
 	// Saying "stopped" before it has is the same claim in words.
 	if !waitGone(func() bool { _, err := server.Probe(base, inst.Token); return err != nil }, quitWait) {
 		return fmt.Errorf("the instance at %s took the request but is still running", base)
 	}
-	fmt.Println("perch: stopped")
+	fmt.Println("flockdeck: stopped")
 	return nil
 }
 
@@ -274,7 +274,7 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	}
 	url := base + "/?t=" + inst.Token
 	if noWindow {
-		fmt.Println("perch is already running at:")
+		fmt.Println("flockdeck is already running at:")
 		fmt.Println(" ", url)
 		return nil
 	}
@@ -299,7 +299,7 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 // and the difference matters here more than anywhere: carrying on starts a
 // second set of agents, which is the outcome the whole attach path exists to
 // prevent. The first set keeps running with no window showing it and a record
-// that has just been overwritten, so `perch -quit` will not find it either.
+// that has just been overwritten, so `flockdeck -quit` will not find it either.
 //
 // Starting is still the right default — refusing would leave the application
 // unusable over a file the user has never heard of — but it is a guess, and
@@ -370,14 +370,14 @@ func run(opts options) error {
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
 		if inst, base := joinRunning(runningInstance, func(text string) {
-			fmt.Fprintln(os.Stderr, "perch:", text)
+			fmt.Fprintln(os.Stderr, "flockdeck:", text)
 		}); inst != nil {
 			// The flags that describe how to start up have nobody to apply
 			// to once we are joining agents that are already running. Say so:
 			// silently ignoring -new looks like the layout was kept on purpose.
 			if ignored := startupOnlyFlags(opts); len(ignored) > 0 {
 				fmt.Fprintf(os.Stderr,
-					"perch: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
+					"flockdeck: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
 					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
 			}
 			return attach(inst, base, root, opts.noWindow)
@@ -423,7 +423,7 @@ func run(opts options) error {
 	if err := store.SaveInstance(&store.Instance{
 		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
 	}); err != nil {
-		fmt.Fprintln(os.Stderr, "perch: could not record the instance:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
 	}
 	defer store.ClearInstance()
 
@@ -462,10 +462,10 @@ func run(opts options) error {
 
 	var win *appwindow.Window
 	if opts.noWindow || opts.detach {
-		fmt.Println("perch serving at:")
+		fmt.Println("flockdeck serving at:")
 		fmt.Println(" ", srv.URL())
 		if opts.detach {
-			fmt.Println("Running detached. Attach with `perch`, stop with `perch -quit`.")
+			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
 		} else {
 			fmt.Println("Press Ctrl+C to stop.")
 		}
@@ -480,10 +480,10 @@ func run(opts options) error {
 			// address it was serving will not answer by the time anyone reads
 			// this. Name the ways to get a window instead.
 			if errors.Is(err, appwindow.ErrNoBrowser) {
-				return fmt.Errorf("%w — set %s to one, or run `perch -no-window` and open the URL it prints",
+				return fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
 					err, appwindow.BrowserEnv)
 			}
-			return fmt.Errorf("open the window: %w — or run `perch -no-window` and open the URL it prints", err)
+			return fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
 		}
 		defer win.Close()
 
@@ -517,7 +517,7 @@ func run(opts options) error {
 	<-quit
 
 	if err := shutdown(srv.Close, ws.SaveAll); err != nil {
-		fmt.Fprintln(os.Stderr, "perch: could not save layout:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
 	}
 	return nil
 }
@@ -562,7 +562,7 @@ func interrupts(sigs <-chan os.Signal, stop, force func()) {
 // finish. It is the last resort: a window that has gone and an application
 // that will not stop is worse than an abrupt exit.
 func forceQuit() {
-	fmt.Fprintln(os.Stderr, "perch: shutting down is taking too long — stopping now")
+	fmt.Fprintln(os.Stderr, "flockdeck: shutting down is taking too long — stopping now")
 	os.Exit(1)
 }
 
@@ -588,10 +588,10 @@ var errHelpAsked = errors.New("usage shown")
 // just because the binary on its PATH has been upgraded. The fallback can go a
 // release after the rename.
 func paneEnv(name string) string {
-	if v := os.Getenv("PERCH_" + name); v != "" {
+	if v := os.Getenv("FLOCKDECK_" + name); v != "" {
 		return v
 	}
-	return os.Getenv("AGENT_WRAPPER_" + name)
+	return os.Getenv("PERCH_" + name)
 }
 
 func runSpawn(args []string) error {
@@ -606,7 +606,7 @@ func runSpawn(args []string) error {
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a perch pane")
+		return fmt.Errorf("this only works inside a flockdeck pane")
 	}
 
 	res, err := hooks.Spawn(api, token, pane, req)
@@ -625,7 +625,7 @@ func runSpawn(args []string) error {
 	return nil
 }
 
-// parseSpawn turns the arguments of `perch spawn` into the request to send.
+// parseSpawn turns the arguments of `flockdeck spawn` into the request to send.
 // It is separate from sending it so the parsing can be tested without an
 // instance to spawn into.
 //
@@ -665,7 +665,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}, f.agent, f.model), nil
 }
 
-// withAgent puts the agent and model `perch spawn` was given on the request it
+// withAgent puts the agent and model `flockdeck spawn` was given on the request it
 // sends.
 //
 // They are two more fields on hooks.SpawnRequest, which is another task's file
@@ -674,7 +674,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 // agent; the merge is this one function body.
 var withAgent = func(req hooks.SpawnRequest, agentID, model string) hooks.SpawnRequest { return req }
 
-// spawnFlags are the flags of `perch spawn` and where their values land.
+// spawnFlags are the flags of `flockdeck spawn` and where their values land.
 type spawnFlags struct {
 	worktree string
 	agent    string
@@ -683,7 +683,7 @@ type spawnFlags struct {
 	shell    bool
 }
 
-// spawnFlagSet defines the command line of `perch spawn`. It is built here
+// spawnFlagSet defines the command line of `flockdeck spawn`. It is built here
 // rather than inline so that the reordering, the parsing and the tests all
 // work from the one definition.
 func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
@@ -692,10 +692,10 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
-	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; perch agents lists them")
+	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: perch spawn [flags] <task>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: flockdeck spawn [flags] <task>\n\n")
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -705,7 +705,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 // orderSpawnArgs moves the flags in front of the task.
 //
 // Go's flag package stops at the first argument that is not a flag, which for
-// this command is the task — so `perch spawn "watch the build" --split` parses
+// this command is the task — so `flockdeck spawn "watch the build" --split` parses
 // no flags at all and quietly folds "--split" into the task text. The agent
 // then gets a pane in a new tab, with a task ending in a word it did not
 // write, and nothing anywhere says why. Since the task is the one argument
@@ -759,16 +759,16 @@ func takesValue(fs *flag.FlagSet, name string) bool {
 	return !ok || !b.IsBoolFlag()
 }
 
-// printAgents writes the catalog: the agents Perch can run, the models each
+// printAgents writes the catalog: the agents Flockdeck can run, the models each
 // one offers, and -- for one this machine does not have -- the line that says
 // how to get it.
 //
 // An agent that is not installed is listed rather than left out, because
 // somebody who has never installed Codex should still be able to learn from
-// here that Perch would run it.
+// here that Flockdeck would run it.
 func printAgents(w io.Writer) {
 	specs, defaultID := agentCatalog()
-	fmt.Fprintf(w, "Agents perch can run.\n\n")
+	fmt.Fprintf(w, "Agents flockdeck can run.\n\n")
 	for _, s := range specs {
 		// A hidden entry is one somebody has taken out of the picker in their
 		// own agents.json, and this is the picker in another form.
@@ -791,8 +791,8 @@ func printAgents(w io.Writer) {
 		}
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintf(w, "Choose one for a whole run with `perch -agent <id>`, or for a single\n")
-	fmt.Fprintf(w, "helper with `perch spawn --agent <id> --model <model> <task>`.\n")
+	fmt.Fprintf(w, "Choose one for a whole run with `flockdeck -agent <id>`, or for a single\n")
+	fmt.Fprintf(w, "helper with `flockdeck spawn --agent <id> --model <model> <task>`.\n")
 }
 
 // agentName is what to call an agent in a message, falling back to its id for
@@ -894,7 +894,7 @@ func checkAgent(id, model string) error {
 	if id != "" {
 		spec, ok := findSpec(specs, id)
 		if !ok {
-			return fmt.Errorf("no agent called %q; perch can run %s (run `perch agents` for what each of them offers)",
+			return fmt.Errorf("no agent called %q; flockdeck can run %s (run `flockdeck agents` for what each of them offers)",
 				id, strings.Join(agentIDs(specs), ", "))
 		}
 		if !offersModel(spec, model) {
@@ -911,10 +911,10 @@ func checkAgent(id, model string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("no agent offers a model called %q; run `perch agents` to see what each of them does", model)
+	return fmt.Errorf("no agent offers a model called %q; run `flockdeck agents` to see what each of them does", model)
 }
 
-// agentCatalog is how the command line reaches the catalog: the agents Perch
+// agentCatalog is how the command line reaches the catalog: the agents Flockdeck
 // can run -- the built-in ones overlaid with the user's agents.json -- and the
 // id of the one a pane takes when nothing has been chosen.
 //
@@ -930,7 +930,7 @@ var agentCatalog = func() ([]agent.Spec, string) {
 
 // agentAvailable reports whether an agent could actually be started here.
 // The catalog's own answer is the whole of it: a CLI on PATH, or an API whose
-// key is in the environment or in Perch's own store, or an endpoint on this
+// key is in the environment or in Flockdeck's own store, or an endpoint on this
 // machine that wants no key at all.
 var agentAvailable = agent.Available
 
@@ -941,7 +941,7 @@ func runHook(args []string) {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
-		endpoint = fs.String("endpoint", "", "Perch hook endpoint")
+		endpoint = fs.String("endpoint", "", "Flockdeck hook endpoint")
 		token    = fs.String("token", "", "shared secret")
 		sessID   = fs.String("session", "", "pane session id")
 		event    = fs.String("event", "", "lifecycle event name")
@@ -954,12 +954,12 @@ func runHook(args []string) {
 	// SessionStart parses as JSON. Without it a hook that never arrives leaves
 	// no trace at all, only panes whose status stops changing.
 	if *endpoint == "" || *sessID == "" || *event == "" {
-		fmt.Fprintln(os.Stderr, "perch hook: -endpoint, -session and -event are all required")
+		fmt.Fprintln(os.Stderr, "flockdeck hook: -endpoint, -session and -event are all required")
 		return
 	}
 	ctx, err := hooks.Emit(os.Stdin, *endpoint, *token, *sessID, *event)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "perch hook:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck hook:", err)
 		return
 	}
 	if strings.TrimSpace(ctx) == "" {
@@ -975,7 +975,7 @@ func runHook(args []string) {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "perch hook: could not encode the session context:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck hook: could not encode the session context:", err)
 		return
 	}
 	_, _ = os.Stdout.Write(out)

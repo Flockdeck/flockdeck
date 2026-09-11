@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // dirEntry is one directory offered by the project picker.

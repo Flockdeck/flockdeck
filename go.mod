@@ -1,4 +1,4 @@
-module github.com/jmwri/perch
+module github.com/jmwri/flockdeck
 
 go 1.27.0
 

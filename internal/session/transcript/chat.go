@@ -9,16 +9,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// Chat reads the record Perch's own chat client keeps: one JSONL file per
+// Chat reads the record Flockdeck's own chat client keeps: one JSONL file per
 // session under the state directory, one object per entry.
 //
 // It is the same reader for every API agent, because they are all the same
 // program talking to different endpoints, and it is a great deal simpler than
-// Claude Code's because Perch writes it: the entries are small, they are all
+// Claude Code's because Flockdeck writes it: the entries are small, they are all
 // in one folder, and there is no derived folder name to reproduce.
 type Chat struct{}
 
@@ -178,7 +178,7 @@ func (Chat) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
 //
 // The first two are in the opening entries and the third is the whole file, so
 // they are found the way Claude's are -- parse the head, count the line breaks
-// of the rest -- except that there is no cache behind it. A chat is Perch's
+// of the rest -- except that there is no cache behind it. A chat is Flockdeck's
 // own writing rather than a conversation with every tool result pasted into
 // it, so the folder is small enough to read on each listing.
 func describeChat(path string) (summary, cwd string, entries int) {
@@ -218,7 +218,7 @@ func describeChat(path string) (summary, cwd string, entries int) {
 	return summary, cwd, entries
 }
 
-// chatsDir returns the folder Perch's chat client keeps its transcripts in.
+// chatsDir returns the folder Flockdeck's chat client keeps its transcripts in.
 func chatsDir() (string, error) {
 	dir, err := store.Dir()
 	if err != nil {

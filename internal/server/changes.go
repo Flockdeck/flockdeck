@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/gitx"
 )
 
 // changeView is one modified file as the review panel shows it.

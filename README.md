@@ -1,4 +1,4 @@
-# Perch
+# Flockdeck
 
 A desktop application for running several coding agents at once.
 
@@ -10,17 +10,17 @@ Each agent is told which pane it is and who else is working, so being one of
 several is something it can act on.
 
 The agent and the model are chosen per pane. Claude Code is the default and
-nothing about it changed; beside it Perch will run Codex, Gemini, Aider,
+nothing about it changed; beside it Flockdeck will run Codex, Gemini, Aider,
 opencode or Cursor's agent, and it will talk to a model API directly — its own
 chat client in the pane, no wrapper CLI, no node, no Python — including a local
 Ollama or any other OpenAI-compatible endpoint.
 
 A CLI agent uses whatever login it already has, so Claude Code panes need no
-key and no separate account. Talking to an API directly needs one, and `perch
+key and no separate account. Talking to an API directly needs one, and `flockdeck
 keys` keeps it.
 
 ```
-┌ perch ──────────────────────────────────────────── ─ □ × ┐
+┌ flockdeck ──────────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
 │ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
@@ -60,19 +60,19 @@ keys` keeps it.
 
 Running one agent is easy. Running several is not: they finish at different
 times, they block on permission prompts, and you lose track of which one is
-waiting on you. Perch answers one question at a glance — **which agent
+waiting on you. Flockdeck answers one question at a glance — **which agent
 needs me right now** — and gives each agent its own branch to work on.
 
 ## Install
 
-Perch itself needs nothing but the binary. What a pane runs is another matter:
+Flockdeck itself needs nothing but the binary. What a pane runs is another matter:
 a CLI agent has to be on your `PATH` — [Claude Code](https://claude.com/claude-code)
 for the default — and an API agent needs a key. The picker shows every agent it
 knows about either way, greying out the ones this machine has not got and
 saying where to get them.
 
 ```sh
-go install github.com/jmwri/perch@latest
+go install github.com/jmwri/flockdeck@latest
 ```
 
 Or from a clone:
@@ -93,17 +93,17 @@ Double-click the binary, launch it from a shortcut, or run it from a terminal �
 all three work. It opens its own window; there is no terminal to keep around.
 
 ```sh
-perch                 # open the current directory
-perch -C ~/code/api   # …or attach to a running instance and open it there
-perch -new            # ignore the saved layout
-perch -shell          # first pane is a shell, not an agent
-perch -detach         # run with no window; attach to it later
-perch -quit           # stop a running instance and its agents
-perch -no-window      # just serve; print the URL and open it yourself
-perch -solo           # start a separate instance instead of attaching
+flockdeck                 # open the current directory
+flockdeck -C ~/code/api   # …or attach to a running instance and open it there
+flockdeck -new            # ignore the saved layout
+flockdeck -shell          # first pane is a shell, not an agent
+flockdeck -detach         # run with no window; attach to it later
+flockdeck -quit           # stop a running instance and its agents
+flockdeck -no-window      # just serve; print the URL and open it yourself
+flockdeck -solo           # start a separate instance instead of attaching
 
-perch keys set openai # give an API agent a key, read from stdin
-perch keys list       # which agents have one, not what it is
+flockdeck keys set openai # give an API agent a key, read from stdin
+flockdeck keys list       # which agents have one, not what it is
 ```
 
 Once it is running you rarely need the command line again: projects are opened
@@ -113,14 +113,14 @@ and switched from inside the window, and so is the agent each pane runs.
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
-window onto it — so `perch -C ~/code/api` from anywhere adds that project to
+window onto it — so `flockdeck -C ~/code/api` from anywhere adds that project to
 the session you already have. A record of the running instance is kept in the
 state directory; if the process died without cleaning up, the record is probed,
 found dead and replaced.
 
 `Detach` (in the command palette) closes the window and leaves every agent
-running. Start that way with `-detach`, come back with `perch`, and stop
-everything with `perch -quit`. Closing the window normally still quits, so
+running. Start that way with `-detach`, come back with `flockdeck`, and stop
+everything with `flockdeck -quit`. Closing the window normally still quits, so
 nothing is left running by accident.
 
 ### How the window works
@@ -134,7 +134,7 @@ That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
 Brave or Chromium, whichever is found first. On Windows this is always
 satisfied because Edge ships with the OS. If none is installed the page opens
 as an ordinary tab in your default browser instead, which works but looks less
-like an application. `PERCH_BROWSER` forces a specific one.
+like an application. `FLOCKDECK_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
@@ -239,7 +239,7 @@ choosing deliberately. It lists agents as **installed** and **not installed**,
 each expanding to its models with the default marked, and offers *set as
 default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
-should still learn that Perch would run it. The pane header then names what it
+should still learn that Flockdeck would run it. The pane header then names what it
 got beside the branch, in the same dim weight — `claude · sonnet`,
 `codex · gpt-5`.
 
@@ -248,7 +248,7 @@ There are two ways an agent gets run:
 - **A CLI**, started in the pane's pseudo-terminal exactly as you would start
   it yourself, using whatever login it already has. Claude Code, Codex, Gemini,
   Aider, opencode and Cursor's agent are built in.
-- **An API, spoken to directly.** `perch chat` is Perch's own terminal chat
+- **An API, spoken to directly.** `flockdeck chat` is Flockdeck's own terminal chat
   client, run in the pane, talking straight to a model API: Anthropic, OpenAI,
   Google, and any OpenAI-compatible endpoint, which is how a local Ollama, LM
   Studio or vLLM — or a gateway — becomes an agent. No wrapper CLI, no node, no
@@ -260,7 +260,7 @@ There are two ways an agent gets run:
   wants them — which is the whole point of this application.
 
 An agent is a table entry rather than a branch in the code. Each one says what
-it runs, what models it offers, and which of Perch's facilities it can support:
+it runs, what models it offers, and which of Flockdeck's facilities it can support:
 whether it reports its own lifecycle (so status is a fact rather than a guess),
 whether it can reattach a conversation by id (so restoring a layout is more
 than cosmetic), whether it writes a transcript somewhere readable (so fan out
@@ -278,7 +278,7 @@ does not parse is a notice in the interface rather than a failure to start.
 
 Keys for the API agents are resolved from that agent's own environment
 variables first and then from `keys.json` in the state directory, written by
-`perch keys set <agent>` reading stdin. A key reaches exactly one place — the
+`flockdeck keys set <agent>` reading stdin. A key reaches exactly one place — the
 environment of the chat process for the pane that needs it — and is never
 logged, never in a snapshot, never in an error message. The interface shows
 *set* or *not set*, offers *set…* and *clear*, and never reads one back.
@@ -316,7 +316,7 @@ like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 The settings are additive — your own settings, hooks and permissions still
 apply.
 
-Not every coding agent has a lifecycle to register, and Perch runs those too.
+Not every coding agent has a lifecycle to register, and Flockdeck runs those too.
 For them the status is read from the terminal instead: the bell, a quiet timer,
 and per-agent patterns for the two lines that matter — the shape of a
 permission question, and the shape of a prompt waiting to be typed at. It is
@@ -395,7 +395,7 @@ So every agent pane is told, in its own words, when it starts:
   the next pane changes what is worth asking of it — and what each was asked
   for, and that their conversations are separate, so nothing passes between
   panes except through the user or a commit;
-- that it can start agents of its own with `perch spawn`;
+- that it can start agents of its own with `flockdeck spawn`;
 - what the application around it can do — the status the user is watching, the
   fan-out that reads its own output, broadcast, the diff and the worktree
   panel, what a restart keeps — with the keys for each, taken from the same
@@ -415,16 +415,16 @@ pane that has been running all day is still oriented after its context has been
 summarised away.
 
 An agent with no hook to answer gets the same briefing in front of its opening
-prompt instead, fenced in a `<perch-context>` block so it can tell the two
+prompt instead, fenced in a `<flockdeck-context>` block so it can tell the two
 apart — and gets it alone if there is no opening task. That is once per launch
 rather than once per compaction, which is honest as long as the briefing says
 when it was taken, and it does.
 
-Panes also carry `PERCH_PANE`, `PERCH_PANE_NAME`, `PERCH_PROJECT`,
-`PERCH_AGENT` and `PERCH_MODEL` in their environment. The first three are what
+Panes also carry `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`,
+`FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` in their environment. The first three are what
 a shell pane — with no lifecycle hooks of its own — has to go on; the last two
 are how a script or a prompt can say what it is sitting in. The first three
-were `AGENT_WRAPPER_*` before the rename; both spellings are set for now, so a
+were `PERCH_*` before the rename; both spellings are set for now, so a
 shell prompt written against the old names keeps working until a later release
 drops them.
 
@@ -432,7 +432,7 @@ The isolation this describes is real rather than advisory. Each pane is a
 separate top-level session with its own session id, its own generated settings
 file, and an environment scrubbed of the markers a parent agent session would
 otherwise pass down. Those markers are stripped for every agent in the catalog
-rather than only the one in this pane, because Perch may have been launched
+rather than only the one in this pane, because Flockdeck may have been launched
 from inside any of them; nothing is shared between two panes.
 
 ### Session persistence
@@ -473,7 +473,7 @@ is a redrawn interface: bullets are wrapped to the pane's width and so cut
 mid-sentence, the status line begins with a glyph indistinguishable from a
 bullet, and the agent's thinking sits in the same column as its answer — all of
 of which arrives looking like a plan. The transcript is the markdown the agent
-actually wrote. A pane with no transcript Perch can read — a shell, or an agent
+actually wrote. A pane with no transcript Flockdeck can read — a shell, or an agent
 that keeps none — still falls back to the screen.
 
 The list is narrowed to what reads as work. Nested bullets are detail about a
@@ -519,9 +519,9 @@ Every pane is given an address and a token in its environment, so an agent can
 hand work to helpers itself:
 
 ```sh
-perch spawn "add tests for the parser"
-perch spawn --worktree fix-auth "repair the token refresh"
-perch spawn --split "watch the build"
+flockdeck spawn "add tests for the parser"
+flockdeck spawn --worktree fix-auth "repair the token refresh"
+flockdeck spawn --split "watch the build"
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans itself
@@ -554,7 +554,7 @@ directory has. Claude Code's implementation is the one that was already here —
 the folder is derived from the working directory, and since that mangling is
 Claude's business, a folder that does not match is found by reading which
 directory its transcripts record. The built-in chat client keeps JSONL of its
-own and reads it the same way. An agent that writes nothing Perch can read
+own and reads it the same way. An agent that writes nothing Flockdeck can read
 contributes nothing to the list, and every caller copes with that rather than
 special-casing it. A conversation already open in a pane is shown as such
 rather than offered twice, because two panes on one transcript would fight.
@@ -668,7 +668,7 @@ breaks" across several worktrees.
 - **Panes get a clean environment.** An instance launched from inside Claude
   Code would otherwise leak `CLAUDE_CODE_CHILD_SESSION` and friends into every
   pane, making each behave as a nested child session. Those markers are
-  stripped — every agent's, from every pane, because Perch may have been
+  stripped — every agent's, from every pane, because Flockdeck may have been
   launched from inside any of them.
 
 ## Development
@@ -712,7 +712,7 @@ Two development aids live under `cmd/` and are not part of the product:
   back.
 
 ```sh
-go build -o perch.exe . && ./perch.exe -no-window
+go build -o flockdeck.exe . && ./flockdeck.exe -no-window
 go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"agent","agent":"claude"}'
 ```
 

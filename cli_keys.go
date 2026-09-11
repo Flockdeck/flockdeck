@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/creds"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/creds"
 )
 
-// `perch keys` is how an API key gets into Perch without going anywhere it
+// `flockdeck keys` is how an API key gets into Flockdeck without going anywhere it
 // should not.
 //
 // `set` takes the key on standard input rather than as an argument, which is
@@ -27,7 +27,7 @@ import (
 func runKeys(args []string) error {
 	k := keysIO{in: os.Stdin, out: os.Stdout}
 	// The prompt is only written when somebody is there to read it. Piped
-	// into, `perch keys set` is a script, and a script's output should not
+	// into, `flockdeck keys set` is a script, and a script's output should not
 	// gain a line of instructions addressed to a person.
 	if stdinIsTerminal() {
 		k.prompt = os.Stderr
@@ -35,7 +35,7 @@ func runKeys(args []string) error {
 	return keysCmd(args, k)
 }
 
-// `perch keys` is dispatched by main, beside `hook`, `spawn` and `chat`.
+// `flockdeck keys` is dispatched by main, beside `hook`, `spawn` and `chat`.
 
 // keysIO is where the subcommand reads the key from and writes its output to,
 // gathered so the command can be driven by a test without a terminal. A nil
@@ -57,13 +57,13 @@ func keysCmd(args []string, kio keysIO) error {
 	case "set":
 		if len(args) != 2 {
 			keysUsage(kio.out)
-			return errors.New("usage: perch keys set <agent>")
+			return errors.New("usage: flockdeck keys set <agent>")
 		}
 		return keysSet(args[1], kio)
 	case "clear", "rm":
 		if len(args) != 2 {
 			keysUsage(kio.out)
-			return errors.New("usage: perch keys clear <agent>")
+			return errors.New("usage: flockdeck keys clear <agent>")
 		}
 		return keysClear(args[1], kio.out)
 	case "-h", "--help", "help":
@@ -75,7 +75,7 @@ func keysCmd(args []string, kio keysIO) error {
 }
 
 func keysUsage(out io.Writer) {
-	fmt.Fprintf(out, "Usage: perch keys <command>\n\n")
+	fmt.Fprintf(out, "Usage: flockdeck keys <command>\n\n")
 	fmt.Fprintf(out, "Commands:\n")
 	fmt.Fprintf(out, "  list           show which agents have a key, and where it came from\n")
 	fmt.Fprintf(out, "  set <agent>    read a key from standard input and store it\n")
@@ -166,7 +166,7 @@ func keysClear(agentID string, out io.Writer) error {
 //
 // Only the first line is taken so that a key pasted with a trailing newline,
 // or one piped in from a file that has more in it, comes out the same. End of
-// input without a newline is a key too — `printf %s "$k" | perch keys set` —
+// input without a newline is a key too — `printf %s "$k" | flockdeck keys set` —
 // so an EOF with something before it is not an error.
 func readKeyLine(r io.Reader) (string, error) {
 	line, err := bufio.NewReader(r).ReadString('\n')

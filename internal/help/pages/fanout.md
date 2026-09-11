@@ -7,7 +7,7 @@ Press [[key:fanout]], or use the `⑂` button in the pane header.
 
 The list is read out of the agent's own transcript where it wrote one — the
 markdown it actually produced, rather than the wrapped and redrawn version of
-it on screen. A pane whose agent keeps no transcript Perch can read, a shell
+it on screen. A pane whose agent keeps no transcript Flockdeck can read, a shell
 among them, falls back to the screen and is more often wrong for it.
 
 ## What the dialog does
@@ -81,9 +81,9 @@ Every pane carries an address and a token in its environment, so an agent can
 hand work to helpers itself:
 
 ```sh
-perch spawn "add tests for the parser"
-perch spawn --worktree fix-auth "repair the token refresh"
-perch spawn --split "watch the build"
+flockdeck spawn "add tests for the parser"
+flockdeck spawn --worktree fix-auth "repair the token refresh"
+flockdeck spawn --split "watch the build"
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans

@@ -1,7 +1,7 @@
 package session
 
 // Status describes what a session is currently doing. An agent whose Spec says
-// it reports a lifecycle drives this from the events it sends Perch; for a
+// it reports a lifecycle drives this from the events it sends Flockdeck; for a
 // shell, for an agent that reports nothing, and until the first event of one
 // that does arrives, it is read out of the pane's output instead -- the
 // terminal bell, how long it has been quiet, and the lines the Spec says the

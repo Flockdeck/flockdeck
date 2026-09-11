@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jmwri/perch/internal/help"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // The help pages are prose and are fetched over HTTP the first time they are

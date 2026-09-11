@@ -1,6 +1,6 @@
 // Package tool is the set of tools the native API agent runs.
 //
-// `perch chat` talks to a model API directly, so nothing else supplies the
+// `flockdeck chat` talks to a model API directly, so nothing else supplies the
 // model with a way to read or change the project: these are it. Each one is
 // confined to the pane's working directory, and the three that change
 // something -- write_file, edit_file and run_command -- ask the person at the
@@ -40,7 +40,7 @@ type Tool interface {
 	Run(ctx context.Context, args json.RawMessage) (string, error)
 }
 
-// Schema is one tool as the model is told about it. Every wire format Perch
+// Schema is one tool as the model is told about it. Every wire format Flockdeck
 // speaks -- Anthropic's `input_schema`, OpenAI's `function`, Gemini's
 // `functionDeclarations` -- carries the same three things in a different
 // envelope, so this is the shape they are all translated from.
@@ -72,7 +72,7 @@ func object(props map[string]Property, required ...string) Params {
 }
 
 // Errors a tool returns for a call that will not be attempted. They are
-// exported so the chat loop can tell a refusal, which is Perch's own decision
+// exported so the chat loop can tell a refusal, which is Flockdeck's own decision
 // and worth showing plainly, from a failure of the underlying operation.
 var (
 	// ErrOutsideRoot is a path that leads out of the pane's working directory.

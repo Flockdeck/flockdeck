@@ -46,10 +46,10 @@ func TestBuiltinsAreWellFormed(t *testing.T) {
 					t.Fatal("an API agent needs a wire format")
 				}
 				if len(argv) < 2 || argv[0] != "--agent" || argv[1] != spec.ID {
-					t.Fatalf("an API agent must tell `perch chat` which entry to read, got %q", argv)
+					t.Fatalf("an API agent must tell `flockdeck chat` which entry to read, got %q", argv)
 				}
 				if !spec.Caps.Hooks || !spec.Caps.Resume || !spec.Caps.Transcript {
-					t.Errorf("`perch chat` supports all three, so its agents should say so: %+v", spec.Caps)
+					t.Errorf("`flockdeck chat` supports all three, so its agents should say so: %+v", spec.Caps)
 				}
 			default:
 				t.Fatalf("unknown runner %q", spec.Runner)
@@ -57,7 +57,7 @@ func TestBuiltinsAreWellFormed(t *testing.T) {
 
 			// A resume list is a promise that the agent can reattach a
 			// conversation, and one written without the capability would have
-			// Perch build an argv it never uses -- or, far worse, encourage
+			// Flockdeck build an argv it never uses -- or, far worse, encourage
 			// somebody to turn the capability on for flags nobody checked.
 			if len(spec.ResumeArgs) > 0 && !spec.Caps.Resume {
 				t.Errorf("%q has resume arguments but does not claim Caps.Resume", spec.ID)
@@ -161,13 +161,13 @@ func TestMerge(t *testing.T) {
 					t.Fatalf("local = %+v", local)
 				}
 				// It named no arguments, so it gets the chat client's, which
-				// is the only way `perch chat` learns whose endpoint to use.
+				// is the only way `flockdeck chat` learns whose endpoint to use.
 				argv := BuildArgv(local, false, Tokens{Session: "s"})
 				if len(argv) < 2 || argv[0] != "--agent" || argv[1] != "local" {
 					t.Errorf("argv = %q", argv)
 				}
 				if !local.Caps.Hooks || !local.Caps.Transcript {
-					t.Errorf("an API entry runs `perch chat`, so it has its capabilities: %+v", local.Caps)
+					t.Errorf("an API entry runs `flockdeck chat`, so it has its capabilities: %+v", local.Caps)
 				}
 				if _, ok := c.Find("claude"); !ok {
 					t.Error("adding an agent must not remove the built-ins")

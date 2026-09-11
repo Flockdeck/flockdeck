@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // stateDir points this test's state at a directory of its own, the way the
@@ -26,7 +26,7 @@ func stateDir(t *testing.T) string {
 func writeAgents(t *testing.T, body string) {
 	t.Helper()
 	dir := stateDir(t)
-	path := filepath.Join(dir, "perch")
+	path := filepath.Join(dir, "flockdeck")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatalf("make the state directory: %v", err)
 	}

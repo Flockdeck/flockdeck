@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // benchWorkspace builds workspace state by hand, with no sessions behind the

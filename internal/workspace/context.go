@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/help"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // siblingTaskLimit and ownTaskLimit bound how much of a task is written out.
@@ -71,7 +71,7 @@ type PaneContext struct {
 	Branch      string
 	// Worktree reports that the pane works in a checkout of its own — a
 	// directory outside the project altogether, which is what fan-out gives
-	// each child, since Perch puts a worktree beside the repository it came
+	// each child, since Flockdeck puts a worktree beside the repository it came
 	// from rather than inside it.
 	Worktree bool
 	// Subdirectory reports a working directory below the project root: the
@@ -102,7 +102,7 @@ type PaneContext struct {
 
 	// CanSpawn reports whether spawning helpers will work from this pane.
 	CanSpawn bool
-	// SpawnCommand is how Perch itself is run from inside the pane: the name
+	// SpawnCommand is how Flockdeck itself is run from inside the pane: the name
 	// on PATH where there is one, and the binary's own path where there is not.
 	SpawnCommand string
 }
@@ -322,7 +322,7 @@ func (c PaneContext) Render() string { return c.render(false) }
 // same briefing, fenced, and then the task.
 //
 // The fence is there so the two can be told apart. Everything inside it is
-// Perch describing the pane; everything after it is what the user asked for,
+// Flockdeck describing the pane; everything after it is what the user asked for,
 // and an agent that reads the first as part of the second sets about
 // documenting the window instead of doing the work. A pane started with no
 // task gets the block on its own, which is still worth sending: knowing which
@@ -330,9 +330,9 @@ func (c PaneContext) Render() string { return c.render(false) }
 // does with the first thing the user types.
 func (c PaneContext) OpeningPrompt() string {
 	var b strings.Builder
-	b.WriteString("<perch-context>\n")
+	b.WriteString("<flockdeck-context>\n")
 	b.WriteString(strings.TrimRight(c.render(true), "\n"))
-	b.WriteString("\n</perch-context>\n")
+	b.WriteString("\n</flockdeck-context>\n")
 	// The task follows whole and unsummarised, which is why the block above
 	// leaves out the line that repeats it back: a briefing that quotes the
 	// first thousand characters of an instruction printed in full two lines
@@ -346,12 +346,12 @@ func (c PaneContext) OpeningPrompt() string {
 // render writes the briefing. viaPrompt says it is going in front of an
 // opening prompt rather than back down a lifecycle hook, which changes two
 // things: the briefing has to admit that it will never be refreshed, and it
-// must not describe a status Perch reads from hooks the agent does not have.
+// must not describe a status Flockdeck reads from hooks the agent does not have.
 func (c PaneContext) render(viaPrompt bool) string {
 	var b strings.Builder
 
 	b.WriteString("# Where you are running\n\n")
-	fmt.Fprintf(&b, "You are one agent inside **Perch**, a desktop application that runs "+
+	fmt.Fprintf(&b, "You are one agent inside **Flockdeck**, a desktop application that runs "+
 		"several coding agents side by side in terminal panes. You are the agent in the pane "+
 		"named %q", c.PaneName)
 	if c.Tab != "" {
@@ -410,7 +410,7 @@ func (c PaneContext) render(viaPrompt bool) string {
 		b.WriteString("\nIf more than one of you is working in the same checkout, expect files to " +
 			"change under you and re-read before editing.\n")
 		if c.siblingAgentsNamed() {
-			// Perch runs whichever coding agents the user has, and they are not
+			// Flockdeck runs whichever coding agents the user has, and they are not
 			// interchangeable. Where the pane says which one it is, the reader
 			// can pitch what it asks of it — and can stop assuming the pane next
 			// door works the way it does.
@@ -429,18 +429,18 @@ func (c PaneContext) render(viaPrompt bool) string {
 	if c.CanSpawn && !c.Shell {
 		// The examples name the command that will actually run here. A copy
 		// that has not been installed is not on PATH, and an agent given
-		// `perch spawn` in that case is given something that cannot work.
-		perch := shellWord(c.SpawnCommand)
-		if perch == "" {
-			perch = "perch"
+		// `flockdeck spawn` in that case is given something that cannot work.
+		flockdeck := shellWord(c.SpawnCommand)
+		if flockdeck == "" {
+			flockdeck = "flockdeck"
 		}
 		b.WriteString("\n## Starting agents of your own\n\n" +
 			"You can hand work to further agents, which appear as panes of their own:\n\n" +
 			"```sh\n" +
-			perch + " spawn \"add tests for the parser\"\n" +
-			perch + " spawn --worktree fix-auth \"repair the token refresh\"\n" +
-			perch + " spawn --split \"watch the build\"\n" +
-			perch + " spawn --split --shell \"tail the build log\"\n" +
+			flockdeck + " spawn \"add tests for the parser\"\n" +
+			flockdeck + " spawn --worktree fix-auth \"repair the token refresh\"\n" +
+			flockdeck + " spawn --split \"watch the build\"\n" +
+			flockdeck + " spawn --split --shell \"tail the build log\"\n" +
 			"```\n\n" +
 			"What the flags do — the placement ones matter, because a pane put somewhere " +
 			"the user did not expect is one they have to go looking for:\n\n" +
@@ -459,7 +459,7 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
 			"the user asks for parallel work, not on your own initiative.\n")
 
-		writeCommandLine(&b, perch)
+		writeCommandLine(&b, flockdeck)
 	}
 
 	b.WriteString("\n## The user's view\n\n" +
@@ -473,7 +473,7 @@ func (c PaneContext) render(viaPrompt bool) string {
 
 // writeCapabilities describes the application the agent is running inside.
 //
-// An agent told only that it is in "Perch" has been told the name of something
+// An agent told only that it is in "Flockdeck" has been told the name of something
 // it cannot use. Two kinds of thing are written here. The first is the
 // behaviour that changes how an agent should work: a status the user is
 // watching, a fan-out that reads the agent's own output, a commit button that
@@ -485,20 +485,20 @@ func (c PaneContext) render(viaPrompt bool) string {
 // command palette and the help pages are drawn from, so a rebinding cannot be
 // made there and left stale here.
 //
-// hooked says the agent reports its own lifecycle to Perch. Where it does not,
+// hooked says the agent reports its own lifecycle to Flockdeck. Where it does not,
 // the status paragraph has to describe the fallback instead: telling an agent
 // that its state is read from hooks it never fires, out of a settings file it
 // was never given, is telling it its questions are noticed when they may not
 // be.
 func writeCapabilities(b *strings.Builder, hooked bool) {
-	b.WriteString("\n## What Perch can do\n\n" +
+	b.WriteString("\n## What Flockdeck can do\n\n" +
 		"Some of this changes how you should work; the rest is here so that a user who asks " +
 		"how to do something gets an answer from you.\n\n")
 
 	if hooked {
 		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
 			"is started with a generated `--settings` file registering Claude Code's lifecycle "+
-			"hooks — your own settings, hooks and permissions still apply on top — and Perch reads "+
+			"hooks — your own settings, hooks and permissions still apply on top — and Flockdeck reads "+
 			"your state from those rather than from your output: green while you work, amber while "+
 			"you wait on the user, grey between turns, red once the process exits. A pane that is "+
 			"waiting marks its tab and the window title, and raises a desktop notification when the "+
@@ -506,12 +506,12 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 			"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
 	} else {
 		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is worth it.** You report no "+
-			"lifecycle events to Perch, so it colours this pane from what it prints and how long it "+
+			"lifecycle events to Flockdeck, so it colours this pane from what it prints and how long it "+
 			"has been quiet: green while you work, amber when what you last printed reads as a "+
 			"question, grey between turns, red once the process exits. A pane that is waiting marks "+
 			"its tab and the window title, and raises a desktop notification when the window is not "+
 			"in front, so a question does reach the user even when they are looking elsewhere — but "+
-			"it is read off your output rather than told to Perch, so ask plainly, on a line of its "+
+			"it is read off your output rather than told to Flockdeck, so ask plainly, on a line of its "+
 			"own, and wait for an answer rather than assuming one. %s reaches any pane in any open "+
 			"project from anywhere.\n\n", how("agents"))
 	}
@@ -576,9 +576,9 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 // own. This is here so that the rest is recognised rather than experimented
 // with: `-quit` reads like a way to end this pane and is a way to end every
 // agent in every project, and an agent that has never been told about
-// `PERCH_PANE_NAME` cannot answer the user asking how to put it in a prompt.
-func writeCommandLine(b *strings.Builder, perch string) {
-	fmt.Fprintf(b, "\n## Perch from the shell\n\n"+
+// `FLOCKDECK_PANE_NAME` cannot answer the user asking how to put it in a prompt.
+func writeCommandLine(b *strings.Builder, flockdeck string) {
+	fmt.Fprintf(b, "\n## Flockdeck from the shell\n\n"+
 		"The rest of the command line operates the application itself. It reaches the "+
 		"instance already running rather than starting a second one:\n\n"+
 		"```sh\n"+
@@ -588,21 +588,21 @@ func writeCommandLine(b *strings.Builder, perch string) {
 		"```\n\n"+
 		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
 		"along with your own. `-new`, `-shell`, `-solo`, `-no-window` and `-version` shape a "+
-		"fresh start and mean nothing from in here, and `PERCH_BROWSER` picks the browser that "+
-		"provides the window. The interface is a local page: Perch serves it on `127.0.0.1` on "+
+		"fresh start and mean nothing from in here, and `FLOCKDECK_BROWSER` picks the browser that "+
+		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run, and exposes nothing to the "+
-		"network.\n\n", perch, perch, perch)
+		"network.\n\n", flockdeck, flockdeck, flockdeck)
 
 	b.WriteString("Your pane carries the rest in its environment:\n\n" +
 		"| Variable | What it is |\n" +
 		"| --- | --- |\n" +
-		"| `PERCH_API` | where Perch listens for its panes |\n" +
-		"| `PERCH_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
-		"| `PERCH_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
-		"| `PERCH_PANE_NAME` | this pane's name |\n" +
-		"| `PERCH_PROJECT` | the project directory this pane belongs to |\n\n" +
+		"| `FLOCKDECK_API` | where Flockdeck listens for its panes |\n" +
+		"| `FLOCKDECK_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
+		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
+		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
+		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n\n" +
 		"`spawn` reads the first three, which is why it works from inside a pane and nowhere " +
-		"else. The same values are set under the older `AGENT_WRAPPER_*` names as well, for " +
+		"else. The same values are set under the older `PERCH_*` names as well, for " +
 		"anything written before the application was renamed.\n")
 }
 
@@ -661,7 +661,7 @@ func (s Sibling) describe() string {
 // `claude · sonnet`, `codex · gpt-5` — so that the agent reading about a
 // sibling and the user looking at it are told the same thing in the same
 // words. A model the agent was not asked for is not invented: an empty one
-// means whatever that CLI is configured with, which is not Perch's to report.
+// means whatever that CLI is configured with, which is not Flockdeck's to report.
 func agentLabel(agentID, model string) string {
 	if agentID == "" || model == "" {
 		return agentID

@@ -1,6 +1,6 @@
 package session
 
-import "github.com/jmwri/perch/internal/session/transcript"
+import "github.com/jmwri/flockdeck/internal/session/transcript"
 
 // RecentReplies returns what a Claude pane's agent said in its last few turns,
 // newest first and at most maxTurns of them.

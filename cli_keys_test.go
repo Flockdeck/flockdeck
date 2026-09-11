@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/perch/internal/creds"
+	"github.com/jmwri/flockdeck/internal/creds"
 )
 
 // isolateKeys points the state directory at one of this test's own, so nothing
@@ -147,7 +147,7 @@ func TestKeysUsage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("keys %v: %v", args, err)
 		}
-		if !strings.Contains(out, "perch keys") {
+		if !strings.Contains(out, "flockdeck keys") {
 			t.Errorf("keys %v printed no usage: %q", args, out)
 		}
 	}

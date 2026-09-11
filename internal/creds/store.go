@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // keysFile is the name of the store under the state directory. Its shape is

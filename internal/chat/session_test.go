@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/hooks"
 )
 
 // scriptedWire answers with whatever the script says, one entry per request, and
@@ -194,7 +194,7 @@ func TestChatAnswersItsOpeningTaskAndReportsItsLifecycle(t *testing.T) {
 	if !strings.Contains(reqs[0].System, "you are the pane called one") {
 		t.Errorf("system prompt does not carry the briefing:\n%s", reqs[0].System)
 	}
-	if !strings.Contains(reqs[0].System, "<perch-context>") {
+	if !strings.Contains(reqs[0].System, "<flockdeck-context>") {
 		t.Errorf("the briefing is not fenced off from what we said:\n%s", reqs[0].System)
 	}
 	if reqs[0].Model != "claude-opus-5" {
@@ -462,7 +462,7 @@ func TestResumePutsTheConversationBack(t *testing.T) {
 }
 
 func TestChatWithoutAnApplicationToReportTo(t *testing.T) {
-	// Somebody can run `perch chat` in a plain terminal, where there is no pane
+	// Somebody can run `flockdeck chat` in a plain terminal, where there is no pane
 	// and nothing listening: it must be a chat client all the same.
 	wire := &scriptedWire{turns: []turnFunc{says("no pane here")}}
 	out := run(t, Options{Agent: "anthropic", Task: "hello"}, "", wire)
@@ -541,7 +541,7 @@ func TestKeyIsFoundInTheEnvironmentTheSpecNames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, name := range []string{
 				"MY_OWN_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-				"GEMINI_API_KEY", "GOOGLE_API_KEY", "PERCH_API_KEY",
+				"GEMINI_API_KEY", "GOOGLE_API_KEY", "FLOCKDECK_API_KEY",
 			} {
 				t.Setenv(name, "")
 			}
@@ -566,7 +566,7 @@ func TestKeyIsFoundInTheEnvironmentTheSpecNames(t *testing.T) {
 }
 
 func TestKeyStoreIsAskedLast(t *testing.T) {
-	for _, name := range []string{"ANTHROPIC_API_KEY", "PERCH_API_KEY"} {
+	for _, name := range []string{"ANTHROPIC_API_KEY", "FLOCKDECK_API_KEY"} {
 		t.Setenv(name, "")
 	}
 	KeyStore = func(agent string) string {

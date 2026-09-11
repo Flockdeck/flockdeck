@@ -36,7 +36,7 @@ const defaultWidth = 80
 // environment is what there is. COLUMNS is the long-standing name for it, so a
 // pane can be told its own width without inventing a convention.
 func resolveWidth() int {
-	for _, name := range []string{"PERCH_COLUMNS", "COLUMNS"} {
+	for _, name := range []string{"FLOCKDECK_COLUMNS", "COLUMNS"} {
 		if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= 20 {
 			return n
 		}

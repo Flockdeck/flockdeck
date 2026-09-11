@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // ring is a fixed-size circular buffer of recent output. It keeps the most

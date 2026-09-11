@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Entry is one line of a chat transcript.
@@ -77,7 +77,7 @@ func (t *timestamp) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Dir is where perch chat keeps its transcripts.
+// Dir is where flockdeck chat keeps its transcripts.
 func Dir() (string, error) {
 	base, err := store.Dir()
 	if err != nil {
@@ -414,7 +414,7 @@ func sameDir(a, b string) bool {
 // newSessionID makes an id for a conversation nobody named.
 //
 // It has the shape of a version 4 UUID because that is what every other
-// conversation id in Perch is, and a transcript is looked up by globbing for a
+// conversation id in Flockdeck is, and a transcript is looked up by globbing for a
 // file named after one. Sixteen random bytes are all it takes, so there is no
 // call for a dependency.
 func newSessionID(random func([]byte) error) (string, error) {

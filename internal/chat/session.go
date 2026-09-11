@@ -17,7 +17,7 @@ import (
 
 // Options are what one run of the chat client needs. Everything here is either
 // a command line flag or something the pane's environment already carries, so
-// that `perch chat` behaves the same run from a pane and run by hand.
+// that `flockdeck chat` behaves the same run from a pane and run by hand.
 type Options struct {
 	// Agent is the catalog id of the agent this pane was started as. It names
 	// the key to look for and is what the header says.
@@ -192,7 +192,7 @@ type session struct {
 
 // systemPrompt is what the model is told about where it is before anything
 // else. The pane's own briefing follows it, fenced, so the model can tell what
-// Perch said from what we said.
+// Flockdeck said from what we said.
 const systemPrompt = `You are a coding agent working in a terminal pane, talking to a developer.
 Answer in plain prose and short paragraphs; use markdown sparingly, and code
 fences for code. Say what you did and what you would do next, not what you are
@@ -204,10 +204,10 @@ func (s *session) run(ctx context.Context) error {
 		source = "resume"
 	}
 	// The reply to this is the pane's briefing -- which pane this is, who else
-	// is working, what it can ask Perch for.
+	// is working, what it can ask Flockdeck for.
 	s.system = compose(systemPrompt, s.reporter.sessionStart(source))
 
-	s.out.line(ansiDim, fmt.Sprintf("perch chat · %s · %s · /help for what it can do",
+	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for what it can do",
 		firstNonEmpty(s.opts.Agent, s.wire.Name()), firstNonEmpty(s.model, "the endpoint's own model")))
 
 	if s.opts.Resume {
@@ -605,7 +605,7 @@ func compose(prompt, brief string) string {
 	if strings.TrimSpace(brief) == "" {
 		return prompt
 	}
-	return prompt + "\n\n<perch-context>\n" + strings.TrimSpace(brief) + "\n</perch-context>"
+	return prompt + "\n\n<flockdeck-context>\n" + strings.TrimSpace(brief) + "\n</flockdeck-context>"
 }
 
 // describeCall is the one line a tool call is drawn as: its name and enough of
@@ -661,7 +661,7 @@ const entryClear = "clear"
 func resolveKey(o Options) (string, error) {
 	names := append([]string{}, o.KeyEnv...)
 	names = append(names, defaultKeyEnv(o.Wire)...)
-	names = append(names, "PERCH_API_KEY")
+	names = append(names, "FLOCKDECK_API_KEY")
 	for _, name := range names {
 		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
 			return v, nil
@@ -677,7 +677,7 @@ func resolveKey(o Options) (string, error) {
 	if isLoopback(o.BaseURL) {
 		return "", nil
 	}
-	return "", fmt.Errorf("no API key for %s: set %s, or run `perch keys set %s`",
+	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`",
 		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(names, " or "),
 		firstNonEmpty(o.Agent, o.Wire, "<agent>"))
 }

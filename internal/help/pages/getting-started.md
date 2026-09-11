@@ -1,6 +1,6 @@
 # Getting started
 
-Perch runs several coding agents at once, each in a real terminal, and
+Flockdeck runs several coding agents at once, each in a real terminal, and
 answers one question at a glance: which agent needs you right now.
 
 Every agent pane is a real program in a genuine pseudo-terminal, so it behaves

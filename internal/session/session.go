@@ -9,7 +9,7 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Kind distinguishes an agent pane from a plain shell pane.
@@ -23,7 +23,7 @@ const (
 )
 
 // KindClaude is what an agent pane was called while the `claude` CLI was the
-// only agent Perch could run. It is the same kind under its older name, kept
+// only agent Flockdeck could run. It is the same kind under its older name, kept
 // so that a pane is not read as a different sort of thing depending on which
 // name the caller reached for.
 const KindClaude = KindAgent
@@ -77,7 +77,7 @@ type Config struct {
 	ID   string // stable id; for agent panes this is also the conversation UUID
 	Kind Kind
 	// Spec is the agent running in the pane, and what the pane is understood
-	// through after it starts: whether its status is reported to Perch or has
+	// through after it starts: whether its status is reported to Flockdeck or has
 	// to be read out of what it prints, and what to look for when it does.
 	// A shell pane leaves it empty.
 	Spec agent.Spec

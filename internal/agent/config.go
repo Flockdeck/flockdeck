@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// ConfigName is the file, in Perch's state directory, where the user's own
+// ConfigName is the file, in Flockdeck's state directory, where the user's own
 // agents and defaults live. It is read fresh every time the catalog is asked
 // for, so editing it by hand takes effect without a restart.
 const ConfigName = "agents.json"
@@ -121,7 +121,7 @@ func ReadConfig(dir string) (*File, error) {
 //
 // The write is atomic, because this file is the user's own: a half-written one
 // left behind by an interrupted save would lose every agent they had defined,
-// and would do it at the moment Perch was closing rather than somewhere they
+// and would do it at the moment Flockdeck was closing rather than somewhere they
 // could see it happen.
 func WriteConfig(dir string, f *File) error {
 	if f.Version == 0 {
@@ -154,7 +154,7 @@ func WriteConfig(dir string, f *File) error {
 	}
 	// The state directory is the user's alone, but the file is written 0600 as
 	// well: an OpenAI-compatible entry may carry a private endpoint, and the
-	// rest of Perch's state is kept that way too.
+	// rest of Flockdeck's state is kept that way too.
 	if err := os.Chmod(name, 0o600); err != nil && !os.IsNotExist(err) {
 		os.Remove(name)
 		return fmt.Errorf("write %s: %w", ConfigName, err)

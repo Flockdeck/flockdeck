@@ -13,7 +13,7 @@ application, because the lookup is done at startup.
 
 For a CLI agent, its command is not on your `PATH`; the line under it says
 where to get it. For an API agent, no key was found: nothing in the
-environment variables it looks at, and nothing in Perch's own store. `perch
+environment variables it looks at, and nothing in Flockdeck's own store. `flockdeck
 keys set <agent>` reads one from stdin, and **Agents and models** covers the
 rest. Unavailable agents are shown rather than hidden on purpose, so that an
 agent you have not installed is a decision rather than an absence.
@@ -61,7 +61,7 @@ built to be watched.
 The interface is a local web page shown in a chromeless application window,
 provided by whichever Chromium-based browser is found first — Chrome, Edge,
 Brave or Chromium. If none is installed it opens as an ordinary tab instead,
-which works but looks less like an application. `PERCH_BROWSER` forces
+which works but looks less like an application. `FLOCKDECK_BROWSER` forces
 a particular one.
 
 ## Nothing is exposed to the network
@@ -82,7 +82,7 @@ title bar. Notifications are only raised while the window is *not* in front.
 It is not: each pane is a separate top-level session with its own session id,
 its own generated settings file, and an environment scrubbed of the markers a
 parent agent session would otherwise pass down — every agent's markers, not
-only the ones belonging to whatever is in that pane, since Perch may itself
+only the ones belonging to whatever is in that pane, since Flockdeck may itself
 have been launched from inside one of them. If a pane is behaving as though it
 inherited something, restart it, and the state that survives a restart is the
 conversation, deliberately.
@@ -91,4 +91,4 @@ conversation, deliberately.
 
 Closing the window quits the application. Use [[action:detach]] in the command
 palette to close the window and leave the agents running, and
-`perch` to come back to them.
+`flockdeck` to come back to them.

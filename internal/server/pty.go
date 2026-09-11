@@ -11,7 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // ptyControl is the JSON a window sends on a terminal connection for anything

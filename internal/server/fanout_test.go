@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/gitx"
-	"github.com/jmwri/perch/internal/help"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // Writing out a working tree is the slowest thing a fan-out does, and a

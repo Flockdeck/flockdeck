@@ -91,7 +91,7 @@ func TestClaudeArgsResumeVsFresh(t *testing.T) {
 // summarised away.
 func TestHookSettingsRegisterSessionStart(t *testing.T) {
 	dir := t.TempDir()
-	path, err := WriteHookSettings(dir, "pane-id", "/bin/perch", "http://127.0.0.1:1/hook", "tok")
+	path, err := WriteHookSettings(dir, "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
 	if err != nil {
 		t.Fatalf("write settings: %v", err)
 	}

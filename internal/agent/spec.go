@@ -1,8 +1,8 @@
-// Package agent describes the coding agents Perch can run in a pane.
+// Package agent describes the coding agents Flockdeck can run in a pane.
 //
 // A pane is either a shell or an agent, and an agent is a Spec -- a program to
 // run, or an API to talk to -- together with the model it was asked for. Every
-// Claude-specific decision Perch once made in line is a field here, so that a
+// Claude-specific decision Flockdeck once made in line is a field here, so that a
 // second agent is a table entry rather than another branch.
 package agent
 
@@ -14,8 +14,8 @@ type Runner string
 const (
 	// RunnerCLI runs an external command in the pane's pseudo-terminal.
 	RunnerCLI Runner = "cli"
-	// RunnerAPI runs Perch's own chat client in the pane, talking directly to
-	// a model API. The command is `perch chat`; the Spec says which endpoint.
+	// RunnerAPI runs Flockdeck's own chat client in the pane, talking directly to
+	// a model API. The command is `flockdeck chat`; the Spec says which endpoint.
 	RunnerAPI Runner = "api"
 )
 
@@ -41,20 +41,20 @@ type Model struct {
 	Note string `json:"note,omitempty"` // a few words on when to reach for it
 }
 
-// Caps says which of Perch's facilities an agent supports. Everything Perch
+// Caps says which of Flockdeck's facilities an agent supports. Everything Flockdeck
 // does beyond drawing a terminal is gated on one of these, so an agent that
 // supports none of it still works -- it is a terminal with a program in it.
 type Caps struct {
-	// Hooks reports lifecycle events to Perch, so the pane's status is known
+	// Hooks reports lifecycle events to Flockdeck, so the pane's status is known
 	// rather than inferred from what it prints.
 	Hooks bool `json:"hooks,omitempty"`
 	// Resume reattaches a conversation by id, which is what makes restoring a
 	// layout more than cosmetic.
 	Resume bool `json:"resume,omitempty"`
-	// Transcript records what was said somewhere Perch can read it: where a
+	// Transcript records what was said somewhere Flockdeck can read it: where a
 	// fan-out finds a plan, and the history overlay finds a conversation.
 	Transcript bool `json:"transcript,omitempty"`
-	// Trust has a per-directory trust question Perch can answer ahead of a
+	// Trust has a per-directory trust question Flockdeck can answer ahead of a
 	// fan-out, so that twelve fresh worktrees do not each stop on it.
 	Trust bool `json:"trust,omitempty"`
 	// Context is how the pane briefing reaches the agent.
@@ -85,7 +85,7 @@ type APISpec struct {
 	// BaseURL is the endpoint root; empty means the vendor's own.
 	BaseURL string `json:"baseURL,omitempty"`
 	// KeyEnv names the environment variables a key may arrive in, tried in
-	// order before Perch's own key store.
+	// order before Flockdeck's own key store.
 	KeyEnv []string `json:"keyEnv,omitempty"`
 }
 
@@ -99,7 +99,7 @@ type Patterns struct {
 	Idle []string `json:"idle,omitempty"`
 }
 
-// Spec is one agent Perch can run.
+// Spec is one agent Flockdeck can run.
 type Spec struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -116,7 +116,7 @@ type Spec struct {
 	Models       []Model `json:"models,omitempty"`
 	DefaultModel string  `json:"defaultModel,omitempty"`
 	// Env is added to the pane's environment; StripEnv is removed from it,
-	// which is how the markers of the session Perch was launched from are kept
+	// which is how the markers of the session Flockdeck was launched from are kept
 	// from making every pane look like a nested child of it.
 	Env      []string `json:"env,omitempty"`
 	StripEnv []string `json:"stripEnv,omitempty"`
@@ -184,7 +184,7 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 		args = s.ResumeArgs
 	}
 	out := make([]string, 0, len(args)+2)
-	// An API runner is Perch's own chat client: the caller puts its binary and
+	// An API runner is Flockdeck's own chat client: the caller puts its binary and
 	// the "chat" subcommand in front, because only the caller knows where the
 	// running binary lives.
 	if s.Runner != RunnerAPI && s.Exe != "" {

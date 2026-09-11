@@ -30,7 +30,7 @@ type Catalog struct {
 	Notice string
 }
 
-// Load reads the catalog from Perch's state directory.
+// Load reads the catalog from Flockdeck's state directory.
 //
 // It never fails. Where the state directory itself cannot be found there is
 // nowhere for an agents.json to be, and the built-ins are the whole answer.
@@ -111,7 +111,7 @@ func Merge(f *File) *Catalog {
 }
 
 // normalizeAll fills in what an entry can be trusted to have meant, so that the
-// rest of Perch never has to ask whether a field was left out.
+// rest of Flockdeck never has to ask whether a field was left out.
 func normalizeAll(specs []Spec) []Spec {
 	for i := range specs {
 		normalize(&specs[i])
@@ -141,7 +141,7 @@ func normalize(s *Spec) {
 		}
 		return
 	}
-	// An API entry is `perch chat` whatever else it says, so an entry that
+	// An API entry is `flockdeck chat` whatever else it says, so an entry that
 	// gives only an endpoint -- which is all the example in the design gives --
 	// still starts the chat client properly and still reports its lifecycle.
 	if len(s.Args) == 0 {
@@ -172,7 +172,7 @@ func (c *Catalog) Find(id string) (Spec, bool) {
 
 // Visible returns the agents the picker offers, which is everything not hidden.
 // Unavailable agents are still here: somebody who has not installed Codex
-// should still learn that Perch would run it.
+// should still learn that Flockdeck would run it.
 func (c *Catalog) Visible() []Spec {
 	out := make([]Spec, 0, len(c.Specs))
 	for _, s := range c.Specs {
@@ -277,7 +277,7 @@ func (c *Catalog) StripEnv() []string {
 }
 
 // projectKey puts a project path into the one form two spellings of it are
-// compared in. The same repository reaches Perch from a directory picker, the
+// compared in. The same repository reaches Flockdeck from a directory picker, the
 // command line and saved state, so it arrives as "C:\Repo\App\" one run and
 // "c:\repo\app" the next; without this a project default would be found only
 // when it was written the same way it was read.

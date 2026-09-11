@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jmwri/perch/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/gitx"
 )
 
 // worktreeView is one worktree as the panel shows it.

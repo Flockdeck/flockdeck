@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/perch/internal/help"
+	"github.com/jmwri/flockdeck/internal/help"
 )
 
 // readAsset returns one of the embedded front-end files.
@@ -162,7 +162,7 @@ func runFrontEnd(t *testing.T, body string) string {
 
 	cmd := exec.Command(node, filepath.Join(dir, "case.js"))
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PERCH_ASSETS="+dir)
+	cmd.Env = append(os.Environ(), "FLOCKDECK_ASSETS="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the front end failed this case: %v\n%s", err, out)
@@ -402,7 +402,7 @@ const box = h.$("summary");
 assert.strictEqual(box.getAttribute("aria-live"), "polite", "the summary is a live region");
 assert.ok(box.textContent.includes("1 waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("1 working"), "got: " + box.textContent);
-assert.strictEqual(h.doc.title, "▲ 1 waiting · perch");
+assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
 const first = box.children[0];
 
 // Ten pushes in which the agents keep talking but the tally does not move.
@@ -423,11 +423,11 @@ h.recv(fixture({ waiting: 0, working: 2, panes: {
 assert.ok(h.$("summary").children[0] !== first, "the tally did not follow the count");
 assert.ok(!box.textContent.includes("waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("2 working"), "got: " + box.textContent);
-assert.strictEqual(h.doc.title, "● 2 working · perch");
+assert.strictEqual(h.doc.title, "● 2 working · flockdeck");
 
 h.recv(fixture({ waiting: 0, working: 0 }));
 assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
-assert.strictEqual(h.doc.title, "perch");
+assert.strictEqual(h.doc.title, "flockdeck");
 `)
 	t.Log(strings.TrimSpace(out))
 }
@@ -1964,7 +1964,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const ASSETS = process.env.PERCH_ASSETS || ".";
+const ASSETS = process.env.FLOCKDECK_ASSETS || ".";
 
 // ------------------------------------------------------------------- nodes
 

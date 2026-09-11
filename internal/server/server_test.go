@@ -17,9 +17,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // newTestServer starts a workspace with one shell pane behind a server.
@@ -139,7 +139,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "perch") {
+	if !strings.Contains(string(body), "flockdeck") {
 		t.Error("index does not look like the app page")
 	}
 
@@ -859,7 +859,7 @@ func (s *Server) projectRoots(t *testing.T) []string {
 
 // TestOpenProjectNeedsAFullPath covers what a path the window did not fill in
 // would otherwise mean. Anything that is not absolute is resolved against the
-// directory perch itself was launched from, and an empty one resolves to that
+// directory flockdeck itself was launched from, and an empty one resolves to that
 // directory exactly — so it would open as a project, take over the tab bar and
 // have an agent started in it, none of which anybody asked for.
 func TestOpenProjectNeedsAFullPath(t *testing.T) {

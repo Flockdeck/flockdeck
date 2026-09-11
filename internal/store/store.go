@@ -80,7 +80,7 @@ type Pane struct {
 	Root string `json:"root,omitempty"`
 }
 
-// Dir returns the per-user directory holding Perch's state.
+// Dir returns the per-user directory holding Flockdeck's state.
 //
 // It is kept private to the user. Below it sit the local server's auth token,
 // the browser profile the application window signs in through, and the
@@ -126,7 +126,7 @@ var stateDir = func() func(base string) string {
 		if chosen != "" && under == base {
 			return chosen
 		}
-		chosen = adoptLegacyDir(base, filepath.Join(base, "perch"))
+		chosen = adoptLegacyDir(base, filepath.Join(base, "flockdeck"))
 		under = base
 		return chosen
 	}
@@ -135,7 +135,7 @@ var stateDir = func() func(base string) string {
 // legacyDirName is the directory this state was kept in before the program was
 // renamed. It is looked at only when nothing has been saved under the name in
 // use now, and can be dropped a release after the rename.
-const legacyDirName = "agent-wrapper"
+const legacyDirName = "perch"
 
 // adoptLegacyDir moves state saved under the name an earlier build used to the
 // name in use now, and returns the directory to work in.
@@ -623,12 +623,12 @@ func hashString(s string) string {
 // Those are written once when the pane starts and never touched again, so an
 // agent that has been running since yesterday has a settings file that looks a
 // day abandoned — and deleting it takes the hooks out from under a pane that
-// is still working, which is how perch knows whether that agent is waiting on
+// is still working, which is how flockdeck knows whether that agent is waiting on
 // its user. Whether they are in use is not a question about the file, so it is
 // asked of the instance instead: while another one is running, its panes keep
 // their settings and only the temporaries go.
 //
-// That case is `perch -solo`, which is the one way to get a second instance
+// That case is `flockdeck -solo`, which is the one way to get a second instance
 // past a first that is still answering — including one left detached with its
 // agents still going, which is exactly the run with the most to lose.
 func SweepSessions(maxAge time.Duration) (int, error) {
@@ -957,7 +957,7 @@ func SaveSession(s *Session) error {
 	return nil
 }
 
-// Instance records a running perch so a second launch can attach to it
+// Instance records a running flockdeck so a second launch can attach to it
 // instead of starting a rival server, and so agents can outlive the window.
 type Instance struct {
 	PID     int       `json:"pid"`

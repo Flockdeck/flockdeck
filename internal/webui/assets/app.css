@@ -827,7 +827,7 @@ kbd {
 .pick-row.sel { background: var(--accent); color: #06101f; }
 .pick-row.sel .pick-note, .pick-row.sel .pick-mark { color: #06101f; opacity: .8; }
 /* Greyed rather than hidden: somebody who has not installed an agent should
- * still learn that Perch would run it, and what to install. */
+ * still learn that Flockdeck would run it, and what to install. */
 .pick-row.unavailable .pick-name { color: var(--fg-dim); }
 .pick-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-note { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }

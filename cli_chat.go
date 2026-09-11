@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jmwri/perch/internal/chat"
-	"github.com/jmwri/perch/internal/chat/tool"
+	"github.com/jmwri/flockdeck/internal/chat"
+	"github.com/jmwri/flockdeck/internal/chat/tool"
 )
 
-// runChat implements the `chat` subcommand: Perch's own chat client, run inside
+// runChat implements the `chat` subcommand: Flockdeck's own chat client, run inside
 // a pane's pseudo-terminal and talking straight to a model API.
 //
 // It is a subcommand rather than a second binary for the same reason `hook` and
-// `spawn` are: there is one artifact to ship, and a pane that can run Perch can
-// run everything Perch does. The pane's callback address, its token and its id
+// `spawn` are: there is one artifact to ship, and a pane that can run Flockdeck can
+// run everything Flockdeck does. The pane's callback address, its token and its id
 // come from the environment it was started with, so a chat in a pane reports
 // its own status without being told how.
 func runChat(args []string) error {
@@ -45,7 +45,7 @@ func runChat(args []string) error {
 func chatTools(cwd string) []chat.Tool {
 	set, err := tool.New(cwd)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "perch chat: no tools in this pane:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck chat: no tools in this pane:", err)
 		return nil
 	}
 	tools := set.Tools()

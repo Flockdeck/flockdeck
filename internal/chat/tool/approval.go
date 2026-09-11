@@ -99,7 +99,7 @@ type TerminalAsker struct {
 	// Notify is called with a one-line summary the moment the question goes
 	// up, before anything is read back.
 	//
-	// This is the point of asking in Perch rather than in a terminal on its
+	// This is the point of asking in Flockdeck rather than in a terminal on its
 	// own: the chat client wires it to a Notification hook event, so the pane
 	// turns amber in the window and whoever is looking at eleven other panes
 	// is told which one is waiting for them. A nil Notify simply asks

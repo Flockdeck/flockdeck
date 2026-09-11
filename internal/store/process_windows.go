@@ -13,14 +13,14 @@ const processQueryLimitedInformation = 0x1000
 
 // stillActive is the exit code Windows reports for a process that has not
 // exited yet. A process really exiting with 259 is indistinguishable from a
-// running one, which is a Windows quirk nothing can do anything about; perch
+// running one, which is a Windows quirk nothing can do anything about; flockdeck
 // exits 0 or 1.
 const stillActive = 259
 
 // pidAlive reports whether a process id names a process that is still running.
 //
 // Opening a handle is not the test it looks like. Windows keeps a process
-// object alive for as long as anything holds a handle to it, so a perch that
+// object alive for as long as anything holds a handle to it, so a flockdeck that
 // exited an hour ago is still openable by whatever started it, and asking only
 // whether the handle came back says "running" of a process that has been gone
 // since. The exit code is the state itself.

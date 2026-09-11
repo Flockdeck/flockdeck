@@ -7,7 +7,7 @@ import (
 )
 
 // The reading is taken through the plain syscall package rather than a helper
-// module, because Perch is a single binary with no cgo and the module's
+// module, because Flockdeck is a single binary with no cgo and the module's
 // dependencies are fixed. Toolhelp gives the whole process table in one call,
 // and only the processes in a pane's own tree are then opened for their
 // figures.

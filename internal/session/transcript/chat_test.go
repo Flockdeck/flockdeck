@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
-// chatSpec is an API agent as the catalog will describe one: Perch's own chat
+// chatSpec is an API agent as the catalog will describe one: Flockdeck's own chat
 // client, whatever endpoint it was pointed at.
 var chatSpec = agent.Spec{ID: "anthropic", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true, Resume: true}}
 
-// writeChats puts chat transcripts where Perch's chat client would have left
+// writeChats puts chat transcripts where Flockdeck's chat client would have left
 // them and returns the folder they are in.
 func writeChats(t *testing.T, chats map[string][]string) string {
 	t.Helper()

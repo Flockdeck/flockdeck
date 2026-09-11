@@ -72,7 +72,7 @@ func usagePane(pid int) *Session {
 }
 
 // TestUsageCoversTheWholeProcessTree is the point of the reading: the `claude`
-// CLI does its work in children, so a figure covering only the process Perch
+// CLI does its work in children, so a figure covering only the process Flockdeck
 // started would say a busy agent was costing nothing.
 func TestUsageCoversTheWholeProcessTree(t *testing.T) {
 	fakeProcs(t, map[int]*fakeProc{

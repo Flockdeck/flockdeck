@@ -16,9 +16,9 @@ var ErrHelpShown = errors.New("usage shown")
 // ErrBadFlags means the command line was wrong. The flag set has already said
 // which part of it, so this only points at where the rest is written down --
 // repeating the complaint would bury it.
-var ErrBadFlags = errors.New("run `perch chat -h` for the flags it takes")
+var ErrBadFlags = errors.New("run `flockdeck chat -h` for the flags it takes")
 
-// ParseArgs turns the arguments of `perch chat` into the options to run with.
+// ParseArgs turns the arguments of `flockdeck chat` into the options to run with.
 //
 // It lives here rather than beside main so that what the command accepts is
 // tested where it is defined. Every flag has an environment variable behind it,
@@ -71,13 +71,13 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 }
 
 func usage(fs *flag.FlagSet, out io.Writer) {
-	fmt.Fprintf(out, "Usage: perch chat [flags] [--] [task]\n\n")
+	fmt.Fprintf(out, "Usage: flockdeck chat [flags] [--] [task]\n\n")
 	fmt.Fprintf(out, "Holds a conversation with a model API in this terminal: no wrapper CLI,\n")
-	fmt.Fprintf(out, "no node, no python. Run inside a Perch pane it reports its own status,\n")
+	fmt.Fprintf(out, "no node, no python. Run inside a Flockdeck pane it reports its own status,\n")
 	fmt.Fprintf(out, "records a transcript and can be resumed.\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nThe API key is read from the names given to -key-env, then from the\n")
-	fmt.Fprintf(out, "conventional name for the wire, then from the keys Perch has been given.\n")
+	fmt.Fprintf(out, "conventional name for the wire, then from the keys Flockdeck has been given.\n")
 }
 
 // paneEnv reads one of the variables a pane carries, accepting the name an
@@ -85,8 +85,8 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 // is still running with the old names in its environment, and a chat inside it
 // should not lose its status reporting because the binary on PATH was upgraded.
 func paneEnv(name string) string {
-	if v := os.Getenv("PERCH_" + name); v != "" {
+	if v := os.Getenv("FLOCKDECK_" + name); v != "" {
 		return v
 	}
-	return os.Getenv("AGENT_WRAPPER_" + name)
+	return os.Getenv("PERCH_" + name)
 }

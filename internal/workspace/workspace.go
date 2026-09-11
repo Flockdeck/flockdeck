@@ -25,13 +25,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/creds"
-	"github.com/jmwri/perch/internal/gitx"
-	"github.com/jmwri/perch/internal/hooks"
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // orphanedSettingsAge is how old a generated settings file must be before it is
@@ -908,11 +908,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		argv = agent.BuildArgv(spec, resuming, tokens)
 		extra := append([]string{}, spec.Env...)
 		if spec.Runner == agent.RunnerAPI {
-			// An API agent is Perch's own chat client. BuildArgv leaves the
+			// An API agent is Flockdeck's own chat client. BuildArgv leaves the
 			// program off because only this side knows where the running
 			// binary is.
 			argv = append([]string{w.selfExe, "chat"}, argv...)
-			// A key Perch is keeping for this agent goes into the environment
+			// A key Flockdeck is keeping for this agent goes into the environment
 			// of this pane and no other. One the user has already exported is
 			// inherited and needs nothing added, so nothing is: a second copy
 			// of a secret is a second place it can be read from.
@@ -950,7 +950,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 }
 
 // paneEnv gives a pane what it needs to call back into the application, so an
-// agent can spawn helpers of its own with `perch spawn`.
+// agent can spawn helpers of its own with `flockdeck spawn`.
 //
 // The agent id and model are passed in rather than read off the pane because
 // the model a pane actually runs under is the one left after the agent's
@@ -975,17 +975,17 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 	// release after the rename.
 	env := make([]string, 0, 2*len(vars)+2)
 	for _, v := range vars {
-		env = append(env, "PERCH_"+v[0]+"="+v[1], "AGENT_WRAPPER_"+v[0]+"="+v[1])
+		env = append(env, "FLOCKDECK_"+v[0]+"="+v[1], "PERCH_"+v[0]+"="+v[1])
 	}
 	// Which agent and model the pane is running only under the name in use
 	// now: they are new, so there is no prompt or script written against an
 	// older spelling of them to keep working. A shell pane is neither and is
 	// told nothing, rather than being told it is an agent with no name.
 	if agentID != "" {
-		env = append(env, "PERCH_AGENT="+agentID)
+		env = append(env, "FLOCKDECK_AGENT="+agentID)
 	}
 	if model != "" {
-		env = append(env, "PERCH_MODEL="+model)
+		env = append(env, "FLOCKDECK_MODEL="+model)
 	}
 	return env
 }
@@ -1138,16 +1138,16 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 
 // spawnCommand is the command an agent is told to run to start a helper.
 //
-// It is `perch` when that is on PATH, which is how an installed copy is
+// It is `flockdeck` when that is on PATH, which is how an installed copy is
 // reached. It is this binary's own path when it is not: a build that has not
 // been installed still serves panes that can spawn, and an agent told to run a
 // command that is not there has no way of finding that out but to try it.
 func spawnCommand(selfExe string) string {
-	if _, err := exec.LookPath("perch"); err == nil {
-		return "perch"
+	if _, err := exec.LookPath("flockdeck"); err == nil {
+		return "flockdeck"
 	}
 	if selfExe == "" {
-		return "perch"
+		return "flockdeck"
 	}
 	return selfExe
 }

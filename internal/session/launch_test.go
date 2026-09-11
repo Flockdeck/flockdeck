@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // claudeSpec is the Claude entry from design/multi-agent.md, held here so that
@@ -68,7 +68,7 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 				ID:          testSession,
 				Prompt:      tc.prompt,
 				Resume:      tc.resume,
-				SelfExe:     "/bin/perch",
+				SelfExe:     "/bin/flockdeck",
 				SettingsDir: dir,
 				Endpoint:    "http://127.0.0.1:1/hook",
 				Token:       "tok",
@@ -92,7 +92,7 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 			if cfg.Kind != KindAgent {
 				t.Errorf("kind = %v, want an agent pane", cfg.Kind)
 			}
-			// The Spec travels with the pane, because what Perch believes about
+			// The Spec travels with the pane, because what Flockdeck believes about
 			// it afterwards -- how its status is known, and what to read out of
 			// its output -- is written there and nowhere else.
 			if cfg.Spec.ID != "claude" {
@@ -139,7 +139,7 @@ func TestModelIsAskedForOnlyWhenThereIsOne(t *testing.T) {
 
 // TestSettingsOnlyForAnAgentHandedOne keeps the state directory from filling up
 // with files nothing reads. An agent that reports its lifecycle without being
-// handed a settings file -- `perch chat`, told where to report in its
+// handed a settings file -- `flockdeck chat`, told where to report in its
 // environment -- must not have one written for it.
 func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	tests := []struct {
@@ -168,7 +168,7 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			got, err := Settings(tc.spec, dir, testSession, "/bin/perch", "http://127.0.0.1:1/hook", "tok")
+			got, err := Settings(tc.spec, dir, testSession, "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
 			if err != nil {
 				t.Fatalf("settings: %v", err)
 			}
@@ -183,9 +183,9 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	}
 }
 
-// TestAPIRunnerRunsPerchItself covers the runner that has no CLI to find: the
-// pane runs Perch's own binary, which only the caller can name.
-func TestAPIRunnerRunsPerchItself(t *testing.T) {
+// TestAPIRunnerRunsFlockdeckItself covers the runner that has no CLI to find: the
+// pane runs Flockdeck's own binary, which only the caller can name.
+func TestAPIRunnerRunsFlockdeckItself(t *testing.T) {
 	spec := agent.Spec{
 		ID: "openai", Runner: agent.RunnerAPI,
 		Args: []agent.Arg{
@@ -194,11 +194,11 @@ func TestAPIRunnerRunsPerchItself(t *testing.T) {
 			agent.Group("session", "--session", "{{session}}"),
 		},
 	}
-	cfg, err := Launch{Spec: spec, Model: "gpt-5", ID: testSession, SelfExe: "/opt/perch"}.Config()
+	cfg, err := Launch{Spec: spec, Model: "gpt-5", ID: testSession, SelfExe: "/opt/flockdeck"}.Config()
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
-	want := []string{"/opt/perch", "chat", "--agent", "openai", "--model", "gpt-5", "--session", testSession}
+	want := []string{"/opt/flockdeck", "chat", "--agent", "openai", "--model", "gpt-5", "--session", testSession}
 	if !slices.Equal(cfg.Argv, want) {
 		t.Errorf("argv  = %q\nwant = %q", cfg.Argv, want)
 	}
@@ -214,7 +214,7 @@ func TestAPIRunnerRunsPerchItself(t *testing.T) {
 func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
 	_, err := Look(agent.Spec{
 		ID: "codex", Name: "Codex", Runner: agent.RunnerCLI,
-		Exe: "perch-no-such-agent-on-path", Install: "npm i -g @openai/codex",
+		Exe: "flockdeck-no-such-agent-on-path", Install: "npm i -g @openai/codex",
 	})
 	if err == nil {
 		t.Fatal("a missing CLI should be reported")
@@ -225,7 +225,7 @@ func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
 		}
 	}
 
-	// An API agent runs Perch itself, so there is nothing on PATH to find and
+	// An API agent runs Flockdeck itself, so there is nothing on PATH to find and
 	// nothing to complain about.
 	if _, err := Look(agent.Spec{ID: "anthropic", Runner: agent.RunnerAPI}); err != nil {
 		t.Errorf("an API agent needs nothing installed: %v", err)
@@ -233,13 +233,13 @@ func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
 }
 
 // TestStripEnvComesFromTheSpecs is the other half of a pane being a clean
-// top-level session: the markers of the session Perch was launched from go from
+// top-level session: the markers of the session Flockdeck was launched from go from
 // every pane, whichever agent is about to run in it, because the agent that
-// spawned Perch has nothing to do with the one in the pane.
+// spawned Flockdeck has nothing to do with the one in the pane.
 func TestStripEnvComesFromTheSpecs(t *testing.T) {
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("CODEX_SANDBOX", "1")
-	t.Setenv("PERCH_TEST_KEPT", "yes")
+	t.Setenv("FLOCKDECK_TEST_KEPT", "yes")
 
 	specs := []agent.Spec{
 		claudeLaunchSpec(),
@@ -250,7 +250,7 @@ func TestStripEnvComesFromTheSpecs(t *testing.T) {
 		t.Fatalf("union = %q, want every Spec's markers in it", union)
 	}
 
-	cfg, err := Launch{Spec: specs[1], ID: testSession, StripEnv: union, Env: []string{"PERCH_PANE=" + testSession}}.Config()
+	cfg, err := Launch{Spec: specs[1], ID: testSession, StripEnv: union, Env: []string{"FLOCKDECK_PANE=" + testSession}}.Config()
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -259,43 +259,43 @@ func TestStripEnvComesFromTheSpecs(t *testing.T) {
 			t.Errorf("%s survived into a Codex pane", gone)
 		}
 	}
-	if !slices.Contains(cfg.Env, "PERCH_TEST_KEPT=yes") {
+	if !slices.Contains(cfg.Env, "FLOCKDECK_TEST_KEPT=yes") {
 		t.Error("the rest of the environment should be passed through untouched")
 	}
-	if !slices.Contains(cfg.Env, "PERCH_PANE="+testSession) {
+	if !slices.Contains(cfg.Env, "FLOCKDECK_PANE="+testSession) {
 		t.Error("the pane's own variables should be added")
 	}
 	// Which agent is in the pane is worth knowing inside it: a prompt or a
-	// script there can say so without asking Perch.
-	if !slices.Contains(cfg.Env, "PERCH_AGENT=codex") {
+	// script there can say so without asking Flockdeck.
+	if !slices.Contains(cfg.Env, "FLOCKDECK_AGENT=codex") {
 		t.Errorf("env = %q, want the agent named in it", cfg.Env)
 	}
 
-	// A caller with no catalog to hand strips what Perch always stripped, so a
+	// A caller with no catalog to hand strips what Flockdeck always stripped, so a
 	// pane started before the catalog is read is no worse off than it was.
 	if slices.Contains(Env(), "CLAUDECODE=1") {
 		t.Error("Env with no list given should still strip the markers it always did")
 	}
 }
 
-// TestSpecEnvCannotShadowPerchsOwn covers a catalog entry -- a file the user may
+// TestSpecEnvCannotShadowFlockdecksOwn covers a catalog entry -- a file the user may
 // edit -- naming one of the variables a pane calls back on. The first copy of a
 // name in an environment block is the one that counts, so the Spec's would win
 // by being written first, and the pane would report its lifecycle nowhere.
-func TestSpecEnvCannotShadowPerchsOwn(t *testing.T) {
-	spec := agent.Spec{ID: "local", Runner: agent.RunnerCLI, Exe: "ollama", Env: []string{"PERCH_API=http://evil", "OLLAMA_HOST=127.0.0.1"}}
-	cfg, err := Launch{Spec: spec, ID: testSession, Env: []string{"PERCH_API=http://127.0.0.1:9/hook"}}.Config()
+func TestSpecEnvCannotShadowFlockdecksOwn(t *testing.T) {
+	spec := agent.Spec{ID: "local", Runner: agent.RunnerCLI, Exe: "ollama", Env: []string{"FLOCKDECK_API=http://evil", "OLLAMA_HOST=127.0.0.1"}}
+	cfg, err := Launch{Spec: spec, ID: testSession, Env: []string{"FLOCKDECK_API=http://127.0.0.1:9/hook"}}.Config()
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
 	var api []string
 	for _, kv := range cfg.Env {
-		if strings.HasPrefix(kv, "PERCH_API=") {
+		if strings.HasPrefix(kv, "FLOCKDECK_API=") {
 			api = append(api, kv)
 		}
 	}
-	if len(api) != 1 || api[0] != "PERCH_API=http://127.0.0.1:9/hook" {
-		t.Errorf("PERCH_API = %q, want only Perch's own", api)
+	if len(api) != 1 || api[0] != "FLOCKDECK_API=http://127.0.0.1:9/hook" {
+		t.Errorf("FLOCKDECK_API = %q, want only Flockdeck's own", api)
 	}
 	if !slices.Contains(cfg.Env, "OLLAMA_HOST=127.0.0.1") {
 		t.Error("the Spec's own additions should still be there")

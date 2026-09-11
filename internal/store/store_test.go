@@ -578,7 +578,7 @@ func TestLoadRejectsAnotherProjectsLayout(t *testing.T) {
 }
 
 // TestStateDirectoriesArePrivate checks no other account on the machine can
-// list Perch's state, including a directory left wide open by an earlier
+// list Flockdeck's state, including a directory left wide open by an earlier
 // version.
 func TestStateDirectoriesArePrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -733,7 +733,7 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 }
 
 // TestLoadIgnoresAnotherSchemaVersion checks a layout written by a different
-// version of Perch is passed over quietly. The fields it holds may mean
+// version of Flockdeck is passed over quietly. The fields it holds may mean
 // something else entirely, and a start-up that fails is worse than one that
 // opens a fresh tab.
 func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
@@ -1278,7 +1278,7 @@ func TestDirAdoptsStateSavedUnderTheOldName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
-	if filepath.Base(dir) != "perch" {
+	if filepath.Base(dir) != "flockdeck" {
 		t.Errorf("Dir() = %q, want the directory named for the program in use now", dir)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "layout-abc.json"))
@@ -1311,7 +1311,7 @@ func TestDirNeverWritesOverStateAlreadySaved(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(old, "layout-abc.json"), []byte("stale"), 0o600); err != nil {
 		t.Fatalf("seed the old layout: %v", err)
 	}
-	cur := filepath.Join(base, "perch")
+	cur := filepath.Join(base, "flockdeck")
 	if err := os.MkdirAll(cur, 0o700); err != nil {
 		t.Fatalf("create the current directory: %v", err)
 	}
@@ -1505,7 +1505,7 @@ func TestLayoutFromAnotherSchemaVersionIsKept(t *testing.T) {
 // about the process and not about whether a handle to it can be opened.
 //
 // Windows keeps a process object for as long as anything holds a handle, so a
-// perch that exited long ago is still openable by whatever started it. Calling
+// flockdeck that exited long ago is still openable by whatever started it. Calling
 // that "running" is what leaves a stale instance record in place, and while it
 // is there every launch tries to attach to a server that is not listening and
 // then declines to clear the record standing in its way.
@@ -1583,7 +1583,7 @@ func TestConfigDirFollowsTheInstanceThatWonTheUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dir: %v", err)
 	}
-	want := filepath.Join(base, "perch")
+	want := filepath.Join(base, "flockdeck")
 	if dir != want {
 		t.Fatalf("state dir is %s, want %s: this run would write where nothing looks", dir, want)
 	}
@@ -1896,8 +1896,8 @@ func TestStateFileNamesAreFixed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user config dir: %v", err)
 	}
-	if dir != filepath.Join(base, "perch") {
-		t.Errorf("state dir is %s, want %s", dir, filepath.Join(base, "perch"))
+	if dir != filepath.Join(base, "flockdeck") {
+		t.Errorf("state dir is %s, want %s", dir, filepath.Join(base, "flockdeck"))
 	}
 }
 
@@ -2124,7 +2124,7 @@ func TestTheStateDirectoryIsDecidedOnceARun(t *testing.T) {
 // the hook settings out from under agents that are still going.
 //
 // A pane's settings are written when it starts and never touched again, so an
-// agent working since yesterday has a file that looks a day abandoned. `perch
+// agent working since yesterday has a file that looks a day abandoned. `flockdeck
 // -solo` starts a second instance beside a first that is still answering — the
 // one left detached with its agents running among them — and its sweep was
 // deleting exactly those files. Temporaries are a different matter: no write

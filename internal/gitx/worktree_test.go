@@ -222,7 +222,7 @@ func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
 // TestNoDirectoryIsNotThisProcessesDirectory covers a caller that has lost
 // track of which working tree it meant.
 //
-// exec reads an empty Dir as "wherever this process is", and Perch is normally
+// exec reads an empty Dir as "wherever this process is", and Flockdeck is normally
 // started from inside a checkout of something, so the panels would have been
 // answered with a real branch and a real file list belonging to a repository
 // nobody asked about.

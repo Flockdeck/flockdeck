@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // isolateConfig points the state directory at a directory of this test's own,
@@ -42,7 +42,7 @@ func apiSpec(id string, env ...string) agent.Spec {
 }
 
 func TestResolveOrder(t *testing.T) {
-	spec := apiSpec("anthropic", "PERCH_TEST_KEY_A", "PERCH_TEST_KEY_B")
+	spec := apiSpec("anthropic", "FLOCKDECK_TEST_KEY_A", "FLOCKDECK_TEST_KEY_B")
 
 	tests := []struct {
 		name       string
@@ -58,25 +58,25 @@ func TestResolveOrder(t *testing.T) {
 		},
 		{
 			name:       "the first name wins",
-			env:        map[string]string{"PERCH_TEST_KEY_A": "first", "PERCH_TEST_KEY_B": "second"},
+			env:        map[string]string{"FLOCKDECK_TEST_KEY_A": "first", "FLOCKDECK_TEST_KEY_B": "second"},
 			wantSecret: "first",
 			wantSource: SourceEnv,
-			wantEnv:    "PERCH_TEST_KEY_A",
+			wantEnv:    "FLOCKDECK_TEST_KEY_A",
 		},
 		{
 			name:       "a later name is still found",
-			env:        map[string]string{"PERCH_TEST_KEY_B": "second"},
+			env:        map[string]string{"FLOCKDECK_TEST_KEY_B": "second"},
 			wantSecret: "second",
 			wantSource: SourceEnv,
-			wantEnv:    "PERCH_TEST_KEY_B",
+			wantEnv:    "FLOCKDECK_TEST_KEY_B",
 		},
 		{
 			name:       "the environment beats the store",
-			env:        map[string]string{"PERCH_TEST_KEY_A": "exported"},
+			env:        map[string]string{"FLOCKDECK_TEST_KEY_A": "exported"},
 			stored:     "saved",
 			wantSecret: "exported",
 			wantSource: SourceEnv,
-			wantEnv:    "PERCH_TEST_KEY_A",
+			wantEnv:    "FLOCKDECK_TEST_KEY_A",
 		},
 		{
 			name:       "the store is the fallback",
@@ -86,7 +86,7 @@ func TestResolveOrder(t *testing.T) {
 		},
 		{
 			name:       "an empty variable is not a key",
-			env:        map[string]string{"PERCH_TEST_KEY_A": "   "},
+			env:        map[string]string{"FLOCKDECK_TEST_KEY_A": "   "},
 			stored:     "saved",
 			wantSecret: "saved",
 			wantSource: SourceStore,
@@ -98,8 +98,8 @@ func TestResolveOrder(t *testing.T) {
 			isolateConfig(t)
 			// Both names are cleared first: a value left in the environment by
 			// the machine running the tests would decide the answer instead.
-			t.Setenv("PERCH_TEST_KEY_A", "")
-			t.Setenv("PERCH_TEST_KEY_B", "")
+			t.Setenv("FLOCKDECK_TEST_KEY_A", "")
+			t.Setenv("FLOCKDECK_TEST_KEY_B", "")
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -154,21 +154,21 @@ func TestEnv(t *testing.T) {
 		{name: "no key at all"},
 		{
 			name:     "already exported, so nothing to add",
-			exportAs: "PERCH_TEST_KEY_A",
+			exportAs: "FLOCKDECK_TEST_KEY_A",
 			stored:   "saved",
 		},
 		{
 			name:   "a stored key goes under the first name",
 			stored: "saved",
-			want:   []string{"PERCH_TEST_KEY_A=saved"},
+			want:   []string{"FLOCKDECK_TEST_KEY_A=saved"},
 		},
 	}
-	spec := apiSpec("anthropic", "PERCH_TEST_KEY_A", "PERCH_TEST_KEY_B")
+	spec := apiSpec("anthropic", "FLOCKDECK_TEST_KEY_A", "FLOCKDECK_TEST_KEY_B")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isolateConfig(t)
-			t.Setenv("PERCH_TEST_KEY_A", "")
-			t.Setenv("PERCH_TEST_KEY_B", "")
+			t.Setenv("FLOCKDECK_TEST_KEY_A", "")
+			t.Setenv("FLOCKDECK_TEST_KEY_B", "")
 			if tt.exportAs != "" {
 				t.Setenv(tt.exportAs, "exported")
 			}
@@ -197,7 +197,7 @@ func TestEnv(t *testing.T) {
 
 func TestStoreRoundTrip(t *testing.T) {
 	isolateConfig(t)
-	t.Setenv("PERCH_TEST_KEY_A", "")
+	t.Setenv("FLOCKDECK_TEST_KEY_A", "")
 
 	if names, err := Names(); err != nil || len(names) != 0 {
 		t.Fatalf("a fresh install listed %v (%v)", names, err)
@@ -248,7 +248,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 }
 
-// The store carries the only secrets Perch keeps, so it is written 0600 and
+// The store carries the only secrets Flockdeck keeps, so it is written 0600 and
 // stays that way when it is rewritten.
 func TestStoreIsPrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -326,24 +326,24 @@ func TestKeyNeverPrintsItself(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	isolateConfig(t)
-	t.Setenv("PERCH_TEST_KEY_A", "")
-	t.Setenv("PERCH_TEST_KEY_B", "")
+	t.Setenv("FLOCKDECK_TEST_KEY_A", "")
+	t.Setenv("FLOCKDECK_TEST_KEY_B", "")
 
 	specs := []agent.Spec{
-		apiSpec("anthropic", "PERCH_TEST_KEY_A"),
-		apiSpec("openai", "PERCH_TEST_KEY_B"),
+		apiSpec("anthropic", "FLOCKDECK_TEST_KEY_A"),
+		apiSpec("openai", "FLOCKDECK_TEST_KEY_B"),
 		{ID: "claude", Name: "Claude Code", Runner: agent.RunnerCLI, Exe: "claude"},
 	}
 	if err := Set("openai", "sk-openai"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	t.Setenv("PERCH_TEST_KEY_A", "exported")
+	t.Setenv("FLOCKDECK_TEST_KEY_A", "exported")
 
 	got := StatusAll(specs)
 	if len(got) != 2 {
 		t.Fatalf("StatusAll returned %d entries, want only the API runners: %+v", len(got), got)
 	}
-	if got[0].Agent != "anthropic" || !got[0].Set || got[0].Source != SourceEnv || got[0].Env != "PERCH_TEST_KEY_A" {
+	if got[0].Agent != "anthropic" || !got[0].Set || got[0].Source != SourceEnv || got[0].Env != "FLOCKDECK_TEST_KEY_A" {
 		t.Errorf("anthropic status = %+v", got[0])
 	}
 	if got[1].Agent != "openai" || !got[1].Set || got[1].Source != SourceStore {
@@ -360,11 +360,11 @@ func TestStatus(t *testing.T) {
 		t.Errorf("a Status carries the key: %s", data)
 	}
 
-	unset := StatusOf(apiSpec("google", "PERCH_TEST_KEY_C", "PERCH_TEST_KEY_D"))
+	unset := StatusOf(apiSpec("google", "FLOCKDECK_TEST_KEY_C", "FLOCKDECK_TEST_KEY_D"))
 	if unset.Set {
 		t.Errorf("google reads as set: %+v", unset)
 	}
-	if d := unset.Describe(); !strings.Contains(d, "PERCH_TEST_KEY_C") || !strings.Contains(d, "keys set google") {
+	if d := unset.Describe(); !strings.Contains(d, "FLOCKDECK_TEST_KEY_C") || !strings.Contains(d, "keys set google") {
 		t.Errorf("Describe does not say what to do: %q", d)
 	}
 }

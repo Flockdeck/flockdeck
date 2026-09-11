@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/jmwri/perch/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/hooks"
 )
 
-// The lifecycle events perch chat reports. They are Claude Code's own event
+// The lifecycle events flockdeck chat reports. They are Claude Code's own event
 // names, sent to the same endpoint, because the workspace already knows what
 // every one of them means for a pane's status: a chat pane goes amber when it
 // asks a question and grey when it finishes for exactly the same reasons a
@@ -25,7 +25,7 @@ const (
 	eventSessionEnd   = "SessionEnd"
 )
 
-// reporter tells Perch what this pane is doing.
+// reporter tells Flockdeck what this pane is doing.
 type reporter struct {
 	endpoint string
 	token    string
@@ -62,8 +62,8 @@ type hookInput struct {
 // send reports one event and returns whatever came back, which for a
 // SessionStart is the pane's briefing.
 //
-// A failure is swallowed. Perch may not be listening at all -- somebody can run
-// `perch chat` in a plain terminal -- and a chat that stopped working because
+// A failure is swallowed. Flockdeck may not be listening at all -- somebody can run
+// `flockdeck chat` in a plain terminal -- and a chat that stopped working because
 // its status could not be reported would be a poor trade for a coloured dot.
 func (r *reporter) send(event string, in hookInput) string {
 	if r == nil || r.endpoint == "" || r.session == "" {
@@ -84,7 +84,7 @@ func (r *reporter) send(event string, in hookInput) string {
 	return out
 }
 
-// sessionStart announces the pane and returns the briefing Perch answers with:
+// sessionStart announces the pane and returns the briefing Flockdeck answers with:
 // which pane this is, who else is working, what the pane can do. It is asked
 // again after a `/clear`, so the description survives a conversation being
 // started over -- the same reason Claude Code's own hook fires again after a
@@ -101,6 +101,6 @@ func (r *reporter) sessionEnd()              { r.send(eventSessionEnd, hookInput
 
 // notification is what turns the pane amber and tells the user which pane wants
 // them. It is sent when the chat is waiting on an answer it cannot go on
-// without -- a tool asking permission -- which is the whole point of Perch:
+// without -- a tool asking permission -- which is the whole point of Flockdeck:
 // twelve panes and one person, who needs to be told which one to look at.
 func (r *reporter) notification(tool string) { r.send(eventNotification, hookInput{ToolName: tool}) }

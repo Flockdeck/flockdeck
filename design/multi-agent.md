@@ -1,6 +1,6 @@
 # Running any agent, not only Claude
 
-This is the contract for the work that makes Perch orchestrate **any coding
+This is the contract for the work that makes Flockdeck orchestrate **any coding
 agent** — any CLI, and any model API spoken to directly — with the model chosen
 per pane, including choosing between Claude's own models.
 
@@ -25,12 +25,12 @@ written in line. Afterwards:
 - Every Claude-specific decision becomes a field on the Spec, so a second agent
   is a table entry and, for the user, a JSON file — not a Go branch.
 - Two runners exist: `cli` runs an external command in the pane's PTY;
-  `api` runs Perch's own chat client, `perch chat`, in the pane's PTY, talking
+  `api` runs Flockdeck's own chat client, `flockdeck chat`, in the pane's PTY, talking
   straight to a model API. The second is what "native" means here: no wrapper
   CLI, no node, no Python — one binary.
 
 Nothing about the terminal, the layout, the worktrees or the window changes.
-The seam is where a pane is started and what Perch believes about it after.
+The seam is where a pane is started and what Flockdeck believes about it after.
 
 ### Terminology, used consistently everywhere
 
@@ -77,11 +77,11 @@ copy does not. Copy it out of this file rather than retyping it.
 ## 3. The contract: `internal/agent/spec.go`
 
 ```go
-// Package agent describes the coding agents Perch can run in a pane.
+// Package agent describes the coding agents Flockdeck can run in a pane.
 //
 // A pane is either a shell or an agent, and an agent is a Spec -- a program to
 // run, or an API to talk to -- together with the model it was asked for. Every
-// Claude-specific decision Perch once made in line is a field here, so that a
+// Claude-specific decision Flockdeck once made in line is a field here, so that a
 // second agent is a table entry rather than another branch.
 package agent
 
@@ -93,8 +93,8 @@ type Runner string
 const (
 	// RunnerCLI runs an external command in the pane's pseudo-terminal.
 	RunnerCLI Runner = "cli"
-	// RunnerAPI runs Perch's own chat client in the pane, talking directly to
-	// a model API. The command is `perch chat`; the Spec says which endpoint.
+	// RunnerAPI runs Flockdeck's own chat client in the pane, talking directly to
+	// a model API. The command is `flockdeck chat`; the Spec says which endpoint.
 	RunnerAPI Runner = "api"
 )
 
@@ -120,20 +120,20 @@ type Model struct {
 	Note string `json:"note,omitempty"` // a few words on when to reach for it
 }
 
-// Caps says which of Perch's facilities an agent supports. Everything Perch
+// Caps says which of Flockdeck's facilities an agent supports. Everything Flockdeck
 // does beyond drawing a terminal is gated on one of these, so an agent that
 // supports none of it still works -- it is a terminal with a program in it.
 type Caps struct {
-	// Hooks reports lifecycle events to Perch, so the pane's status is known
+	// Hooks reports lifecycle events to Flockdeck, so the pane's status is known
 	// rather than inferred from what it prints.
 	Hooks bool `json:"hooks,omitempty"`
 	// Resume reattaches a conversation by id, which is what makes restoring a
 	// layout more than cosmetic.
 	Resume bool `json:"resume,omitempty"`
-	// Transcript records what was said somewhere Perch can read it: where a
+	// Transcript records what was said somewhere Flockdeck can read it: where a
 	// fan-out finds a plan, and the history overlay finds a conversation.
 	Transcript bool `json:"transcript,omitempty"`
-	// Trust has a per-directory trust question Perch can answer ahead of a
+	// Trust has a per-directory trust question Flockdeck can answer ahead of a
 	// fan-out, so that twelve fresh worktrees do not each stop on it.
 	Trust bool `json:"trust,omitempty"`
 	// Context is how the pane briefing reaches the agent.
@@ -164,7 +164,7 @@ type APISpec struct {
 	// BaseURL is the endpoint root; empty means the vendor's own.
 	BaseURL string `json:"baseURL,omitempty"`
 	// KeyEnv names the environment variables a key may arrive in, tried in
-	// order before Perch's own key store.
+	// order before Flockdeck's own key store.
 	KeyEnv []string `json:"keyEnv,omitempty"`
 }
 
@@ -178,7 +178,7 @@ type Patterns struct {
 	Idle []string `json:"idle,omitempty"`
 }
 
-// Spec is one agent Perch can run.
+// Spec is one agent Flockdeck can run.
 type Spec struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -195,7 +195,7 @@ type Spec struct {
 	Models       []Model `json:"models,omitempty"`
 	DefaultModel string  `json:"defaultModel,omitempty"`
 	// Env is added to the pane's environment; StripEnv is removed from it,
-	// which is how the markers of the session Perch was launched from are kept
+	// which is how the markers of the session Flockdeck was launched from are kept
 	// from making every pane look like a nested child of it.
 	Env      []string `json:"env,omitempty"`
 	StripEnv []string `json:"stripEnv,omitempty"`
@@ -263,7 +263,7 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 		args = s.ResumeArgs
 	}
 	out := make([]string, 0, len(args)+2)
-	// An API runner is Perch's own chat client: the caller puts its binary and
+	// An API runner is Flockdeck's own chat client: the caller puts its binary and
 	// the "chat" subcommand in front, because only the caller knows where the
 	// running binary lives.
 	if s.Runner != RunnerAPI && s.Exe != "" {
@@ -364,7 +364,7 @@ Rules: a user entry with a known `id` is merged field by field over the
 built-in (a set field wins, an absent one keeps the built-in's); an unknown
 `id` is a new agent; `"hidden": true` removes one from the picker. A malformed
 file is a notice in the interface and the built-ins carry on — never a failure
-to start. Perch's own settings writer is the only thing that writes it, and it
+to start. Flockdeck's own settings writer is the only thing that writes it, and it
 is read fresh whenever the picker is opened, so editing it by hand takes effect
 without a restart.
 
@@ -387,7 +387,7 @@ succeeds; for an API, a key resolves (section 10) or the endpoint needs none (a
 `baseURL` on loopback). Probed at startup and re-probed when the picker opens,
 cached for a few seconds. Unavailable agents are shown greyed with their
 `Install` line rather than hidden — somebody who has not installed Codex should
-still learn that Perch would run it.
+still learn that Flockdeck would run it.
 
 ---
 
@@ -395,7 +395,7 @@ still learn that Perch would run it.
 
 `workspace.startPane` becomes: resolve Spec and model → build tokens → for
 `Caps.Hooks`, write the settings file as today → `BuildArgv` → for
-`RunnerAPI`, prepend Perch's own executable and `chat` → `session.Start`.
+`RunnerAPI`, prepend Flockdeck's own executable and `chat` → `session.Start`.
 
 - Resume is attempted only when `Caps.Resume` **and** the agent's own
   transcript exists (section 6). Otherwise the pane starts fresh, exactly as a
@@ -405,8 +405,8 @@ still learn that Perch would run it.
 - Environment: `session.Env` keeps stripping the inherited-session markers, but
   the list is the union of `Spec.StripEnv` across the whole catalog, so a
   Claude marker is stripped for a Codex pane too — a pane is a clean top-level
-  session whatever is running in it. Then `Spec.Env`, then the `PERCH_*` pane
-  variables already there, plus `PERCH_AGENT` and `PERCH_MODEL`.
+  session whatever is running in it. Then `Spec.Env`, then the `FLOCKDECK_*` pane
+  variables already there, plus `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL`.
 
 ## 6. Status, transcripts and resume without hooks
 
@@ -430,7 +430,7 @@ type Reader interface {
 }
 ```
 
-Claude's existing implementation moves behind it unchanged. `perch chat` gets
+Claude's existing implementation moves behind it unchanged. `flockdeck chat` gets
 one that reads its own JSONL. An agent with `Caps.Transcript == false` gets the
 null reader, and every caller already copes: a fan-out falls back to the
 screen, the history overlay lists nothing for it, and resume is not attempted.
@@ -442,9 +442,9 @@ briefing and puts it in front of the opening prompt, fenced so the agent can
 tell the two apart:
 
 ```
-<perch-context>
+<flockdeck-context>
 ...the same text the hook returns...
-</perch-context>
+</flockdeck-context>
 
 <the task>
 ```
@@ -457,18 +457,18 @@ because which agent is in the next pane changes what is worth asking of it.
 
 ## 8. The native API agent
 
-`perch chat` is a subcommand run inside a pane's PTY. It is a real terminal
+`flockdeck chat` is a subcommand run inside a pane's PTY. It is a real terminal
 chat client, and it is what makes an API model a first-class agent rather than
 something you shell out to.
 
 ```
-perch chat --agent openai --model gpt-5 --session <uuid> [--resume] [--] [task]
+flockdeck chat --agent openai --model gpt-5 --session <uuid> [--resume] [--] [task]
 ```
 
 - Wire formats: `anthropic` (Messages, streaming), `openai` (Chat Completions,
   streaming — and with it every OpenAI-compatible endpoint), `gemini`
   (`streamGenerateContent`). Standard library only: no SDKs, no new modules.
-- It reports its own lifecycle to `PERCH_API`/`PERCH_TOKEN` using the existing
+- It reports its own lifecycle to `FLOCKDECK_API`/`FLOCKDECK_TOKEN` using the existing
   `/hook` endpoint and the existing event names (`SessionStart`,
   `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`,
   `SessionEnd`). Nothing in the workspace has to learn a second protocol, and an
@@ -499,7 +499,7 @@ v1 tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`,
 that escapes it is refused, not approved. `write_file`, `edit_file` and
 `run_command` ask first, in the terminal, and the ask is a `Notification`
 event — so the pane turns amber and the user is told which pane wants them,
-which is the whole point of Perch. Approval is per call; "always for the rest
+which is the whole point of Flockdeck. Approval is per call; "always for the rest
 of this session" is offered for `run_command` prefixes only.
 
 ## 9. Persistence
@@ -516,11 +516,11 @@ request.
 `internal/creds` resolves an API key for a Spec: each name in `API.KeyEnv` from
 the environment, then `<state dir>/keys.json` (0600,
 `{"anthropic":"sk-...","openai":"..."}`), then nothing. A key reaches exactly
-one place — the environment of the `perch chat` process for the pane that needs
+one place — the environment of the `flockdeck chat` process for the pane that needs
 it — and is never logged, never in a snapshot, never in an error message. The
 interface shows only "set" or "not set", offers "set…" and "clear", and never
-reads one back. `perch keys set <agent>` reads the key from stdin so it never
-lands in shell history; `perch keys list` prints which are set.
+reads one back. `flockdeck keys set <agent>` reads the key from stdin so it never
+lands in shell history; `flockdeck keys list` prints which are set.
 
 ## 11. The interface
 

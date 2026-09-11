@@ -13,9 +13,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // isolateConfig points the state directory at a temporary location so tests

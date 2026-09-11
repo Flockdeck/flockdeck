@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jmwri/perch/internal/agent"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // Claude Code asks whether a folder is trusted the first time it runs in one,
@@ -43,7 +43,7 @@ func InheritTrustFor(spec agent.Spec, from, to string) error {
 }
 
 // Everything below reads and writes Claude Code's own configuration, which is
-// the only agent configuration Perch knows the shape of. That is why the
+// the only agent configuration Flockdeck knows the shape of. That is why the
 // capability is declared on the Spec rather than assumed: a second agent that
 // claims Trust needs its own reader here, and until somebody who has that agent
 // installed writes one, claiming it would quietly answer the wrong question in
@@ -159,7 +159,7 @@ func writeClaudeConfig(cfg map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("encode Claude configuration: %w", err)
 	}
-	tmp := path + ".perch.tmp"
+	tmp := path + ".flockdeck.tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write Claude configuration: %w", err)
 	}

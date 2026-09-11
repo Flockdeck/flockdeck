@@ -12,7 +12,7 @@ import (
 // LookClaude returns the path to the claude CLI, or an error explaining that
 // it is not installed. Look does the same for any agent, reading the command
 // and where it comes from off its Spec; this is the answer for the one agent
-// Perch could run before it had a Spec to read it from.
+// Flockdeck could run before it had a Spec to read it from.
 func LookClaude() (string, error) {
 	exe, err := exec.LookPath("claude")
 	if err != nil {
@@ -52,7 +52,7 @@ func ClaudeArgs(sessionID, settingsPath string, resume bool, extra []string) []s
 	return append(argv, extra...)
 }
 
-// hookEvents are the Claude Code lifecycle events Perch subscribes to.
+// hookEvents are the Claude Code lifecycle events Flockdeck subscribes to.
 // Each maps to the status the pane should take on when the event fires.
 var hookEvents = []string{
 	// SessionStart is subscribed to for a second reason: its reply is how the
@@ -84,7 +84,7 @@ type hookSpec struct {
 }
 
 // WriteHookSettings writes a settings file that makes the pane report its
-// lifecycle to Perch, and returns its path.
+// lifecycle to Flockdeck, and returns its path.
 //
 // The hook command re-invokes this same binary in `hook` mode, so there is no
 // dependency on node, python or a shell script living next to the binary. The

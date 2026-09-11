@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/gitx"
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.
@@ -553,7 +553,7 @@ const defaultAgentID = "claude"
 // The question asked here is about one spec rather than about Claude. A
 // fan-out may now give four of its tasks to one agent and eight to another,
 // and the half whose agent is installed should start whatever is true of the
-// other half -- which it cannot while the only question Perch knows how to ask
+// other half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 	spec, ok := w.specFor(id)
@@ -579,7 +579,7 @@ func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 // thing.
 func (w *Workspace) agentAvailable(spec agent.Spec) bool {
 	if spec.Exe == "claude" && w.claudeExe != "" {
-		// Perch looks the claude CLI up once at start-up, and that answer is
+		// Flockdeck looks the claude CLI up once at start-up, and that answer is
 		// older and cheaper than any probe.
 		return true
 	}
@@ -614,7 +614,7 @@ type SpawnOptions struct {
 	Title string
 	// Agent names the agent.Spec the pane runs, and Model the model that agent
 	// is asked for. Empty means the default, which is how a fan-out started
-	// without a thought about either keeps running what Perch already ran. An
+	// without a thought about either keeps running what Flockdeck already ran. An
 	// empty model is not "no model": it leaves the choice to the agent, so a
 	// CLI keeps whatever it was configured with.
 	Agent string

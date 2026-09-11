@@ -108,7 +108,7 @@ func cleanProgress(s string) string {
 // runCapture executes git in dir and returns stdout and stderr separately.
 func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
 	// An empty Dir does not mean "no repository" to exec: it means the
-	// directory this process happens to be running in. Perch is often started
+	// directory this process happens to be running in. Flockdeck is often started
 	// from inside a checkout of something, so a caller that lost track of
 	// which working tree it meant -- a review panel opened with no project
 	// open, a pane whose directory never got set -- would have been answered

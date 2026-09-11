@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/perch/internal/agent"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/session/transcript"
-	"github.com/jmwri/perch/internal/store"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // listen waits for the next message of a type the window would receive.
@@ -125,7 +125,7 @@ func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
 		`{"type":"user","cwd":"`+jsonEscape(root)+`","message":{"role":"user","content":"the same prompt"}}`)
 
 	// newTestServer points the state directory at a temporary one, so this is
-	// where Perch's own chat client would have left its record.
+	// where Flockdeck's own chat client would have left its record.
 	stateDir, err := store.Dir()
 	if err != nil {
 		t.Fatalf("state dir: %v", err)

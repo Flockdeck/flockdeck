@@ -9,8 +9,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // TestExtractTasksFindsAPlan covers reading work items out of what an agent
@@ -979,7 +979,7 @@ func TestAgentSpecResolvesByID(t *testing.T) {
 			spec, err := ws.AgentSpec(c.id)
 			if c.unknown {
 				// Whether the machine has an agent installed is a different
-				// question from whether Perch knows of it, and only the second
+				// question from whether Flockdeck knows of it, and only the second
 				// one leaves nothing to report about.
 				if spec.ID != "" {
 					t.Errorf("resolved %q to %q, want nothing", c.id, spec.ID)
@@ -1040,7 +1040,7 @@ func TestSpawnAShellIsNotAskedAboutAgents(t *testing.T) {
 }
 
 // The catalog is what the fan-out dialog and the picker offer, so it has to
-// hold the agent Perch has always run and say which one is taken by default.
+// hold the agent Flockdeck has always run and say which one is taken by default.
 func TestAgentCatalogHoldsTheDefault(t *testing.T) {
 	isolateConfig(t)
 	ws := newTestWorkspace(t, t.TempDir())

@@ -16,10 +16,10 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/perch/internal/layout"
-	"github.com/jmwri/perch/internal/session"
-	"github.com/jmwri/perch/internal/store"
-	"github.com/jmwri/perch/internal/workspace"
+	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // The workspace is not safe for concurrent mutation, and it is now reached
@@ -60,7 +60,7 @@ func (s *Server) guard(doing string, fn func()) {
 		if r == nil {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "perch: panic %s: %v\n%s\n", doing, r, debug.Stack())
+		fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
 		s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
 	}()
 	fn()
@@ -777,7 +777,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			t.AutoTitle = false
 		case "openProject":
 			// A path that is not absolute is resolved against the directory
-			// perch was launched from, which the window knows nothing about
+			// flockdeck was launched from, which the window knows nothing about
 			// and did not mean. An empty one resolves to that directory
 			// exactly: it opens as a project, becomes the active one, and gets
 			// an agent started in it, while the projects the person was
