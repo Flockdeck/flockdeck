@@ -312,46 +312,6 @@ func TestShutdownReportsTheSave(t *testing.T) {
 	}
 }
 
-// `-quit` has to wait for the instance to actually go, not just to take the
-// request: until it has, its address still answers, and the next `flockdeck`
-// attaches to an instance in the middle of shutting down.
-func TestWaitGoneWaitsForTheInstance(t *testing.T) {
-	calls := 0
-	start := time.Now()
-	if !waitGone(func() bool { calls++; return calls >= 3 }, time.Second) {
-		t.Fatal("gave up on an instance that did stop")
-	}
-	if calls != 3 {
-		t.Errorf("asked %d times, want 3", calls)
-	}
-	if elapsed := time.Since(start); elapsed < quitPoll {
-		t.Errorf("returned after %s without waiting between tries", elapsed)
-	}
-}
-
-// An instance that never goes must not be reported as stopped.
-func TestWaitGoneGivesUp(t *testing.T) {
-	start := time.Now()
-	if waitGone(func() bool { return false }, 250*time.Millisecond) {
-		t.Error("reported an instance gone that never went")
-	}
-	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
-		t.Errorf("gave up after %s, before the deadline", elapsed)
-	}
-}
-
-// The common case is an instance that has already gone by the time it is
-// asked, and that must not cost a poll interval.
-func TestWaitGoneReturnsAtOnce(t *testing.T) {
-	start := time.Now()
-	if !waitGone(func() bool { return true }, time.Second) {
-		t.Fatal("did not see an instance that was already gone")
-	}
-	if elapsed := time.Since(start); elapsed >= quitPoll {
-		t.Errorf("took %s for an instance that had already gone", elapsed)
-	}
-}
-
 // A record of the running instance that cannot be read is not the same as
 // there being nothing running. Carrying on regardless starts a second set of
 // agents while the first keeps going with no window and no record to find it

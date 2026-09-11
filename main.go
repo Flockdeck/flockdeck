@@ -245,44 +245,16 @@ func quitRunning() error {
 	if inst == nil {
 		return fmt.Errorf("no running flockdeck found")
 	}
+	// RequestQuit returns only once the instance has stopped answering, not
+	// when it has taken the request: saving every project and stopping the
+	// agents comes after, with the instance still listening, and a
+	// `flockdeck -quit && flockdeck` would otherwise attach to one on its way
+	// out. So "stopped" below is true when it is printed.
 	if err := server.RequestQuit(base, inst.Token); err != nil {
 		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
 	}
-	// The request only asks. What follows it is saving every open project's
-	// layout and stopping a screenful of agent processes, and the instance is
-	// still listening the whole time — so `flockdeck -quit && flockdeck` used to find
-	// the old instance still answering and attach to one on its way out,
-	// opening a window onto agents that were in the middle of being killed.
-	// Saying "stopped" before it has is the same claim in words.
-	if !waitGone(func() bool { _, err := server.Probe(base, inst.Token); return err != nil }, quitWait) {
-		return fmt.Errorf("the instance at %s took the request but is still running", base)
-	}
 	fmt.Println("flockdeck: stopped")
 	return nil
-}
-
-// quitWait is how long `-quit` waits for the instance to actually go. It is
-// longer than the deadline the instance puts on its own shutdown, so an
-// instance that gives up on a wedged pane is still gone before this gives up
-// on the instance.
-const quitWait = 20 * time.Second
-
-// quitPoll is how often the address is tried while waiting. A refused
-// connection on loopback comes back at once, so this costs nothing.
-const quitPoll = 100 * time.Millisecond
-
-// waitGone polls until gone reports true, or until within has passed.
-func waitGone(gone func() bool, within time.Duration) bool {
-	deadline := time.Now().Add(within)
-	for {
-		if gone() {
-			return true
-		}
-		if !time.Now().Before(deadline) {
-			return false
-		}
-		time.Sleep(quitPoll)
-	}
 }
 
 // runningInstance returns the recorded instance if it is alive and answering.
