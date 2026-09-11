@@ -340,7 +340,13 @@ func why(err error) error {
 	case CloseReplaced:
 		return errReplaced
 	}
-	if err == nil || errors.Is(err, io.EOF) {
+	// The window shows this, so a close the relay gave a reason for says the
+	// reason, and not the library's account of receiving it.
+	var ce websocket.CloseError
+	switch {
+	case errors.As(err, &ce) && ce.Reason != "":
+		return errors.New("the relay closed the connection: " + ce.Reason)
+	case err == nil, errors.Is(err, io.EOF), errors.As(err, &ce):
 		return errors.New("the relay closed the connection")
 	}
 	return fmt.Errorf("lost the relay: %w", err)

@@ -384,6 +384,21 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 	}
 }
 
+// The relay's reason for closing the tunnel — "update Flockdeck", say — is
+// what the window shows, as the relay put it.
+func TestTunnelShowsTheRelaysReason(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	f.closeWith = websocket.StatusPolicyViolation
+	c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if got, want := c.Status().Detail, "the relay closed the connection: because the test said so"; got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}
+
 // A relay that cannot be reached is retried, and the status says when.
 func TestUnreachableRelayIsRetried(t *testing.T) {
 	quick(t)
