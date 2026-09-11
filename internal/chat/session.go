@@ -72,9 +72,15 @@ type Options struct {
 // one.
 var KeyStore func(agent string) string
 
-// defaultMaxTokens is the ceiling on one answer. It is high because this is a
-// streamed conversation, where a long answer costs patience rather than a
-// timeout, and an answer cut off mid-sentence is worth nothing.
+// defaultMaxTokens is the ceiling on one answer where the API insists on one
+// and the user named none. It is high because this is a streamed conversation,
+// where a long answer costs patience rather than a timeout, and an answer cut
+// off mid-sentence is worth nothing.
+//
+// Only the Anthropic wire sends it. The others take no ceiling to mean the
+// model's own, and a figure sent where none was asked for is refused outright
+// by a model whose limit is lower -- an older OpenAI model, or a local one
+// served with a short context.
 const defaultMaxTokens = 32000
 
 // maxToolSteps bounds how many times one turn may call tools before the loop
@@ -96,9 +102,6 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if o.Width <= 0 {
 		o.Width = resolveWidth()
-	}
-	if o.MaxTokens <= 0 {
-		o.MaxTokens = defaultMaxTokens
 	}
 	if o.Cwd == "" {
 		o.Cwd, _ = os.Getwd()

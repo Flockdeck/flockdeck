@@ -64,6 +64,10 @@ type anthropicRequest struct {
 }
 
 func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event)) error {
+	// This API refuses a request without a ceiling.
+	if req.MaxTokens <= 0 {
+		req.MaxTokens = defaultMaxTokens
+	}
 	body := anthropicRequest{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,

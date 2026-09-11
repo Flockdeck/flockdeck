@@ -50,10 +50,10 @@ type openaiRequest struct {
 	Model    string          `json:"model"`
 	Messages []openaiMessage `json:"messages"`
 	Tools    []openaiTool    `json:"tools,omitempty"`
-	// MaxTokens is sent under the newer name because the current models reject
-	// the older one outright, while a server that has only heard of the older
-	// one ignores this and falls back to a ceiling of its own -- a default
-	// where the ceiling was only ever a safety net.
+	// MaxTokens is sent only when the user set a ceiling, and under the newer
+	// name because the current models reject the older one outright, while a
+	// server that has only heard of the older one ignores this and falls back
+	// to a ceiling of its own.
 	MaxTokens int  `json:"max_completion_tokens,omitempty"`
 	Stream    bool `json:"stream"`
 	// StreamOptions is how a streamed request gets a token count at all: without
