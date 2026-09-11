@@ -512,6 +512,22 @@ func TestOnlyTheRelayRevokes(t *testing.T) {
 	}
 }
 
+// A relay that takes a request and never answers is said to have given no
+// answer, in those words, in the terminal and in the window alike.
+func TestClientSaysWhenTheRelayDoesNotAnswer(t *testing.T) {
+	old := requestTimeout
+	requestTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { requestTimeout = old })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	_, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "").Devices(context.Background())
+	if err == nil || !strings.HasSuffix(err.Error(), ": no answer within 100ms") {
+		t.Errorf("Devices from a relay that never answers = %v", err)
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()

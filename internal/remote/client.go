@@ -15,8 +15,9 @@ import (
 
 // requestTimeout bounds one call to the relay's API. Every one of them is a
 // small JSON exchange, so a relay that takes longer than this is not going to
-// answer, and the person waiting on it should be told so.
-const requestTimeout = 20 * time.Second
+// answer, and the person waiting on it should be told so. It is a variable so
+// that a test does not have to sit through it.
+var requestTimeout = 20 * time.Second
 
 // Client makes the relay's REST calls on behalf of an enrolled host.
 type Client struct {
@@ -194,6 +195,9 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("reach the relay at %s: no answer within %s", c.Relay, requestTimeout)
+		}
 		return fmt.Errorf("reach the relay at %s: %w", c.Relay, unwrapURLError(err))
 	}
 	defer resp.Body.Close()
