@@ -2243,6 +2243,34 @@ assert.strictEqual(h.commands().length, before, "confirming the characters creat
 `)
 }
 
+// The prompt bar leaves the panes usable, and one clicked into while it is up
+// is being typed at. Escape is how an agent is interrupted; the bar took it
+// wherever the keyboard was, closing itself instead, and left every binding
+// dead while it was open.
+func TestThePromptBarOnlyTakesKeysTypedIntoIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+assert.ok(!h.$("promptbar").hidden, "the prompt bar did not open");
+
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+term.focus();
+const esc = h.key({ key: "Escape" });
+assert.ok(!esc.defaultPrevented, "Escape typed into a terminal never reached the agent");
+assert.ok(!h.$("promptbar").hidden, "Escape typed into a terminal closed the prompt bar");
+h.press("newAgentTab");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent" });
+
+// In the bar itself Escape still closes it.
+h.$("prompt-input").focus();
+h.key({ key: "Escape" });
+assert.ok(h.$("promptbar").hidden, "Escape in the bar no longer closes it");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

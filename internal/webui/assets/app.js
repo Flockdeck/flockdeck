@@ -4154,7 +4154,11 @@
       runAction(sizing);
       return;
     }
-    if (!$("promptbar").hidden) {
+    // Only while the keyboard is in the bar. The bar leaves the panes usable,
+    // and one clicked into while it is open is being typed at: Escape there is
+    // how an agent is interrupted, and it was closing the bar instead and
+    // never reaching the agent, while every other binding did nothing at all.
+    if (!$("promptbar").hidden && $("promptbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closePrompt(); }
       else if (e.key === "Enter" && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
       return;
