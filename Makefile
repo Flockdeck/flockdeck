@@ -21,7 +21,7 @@ PLATFORMS := \
 	darwin/amd64 \
 	darwin/arm64
 
-.PHONY: all build install test vet fmt check clean dist $(PLATFORMS)
+.PHONY: all build install test vet fmt check clean dist package $(PLATFORMS)
 
 all: check build
 
@@ -59,6 +59,12 @@ $(PLATFORMS):
 		go build -ldflags "$(LDFLAGS)" \
 		-o $(DIST)/$(BINARY)-$(word 1,$(subst /, ,$@))-$(word 2,$(subst /, ,$@))$(if $(filter windows,$(word 1,$(subst /, ,$@))),.exe,) .
 	@echo "built $(DIST)/$(BINARY)-$(subst /,-,$@)"
+
+# package cross-builds every platform and writes the archives and checksums a
+# release is made of, which is exactly what CI publishes. Run it before tagging
+# to see what a release would contain, or to hand someone a build.
+package:
+	go run ./cmd/release -version $(VERSION) -out $(DIST)
 
 clean:
 	rm -rf $(DIST) $(BINARY) $(BINARY).exe

@@ -1,0 +1,72 @@
+name: release
+
+# A release is cut by pushing a tag. The tag is the version: it is stamped into
+# the binaries, it names the archives, and it is what the updater compares
+# against to decide whether a running copy is behind.
+on:
+  push:
+    tags:
+      - "v*"
+  # Cutting a release by hand is useful when a tag was pushed before the
+  # workflow existed, or when a run has to be repeated.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to build (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # The version is derived from the tag rather than from git describe,
+          # but the full history costs little and keeps `make` usable in the
+          # same checkout.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Work out the version
+        id: version
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      # Nothing is published that does not pass. A release is the one build
+      # people cannot easily go back from, so it is the last place to skip this.
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # Every platform is cross-compiled from this one runner, which works
+      # because the application builds with cgo disabled. The same command is
+      # what `make package` runs locally, so a developer can produce the exact
+      # artifacts a release will have before tagging anything.
+      - name: Build and package
+        run: go run ./cmd/release -version "${{ steps.version.outputs.tag }}" -out dist
+
+      - name: List what was built
+        run: ls -l dist && cat dist/checksums.txt
+
+      # gh is already on the runner, so the release is made without a
+      # third-party action holding the token.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
+          else
+            gh release create "${{ steps.version.outputs.tag }}" dist/* \
+              --title "${{ steps.version.outputs.tag }}" \
+              --generate-notes
+          fi
