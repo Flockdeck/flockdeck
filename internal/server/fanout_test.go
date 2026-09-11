@@ -14,8 +14,34 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// TestRefusedSpawnCutsNoWorktree covers `flockdeck spawn --worktree` asking for
+// an agent this machine cannot start. The refusal used to come after git had
+// made the branch and its checkout, which were then left behind with nothing
+// in them -- indistinguishable, in the worktree panel, from work in progress.
+func TestRefusedSpawnCutsNoWorktree(t *testing.T) {
+	srv, ws, repo := newRepoServer(t)
+	parent := make(chan string, 1)
+	srv.do(func() { parent <- ws.CurrentTab().Focus })
+
+	hookSrv := ws.HookServer()
+	_, err := hooks.Spawn(hookSrv.BaseURL(), hookSrv.Token(), <-parent, hooks.SpawnRequest{
+		Task: "fix the parser", Branch: "fix-parser", Agent: "no-such-agent",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no-such-agent") {
+		t.Fatalf("spawn = %v, want a refusal naming the agent", err)
+	}
+
+	if wts, err := gitx.List(repo); err != nil || len(wts) != 1 {
+		t.Errorf("a refused spawn left the repository with worktrees %+v (%v)", wts, err)
+	}
+	if localBranches(repo)["fix-parser"] {
+		t.Error("a refused spawn left its branch behind")
+	}
+}
 
 // Writing out a working tree is the slowest thing a fan-out does, and a
 // fan-out is a dozen of them. Doing them one after another is a stretch of

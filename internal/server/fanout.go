@@ -724,24 +724,40 @@ func (s *Server) installSpawnHandler() {
 		return
 	}
 	hookSrv.SetSpawnHandler(func(req hooks.SpawnRequest) (hooks.SpawnResult, error) {
-		// Work out where the child should run before touching the workspace.
-		done := make(chan string, 1)
+		// Work out where the child should run before touching the workspace,
+		// and whether its agent can be started here at all. Spawn would say so
+		// itself, but only after the worktree below had been cut: refused
+		// then, the request left a new branch and a checkout with nothing in
+		// it, which looks exactly like one an agent is working in.
+		type start struct {
+			cwd string
+			err error
+		}
+		done := make(chan start, 1)
 		s.do(func() {
 			cwd := s.ws.ActiveRoot()
 			if p := s.ws.Pane(req.Parent); p != nil {
 				cwd = p.Cwd
 			}
-			done <- cwd
+			var err error
+			if !req.Shell {
+				_, err = s.ws.AgentSpec(req.Agent)
+			}
+			done <- start{cwd, err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
 		// hanging in the pane forever.
-		var cwd string
+		var in start
 		select {
-		case cwd = <-done:
+		case in = <-done:
 		case <-s.closed:
 			return hooks.SpawnResult{}, errShuttingDown
 		}
+		if in.err != nil {
+			return hooks.SpawnResult{}, in.err
+		}
+		cwd := in.cwd
 
 		if req.Branch != "" {
 			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
