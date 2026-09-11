@@ -366,6 +366,7 @@ func (s *session) turn(ctx context.Context, prompt string) {
 		}
 		if step >= maxToolSteps {
 			s.out.line(ansiRed, fmt.Sprintf("stopping: the model has asked for tools %d times in one turn", step))
+			s.decline(calls, "not run: the turn reached its limit of tool calls")
 			break
 		}
 		if stop := s.runCalls(turnCtx, calls); stop {
@@ -441,7 +442,14 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 // runCalls runs the tools the model asked for, in the order it asked. It
 // returns true when the turn should stop rather than go back to the model.
 func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
-	for _, c := range calls {
+	for i, c := range calls {
+		if ctx.Err() != nil {
+			// Ctrl+C stops the turn, and a tool that has not started yet is part
+			// of the turn: running a write after the user asked for everything to
+			// stop would be the opposite of what they asked.
+			s.decline(calls[i:], "not run: the user interrupted the turn")
+			return true
+		}
 		tool := s.tools[c.Name]
 		if tool == nil {
 			// Answering rather than failing is deliberate: a model that asked
@@ -456,6 +464,7 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 				// The user never answered: the turn was interrupted, or the
 				// pane has gone.
 				s.answer(c, "the user did not answer, so this was not run")
+				s.decline(calls[i+1:], "not run: the user did not answer an earlier question")
 				return true
 			}
 			if !ok {
@@ -488,6 +497,17 @@ func (s *session) answer(c ToolCall, text string) {
 	}
 	s.messages = append(s.messages, Message{Role: RoleTool, Text: text, Call: c})
 	s.record(Entry{Type: string(RoleTool), Tool: c.Name, Text: text})
+}
+
+// decline answers calls that will not be run.
+//
+// Every call the model makes has to be answered before the conversation can go
+// on: all three wires refuse a request in which a call has no answer, so one
+// left hanging would fail not just this turn but every turn after it.
+func (s *session) decline(calls []ToolCall, why string) {
+	for _, c := range calls {
+		s.answer(c, why)
+	}
 }
 
 // approved reports whether the user has already agreed to this family of calls.
