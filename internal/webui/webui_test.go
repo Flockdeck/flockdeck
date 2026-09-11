@@ -2464,6 +2464,26 @@ func TestADividerCanBeDraggedByTouch(t *testing.T) {
 	}
 }
 
+// The broadcast toggle in a pane header lights up while its pane is in the
+// set. It was found as the first button in the row, which is fan out, so it
+// was fan out that lit up and the toggle never did.
+func TestTheBroadcastToggleShowsItsOwnState(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { broadcast: true }), p2: pane("p2") } }));
+const buttons = h.terms[0].host.parentElement.parentElement.querySelectorAll("button");
+const fan = buttons.find((b) => b.textContent === "⑂");
+const cast = buttons.find((b) => b.textContent === "⇉");
+assert.ok(cast.classList.contains("on"), "the broadcast toggle does not show that it is on");
+assert.strictEqual(cast.getAttribute("aria-pressed"), "true", "a screen reader is not told the toggle is on");
+assert.ok(!fan.classList.contains("on"), "fan out lit up for a pane in the broadcast set");
+
+h.recv(fixture());
+assert.ok(!cast.classList.contains("on"), "the toggle stayed on after the pane left the set");
+assert.strictEqual(cast.getAttribute("aria-pressed"), "false");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

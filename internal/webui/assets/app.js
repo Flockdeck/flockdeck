@@ -1344,10 +1344,11 @@
       b.onclick = (ev) => { ev.stopPropagation(); fn(); };
       return describe(b, tip);
     };
+    const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
+      () => send({ cmd: "toggleBroadcastMember", id }));
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
-      btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
-        () => send({ cmd: "toggleBroadcastMember", id })),
+      castBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
@@ -1402,7 +1403,7 @@
     }
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -1590,7 +1591,11 @@
       delete p.cast.dataset.tip;
     }
     p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
-    p.actions.firstChild.classList.toggle("on", !!v.broadcast);
+    // The toggle says whether it is on, to the eye and to a screen reader. It
+    // was found as the first button in the row, which is fan out, so it was
+    // fan out that lit up for a pane in the set and the toggle never did.
+    p.castBtn.classList.toggle("on", !!v.broadcast);
+    p.castBtn.setAttribute("aria-pressed", String(!!v.broadcast));
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
