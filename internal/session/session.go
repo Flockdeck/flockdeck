@@ -544,7 +544,13 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
-	s.sawInput = true
+	// A terminal reports focus coming and going on its own, to an application
+	// that asked, and that arrives here exactly like typing does. Clicking into
+	// a pane, or the window coming to the front, is not an answer to anything.
+	typed := !focusReport(p)
+	if typed {
+		s.sawInput = true
+	}
 	// Typing is the answer to whatever the pane was blocked on, and where the
 	// bell is what put it there, typing is the only thing that can take it
 	// back out: the bell rings again on the next question, not on this one
@@ -552,7 +558,7 @@ func (s *Session) Write(p []byte) (int, error) {
 	// "waiting" alone. Without this a pane whose lifecycle hooks are not
 	// reporting stays in the count of agents needing you from the first
 	// question it ever asks until it exits.
-	answered := !s.hooksSeen && s.status == StatusWaiting
+	answered := typed && !s.hooksSeen && s.status == StatusWaiting
 	if answered {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
@@ -566,6 +572,18 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.changed()
 	}
 	return s.pty.Write(p)
+}
+
+// focusReport reports whether input is nothing but focus-in and focus-out
+// reports, CSI I and CSI O, which no key produces.
+func focusReport(p []byte) bool {
+	for len(p) > 0 {
+		if len(p) < 3 || p[0] != 0x1b || p[1] != '[' || (p[2] != 'I' && p[2] != 'O') {
+			return false
+		}
+		p = p[3:]
+	}
+	return true
 }
 
 // WriteString sends text to the process.

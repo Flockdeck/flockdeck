@@ -884,6 +884,23 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 	waitForStatus(t, s, StatusIdle, 5*time.Second)
 
+	// Focusing the pane is not answering it. The terminal reports focus to an
+	// application that asked for it, down the same path as typing.
+	s.publish([]byte("and this one?\x07"))
+	if err := s.WriteString("\x1b[I"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after a focus report; nothing was answered", st)
+	}
+	if err := s.WriteString("\x1b[O\x1b[Iy"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after typing behind a focus report, want working", st)
+	}
+	waitForStatus(t, s, StatusIdle, 5*time.Second)
+
 	// A hook that says the pane is waiting knows better than the keyboard
 	// does: the next event will move it, and typing something the agent has
 	// not acted on yet must not clear the one status worth surfacing.
