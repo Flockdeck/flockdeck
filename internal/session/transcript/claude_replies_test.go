@@ -19,6 +19,27 @@ func writeReplies(t *testing.T, lines ...string) string {
 	return id
 }
 
+// TestPathIsFoundUnderAHomeWithBrackets covers a Claude Code state directory
+// whose path a glob would read as a pattern. Finding nothing there is not a
+// missing history panel: it is every restored pane starting afresh instead of
+// resuming its conversation.
+func TestPathIsFoundUnderAHomeWithBrackets(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "[dev] home")
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	const id = "11111111-2222-3333-4444-555555555555"
+	writeTranscript(t, filepath.Join(home, "projects", "C--Users-dev-repo"), id,
+		`{"type":"user","message":{"role":"user","content":"hello"}}`)
+
+	want := filepath.Join(home, "projects", "C--Users-dev-repo", id+".jsonl")
+	if got := claudePath(id); got != want {
+		t.Errorf("claudePath = %q, want %q", got, want)
+	}
+	// An id is a file name and nothing more.
+	if got := claudePath(`..\` + id); got != "" {
+		t.Errorf("claudePath of a path = %q, want nothing", got)
+	}
+}
+
 // TestRecentRepliesReadsWhatTheAgentSaid covers the source a fan-out reads its
 // tasks from. What matters is that it is the agent's words and only its words:
 // not its thinking, not the tools it ran, and not a subagent's answer.

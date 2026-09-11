@@ -171,16 +171,22 @@ func isPromptContent(raw json.RawMessage) bool {
 // working directory, but that mangling is Claude's business and could change.
 // Session ids are UUIDs, so searching every project folder for the file is both
 // simpler and more robust than reproducing the naming.
+//
+// The folders are listed rather than globbed. A glob reads the whole path as a
+// pattern, so a home directory with a bracket in its name -- "C:\Users\[dev]",
+// or a CLAUDE_CONFIG_DIR pointed anywhere at all -- matched nothing, and every
+// restored pane started an empty conversation instead of resuming its own.
 func claudePath(sessionID string) string {
-	if sessionID == "" {
+	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) {
 		return ""
 	}
 	home := claudeHome()
 	if home == "" {
 		return ""
 	}
-	matches, err := filepath.Glob(filepath.Join(home, "projects", "*", sessionID+".jsonl"))
-	if err != nil || len(matches) == 0 {
+	projects := filepath.Join(home, "projects")
+	folders, err := os.ReadDir(projects)
+	if err != nil {
 		return ""
 	}
 	// Resuming a conversation from a different working directory files it
@@ -189,17 +195,15 @@ func claudePath(sessionID string) string {
 	// the live one; taking whichever sorts first would read a transcript that
 	// stopped growing turns ago.
 	newest, newestMod := "", time.Time{}
-	for _, m := range matches {
+	for _, folder := range folders {
+		m := filepath.Join(projects, folder.Name(), sessionID+".jsonl")
 		fi, err := os.Stat(m)
-		if err != nil {
+		if err != nil || fi.IsDir() {
 			continue
 		}
 		if newest == "" || fi.ModTime().After(newestMod) {
 			newest, newestMod = m, fi.ModTime()
 		}
-	}
-	if newest == "" {
-		return matches[0]
 	}
 	return newest
 }
