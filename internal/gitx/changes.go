@@ -321,6 +321,17 @@ func Diff(dir, path string) (string, error) {
 		return "", &gitError{"not a path inside the working tree: " + path}
 	}
 	full := filepath.Join(dir, path)
+	// A repository sitting inside the tree is listed as one entry, a directory
+	// with a slash on the end, because its files belong to that repository and
+	// not to this one. git has no diff to give for it, and the empty answer
+	// was shown as "this file matches the last commit". What a commit would do
+	// with it is worth knowing before pressing the button.
+	if strings.HasSuffix(path, "/") {
+		if fi, err := os.Lstat(full); err == nil && fi.IsDir() && untracked(dir, path) {
+			return fmt.Sprintf("--- /dev/null\n+++ b/%s\nA separate git repository, not tracked by this one. "+
+				"Committing records only which commit it is on, none of its files.\n", path), nil
+		}
+	}
 	// Lstat, so a symlink is seen as a symlink rather than as whatever it
 	// points at. Anything that is neither a regular file nor a symlink -- a
 	// named pipe, a device -- is left to git below rather than opened here,

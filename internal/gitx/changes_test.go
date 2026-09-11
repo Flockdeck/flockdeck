@@ -1086,3 +1086,29 @@ func TestTruncatedUntrackedFileCountsWhatWasNeverRead(t *testing.T) {
 		t.Errorf("%d more bytes, want %d", left, want)
 	}
 }
+
+// TestDiffOfANestedRepositorySaysWhatItIs covers a clone left inside the tree,
+// which status lists as one directory. Its diff came back empty, and the
+// panel explained an empty diff as a file that matches the last commit.
+func TestDiffOfANestedRepositorySaysWhatItIs(t *testing.T) {
+	repo := newRepo(t)
+	nested := filepath.Join(repo, "vendor", "lib")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, nested, "init", "-q")
+	if err := os.WriteFile(filepath.Join(nested, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Changes(repo)
+	if err != nil || len(files) != 1 || files[0].Path != "vendor/lib/" {
+		t.Fatalf("changes = %+v, %v; want the nested repository as one entry", files, err)
+	}
+	diff, err := Diff(repo, files[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "separate git repository") {
+		t.Errorf("diff = %q, want it to say what the entry is", diff)
+	}
+}
