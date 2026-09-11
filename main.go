@@ -184,7 +184,7 @@ func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "flockdeck — run several Claude Code agents in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "flockdeck — run several coding agents at once, in tabs and split panes.\n\n")
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
