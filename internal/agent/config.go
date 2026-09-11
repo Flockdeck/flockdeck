@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -110,6 +111,10 @@ func ReadConfig(dir string) (*File, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", ConfigName, err)
 	}
+	// Notepad and Windows PowerShell both write UTF-8 with a byte-order mark
+	// in front, which the decoder takes for a stray character: the whole file
+	// was set aside, and the picker then refused to save a default over it.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", ConfigName, err)

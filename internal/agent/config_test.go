@@ -162,3 +162,20 @@ func TestFileRoundTripsUnknownFields(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigWithAByteOrderMarkIsRead is about the editors Windows ships with,
+// which save UTF-8 with a byte-order mark in front of it.
+func TestConfigWithAByteOrderMarkIsRead(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("\xef\xbb\xbf{\"defaults\": {\"agent\": \"codex\"}}")
+	if err := os.WriteFile(filepath.Join(dir, ConfigName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := LoadFrom(dir)
+	if c.Notice != "" || c.DefaultsFor("").Agent != "codex" {
+		t.Errorf("notice %q, default agent %q; want the file read as written", c.Notice, c.DefaultsFor("").Agent)
+	}
+	if err := SetDefaults(dir, "", Defaults{Agent: "claude"}); err != nil {
+		t.Errorf("a default could not be saved over it: %v", err)
+	}
+}
