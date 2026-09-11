@@ -72,6 +72,37 @@ func TestSessionEchoesInput(t *testing.T) {
 	}
 }
 
+// TestOnChangeIsInstalledBeforeTheReaderStarts covers the callback a pane
+// reports on. The reader starts with the process and a pane's first output is
+// already a change -- from starting to working -- so a callback that can only
+// be assigned once Start has returned races the reader that calls it.
+func TestOnChangeIsInstalledBeforeTheReaderStarts(t *testing.T) {
+	changed := make(chan struct{}, 1)
+	s, err := Start(Config{
+		ID:   "on-change",
+		Kind: KindShell,
+		Cwd:  t.TempDir(),
+		Argv: ShellArgs(),
+		Env:  Env(),
+		OnChange: func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		},
+	})
+	if err != nil {
+		t.Skipf("cannot start a shell in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	select {
+	case <-changed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the pane never reported a change on the callback it was started with")
+	}
+}
+
 // TestSubscribeReplaysHistory covers what makes a browser reload survivable:
 // a viewer that arrives late still receives everything printed so far.
 func TestSubscribeReplaysHistory(t *testing.T) {

@@ -87,6 +87,11 @@ type Config struct {
 	Env  []string
 	Cols int
 	Rows int
+	// OnChange is installed as the session's OnChange before the process is
+	// started. The reader starts with the process and can report a change
+	// straight away, so assigning the field once Start has returned is a
+	// write racing the reader's read of it.
+	OnChange func()
 }
 
 // Session is a single pane: a process attached to a PTY.
@@ -105,6 +110,8 @@ type Session struct {
 
 	// OnChange is invoked (often from a reader goroutine) whenever the session
 	// changes state. It must be cheap and must not call back into the session.
+	// It is set through Config.OnChange: the reader is already running by the
+	// time Start returns.
 	OnChange func()
 
 	mu          sync.RWMutex
@@ -211,6 +218,7 @@ func Start(cfg Config) (*Session, error) {
 		Kind:        cfg.Kind,
 		Cwd:         cfg.Cwd,
 		pty:         p,
+		OnChange:    cfg.OnChange,
 		name:        cfg.Name,
 		status:      StatusStarting,
 		statusSince: time.Now(),
