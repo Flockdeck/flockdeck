@@ -205,3 +205,16 @@ func TestTokensValue(t *testing.T) {
 		t.Errorf("Expand = %q", got)
 	}
 }
+
+// TestExpandLeavesTokensInValuesAlone is about the opening task, which is the
+// user's own text and free to contain anything -- a Handlebars template
+// included. Its "{{pane}}" is what the user wrote, not a token.
+func TestExpandLeavesTokensInValuesAlone(t *testing.T) {
+	tokens := Tokens{Prompt: "fix {{pane}} and {{cwd}} in header.hbs", Pane: "p1", Cwd: "/work", Model: "{{session}}", Session: "s"}
+	if got, want := tokens.Expand("{{prompt}}"), "fix {{pane}} and {{cwd}} in header.hbs"; got != want {
+		t.Errorf("prompt expanded to %q, want %q", got, want)
+	}
+	if got, want := tokens.Expand("--model={{model}} {{pane}}"), "--model={{session}} p1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

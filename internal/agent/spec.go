@@ -164,11 +164,20 @@ func (t Tokens) Value(name string) string {
 }
 
 // Expand replaces every {{token}} in s with its value.
+//
+// It is one pass, so a value is never read for tokens of its own. Replacing
+// them one name after another did exactly that to the opening task, which
+// comes before "cwd" and "pane": a task about a Handlebars template reached
+// the agent with its "{{pane}}" swapped for the pane's id.
 func (t Tokens) Expand(s string) string {
-	for _, name := range []string{"session", "model", "settings", "prompt", "cwd", "pane"} {
-		s = strings.ReplaceAll(s, "{{"+name+"}}", t.Value(name))
-	}
-	return s
+	return strings.NewReplacer(
+		"{{session}}", t.Session,
+		"{{model}}", t.Model,
+		"{{settings}}", t.Settings,
+		"{{prompt}}", t.Prompt,
+		"{{cwd}}", t.Cwd,
+		"{{pane}}", t.Pane,
+	).Replace(s)
 }
 
 // BuildArgv turns a Spec into the argv for one pane. The first element is the
