@@ -77,30 +77,44 @@
 <!-- The hero is the application rather than a picture of it: the panes below
      run a scripted session, and the point of the whole thing — one agent going
      amber while the others carry on — happens in front of you. The markup is
-     the finished state, so with scripting off, or motion turned down, the page
-     still shows a deck with one pane waiting. -->
+     the finished state and the script plays each terminal's lines back out of
+     it, so with scripting off, or motion turned down, the page still shows a
+     deck with one pane waiting. data-at is how long each line waits after the
+     one before it. -->
 <section class="deck" id="deck" aria-label="A Flockdeck window with three agents running">
   <div class="deck-bar">
     <span class="deck-tab on"><span class="dot working" data-tab="api">●</span> api</span>
-    <span class="deck-tab"><span class="dot working" data-tab="ui">●</span> ui</span>
+    <span class="deck-tab"><span class="dot waiting" data-tab="ui">▲</span> ui</span>
     <span class="deck-tab"><span class="dot idle" data-tab="docs">●</span> docs</span>
     <span class="deck-tally">
       <span><span class="dot waiting">▲</span> <b data-tally="waiting">1</b> waiting</span>
-      <span><span class="dot working">●</span> <b data-tally="working">2</b> working</span>
+      <span><span class="dot working">●</span> <b data-tally="working">1</b> working</span>
     </span>
   </div>
   <div class="deck-panes">
     <div class="pane" data-pane="api">
       <div class="pane-head"><span class="dot working">●</span> <span class="name">api</span> <span class="branch">feat/api</span></div>
-      <pre class="term" data-term="api"></pre>
+      <pre class="term" data-term="api" data-at="0 420 760 700 900"><span class="u">$</span> flockdeck — agent: claude-code
+<b>Reading</b> internal/api/router.go
+<b>Edit</b> internal/api/router.go <span class="dim">+38 −12</span>
+<b>Running</b> go test ./internal/api/
+<span class="ok">ok</span>  internal/api  <span class="dim">1.284s</span></pre>
     </div>
-    <div class="pane" data-pane="ui">
-      <div class="pane-head"><span class="dot working">●</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
-      <pre class="term" data-term="ui"></pre>
+    <div class="pane is-waiting" data-pane="ui">
+      <div class="pane-head"><span class="dot waiting">▲</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
+      <pre class="term" data-term="ui" data-at="0 500 820 700 260 200"><span class="u">$</span> flockdeck — agent: codex
+<b>Reading</b> internal/webui/assets/app.js
+<b>Edit</b> internal/webui/assets/app.css <span class="dim">+21 −4</span>
+<span class="warn">▲ Permission needed</span>
+<span class="warn">Allow write to internal/webui/assets/?</span>
+<span class="dim">waiting for you…</span></pre>
     </div>
     <div class="pane wide" data-pane="docs">
       <div class="pane-head"><span class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
-      <pre class="term" data-term="docs"></pre>
+      <pre class="term" data-term="docs" data-at="0 560 900 700"><span class="u">$</span> flockdeck — agent: gemini
+<b>Reading</b> README.md
+<b>Edit</b> README.md <span class="dim">+64 −9</span>
+<span class="dim">finished its turn</span></pre>
     </div>
   </div>
 </section>
@@ -402,31 +416,16 @@ make package    <span class="c"># archives for all six platforms</span></code></
 (function () {
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var SCRIPT = {
-    api: [
-      ["<span class='u'>$</span> flockdeck — agent: claude-code", 0],
-      ["<b>Reading</b> internal/api/router.go", 420],
-      ["<b>Edit</b> internal/api/router.go <span class='dim'>+38 −12</span>", 760],
-      ["<b>Running</b> go test ./internal/api/", 700],
-      ["<span class='ok'>ok</span>  internal/api  <span class='dim'>1.284s</span>", 900]
-    ],
-    ui: [
-      ["<span class='u'>$</span> flockdeck — agent: codex", 0],
-      ["<b>Reading</b> internal/webui/assets/app.js", 500],
-      ["<b>Edit</b> internal/webui/assets/app.css <span class='dim'>+21 −4</span>", 820],
-      ["<span class='warn'>▲ Permission needed</span>", 700],
-      ["<span class='warn'>Allow write to internal/webui/assets/?</span>", 260],
-      ["<span class='dim'>waiting for you…</span>", 200]
-    ],
-    docs: [
-      ["<span class='u'>$</span> flockdeck — agent: gemini", 0],
-      ["<b>Reading</b> README.md", 560],
-      ["<b>Edit</b> README.md <span class='dim'>+64 −9</span>", 900],
-      ["<span class='dim'>finished its turn</span>", 700]
-    ]
-  };
-
   function term(id) { return document.querySelector('[data-term="' + id + '"]'); }
+
+  // Each terminal's lines, read out of the markup with how long each waits.
+  var SCRIPT = {};
+  ["api", "ui", "docs"].forEach(function (id) {
+    var t = term(id);
+    if (!t) return;
+    var at = (t.getAttribute("data-at") || "").split(" ");
+    SCRIPT[id] = t.innerHTML.split("\n").map(function (l, i) { return [l, +at[i] || 0]; });
+  });
   function pane(id) { return document.querySelector('[data-pane="' + id + '"]'); }
   function tabDot(id) { return document.querySelector('[data-tab="' + id + '"]'); }
 
@@ -442,6 +441,15 @@ make package    <span class="c"># archives for all six platforms</span></code></
     p.classList.toggle("is-waiting", cls === "waiting");
     setDot(p.querySelector(".pane-head .dot"), cls, glyph);
     setDot(tabDot(id), cls, glyph);
+    tally();
+  }
+
+  // The counts are the panes' own dots, counted, so the two cannot disagree.
+  function tally() {
+    ["waiting", "working"].forEach(function (cls) {
+      var b = document.querySelector('[data-tally="' + cls + '"]');
+      if (b) b.textContent = document.querySelectorAll("#deck .pane-head .dot." + cls).length;
+    });
   }
 
   // The finished state, which is also what the page shows when it does not run.
@@ -477,21 +485,13 @@ make package    <span class="c"># archives for all six platforms</span></code></
     return elapsed;
   }
 
-  function tally(waiting, working) {
-    var w = document.querySelector('[data-tally="waiting"]');
-    var k = document.querySelector('[data-tally="working"]');
-    if (w) w.textContent = waiting;
-    if (k) k.textContent = working;
-  }
-
   function run() {
     clear();
     ["api", "ui", "docs"].forEach(function (id) { setPaneState(id, "working", "●"); });
-    tally(0, 3);
 
     play("api");
-    play("docs", function () { setPaneState("docs", "idle", "●"); tally(0, 2); });
-    play("ui", function () { setPaneState("ui", "waiting", "▲"); tally(1, 2); });
+    play("docs", function () { setPaneState("docs", "idle", "●"); });
+    play("ui", function () { setPaneState("ui", "waiting", "▲"); });
 
     // Long enough to sit on the finished picture before going round again.
     after(9000, run);
