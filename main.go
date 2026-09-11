@@ -481,14 +481,6 @@ func run(opts options) error {
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
 
-	// Record where this instance is listening so a later launch can attach.
-	if err := store.SaveInstance(&store.Instance{
-		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
-	}
-	defer store.ClearInstance()
-
 	// Remote access, for a machine enrolled with a relay. It is started from
 	// whatever the enrolment says now and told to look again whenever
 	// `flockdeck remote` changes it. A machine that is not enrolled runs none of
@@ -536,6 +528,18 @@ func run(opts options) error {
 		restarting.Store(true)
 		stop()
 	}
+
+	// Record where this instance is listening so a later launch can attach.
+	// Only now, with the callbacks that answer for it in place: the server has
+	// been serving since it was made, and a `flockdeck -quit` that found the
+	// record any sooner was told yes and then ignored, since there was nothing
+	// yet to hand the request to.
+	if err := store.SaveInstance(&store.Instance{
+		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
+	}
+	defer store.ClearInstance()
 
 	// Watching for releases runs for the life of the server and stops with it,
 	// so a check in flight cannot hold the shutdown open.
