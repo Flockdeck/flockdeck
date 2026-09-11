@@ -113,7 +113,7 @@ func TestCommandPrefix(t *testing.T) {
 
 func TestRunCommand(t *testing.T) {
 	root := newRoot(t)
-	tl := &runCommand{root: root, allow: NewAllowlist()}
+	tl := &runCommand{root: root}
 
 	t.Run("output and a successful exit", func(t *testing.T) {
 		got, err := call(t, tl, map[string]any{"command": helperLine(t, "say", "hello")})
@@ -165,12 +165,11 @@ func TestRunCommand(t *testing.T) {
 	})
 }
 
-// TestRunCommandAsksUntilToldAlways covers the one place standing permission is
-// offered, and that it is scoped to a prefix rather than to everything.
-func TestRunCommandAsksUntilToldAlways(t *testing.T) {
+// TestRunCommandAsksAndOffersAPrefix covers the one place standing permission
+// is offered, and that it is scoped to a prefix rather than to everything.
+func TestRunCommandAsksAndOffersAPrefix(t *testing.T) {
 	root := newRoot(t)
-	allow := NewAllowlist()
-	tl := &runCommand{root: root, allow: allow}
+	tl := &runCommand{root: root}
 
 	args := rawArgs(t, map[string]any{"command": "go test ./..."})
 	if q := tl.Approval(args); !strings.Contains(q, "go test ./...") || !strings.Contains(q, root.Dir()) {
@@ -179,16 +178,8 @@ func TestRunCommandAsksUntilToldAlways(t *testing.T) {
 	if got := tl.Prefix(args); got != "go test" {
 		t.Errorf("Prefix = %q, want %q", got, "go test")
 	}
-
-	tl.Allow("go test")
-	if q := tl.Approval(args); q != "" {
-		t.Errorf("an allowed prefix should not be asked about again: %q", q)
-	}
-	if q := tl.Approval(rawArgs(t, map[string]any{"command": "go build ./..."})); q == "" {
-		t.Error("allowing `go test` must not have allowed `go build`")
-	}
-	if got := allow.List(); !reflect.DeepEqual(got, []string{"go test"}) {
-		t.Errorf("List = %q", got)
+	if got := tl.Prefix(rawArgs(t, map[string]any{"command": "go build ./..."})); got == "go test" {
+		t.Error("`go build` must not share `go test`'s standing permission")
 	}
 }
 
@@ -196,7 +187,7 @@ func TestRunCommandAsksUntilToldAlways(t *testing.T) {
 // run from being put in front of the user as though it would.
 func TestRunCommandRefusesShellSyntaxWithoutAsking(t *testing.T) {
 	root := newRoot(t)
-	tl := &runCommand{root: root, allow: NewAllowlist()}
+	tl := &runCommand{root: root}
 	args := rawArgs(t, map[string]any{"command": "go test ./... > out.txt"})
 
 	if q := tl.Approval(args); q != "" {

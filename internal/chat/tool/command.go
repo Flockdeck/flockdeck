@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
@@ -30,55 +29,6 @@ const (
 	commandWaitDelay = 3 * time.Second
 )
 
-// Allowlist is the run_command prefixes the user has approved for the rest of
-// the session.
-//
-// Approval is per call everywhere else, deliberately: an approved write is one
-// file and the next one is a different decision. A command prefix is the one
-// place where standing permission is worth offering, because a session spends
-// its time running the same handful of commands -- `go test`, `git status` --
-// and asking every time trains the user to stop reading the question.
-type Allowlist struct {
-	mu       sync.Mutex
-	prefixes map[string]bool
-}
-
-func NewAllowlist() *Allowlist {
-	return &Allowlist{prefixes: make(map[string]bool)}
-}
-
-// Allow permits every command beginning with prefix until the session ends.
-func (a *Allowlist) Allow(prefix string) {
-	if prefix == "" {
-		return
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.prefixes[prefix] = true
-}
-
-// Allowed reports whether a prefix has standing permission.
-func (a *Allowlist) Allowed(prefix string) bool {
-	if prefix == "" {
-		return false
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.prefixes[prefix]
-}
-
-// List is the prefixes allowed so far, for showing the user what they have
-// agreed to.
-func (a *Allowlist) List() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	out := make([]string, 0, len(a.prefixes))
-	for p := range a.prefixes {
-		out = append(out, p)
-	}
-	return sortedStrings(out)
-}
-
 // runCommand runs one program in the pane's working directory.
 //
 // There is no shell. Flockdeck runs on Windows as well as on Unix, and a tool that
@@ -88,8 +38,7 @@ func (a *Allowlist) List() []string {
 // on PATH, and it is run directly. Anything that needs a pipeline needs a
 // shell, and the model is told to run the pieces itself instead.
 type runCommand struct {
-	root  *Root
-	allow *Allowlist
+	root *Root
 }
 
 func (t *runCommand) Name() string { return "run_command" }
@@ -123,16 +72,19 @@ func (t *runCommand) Approval(args json.RawMessage) string {
 	if err != nil || len(argv) == 0 {
 		return ""
 	}
-	if t.allow.Allowed(commandPrefix(argv)) {
-		return ""
-	}
 	return fmt.Sprintf("Run `%s` in %s?", strings.TrimSpace(a.Command), t.root.Dir())
 }
 
-// Prefix is the standing permission on offer for this call, which satisfies
-// the PrefixApprover the terminal asker looks for. It is the first two words
-// of the command, so that allowing `git status` does not also allow `git push`
-// while allowing `go test` covers every package the session goes on to test.
+// Prefix is the standing permission on offer for this call, which the chat
+// loop offers as "always" and remembers for the rest of the session.
+//
+// Approval is per call everywhere else, deliberately: an approved write is one
+// file and the next one is a different decision. A command prefix is the one
+// place where standing permission is worth offering, because a session spends
+// its time running the same handful of commands and asking every time trains
+// the user to stop reading the question. It is the first two words of the
+// command, so that allowing `git status` does not also allow `git push` while
+// allowing `go test` covers every package the session goes on to test.
 func (t *runCommand) Prefix(args json.RawMessage) string {
 	var a commandArgs
 	if err := decode(args, &a); err != nil {
@@ -144,9 +96,6 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	}
 	return commandPrefix(argv)
 }
-
-// Allow records a standing permission the user has just given.
-func (t *runCommand) Allow(prefix string) { t.allow.Allow(prefix) }
 
 func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var a commandArgs
