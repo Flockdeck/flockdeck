@@ -125,10 +125,12 @@ flockdeck                 # open the current directory
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
 flockdeck -new            # ignore the saved layout
 flockdeck -shell          # first pane is a shell, not an agent
+flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
 flockdeck -quit           # stop a running instance and its agents
 flockdeck -no-window      # just serve; print the URL and open it yourself
 flockdeck -solo           # start a separate instance instead of attaching
+flockdeck -version        # print the version
 
 flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
