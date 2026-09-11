@@ -15,10 +15,14 @@ something, then look at what it did.
 
 - **Commit**, with the message you type in the box.
 - **Commit and push** in one go.
-- **Push**, **Pull** and **Fetch** against the upstream.
+- **Fetch** and **Push** against the upstream.
+- **Pull**, which appears only when the upstream has commits this branch does
+  not, and only ever fast-forwards: a branch that has gone its own way is left
+  for you to merge or rebase in a shell.
 
-The first push sets the upstream, so a branch a fan-out invented does not need
-a hand-typed command to leave the machine.
+Everything that talks to a remote is there only when the checkout has one. The
+first push sets the upstream, so a branch a fan-out invented does not need a
+hand-typed command to leave the machine.
 
 Nothing here stages files selectively: a commit takes the working tree as it
 stands. Reviewing the diff first is the point of the panel — for anything
