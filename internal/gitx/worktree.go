@@ -38,6 +38,9 @@ const commandTimeout = 20 * time.Second
 // It is a variable so a test can shorten it; nothing else assigns to it.
 var networkTimeout = 10 * time.Minute
 
+// pipeGrace is how long git's output is waited for once git has exited.
+const pipeGrace = 2 * time.Second
+
 // Worktree is one entry from `git worktree list`.
 type Worktree struct {
 	Path     string
@@ -140,7 +143,20 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
+	// The deadline kills git and nothing git started. A hook, an ssh or a
+	// credential helper still holding the output pipes kept Run waiting for
+	// them regardless, so a push given up on after ten minutes went on being
+	// waited for until whatever it was stuck on let go -- if it ever did. This
+	// stops waiting for the pipes that long after git itself has gone.
+	cmd.WaitDelay = pipeGrace
+	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// git finished, and succeeded; only something it left running in the
+		// background was still holding its output, which git had long since
+		// finished writing.
+		err = nil
+	}
+	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
 		}
