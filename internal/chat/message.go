@@ -50,6 +50,22 @@ type Message struct {
 	Calls []ToolCall
 	// Call is the call a tool message answers.
 	Call ToolCall
+	// Thinking is the reasoning an assistant message came with, kept only to
+	// be handed back.
+	Thinking []Thinking
+}
+
+// Thinking is one block of reasoning a model returned with its answer.
+//
+// It is never drawn or recorded -- EventThinking carries what is shown -- and
+// is kept for one reason: Anthropic's models that think by default refuse the
+// next request of a tool loop when the reasoning that led to a call has been
+// left out of it, and the signature is how the server knows it was not edited.
+type Thinking struct {
+	Text      string
+	Signature string
+	// Redacted is the opaque data of a block the server would not show.
+	Redacted string
 }
 
 // Usage is what a turn cost in tokens.
@@ -119,14 +135,18 @@ const (
 	EventCall
 	// EventUsage is the token count for the turn, sent once, at the end.
 	EventUsage
+	// EventReasoning is a completed block of reasoning, to go back with the
+	// answer in the next request.
+	EventReasoning
 )
 
 // Event is one thing that happened while a turn streamed.
 type Event struct {
-	Kind  EventKind
-	Text  string
-	Call  ToolCall
-	Usage Usage
+	Kind     EventKind
+	Text     string
+	Call     ToolCall
+	Usage    Usage
+	Thinking Thinking
 }
 
 // Wire speaks one vendor's HTTP protocol.

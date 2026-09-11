@@ -33,6 +33,13 @@ type anthropicBlock struct {
 
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
+
+	// Thinking is a pointer because a block whose reasoning was not shown
+	// still has to say so with an empty string, and handing a block back
+	// changed in any way is refused.
+	Thinking  *string `json:"thinking,omitempty"`
+	Signature string  `json:"signature,omitempty"`
+	Data      string  `json:"data,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -85,8 +92,9 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 
 	var usage Usage
 	// Blocks are identified by an index rather than arriving one after another,
-	// so a call being accumulated is kept per index.
+	// so a call or a piece of reasoning being accumulated is kept per index.
 	calls := map[int]*callBuffer{}
+	thoughts := map[int]*Thinking{}
 	err = readSSE(rc, func(event, data string) error {
 		var ev struct {
 			Type  string `json:"type"`
@@ -95,12 +103,16 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				Thinking    string `json:"thinking"`
+				Signature   string `json:"signature"`
 				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 			ContentBlock struct {
-				Type string `json:"type"`
-				ID   string `json:"id"`
-				Name string `json:"name"`
+				Type      string `json:"type"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				Thinking  string `json:"thinking"`
+				Signature string `json:"signature"`
+				Data      string `json:"data"`
 			} `json:"content_block"`
 			Message struct {
 				Usage anthropicUsage `json:"usage"`
@@ -121,15 +133,27 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 			usage.In += ev.Message.Usage.InputTokens
 			usage.Out += ev.Message.Usage.OutputTokens
 		case "content_block_start":
-			if ev.ContentBlock.Type == "tool_use" {
+			switch ev.ContentBlock.Type {
+			case "tool_use":
 				calls[ev.Index] = &callBuffer{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+			case "thinking":
+				thoughts[ev.Index] = &Thinking{Text: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}
+			case "redacted_thinking":
+				thoughts[ev.Index] = &Thinking{Redacted: ev.ContentBlock.Data}
 			}
 		case "content_block_delta":
 			switch ev.Delta.Type {
 			case "text_delta":
 				emit(Event{Kind: EventText, Text: ev.Delta.Text})
 			case "thinking_delta":
+				if t := thoughts[ev.Index]; t != nil {
+					t.Text += ev.Delta.Thinking
+				}
 				emit(Event{Kind: EventThinking, Text: ev.Delta.Thinking})
+			case "signature_delta":
+				if t := thoughts[ev.Index]; t != nil {
+					t.Signature += ev.Delta.Signature
+				}
 			case "input_json_delta":
 				if c := calls[ev.Index]; c != nil {
 					c.args.WriteString(ev.Delta.PartialJSON)
@@ -144,9 +168,12 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	if err != nil {
 		return err
 	}
-	// The calls go out in index order: that is the order the model wrote them
-	// in, and a tool loop that runs them in map order runs them differently
-	// every time.
+	// The reasoning and the calls go out in index order: that is the order the
+	// model wrote them in, and a tool loop that runs them in map order runs
+	// them differently every time.
+	for _, i := range sortedKeys(thoughts) {
+		emit(Event{Kind: EventReasoning, Thinking: *thoughts[i]})
+	}
 	for _, i := range sortedKeys(calls) {
 		emit(Event{Kind: EventCall, Call: calls[i].done()})
 	}
@@ -183,6 +210,16 @@ func anthropicMessages(msgs []Message) []anthropicMessage {
 			add("user", anthropicBlock{Type: "tool_result", ToolUseID: m.Call.ID, Content: m.Text})
 		case RoleAssistant:
 			var blocks []anthropicBlock
+			// Reasoning comes first because that is where the model put it,
+			// ahead of what it said and the calls it made.
+			for _, t := range m.Thinking {
+				if t.Redacted != "" {
+					blocks = append(blocks, anthropicBlock{Type: "redacted_thinking", Data: t.Redacted})
+					continue
+				}
+				text := t.Text
+				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: &text, Signature: t.Signature})
+			}
 			if m.Text != "" {
 				blocks = append(blocks, anthropicBlock{Type: "text", Text: m.Text})
 			}
@@ -220,7 +257,7 @@ func argsOrEmpty(args json.RawMessage) json.RawMessage {
 	return json.RawMessage(`{}`)
 }
 
-func sortedKeys(m map[int]*callBuffer) []int {
+func sortedKeys[V any](m map[int]V) []int {
 	keys := make([]int, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

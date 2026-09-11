@@ -391,6 +391,7 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 
 	var said strings.Builder
 	var calls []ToolCall
+	var thoughts []Thinking
 	var usage Usage
 	thinking := false
 	s.out.blankLine()
@@ -413,6 +414,8 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 			s.out.text(ev.Text)
 		case EventCall:
 			calls = append(calls, ev.Call)
+		case EventReasoning:
+			thoughts = append(thoughts, ev.Thinking)
 		case EventUsage:
 			usage = ev.Usage
 		}
@@ -425,7 +428,7 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 
 	text := strings.TrimSpace(said.String())
 	if text != "" || len(calls) > 0 {
-		s.messages = append(s.messages, Message{Role: RoleAssistant, Text: text, Calls: calls})
+		s.messages = append(s.messages, Message{Role: RoleAssistant, Text: text, Calls: calls, Thinking: thoughts})
 	}
 	if text != "" {
 		s.record(Entry{
