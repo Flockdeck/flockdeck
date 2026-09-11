@@ -100,7 +100,12 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// The content is compiled in, so it cannot change while this process runs.
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// Compiled in, so it cannot change while this process runs -- but a cache
+	// outlives the process. Through the relay this address is the same from
+	// one run to the next, so a window opened within the hour after an upgrade
+	// was handed the last version's pages, naming keys and dialogs that had
+	// since changed. It is fetched once per page load, over loopback or a link
+	// that is carrying a whole terminal anyway.
+	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(data)
 }
