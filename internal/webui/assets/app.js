@@ -1487,6 +1487,11 @@
   }
 
   function scheduleFit(p) {
+    // Not while a divider is being dragged. A fit that lands mid-drag resizes
+    // the agent's terminal, and an agent redraws its whole screen on every
+    // resize, so a slow drag across a split was a stream of redraws in the
+    // panes either side of it. The drag ends by fitting everything it moved.
+    if (resizing) return;
     clearTimeout(p.fitTimer);
     p.fitTimer = setTimeout(() => doFit(p), 40);
   }

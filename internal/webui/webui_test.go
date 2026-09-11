@@ -2321,6 +2321,37 @@ assert.ok(fits > 0, "the tab switched to was not fitted");
 `)
 }
 
+// Every fit that lands during a divider drag resizes the agents either side,
+// and each of them redraws its whole screen on a resize. The panes are fitted
+// once, when the divider is let go.
+func TestDraggingADividerResizesTheAgentsOnceAtTheEnd(t *testing.T) {
+	runFrontEnd(t, `
+let fits = 0;
+const proto = h.win.FitAddon.FitAddon.prototype;
+const fit = proto.fit;
+proto.fit = function () { fits++; return fit.call(this); };
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+await h.sleep(80);
+fits = 0;
+
+const d = h.$("workspace").querySelector(".divider");
+h.dispatch(d, new h.Ev("pointerdown", { button: 0, pointerId: 1, clientX: 100 }));
+for (let x = 110; x < 160; x += 10) {
+  h.dispatch(d, new h.Ev("pointermove", { pointerId: 1, clientX: x }));
+  // The panes change size under their observers as the divider moves, and
+  // the drag pauses between moves for longer than the fit waits.
+  h.observers.forEach((o) => o.fn());
+  await h.sleep(50);
+}
+assert.strictEqual(fits, 0, "the agents were resized while the divider was still moving");
+h.dispatch(d, new h.Ev("pointerup", { pointerId: 1, clientX: 160 }));
+await h.sleep(80);
+assert.ok(fits >= 2, "the panes either side were not fitted when the drag ended");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
