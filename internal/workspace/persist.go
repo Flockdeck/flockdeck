@@ -583,11 +583,7 @@ func (w *Workspace) RestoreSession() int {
 			// it shows something.
 			active := w.activeRoot
 			w.activeRoot = root
-			kind := session.KindClaude
-			if !w.ClaudeAvailable() {
-				kind = session.KindShell
-			}
-			w.NewTab(kind, root, "")
+			w.NewTab(w.firstPaneKind(), root, "")
 			w.activeRoot = active
 		}
 		opened++

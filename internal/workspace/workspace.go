@@ -478,16 +478,28 @@ func (w *Workspace) OpenProject(path string) error {
 	_ = store.TouchRecent(root)
 
 	if n := w.restoreProject(root); n == 0 {
-		kind := session.KindClaude
-		if !w.ClaudeAvailable() {
-			kind = session.KindShell
-		}
-		w.NewTab(kind, root, "")
+		w.NewTab(w.firstPaneKind(), root, "")
 	} else {
 		w.focusFirstTabOf(root)
 	}
 	w.wake()
 	return nil
+}
+
+// firstPaneKind is what a project with no saved tabs is opened on: the agent
+// it would run if that can be started here, and a shell otherwise, so the tab
+// comes up on something that works. It must be asked with the project active,
+// since the default agent is the project's own.
+//
+// Asking whether Claude is installed answered a different question once the
+// default could be another agent: somebody running only Codex got a shell in
+// every project they opened, and somebody with Claude whose default is an
+// agent they had not installed got a pane that could only report it missing.
+func (w *Workspace) firstPaneKind() session.Kind {
+	if _, err := w.AgentSpec(""); err != nil {
+		return session.KindShell
+	}
+	return session.KindClaude
 }
 
 // SelectProject shows an already open project.
