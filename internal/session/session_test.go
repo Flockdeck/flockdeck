@@ -1130,6 +1130,25 @@ func TestPatternsSharpenTheFallback(t *testing.T) {
 	}
 }
 
+// TestPatternsAreNotFoldedPerLine covers the cost of the pattern fallback,
+// which runs in the reader on every chunk a pane prints. Lower-casing each
+// pattern for each line it was compared with allocated dozens of times a chunk.
+func TestPatternsAreNotFoldedPerLine(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.patterns = foldPatterns(agent.Patterns{
+		Waiting: []string{"Do you want to proceed?", "Allow command?", "Approve?"},
+		Idle:    []string{"Ready."},
+	})
+	chunk := []byte(strings.Repeat("\x1b[36mSome Output\x1b[m on a line\r\n", 40))
+	allocs := testing.AllocsPerRun(100, func() { s.publish(chunk) })
+	if allocs > 20 {
+		t.Errorf("publishing a chunk allocated %.0f times; the patterns are being folded per line", allocs)
+	}
+}
+
 // TestAPaneWithoutPatternsIsUnchanged pins the promise that nothing regresses
 // for somebody who only ever runs Claude: Claude reports its own lifecycle and
 // names no patterns, so its pane must be read exactly as it was -- from the

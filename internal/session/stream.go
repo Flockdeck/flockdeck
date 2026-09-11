@@ -430,7 +430,7 @@ func (s *Session) patternStatus() (Status, bool) {
 // them: one that asked a question and has since printed its prompt again is no
 // longer waiting for an answer to it. The last line counts even with no newline
 // after it, because the prompt an agent is sitting at is exactly the line it
-// has not finished.
+// has not finished. The patterns are the ones foldPatterns returns.
 func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 	lines := strings.Split(text, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -450,7 +450,8 @@ func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 	return StatusIdle, false
 }
 
-// containsAny reports whether a lower-cased line holds any of the patterns.
+// containsAny reports whether a lower-cased line holds any of the patterns,
+// which foldPatterns has already lower-cased.
 //
 // The patterns are plain text rather than expressions. They come from a file
 // the user may edit, and what a mistake in an expression there costs is paid by
@@ -461,12 +462,28 @@ func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 // prompt is capitalised is not something a catalog entry should have to know.
 func containsAny(lowered string, pats []string) bool {
 	for _, pat := range pats {
-		pat = strings.ToLower(strings.TrimSpace(pat))
-		if pat != "" && strings.Contains(lowered, pat) {
+		if strings.Contains(lowered, pat) {
 			return true
 		}
 	}
 	return false
+}
+
+// foldPatterns trims and lower-cases an agent's patterns once, when its pane
+// starts, and drops any left empty. They are compared with every line of every
+// chunk the pane prints, and folding them there cost an allocation per pattern
+// per line: six times the cost of publishing a chunk at all.
+func foldPatterns(p agent.Patterns) agent.Patterns {
+	fold := func(pats []string) []string {
+		var out []string
+		for _, pat := range pats {
+			if pat = strings.ToLower(strings.TrimSpace(pat)); pat != "" {
+				out = append(out, pat)
+			}
+		}
+		return out
+	}
+	return agent.Patterns{Waiting: fold(p.Waiting), Idle: fold(p.Idle)}
 }
 
 // dropPartialLine drops everything up to and including the first line break,

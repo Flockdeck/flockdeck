@@ -398,7 +398,7 @@ func TestMatchPatternsReadsTheMostRecentLine(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, says := matchPatterns(tc.text, pats)
+			got, says := matchPatterns(tc.text, foldPatterns(pats))
 			if says != tc.says {
 				t.Fatalf("matched = %v, want %v", says, tc.says)
 			}

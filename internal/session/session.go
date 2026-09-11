@@ -225,7 +225,7 @@ func Start(cfg Config) (*Session, error) {
 		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
-		patterns:    cfg.Spec.Patterns,
+		patterns:    foldPatterns(cfg.Spec.Patterns),
 		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
 		subs:        map[int]*subscriber{},
