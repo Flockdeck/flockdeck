@@ -210,6 +210,30 @@ func TestRemoteEnableReplacesARevokedEnrolment(t *testing.T) {
 	}
 }
 
+// A machine the relay does not see is told that flockdeck connects while it
+// runs only when it is not running. When it is, the window says why it has
+// not connected, and status says to look there.
+func TestRemoteStatusWhenTheRelayDoesNotSeeThisMachine(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"devices":[],"hosts":[{"id":"h1","name":"desk","online":false,"self":true}]}`)
+	}))
+	defer srv.Close()
+	if err := (&remote.Config{Relay: srv.URL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	for running, want := range map[bool]string{
+		true:  "flockdeck is running",
+		false: "flockdeck connects while it is running",
+	} {
+		var out bytes.Buffer
+		err := remoteCmd([]string{"status"}, remoteIO{out: &out, running: func() bool { return running }})
+		if err != nil || !strings.Contains(out.String(), want) {
+			t.Errorf("status with flockdeck running=%v = %q, %v; want it to say %q", running, out.String(), err, want)
+		}
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {

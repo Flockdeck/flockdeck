@@ -31,11 +31,17 @@ type remoteIO struct {
 	// reload tells a running instance that the enrolment has changed, and
 	// reports whether there was one to tell.
 	reload func() (bool, error)
+	// running reports whether flockdeck is running here, which is what
+	// decides whether the tunnel ought to be up.
+	running func() bool
 }
 
 // runRemote implements the `remote` subcommand.
 func runRemote(args []string) error {
-	return remoteCmd(args, remoteIO{out: os.Stdout, reload: reloadRunningRemote})
+	return remoteCmd(args, remoteIO{out: os.Stdout, reload: reloadRunningRemote, running: func() bool {
+		inst, _, err := runningInstance()
+		return err == nil && inst != nil
+	}})
 }
 
 func remoteCmd(args []string, rio remoteIO) error {
@@ -282,9 +288,12 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 			online = h.Online
 		}
 	}
-	if online {
+	switch {
+	case online:
 		fmt.Fprintln(rio.out, "state:   connected")
-	} else {
+	case rio.running != nil && rio.running():
+		fmt.Fprintln(rio.out, "state:   not connected, though flockdeck is running; the Remote chip in its window says why")
+	default:
 		fmt.Fprintln(rio.out, "state:   not connected — flockdeck connects while it is running")
 	}
 	fmt.Fprintf(rio.out, "devices: %d paired\n", len(roster.Devices))
