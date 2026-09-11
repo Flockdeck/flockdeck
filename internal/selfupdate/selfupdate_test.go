@@ -154,6 +154,34 @@ func TestStageRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
 	}
 }
 
+// A newer release that fails to download must not cost the update already
+// staged: the top bar is still offering it, and a restart has to apply it.
+func TestStageKeepsTheStagedUpdateWhenANewerOneFails(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	good := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+	dir := t.TempDir()
+	if _, err := Stage(context.Background(), fetchRelease(t, good.URL+"/release"), dir); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	wrong := sha256.Sum256([]byte("not what was served"))
+	bad := releaseServer(t, name, archive, hex.EncodeToString(wrong[:]))
+	newer := fetchRelease(t, bad.URL+"/release")
+	newer.Version = "v9.9.10"
+	if _, err := Stage(context.Background(), newer, dir); err == nil {
+		t.Fatal("Stage accepted an archive that did not match its published checksum")
+	}
+
+	p, ok := Load(dir)
+	if !ok || p.Version != "v9.9.9" {
+		t.Fatalf("Load = %+v, %v; want v9.9.9 still staged", p, ok)
+	}
+	if got, err := os.ReadFile(p.Binary); err != nil || string(got) != "the new program" {
+		t.Errorf("staged binary = %q, %v; want it untouched", got, err)
+	}
+}
+
 // A checksums file whose entry is not a SHA-256 at all has to be refused, not
 // compared. Comparing it panicked, in the background watcher, which ends the
 // whole application.

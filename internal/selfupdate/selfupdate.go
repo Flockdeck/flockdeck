@@ -176,33 +176,43 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		return nil, err
 	}
 
-	// Anything left from an interrupted attempt goes first: a stale archive or
-	// a half-unpacked binary under the same name would otherwise be picked up
-	// as though this run had produced it.
-	staging := filepath.Join(dir, "staging")
-	if err := os.RemoveAll(staging); err != nil {
+	// The release is fetched beside whatever is staged already, not over it.
+	// There is one when a newer release comes out before the last was
+	// applied, and clearing it first meant a download that failed, or did
+	// not match, left nothing to apply while the top bar went on offering
+	// it. Anything left in the work directory by an interrupted attempt goes
+	// first, so a stale archive is never taken for this run's.
+	work := filepath.Join(dir, "staging.new")
+	if err := os.RemoveAll(work); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(staging, 0o755); err != nil {
+	if err := os.MkdirAll(work, 0o755); err != nil {
 		return nil, err
 	}
+	defer os.RemoveAll(work) // nothing left once it has become the staging
 
-	archive := filepath.Join(staging, asset.Name)
+	archive := filepath.Join(work, asset.Name)
 	if err := download(ctx, asset.URL, archive, want); err != nil {
 		return nil, err
 	}
-
-	binary := filepath.Join(staging, binaryName)
-	if err := unpack(archive, binary); err != nil {
+	if err := unpack(archive, filepath.Join(work, binaryName)); err != nil {
 		return nil, err
 	}
 	if err := os.Remove(archive); err != nil {
 		return nil, err
 	}
 
+	staging := filepath.Join(dir, "staging")
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(work, staging); err != nil {
+		return nil, err
+	}
+
 	p := &Pending{
 		Version: rel.Version,
-		Binary:  binary,
+		Binary:  filepath.Join(staging, binaryName),
 		Notes:   rel.Notes,
 		URL:     rel.URL,
 		Staged:  time.Now().UTC(),
