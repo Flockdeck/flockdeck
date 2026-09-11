@@ -2669,7 +2669,14 @@
     return cmds;
   }
 
+  /** Where the keyboard was when the palette opened, to go back to. The
+   *  palette opens over a dialog as readily as over the terminals, and sending
+   *  the keyboard to a terminal on the way out put it behind a dialog that was
+   *  still open, where the next thing typed went to an agent. */
+  let palReturn = null;
+
   function openPalette() {
+    palReturn = document.activeElement;
     $("palette").hidden = false;
     const input = $("palette-input");
     input.value = "";
@@ -2679,7 +2686,10 @@
   }
   function closePalette() {
     $("palette").hidden = true;
-    focusTerminal();
+    const back = palReturn;
+    palReturn = null;
+    if (back && back.isConnected && back !== document.body) back.focus();
+    else focusTerminal();
   }
   function renderPalette() {
     const q = $("palette-input").value.trim().toLowerCase();

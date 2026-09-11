@@ -2271,6 +2271,27 @@ assert.ok(h.$("promptbar").hidden, "Escape in the bar no longer closes it");
 `)
 }
 
+// The palette opens over a dialog as readily as over the terminals. Closing it
+// sent the keyboard to a terminal regardless, behind the dialog that was still
+// open, and the next thing typed went to an agent.
+func TestClosingThePaletteGivesTheKeyboardBack(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+const box = h.$("commit-message");
+box.focus();
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette did not open over the dialog");
+h.key({ key: "Escape" });
+assert.ok(h.$("palette").hidden, "Escape did not close the palette");
+assert.ok(!h.$("overlay").hidden, "closing the palette closed the dialog under it");
+assert.ok(h.doc.activeElement === box, "the keyboard did not go back to the commit message");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
