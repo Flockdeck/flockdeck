@@ -25,6 +25,9 @@ const (
 	// hundred megabytes has said everything useful in the first and last of
 	// it, which is what is kept.
 	commandMaxOutput = 64 << 10
+	// commandWaitDelay is how long output is still read once the command has
+	// exited or been killed, for whatever it started that still holds the pipe.
+	commandWaitDelay = 3 * time.Second
 )
 
 // Allowlist is the run_command prefixes the user has approved for the rest of
@@ -169,6 +172,11 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = t.root.Dir()
+	// Something the command started and left running -- a dev server, a
+	// watcher -- keeps the output pipe open for as long as it lives, and
+	// without a limit here the tool would wait on it for that long, timeout
+	// or none: killing the command does not kill what it started.
+	cmd.WaitDelay = commandWaitDelay
 	// The output is captured for the model, so a window would show the user
 	// nothing they could use. On Windows it would otherwise open one for every
 	// call, and another for each console program the command starts in turn.
@@ -188,6 +196,8 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 		fmt.Fprintf(&b, "[killed after %s]\n", timeout)
 	case runErr == nil:
 		b.WriteString("[exit status 0]\n")
+	case errors.Is(runErr, exec.ErrWaitDelay):
+		b.WriteString("[exit status 0; something it started is still running, and its output was not waited for]\n")
 	default:
 		var exit *exec.ExitError
 		if errors.As(runErr, &exit) {
