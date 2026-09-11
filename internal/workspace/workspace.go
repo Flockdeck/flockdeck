@@ -1659,6 +1659,10 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 	return waiting, working
 }
 
+// gitStatus reads one checkout's summary. It is a variable for the same reason
+// branchLookup is: how many are asked at once is the property worth checking.
+var gitStatus = gitx.StatusOf
+
 // RefreshGit updates every pane's git summary.
 //
 // The git calls are made off the caller's goroutine and only the results are
@@ -1685,14 +1689,20 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		return
 	}
 
+	// No more git processes at once than a restore asks for branches with. A
+	// fan-out leaves a dozen worktrees open, and starting a git process for
+	// every one of them in the same instant, every refresh, contends with the
+	// agents working in them for no answer that arrives any sooner.
 	dirs := make(map[string]gitx.Status, len(cwds))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, branchLookups)
 	for _, cwd := range cwds {
 		wg.Add(1)
+		slots <- struct{}{}
 		go func(cwd string) {
-			defer wg.Done()
-			st := gitx.StatusOf(cwd)
+			defer func() { <-slots; wg.Done() }()
+			st := gitStatus(cwd)
 			mu.Lock()
 			dirs[cwd] = st
 			mu.Unlock()
