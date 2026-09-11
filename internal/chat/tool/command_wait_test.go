@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -17,7 +18,15 @@ func TestACommandThatLeavesAChildBehindStillReturns(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		line = `cmd /c start /b ping -n 20 127.0.0.1`
 	}
-	set, err := New(t.TempDir())
+	// Not t.TempDir: the child left behind is still working in the directory
+	// when the test ends, which is the point, and Windows will not remove a
+	// directory a running program is in.
+	dir, err := os.MkdirTemp("", "flockdeck-wait-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	set, err := New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
