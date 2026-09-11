@@ -59,14 +59,20 @@ jobs:
 
       # gh is already on the runner, so the release is made without a
       # third-party action holding the token.
+      #
+      # A tag with a suffix, v1.4.0-rc.1, is a candidate. Published as an
+      # ordinary release it would be the latest one, which is what every
+      # running copy asks GitHub for and installs; a pre-release is skipped.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          pre=""
+          case "${{ steps.version.outputs.tag }}" in *-*) pre="--prerelease" ;; esac
           if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
             gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
           else
             gh release create "${{ steps.version.outputs.tag }}" dist/* \
               --title "${{ steps.version.outputs.tag }}" \
-              --generate-notes
+              --generate-notes $pre
           fi
