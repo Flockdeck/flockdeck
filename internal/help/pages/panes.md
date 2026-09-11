@@ -27,8 +27,8 @@ agent as well as opened in a tab of its own.
 ## Working in them
 
 Click a pane to give it the keyboard. Everything you type goes to the agent in
-it — that is the point, and it is why this application's own shortcuts are all
-on <kbd>Ctrl+Shift</kbd>, which agents do not use.
+it — that is the point, and it is why almost all of this application's own
+shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 
 - Drag the divider between two panes to resize them.
 - [[key:zoomPane]] gives the focused pane the whole tab, and gives it back.
