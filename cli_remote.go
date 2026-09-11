@@ -54,11 +54,7 @@ func remoteCmd(args []string, rio remoteIO) error {
 	case "devices", "list", "ls":
 		err = remoteDevicesCmd(args[1:], rio)
 	case "revoke":
-		if len(args) != 2 {
-			remoteUsage(rio.out)
-			return errors.New("usage: flockdeck remote revoke <device id>")
-		}
-		err = remoteRevokeCmd(args[1], rio)
+		err = remoteRevokeCmd(args[1:], rio)
 	case "disable":
 		err = remoteDisable(args[1:], rio)
 	case "-h", "--help", "help":
@@ -333,7 +329,24 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time) {
 	}
 }
 
-func remoteRevokeCmd(id string, rio remoteIO) error {
+func remoteRevokeCmd(args []string, rio remoteIO) error {
+	// The id goes through a flag set like every other argument here, so that
+	// -h asks how revoke is used rather than going to the relay as a device.
+	fs := remoteFlags("revoke")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: flockdeck remote revoke <device id>\n\n`flockdeck remote devices` lists the paired devices with their ids.")
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return errHelpAsked
+		}
+		return errReported
+	}
+	if fs.NArg() != 1 {
+		remoteUsage(rio.out)
+		return errors.New("usage: flockdeck remote revoke <device id>")
+	}
+	id := fs.Arg(0)
 	cfg, err := enrolled()
 	if err != nil {
 		return err

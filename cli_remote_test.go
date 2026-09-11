@@ -233,4 +233,11 @@ func TestRemoteUsage(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", "http://relay.example"); err == nil {
 		t.Error("enable accepted a relay without TLS")
 	}
+	// -h asks how revoke is used; it is not a device to send the relay.
+	if _, _, err := runRemoteCmd(t, "revoke", "-h"); err != nil {
+		t.Errorf("remote revoke -h = %v, want its usage", err)
+	}
+	if _, _, err := runRemoteCmd(t, "revoke"); err == nil {
+		t.Error("revoke with no device was accepted")
+	}
 }
