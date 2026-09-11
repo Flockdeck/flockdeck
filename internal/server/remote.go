@@ -172,7 +172,7 @@ func RequestRemoteReload(baseURL, token string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return errors.New("reload remote access: " + resp.Status)
+		return refused("reload remote access", resp)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -353,9 +354,21 @@ func RequestOpen(baseURL, token, path string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("open project: %s", resp.Status)
+		return refused("open project", resp)
 	}
 	return nil
+}
+
+// refused is the error for a request the instance turned down. The handlers
+// here say why in the reply, and it is the reason rather than the status that
+// the person at the command line can act on: "open project: 400 Bad Request"
+// sends them looking, where the workspace's own words would not.
+func refused(what string, resp *http.Response) error {
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if text := strings.TrimSpace(string(msg)); text != "" {
+		return fmt.Errorf("%s: %s", what, text)
+	}
+	return fmt.Errorf("%s: %s", what, resp.Status)
 }
 
 // RequestQuit asks a running instance to shut down, and waits for it to have
@@ -378,9 +391,9 @@ func RequestQuit(baseURL, token string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("quit: %s", resp.Status)
+		return refused("quit", resp)
 	}
 
 	deadline := time.Now().Add(quitGrace)

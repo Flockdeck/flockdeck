@@ -23,11 +23,26 @@ type fakeRemote struct {
 	st      remote.Status
 	ok      bool
 	reloads atomic.Int32
+	// err is what Reload fails with, for a test of an enrolment that cannot
+	// be read.
+	err error
 }
 
 func (f *fakeRemote) Status() (remote.Status, bool)   { return f.st, f.ok }
 func (f *fakeRemote) Client() (*remote.Client, error) { return nil, remote.ErrNotEnabled }
-func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return nil }
+func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return f.err }
+
+// TestRemoteReloadSaysWhyItFailed covers `flockdeck remote enable` reaching an
+// instance that cannot reread the enrolment. It used to print "500 Internal
+// Server Error" and nothing else, when the instance had said why.
+func TestRemoteReloadSaysWhyItFailed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.SetRemote(&fakeRemote{err: errors.New("remote.json: unexpected end of JSON input")})
+	err := RequestRemoteReload(srv.BaseURL(), srv.Token())
+	if err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Fatalf("RequestRemoteReload = %v, want the instance's reason", err)
+	}
+}
 
 // remoteServer serves srv the way the tunnel does, on a listener of the test's
 // own, and returns its address.

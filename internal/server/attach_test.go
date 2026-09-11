@@ -3,10 +3,32 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// TestRequestOpenSaysWhyItFailed covers `flockdeck -C` handing the running
+// instance a project it will not open. The instance says why, and the launch
+// used to print "open project: 400 Bad Request" in place of it.
+func TestRequestOpenSaysWhyItFailed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	why := make(chan error, 1)
+	srv.do(func() { why <- ws.OpenProject(missing) })
+	want := <-why
+	if want == nil {
+		t.Fatal("the workspace opened a directory that is not there")
+	}
+
+	err := RequestOpen(srv.BaseURL(), srv.Token(), missing)
+	if err == nil || !strings.Contains(err.Error(), want.Error()) {
+		t.Fatalf("RequestOpen = %v, want it to say %q", err, want)
+	}
+}
 
 // TestProbeIdentifiesTheInstance covers what a second launch uses to decide
 // whether to attach.
