@@ -74,6 +74,19 @@ knows about either way, greying out the ones this machine has not got and
 saying where to get them.
 
 ```sh
+curl -fsSL https://flockdeck.ai/install.sh | sh   # macOS and Linux
+irm https://flockdeck.ai/install.ps1 | iex        # Windows, in PowerShell
+```
+
+Either one downloads the latest release for the machine, checks it against the
+release's checksums and puts it in a directory you own — `~/.local/bin`, or
+`%LOCALAPPDATA%\Programs\flockdeck` with a Start menu shortcut on Windows — so
+neither installing nor updating ever asks for admin rights. The scripts are in
+`cmd/sitegen/assets`, beside the page that serves them.
+
+With Go:
+
+```sh
 go install github.com/jmwri/flockdeck@latest
 ```
 
