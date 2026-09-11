@@ -240,7 +240,7 @@ func (s *Server) wakeAsked() {
 // and gets a broadcast of its own.
 //
 // Which interval applies depends on what caused the change. Holding the agents'
-// chatter to forty milliseconds is the whole point of having one; holding a
+// chatter to stateInterval is the whole point of having one; holding a
 // split or a tab switch to it is not, and with several agents talking the wait
 // would otherwise land on every one of them, since the chatter keeps the last
 // broadcast recent. So a change somebody asked for is answered on its own, much
