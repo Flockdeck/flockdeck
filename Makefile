@@ -53,10 +53,12 @@ check: vet test
 
 dist: $(PLATFORMS)
 
+# The Windows builds take the GUI subsystem here too, as build and package do;
+# without it a binary from dist opens a console window behind the interface.
 $(PLATFORMS):
 	@mkdir -p $(DIST)
 	GOOS=$(word 1,$(subst /, ,$@)) GOARCH=$(word 2,$(subst /, ,$@)) \
-		go build -ldflags "$(LDFLAGS)" \
+		go build -ldflags "$(if $(filter windows,$(word 1,$(subst /, ,$@))),$(WINFLAGS),$(LDFLAGS))" \
 		-o $(DIST)/$(BINARY)-$(word 1,$(subst /, ,$@))-$(word 2,$(subst /, ,$@))$(if $(filter windows,$(word 1,$(subst /, ,$@))),.exe,) .
 	@echo "built $(DIST)/$(BINARY)-$(subst /,-,$@)"
 
