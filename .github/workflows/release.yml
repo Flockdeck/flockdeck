@@ -35,9 +35,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The tag reaches every script through the environment rather than being
+      # written into it. A hand-run release takes it as free text, and pasted
+      # into a script it would run as shell with a token that can write to the
+      # repository.
       - name: Work out the version
         id: version
-        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       # Nothing is published that does not pass. A release is the one build
       # people cannot easily go back from, so it is the last place to skip this.
@@ -52,7 +58,9 @@ jobs:
       # what `make package` runs locally, so a developer can produce the exact
       # artifacts a release will have before tagging anything.
       - name: Build and package
-        run: go run ./cmd/release -version "${{ steps.version.outputs.tag }}" -out dist
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: go run ./cmd/release -version "$TAG" -out dist
 
       - name: List what was built
         run: ls -l dist && cat dist/checksums.txt
@@ -66,13 +74,12 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           pre=""
-          case "${{ steps.version.outputs.tag }}" in *-*) pre="--prerelease" ;; esac
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "${{ steps.version.outputs.tag }}" dist/* \
-              --title "${{ steps.version.outputs.tag }}" \
-              --generate-notes $pre
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes $pre
           fi
