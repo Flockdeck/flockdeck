@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // BrowserEnv names a specific browser binary to use, overriding the search.
@@ -172,5 +174,8 @@ func openDefaultBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	// On Windows the handler is cmd, a console program, and a windowless
+	// Flockdeck would otherwise flash a terminal up just to pass the address on.
+	sysproc.NoWindow(cmd)
 	return cmd.Start()
 }

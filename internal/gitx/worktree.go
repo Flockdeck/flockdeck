@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // commandTimeout bounds a git invocation that only reads the local repository,
@@ -123,6 +125,10 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// Flockdeck on Windows is a GUI program with no console of its own, so
+	// without this every one of these -- and the branch labels alone run one
+	// per checkout every fifteen seconds -- would open a terminal window.
+	sysproc.NoWindow(cmd)
 	// Nothing here has a terminal to answer on, so a command that would ask
 	// for a password has to fail instead of sitting until the timeout. Giving
 	// up the optional index lock also keeps the status polling of several

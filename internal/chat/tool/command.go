@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 const (
@@ -167,6 +169,10 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = t.root.Dir()
+	// The output is captured for the model, so a window would show the user
+	// nothing they could use. On Windows it would otherwise open one for every
+	// call, and another for each console program the command starts in turn.
+	sysproc.NoWindow(cmd)
 	// Standard output and standard error are interleaved because that is the
 	// order they happened in, and a compiler's diagnostics are only useful
 	// beside the line of progress they interrupted.
