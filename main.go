@@ -392,6 +392,26 @@ func run(opts options) error {
 	// is up and while nothing is looking.
 	sweepReplacedBinary()
 
+	// A staged update goes in, and a restart starts the program again, only
+	// once everything else has been torn down, which is why this is deferred
+	// first and so runs last. Both used to happen ahead of the deferred
+	// closes below: the new process came up while the old window was still
+	// open, the old instance still recorded and every old agent still running
+	// — and set about resuming the very conversations those agents still had
+	// open, because closing a pane only signals its process.
+	exiting := false
+	defer func() {
+		if !exiting {
+			return
+		}
+		applyStagedUpdate(os.Stderr)
+		if restarting.Load() {
+			if err := relaunch(); err != nil {
+				fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+			}
+		}
+	}()
+
 	root, err := filepath.Abs(opts.dir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
@@ -595,16 +615,12 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
 	}
 
-	// The interface is closed and the panes are gone, which is the only moment
-	// the program's own file can be replaced without pulling it out from under
-	// a running session. A staged update goes in now, so the next start —
-	// whether the user's or the relaunch just below — is the new version.
-	applyStagedUpdate(os.Stderr)
-	if restarting.Load() {
-		if err := relaunch(); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
-		}
-	}
+	// Once the deferred closes have run, the interface is closed and the panes
+	// are gone, which is the only moment the program's own file can be
+	// replaced without pulling it out from under a running session. The first
+	// defer puts a staged update in then, so the next start — whether the
+	// user's or a restart's — is the new version.
+	exiting = true
 	return nil
 }
 
