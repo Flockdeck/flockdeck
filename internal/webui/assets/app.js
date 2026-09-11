@@ -4157,9 +4157,15 @@
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+    // The digit row is read by position where it can be: on AZERTY it types
+    // & é " ' and gives digits only with Shift held, so Alt+1 arrived as Alt+&
+    // and no tab could be picked by number. The keypad has no position to
+    // read and types its digits on every layout.
+    const row = /^Digit([1-9])$/.exec(e.code || "");
+    const n = row ? row[1] : (/^[1-9]$/.test(e.key || "") ? e.key : "");
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
       e.preventDefault();
-      runAction("selectTab", e.key);
+      runAction("selectTab", n);
     }
   }, true);
 

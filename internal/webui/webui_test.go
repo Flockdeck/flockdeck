@@ -2193,6 +2193,20 @@ assert.ok(!h.$("overlay").hidden && h.$("overlay-title").textContent === "Agents
 `)
 }
 
+// On AZERTY the digit row types & é " ' unless Shift is held, so Alt+2 arrived
+// as Alt+é and picked no tab.
+func TestTabsCanBePickedByNumberOnAZERTY(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "é", code: "Digit2", altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
+// The keypad has no row to read and types a digit everywhere.
+h.key({ key: "1", code: "Numpad1", altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
