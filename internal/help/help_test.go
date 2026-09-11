@@ -1,6 +1,7 @@
 package help
 
 import (
+	"encoding/json"
 	"io/fs"
 	"strings"
 	"testing"
@@ -195,6 +196,34 @@ func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
 		}
 		t.Errorf("%s (%q) says it is explained on the %s page, which never refers to it; "+
 			"add [[action:%s]] there, or clear its Page", k.ID, k.Label, k.Page, k.ID)
+	}
+}
+
+// A JSON example in a page is there to be copied into a real file, so one that
+// does not parse hands the reader a settings file the application rejects. A
+// Windows path written with single backslashes is the easy way to get there.
+func TestJSONExamplesParse(t *testing.T) {
+	for _, slug := range order {
+		src, err := fs.ReadFile(pagesFS, "pages/"+slug+".md")
+		if err != nil {
+			t.Fatalf("%s: %v", slug, err)
+		}
+		rest := strings.ReplaceAll(string(src), "\r\n", "\n")
+		for {
+			i := strings.Index(rest, "```json\n")
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len("```json\n"):]
+			end := strings.Index(rest, "```")
+			if end < 0 {
+				t.Fatalf("%s: unterminated json block", slug)
+			}
+			if !json.Valid([]byte(rest[:end])) {
+				t.Errorf("%s: a json example does not parse:\n%s", slug, rest[:end])
+			}
+			rest = rest[end+3:]
+		}
 	}
 }
 

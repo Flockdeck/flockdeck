@@ -87,7 +87,7 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
 {
   "version": 1,
   "defaults": { "agent": "claude", "model": "" },
-  "projects": { "C:\code\api": { "agent": "codex", "model": "gpt-5" } },
+  "projects": { "C:\\code\\api": { "agent": "codex", "model": "gpt-5" } },
   "agents": [
     { "id": "claude", "defaultModel": "sonnet" },
     { "id": "local", "name": "Local llama", "runner": "api",
