@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Flockdeck — run several coding agents at once</title>
-<meta name="description" content="A desktop application for running several coding agents at once, each in a real terminal, with per-agent status, git worktrees and layout persistence.">
+<title>Flockdeck | Run all your coding agents at once</title>
+<meta name="description" content="Flockdeck runs Claude Code, Codex, Gemini and other coding agents side by side, and shows you which one needs your input. For Windows, macOS and Linux.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<meta property="og:title" content="Flockdeck — run several coding agents at once">
-<meta property="og:description" content="Each agent in a real terminal. One glance tells you which one is waiting on you.">
+<meta property="og:title" content="Flockdeck | Run all your coding agents at once">
+<meta property="og:description" content="Run all your coding agents side by side and see which one needs you.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,6 +21,7 @@
   <span class="wordmark">{{ mark }}Flockdeck</span>
   <nav>
     <a href="#what">Features</a>
+    <a href="#remote">Remote</a>
     <a href="#install">Install</a>
     <a href="{{ .Repo }}">Source</a>
   </nav>
@@ -29,16 +30,15 @@
 <main class="wrap">
 
 <section class="hero">
-  <p class="kicker"><span class="dot waiting">▲</span> one glance, not six terminals</p>
-  <h1>Run several coding agents <em>at once</em>.</h1>
-  <p class="lede">A desktop application that puts each agent in a real terminal —
-     tabs, split panes, per-agent status, git worktrees — and tells you, at a
-     glance, which one is waiting on you.</p>
+  <p class="kicker"><span class="dot waiting">▲</span> Built for multi-agent coding</p>
+  <h1>Run all your coding agents <em>at once</em>.</h1>
+  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and more side by side
+     in one desktop app, and shows you the moment an agent needs your input.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
   </p>
-  <p class="cta-note">One binary · Windows, macOS, Linux · no runtime to install</p>
+  <p class="cta-note">Windows, macOS and Linux · One download, no dependencies</p>
 </section>
 
 <!-- The hero is the application rather than a picture of it: the panes below
@@ -71,78 +71,75 @@
     </div>
   </div>
 </section>
-<p class="deck-cap">Three agents, three branches, one window.</p>
+<p class="deck-cap">Three agents on three branches. One needs you.</p>
 
 <div class="legend" aria-label="What the status glyphs mean">
-  <div><span class="dot working">●</span> <b>working</b> <span class="t">the agent is running</span></div>
-  <div><span class="dot waiting">▲</span> <b>waiting</b> <span class="t">it is blocked on you</span></div>
+  <div><span class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
+  <div><span class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
   <div><span class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
-  <div><span class="dot exited">●</span> <b>exited</b> <span class="t">the process is gone</span></div>
+  <div><span class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
 </div>
 
 <section class="band" id="why">
-  <p class="eyebrow">Why</p>
-  <h2>Running one agent is easy. Running several is not.</h2>
-  <p>They finish at different times, they block on permission prompts, and you
-     lose track of which one is waiting on you. Flockdeck answers one question
-     at a glance — <strong>which agent needs me right now</strong> — and gives
-     each agent its own branch to work on.</p>
+  <p class="eyebrow">The problem</p>
+  <h2>One agent is easy. Five is chaos.</h2>
+  <p>Agents finish at different times and stop for permission prompts. Before
+     long you're flicking between terminals looking for the one that's stuck.
+     Flockdeck shows you <strong>which agent needs you right now</strong>, and
+     keeps each one on its own branch so they never trip over each other.</p>
 </section>
 
 <section class="band" id="what">
-  <p class="eyebrow">What it gives you</p>
-  <h2>Built for more than one.</h2>
+  <p class="eyebrow">Features</p>
+  <h2>Everything you need to run a team of agents.</h2>
   <div class="grid">
     <div class="card">
-      <span class="g">agent · model</span>
+      <span class="g">agents · models</span>
       <h3>Any agent, any model</h3>
-      <p>Claude Code, Codex, Gemini, Aider, opencode or Cursor's agent — or a
-         model API spoken to directly by the binary itself, including a local
-         Ollama or any OpenAI-compatible endpoint. Picked per pane, remembered
-         per project.</p>
+      <p>Claude Code, Codex, Gemini, Aider, opencode and Cursor Agent. Or talk to
+         a model API directly, including local Ollama and any OpenAI-compatible
+         endpoint. Pick one per pane and Flockdeck remembers it for the project.</p>
     </div>
     <div class="card">
       <span class="g">▲ waiting</span>
-      <h3>One glance tells you who needs you</h3>
-      <p>Per-pane status from each agent's own lifecycle where it reports one,
-         tab and project markers, and a desktop notification when an agent
-         blocks while you are looking elsewhere.</p>
+      <h3>Know who needs you</h3>
+      <p>Every pane shows whether its agent is working, waiting or done. Tabs and
+         projects light up too, and you get a desktop notification when an agent
+         is waiting while you're working somewhere else.</p>
     </div>
     <div class="card">
-      <span class="g">git worktree</span>
-      <h3>Worktrees as a first-class thing</h3>
-      <p>Create, inspect, occupy and remove them without leaving the app, so
-         several agents work in parallel without touching each other's files.</p>
+      <span class="g">git worktrees</span>
+      <h3>Worktrees built in</h3>
+      <p>Create, switch and clean up git worktrees without leaving the app, so
+         your agents work in parallel without touching each other's files.</p>
     </div>
     <div class="card">
       <span class="g">fan out</span>
-      <h3>One plan becomes several agents</h3>
-      <p>Fan out reads the list an agent just wrote, hands you an editable copy,
-         and starts an agent per line — each in a worktree and branch of its
-         own.</p>
+      <h3>Turn a plan into a team</h3>
+      <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
+         starts one agent per task, each on its own branch.</p>
     </div>
     <div class="card">
       <span class="g">context</span>
-      <h3>Each agent knows where it is</h3>
-      <p>Its own conversation, its own checkout, and a briefing at session start
-         on which pane it is and who else is working — so being one of several
-         is something it can act on.</p>
+      <h3>Agents that know the team</h3>
+      <p>Each agent is told which pane it's in and what the others are working
+         on, so it can coordinate instead of colliding.</p>
     </div>
     <div class="card">
       <span class="g">detach · reattach</span>
-      <h3>Everything comes back</h3>
-      <p>Layouts, the set of projects you had open and each pane's conversation
-         are restored. Agents can outlive the window: detach, close it, reattach
-         later.</p>
+      <h3>Pick up where you left off</h3>
+      <p>Your layout, open projects and conversations come back when you reopen
+         Flockdeck. Detach, and your agents keep running after the window
+         closes.</p>
     </div>
   </div>
 </section>
 
 <section class="band" id="fanout">
   <p class="eyebrow">Fan out</p>
-  <h2>A plan in, a branch each out.</h2>
-  <p>An agent writes the list. You edit it. Flockdeck starts one agent per line,
-     each in a worktree and branch of its own, and the deck fills up.</p>
+  <h2>One plan in. A branch per task out.</h2>
+  <p>Ask an agent for a plan and edit the list. Flockdeck starts an agent for
+     every line, each in its own worktree, and your deck fills up.</p>
   <div class="fan">
     <div class="fan-plan">
       <ol>
@@ -168,112 +165,105 @@
      change. -->
 <section class="band" id="remote">
   <p class="eyebrow">Remote access</p>
-  <h2>Your agents, from anywhere.</h2>
-  <p>Detach the window and the agents keep working on your desktop. Open them
-     from a laptop, a tablet or your phone, and see, from the train,
-     <strong>which one is waiting on you</strong>.</p>
-  <div class="relay" aria-label="A paired device reaches the desktop through the relay, which the desktop dials out to">
+  <h2>Check in on your agents from anywhere.</h2>
+  <p>Leave Flockdeck running at your desk and pick it up from your laptop,
+     tablet or phone. See <strong>which agent is waiting</strong> and unblock it
+     from wherever you are.</p>
+  <div class="relay" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
     <div class="relay-node">
       <span class="g">phone · tablet · laptop</span>
       <div class="relay-tally"><span class="dot waiting">▲</span> 1 waiting <span class="dot working">●</span> 2 working</div>
-      <span class="t">any browser you have paired</span>
+      <span class="t">any browser you've paired</span>
     </div>
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
     <div class="relay-node hub">
-      <span class="g">the relay</span>
-      <div class="relay-tally">passes traffic between the two</div>
-      <span class="t">hosted; you only ever see your own</span>
+      <span class="g">Flockdeck relay</span>
+      <div class="relay-tally">secure connection</div>
+      <span class="t">hosted for you</span>
     </div>
-    <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">dials out · TLS</span></div>
+    <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">outbound · TLS</span></div>
     <div class="relay-node">
       <span class="g">your desktop</span>
       <div class="relay-tally"><span class="dot working">●</span> api <span class="dot waiting">▲</span> ui <span class="dot idle">●</span> docs</div>
-      <span class="t">Flockdeck, running as it does now</span>
+      <span class="t">your agents keep running here</span>
     </div>
   </div>
   <div class="grid">
     <div class="card">
-      <span class="g">dials out</span>
-      <h3>No ports, no VPN</h3>
-      <p>Your desktop connects out to the relay and keeps that one connection
-         open. Nothing on it listens to the internet, and there is nothing to
-         forward on your router.</p>
+      <span class="g">outbound only</span>
+      <h3>No ports. No VPN.</h3>
+      <p>Your desktop connects out to the relay, so there's nothing to open on
+         your router and nothing exposed to the internet.</p>
     </div>
     <div class="card">
       <span class="g">link · QR code</span>
-      <h3>Pair a device in one scan</h3>
-      <p>The desktop makes a one-time link that lasts minutes. Open it, or scan
-         it as a QR code, and that browser is paired — no password to choose or
-         leak. Any device can be revoked from the desktop.</p>
+      <h3>Pair in seconds</h3>
+      <p>Scan a QR code or open a one-time link from your desktop. There are no
+         passwords to set, and you can revoke any device at any time.</p>
     </div>
     <div class="card">
-      <span class="g">the same window</span>
-      <h3>The whole interface, not a viewer</h3>
-      <p>Every pane, every status, the picker, fan out — the remote browser is
-         served the same page the desktop window shows, so what you can do at
-         your desk, you can do from anywhere.</p>
+      <span class="g">full app</span>
+      <h3>The complete Flockdeck</h3>
+      <p>Every pane, every status, the agent picker and fan out. Everything you
+         can do at your desk works in the browser.</p>
     </div>
     <div class="card">
-      <span class="g">yours alone</span>
-      <h3>Honest about what it sees</h3>
-      <p>Each account reaches only its own desktops. Traffic is encrypted in
-         transit on both sides, and the relay decrypts it to pass it on: it is
-         not end-to-end encrypted, and says so.</p>
+      <span class="g">private</span>
+      <h3>Only your desktops</h3>
+      <p>Your devices reach your desktops and nobody else's. Connections are
+         encrypted with TLS in both directions. The relay decrypts traffic to
+         route it, so remote access is not end-to-end encrypted.</p>
     </div>
   </div>
-  <p class="aside">Remote access is opt-in: nothing connects anywhere until you
-     turn it on, and switching it off unregisters the desktop from the relay.</p>
+  <p class="aside">Remote access is off until you turn it on. Turn it off and your
+     desktop is removed from the relay.</p>
 </section>
 {{ if .Shot }}
 <section class="band shot">
-  <p class="eyebrow">The picker</p>
-  <h2>Every agent this machine can run.</h2>
+  <p class="eyebrow">Agent picker</p>
+  <h2>Choose from every agent on your machine.</h2>
   <img src="{{ .Shot }}" alt="The Flockdeck window with the agent picker open over a pane. Claude Code is listed under Installed with its four models; Codex, Gemini, Aider, opencode, Cursor Agent and the API agents are listed below it, greyed, each with the command that installs it.">
-  <p class="caption">Choosing the agent and model for a pane.</p>
+  <p class="caption">Pick an agent and model for each pane.</p>
 </section>
 {{ end }}
 <section class="band" id="install">
   <p class="eyebrow">Install</p>
-  <h2>One binary, nothing beside it.</h2>
+  <h2>Up and running in one line.</h2>
   <ul class="platforms">
     <li>windows · amd64 · arm64</li>
     <li>macos · amd64 · arm64</li>
     <li>linux · amd64 · arm64</li>
   </ul>
-  <p>On macOS or Linux:</p>
+  <p>macOS and Linux:</p>
   <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
-  <p>On Windows, in PowerShell:</p>
+  <p>Windows (PowerShell):</p>
   <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
-  <p>Each fetches the latest release for this machine, checks it against the
-     release’s published checksums and puts the one binary somewhere you own —
-     <code>~/.local/bin</code>, or <code>%LOCALAPPDATA%\Programs\flockdeck</code>
-     with a Start menu entry — so it can update itself later without asking for
-     a password. They are short, and worth reading first:
-     <a href="install.sh">install.sh</a>, <a href="install.ps1">install.ps1</a>.</p>
-  <p>With Go, it builds with nothing but the toolchain, and cross-compiles to
-     all six from any one of them:</p>
+  <p>The installer downloads the latest release for your machine, verifies it,
+     and installs it to <code>~/.local/bin</code>. On Windows it goes to
+     <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
+     shortcut. No admin rights needed, now or when Flockdeck updates itself.
+     View the scripts: <a href="install.sh">install.sh</a> ·
+     <a href="install.ps1">install.ps1</a></p>
+  <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
-  <p>Or from a clone:</p>
+  <p>Or build from source:</p>
   <pre><code>make build      <span class="c"># a binary for this machine</span>
 make package    <span class="c"># archives for all six platforms</span></code></pre>
-  <p>Every release is also on the
-     <a href="{{ .Repo }}/releases">releases page</a>, and a running Flockdeck
-     keeps itself current: it checks for a release, verifies the download
-     against its published checksum and offers the restart. Nothing is replaced
-     while you are working.</p>
-  <p>A CLI agent uses whatever login it already has, so Claude Code panes need
-     no key and no separate account. Talking to a model API directly needs one,
-     and <code>flockdeck keys</code> keeps it.</p>
-  <p class="aside">The documentation lives in the application: press <kbd>F1</kbd>
-     for the help, which is written against the key bindings your build actually
-     has. A copy on the web would be a second version to keep honest.</p>
+  <p>Downloads are also on the <a href="{{ .Repo }}/releases">releases page</a>.
+     Flockdeck checks for updates, verifies every download and asks before it
+     restarts, so an update never interrupts your work.</p>
+  <p>Command-line agents use the login they already have, so Claude Code works
+     with no extra setup. To use a model API directly, add your key with
+     <code>flockdeck keys</code>.</p>
+  <p class="aside">Press <kbd>F1</kbd> in the app for the full guide and keyboard
+     shortcuts.</p>
 </section>
 
 </main>
 
 <footer class="foot">
   <div class="wrap">
-    <p>Flockdeck — a desktop application for running several coding agents at once.</p>
+    <p>Flockdeck. Run all your coding agents at once.</p>
     <nav>
       <a href="{{ .Repo }}">Source</a>
       <a href="{{ .Repo }}/releases">Releases</a>
