@@ -1,10 +1,11 @@
 // Command ctl drives a running flockdeck instance over its control socket.
 // Development aid, not part of the product.
 //
-//	go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"type":"split","dir":"h"}' ...
+//	go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h"}' ...
 //
-// Each argument after the URL is one JSON command. Commands that name a pane
-// but leave "id" out are addressed to the focused pane.
+// Each argument after the URL is one JSON command, named by its "cmd" field as
+// the window sends it. Commands that name a pane but leave "id" out are
+// addressed to the focused pane.
 package main
 
 import (
