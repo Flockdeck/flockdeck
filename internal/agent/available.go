@@ -139,8 +139,21 @@ func NeedsNoKey(s Spec) bool {
 // the key store. It reads nothing out -- the answer is set or not set, which is
 // all availability, and all the interface, is ever told.
 func keyIsSet(s Spec) bool {
-	for _, name := range s.API.KeyEnv {
-		if os.Getenv(name) != "" {
+	// The names are the ones the chat client tries, in its order: the entry's
+	// own, then the vendor's usual one for the wire, then Flockdeck's own. Asking
+	// only the first left an entry naming none of its own -- a gateway given
+	// just a baseURL, with OPENAI_API_KEY exported -- greyed out in the picker
+	// while it would have started perfectly well.
+	//
+	// An entry with neither an endpoint nor a variable of its own is the
+	// OpenAI-compatible one as it ships, with no address filled in yet; a key
+	// exported for OpenAI proper is not a reason to offer it.
+	names := s.API.KeyEnv
+	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
+		names = append(append(append([]string{}, names...), wireKeyEnv(s.API.Wire)...), "FLOCKDECK_API_KEY")
+	}
+	for _, name := range names {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
 			return true
 		}
 	}
@@ -157,6 +170,20 @@ func keyIsSet(s Spec) bool {
 		return false
 	}
 	return strings.TrimSpace(keys[s.ID]) != ""
+}
+
+// wireKeyEnv is the variable each vendor's own tools read a key from, which the
+// chat client falls back on for an entry that names none. It is written out
+// again here, rather than shared, because the chat client imports this package.
+func wireKeyEnv(wire string) []string {
+	switch strings.ToLower(strings.TrimSpace(wire)) {
+	case "openai", "openai-compatible":
+		return []string{"OPENAI_API_KEY"}
+	case "gemini", "google":
+		return []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}
+	default:
+		return []string{"ANTHROPIC_API_KEY"}
+	}
 }
 
 // KeysName is the file internal/creds keeps API keys in. It is named here only
