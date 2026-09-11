@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,25 @@ func TestRelaunchReopensTheProjectOnScreen(t *testing.T) {
 	}
 	if got := relaunchCommand("flockdeck", "").Args; len(got) != 1 {
 		t.Errorf("with no project known, relaunch runs %q, want the program alone", got)
+	}
+}
+
+// `flockdeck update check` is somebody who forgot the dash on -check. Ignoring
+// the word ran the whole update, which is what they were asking not to do.
+func TestUpdateRefusesAStrayWord(t *testing.T) {
+	var out bytes.Buffer
+	fs := updateFlagSet(&updateFlags{})
+	fs.SetOutput(&out)
+	if err := parseUpdate(fs, []string{"check"}); !errors.Is(err, errReported) {
+		t.Fatalf("update check = %v, want it refused", err)
+	}
+	if !strings.Contains(out.String(), "Did you mean -check?") {
+		t.Errorf("the refusal does not point at -check:\n%s", out.String())
+	}
+
+	var f updateFlags
+	if err := parseUpdate(updateFlagSet(&f), []string{"-check"}); err != nil || !f.check {
+		t.Errorf("update -check = %v, check = %v; want it read", err, f.check)
 	}
 }
 

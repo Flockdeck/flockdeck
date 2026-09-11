@@ -37,9 +37,8 @@ func updatesDir() (string, error) {
 // the next start is the new version.
 func runUpdate(args []string) error {
 	var f updateFlags
-	fs := updateFlagSet(&f)
-	if err := fs.Parse(args); err != nil {
-		return errReported
+	if err := parseUpdate(updateFlagSet(&f), args); err != nil {
+		return err
 	}
 
 	// A local build is settled without asking GitHub anything. Checking
@@ -98,6 +97,29 @@ func runUpdate(args []string) error {
 
 	fmt.Printf("Updated to %s. It will be in use from the next start.\n", staged.Version)
 	return nil
+}
+
+// parseUpdate reads the command line of `flockdeck update` into the flag set's
+// values.
+//
+// A word where a flag was meant used to be ignored, and for `flockdeck update
+// check` ignoring it did the one thing the word asked not to: downloaded the
+// release and put it in place.
+func parseUpdate(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return errReported
+	}
+	if fs.NArg() == 0 {
+		return nil
+	}
+	out := fs.Output()
+	fmt.Fprintf(out, "flockdeck update: unexpected %q\n", fs.Arg(0))
+	if fs.Lookup(fs.Arg(0)) != nil {
+		fmt.Fprintf(out, "Did you mean -%s?\n", fs.Arg(0))
+	}
+	fmt.Fprintln(out)
+	fs.Usage()
+	return errReported
 }
 
 // applyStagedUpdate puts a staged update in place as the application exits.
