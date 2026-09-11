@@ -1,0 +1,531 @@
+package remote
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/xtaci/smux"
+)
+
+// isolate points the state directory at one of this test's own.
+func isolate(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	return dir
+}
+
+// quick makes the retrying fast enough to watch.
+func quick(t *testing.T) {
+	t.Helper()
+	oldMin, oldMax, oldClose := backoffMin, backoffMax, closeWait
+	backoffMin, backoffMax, closeWait = 10*time.Millisecond, 40*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { backoffMin, backoffMax, closeWait = oldMin, oldMax, oldClose })
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestConfigRoundTrip(t *testing.T) {
+	isolate(t)
+	if c, err := Load(); c != nil || err != nil {
+		t.Fatalf("Load with nothing saved = %v, %v; want nil, nil", c, err)
+	}
+	want := Config{Relay: "https://relay.example", HostID: "h1", AccountID: "a1", Token: "fdh_x", Name: "desk"}
+	if err := want.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := Load()
+	if err != nil || got == nil || *got != want {
+		t.Fatalf("Load = %+v, %v; want %+v", got, err, want)
+	}
+	if err := Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if c, err := Load(); c != nil || err != nil {
+		t.Errorf("Load after Clear = %v, %v; want nil, nil", c, err)
+	}
+	if err := Clear(); err != nil {
+		t.Errorf("Clear with nothing to clear: %v", err)
+	}
+}
+
+// A file that cannot be read is not the same as not being enrolled: saying
+// "not enabled" would invite enrolling a second time over a live host.
+func TestLoadRefusesABrokenFile(t *testing.T) {
+	isolate(t)
+	p, err := path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"{not json", `{"relay":"https://relay.example"}`} {
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if c, err := Load(); err == nil {
+			t.Errorf("Load(%q) = %+v with no error", content, c)
+		} else if !strings.Contains(err.Error(), filepath.Base(p)) {
+			t.Errorf("Load(%q) error %q does not name the file", content, err)
+		}
+	}
+}
+
+func TestRelayURL(t *testing.T) {
+	t.Setenv(RelayEnv, "")
+	if got, err := RelayURL(""); err != nil || got != DefaultRelay {
+		t.Errorf("RelayURL(\"\") = %q, %v; want the default", got, err)
+	}
+	t.Setenv(RelayEnv, "https://mine.example/")
+	if got, err := RelayURL(""); err != nil || got != "https://mine.example" {
+		t.Errorf("RelayURL from the environment = %q, %v", got, err)
+	}
+	if got, err := RelayURL("https://named.example"); err != nil || got != "https://named.example" {
+		t.Errorf("a named relay should beat the environment: %q, %v", got, err)
+	}
+
+	for raw, ok := range map[string]bool{
+		"https://relay.example":       true,
+		"https://relay.example/base/": true,
+		"http://127.0.0.1:8080":       true,
+		"http://localhost:9":          true,
+		"http://[::1]:9":              true,
+		"http://relay.example":        false, // the token would cross the network in the clear
+		"ftp://relay.example":         false,
+		"relay.example":               false,
+		"https://relay.example/?x=1":  false,
+		"https://relay.example/#frag": false,
+	} {
+		_, err := CheckRelay(raw)
+		if (err == nil) != ok {
+			t.Errorf("CheckRelay(%q) error = %v, want ok=%v", raw, err, ok)
+		}
+	}
+	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
+		t.Errorf("CheckRelay kept the trailing slash: %q", got)
+	}
+}
+
+// fakeRelay is enough of a relay to carry requests down a tunnel.
+type fakeRelay struct {
+	*httptest.Server
+	token string
+
+	mu sync.Mutex
+	// refuse, when set, is the status the tunnel endpoint answers with.
+	refuse int
+	// closeWith, when set, closes each tunnel as soon as it is open.
+	closeWith websocket.StatusCode
+	connects  int
+	version   string
+
+	sessions chan *smux.Session
+	calls    []string
+}
+
+func newFakeRelay(t *testing.T) *fakeRelay {
+	t.Helper()
+	f := &fakeRelay{token: "fdh_test", sessions: make(chan *smux.Session, 8)}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/host/connect", f.connect)
+	mux.HandleFunc("/", f.api)
+	f.Server = httptest.NewServer(mux)
+	t.Cleanup(f.Close)
+	return f
+}
+
+func (f *fakeRelay) connect(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.connects++
+	f.version = r.Header.Get("Flockdeck-Version")
+	refuse, closeWith := f.refuse, f.closeWith
+	f.mu.Unlock()
+	if refuse != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(refuse)
+		_, _ = io.WriteString(w, `{"error":"this host was removed"}`)
+		return
+	}
+	if r.Header.Get("Authorization") != "Bearer "+f.token {
+		http.Error(w, `{"error":"bad token"}`, http.StatusUnauthorized)
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+	if err != nil {
+		return
+	}
+	if closeWith != 0 {
+		_ = conn.Close(closeWith, "because the test said so")
+		return
+	}
+	nc := websocket.NetConn(context.Background(), conn, websocket.MessageBinary)
+	sess, err := smux.Client(nc, smuxConfig())
+	if err != nil {
+		conn.CloseNow()
+		return
+	}
+	f.sessions <- sess
+	// smux reports a failed connection through Accept rather than by closing
+	// the session, so this is how the relay notices the host going.
+	for {
+		if _, err := sess.AcceptStream(); err != nil {
+			break
+		}
+	}
+	sess.Close()
+}
+
+func (f *fakeRelay) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.connects
+}
+
+// api answers the REST calls, recording each.
+func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/api/v1/hosts" && r.Method == http.MethodPost {
+		var req RegisterRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Name == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":"a name is required"}`)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"hostId":"h1","accountId":"a1","token":"fdh_test"}`)
+		return
+	}
+	if r.Header.Get("Authorization") != "Bearer "+f.token {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"unknown host"}`)
+		return
+	}
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/host/pairings":
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"code":"fdp_c","url":"`+f.URL+`/pair#fdp_c","expiresAt":"2030-01-01T00:10:00Z"}`)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
+		_, _ = io.WriteString(w, `{"devices":[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:05:00Z"}],`+
+			`"hosts":[{"id":"h1","name":"desk","online":true,"lastSeen":"2030-01-01T00:05:00Z","self":true}]}`)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/"):
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/host":
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"no such thing"}`)
+	}
+}
+
+func (f *fakeRelay) config() Config {
+	return Config{Relay: f.URL, HostID: "h1", AccountID: "a1", Token: f.token, Name: "desk"}
+}
+
+// session waits for the next tunnel to open.
+func (f *fakeRelay) session(t *testing.T) *smux.Session {
+	t.Helper()
+	select {
+	case s := <-f.sessions:
+		return s
+	case <-time.After(5 * time.Second):
+		t.Fatal("no tunnel arrived at the relay")
+		return nil
+	}
+}
+
+// get sends one HTTP request down the tunnel, as the relay does for a browser.
+func get(t *testing.T, sess *smux.Session, path string) (*http.Response, string) {
+	t.Helper()
+	st, err := sess.OpenStream()
+	if err != nil {
+		t.Fatalf("open a stream: %v", err)
+	}
+	defer st.Close()
+	req, _ := http.NewRequest(http.MethodGet, "http://relay.example"+path, nil)
+	req.Header.Set("Flockdeck-Remote-Device", "d1")
+	if err := req.Write(st); err != nil {
+		t.Fatalf("write the request: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(st), req)
+	if err != nil {
+		t.Fatalf("read the response: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	return resp, string(body)
+}
+
+// The whole point: a request the relay puts on the tunnel lands on the
+// handler here, with what the relay said about it intact.
+func TestTunnelCarriesRequestsToTheHandler(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	var sawHost, sawDevice atomic.Value
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHost.Store(r.Host)
+		sawDevice.Store(r.Header.Get("Flockdeck-Remote-Device"))
+		_, _ = io.WriteString(w, "hello from the desk at "+r.URL.Path)
+	})
+	var changes atomic.Int32
+	c := NewConnector(f.config(), "v1.2.3", func(l net.Listener) error { return http.Serve(l, handler) },
+		func() { changes.Add(1) })
+	c.Start()
+	defer c.Stop()
+
+	sess := f.session(t)
+	waitFor(t, "connected", func() bool { return c.Status().State == StateConnected })
+	for _, path := range []string{"/", "/assets/app.js"} {
+		resp, body := get(t, sess, path)
+		if resp.StatusCode != http.StatusOK || body != "hello from the desk at "+path {
+			t.Errorf("GET %s down the tunnel = %d %q", path, resp.StatusCode, body)
+		}
+	}
+	if sawHost.Load() != "relay.example" || sawDevice.Load() != "d1" {
+		t.Errorf("the handler saw host %v and device %v", sawHost.Load(), sawDevice.Load())
+	}
+	f.mu.Lock()
+	version := f.version
+	f.mu.Unlock()
+	if version != "v1.2.3" {
+		t.Errorf("the relay was told version %q", version)
+	}
+	if changes.Load() == 0 {
+		t.Error("nobody was told the status changed")
+	}
+
+	c.Stop()
+	if st := c.Status(); st.State != StateOff {
+		t.Errorf("after Stop the state is %s, want off", st.State)
+	}
+	select {
+	case <-sess.CloseChan():
+	case <-time.After(5 * time.Second):
+		t.Error("stopping left the tunnel open at the relay")
+	}
+}
+
+// A tunnel that drops is dialled again, and the relay sees a second one.
+func TestTunnelComesBackAfterADrop(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+
+	first := f.session(t)
+	waitFor(t, "connected", func() bool { return c.Status().State == StateConnected })
+	first.Close()
+	f.session(t)
+	waitFor(t, "connected again", func() bool { return c.Status().State == StateConnected })
+	if n := f.count(); n < 2 {
+		t.Errorf("the relay saw %d connections, want at least 2", n)
+	}
+}
+
+// The relay's refusals that mean "stop": a token it no longer accepts, before
+// or after the upgrade, and another connection taking this host's place. Each
+// has to end the retrying, or a removed machine would hammer the relay for as
+// long as it ran.
+func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		refuse    int
+		closeWith websocket.StatusCode
+		want      State
+	}{
+		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked},
+		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked},
+		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked},
+		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			quick(t)
+			f := newFakeRelay(t)
+			f.refuse, f.closeWith = tc.refuse, tc.closeWith
+			c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+			c.Start()
+			defer c.Stop()
+			waitFor(t, string(tc.want), func() bool { return c.Status().State == tc.want })
+			time.Sleep(100 * time.Millisecond) // several backoffs' worth
+			if n := f.count(); n != 1 {
+				t.Errorf("the relay saw %d connections, want 1 and no retrying", n)
+			}
+			if c.Status().Detail == "" {
+				t.Error("the status does not say why it stopped")
+			}
+		})
+	}
+}
+
+// A relay that cannot be reached is retried, and the status says when.
+func TestUnreachableRelayIsRetried(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	cfg := f.config()
+	f.Close()
+	c := NewConnector(cfg, "", func(l net.Listener) error { return nil }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	st := c.Status()
+	if st.RetryAt.IsZero() || !strings.Contains(st.Detail, "reach the relay") {
+		t.Errorf("status = %+v, want an error saying the relay could not be reached, with a retry time", st)
+	}
+}
+
+func TestClientCalls(t *testing.T) {
+	f := newFakeRelay(t)
+	ctx := context.Background()
+
+	reg, err := Register(ctx, f.URL, "v", RegisterRequest{Name: "desk"})
+	if err != nil || reg.HostID != "h1" || reg.Token != "fdh_test" {
+		t.Fatalf("Register = %+v, %v", reg, err)
+	}
+	_, err = Register(ctx, f.URL, "v", RegisterRequest{})
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusBadRequest || api.Message != "a name is required" {
+		t.Errorf("a refused registration = %v, want the relay's own words", err)
+	}
+
+	c := NewClient(&Config{Relay: f.URL, Token: f.token}, "v")
+	p, err := c.Pair(ctx, KindDevice)
+	if err != nil || p.Code != "fdp_c" || !strings.HasSuffix(p.URL, "/pair#fdp_c") || p.ExpiresAt.IsZero() {
+		t.Errorf("Pair = %+v, %v", p, err)
+	}
+	r, err := c.Devices(ctx)
+	if err != nil || len(r.Devices) != 1 || r.Devices[0].Name != "phone" || len(r.Hosts) != 1 || !r.Hosts[0].Self {
+		t.Errorf("Devices = %+v, %v", r, err)
+	}
+	if err := c.Revoke(ctx, "d1"); err != nil {
+		t.Errorf("Revoke: %v", err)
+	}
+	if err := c.Unregister(ctx); err != nil {
+		t.Errorf("Unregister: %v", err)
+	}
+	f.mu.Lock()
+	calls := strings.Join(f.calls, "\n")
+	f.mu.Unlock()
+	for _, want := range []string{"DELETE /api/v1/host/devices/d1", "DELETE /api/v1/host"} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("the relay never saw %s; it saw:\n%s", want, calls)
+		}
+	}
+
+	stale := NewClient(&Config{Relay: f.URL, Token: "fdh_revoked"}, "v")
+	if _, err := stale.Devices(ctx); !IsRevoked(err) {
+		t.Errorf("a token the relay does not know gave %v, want it reported as revoked", err)
+	}
+}
+
+// Reloading brings the tunnel in line with the enrolment: started, left alone
+// when nothing has changed, and stopped when the enrolment goes.
+func TestManagerReload(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	var cfg *Config
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	m.load = func() (*Config, error) { return cfg, nil }
+	defer m.Close()
+
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Status(); ok {
+		t.Error("a machine with no enrolment reports a tunnel")
+	}
+	if _, err := m.Client(); !errors.Is(err, ErrNotEnabled) {
+		t.Errorf("Client with no enrolment = %v, want ErrNotEnabled", err)
+	}
+
+	c := f.config()
+	cfg = &c
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+
+	first := m.conn
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if m.conn != first {
+		t.Error("reloading an unchanged enrolment replaced a working tunnel")
+	}
+	if n := f.count(); n != 1 {
+		t.Errorf("the relay saw %d connections, want 1", n)
+	}
+
+	cfg = nil
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Status(); ok {
+		t.Error("the tunnel outlived the enrolment")
+	}
+
+	m.load = func() (*Config, error) { return nil, errors.New("broken") }
+	if err := m.Reload(); err == nil {
+		t.Error("a broken enrolment was reloaded without a word")
+	}
+}
+
+func TestQRSVG(t *testing.T) {
+	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(svg, "<svg") || !strings.HasSuffix(svg, "</svg>") || !strings.Contains(svg, `fill="#fff"`) {
+		t.Errorf("QRSVG does not look like a QR code on white: %.120s…", svg)
+	}
+}
+
+func TestQRTerminalIsSquare(t *testing.T) {
+	out, err := QRTerminal("https://relay.example/pair#fdp_0123456789abcdefghijkl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	width := len([]rune(lines[0]))
+	for i, l := range lines {
+		if n := len([]rune(l)); n != width {
+			t.Fatalf("line %d is %d wide, want %d", i, n, width)
+		}
+	}
+	// Two modules to a line, so a square code is about half as many lines as
+	// it is wide.
+	if got := len(lines); got != (width+1)/2 {
+		t.Errorf("%d lines for a code %d wide, want %d", got, width, (width+1)/2)
+	}
+	// The margin is light all the way round, which is what a reader looks for.
+	if !strings.HasPrefix(lines[0], "██") || strings.ContainsRune(lines[0], ' ') {
+		t.Errorf("the top edge is not solid quiet zone: %q", lines[0])
+	}
+}

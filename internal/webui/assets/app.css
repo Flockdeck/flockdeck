@@ -427,6 +427,25 @@ textarea:focus-visible {
    accent to be findable, and nothing louder because it is never urgent. */
 .chip.update { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .chip.update:hover { background: var(--accent); border-color: var(--accent); color: #06101f; }
+/* Remote access. The chip is plain while the tunnel works — it is a fact about
+   the machine, not something to look at — and amber only when it wants you. */
+.chip.remote.pending { color: var(--fg-dim); }
+.chip.remote.trouble { border-color: var(--waiting); color: var(--waiting); }
+.remote-status { margin: 0 0 12px; color: var(--fg-dim); }
+.remote-status.error, .remote-status.revoked, .remote-status.replaced { color: var(--waiting); }
+.remote-error { color: var(--exited); }
+.remote-pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 6px 0 4px; }
+/* The code is dark on white whatever the theme, so it scans. */
+.remote-qr { flex: 0 0 auto; width: 200px; height: 200px; border-radius: 4px; image-rendering: pixelated; }
+.remote-pair-text { flex: 1 1 220px; min-width: 0; }
+.remote-pair-text p { margin: 0 0 8px; }
+.remote-link, .remote-cmd {
+  width: 100%; padding: 6px 8px; margin: 0 0 8px;
+  background: var(--bg-inset); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.remote-link:focus { outline: none; border-color: var(--accent); }
 .update-notes {
   max-height: 220px; overflow: auto; white-space: pre-wrap;
   background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);

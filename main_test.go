@@ -215,6 +215,9 @@ func cliFlagNames() map[string]bool {
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
 		updateFlagSet(&updateFlags{}),
+		remoteEnableFlagSet(&remoteEnableFlags{}),
+		remotePairFlagSet(&remotePairFlags{}),
+		remoteDisableFlagSet(&remoteDisableFlags{}),
 	} {
 		fs.VisitAll(func(f *flag.Flag) { names[f.Name] = true })
 	}

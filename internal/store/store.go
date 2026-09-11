@@ -420,6 +420,12 @@ func Save(root string, s *State) error {
 	return nil
 }
 
+// WriteAtomic is writeAtomic for the packages that keep a file of their own in
+// the state directory. It carries the same promise — the old file or the new
+// one, never a mixture — and the same 0600, which is what any file sitting
+// beside the local server's token wants too.
+func WriteAtomic(path string, data []byte) error { return writeAtomic(path, data) }
+
 // writeAtomic replaces a file with new contents, leaving either the old file
 // or the new one behind and never a half-written mixture of the two.
 //

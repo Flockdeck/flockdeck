@@ -152,6 +152,12 @@
   window.addEventListener("blur", hideTip);
 
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  /** basePath is the directory the page was served from, ending in a slash.
+   *  Locally that is always "/", but through the relay the page lives under
+   *  the machine's own prefix — /h/<machine>/ — and everything it asks for has
+   *  to be asked for there, or it reaches the relay's own routes instead. So
+   *  nothing here names a path from the root: every URL is built on this. */
+  const basePath = (location.pathname || "/").replace(/[^/]*$/, "");
 
   /** Live pane records, keyed by pane id. */
   const panes = new Map();
@@ -213,7 +219,7 @@
     const abandoned = control;
     control = null; // so the close below is seen for what it is
     if (abandoned) { try { abandoned.close(); } catch { /* already gone */ } }
-    const ws = new WebSocket(wsBase + "/ws/control");
+    const ws = new WebSocket(wsBase + basePath + "ws/control");
     control = ws;
 
     // Every handler asks whether this is still the connection, the way the
@@ -242,6 +248,8 @@
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
+      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (dialog === "remote") keepFocus(renderRemote); }
+      else if (msg.type === "remotePair") { remotePairing = msg; if (dialog === "remote") keepFocus(renderRemote); }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -307,6 +315,201 @@
     go.focus();
   }
 
+  // ----------------------------------------------------------------- remote
+
+  /** What the remote access dialog last heard: the account's devices and
+   *  machines, and the pairing link it is showing, if any. Both are dropped
+   *  whenever the dialog is opened again, because a pairing link that has
+   *  been shown once is not one to leave lying about on the screen. */
+  let remoteRoster = null;
+  let remotePairing = null;
+  let remoteChipKey = null;
+
+  /** renderRemoteChip shows the Remote chip on an enrolled machine, and keeps
+   *  the dialog's status line current while it is open. Like the update chip
+   *  it is keyed on what it shows, so a snapshot that says nothing new about
+   *  the tunnel does not rebuild it. */
+  function renderRemoteChip(s) {
+    const r = s.remote || null;
+    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "";
+    if (key === remoteChipKey) return;
+    remoteChipKey = key;
+    const b = $("btn-remote");
+    if (!r) {
+      b.hidden = true;
+    } else {
+      // Amber only when it needs somebody, which is what amber means
+      // everywhere else here. A working tunnel is a plain chip, and the count
+      // says whether anybody is using it.
+      b.textContent = r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
+      b.classList.toggle("trouble", r.state === "error" || r.state === "revoked" || r.state === "replaced");
+      b.classList.toggle("pending", r.state === "connecting");
+      describe(b, remoteSummary(r));
+      b.hidden = false;
+    }
+    if (dialog === "remote") keepFocus(renderRemote);
+  }
+
+  /** remoteSummary says in a sentence where the tunnel stands. */
+  function remoteSummary(r) {
+    const where = String(r.relay || "the relay").replace(/^https?:\/\//, "");
+    switch (r.state) {
+      case "connected": {
+        const n = r.viewers || 0;
+        return "Reachable through " + where +
+          (n ? " — " + n + (n === 1 ? " window is" : " windows are") + " open from another device" : "");
+      }
+      case "connecting": return "Connecting to " + where + "…";
+      case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + ". Trying again shortly.";
+      case "revoked":
+      case "replaced": return r.detail || "Remote access has stopped.";
+      default: return "Not connected to " + where + ".";
+    }
+  }
+
+  /** openRemote shows remote access: whether the relay can be reached, a way
+   *  to pair a device, and what is paired already. */
+  function openRemote() {
+    dialog = "remote";
+    remoteRoster = null;
+    remotePairing = null;
+    openOverlay("Remote access", "remote");
+    renderRemote();
+    send({ cmd: "remoteDevices" });
+  }
+
+  function renderRemote() {
+    if (dialog !== "remote") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    const r = state && state.remote;
+    // Enrolling is a terminal command on purpose — it decides where the
+    // traffic goes — so a machine that is not enrolled is told how, rather
+    // than offered a button that would have to guess which relay.
+    if (!r && remoteRoster && !remoteRoster.enabled) {
+      body.append(el("div", "fan-hint",
+        "Remote access opens this window from another device — a laptop, a tablet, a phone — " +
+        "through a relay, without opening a port on this machine."));
+      body.append(el("p", null, "This machine is not enrolled. To turn it on, run this in a terminal:"));
+      body.append(el("pre", "remote-cmd", "flockdeck remote enable"));
+      return;
+    }
+    if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
+
+    const pair = section("Pair a device");
+    const p = remotePairing;
+    if (p && p.error) pair.append(el("p", "remote-error", p.error));
+    if (p && p.url) {
+      const box = el("div", "remote-pair");
+      if (p.qr) {
+        const img = el("img", "remote-qr");
+        img.alt = "QR code for the pairing link";
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(p.qr);
+        box.append(img);
+      }
+      const text = el("div", "remote-pair-text");
+      text.append(el("p", null, "Scan this with the device you want to pair, or open the link on it. " +
+        "It works once" + remoteUntil(p.expiresAt) + "."));
+      const link = el("input", "remote-link");
+      link.readOnly = true;
+      link.value = p.url;
+      link.setAttribute("aria-label", "Pairing link");
+      link.onfocus = () => link.select();
+      text.append(link);
+      text.append(el("p", "fan-hint", "Whoever opens it can drive every agent here, so treat it like a password until then."));
+      box.append(text);
+      pair.append(box);
+    } else if (!p || !p.pending) {
+      pair.append(el("p", "fan-hint", "A pairing link works once and expires in a few minutes. " +
+        "The device that opens it can open this window until you unpair it."));
+    }
+    const row = el("div", "update-row");
+    const go = el("button", "chip primary",
+      p && p.pending ? "Asking the relay…" : p && p.url ? "New link" : "Pair a device");
+    // An id, because the wording changes while it works and keepFocus would
+    // otherwise lose it across the redraw.
+    go.id = "remote-pair";
+    go.disabled = !!(p && p.pending);
+    go.onclick = () => {
+      remotePairing = { pending: true };
+      renderRemote();
+      send({ cmd: "remotePair", kind: "device" });
+    };
+    row.append(go);
+    pair.append(row);
+    body.append(pair);
+
+    const roster = remoteRoster;
+    if (!roster) { body.append(el("div", "dir-empty", "Loading…")); return; }
+    if (roster.error) body.append(el("p", "remote-error", roster.error));
+
+    const devices = roster.devices || [];
+    const dev = section(devices.length === 1 ? "1 paired device" : devices.length + " paired devices");
+    if (!devices.length && !roster.error) dev.append(el("div", "dir-empty", "Nothing is paired yet."));
+    devices.forEach((d) => {
+      const item = el("div", "wt-row");
+      const main = el("div", "wt-main");
+      const title = el("div", "wt-title");
+      title.append(el("span", "wt-label", d.name || "Unnamed device"));
+      const mine = !!roster.current && d.id === roster.current;
+      if (mine) title.append(el("span", "wt-flag", "this device"));
+      main.append(title);
+      main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
+      item.append(main);
+      const actions = el("div", "wt-actions");
+      const drop = el("button", "chip danger", "Unpair");
+      drop.onclick = () => {
+        const q = mine
+          ? "Unpair this device? This window will close, and it will need a new pairing link to come back."
+          : "Unpair " + (d.name || "this device") + "? Any window it has open will close.";
+        if (!window.confirm(q)) return;
+        send({ cmd: "remoteRevoke", id: d.id });
+      };
+      actions.append(drop);
+      item.append(actions);
+      dev.append(item);
+    });
+    body.append(dev);
+
+    const hosts = roster.hosts || [];
+    if (hosts.length) {
+      const hw = section(hosts.length === 1 ? "1 machine" : hosts.length + " machines");
+      hosts.forEach((h) => {
+        const item = el("div", "wt-row");
+        const main = el("div", "wt-main");
+        const title = el("div", "wt-title");
+        title.append(el("span", "wt-label", h.name || "Unnamed machine"));
+        if (h.self) title.append(el("span", "wt-flag", "this one"));
+        main.append(title);
+        main.append(el("div", "wt-meta", h.online ? "online" : "offline — last seen " + remoteAgo(h.lastSeen)));
+        item.append(main);
+        hw.append(item);
+      });
+      body.append(hw);
+    }
+  }
+
+  /** remoteAgo says how long since a time the relay reported, roughly. A time
+   *  it never had arrives as Go's zero time, which is long before anything. */
+  function remoteAgo(when) {
+    const t = Date.parse(when || "");
+    if (!(t > 0)) return "never";
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return "just now";
+    const unit = (n, one) => n + " " + one + (n === 1 ? "" : "s") + " ago";
+    if (s < 3600) return unit(Math.floor(s / 60), "minute");
+    if (s < 172800) return unit(Math.floor(s / 3600), "hour");
+    return unit(Math.floor(s / 86400), "day");
+  }
+
+  /** remoteUntil is ", until 14:05" for a pairing link's expiry. */
+  function remoteUntil(when) {
+    const t = Date.parse(when || "");
+    if (!(t > 0)) return "";
+    const d = new Date(t);
+    return ", until " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
   function send(cmd) {
     if (control && control.readyState === WebSocket.OPEN) {
       control.send(JSON.stringify(cmd));
@@ -331,6 +534,7 @@
     renderTabs(s);
     renderSummary(s);
     renderUpdate(s);
+    renderRemoteChip(s);
     updatePaneChrome(s);
     prunePanes(s);
     notifyAttention(s);
@@ -796,9 +1000,9 @@
    *  is what puts "an agent is waiting" in the taskbar while the window is
    *  behind three others and the title bar cannot be read. */
   const ICONS = {
-    waiting: "/assets/icon-waiting.svg",
-    working: "/assets/icon.svg",
-    idle: "/assets/icon-idle.svg",
+    waiting: basePath + "assets/icon-waiting.svg",
+    working: basePath + "assets/icon.svg",
+    idle: basePath + "assets/icon-idle.svg",
   };
   let iconState = "";
 
@@ -1233,7 +1437,7 @@
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
 
-    const ws = new WebSocket(wsBase + "/ws/pty?id=" + encodeURIComponent(p.id));
+    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id));
     ws.binaryType = "arraybuffer";
     p.ws = ws;
 
@@ -1661,6 +1865,7 @@
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "keys") send({ cmd: "keys" });
+    else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "projects") {
       send({ cmd: "recents" });
       send({ cmd: "browse", path: browseState ? browseState.path : "" });
@@ -2268,6 +2473,7 @@
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
+    remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
     update: openUpdate,
@@ -3670,7 +3876,7 @@
     if (helpLoading) return;
     helpLoading = true;
     helpError = "";
-    fetch("/help.json", { credentials: "same-origin" })
+    fetch(basePath + "help.json", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
       .then((data) => {
         helpPages = data.pages || [];
@@ -3926,6 +4132,7 @@
   // would otherwise arrive as the page to open.
   $("btn-help").onclick = () => openHelp();
   $("btn-update").onclick = () => openUpdate();
+  $("btn-remote").onclick = () => openRemote();
   $("overlay-close").onclick = closeOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;

@@ -112,6 +112,80 @@ checked in beyond this file. Where node is missing the behaviour tests skip and
 the source-level ones above still run.
 */
 
+// Through the relay the page is served from the machine's own prefix, and
+// every socket it opens has to be opened under it: one made from the root
+// reaches the relay's own routes instead of this machine.
+func TestFrontEndFollowsThePathItWasServedFrom(t *testing.T) {
+	runFrontEnd(t, `
+const r = boot({ pathname: "/h/abc123/" });
+assert.ok(r.control, "a control socket was opened");
+assert.strictEqual(r.control.url, "ws://127.0.0.1:7777/h/abc123/ws/control");
+r.hello();
+r.recv(fixture());
+const ptys = r.sockets.filter((s) => s.url.includes("/ws/pty"));
+assert.ok(ptys.length > 0, "the panes were streamed");
+for (const s of ptys) {
+  assert.ok(s.url.startsWith("ws://127.0.0.1:7777/h/abc123/ws/pty?id="), "a terminal socket escaped the prefix: " + s.url);
+}
+`)
+}
+
+// Remote access: a chip that shows only on an enrolled machine, and a dialog
+// that pairs devices and unpairs them — asking first, since unpairing ends
+// whatever that device has open.
+func TestRemoteAccessDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const chip = h.$("btn-remote");
+assert.ok(chip.hidden, "the chip is hidden on a machine that is not enrolled");
+
+const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example",
+  hostId: "h1", viewers: 2, since: "2030-01-01T00:00:00Z" }, over || {});
+h.recv(fixture({ remote: remote() }));
+assert.ok(!chip.hidden, "the chip shows once the machine is enrolled");
+assert.strictEqual(chip.textContent, "Remote · 2");
+assert.ok(!chip.classList.contains("trouble"), "a working tunnel is not amber");
+
+h.click(chip);
+assert.ok(!h.$("overlay").hidden, "the dialog opened");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" });
+
+h.recv({ type: "remoteDevices", enabled: true, current: "d2",
+  devices: [
+    { id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" },
+    { id: "d2", name: "laptop", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" },
+  ],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("phone"), "the devices are listed");
+assert.ok(body.textContent.includes("this device"), "the device this window is on is marked");
+
+h.click(h.$("remote-pair"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "device" });
+assert.ok(h.$("remote-pair").disabled, "the button waits for the relay rather than asking twice");
+h.recv({ type: "remotePair", kind: "device", code: "fdp_c", url: "https://relay.example/pair#fdp_c",
+  expiresAt: "2030-01-01T00:10:00Z", qr: "<svg xmlns='http://www.w3.org/2000/svg'></svg>" });
+const qr = body.querySelector(".remote-qr");
+assert.ok(qr && String(qr.src).startsWith("data:image/svg+xml"), "the QR code is drawn");
+assert.strictEqual(body.querySelector(".remote-link").value, "https://relay.example/pair#fdp_c");
+
+const unpairs = Array.from(body.querySelectorAll("button")).filter((b) => b.textContent === "Unpair");
+assert.strictEqual(unpairs.length, 2, "each device can be unpaired");
+const before = h.commands().length;
+h.win._confirm = false;
+h.click(unpairs[0]);
+assert.strictEqual(h.commands().length, before, "a device was unpaired without asking");
+h.win._confirm = true;
+h.click(unpairs[0]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRevoke", id: "d1" });
+
+h.recv(fixture({ remote: remote({ state: "error", viewers: 0, detail: "lost the relay" }) }));
+assert.ok(chip.classList.contains("trouble"), "a tunnel that cannot connect is amber");
+assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialog's status line followed the state");
+`)
+}
+
 // runFrontEnd boots app.js against the harness and runs body against it. The
 // body is ordinary node: assert is in scope, and h is the booted front end.
 func runFrontEnd(t *testing.T, body string) string {
@@ -2460,7 +2534,10 @@ function tabTo(doc, back) {
 
 // -------------------------------------------------------------------- boot
 
-function boot() {
+/** boot starts the front end. opts.pathname is where the page was served
+ *  from, which is "/" locally and a machine's own prefix through the relay. */
+function boot(opts) {
+  opts = opts || {};
   sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
   notifications.length = 0;
   FakeNotification.permission = "granted";
@@ -2472,7 +2549,7 @@ function boot() {
   const win = {
     innerWidth: 1400, innerHeight: 900,
     document: doc,
-    location: { protocol: "http:", host: "127.0.0.1:7777" },
+    location: { protocol: "http:", host: "127.0.0.1:7777", pathname: opts.pathname || "/" },
     WebSocket: FakeSocket,
     Terminal: FakeTerm,
     FitAddon: { FitAddon: FakeFit },

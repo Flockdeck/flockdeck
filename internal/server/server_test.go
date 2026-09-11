@@ -64,6 +64,7 @@ var everyRoute = []string{
 	"/health",
 	"/open?path=/tmp",
 	"/quit",
+	"/remote/reload",
 }
 
 // TestTokenGatesEverything checks the loopback port cannot be driven by another

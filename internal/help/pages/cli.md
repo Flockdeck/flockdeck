@@ -51,6 +51,23 @@ flockdeck keys list          # which agents have one, not what it is
 
 Nothing here ever prints a key back, and neither does the interface.
 
+## remote
+
+Reach this machine's agents from another device, through a relay.
+
+```sh
+flockdeck remote enable      # enrol this machine: -relay, -name, -join, -invite
+flockdeck remote pair        # a one-time link and QR code that pairs a device
+flockdeck remote pair -desktop  # a code that enrols another machine into the account
+flockdeck remote status      # is it on, and is it connected
+flockdeck remote devices     # what is paired, with the ids revoke takes
+flockdeck remote revoke <id> # unpair a device
+flockdeck remote disable     # remove this machine from the relay (-force if it cannot be reached)
+```
+
+A running instance is told when `enable` or `disable` changes anything, and
+connects or disconnects on the spot. **Remote access** has the rest.
+
 ## chat
 
 ```sh
@@ -92,6 +109,7 @@ subcommand still works; it is the background check that goes.
 | Variable | Effect |
 | --- | --- |
 | `FLOCKDECK_BROWSER` | Force which browser provides the window |
+| `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
 | `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn` |

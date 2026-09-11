@@ -6,7 +6,9 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
+	github.com/xtaci/smux v1.5.57
 	github.com/yuin/goldmark v1.8.6
+	rsc.io/qr v0.2.0
 )
 
 require (

@@ -38,6 +38,7 @@ var order = []string{
 	"history",
 	"projects",
 	"persistence",
+	"remote",
 	"shortcuts",
 	"cli",
 	"troubleshooting",
