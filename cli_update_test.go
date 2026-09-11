@@ -65,6 +65,16 @@ func TestUpdateRefusesAStrayWord(t *testing.T) {
 	}
 }
 
+// `update -h` is a request for the usage it has just printed, so the command
+// succeeds rather than exiting as though something had gone wrong.
+func TestUpdateHelpSucceeds(t *testing.T) {
+	fs := updateFlagSet(&updateFlags{})
+	fs.SetOutput(&bytes.Buffer{})
+	if err := parseUpdate(fs, []string{"-h"}); !errors.Is(err, errHelpAsked) {
+		t.Errorf("parseUpdate(-h) = %v, want errHelpAsked", err)
+	}
+}
+
 // FLOCKDECK_UPDATE=off is for somebody who wants the program left as it is. An
 // update staged before it was set must not go in on the way out regardless.
 func TestApplyStagedRespectsUpdatesOff(t *testing.T) {

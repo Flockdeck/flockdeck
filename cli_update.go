@@ -37,7 +37,9 @@ func updatesDir() (string, error) {
 // the next start is the new version.
 func runUpdate(args []string) error {
 	var f updateFlags
-	if err := parseUpdate(updateFlagSet(&f), args); err != nil {
+	if err := parseUpdate(updateFlagSet(&f), args); errors.Is(err, errHelpAsked) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 
@@ -107,6 +109,11 @@ func runUpdate(args []string) error {
 // release and put it in place.
 func parseUpdate(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
+		// -h is somebody asking for the usage they have just been given,
+		// which is not a failure to exit with.
+		if errors.Is(err, flag.ErrHelp) {
+			return errHelpAsked
+		}
 		return errReported
 	}
 	if fs.NArg() == 0 {
