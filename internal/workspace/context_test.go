@@ -995,6 +995,38 @@ func TestSiblingsAreDescribedWithTheirAgentAndModel(t *testing.T) {
 	}
 }
 
+// TestPaneContextNamesTheAgentASiblingRuns checks the label reaches the
+// briefing from the pane itself. The describing was all in place while the
+// lookup behind it still answered nothing for every pane, so no agent was ever
+// told what was running next door.
+func TestPaneContextNamesTheAgentASiblingRuns(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	child, err := ws.Spawn(parent, SpawnOptions{Task: "port the parser", Kind: session.KindShell, Split: true})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	// A live process is what keeps a sibling in the list; which agent it is
+	// recorded as is what is under test, so the shell is relabelled as one.
+	p := ws.Pane(child)
+	p.Kind, p.Agent, p.Model = session.KindClaude, "codex", "gpt-5"
+
+	c, _ := ws.PaneContext(parent)
+	if len(c.Siblings) != 1 {
+		t.Fatalf("siblings = %#v, want the child", c.Siblings)
+	}
+	if got := c.Siblings[0]; got.Agent != "codex" || got.Model != "gpt-5" {
+		t.Errorf("sibling runs %q · %q, want codex · gpt-5", got.Agent, got.Model)
+	}
+	if text := c.Render(); !strings.Contains(text, "running codex · gpt-5") {
+		t.Errorf("the briefing never says what the sibling runs:\n%s", text)
+	}
+}
+
 // TestTheAgentLabelsAreExplainedWhereThereAreAny keeps the note about them out
 // of a window where every pane is a shell or an agent nobody recorded.
 func TestTheAgentLabelsAreExplainedWhereThereAreAny(t *testing.T) {

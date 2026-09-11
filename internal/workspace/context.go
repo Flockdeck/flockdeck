@@ -261,14 +261,15 @@ func (w *Workspace) OpeningPrompt(paneID, task string, mode agent.ContextMode) s
 	return c.OpeningPrompt()
 }
 
-// paneAgent names the agent and the model a pane is running.
-//
-// It is a shim, and a temporary one: the two values belong on Pane, which is
-// declared in a file this change does not own, so the briefing is written to
-// read them from here and the body becomes `return p.Agent, p.Model` the
-// moment the fields exist. Empty strings until then leave a sibling described
-// exactly as it is described today.
-func paneAgent(*Pane) (agentID, model string) { return "", "" }
+// paneAgent names the agent and the model a pane is running, exactly as the
+// server reports them for its header, so the agent reading about a sibling and
+// the user looking at it are told the same thing. A shell runs neither.
+func paneAgent(p *Pane) (agentID, model string) {
+	if !p.IsAgent() {
+		return "", ""
+	}
+	return p.Agent, p.Model
+}
 
 // tabOf returns the tab containing a pane, or nil.
 func (w *Workspace) tabOf(paneID string) *Tab {
