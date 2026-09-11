@@ -31,8 +31,7 @@ func main() {
 	}
 	defer conn.CloseNow()
 
-	// First message is the state snapshot.
-	_, data, err := conn.Read(ctx)
+	data, err := readState(ctx, conn)
 	if err != nil {
 		fmt.Println("read:", err)
 		os.Exit(1)
@@ -77,4 +76,24 @@ func main() {
 		time.Sleep(1500 * time.Millisecond)
 	}
 	time.Sleep(1500 * time.Millisecond)
+}
+
+// readState returns the first state snapshot on the socket. A window is greeted
+// with the key table and preferences before the state, so the first message is
+// not the one wanted, and the snapshot of a busy workspace is larger than the
+// socket's default 32 KB limit on a message.
+func readState(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
+	conn.SetReadLimit(16 << 20)
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var msg struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &msg) == nil && msg.Type == "state" {
+			return data, nil
+		}
+	}
 }
