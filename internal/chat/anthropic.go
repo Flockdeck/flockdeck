@@ -64,6 +64,12 @@ type anthropicRequest struct {
 }
 
 func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event)) error {
+	if req.Model == "" {
+		// This API has no default model, and says so as "model: Field
+		// required", which reads as something wrong with the request rather
+		// than something the user can set.
+		return errors.New("the Anthropic API needs a model named: choose one with /model, for example /model claude-sonnet-5")
+	}
 	// This API refuses a request without a ceiling.
 	if req.MaxTokens <= 0 {
 		req.MaxTokens = defaultMaxTokens
