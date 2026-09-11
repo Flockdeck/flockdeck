@@ -430,6 +430,44 @@ func TestTunnelDropsAnOversizedMessage(t *testing.T) {
 	waitFor(t, "the tunnel to be dropped and dialled again", func() bool { return connects.Load() >= 2 })
 }
 
+// Only the relay can revoke this machine. A 403 page from a proxy or a
+// firewall in front of it is a reason to try again, not to stop for good.
+func TestOnlyTheRelayRevokes(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{decodeError(http.StatusUnauthorized, []byte(`{"error":"this desktop is no longer registered with the relay"}`)), true},
+		{decodeError(http.StatusForbidden, []byte(`{"error":"this host was removed"}`)), true},
+		{why(websocket.CloseError{Code: CloseRevoked}), true},
+		{decodeError(http.StatusForbidden, []byte(`<html><body>Access denied</body></html>`)), false},
+		{decodeError(http.StatusUnauthorized, nil), false},
+		{decodeError(http.StatusInternalServerError, []byte(`{"error":"the database is not answering"}`)), false},
+	} {
+		if got := IsRevoked(tc.err); got != tc.want {
+			t.Errorf("IsRevoked(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+
+	quick(t)
+	var connects atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connects.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "<html><body>Access denied</body></html>")
+	}))
+	defer proxy.Close()
+	c := NewConnector(Config{Relay: proxy.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "the tunnel to be tried again", func() bool { return connects.Load() >= 3 })
+	if st := c.Status(); st.State == StateRevoked {
+		t.Errorf("a proxy's 403 page stopped the tunnel as revoked: %+v", st)
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()

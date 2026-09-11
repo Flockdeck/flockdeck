@@ -47,8 +47,13 @@ func (e *APIError) Error() string {
 // Revoked reports whether the relay no longer accepts this host's token —
 // because the host was removed, from here or from a device, or the account
 // was. There is nothing to retry: the enrolment is spent.
+//
+// Only a refusal in the relay's own words counts. A 403 is also what a proxy
+// or a firewall in front of the relay answers with, on a page of its own, and
+// taking that for a revocation would stop the tunnel for good and have
+// `remote enable` enrol the machine again over a host that is still live.
 func (e *APIError) Revoked() bool {
-	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+	return e.Message != "" && (e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden)
 }
 
 // IsRevoked reports whether err is the relay refusing this host's token.

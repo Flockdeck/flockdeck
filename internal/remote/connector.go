@@ -329,8 +329,13 @@ func (c *Connector) session(ctx context.Context) error {
 func why(err error) error {
 	switch websocket.CloseStatus(err) {
 	case CloseRevoked:
+		// The close code is the relay's own, so it is a revocation with or
+		// without a reason, and Revoked needs a message to see one.
 		var ce websocket.CloseError
 		errors.As(err, &ce)
+		if ce.Reason == "" {
+			ce.Reason = "it closed the tunnel as revoked"
+		}
 		return &APIError{Status: http.StatusUnauthorized, Message: ce.Reason}
 	case CloseReplaced:
 		return errReplaced
