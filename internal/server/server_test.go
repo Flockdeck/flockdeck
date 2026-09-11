@@ -439,6 +439,44 @@ func TestTwoInstancesKeepTheirOwnCookies(t *testing.T) {
 	}
 }
 
+// TestControlSocketOnlyAnswersItsOwnPage covers who may drive the workspace.
+// A page on another local port has this server's cookie attached to any
+// socket it opens here, and a WebSocket is not subject to CORS, so the origin
+// is the only thing that tells the window's own page from somebody else's.
+func TestControlSocketOnlyAnswersItsOwnPage(t *testing.T) {
+	srv, _ := newTestServer(t)
+	dial := func(origin, host string) (*websocket.Conn, *http.Response, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		h.Set("Cookie", srv.cookieName()+"="+srv.Token())
+		return websocket.Dial(ctx, "ws://"+host+"/ws/control", &websocket.DialOptions{HTTPHeader: h})
+	}
+
+	for _, origin := range []string{"http://127.0.0.1:9999", "http://localhost:9999", "https://example.com"} {
+		conn, resp, err := dial(origin, srv.Addr())
+		if err == nil {
+			conn.CloseNow()
+			t.Errorf("a page served from %s was allowed to open the control socket", origin)
+			continue
+		}
+		if resp != nil && resp.StatusCode != http.StatusForbidden {
+			t.Errorf("dial from %s = %d, want 403", origin, resp.StatusCode)
+		}
+	}
+
+	// The window's own page, under either loopback name it can be opened by.
+	for _, host := range []string{srv.Addr(), "localhost:" + port(srv.Addr())} {
+		conn, _, err := dial("http://"+host, host)
+		if err != nil {
+			t.Errorf("the window's own page was refused at %s: %v", host, err)
+			continue
+		}
+		conn.CloseNow()
+	}
+}
+
 // TestCloseEndsControlConnections covers shutdown of a hijacked connection:
 // http.Shutdown leaves websockets alone, so the server has to close them
 // itself or the window is left holding a socket nothing is listening on.

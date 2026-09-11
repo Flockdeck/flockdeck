@@ -557,17 +557,15 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Through the relay the page and this socket share the relay's address,
-	// so the origin is held to exactly that, as the terminal socket always
-	// is. The loopback allowance is for the local window and has no business
-	// admitting a page from somebody's own localhost on the far side of the
-	// relay.
-	opts := &websocket.AcceptOptions{OriginPatterns: []string{"127.0.0.1:*", "localhost:*"}}
+	// No origin patterns, for the reason the terminal socket has none: the
+	// page opening this must have come from this server's own address, or
+	// through the relay from the relay's. This socket used to admit any page
+	// on 127.0.0.1 or localhost, whatever its port -- and cookies take no
+	// notice of the port, so the user's own dev server, or anything that could
+	// be made to serve a page from one, had the token attached for it and
+	// could send any command a window can: prompt every agent, open a shell.
 	isRemote := fromRemote(r)
-	if isRemote {
-		opts = nil
-	}
-	conn, err := websocket.Accept(w, r, opts)
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
