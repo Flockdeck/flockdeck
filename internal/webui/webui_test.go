@@ -2084,6 +2084,23 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// The update dialog took over the panel without saying so, so the dialog it
+// replaced still believed the panel was its own: its answer, arriving a
+// moment later, was drawn over the question of whether to restart.
+func TestTheUpdateDialogIsNotDrawnOver(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
+h.click(h.$("btn-changes"));
+h.click(h.$("btn-update"));
+assert.strictEqual(h.$("overlay-title").textContent, "Update to 9.9.9");
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+assert.ok(h.$("overlay-body").textContent.includes("Restart now"), "the review was drawn over the update");
+assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn over the update");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

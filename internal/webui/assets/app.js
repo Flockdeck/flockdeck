@@ -296,6 +296,9 @@
   function openUpdate() {
     const u = state && state.update;
     if (!u) return;
+    // Named like every other dialog, so that the one it replaced — whose answer
+    // may still be on its way — no longer thinks the panel is its own.
+    dialog = "update";
     openOverlay("Update to " + u.version);
     const body = $("overlay-body");
     body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
