@@ -72,15 +72,21 @@ func (s *Server) notifyAll(text string, isErr bool) {
 	if err != nil {
 		return
 	}
+	for _, c := range s.clientList() {
+		c.send(data)
+	}
+}
+
+// clientList is the windows connected at this moment, copied out so that
+// sending to them does not hold the lock a window connecting or leaving needs.
+func (s *Server) clientList() []*controlClient {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	clients := make([]*controlClient, 0, len(s.clients))
 	for c := range s.clients {
 		clients = append(clients, c)
 	}
-	s.mu.Unlock()
-	for _, c := range clients {
-		c.send(data)
-	}
+	return clients
 }
 
 // ---------------------------------------------------------------------------
@@ -481,13 +487,7 @@ func (s *Server) broadcastState() {
 			return
 		}
 		s.lastState = data
-		s.mu.Lock()
-		clients := make([]*controlClient, 0, len(s.clients))
-		for c := range s.clients {
-			clients = append(clients, c)
-		}
-		s.mu.Unlock()
-		for _, c := range clients {
+		for _, c := range s.clientList() {
 			c.sendState(data)
 		}
 	})

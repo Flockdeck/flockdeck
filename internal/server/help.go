@@ -51,13 +51,7 @@ func (s *Server) savePrefs() {
 	if err != nil {
 		return
 	}
-	s.mu.Lock()
-	clients := make([]*controlClient, 0, len(s.clients))
-	for cl := range s.clients {
-		clients = append(clients, cl)
-	}
-	s.mu.Unlock()
-	for _, cl := range clients {
+	for _, cl := range s.clientList() {
 		cl.send(data)
 	}
 }
