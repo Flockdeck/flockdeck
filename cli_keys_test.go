@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
@@ -21,6 +22,34 @@ func isolateKeys(t *testing.T) {
 	for _, s := range keysAgents() {
 		for _, name := range s.API.KeyEnv {
 			t.Setenv(name, "")
+		}
+	}
+}
+
+// keysAgent is one agent from the list the subcommand works from.
+func keysAgent(t *testing.T, id string) agent.Spec {
+	t.Helper()
+	for _, s := range keysAgents() {
+		if s.ID == id {
+			return s
+		}
+	}
+	t.Fatalf("no agent %q among the agents that can want a key", id)
+	return agent.Spec{}
+}
+
+// A variable nothing that starts a pane reads is not where a pane's key comes
+// from, and the listing must not say that it is.
+func TestKeysListReportsOnlyWhatAPaneWouldFind(t *testing.T) {
+	isolateKeys(t)
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-elsewhere")
+	out, err := runKeysCmd(t, "", "list")
+	if err != nil {
+		t.Fatalf("keys list: %v", err)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "anthropic ") && !strings.Contains(line, "not set") {
+			t.Errorf("anthropic is listed as %q, from a variable its pane never reads", line)
 		}
 	}
 }
@@ -55,7 +84,7 @@ func TestKeysSetReadsStdin(t *testing.T) {
 			if strings.Contains(out, tt.want) {
 				t.Errorf("the key was printed back: %q", out)
 			}
-			got := creds.Resolve(keysAgents()[0])
+			got := creds.Resolve(keysAgent(t, "anthropic"))
 			if got.Secret() != tt.want {
 				t.Errorf("stored %q, want %q", got.Secret(), tt.want)
 			}

@@ -184,23 +184,14 @@ func stdinIsTerminal() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// keysAgents is the list of agents that can want a key.
+// keysAgents is the list of agents that can want a key: the catalog, with the
+// user's agents.json merged in, of which creds.StatusAll keeps the API runners.
 //
-// This is a shim. It belongs in the catalog, which another task owns and this
-// branch may not touch; when the catalog arrives this whole function becomes a
-// filter over it, and the entries below go with it. They are the built-in API
-// runners of the design's section 4, with the environment variables each
-// vendor's own tooling already uses, so that a key already exported for the
-// vendor's CLI is found without being copied anywhere.
+// It is the catalog rather than a list of its own so that `keys list` says what
+// a pane will actually find. A list kept here had drifted from it -- it named
+// ANTHROPIC_AUTH_TOKEN, which nothing that starts a pane reads, and so reported
+// a key as set for an agent that would then fail for want of one -- and it
+// could not see an agent the user had added.
 func keysAgents() []agent.Spec {
-	return []agent.Spec{
-		{ID: "anthropic", Name: "Anthropic API", Runner: agent.RunnerAPI,
-			API: agent.APISpec{Wire: "anthropic", KeyEnv: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}}},
-		{ID: "openai", Name: "OpenAI API", Runner: agent.RunnerAPI,
-			API: agent.APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}}},
-		{ID: "google", Name: "Google Gemini API", Runner: agent.RunnerAPI,
-			API: agent.APISpec{Wire: "gemini", KeyEnv: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}}},
-		{ID: "openai-compatible", Name: "OpenAI-compatible endpoint", Runner: agent.RunnerAPI,
-			API: agent.APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}}},
-	}
+	return agent.Load().Specs
 }
