@@ -694,9 +694,16 @@ const entryClear = "clear"
 // looked for, because an error is the one string in a program that gets pasted
 // into a bug report.
 func resolveKey(o Options) (string, error) {
-	names := append([]string{}, o.KeyEnv...)
-	names = append(names, defaultKeyEnv(o.Wire)...)
-	names = append(names, "FLOCKDECK_API_KEY")
+	// The spec usually names the conventional variable itself, and an error
+	// that tells somebody to set X or X is one they read twice.
+	var names []string
+	seen := map[string]bool{}
+	for _, name := range append(append(append([]string{}, o.KeyEnv...), defaultKeyEnv(o.Wire)...), "FLOCKDECK_API_KEY") {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	for _, name := range names {
 		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
 			return v, nil
