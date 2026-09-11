@@ -63,6 +63,40 @@ func readAllFrames(t *testing.T, conn *websocket.Conn) (data []byte, frames int)
 	}
 }
 
+// TestReplayIsSentInBoundedFrames covers a window on a slow link. Each write
+// has a budget of its own, so a replay sent as one frame is the one write most
+// likely to run out of it -- and a window dropped part way through a replay
+// reconnects to be sent the whole of it again.
+func TestReplayIsSentInBoundedFrames(t *testing.T) {
+	replay := make([]byte, 512<<10)
+	for i := range replay {
+		replay[i] = byte('a' + i%26)
+	}
+	out := make(chan []byte)
+	close(out)
+	conn := streamPair(t, replay, out)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var got []byte
+	for {
+		_, b, err := conn.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+				t.Fatalf("read after %d bytes: %v", len(got), err)
+			}
+			break
+		}
+		if len(b) > replayFrame {
+			t.Errorf("a replay frame of %d bytes, want at most %d", len(b), replayFrame)
+		}
+		got = append(got, b...)
+	}
+	if !bytes.Equal(got, replay) {
+		t.Fatalf("got %d bytes, want %d, equal prefix %d", len(got), len(replay), commonPrefix(got, replay))
+	}
+}
+
 // TestOutputBurstArrivesInFewFrames is the throughput case. A pane that dumps a
 // build log reaches the session as hundreds of small reads; sending one frame
 // per read is what makes the window fall behind, so whatever has already queued

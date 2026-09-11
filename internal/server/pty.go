@@ -346,10 +346,17 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 // It returns true when the session's stream ended, leaving the connection
 // usable, and false when the connection itself went away.
 func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte) bool {
-	if len(replay) > 0 {
-		if err := writeChunk(ctx, conn, replay); err != nil {
+	// The replay goes out a frame at a time, and each frame has the write's
+	// budget to itself. Sent whole, half a megabyte of history on a slow link
+	// -- a phone reaching this through the relay -- outlasted that budget, the
+	// socket was dropped for it, and the window reconnected to be sent the same
+	// replay again, never once getting as far as the live output.
+	for len(replay) > 0 {
+		n := min(len(replay), replayFrame)
+		if err := writeChunk(ctx, conn, replay[:n]); err != nil {
 			return false
 		}
+		replay = replay[n:]
 	}
 
 	// A burst -- a build's output, a page of scrollback, Claude redrawing --
@@ -388,6 +395,12 @@ const (
 	// the remainder goes out as the next frame, which the terminal draws just
 	// as happily.
 	coalesceLimit = 256 << 10
+
+	// replayFrame bounds one frame of a replay. What decides it is the
+	// slowest link a window is used over rather than the cost of a frame: a
+	// write has fifteen seconds, so a frame of this size needs no more than a
+	// few kilobytes a second to arrive in time.
+	replayFrame = 64 << 10
 
 	// minFrameGap is the closest together two frames for one pane are sent.
 	//
