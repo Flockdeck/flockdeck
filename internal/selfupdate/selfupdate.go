@@ -476,6 +476,13 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	_, err = io.Copy(out, in)
+	// The copy is renamed onto the name the program is started by, and that
+	// name has just been vacated, so no file system treats the rename as the
+	// replacement it is and flushes the data ahead of it. Without this a crash
+	// soon after an update could leave an empty file where the program was.
+	if err == nil {
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
