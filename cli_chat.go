@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/chat"
 	"github.com/jmwri/flockdeck/internal/chat/tool"
+	"github.com/jmwri/flockdeck/internal/creds"
 )
 
 // runChat implements the `chat` subcommand: Flockdeck's own chat client, run inside
@@ -31,7 +33,18 @@ func runChat(args []string) error {
 		opts.Cwd, _ = os.Getwd()
 	}
 	opts.Tools = chatTools(opts.Cwd)
+	chat.KeyStore = storedKey
 	return chat.Run(context.Background(), opts)
+}
+
+// storedKey is the key `flockdeck keys set` stored for an agent, or "".
+//
+// A pane is handed its stored key in its environment, but a chat started by
+// hand has nobody to hand it one -- and the error it prints without a key
+// tells the user to run `flockdeck keys set`, which would otherwise make no
+// difference to it at all.
+func storedKey(agentID string) string {
+	return creds.Resolve(agent.Spec{ID: agentID}).Secret()
 }
 
 // chatTools are what the model in a chat pane can do besides talk: read and

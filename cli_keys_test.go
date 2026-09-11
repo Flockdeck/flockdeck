@@ -140,6 +140,22 @@ func TestKeysClear(t *testing.T) {
 	}
 }
 
+// `flockdeck chat` run by hand has no pane to hand it a stored key, and its
+// error without one tells the user to run `flockdeck keys set`: the key that
+// sets has to be the one it then finds.
+func TestAChatStartedByHandFindsAStoredKey(t *testing.T) {
+	isolateKeys(t)
+	if _, err := runKeysCmd(t, "sk-stored\n", "set", "anthropic"); err != nil {
+		t.Fatalf("keys set: %v", err)
+	}
+	if got := storedKey("anthropic"); got != "sk-stored" {
+		t.Errorf("storedKey = %q, want the stored key", got)
+	}
+	if got := storedKey("openai"); got != "" {
+		t.Errorf("storedKey found %q for an agent with nothing stored", got)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
