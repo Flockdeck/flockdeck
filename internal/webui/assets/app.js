@@ -4226,6 +4226,17 @@
   $("new-tab-pick").onclick = () => runAction("newAgentTabChoose");
   wireTabStripDrops();
   wireDragSafetyNet();
+  // The strip scrolls sideways and shows no scrollbar, and a mouse wheel turns
+  // the other way: with more tabs than fit, the ones past the edge could be
+  // reached from the keyboard and not with the mouse at all. The wheel moves
+  // the strip, as it does a browser's own. A trackpad already scrolls it
+  // sideways and is left to.
+  $("tabs").addEventListener("wheel", (e) => {
+    const strip = $("tabs");
+    if (strip.scrollWidth <= strip.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    strip.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-history").onclick = openHistory;

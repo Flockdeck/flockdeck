@@ -2383,6 +2383,30 @@ assert.strictEqual(h.$("commit-message").value, "", "a message that was committe
 `)
 }
 
+// The tab strip scrolls sideways with its scrollbar hidden, and a mouse wheel
+// turns the other way, so with more tabs than fit the ones past the edge could
+// not be reached with the mouse at all.
+func TestTheWheelScrollsATabStripThatOverflows(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const strip = h.$("tabs");
+strip.scrollLeft = 0;
+strip.scrollWidth = 900;
+strip.clientWidth = 300;
+const wheel = new h.Ev("wheel", { target: strip, deltaX: 0, deltaY: 120, deltaMode: 0 });
+h.dispatch(strip, wheel);
+assert.strictEqual(strip.scrollLeft, 120, "the wheel did not move the strip");
+assert.ok(wheel.defaultPrevented, "the wheel went on to scroll something else as well");
+
+// A strip that fits has nothing to scroll and leaves the wheel alone.
+strip.scrollWidth = 300;
+const idle = new h.Ev("wheel", { target: strip, deltaX: 0, deltaY: 120, deltaMode: 0 });
+h.dispatch(strip, idle);
+assert.ok(!idle.defaultPrevented, "a strip that fits took the wheel");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
