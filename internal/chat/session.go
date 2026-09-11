@@ -465,6 +465,7 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 			// Answering rather than failing is deliberate: a model that asked
 			// for a tool it does not have can be told so and carry on, and
 			// killing the turn over it teaches nobody anything.
+			s.out.line(ansiRed, "  there is no tool called "+c.Name)
 			s.answer(c, fmt.Sprintf("there is no tool called %q in this pane", c.Name))
 			continue
 		}
@@ -486,6 +487,10 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 		out, err := tool.Run(ctx, c.Args)
 		s.reporter.postTool(c.Name)
 		if err != nil {
+			// Drawn as well as answered: a refusal -- a path outside the
+			// pane, an edit that does not match -- is otherwise invisible, and
+			// the user watching the model try again cannot tell why.
+			s.out.line(ansiRed, "  failed: "+summarise(err.Error(), s.opts.Width))
 			s.answer(c, "the tool failed: "+err.Error())
 			continue
 		}
