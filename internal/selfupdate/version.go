@@ -1,9 +1,18 @@
 package selfupdate
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// describeSuffix matches what `git describe --dirty` adds after a tag: the
+// commits since it and the one built, and whether the tree had changes. The
+// Makefile stamps a build that way, and read as a pre-release it would be
+// ordered before the tag it came after, so a build three commits past v1.4.0
+// was replaced by v1.4.0 on its next restart. It is a local build, which is
+// not something to compare at all.
+var describeSuffix = regexp.MustCompile(`(^|-)(\d+-g[0-9a-f]+(-dirty)?|dirty)$`)
 
 // version is a release version, parsed far enough to be ordered against
 // another one. Only what the release tags actually carry is understood:
@@ -37,6 +46,10 @@ func parseVersion(s string) (version, bool) {
 			}
 		}
 		s = s[:i]
+	}
+
+	if describeSuffix.MatchString(v.pre) {
+		return version{}, false
 	}
 
 	parts := strings.Split(s, ".")

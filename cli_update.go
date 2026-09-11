@@ -42,11 +42,11 @@ func runUpdate(args []string) error {
 		return errReported
 	}
 
-	// An untagged build is settled without asking GitHub anything. Checking
+	// A local build is settled without asking GitHub anything. Checking
 	// first would turn "you built this yourself" into whatever the network had
 	// to say, which for a repository that has published nothing yet is a 404.
 	if !selfupdate.Parseable(version) {
-		fmt.Printf("This is an untagged build (%s), so there is no released version to compare it with.\n", version)
+		fmt.Printf("This build (%s) was not made from a release, so there is no released version to compare it with.\n", version)
 		fmt.Printf("Releases are published from %s; a build made here is stamped by git describe.\n", selfupdate.Repo)
 		return nil
 	}

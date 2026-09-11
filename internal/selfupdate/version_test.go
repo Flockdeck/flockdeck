@@ -30,6 +30,13 @@ func TestNewer(t *testing.T) {
 		{"", "v1.4.0", false, "an empty candidate"},
 		{"v1.4.0", "", false, "an empty current version"},
 		{"vNope", "v1.0.0", false, "a candidate that is not a version"},
+
+		// What `git describe` stamps on a local build is not a pre-release of
+		// the tag it came after, so the tag is not newer than it.
+		{"v1.4.0", "v1.4.0-3-gdeadbee", false, "a build three commits past its tag"},
+		{"v1.4.0", "v1.4.0-dirty", false, "a build of the tag with changes in the tree"},
+		{"v1.4.0", "v1.4.0-3-gdeadbee-dirty", false, "both at once"},
+		{"v1.4.0", "v1.4.0-rc.1-2-g1234abc", false, "a build past a candidate"},
 	}
 
 	for _, c := range cases {
