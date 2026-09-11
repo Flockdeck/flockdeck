@@ -29,7 +29,7 @@ flockdeck remote enable      # enrol this machine with the relay
 flockdeck remote pair        # a one-time link and QR code for a device
 ```
 
-The relay is `https://relay.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
+The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
 `flockdeck remote pair -desktop`, so one paired device can reach both.
 

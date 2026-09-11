@@ -677,7 +677,7 @@ flockdeck remote revoke <id>      # unpair one
 flockdeck remote disable          # remove this machine from the relay
 ```
 
-Flockdeck dials *out* to the relay — `https://relay.flockdeck.ai` unless
+Flockdeck dials *out* to the relay — `https://remote.flockdeck.ai` unless
 `-relay` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open
 while it runs, carrying a stream multiplexer. Each connection a paired browser
 makes becomes a stream, and each stream is served in-process by the very

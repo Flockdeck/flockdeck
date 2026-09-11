@@ -27,7 +27,12 @@ import (
 )
 
 // DefaultRelay is the relay a machine is enrolled with when nobody names one.
-const DefaultRelay = "https://relay.flockdeck.ai"
+//
+// It was https://relay.flockdeck.ai in v0.2.0, and a machine enrolled then
+// keeps that address in its remote.json. That is fine: the relay still answers
+// desktops on its old name, and sends a browser that arrives there to this
+// one.
+const DefaultRelay = "https://remote.flockdeck.ai"
 
 // RelayEnv overrides DefaultRelay, for somebody running a relay of their own
 // or developing against one.
