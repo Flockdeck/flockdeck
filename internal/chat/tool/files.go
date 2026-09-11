@@ -1,10 +1,12 @@
 package tool
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,10 @@ const (
 	// because a single minified line can be larger than everything else the
 	// turn contains.
 	readMaxBytes = 256 << 10
+	// readMaxLine bounds one line of what a read returns, for the same reason
+	// applied to the one line of a minified file that is larger than the rest
+	// of the project.
+	readMaxLine = 4 << 10
 	// previewRunes bounds how much of a string is quoted back in an approval
 	// question or an error, so that neither can push the rest of the terminal
 	// off the screen.
@@ -73,14 +79,19 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory; use list_dir", t.root.Rel(abs))
 	}
-	data, err := os.ReadFile(abs)
+	f, err := os.Open(abs)
 	if err != nil {
 		return "", err
 	}
-	if looksBinary(data) {
+	defer f.Close()
+	// The file is read a line at a time rather than whole, because the model
+	// pages through a large log with offset and limit and a read of two
+	// thousand lines should not cost the memory of the whole file.
+	r := bufio.NewReaderSize(f, 64<<10)
+	if head, _ := r.Peek(8 << 10); looksBinary(head) {
 		return "", fmt.Errorf("%s looks like a binary file (%s)", t.root.Rel(abs), humanBytes(info.Size()))
 	}
-	if len(data) == 0 {
+	if info.Size() == 0 {
 		return fmt.Sprintf("%s is empty.", t.root.Rel(abs)), nil
 	}
 
@@ -92,25 +103,38 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if limit <= 0 {
 		limit = readDefaultLines
 	}
-	lines := splitLines(data)
-	if offset > len(lines) {
-		return "", fmt.Errorf("%s has %d lines; offset %d is past the end", t.root.Rel(abs), len(lines), offset)
-	}
-	end := offset - 1 + limit
-	if end > len(lines) {
-		end = len(lines)
-	}
 
 	var b strings.Builder
-	shown := offset - 1
-	for i := offset - 1; i < end; i++ {
-		if b.Len() >= readMaxBytes {
+	lines, shown, full := 0, offset-1, false
+	for {
+		line, dropped, err := nextLine(r, readMaxLine)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		if err == io.EOF && line == "" && dropped == 0 {
 			break
 		}
-		fmt.Fprintf(&b, "%d\t%s\n", i+1, lines[i])
-		shown = i + 1
+		lines++
+		if lines >= offset && lines < offset+limit && !full {
+			if dropped > 0 {
+				line += fmt.Sprintf(" [... %s more on this line]", humanBytes(int64(dropped)))
+			}
+			entry := fmt.Sprintf("%d\t%s\n", lines, line)
+			if b.Len() > 0 && b.Len()+len(entry) > readMaxBytes {
+				full = true
+			} else {
+				b.WriteString(entry)
+				shown = lines
+			}
+		}
+		if err == io.EOF {
+			break
+		}
 	}
-	if remaining := len(lines) - shown; remaining > 0 {
+	if offset > lines {
+		return "", fmt.Errorf("%s has %d lines; offset %d is past the end", t.root.Rel(abs), lines, offset)
+	}
+	if remaining := lines - shown; remaining > 0 {
 		noun := "lines"
 		if remaining == 1 {
 			noun = "line"
@@ -323,15 +347,38 @@ func looksBinary(data []byte) bool {
 	return bytes.IndexByte(head, 0) >= 0
 }
 
-// splitLines splits a file into lines without inventing a trailing empty one
-// for the newline that ends a well-formed text file.
-func splitLines(data []byte) []string {
-	s := strings.ReplaceAll(string(data), "\r\n", "\n")
-	s = strings.TrimSuffix(s, "\n")
-	if s == "" {
-		return nil
+// nextLine reads one line without its ending, keeping at most max bytes of it
+// and reporting how many were dropped. A file's last line may have no newline,
+// in which case it comes back with io.EOF.
+//
+// A line has a ceiling of its own because one line of a minified bundle can be
+// megabytes long, and handing it over whole would spend the context window on
+// one read however few lines were asked for.
+func nextLine(r *bufio.Reader, max int) (string, int, error) {
+	var kept []byte
+	dropped := 0
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if err != bufio.ErrBufferFull {
+			// The line's own ending is not text: it is neither kept nor
+			// counted among what the reader did not see.
+			chunk = bytes.TrimRight(chunk, "\r\n")
+		}
+		if room := max - len(kept); len(chunk) > room {
+			kept, dropped = append(kept, chunk[:room]...), dropped+len(chunk)-room
+		} else {
+			kept = append(kept, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if dropped == 0 {
+			// A CRLF split across two reads leaves its carriage return here.
+			kept = bytes.TrimRight(kept, "\r")
+		}
+		// Cutting by byte count can land in the middle of a rune.
+		return strings.ToValidUTF8(string(kept), ""), dropped, err
 	}
-	return strings.Split(s, "\n")
 }
 
 func countLines(s string) int {
