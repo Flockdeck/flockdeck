@@ -45,6 +45,17 @@ func TestRelaunchReopensTheProjectOnScreen(t *testing.T) {
 	}
 }
 
+// FLOCKDECK_UPDATE=off is for somebody who wants the program left as it is. An
+// update staged before it was set must not go in on the way out regardless.
+func TestApplyStagedRespectsUpdatesOff(t *testing.T) {
+	t.Setenv(updateEnv, "off")
+	dir, exe := stageForTest(t, "v1.5.0")
+	applyStaged(&bytes.Buffer{}, dir, exe, "v1.4.0")
+	if got, _ := os.ReadFile(exe); string(got) != "running" {
+		t.Errorf("program = %q with updates turned off, want it left alone", got)
+	}
+}
+
 // A release staged by one build is not an update to every build that finds it.
 // A build of the user's own, or a newer release installed since, shares the
 // same state directory, and putting the leftover in place on the way out would

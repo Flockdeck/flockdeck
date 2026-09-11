@@ -134,6 +134,13 @@ var startedAs, _ = os.Executable()
 // applyStaged is applyStagedUpdate for a given staging directory, program and
 // running version, so that a test can hand it all three.
 func applyStaged(out io.Writer, dir, exe, current string) {
+	// Turning updates off has to cover this too. The watcher never starts with
+	// it set, but something staged by a run before it was set is still here,
+	// and would replace the program of somebody who had asked for it to stay
+	// as it is — without the top bar ever having offered it.
+	if updatesOff() {
+		return
+	}
 	p, ok := stagedUpdate(dir, current)
 	if !ok {
 		return
@@ -218,6 +225,10 @@ func sweepReplacedBinary() {
 // machine rather than clicking in a window.
 const updateEnv = "FLOCKDECK_UPDATE"
 
+// updatesOff reports whether updateEnv has turned updating in the background
+// off.
+func updatesOff() bool { return strings.EqualFold(os.Getenv(updateEnv), "off") }
+
 // updateInterval is how often a long-running instance looks again. Flockdeck
 // is left open for days at a time, so checking only at startup would mean
 // never checking at all.
@@ -231,7 +242,7 @@ const updateInterval = 6 * time.Hour
 // worth interrupting the user over, because nothing is broken and the next
 // check is a few hours away.
 func watchForUpdates(ctx context.Context, srv *server.Server) {
-	if !selfupdate.Parseable(version) || strings.EqualFold(os.Getenv(updateEnv), "off") {
+	if !selfupdate.Parseable(version) || updatesOff() {
 		return
 	}
 	dir, err := updatesDir()
