@@ -238,7 +238,18 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 		return "", "", 0, fmt.Errorf("%s looks like a binary file", t.root.Rel(abs))
 	}
 	old := string(data)
-	count = strings.Count(old, a.OldString)
+	from, to := a.OldString, a.NewString
+	if strings.Contains(old, "\r\n") {
+		// read_file shows a file without its carriage returns, so an edit to
+		// one with Windows line endings arrives written with bare newlines. It
+		// is made in the file's own endings, rather than refused for not
+		// matching or left as a file that mixes the two.
+		to = withCRLF(to)
+		if !strings.Contains(old, from) {
+			from = withCRLF(from)
+		}
+	}
+	count = strings.Count(old, from)
 	switch {
 	case count == 0:
 		return "", "", 0, fmt.Errorf("old_string does not appear in %s", t.root.Rel(abs))
@@ -246,12 +257,17 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 		return "", "", 0, fmt.Errorf("old_string appears %d times in %s; include more surrounding text so it is unique, or set replace_all", count, t.root.Rel(abs))
 	}
 	if a.ReplaceAll {
-		updated = strings.ReplaceAll(old, a.OldString, a.NewString)
+		updated = strings.ReplaceAll(old, from, to)
 	} else {
-		updated = strings.Replace(old, a.OldString, a.NewString, 1)
+		updated = strings.Replace(old, from, to, 1)
 		count = 1
 	}
 	return abs, updated, count, nil
+}
+
+// withCRLF writes every line ending in s as a carriage return and a newline.
+func withCRLF(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n")
 }
 
 func (t *editFile) Approval(args json.RawMessage) string {
