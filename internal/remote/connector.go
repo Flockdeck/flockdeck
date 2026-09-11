@@ -261,9 +261,6 @@ func (c *Connector) session(ctx context.Context) error {
 		}
 		return fmt.Errorf("reach the relay at %s: %w", c.cfg.Relay, unwrapURLError(err))
 	}
-	// smux never writes a frame near this size; the limit is here so that a
-	// relay that has gone wrong cannot have this process buffer without end.
-	conn.SetReadLimit(1 << 20)
 
 	// The tunnel lives for as long as this session does, so the byte stream
 	// over the WebSocket is bound to a context of its own rather than to ctx:
@@ -274,6 +271,10 @@ func (c *Connector) session(ctx context.Context) error {
 		Conn:   websocket.NetConn(streamCtx, conn, websocket.MessageBinary),
 		failed: make(chan struct{}),
 	}
+	// smux never writes a frame near this size; the limit is here so that a
+	// relay that has gone wrong is dropped rather than read without end. It
+	// comes after NetConn, which lifts whatever limit was set before it.
+	conn.SetReadLimit(1 << 20)
 	sess, err := smux.Server(rec, smuxConfig())
 	if err != nil {
 		conn.CloseNow()

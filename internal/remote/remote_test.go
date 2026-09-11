@@ -400,6 +400,36 @@ func TestUnreachableRelayIsRetried(t *testing.T) {
 	}
 }
 
+// A message far bigger than any smux frame is a relay gone wrong, and the
+// tunnel is dropped and dialled again rather than read to the end.
+func TestTunnelDropsAnOversizedMessage(t *testing.T) {
+	quick(t)
+	var connects atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connects.Add(1)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		// Two megabytes of smux keepalives: frames that are harmless one by
+		// one, in a single message twice the size the tunnel allows.
+		nop := "\x02\x03\x00\x00\x00\x00\x00\x00"
+		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte(strings.Repeat(nop, 2<<20/len(nop))))
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "the tunnel to be dropped and dialled again", func() bool { return connects.Load() >= 2 })
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()
