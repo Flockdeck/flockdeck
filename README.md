@@ -20,7 +20,7 @@ key and no separate account. Talking to an API directly needs one, and `flockdec
 keys` keeps it.
 
 ```
-┌ flockdeck ──────────────────────────────────────────── ─ □ × ┐
+┌ flockdeck ──────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
 │ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
