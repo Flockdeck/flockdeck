@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1145,22 +1146,20 @@ func TestRestoreAsksForEveryBranchAtOnce(t *testing.T) {
 		t.Fatalf("paneDirs found %d directories, want 7: one repository shared by six tabs and six of their own", len(dirs))
 	}
 
-	serial := time.Now()
-	for _, dir := range dirs {
-		_ = branchOf(dir)
+	arrive, met := meetAll(len(dirs))
+	lookup := branchLookup
+	branchLookup = func(dir string) string {
+		arrive()
+		return lookup(dir)
 	}
-	oneAtATime := time.Since(serial)
+	t.Cleanup(func() { branchLookup = lookup })
 
-	together := time.Now()
 	branches := branchesOf(dirs)
-	atOnce := time.Since(together)
-
 	if len(branches) != len(dirs) {
 		t.Fatalf("got %d branches for %d directories", len(branches), len(dirs))
 	}
-	t.Logf("%d directories: one at a time %v, together %v", len(dirs), oneAtATime, atOnce)
-	if atOnce > oneAtATime {
-		t.Errorf("asking together took %v, longer than asking one at a time (%v)", atOnce, oneAtATime)
+	if !met() {
+		t.Errorf("the %d lookups were never in flight at once; they were asked one after another", len(dirs))
 	}
 }
 
@@ -1171,11 +1170,23 @@ func TestRestoreAsksForEveryBranchAtOnce(t *testing.T) {
 // for the conversation to resume, and a terminal — and they used to be started
 // as the tree was read, so a window coming back with twenty agents spent three
 // and a half seconds showing nothing.
+//
+// It counts the panes being started rather than timing them. A shell starts
+// in a couple of milliseconds on Linux, where together and one at a time came
+// out within scheduling noise of each other and the comparison failed CI.
 func TestRestoreStartsEveryPaneAtOnce(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 
-	const panes = 8
+	const panes = paneLaunches
+	arrive, met := meetAll(panes)
+	start := launchPane
+	launchPane = func(w *Workspace, p *Pane, resume bool) {
+		arrive()
+		start(w, p, resume)
+	}
+	t.Cleanup(func() { launchPane = start })
+
 	saved := &store.State{}
 	for i := 0; i < panes; i++ {
 		saved.Tabs = append(saved.Tabs, store.Tab{
@@ -1188,11 +1199,12 @@ func TestRestoreStartsEveryPaneAtOnce(t *testing.T) {
 	}
 
 	ws := newTestWorkspace(t, root)
-	start := time.Now()
 	if ok, err := ws.Restore(); err != nil || !ok {
 		t.Fatalf("restore: ok=%v err=%v", ok, err)
 	}
-	together := time.Since(start)
+	if !met() {
+		t.Errorf("the %d panes were never starting at once; they were started one after another", panes)
+	}
 
 	if len(ws.VisibleTabs()) != panes {
 		t.Fatalf("restored %d tabs, want %d", len(ws.VisibleTabs()), panes)
@@ -1211,21 +1223,41 @@ func TestRestoreStartsEveryPaneAtOnce(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// What the same work costs one at a time, for the same panes on the same
-	// machine, so the comparison is not against a number written down once.
-	oneAtATime := time.Now()
-	for i := 0; i < panes; i++ {
-		p := &Pane{ID: uuid.NewString(), Kind: session.KindShell, Cwd: root, Name: "x", Root: root}
-		ws.mu.Lock()
-		ws.panes[p.ID] = p
-		ws.mu.Unlock()
-		ws.startPane(p, false)
+// meetAll returns a gate for n callers and a report of whether all n were ever
+// inside it at the same time. Each caller waits at the gate until the last one
+// arrives, so work done together passes straight through. Work done one item
+// at a time never has a second caller to meet, so each waits out a timeout and
+// the report says no: concurrency asked about directly, with no clock to race.
+func meetAll(n int) (arrive func(), met func() bool) {
+	var (
+		mu     sync.Mutex
+		inside int
+		all    bool
+		once   sync.Once
+	)
+	together := make(chan struct{})
+	arrive = func() {
+		mu.Lock()
+		inside++
+		if inside == n {
+			all = true
+			once.Do(func() { close(together) })
+		}
+		mu.Unlock()
+		select {
+		case <-together:
+		case <-time.After(2 * time.Second):
+		}
+		mu.Lock()
+		inside--
+		mu.Unlock()
 	}
-	serial := time.Since(oneAtATime)
-
-	t.Logf("%d panes: restored together in %v, started one at a time in %v", panes, together, serial)
-	if together > serial {
-		t.Errorf("restoring %d panes took %v, longer than starting them one at a time (%v)", panes, together, serial)
+	met = func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return all
 	}
+	return arrive, met
 }

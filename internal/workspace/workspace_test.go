@@ -167,12 +167,16 @@ func TestProjectNamesGrowUntilTheyDiffer(t *testing.T) {
 }
 
 // TestProjectNameOfARootDirectory keeps the top of a path from naming a
-// project after a separator, which is what Base of "C:\\" gives.
+// project after a separator, which is what Base of "C:\\" gives. With no
+// element to borrow, a root is named by the whole of itself: "C:\\" on
+// Windows and "/" elsewhere. On Windows a lone separator can only have come
+// from Base; on Linux the root is one, so the name is checked against the
+// root rather than against the separator.
 func TestProjectNameOfARootDirectory(t *testing.T) {
 	root := filepath.VolumeName(mustAbs(t)) + string(filepath.Separator)
 	names := projectNames([]string{root})
-	if len(names) != 1 || names[0] == "" || names[0] == string(filepath.Separator) {
-		t.Errorf("name of %q = %q, want something that names a directory", root, names)
+	if len(names) != 1 || names[0] != filepath.Clean(root) {
+		t.Errorf("name of %q = %q, want the root itself", root, names)
 	}
 }
 

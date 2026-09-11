@@ -286,6 +286,11 @@ func paneDirs(st *store.State) []string {
 // starts behind each other while the window has nothing to draw.
 const branchLookups = 8
 
+// branchLookup asks for one directory's branch. It is a variable so a test can
+// see how many lookups are in flight at once, which is the property worth
+// checking and one a clock cannot see on a machine where git starts quickly.
+var branchLookup = branchOf
+
 // branchesOf works out which branch each directory is on.
 //
 // Every answer costs a git process, and starting one on Windows takes about
@@ -310,7 +315,7 @@ func branchesOf(dirs []string) map[string]string {
 		go func() {
 			defer wg.Done()
 			for dir := range queue {
-				branch := branchOf(dir)
+				branch := branchLookup(dir)
 				mu.Lock()
 				out[dir] = branch
 				mu.Unlock()
@@ -338,6 +343,11 @@ type restoring struct {
 // in the same instant.
 const paneLaunches = 8
 
+// launchPane starts one pane a restore built. It is a variable for the same
+// reason branchLookup is: a shell starts in a couple of milliseconds on Linux,
+// so whether panes are started together only shows up by counting them.
+var launchPane = (*Workspace).startPane
+
 // launch starts every pane a restore built.
 //
 // Starting one costs about 170ms on this machine — a settings file, a look for
@@ -357,7 +367,7 @@ func (w *Workspace) launch(panes []*Pane) {
 		return
 	}
 	if len(panes) == 1 {
-		w.startPane(panes[0], panes[0].IsAgent())
+		launchPane(w, panes[0], panes[0].IsAgent())
 		return
 	}
 	queue := make(chan *Pane)
@@ -375,7 +385,7 @@ func (w *Workspace) launch(panes []*Pane) {
 				// before, which is the point of persisting pane ids as session
 				// UUIDs. Whether the agent can be reattached at all is
 				// startPane's to decide, from its Spec and its transcript.
-				w.startPane(p, p.IsAgent())
+				launchPane(w, p, p.IsAgent())
 			}
 		}()
 	}
