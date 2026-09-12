@@ -242,6 +242,36 @@ var defaultStripEnv = []string{
 	"CLAUDE_CODE_DONT_INHERIT_ENV",
 }
 
+// terminalEnv is what a pane is told about the terminal it runs in, and what
+// it inherits about another terminal that has to go, on a given platform.
+//
+// A pane's terminal is the one Flockdeck draws, whatever Flockdeck itself was
+// started in. Started from a desktop launcher on macOS or Linux it has no TERM
+// to pass on, and every pane was a dumb terminal: Claude Code 2.1.269, read
+// from its executable, picks no colour at all with neither TERM nor COLORTERM
+// set, and vim and clear refuse to run. Started from another terminal, every
+// pane was told it was that one: Claude Code picks its colours, notifications
+// and key handling from TERM_PROGRAM and LC_TERMINAL, and with TMUX set it runs
+// `tmux display-message -t $TMUX_PANE` and `tmux show-environment -g` against
+// the user's own tmux server, about a pane that is not this one. What is
+// stripped is what it reads to tell which terminal it is in.
+//
+// Windows is left as it is. Nothing there reads TERM the way terminfo does --
+// Claude Code takes its colours from the Windows version -- and Claude Code
+// reads WT_SESSION and TERM_PROGRAM there to decide that the console
+// understands escape sequences, which a ConPTY pane does too.
+func terminalEnv(goos string) (strip, set []string) {
+	if goos == "windows" {
+		return nil, nil
+	}
+	strip = []string{
+		"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "LC_TERMINAL", "LC_TERMINAL_VERSION",
+		"TMUX", "TMUX_PANE", "STY",
+		"KONSOLE_VERSION", "GNOME_TERMINAL_SERVICE", "XTERM_VERSION",
+	}
+	return strip, []string{"TERM=xterm-256color", "COLORTERM=truecolor"}
+}
+
 // Env builds the environment for a pane: Flockdeck's own environment minus the
 // markers of the session it was launched from, plus extra KEY=VALUE entries.
 func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
@@ -262,8 +292,20 @@ func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 // stale value in force -- which is how a pane opened from inside another
 // instance would tell its agent it was the pane that spawned it.
 func EnvStripping(strip []string, extra ...string) []string {
-	drop := make(map[string]bool, len(defaultStripEnv)+len(strip)+len(extra))
-	for _, name := range append(slices.Clip(defaultStripEnv), strip...) {
+	return envFrom(runtime.GOOS, os.Environ(), strip, extra)
+}
+
+// envFrom is EnvStripping for a given platform and inherited environment.
+func envFrom(goos string, base, strip, extra []string) []string {
+	termStrip, termSet := terminalEnv(goos)
+	// What a pane is told about its terminal is the least of what it is given:
+	// the catalog and the caller can still say otherwise.
+	if len(termSet) > 0 {
+		extra = layerEnv(termSet, extra)
+	}
+
+	drop := make(map[string]bool, len(defaultStripEnv)+len(termStrip)+len(strip)+len(extra))
+	for _, name := range append(append(slices.Clip(defaultStripEnv), termStrip...), strip...) {
 		drop[envKey(name)] = true
 	}
 	for _, kv := range extra {
@@ -272,7 +314,6 @@ func EnvStripping(strip []string, extra ...string) []string {
 		}
 	}
 
-	base := os.Environ()
 	out := make([]string, 0, len(base)+len(extra))
 	for _, kv := range base {
 		name, _, ok := strings.Cut(kv, "=")

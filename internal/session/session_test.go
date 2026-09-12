@@ -373,6 +373,56 @@ func TestEnvExtrasReplaceInheritedValues(t *testing.T) {
 	}
 }
 
+// TestAPaneIsToldItsOwnTerminal covers what a pane is told about the terminal
+// it runs in, which is the one Flockdeck draws: not nothing, as a desktop
+// launcher leaves it, and not the terminal Flockdeck was started from.
+func TestAPaneIsToldItsOwnTerminal(t *testing.T) {
+	lookup := func(env []string, name string) (value string, copies int) {
+		for _, kv := range env {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+				value, copies = v, copies+1
+			}
+		}
+		return value, copies
+	}
+	inherited := []string{
+		"TERM=screen-256color", "TERM_PROGRAM=iTerm.app", "TERM_PROGRAM_VERSION=3.6.6",
+		"LC_TERMINAL=iTerm2", "TMUX=/tmp/tmux-501/default,1234,0", "TMUX_PANE=%3",
+		"HOME=/home/me",
+	}
+
+	env := envFrom("linux", inherited, nil, nil)
+	for name, want := range map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "HOME": "/home/me"} {
+		if got, n := lookup(env, name); n != 1 || got != want {
+			t.Errorf("%s = %q (%d copies), want %q once", name, got, n, want)
+		}
+	}
+	for _, name := range []string{"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "LC_TERMINAL", "TMUX", "TMUX_PANE"} {
+		if got, n := lookup(env, name); n != 0 {
+			t.Errorf("%s=%q was passed on from the terminal Flockdeck was started in", name, got)
+		}
+	}
+
+	// A desktop launcher passes no TERM at all.
+	if got, _ := lookup(envFrom("darwin", []string{"HOME=/Users/me"}, nil, nil), "TERM"); got != "xterm-256color" {
+		t.Errorf("TERM = %q in a pane of an application started from the desktop", got)
+	}
+
+	// The catalog or the caller can still say otherwise.
+	if got, n := lookup(envFrom("linux", inherited, nil, []string{"TERM=xterm-kitty"}), "TERM"); n != 1 || got != "xterm-kitty" {
+		t.Errorf("TERM = %q (%d copies), want the one given", got, n)
+	}
+
+	// Windows is left as it is.
+	win := envFrom("windows", []string{"TERM_PROGRAM=vscode", "WT_SESSION=abc"}, nil, nil)
+	if _, n := lookup(win, "TERM"); n != 0 {
+		t.Error("a Windows pane was given a TERM")
+	}
+	if got, _ := lookup(win, "WT_SESSION"); got != "abc" {
+		t.Error("a Windows pane lost WT_SESSION")
+	}
+}
+
 // TestWriteToAnExitedPaneSaysSo covers typing into a pane whose process has
 // gone. The PTY's own error names a closed handle and nothing else, which is
 // not something to show anybody.
