@@ -2517,6 +2517,26 @@ assert.ok(pick[1].classList.contains("sel"), "a picker row sliding under the poi
 `)
 }
 
+// The font size was kept in local storage, which belongs to the page's origin,
+// and the origin changes with the port on every run: the size chosen was back
+// to the default the next time the application started. It is kept with the
+// other preferences now, and arrives with them.
+func TestTheFontSizeComesBackOnTheNextRun(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 17 });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.fontSize, 17, "the size chosen on an earlier run was not used");
+
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 18 });
+assert.strictEqual(h.terms[0].options.fontSize, 18);
+
+// A size chosen in another window follows here too.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], fontSize: 12 } });
+assert.strictEqual(h.terms[0].options.fontSize, 12, "a size chosen in another window was not followed");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

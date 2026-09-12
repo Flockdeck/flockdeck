@@ -83,6 +83,20 @@ func (s *Server) dismissTip(id string) {
 	})
 }
 
+// setFontSize records the size the terminals are drawn at. The window used to
+// keep it itself, in local storage, which forgot it on every run.
+func (s *Server) setFontSize(size int) {
+	if size < 8 || size > 28 {
+		return
+	}
+	s.do(func() {
+		if s.prefs.FontSize != size {
+			s.prefs.FontSize = size
+			s.savePrefs()
+		}
+	})
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

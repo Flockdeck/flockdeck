@@ -207,6 +207,8 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
+	// Size is the terminal font size, for fontSize.
+	Size int `json:"size"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
 	// which is what every keystroke that does not go through the picker sends
@@ -782,6 +784,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "dismissTip":
 		s.dismissTip(cmd.ID)
+		return
+	case "fontSize":
+		s.setFontSize(cmd.Size)
 		return
 	case "forgetRecent":
 		if err := store.ForgetRecent(cmd.Root); err != nil {

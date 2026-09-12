@@ -19,6 +19,9 @@ type Prefs struct {
 	// DismissedTips holds the ids of the inline hints that have been sent
 	// away. A hint that is dismissed should stay dismissed.
 	DismissedTips []string `json:"dismissedTips,omitempty"`
+	// FontSize is the size the terminals are drawn at, in pixels. Zero is the
+	// default size.
+	FontSize int `json:"fontSize,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

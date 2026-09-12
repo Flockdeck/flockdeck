@@ -202,9 +202,11 @@
    *  whenever any agent changes what it is doing — is not mistaken for the
    *  catalog changing and does not redraw the picker under the keyboard. */
   let catalogKey = "";
-  let fontSize = (() => {
-    try { return Number(localStorage.getItem("fontSize")) || 13; } catch { return 13; }
-  })();
+  /** The size the terminals are drawn at. It is kept on the Go side with the
+   *  other preferences and arrives with them, before the first pane is drawn:
+   *  kept in local storage, it was forgotten on every run, for the reason
+   *  given for prefs above. */
+  let fontSize = 13;
 
   // ---------------------------------------------------------------- control
 
@@ -240,7 +242,7 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; renderHints(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyFontSize(prefs.fontSize); renderHints(); }
       else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
       else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
@@ -2356,13 +2358,21 @@
   // -------------------------------------------------------------- font size
 
   function setFontSize(px) {
-    fontSize = Math.max(8, Math.min(28, px));
-    try { localStorage.setItem("fontSize", String(fontSize)); } catch {}
+    applyFontSize(px);
+    send({ cmd: "fontSize", size: fontSize });
+    notice("Font size " + fontSize + "px", false);
+  }
+
+  /** applyFontSize draws every terminal at a size without announcing it,
+   *  which is how a size chosen on an earlier run, or in another window,
+   *  arrives. Zero, for a person who has never chosen one, is the default. */
+  function applyFontSize(px) {
+    fontSize = Math.max(8, Math.min(28, px || 13));
     for (const p of panes.values()) {
+      if (p.term.options.fontSize === fontSize) continue;
       p.term.options.fontSize = fontSize;
       scheduleFit(p);
     }
-    notice("Font size " + fontSize + "px", false);
   }
 
   // ----------------------------------------------------------------- search
@@ -2537,6 +2547,7 @@
   function applyHello(msg) {
     keyTable = msg.keys || [];
     prefs = msg.prefs || prefs;
+    applyFontSize(prefs.fontSize);
     bindings = new Map();
     keyTable.forEach((k) => {
       const s = signatureOf(k.keys);
