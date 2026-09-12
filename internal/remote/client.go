@@ -33,6 +33,16 @@ var relayHTTP = &http.Client{
 	},
 }
 
+// probeHTTP is how Probe asks, following no redirect either: a relay answers
+// on its own address, so one that redirects was given some other address,
+// perhaps the one it redirects to. No token goes with a probe, so that, and
+// not the token, is what its refusal says.
+var probeHTTP = &http.Client{
+	CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("it answered with a redirect to %s://%s; if that is the relay's address, give that instead", req.URL.Scheme, req.URL.Host)
+	},
+}
+
 // Client makes the relay's REST calls on behalf of an enrolled host.
 type Client struct {
 	Relay   string
@@ -138,8 +148,9 @@ const (
 	KindHost   = "host"
 )
 
-// Register enrols this machine with a relay. It is the one call made without
-// a token, because it is the one that gets one.
+// Register enrols this machine with a relay. It is made without a token,
+// because it is the call that gets one; Probe, the only other made without,
+// asks no more than whether a relay is there.
 func Register(ctx context.Context, relay, version string, req RegisterRequest) (*Registration, error) {
 	c := &Client{Relay: relay, Version: version}
 	var out Registration
@@ -183,16 +194,6 @@ func Probe(ctx context.Context, relay string) error {
 		return fmt.Errorf("it answered %s, which is not what a Flockdeck relay answers", resp.Status)
 	}
 	return nil
-}
-
-// probeHTTP is how Probe asks, following no redirect either: a relay answers
-// on its own address, so one that redirects was given some other address,
-// perhaps the one it redirects to. No token goes with a probe, so that, and
-// not the token, is what its refusal says.
-var probeHTTP = &http.Client{
-	CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-		return fmt.Errorf("it answered with a redirect to %s://%s; if that is the relay's address, give that instead", req.URL.Scheme, req.URL.Host)
-	},
 }
 
 // Pair asks for a one-time pairing code of the given kind.
