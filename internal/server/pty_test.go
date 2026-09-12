@@ -605,9 +605,17 @@ func TestPaneFollowsTheWindowInUse(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	awaitSize(t, srv, paneID, 160, 45)
 
-	// Typing on the phone is using it.
+	// The phone's terminal answering a question from the program is not the
+	// phone being used: every window watching answers it.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if err := phone.Write(ctx, websocket.MessageBinary, []byte("\x1b[?1;2c")); err != nil {
+		t.Fatalf("reply: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	awaitSize(t, srv, paneID, 160, 45)
+
+	// Typing on the phone is using it.
 	if err := phone.Write(ctx, websocket.MessageBinary, []byte(" ")); err != nil {
 		t.Fatalf("type: %v", err)
 	}
@@ -620,6 +628,33 @@ func TestPaneFollowsTheWindowInUse(t *testing.T) {
 	// And when the window in use goes, the pane follows the one used before it.
 	desk.CloseNow()
 	awaitSize(t, srv, paneID, 40, 20)
+}
+
+// TestTerminalRepliesAreNotTyping covers what a window's terminal sends of its
+// own accord, which every window watching a pane sends alike.
+func TestTerminalRepliesAreNotTyping(t *testing.T) {
+	for _, reply := range []string{
+		"\x1b[?1;2c",       // device attributes
+		"\x1b[12;34R",      // cursor position
+		"\x1b[0n",          // status
+		"\x1b[I", "\x1b[O", // focus gained, lost
+		"\x1b[?2004;1$y",         // a mode's state
+		"\x1b]11;rgb:0f/11/14\a", // background colour
+	} {
+		if !isTerminalReply([]byte(reply)) {
+			t.Errorf("%q was taken for typing", reply)
+		}
+	}
+	for _, typed := range []string{
+		"a", " ", "\r", "\x7f", "\x1b", // keys, and Escape on its own
+		"\x1b[A", "\x1b[1;5C", "\x1bOP", "\x1b[15~", // arrows, F1, F5
+		"\x1b[<0;10;20M", "\x1b[<64;10;20M", // a click, a wheel turn
+		"\x1b[200~pasted\x1b[201~", // a paste
+	} {
+		if isTerminalReply([]byte(typed)) {
+			t.Errorf("%q was taken for a terminal's reply", typed)
+		}
+	}
 }
 
 // TestAWindowWithNoSizeTakesNothingOver covers the relay's phone client, which

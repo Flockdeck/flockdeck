@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -261,7 +262,7 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			}
 			// Typing here is using the pane here, which is what it is sized
 			// for; a refit is asked for only when that moves it to this window.
-			if viewers.touch(id, viewer) {
+			if !isTerminalReply(data) && viewers.touch(id, viewer) {
 				nudge()
 			}
 			continue
@@ -278,6 +279,39 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			nudge()
 		}
 	}
+}
+
+// isTerminalReply reports whether input is a terminal answering its program
+// rather than somebody typing.
+//
+// A program asks the terminal things -- what it is, where the cursor is, what
+// colour the background is -- and a terminal told to report focus says when it
+// gains and loses it. The terminal in every window watching the pane answers,
+// each through its own socket, so counting the answers as use would hand the
+// pane to whichever window's answer happened to arrive last. Shift+F3 and a
+// cursor report can be the same bytes; that one key not counting is the price.
+func isTerminalReply(p []byte) bool {
+	if len(p) < 3 || p[0] != 0x1b {
+		return false
+	}
+	switch p[1] {
+	case ']', 'P', '_', '^':
+		// Answers to colour queries and requests for settings.
+		return true
+	case '[':
+		switch p[len(p)-1] {
+		case 'R', 'c', 'n', 't':
+			// Cursor position, device attributes, status, window reports.
+			return true
+		case 'I', 'O':
+			// Focus gained and lost.
+			return len(p) == 3
+		case 'y':
+			// A mode's state.
+			return bytes.Contains(p, []byte("$"))
+		}
+	}
+	return false
 }
 
 // applyResizes takes what this window has measured to the goroutine that owns
