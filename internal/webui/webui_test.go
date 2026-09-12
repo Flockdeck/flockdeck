@@ -2914,6 +2914,28 @@ assert.ok(sel.scrolledTo > 0, "the page picked out was never brought into view")
 `)
 }
 
+// With every tab closed the window says so and offers a new one. Closing the
+// last tab left the keyboard on the page with nothing to act on, and each
+// status push - they keep coming while other projects' agents work - built
+// the placeholder again and took the keyboard off whatever it was on.
+func TestTheEmptyWorkspaceHoldsTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.recv(fixture({ tabs: [], panes: {} }));
+const buttons = () => h.$("workspace").querySelectorAll("button");
+const start = buttons().find((b) => b.textContent === "New agent tab");
+assert.ok(start, "the empty workspace offers no new tab");
+assert.ok(h.doc.activeElement === start, "closing the last tab left the keyboard with nothing to act on");
+
+const help = buttons().find((b) => b.textContent === "Help");
+help.focus();
+h.recv(fixture({ tabs: [], panes: {}, working: 2 }));
+assert.ok(buttons().includes(help), "a status push built the empty workspace again");
+assert.ok(h.doc.activeElement === help, "a status push took the keyboard off the Help button");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

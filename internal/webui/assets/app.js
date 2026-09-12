@@ -591,6 +591,10 @@
     const host = $("workspace");
 
     if (!s.tabs.length) {
+      // Built once and left standing. Pushes keep arriving while nothing is
+      // open here - agents in other projects go on working - and building it
+      // again for each took the keyboard off its buttons.
+      if (emptyPage) return false;
       host.textContent = "";
       tabPages.clear();
       tabShapes.clear();
@@ -604,6 +608,9 @@
       empty.append(b, h);
       host.append(empty);
       emptyPage = empty;
+      // Closing the last tab took the terminal the keyboard was in, and left
+      // it on the page with nothing to act on; the obvious next step is here.
+      if (!dialogOpen()) b.focus();
       return true;
     }
     // The "no tabs" placeholder is not a tab page, so it goes by hand.
