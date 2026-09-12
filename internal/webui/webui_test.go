@@ -3364,6 +3364,21 @@ assert.strictEqual(h.$("help-content").dataset.slug, "agents");
 `)
 }
 
+// The broadcast tooltip said it mirrors what you type into every pane in the
+// set. Nothing mirrors typing: the set is where the prompt bar's message goes
+// (BroadcastTargets is used by SendPrompt alone), and a terminal typed into
+// still reaches only itself.
+func TestTheBroadcastTipSaysWhatBroadcastDoes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const cast = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⇉");
+const tip = cast.dataset.tip;
+assert.ok(!/mirrors what you type/i.test(tip), "the tooltip still says typing is mirrored: " + tip);
+assert.ok(/prompt bar/.test(tip), "the tooltip does not say it is the prompt bar's message that goes to the set: " + tip);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

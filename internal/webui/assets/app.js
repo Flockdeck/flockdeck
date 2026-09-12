@@ -47,7 +47,10 @@
     branch:      "The branch this checkout has in its working tree.",
     project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
     splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
-    broadcast:   "Mirrors what you type into every pane in the broadcast set, so one instruction reaches them all.",
+    // Not what is typed into a terminal: nothing mirrors that. It is the
+    // prompt bar's message that goes to the set, and this used to say
+    // otherwise.
+    broadcast:   "Sends what you write in the prompt bar to every pane in the broadcast set, so one instruction reaches them all. Typing in a terminal still reaches only that terminal.",
     fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back.",
