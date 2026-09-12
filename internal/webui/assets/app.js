@@ -1394,6 +1394,15 @@
     const agent = el("span", "pane-agent");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
+    // The counts say something changed, and nothing went from them to what
+    // did: the review was a trip to the top bar, and for the focused pane
+    // only. The checkout is read at the click, so a pane that moved is
+    // reviewed where it is now.
+    git.onclick = (ev) => {
+      ev.stopPropagation();
+      const v = state && state.panes && state.panes[id];
+      if (v && v.cwd) openChanges(v.cwd);
+    };
     const usage = el("span", "pane-usage");
     const cast = el("span", "pane-cast");
     const actions = el("div", "pane-actions");
@@ -1434,7 +1443,8 @@
     // the header, and the header itself did nothing. Not on the header's own
     // buttons, which have their own business.
     header.addEventListener("dblclick", (ev) => {
-      if (ev.target.closest && ev.target.closest("button")) return;
+      // Nor on the change counts, whose click opens the review over the pane.
+      if (ev.target.closest && (ev.target.closest("button") || ev.target.closest(".pane-git"))) return;
       send({ cmd: "toggleZoom", id });
     });
 
@@ -2754,7 +2764,7 @@
     const text = parts.join(" ");
     p.git.setAttribute("role", "img");
     p.git.setAttribute("aria-label", text);
-    describe(p.git, text);
+    describe(p.git, text + " Click to review them.");
   }
 
   /** mark is one git marker: a glyph the row's description explains, and a

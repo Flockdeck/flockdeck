@@ -345,7 +345,7 @@ textarea:focus-visible {
  * couple of hundred pixels wide, a long branch or an MCP tool name must
  * truncate rather than push the buttons out past the clipped edge. */
 .pane-detail { color: var(--accent); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; }
+.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; cursor: pointer; }
 .pane-git .dirty { color: var(--waiting); }
 .pane-git .ahead { color: var(--working); }
 .pane-git .behind { color: var(--exited); }

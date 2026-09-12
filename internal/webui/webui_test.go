@@ -4413,6 +4413,22 @@ assert.ok(/working tree/.test(tip(".pane-branch")), "the branch's bubble lost it
 `)
 }
 
+// A pane's header counts its checkout's changes, and nothing went from the
+// counts to the changes: the review was a trip to the top bar.
+func TestAPanesChangeCountsOpenItsReview(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { cwd: "C:/repo/sub", dirty: 3 }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const git = wrap.querySelector("span.pane-git");
+assert.ok(git.onclick, "a pane's changes cannot be clicked through to");
+git.onclick({ stopPropagation() {} });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "changes", path: "C:/repo/sub" }, "the review is not of the pane's checkout");
+assert.ok(!h.$("overlay").hidden, "the review did not open");
+assert.ok(/review/i.test(git.dataset.tip || ""), "the bubble does not say the counts open the review: " + git.dataset.tip);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
