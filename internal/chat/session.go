@@ -503,6 +503,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 // can do about it: each failure has its own way on, and the one line that
 // names it is the only place the user learns which.
 func (s *session) sayWhyItStopped(err error) {
+	be, isBusy := busy(err)
 	switch {
 	case s.interrupted.Load() || errors.Is(err, context.Canceled):
 		s.out.line(ansiDim, "(interrupted; /retry carries on)")
@@ -534,6 +535,13 @@ func (s *session) sayWhyItStopped(err error) {
 	case contextFull(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
+	case isBusy:
+		// Said in the words the retries are announced in, rather than as
+		// "overloaded_error: Overloaded" at the one moment it matters. It
+		// does not say whether it was asked again: an answer that failed
+		// part-way is not, and one that failed at once was.
+		s.out.line(ansiRed, busyWords(be)+": "+be.Msg)
+		s.out.line(ansiDim, "(/retry asks again, once it is less busy)")
 	default:
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(/retry asks again)")

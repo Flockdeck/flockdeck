@@ -55,7 +55,7 @@ func TestAnAnswerCutOffPartWayIsNotAskedAgain(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("asked %d times after part of the answer had been drawn", calls)
 	}
-	if !strings.Contains(out, "could not answer") {
+	if !strings.Contains(out, "the API is overloaded: Overloaded") {
 		t.Errorf("the failure was not said:\n%s", out)
 	}
 }
