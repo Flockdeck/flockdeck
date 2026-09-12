@@ -234,7 +234,13 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// Asking for another relay is moving this machine, which is two steps,
 		// and the refusal names both rather than only the first.
 		if want, _ := remote.RelayURL(f.relay); want != "" && want != already.Relay {
-			return fmt.Errorf("%v; to move this machine to %s, run `flockdeck remote disable`, then `flockdeck remote enable -relay %s`", err, want, want)
+			// Leaving a relay that could not be asked, which is most often why
+			// somebody moves, takes -force: plain disable would stop at the same.
+			disable := "flockdeck remote disable"
+			if already.Err != nil {
+				disable += " -force"
+			}
+			return fmt.Errorf("%v; to move this machine to %s, run `%s`, then `flockdeck remote enable -relay %s`", err, want, disable, want)
 		}
 	}
 	switch {

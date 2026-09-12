@@ -418,6 +418,21 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	}
 }
 
+// Moving off a relay that can no longer be reached takes disable -force, and
+// the refusal says so, not the plain disable, which would stop there too.
+func TestRemoteMoveFromAGoneRelay(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example")
+	if want := "run `flockdeck remote disable -force`, then `flockdeck remote enable -relay https://other.example`"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("moving off a relay that is gone = %v, want it to say %q", err, want)
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
