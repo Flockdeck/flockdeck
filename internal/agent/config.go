@@ -72,7 +72,7 @@ func (f *File) UnmarshalJSON(data []byte) error {
 
 func (f File) MarshalJSON() ([]byte, error) {
 	type plain File
-	data, err := json.Marshal(plain(f))
+	data, err := marshalUnescaped(plain(f))
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,19 @@ func (f File) MarshalJSON() ([]byte, error) {
 			m[name] = raw
 		}
 	}
-	return json.Marshal(m)
+	return marshalUnescaped(m)
+}
+
+// marshalUnescaped is json.Marshal without the HTML escaping, which an
+// encoder further out cannot undo once it has been done in here.
+func marshalUnescaped(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // ConfigPath returns where agents.json lives.
@@ -153,11 +165,18 @@ func writeConfig(dir string, f *File) error {
 	if f.Version == 0 {
 		f.Version = ConfigVersion
 	}
-	data, err := json.MarshalIndent(f, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	// The file is the user's own, and what they wrote in it should come back
+	// as they wrote it. The default escapes "&", "<" and ">" in every string,
+	// so saving a default from the picker turned a baseURL's "&x=" into
+	// "&x=" and an install line's "&&" into "&&".
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(f); err != nil {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
-	data = append(data, '\n')
+	data := buf.Bytes()
 	path := filepath.Join(dir, ConfigName)
 	tmp, err := os.CreateTemp(dir, ConfigName+".tmp*")
 	if err != nil {

@@ -209,3 +209,29 @@ func TestConcurrentDefaultsAreAllKept(t *testing.T) {
 		t.Errorf("%d project defaults kept of 20", len(f.Projects))
 	}
 }
+
+// TestSavingADefaultKeepsTheUsersText: the file is hand-written, and saving a
+// default from the picker turned every "&", "<" and ">" in it into a \u
+// escape -- a baseURL's query string among them.
+func TestSavingADefaultKeepsTheUsersText(t *testing.T) {
+	dir := t.TempDir()
+	src := `{"version": 1, "agents": [{"id": "gw", "api": {"baseURL": "https://gw.example/v1?a=1&b=<2>"}, "install": "pip install gw && gw login"}], "later": {"note": "a & b"}}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetDefaults(dir, "", Defaults{Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ConfigName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"?a=1&b=<2>", "pip install gw && gw login", "a & b"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%q did not survive a save:\n%s", want, data)
+		}
+	}
+	if strings.Contains(string(data), `\u00`) {
+		t.Errorf("a save escaped the user's text:\n%s", data)
+	}
+}
