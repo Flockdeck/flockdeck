@@ -3,12 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"reflect"
-	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 )
 
@@ -149,135 +145,6 @@ func Merge(f *File) *Catalog {
 	return c
 }
 
-// unknownFields names the keys of an entry that no agent has.
-//
-// The decoder passes over them without a word, so a field written in the wrong
-// place did nothing and said nothing: a "baseURL" beside the id rather than
-// inside "api" left the endpoint greyed out in the picker with no clue why. The
-// entry is still used -- a key this build does not know may be one a later
-// build wrote -- but the notice says which keys went unread.
-func unknownFields(id string, raw json.RawMessage) []string {
-	var keys map[string]json.RawMessage
-	if json.Unmarshal(raw, &keys) != nil {
-		return nil // not an object; decoding it properly reports that
-	}
-	var problems []string
-	for key := range keys {
-		if specFields[key] {
-			continue
-		}
-		msg := fmt.Sprintf("agent %q: %q is not something an agent has", id, key)
-		if apiFields[key] {
-			msg = fmt.Sprintf("agent %q: %q belongs inside \"api\"", id, key)
-		}
-		problems = append(problems, msg)
-	}
-	sort.Strings(problems)
-	return problems
-}
-
-var (
-	specFields = jsonFields(reflect.TypeFor[Spec]())
-	apiFields  = jsonFields(reflect.TypeFor[APISpec]())
-)
-
-// jsonFields is the set of keys a struct decodes, read from its own tags so
-// the two cannot drift apart.
-func jsonFields(t reflect.Type) map[string]bool {
-	out := map[string]bool{}
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			out[name] = true
-		}
-	}
-	return out
-}
-
-// missingDefaults names each default, the installation's or a project's, that
-// names no agent in the catalog.
-//
-// Such a default opens Claude instead (DefaultsFor), and without a word that
-// looks like the choice simply did not take: a hand-typed "Codex" or a
-// misspelt project entry said nothing at all.
-func (c *Catalog) missingDefaults() []string {
-	var problems []string
-	if d := c.Defaults.Agent; d != "" {
-		if _, ok := c.Find(d); !ok {
-			problems = append(problems, fmt.Sprintf("the default agent %q is not one of the agents here", d))
-		}
-	}
-	projects := make([]string, 0, len(c.Projects))
-	for p := range c.Projects {
-		projects = append(projects, p)
-	}
-	sort.Strings(projects)
-	for _, p := range projects {
-		if d := c.Projects[p].Agent; d != "" {
-			if _, ok := c.Find(d); !ok {
-				problems = append(problems, fmt.Sprintf("the default agent %q for %s is not one of the agents here", d, p))
-			}
-		}
-	}
-	return problems
-}
-
-// checkTokens names every token an entry's arguments refer to that is not one.
-//
-// A token with no value takes its group out of the command line, and an
-// unknown one never has a value: an `"if": "modle"` quietly dropped the
-// --model flag with it, and a "{{modle}}" in a value went through as written.
-func checkTokens(s *Spec) []string {
-	seen := map[string]bool{}
-	var problems []string
-	note := func(name string) {
-		if name == "" || seen[name] || knownToken(name) {
-			return
-		}
-		seen[name] = true
-		problems = append(problems, fmt.Sprintf("agent %q: %q is not a token; the tokens are %s", s.ID, name, tokenNames))
-	}
-	var walk func([]Arg)
-	walk = func(args []Arg) {
-		for _, a := range args {
-			if a.If != "" {
-				note(strings.TrimSpace(strings.Trim(a.If, "{}")))
-			}
-			for _, m := range anyToken.FindAllStringSubmatch(a.Value, -1) {
-				note(m[1])
-			}
-			walk(a.Args)
-		}
-	}
-	walk(s.Args)
-	walk(s.ResumeArgs)
-	return problems
-}
-
-// anyToken matches anything written as a token, known or not.
-var anyToken = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
-
-// tokenNames lists the tokens for a notice that has to name them.
-const tokenNames = "session, model, settings, prompt, cwd and pane"
-
-// checkRunner settles a runner written by hand into one of the two there are.
-//
-// Anything else was taken at its word and matched neither: "API" in capitals
-// started a pane whose command line began "--agent", with no program in front
-// of it, which died on the spot with nothing to say why. Case is forgiven; a
-// runner that is neither is named in the notice and decided the way a missing
-// one is.
-func checkRunner(s *Spec) []string {
-	r := Runner(strings.ToLower(strings.TrimSpace(string(s.Runner))))
-	switch r {
-	case RunnerCLI, RunnerAPI, "":
-		s.Runner = r
-		return nil
-	}
-	s.Runner = ""
-	return []string{fmt.Sprintf("agent %q: runner %q is neither \"cli\" nor \"api\"", s.ID, r)}
-}
-
 // orBuiltin is the list an entry set, or the built-in's where it set none.
 func orBuiltin[T any](set, builtin []T) []T {
 	if set == nil {
@@ -359,42 +226,6 @@ func normalize(s *Spec) {
 		s.DefaultModel = s.Models[0].ID
 	}
 }
-
-// expandExe reads a program path the way the shell somebody copied it from
-// would have: a leading "~" is their home, and "$NAME", "${NAME}" or "%NAME%"
-// is that variable. It was looked up on PATH as written, so an entry saying
-// "~/bin/mycli" or "%LOCALAPPDATA%\Tools\mycli.exe" was never found. Only a
-// variable that is set is replaced, so a path that merely contains a "$" or
-// a "%" keeps it.
-func expandExe(exe string) string {
-	if exe == "~" || strings.HasPrefix(exe, "~/") || strings.HasPrefix(exe, `~\`) {
-		if home, err := os.UserHomeDir(); err == nil {
-			exe = home + exe[1:]
-		}
-	}
-	return expandVars(exe)
-}
-
-// expandVars replaces "$NAME", "${NAME}" and "%NAME%" with the variable, where
-// it is set, in Flockdeck's own environment -- which is the one a pane
-// inherits, so "$PATH" means what the pane would have had.
-func expandVars(s string) string {
-	s = percentVar.ReplaceAllStringFunc(s, func(m string) string {
-		if v, ok := os.LookupEnv(strings.Trim(m, "%")); ok {
-			return v
-		}
-		return m
-	})
-	return os.Expand(s, func(name string) string {
-		if v, ok := os.LookupEnv(name); ok {
-			return v
-		}
-		return "${" + name + "}"
-	})
-}
-
-// percentVar matches a Windows %NAME% reference.
-var percentVar = regexp.MustCompile(`%[A-Za-z_][A-Za-z0-9_()]*%`)
 
 // Find returns the spec with an id.
 func (c *Catalog) Find(id string) (Spec, bool) {
