@@ -426,12 +426,11 @@ func Diff(dir, path string) (string, error) {
 			}
 		}
 	}
-	if strings.TrimSpace(out) == "" {
-		out, err = gitDiff(dir, "--", pathspec(path))
-		if err != nil {
-			return "", err
-		}
-	}
+	// An empty answer is the answer. Asking again for the index against the
+	// working tree, as this once did, only ever found something when the
+	// working tree had gone back to the last commit and the index had not --
+	// and then showed an edit the commit would not contain: a line staged and
+	// then taken out again read as a line being deleted.
 	return out, nil
 }
 

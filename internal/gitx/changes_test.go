@@ -1243,3 +1243,20 @@ func TestLineCountsAreAgainstTheLastCommit(t *testing.T) {
 		t.Errorf("counts before the first commit = %+v, %v; want them counted", files, err)
 	}
 }
+
+// TestDiffOfAFileBackAsItWasCommittedIsEmpty: with the working tree back to
+// the last commit and the index not, the diff asked again for the index
+// against the working tree, and showed an edit the commit would not contain.
+func TestDiffOfAFileBackAsItWasCommittedIsEmpty(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "README.md", "hello\nstaged\n")
+	gitRun(t, repo, "add", "README.md")
+	write(t, repo, "README.md", "hello\n")
+	diff, err := Diff(repo, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(diff) != "" {
+		t.Errorf("diff = %q, want nothing: the file is as the last commit has it", diff)
+	}
+}
