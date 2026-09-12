@@ -24,6 +24,23 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// Chromium opens an app window at exactly the size asked for, so a screen with
+// less room than the default has to be given a smaller one, or the window's
+// own buttons end up off it.
+func TestFitWindow(t *testing.T) {
+	cases := []struct{ w, h, wantW, wantH int }{
+		{1920, 1032, 1440, 900}, // room to spare: the default
+		{1366, 728, 1229, 655},  // a small laptop: nine tenths of it
+		{2560, 700, 1440, 630},  // wide but short: only the height gives
+		{0, 0, 1440, 900},       // not known: the default
+	}
+	for _, c := range cases {
+		if w, h := fitWindow(c.w, c.h); w != c.wantW || h != c.wantH {
+			t.Errorf("fitWindow(%d, %d) = %dx%d, want %dx%d", c.w, c.h, w, h, c.wantW, c.wantH)
+		}
+	}
+}
+
 // A Mac browser installed without an administrator's rights lives in the
 // user's own Applications folder, and has to be found there too — after the
 // system's copy, so the machine-wide install still wins.

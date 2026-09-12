@@ -122,15 +122,35 @@ func Open(url, profileDir string) (*Window, error) {
 	return &Window{AppMode: false, Program: "default browser"}, nil
 }
 
+// defaultWidth and defaultHeight are the window's size where the screen has
+// room for it.
+const defaultWidth, defaultHeight = 1440, 900
+
+// fitWindow is the window's size on a screen whose work area is w by h, or on
+// one of unknown size when either is zero: the default where it fits, and
+// otherwise nine tenths of what there is.
+//
+// Chromium opens an app window at exactly the size it is asked for, however
+// much larger than the screen that is, so on a 1366x768 laptop the default put
+// the window's own close button off the right of the screen and its bottom
+// rows below it.
+func fitWindow(w, h int) (int, int) {
+	if w <= 0 || h <= 0 {
+		return defaultWidth, defaultHeight
+	}
+	return min(defaultWidth, w*9/10), min(defaultHeight, h*9/10)
+}
+
 // startAppMode launches a chromeless window pointed at url.
 func startAppMode(path, url, profileDir string) (*Window, error) {
+	w, h := fitWindow(workArea())
 	args := []string{
 		"--app=" + url,
 		"--user-data-dir=" + profileDir,
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--disable-features=Translate,MediaRouter",
-		"--window-size=1440,900",
+		fmt.Sprintf("--window-size=%d,%d", w, h),
 	}
 	cmd := exec.Command(path, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
