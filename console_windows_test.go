@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // The Windows release is linked for the GUI subsystem, and a program linked
@@ -21,14 +23,7 @@ import (
 // does and runs it from cmd.exe in a pseudo-console, which is a real console,
 // as a terminal's and a shell pane's are.
 func TestReleaseBuildPrintsToTheTerminal(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the program")
-	}
-	exe := filepath.Join(t.TempDir(), "flockdeck.exe")
-	build := exec.Command("go", "build", "-ldflags", "-X main.version=v9.9.9 -H=windowsgui", "-o", exe, ".")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	exe := releaseBuild(t)
 	for _, tc := range []struct{ arg, want string }{
 		{"-version", "flockdeck v9.9.9"},           // standard output
 		{"bogus", `unrecognised argument "bogus"`}, // standard error
@@ -39,10 +34,62 @@ func TestReleaseBuildPrintsToTheTerminal(t *testing.T) {
 	}
 }
 
+// A detached run goes on behind the terminal it was started from, and what it
+// prints on the way, its address and how to stop it, is all it has to say.
+// That reaches the terminal, and the terminal closing afterwards does not end
+// the run.
+func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
+	exe := releaseBuild(t)
+	state := t.TempDir()
+	t.Setenv("APPDATA", state)
+	t.Setenv("LOCALAPPDATA", state)
+	t.Setenv(updateEnv, "off")
+
+	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-shell", "-C", t.TempDir())
+	// Held from here, so that the cleanup can only ever stop the instance
+	// this test started, whatever happens below.
+	if inst, _ := store.LoadInstance(); inst != nil {
+		if p, err := os.FindProcess(inst.PID); err == nil {
+			t.Cleanup(func() {
+				stopped := make(chan struct{})
+				go func() { _, _ = p.Wait(); close(stopped) }()
+				select {
+				case <-stopped:
+				case <-time.After(20 * time.Second):
+					_ = p.Kill()
+					<-stopped
+				}
+			})
+		}
+	}
+	if !ok {
+		t.Errorf("flockdeck -detach in a terminal showed %q, want its address and how to stop it", got)
+	}
+	// The terminal has been closed by now.
+	out, err := exec.Command(exe, "-quit").CombinedOutput()
+	if err != nil || strings.Contains(string(out), "nothing is running") {
+		t.Errorf("-quit once the terminal had closed: %v, %q; want the detached run still there to stop", err, out)
+	}
+}
+
+// releaseBuild builds the program as the release does, for the GUI subsystem.
+func releaseBuild(t *testing.T) string {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("builds the program")
+	}
+	exe := filepath.Join(t.TempDir(), "flockdeck.exe")
+	build := exec.Command("go", "build", "-ldflags", "-X main.version=v9.9.9 -H=windowsgui", "-o", exe, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	return exe
+}
+
 var escapes = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07`)
 
-// inTerminal runs exe from cmd.exe in a pseudo-console and reports what the
-// console showed, and whether want was in it.
+// inTerminal runs exe from cmd.exe in a pseudo-console until want is shown or
+// half a minute has passed, closes the console, and reports what it showed.
 func inTerminal(t *testing.T, want, exe string, args ...string) (string, bool) {
 	t.Helper()
 	p, err := pty.New()

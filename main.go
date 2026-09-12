@@ -198,11 +198,6 @@ func main() {
 		return
 	}
 
-	// -no-window has the terminal as its only interface, the URL it prints
-	// included, so only it keeps a console borrowed from one.
-	if !c.noWindow {
-		releaseConsole()
-	}
 	if err := run(c.options); err != nil {
 		fail("Flockdeck could not start.", err)
 	}
@@ -666,6 +661,15 @@ func run(opts options) error {
 		return err
 	}
 	defer win.Close()
+
+	// Start-up is over, and with it everything worth printing to a terminal
+	// this was run from: -detach's address and how to stop it, the notes on
+	// flags that had no effect, a failure to start. A run that goes on without
+	// the terminal lets it go now, so that closing it does not end the run;
+	// -no-window has the terminal as its only interface and keeps it.
+	if !opts.noWindow {
+		releaseConsole()
+	}
 
 	<-quit
 
