@@ -84,6 +84,14 @@ func (t *runCommand) Approval(args json.RawMessage) string {
 	if err != nil || len(argv) == 0 {
 		return ""
 	}
+	path := argv[0]
+	if p, err := exec.LookPath(argv[0]); err == nil {
+		path = p
+	}
+	if batchUnsafe(path, argv[1:]) != nil {
+		// Run refuses it, and says why.
+		return ""
+	}
 	return fmt.Sprintf("Run `%s` in %s?", strings.TrimSpace(a.Command), t.root.Dir())
 }
 
@@ -169,6 +177,9 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = t.root.Dir()
+	if err := batchUnsafe(cmd.Path, argv[1:]); err != nil {
+		return "", err
+	}
 	// Something the command started and left running -- a dev server, a
 	// watcher -- keeps the output pipe open for as long as it lives, and
 	// without a limit here the tool would wait on it for that long, timeout
@@ -218,6 +229,34 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 		}
 	}
 	return b.String(), nil
+}
+
+// batchUnsafe refuses an argument cmd.exe would read as syntax, where the
+// program is a Windows batch file.
+//
+// There is no shell here, except that Windows runs a .bat or .cmd -- npm,
+// yarn and many other tools installed from a package manager are one -- by
+// handing its whole command line to cmd.exe, which reads the arguments as
+// cmd.exe syntax. A quote in an argument ends the quoting Go puts round it,
+// so `npm test 'x"&del /q *'` runs del. "Always for `npm test`" made that
+// a del nobody was asked about. A % expands a variable. The characters are
+// refused in any argument to a batch file: none can be passed through safely.
+func batchUnsafe(program string, args []string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	switch strings.ToLower(filepath.Ext(program)) {
+	case ".bat", ".cmd":
+	default:
+		return nil
+	}
+	for _, a := range args {
+		if i := strings.IndexAny(a, "\"&|<>^%\n\r"); i >= 0 {
+			return fmt.Errorf("%s is a batch file, whose arguments cmd.exe reads as its own syntax, "+
+				"so %q cannot be passed in one; run it without that character", filepath.Base(program), string(a[i]))
+		}
+	}
+	return nil
 }
 
 // environ is the environment a command runs with: this process's, less the
