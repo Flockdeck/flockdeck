@@ -53,6 +53,11 @@ type fanoutAgentView struct {
 	// Codex should still learn that Flockdeck would run it.
 	Unavailable string `json:"unavailable,omitempty"`
 	Install     string `json:"install,omitempty"`
+	// AskTrust is whether this agent asks if a folder is trusted before it
+	// works in it. Carrying the project's answer over to the worktrees is
+	// only offered for a run whose agents ask; for the rest it would do
+	// nothing.
+	AskTrust bool `json:"askTrust,omitempty"`
 }
 
 // fanoutCatalog lists the agents the dialog can offer, and the id of the one
@@ -74,7 +79,7 @@ func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
 		}
 		view := fanoutAgentView{
 			ID: spec.ID, Name: spec.Name, Models: spec.Models,
-			Default: spec.DefaultModel, Install: spec.Install,
+			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
 		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
 			view.Unavailable = err.Error()

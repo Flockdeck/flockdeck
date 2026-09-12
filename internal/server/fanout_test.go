@@ -19,6 +19,27 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
+// TestFanoutCatalogSaysWhichAgentsAskAboutTrust covers the fan-out dialog's
+// offer to carry folder trust over, which is only worth making for a run whose
+// agents ask whether a folder is trusted.
+func TestFanoutCatalogSaysWhichAgentsAskAboutTrust(t *testing.T) {
+	srv, ws := newTestServer(t)
+	agents, _ := srv.fanoutCatalog()
+	asking := 0
+	for _, a := range agents {
+		spec, _ := ws.Catalog().Find(a.ID)
+		if a.AskTrust != spec.Caps.Trust {
+			t.Errorf("%s: askTrust = %v, want %v", a.ID, a.AskTrust, spec.Caps.Trust)
+		}
+		if a.AskTrust {
+			asking++
+		}
+	}
+	if asking == 0 {
+		t.Error("no agent in the catalog is said to ask about trust, though Claude Code does")
+	}
+}
+
 // TestTrustIsCarriedOnlyForAgentsThatAsk covers a fan-out split between agents.
 // Carrying folder trust over writes Claude Code's configuration, and a row run
 // by an agent with no such question has nothing to carry.
