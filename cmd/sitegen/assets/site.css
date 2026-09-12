@@ -448,7 +448,9 @@ pre.has-copy { padding-right: 78px; }
    form first is for a browser that does not know the alternative syntax. */
 .faq summary::after { content: "+"; content: "+" / ""; font-family: var(--mono); color: var(--accent); font-size: 18px; }
 .faq details[open] summary::after { content: "–"; content: "–" / ""; }
-.faq details p { margin: 0 0 18px; color: var(--muted); font-size: 15px; line-height: 1.65; }
+/* The same measure as the band's paragraphs, about 80 characters a line:
+   uncapped, an answer ran to about 110 across the 760px card. */
+.faq details p { margin: 0 0 18px; color: var(--muted); font-size: 15px; line-height: 1.65; max-width: 62ch; }
 
 .foot-note { font-size: 13px; }
 
