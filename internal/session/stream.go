@@ -405,7 +405,13 @@ func stripANSI(p []byte) string {
 	}
 
 	state := scanNormal
-	var params []byte
+	// Held in an array of the most that is ever kept, rather than grown from
+	// nil, so reading a sequence's parameters never allocates. This runs over
+	// every chunk an agent with patterns prints, and whether a grown slice
+	// stays off the heap is the compiler's call: under the race detector it
+	// did not, once per chunk.
+	var paramBuf [16]byte
+	params := paramBuf[:0]
 	for i := 0; i < len(p); i++ {
 		c := p[i]
 		switch state {
