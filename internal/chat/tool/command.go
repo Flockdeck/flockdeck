@@ -292,7 +292,21 @@ func (t *runCommand) environ() []string {
 // program of that name. A model told only "executable file not found" tries
 // the same thing again.
 func notFoundHint(program string, err error) error {
-	if runtime.GOOS != "windows" || !errors.Is(err, exec.ErrNotFound) {
+	if runtime.GOOS != "windows" {
+		return err
+	}
+	// A script is not a program to Windows, however it is named: build.ps1 is
+	// "not found" and ./deploy.sh "does not exist", and a model told either
+	// runs it the same way again.
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		switch strings.ToLower(filepath.Ext(program)) {
+		case ".ps1":
+			return fmt.Errorf("Windows does not run a .ps1 file as a program; if it exists, run it as `powershell -File %s`", program)
+		case ".sh":
+			return fmt.Errorf("Windows does not run a .sh file as a program; if it exists, run it as `bash %s`, where Git Bash or WSL is installed", program)
+		}
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
 		return err
 	}
 	name := strings.ToLower(program)
