@@ -5430,6 +5430,14 @@
    *  they come will be said once it is settled. */
   const PRIVATE_RELAYS_URL = "https://flockdeck.ai/#private-relays";
 
+  /** The site's privacy policy, terms and licences, which the account's
+   *  section links at its foot: each an id, what it reads as, and where. */
+  const LEGAL_LINKS = [
+    ["set-legal-privacy", "Privacy policy", "https://flockdeck.ai/privacy.html"],
+    ["set-legal-terms", "Terms", "https://flockdeck.ai/terms.html"],
+    ["set-legal-licences", "Licences", "https://flockdeck.ai/licences.html"],
+  ];
+
   /** A few monospaced fonts to suggest; any other installed one can be typed. */
   const FONT_SUGGESTIONS = ["Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", "Consolas",
     "SF Mono", "Menlo", "Source Code Pro", "Ubuntu Mono", "DejaVu Sans Mono"];
@@ -5849,6 +5857,21 @@
     link.append(document.createTextNode("Read about private relays"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
+    // Whose it is and under what licence, and the pages that say what the
+    // shared relay keeps and on what terms: quiet, at the foot of the section
+    // about the account, where somebody looking for them looks. They open in
+    // the browser, as the link above does.
+    const legal = el("p", "plan-legal", "Flockdeck · © 2026 Jim Wright · MIT licence");
+    legal.id = "set-legal";
+    LEGAL_LINKS.forEach(([id, text, href]) => {
+      const a = el("a", "", text);
+      a.id = id;
+      a.setAttribute("href", href);
+      a.target = "_blank";
+      a.rel = "noreferrer noopener";
+      legal.append(document.createTextNode(" · "), a);
+    });
+    pane.append(legal);
   }
 
   // --------------------------------------------------------------- fan out

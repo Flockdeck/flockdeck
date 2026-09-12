@@ -68,9 +68,16 @@ can rename any of them from its **Devices** page.
 Traffic is encrypted between your browser and the relay, and between the relay
 and this machine. The relay decrypts it to route it, so it is **trusted**: this
 is not end-to-end encryption, and whoever runs the relay could read what passes
-through it. The relay never sees this machine's local token or your API keys;
-what it holds for this machine is a credential of its own, kept here in
-`remote.json` in the state directory and readable only by you.
+through it. The relay never sees this machine's local token or the API keys
+kept here, though a key typed into a remote window passes through it like
+anything else typed there; what it holds for this machine is a credential of
+its own, kept here in `remote.json` in the state directory and readable only
+by you.
+
+The shared relay at `https://remote.flockdeck.ai` has a
+[privacy policy](https://flockdeck.ai/privacy.html), which says what it stores
+about this machine and your devices, how long it keeps it and how to have it
+deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
 ## Private relays (coming soon)
 

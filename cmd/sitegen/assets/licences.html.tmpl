@@ -1,0 +1,76 @@
+{{/*
+  The licences page. The components and their licences are not written here:
+  they are each piece's THIRD-PARTY-NOTICES.md, rendered, so the page says
+  what the releases carry and cannot say anything else. main.go says where
+  each copy comes from.
+*/}}
+{{template "head" .}}
+</head>
+<body>
+
+{{template "header" .}}
+
+<main class="wrap doc">
+  {{template "contents" .}}
+  <article class="prose licences">
+    <h1>Licences</h1>
+    <p class="doc-lede">Flockdeck is free and open source. This page gives its
+       own licence, then every third-party component the desktop app, the
+       phone client and the relay are built with, each with its licence and
+       its copyright holder. Open <em>Full licence text</em> under any of them
+       to read that licence in full.</p>
+
+    <h2 id="flockdeck">Flockdeck</h2>
+    <p>The desktop app, the phone client, the relay and this website are made
+       by Jim Wright and released under the MIT licence:</p>
+    <pre class="licence"><code>{{.Licences.Own}}</code></pre>
+    <p>Their source is on GitHub:
+       <a href="{{.Repo}}">flockdeck</a>,
+       <a href="https://github.com/jmwri/flockdeck-remote">flockdeck-remote</a> and
+       <a href="https://github.com/jmwri/flockdeck-relay">flockdeck-relay</a>.</p>
+
+    <h2 id="desktop">The desktop app</h2>
+    <p>Every release of the desktop app carries these notices beside the
+       binary, as <code>THIRD-PARTY-NOTICES.md</code>.</p>
+    {{.Licences.Desktop}}
+
+    <h2 id="phone">The phone client</h2>
+    <p>The web client you open on a phone, tablet or laptop you have paired.
+       It is compiled into the relay, which serves it.</p>
+    {{.Licences.Phone}}
+    <h3 id="phone-fonts">The fonts' licence</h3>
+    <p>Both typefaces are under the SIL Open Font License, Version 1.1, and
+       each comes with its own copy of it, reproduced here.</p>
+    {{range .Licences.Fonts}}
+    <h4>{{.Name}} — SIL Open Font License 1.1</h4>
+    <details class="licence-text"><summary>Full licence text</summary><pre><code>{{.Text}}</code></pre></details>
+    {{end}}
+
+    <h2 id="relay">The relay</h2>
+    <p>The server that connects your devices to your desktops, as it runs at
+       remote.flockdeck.ai. Its container image carries these notices under
+       <code>/licenses</code>.</p>
+    {{.Licences.Relay}}
+
+    <h2 id="website">This website</h2>
+    <p>flockdeck.ai is set in Archivo and JetBrains Mono, the phone client's
+       two typefaces, served from the site itself under the
+       <a href="#phone-fonts">SIL Open Font License 1.1</a>. Their licences are
+       also beside the fonts, as <a href="fonts/OFL-Archivo.txt">OFL-Archivo.txt</a>
+       and <a href="fonts/OFL-JetBrainsMono.txt">OFL-JetBrainsMono.txt</a>.
+       Everything else on the site is Flockdeck's own.</p>
+
+    <h2 id="agents">Agents and model APIs</h2>
+    <p>Flockdeck starts the agents you choose, such as Claude Code, Codex,
+       Gemini CLI, Aider, opencode and Cursor Agent, and talks to the model
+       APIs you choose, such as Anthropic's, OpenAI's and Google's. None of
+       them is part of Flockdeck or distributed with it. Each keeps its own
+       licence and terms, which are between you and whoever provides it; the
+       <a href="terms.html#third-party-software-and-services">terms</a> say the
+       same.</p>
+  </article>
+</main>
+
+{{template "footer" .}}
+</body>
+</html>

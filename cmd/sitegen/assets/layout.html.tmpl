@@ -1,0 +1,86 @@
+{{/*
+  The pieces every page shares: the head, the header and the footer. Each
+  page is a template of its own that draws these in and says what goes
+  between them, so the fonts, the stylesheet and the way out to the privacy
+  policy, the terms and the licences are written once, here.
+
+  "head" leaves the head open, for a page that has something of its own to
+  put in it; the page closes it.
+*/}}
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Description}}">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0F1418">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Summary}}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{.Canonical}}">
+<meta property="og:image" content="{{.URL}}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Flockdeck: run all your coding agents at once. A window of four agents, one waiting on you.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{.URL}}/og.png">
+<link rel="canonical" href="{{.Canonical}}">
+<!-- The fonts are the site's own files rather than a font service's, which
+     would have been told of every visit: the privacy policy says this site
+     asks nobody else for anything. Archivo sets nearly every word, so it is
+     asked for at once rather than when the stylesheet is read; the system
+     faces named in site.css stand in until it arrives. -->
+<link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+{{end}}
+
+{{define "header"}}
+<header class="top">
+  {{if .Path}}<a class="wordmark" href="./">{{mark}}Flockdeck</a>{{else}}<span class="wordmark">{{mark}}Flockdeck</span>{{end}}
+  <nav aria-label="Site">
+    <a href="{{.Home}}#what">Features</a>
+    <a href="{{.Home}}#remote">Remote</a>
+    <a href="{{.Home}}#install">Install</a>
+    <a href="{{.Home}}#faq">FAQ</a>
+    <a href="{{.Repo}}">Source</a>
+  </nav>
+</header>
+{{end}}
+
+{{/* The list of a long page's sections, beside it where there is room. */}}
+{{define "contents"}}
+<nav class="doc-toc" aria-label="On this page">
+  <p class="eyebrow">On this page</p>
+  <ol>
+    {{range .Contents}}<li><a href="#{{.ID}}">{{.Text}}</a></li>
+    {{end}}
+  </ol>
+</nav>
+{{end}}
+
+{{define "footer"}}
+<footer class="foot">
+  <div class="wrap">
+    <p>Flockdeck. Run all your coding agents at once.<br>
+       <span class="foot-note">Free and open source under the MIT licence.</span></p>
+    <nav aria-label="Footer">
+      <a href="{{.Home}}#install">Install</a>
+      <a href="{{.Home}}#remote">Remote access</a>
+      <a href="{{.Home}}#faq">FAQ</a>
+      <a href="{{.Repo}}/releases">Releases</a>
+      <a href="{{.Repo}}">Source</a>
+      <a href="{{.Repo}}/blob/main/LICENSE">Licence</a>
+    </nav>
+    <div class="foot-legal">
+      <p>© 2026 Jim Wright</p>
+      <nav aria-label="Legal">
+        <a href="privacy.html"{{if eq .Path "privacy.html"}} aria-current="page"{{end}}>Privacy</a>
+        <a href="terms.html"{{if eq .Path "terms.html"}} aria-current="page"{{end}}>Terms</a>
+        <a href="licences.html"{{if eq .Path "licences.html"}} aria-current="page"{{end}}>Licences</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+{{end}}
