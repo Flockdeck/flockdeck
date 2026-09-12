@@ -353,6 +353,10 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 	}
 }
 
+// revokedSays is what a machine the relay no longer accepts is told to do:
+// enrol again, by either of the ways there are.
+const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
+
 // The relay's refusals that mean "stop": a token it no longer accepts, before
 // or after the upgrade, and another connection taking this host's place. Each
 // has to end the retrying, or a removed machine would hammer the relay for as
@@ -366,9 +370,9 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 		// says is what the status tells the user to do about it.
 		says string
 	}{
-		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked, says: "flockdeck remote enable"},
-		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked, says: "flockdeck remote enable"},
-		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked, says: "flockdeck remote enable"},
+		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked, says: revokedSays},
+		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked, says: revokedSays},
+		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked, says: revokedSays},
 		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced, says: "restart this one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

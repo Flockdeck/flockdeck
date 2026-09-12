@@ -229,7 +229,7 @@ func revokedDetail(err error) string {
 	if errors.As(err, &api) && api.Message != "" {
 		msg += " (" + api.Message + ")"
 	}
-	return msg + "; run `flockdeck remote enable` to enrol it again"
+	return msg + "; enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
 }
 
 // jitter spreads retries between half and all of d, so that every desktop that
