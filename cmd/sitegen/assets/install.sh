@@ -130,7 +130,9 @@ main() {
 	case ":$PATH:" in
 		*":$dir:"*) say "start it with: flockdeck" ;;
 		*) say "$dir is not on your PATH; add this line to your shell's profile:"
-			printf '    export PATH="%s:$PATH"\n' "$dir" ;;
+			# Escaped for the double quotes it is printed in, so a directory with
+			# a quote, a dollar or a backslash in its name still pastes as itself.
+			printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')" ;;
 	esac
 	# A copy found first on PATH -- a go install, say -- is the one that runs.
 	found=$(command -v flockdeck 2>/dev/null || true)
