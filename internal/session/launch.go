@@ -57,8 +57,8 @@ type Launch struct {
 	// passes the union across the whole catalog rather than this Spec's own
 	// list, so that a pane is a clean top-level session whatever is running in
 	// it: the markers of the Claude session Flockdeck was launched from have to go
-	// from a Codex pane too. An empty list falls back to the markers Flockdeck knew
-	// before agents had Specs.
+	// from a Codex pane too. The markers Flockdeck knew before agents had Specs
+	// are stripped whatever it holds.
 	StripEnv []string
 	// Env is added to the pane's environment last and wins over everything
 	// before it: these are the FLOCKDECK_* variables telling the pane what to call
@@ -231,8 +231,8 @@ func StripEnvUnion(specs []agent.Spec) []string {
 // saving its transcript). They are stripped so each pane is a clean top-level
 // session, regardless of whether Flockdeck itself was launched from Claude.
 //
-// They are the fallback rather than the rule: a caller with a catalog to hand
-// passes the union of StripEnv across it, which is where this list lives now.
+// They are stripped whatever else is: a caller with a catalog to hand passes
+// the union of StripEnv across it on top of them.
 var defaultStripEnv = []string{
 	"CLAUDECODE",
 	"CLAUDE_CODE_CHILD_SESSION",
@@ -246,10 +246,15 @@ var defaultStripEnv = []string{
 // markers of the session it was launched from, plus extra KEY=VALUE entries.
 func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 
-// EnvStripping is Env with the variables to remove named explicitly, which is
+// EnvStripping is Env with more variables to remove named explicitly, which is
 // how a pane's environment comes to be driven by Spec.StripEnv rather than by
-// what Flockdeck happened to know about Claude. An empty list means the built-in
-// markers, so a caller with no catalog to hand strips what it always did.
+// what Flockdeck happened to know about Claude.
+//
+// The built-in markers go whatever the list says. What a caller has is the
+// catalog's union, and an agents.json entry for claude that gives a stripEnv of
+// its own replaces the built-in one rather than adding to it: handed that union
+// alone, every pane opened from inside Claude Code would believe it was a
+// nested child session again.
 //
 // An extra entry replaces an inherited one of the same name rather than
 // joining it. A duplicated name in an environment block is resolved by the
@@ -257,11 +262,8 @@ func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 // stale value in force -- which is how a pane opened from inside another
 // instance would tell its agent it was the pane that spawned it.
 func EnvStripping(strip []string, extra ...string) []string {
-	if len(strip) == 0 {
-		strip = defaultStripEnv
-	}
-	drop := make(map[string]bool, len(strip)+len(extra))
-	for _, name := range strip {
+	drop := make(map[string]bool, len(defaultStripEnv)+len(strip)+len(extra))
+	for _, name := range append(slices.Clip(defaultStripEnv), strip...) {
 		drop[envKey(name)] = true
 	}
 	for _, kv := range extra {

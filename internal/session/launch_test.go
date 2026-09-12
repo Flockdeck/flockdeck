@@ -278,6 +278,23 @@ func TestStripEnvComesFromTheSpecs(t *testing.T) {
 	}
 }
 
+// TestTheBuiltInMarkersAreAlwaysStripped covers an agents.json entry for claude
+// that gives a stripEnv of its own. It replaces the built-in list rather than
+// adding to it, so the catalog's union no longer names CLAUDECODE, and a pane
+// handed that union believed it was a nested child session again.
+func TestTheBuiltInMarkersAreAlwaysStripped(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("MY_TOOL_MARKER", "1")
+
+	env := EnvStripping([]string{"MY_TOOL_MARKER"})
+	for _, gone := range []string{"CLAUDECODE=", "CLAUDE_CODE_ENTRYPOINT=", "MY_TOOL_MARKER="} {
+		if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, gone) }) {
+			t.Errorf("%s survived a list that named only MY_TOOL_MARKER", gone)
+		}
+	}
+}
+
 // TestSpecEnvCannotShadowFlockdecksOwn covers a catalog entry -- a file the user may
 // edit -- naming one of the variables a pane calls back on. The first copy of a
 // name in an environment block is the one that counts, so the Spec's would win
