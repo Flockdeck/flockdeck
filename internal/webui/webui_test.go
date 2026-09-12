@@ -3899,6 +3899,25 @@ assert.strictEqual(input.value, "", "a prompt that was sent came back as an unse
 `)
 }
 
+// The find bar opened empty every time, so looking for the same word again -
+// after closing the bar, or in the next pane - meant typing it again. The
+// last search comes back selected, so Enter repeats it and typing replaces it.
+func TestTheFindBarRemembersTheLastSearch(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("search-input");
+h.press("findInTerminal");
+input.value = "panic";
+h.key({ key: "Escape" });
+h.press("findInTerminal");
+assert.strictEqual(input.value, "panic", "the last search was not there when the bar opened again");
+assert.deepStrictEqual([input.selectionStart, input.selectionEnd], [0, 5], "the last search is not selected, so typing adds to it");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.searchers[0].forward.slice(-1), ["panic"], "Enter did not repeat the last search");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -4091,6 +4110,7 @@ class Element {
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
   scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
   setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
+  select() { this.selectionStart = 0; this.selectionEnd = String(this.value || "").length; }
   setPointerCapture(id) { this.captured = id; }
   releasePointerCapture() { this.captured = undefined; }
 }

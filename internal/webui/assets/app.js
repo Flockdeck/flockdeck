@@ -2750,6 +2750,11 @@
    *  user was not looking at and leave the first one marked for good, since
    *  only the focused pane's marks were ever cleared. */
   let searchPane = "";
+  /** The last thing searched for. The bar opened empty every time, so
+   *  looking for the same word again - after closing the bar, or in the next
+   *  pane - meant typing it again; it comes back selected, so Enter repeats
+   *  it and typing replaces it, as in a browser or an editor. */
+  let lastSearch = "";
 
   function openSearch() {
     searchPane = focusedPaneId();
@@ -2758,12 +2763,14 @@
     const v = state && state.panes ? state.panes[searchPane] : null;
     $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
     const input = $("search-input");
-    input.value = "";
+    input.value = lastSearch;
     noMatch(false);
     showMatchCount(null);
     input.focus();
+    if (input.select) input.select();
   }
   function closeSearch() {
+    lastSearch = $("search-input").value;
     $("searchbar").hidden = true;
     const p = panes.get(searchPane);
     if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
