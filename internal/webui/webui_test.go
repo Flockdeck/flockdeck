@@ -3690,6 +3690,48 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 `)
 }
 
+// Settings › Remote access has the switch for push notifications to paired
+// devices, how long a wait lasts before they are told, and the option to send
+// nothing identifying. Each reaches its setting at once, follows another
+// window's, and the relay's refusal is said in its words.
+func TestThePushSettingsReachTheirSettings(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 13 });
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", name: "desk", viewers: 0,
+  since: "2030-01-01T00:00:00Z", pushError: "the relay said: this relay does not send push notifications" } }));
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-remote"));
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+assert.ok(on("set-push"), "push notifications are off before anyone turned them off");
+assert.ok(!on("set-push-anonymous"), "sending nothing identifying is on before anyone turned it on");
+assert.strictEqual(h.$("set-push-delay").value, "30", "the delay is not 30 seconds until it is changed");
+const text = h.$("settings-pane").textContent;
+assert.ok(text.includes("does not send push notifications"), "the relay's refusal is not said");
+assert.ok(text.includes("An agent on desk needs you"), "what an anonymous notification says is not said");
+
+h.click(h.$("set-push"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushNotify", kind: "off" });
+assert.ok(!on("set-push"), "the switch did not turn off at once");
+assert.ok(h.$("set-push-delay").disabled, "the delay can be changed with nothing to delay");
+h.click(h.$("set-push-anonymous"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushAnonymous", kind: "on" });
+assert.ok(on("set-push-anonymous"));
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], push: { anonymous: true } } });
+assert.ok(on("set-push"), "the switch did not follow notifications turned back on in another window");
+const delay = h.$("set-push-delay");
+delay.value = "120";
+h.dispatch(delay, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushDelay", size: 120 });
+assert.strictEqual(h.$("set-push-delay").value, "120");
+
+const find = h.$("settings-find");
+find.value = "notifications phone";
+find.oninput();
+assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "Find a setting does not find push notifications");
+`)
+}
+
 // Every control in the settings changes the real setting, through the command
 // the palette and the keys send; it takes effect at once; and it shows what
 // the palette, the keys or another window changed, so there is one state

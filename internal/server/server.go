@@ -156,6 +156,9 @@ type Server struct {
 
 	// book is what the panes' agents have said they spent. See spend.go.
 	book *spend.Book
+
+	// push is what the paired devices are told of waits. See push.go.
+	push pushState
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -227,6 +230,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.pushLoop()
 	go s.gitLoop()
 	go s.usageLoop()
+	go s.waitLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()

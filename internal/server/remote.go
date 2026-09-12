@@ -194,6 +194,9 @@ type remoteView struct {
 	// Viewers is how many windows are open on this instance through the
 	// relay, which is worth knowing at the desk: somebody may be typing.
 	Viewers int `json:"viewers"`
+	// PushError is why the last push notification asked of the relay failed,
+	// in its words, for Settings to say. See push.go.
+	PushError string `json:"pushError,omitempty"`
 }
 
 // remoteSnapshot is the tunnel for the state message, or nil when this
@@ -210,7 +213,8 @@ func (s *Server) remoteSnapshot() *remoteView {
 	v := &remoteView{
 		State: string(st.State), Detail: st.Detail, Since: st.Since,
 		Relay: st.Relay, HostID: st.HostID, Name: st.Name,
-		Viewers: s.remoteClientCount(),
+		Viewers:   s.remoteClientCount(),
+		PushError: s.pushError(),
 	}
 	if !st.RetryAt.IsZero() {
 		at := st.RetryAt

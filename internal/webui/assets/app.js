@@ -5595,7 +5595,7 @@
     { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview" },
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
-    { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
+    { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
     { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
   ];
   /** The section on show, kept from one opening to the next. */
@@ -5641,7 +5641,10 @@
    *  which draw themselves from their own answers: drawn again for a font
    *  size, the key half-typed into the one would go. */
   function settingsChanged() {
-    if (dialog === "settings" && settingsSection !== "keys" && settingsSection !== "remote") keepFocus(renderSettings);
+    if (dialog !== "settings") return;
+    // Of remote access's section, only the push settings are preferences.
+    if (settingsSection === "remote") keepFocus(drawPushSettings);
+    else if (settingsSection !== "keys") keepFocus(renderSettings);
   }
 
   function buildSettingsShell() {
@@ -5771,9 +5774,78 @@
     terminal: settingsTerminal,
     agents: settingsAgents,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
-    remote: (pane) => { settingsHead(pane, "Remote access"); settingsHost(pane); renderRemote(); },
+    remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
     plan: settingsPlan,
   };
+
+  /** How long a pane may wait before the paired devices are told, as offered:
+   *  seconds, and what that reads as. */
+  const PUSH_DELAYS = [[15, "15 seconds"], [30, "30 seconds"], [60, "1 minute"], [120, "2 minutes"], [300, "5 minutes"], [600, "10 minutes"]];
+
+  /** settingsPush is what the paired devices are told of waits, above remote
+   *  access's own part of the section, which draws itself from its answers. */
+  function settingsPush(pane) {
+    const box = el("div", "set-push");
+    box.id = "set-push-box";
+    pane.append(box);
+    drawPushSettings();
+  }
+
+  function drawPushSettings() {
+    const box = $("set-push-box");
+    if (!box) return;
+    box.textContent = "";
+    const push = prefs.push || {};
+    const r = state && state.remote;
+    const machine = (r && r.name) || "this machine";
+    // The relay's refusal, in its words: a relay that sends none, or a plan
+    // that does not include them. The app decides nothing about either.
+    const refused = r && r.pushError ? el("div", "set-desc", "The last one was not sent: " + r.pushError) : null;
+    box.append(settingRow("Notify paired devices",
+      "When an agent has been waiting on you for a while, the relay tells each phone or browser paired with this " +
+      "machine that asked with its Notify me button — whether or not it is open there.",
+      switchControl("set-push", !push.off, (on) => setPushOff(!on)), refused));
+
+    const delay = el("select", "set-select");
+    delay.id = "set-push-delay";
+    const current = push.delaySeconds || 30;
+    const delays = PUSH_DELAYS.slice();
+    if (!delays.some(([s]) => s === current)) delays.push([current, current + " seconds"]);
+    delays.sort((a, b) => a[0] - b[0]).forEach(([s, label]) => delay.append(agentOption(label, String(s))));
+    delay.value = String(current);
+    delay.disabled = !!push.off;
+    delay.onchange = () => setPushDelay(Number(delay.value));
+    box.append(settingRow("After waiting", "How long an agent has to have been waiting before the devices are told. Each wait is told once.", delay));
+
+    box.append(settingRow("Send nothing identifying",
+      "Notifications say only “An agent on " + machine + " needs you”, rather than naming the pane and its project: " +
+      "for a lock screen others can see, and to keep those names from the relay. The push service carries either encrypted.",
+      switchControl("set-push-anonymous", !!push.anonymous, (on) => setPushAnonymous(on))));
+  }
+
+  /** The three push settings take effect here at once, as setOff's do, and
+   *  are sent to be kept. */
+  function setPushOff(off) {
+    prefs.push = Object.assign({}, prefs.push, { off });
+    send({ cmd: "pushNotify", kind: off ? "off" : "on" });
+    notice(off ? "Paired devices will not be notified" : "Paired devices will be notified when an agent waits", false);
+    settingsChanged();
+  }
+
+  function setPushAnonymous(on) {
+    prefs.push = Object.assign({}, prefs.push, { anonymous: on });
+    send({ cmd: "pushAnonymous", kind: on ? "on" : "off" });
+    notice(on ? "Notifications will not name the pane" : "Notifications will name the pane and its project", false);
+    settingsChanged();
+  }
+
+  function setPushDelay(seconds) {
+    prefs.push = Object.assign({}, prefs.push, { delaySeconds: seconds === 30 ? 0 : seconds });
+    send({ cmd: "pushDelay", size: seconds });
+    const label = (PUSH_DELAYS.find(([s]) => s === seconds) || [0, seconds + " seconds"])[1];
+    notice("Paired devices are told after " + label + " of waiting", false);
+    settingsChanged();
+  }
 
   function settingsHead(pane, title, lede) {
     pane.append(el("h3", "set-title", title));
