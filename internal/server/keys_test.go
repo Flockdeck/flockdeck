@@ -1,11 +1,15 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // TestSavedKeyOffersTheAgentAtOnce covers the picker after a key is saved. An
@@ -40,6 +44,27 @@ func TestSavedKeyOffersTheAgentAtOnce(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "keySet", ID: spec.ID, Text: "sk-test-not-a-real-key"})
 	if _, ok := r.stateWithin(3*time.Second, available); !ok {
 		t.Fatal("the agent was not offered within three seconds of its key being saved")
+	}
+}
+
+// TestUnreadableKeyStoreIsReported covers a keys.json that no longer parses --
+// a hand edit with a trailing comma, say. Every stored key then reads as not
+// set, and the dialog looked exactly like one on a machine with no keys.
+func TestUnreadableKeyStoreIsReported(t *testing.T) {
+	srv, _ := newTestServer(t)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keys.json"), []byte(`{"anthropic": "sk-",`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conn := dialControl(t, srv)
+	sendCmd(t, conn, command{Cmd: "keys"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "keys.json") {
+		t.Fatalf("an unreadable key store was answered %+v, want an error naming it", note)
 	}
 }
 

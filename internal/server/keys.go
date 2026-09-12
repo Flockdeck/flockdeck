@@ -35,7 +35,13 @@ func (s *Server) listKeys(c *controlClient) {
 		items := creds.StatusAll(visible)
 		// A key stored for an agent that has since left the catalog has no row
 		// of its own, and a key nobody can see is a key nobody can clear.
-		names, _ := creds.Names()
+		// A store that cannot be read makes every stored key read as not set,
+		// which on the dialog is indistinguishable from never having set one --
+		// until a save is refused for the same reason. It is said instead.
+		names, err := creds.Names()
+		if err != nil {
+			c.notify("could not read the stored keys: "+err.Error(), true)
+		}
 		for _, id := range names {
 			if !slices.ContainsFunc(items, func(st creds.Status) bool { return st.Agent == id }) {
 				items = append(items, creds.Status{Agent: id, Set: true, Source: creds.SourceStore})
