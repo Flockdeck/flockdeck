@@ -419,22 +419,40 @@ func TestKeysSetSaysWhenTheEnvironmentWins(t *testing.T) {
 	}
 }
 
-// The listing says where an agent talks to, where that is not its vendor.
+// The listing says where an agent talks to, where that is not its vendor --
+// and says it once, for an agent that needs no key because the address is on
+// this machine.
 func TestKeysListSaysWhereAnAgentTalksTo(t *testing.T) {
 	isolateKeys(t)
+	anthropicLine := func() string {
+		t.Helper()
+		out, err := runKeysCmd(t, "", "list")
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := ""
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "anthropic ") {
+				found = line
+			} else if strings.Contains(line, "talks to http") {
+				t.Errorf("an agent on its vendor's endpoint is listed as %q", line)
+			}
+		}
+		return found
+	}
+
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "https://gateway.example/v1"); err != nil {
+		t.Fatal(err)
+	}
+	if line := anthropicLine(); !strings.Contains(line, "; talks to https://gateway.example/v1") {
+		t.Errorf("anthropic is listed as %q", line)
+	}
+
 	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "http://127.0.0.1:8080"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runKeysCmd(t, "", "list")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "anthropic ") && !strings.Contains(line, "talks to http://127.0.0.1:8080") {
-			t.Errorf("anthropic is listed as %q", line)
-		}
-		if !strings.HasPrefix(line, "anthropic ") && strings.Contains(line, "talks to") {
-			t.Errorf("an agent on its vendor's endpoint is listed as %q", line)
-		}
+	line := anthropicLine()
+	if !strings.Contains(line, "on this machine, at http://127.0.0.1:8080") || strings.Count(line, "talks to") != 1 {
+		t.Errorf("anthropic is listed as %q", line)
 	}
 }

@@ -153,7 +153,13 @@ func keysList(out io.Writer) error {
 	for _, s := range statuses {
 		line := s.Describe()
 		if u := endpoints[s.Agent]; u != "" {
-			line += "; talks to " + redactURL(u)
+			if s.NotNeeded && !s.Set {
+				// Already said to talk to a model on this machine; the
+				// address says which, rather than saying it again.
+				line += ", at " + redactURL(u)
+			} else {
+				line += "; talks to " + redactURL(u)
+			}
 		}
 		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, line)
 	}
