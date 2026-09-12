@@ -97,6 +97,27 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
+// Reconnect tries the relay again now, for the window's "try again": a
+// tunnel waiting out a failure skips the rest of the wait, and one that has
+// given up, revoked or stepped aside for another instance, is started again,
+// as Reload does. A connected tunnel is left alone.
+func (m *Manager) Reconnect() error {
+	m.mu.Lock()
+	c := m.conn
+	m.mu.Unlock()
+	if c == nil {
+		return ErrNotEnabled
+	}
+	switch c.Status().State {
+	case StateConnected:
+		return nil
+	case StateConnecting, StateError:
+		c.RetryNow()
+		return nil
+	}
+	return m.Reload()
+}
+
 // Status reports the tunnel's state, and whether this machine is enrolled at
 // all.
 func (m *Manager) Status() (Status, bool) {

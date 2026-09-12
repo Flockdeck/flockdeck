@@ -1020,6 +1020,36 @@ func TestEnableTellsSwappedCodesApart(t *testing.T) {
 	}
 }
 
+// Trying again from the window does not wait out the backoff: a relay that
+// has come back is reached at once.
+func TestReconnectDoesNotWaitOutTheBackoff(t *testing.T) {
+	isolate(t)
+	oldMin, oldMax := backoffMin, backoffMax
+	backoffMin, backoffMax = time.Minute, time.Minute
+	t.Cleanup(func() { backoffMin, backoffMax = oldMin, oldMax })
+	f := newFakeRelay(t)
+	f.mu.Lock()
+	f.refuse = http.StatusServiceUnavailable
+	f.mu.Unlock()
+	cfg := f.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager("", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	waitFor(t, "an error", func() bool { s, _ := m.Status(); return s.State == StateError })
+	f.mu.Lock()
+	f.refuse = 0
+	f.mu.Unlock()
+	if err := m.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "connected", func() bool { s, _ := m.Status(); return s.State == StateConnected })
+}
+
 // The window enables and disables through the manager, which brings the
 // tunnel up and down to match.
 func TestManagerEnablesAndDisables(t *testing.T) {

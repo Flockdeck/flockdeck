@@ -103,6 +103,8 @@ type Connector struct {
 	status Status
 	cancel context.CancelFunc
 	done   chan struct{}
+	// retry cuts short the wait before the next attempt; see RetryNow.
+	retry chan struct{}
 }
 
 // NewConnector prepares a tunnel for an enrolment; Start opens it.
@@ -112,6 +114,7 @@ func NewConnector(cfg Config, version string, serve func(net.Listener) error, ch
 		version: version,
 		serve:   serve,
 		changed: changed,
+		retry:   make(chan struct{}, 1),
 		status: Status{
 			State: StateOff, Since: time.Now(),
 			Relay: cfg.Relay, HostID: cfg.HostID, Name: cfg.Name,
@@ -160,6 +163,16 @@ func (c *Connector) Stop() {
 	}
 	cancel()
 	<-done
+}
+
+// RetryNow cuts short the wait before the next attempt, when one is being
+// waited out, so that somebody who has put right whatever was wrong need not
+// sit through up to a minute of backoff to see it.
+func (c *Connector) RetryNow() {
+	select {
+	case c.retry <- struct{}{}:
+	default:
+	}
 }
 
 // set records a new status and says so. A status that has not moved is not
@@ -218,6 +231,12 @@ func (c *Connector) run(ctx context.Context) {
 			wait, state = backoffMin, StateConnecting
 		}
 		pause := jitter(wait)
+		// A retry asked for before this wait began was for one that is over;
+		// only one asked for during it cuts it short.
+		select {
+		case <-c.retry:
+		default:
+		}
 		c.set(state, err.Error(), time.Now().Add(pause))
 		timer := time.NewTimer(pause)
 		select {
@@ -226,6 +245,8 @@ func (c *Connector) run(ctx context.Context) {
 			c.set(StateOff, "", time.Time{})
 			return
 		case <-timer.C:
+		case <-c.retry:
+			timer.Stop()
 		}
 		wait = min(wait*2, backoffMax)
 	}
