@@ -467,6 +467,8 @@ textarea:focus-visible {
 .wt-upstream, .wt-head { color: var(--fg-dim); font-family: ui-monospace, Consolas, monospace; }
 .wt-flag { font-size: 10px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 10px; padding: 1px 7px; }
 .wt-flag.agents { color: var(--accent); border-color: var(--accent); }
+.wt-flag.gone { color: var(--exited); border-color: var(--exited); }
+.wt-gone { color: var(--fg-dim); }
 .wt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .chip.danger { border-color: var(--exited); color: var(--exited); }
 

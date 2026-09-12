@@ -13,6 +13,8 @@ For every worktree:
 - uncommitted work, split into changed and new files
 - how far ahead or behind its upstream it is
 - whether it is the main worktree, or locked
+- **folder gone**, when its folder was deleted outside the application and
+  only git's record of it is left
 
 ## What you can do
 
@@ -31,7 +33,11 @@ instead of creating one. Branches that have no worktree are listed underneath
 as one-click buttons.
 
 **Prune** drops git's records of worktrees whose folders were deleted outside
-the application.
+the application. A worktree like that is listed as **folder gone**, with a
+**Prune** button of its own in place of the others, since there is no folder
+left to open an agent, a shell or a review in. Either button clears every such
+record at once, including one for a worktree on a drive that is not plugged
+in.
 
 ## In the pane headers
 
