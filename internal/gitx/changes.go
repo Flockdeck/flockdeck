@@ -419,6 +419,15 @@ func Diff(dir, path string) (string, error) {
 			}
 		}
 	}
+	// A submodule whose only change is work inside it -- a new file there --
+	// has no diff here, and the panel explained the empty answer as a file
+	// that matches the last commit.
+	if strings.TrimSpace(out) == "" {
+		if subs := submoduleWork(dir, path); len(subs) > 0 {
+			return fmt.Sprintf("%s is a submodule with work inside it that is not committed there yet. That work belongs "+
+				"to the submodule's own repository: commit it there, and this one can then record the submodule's new commit.\n", path), nil
+		}
+	}
 	// An empty answer is the answer. Asking again for the index against the
 	// working tree, as this once did, only ever found something when the
 	// working tree had gone back to the last commit and the index had not --

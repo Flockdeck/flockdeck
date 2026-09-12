@@ -162,6 +162,39 @@ func isCommitID(s string) bool {
 	return strings.Trim(s, "0123456789abcdef") == ""
 }
 
+// submoduleWork names the submodules -- among paths, or all of them when none
+// are given -- with work inside them that is not committed there: files changed
+// or new in the submodule's own working tree, while it still points at the
+// commit this repository records. That work belongs to the submodule's
+// repository, and nothing done in this one can commit it.
+//
+// porcelain v2 says so in an entry's third field, which for a submodule is
+// "S" and three flags: its commit changed, it has changes, it has new files.
+func submoduleWork(dir string, paths ...string) []string {
+	args := []string{"status", "--porcelain=v2", "--ignore-submodules=none"}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		for _, p := range paths {
+			args = append(args, pathspec(p))
+		}
+	}
+	out, err := run(dir, args...)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.SplitN(strings.TrimRight(line, "\r"), " ", 9)
+		if len(f) < 9 || f[0] != "1" || len(f[2]) != 4 {
+			continue
+		}
+		if sub := f[2]; sub[0] == 'S' && sub[1] == '.' && (sub[2] == 'M' || sub[3] == 'U') {
+			names = append(names, f[8])
+		}
+	}
+	return names
+}
+
 // Branch is a local branch and where it stands against its upstream.
 type Branch struct {
 	Name      string

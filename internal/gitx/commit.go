@@ -36,7 +36,21 @@ func CommitAll(dir, message string) error {
 	if err := writingIndex(dir, "add", "--all"); err != nil {
 		return err
 	}
-	return writingIndex(dir, "commit", "-m", message)
+	err := writingIndex(dir, "commit", "-m", message)
+	if err != nil {
+		// Nothing staged, while the file list showed a submodule as changed:
+		// the work is inside it, in a repository of its own, and git's
+		// "Changes not staged for commit" advice was about commands the panel
+		// has no way to run. Asked only when nothing is staged, so a commit
+		// refused for any other reason -- a hook -- still says so.
+		if _, qerr := run(dir, "diff", "--cached", "--quiet"); qerr == nil {
+			if subs := submoduleWork(dir); len(subs) > 0 {
+				return &gitError{fmt.Sprintf("nothing here to commit: the changes are inside %s, a submodule -- a repository "+
+					"of its own. Commit them there first; committing here then records its new commit.", strings.Join(subs, ", "))}
+			}
+		}
+	}
+	return err
 }
 
 // lockWait is how long a command that writes the index waits for another git

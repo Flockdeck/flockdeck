@@ -1522,3 +1522,28 @@ func TestFetchOnABranchTrackingALocalOneReachesTheRemote(t *testing.T) {
 		t.Error("origin/main did not move: the fetch never reached the remote")
 	}
 }
+
+// TestWorkInsideASubmoduleIsExplained: the submodule was listed as changed,
+// its diff was empty -- read as "matches the last commit" -- and Commit
+// failed with git's advice about commands the panel cannot run.
+func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
+	inner := newRepo(t)
+	outer := newRepo(t)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "sub")
+	gitRun(t, outer, "commit", "-qm", "add sub")
+	write(t, filepath.Join(outer, "sub"), "scratch.txt", "left by an agent\n")
+
+	diff, err := Diff(outer, "sub")
+	if err != nil || !strings.Contains(diff, "submodule with work inside it") {
+		t.Errorf("diff = %q, %v; want it to say where the work is", diff, err)
+	}
+	err = CommitAll(outer, "from the panel")
+	if err == nil || !strings.Contains(err.Error(), "inside sub, a submodule") || strings.Contains(err.Error(), "git add") {
+		t.Errorf("commit err = %v, want it to say the work is inside the submodule", err)
+	}
+	// A clean tree still gets git's own "nothing to commit".
+	clean := newRepo(t)
+	if err := CommitAll(clean, "nothing"); err == nil || !strings.Contains(err.Error(), "nothing to commit") {
+		t.Errorf("clean tree: %v", err)
+	}
+}
