@@ -140,8 +140,9 @@ elsewhere — and start Flockdeck again.
 - `FLOCKDECK_COLUMNS`, then `COLUMNS` — how wide the built-in chat client wraps
   its answers; 80 when neither is set.
 - `SHELL` — the shell a shell pane runs, as a login shell; `/bin/sh` if it is
-  unset. On Windows a shell pane runs `pwsh` if it is installed, then the shell
-  `COMSPEC` names, then Windows PowerShell.
+  unset or names a program that is not there. On Windows a shell pane runs
+  `pwsh` if it is installed, then the shell `COMSPEC` names, then Windows
+  PowerShell.
 
 The variables Flockdeck sets in each pane, and the flags that shape one run —
 `-agent`, `-new`, `-shell` — are on [The command line](#cli).

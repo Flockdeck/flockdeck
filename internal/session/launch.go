@@ -391,17 +391,30 @@ func envKey(name string) string {
 }
 
 // ShellArgs returns the argv for a plain shell pane on this platform.
-func ShellArgs() []string {
-	if runtime.GOOS == "windows" {
-		if ps, err := exec.LookPath("pwsh"); err == nil {
+func ShellArgs() []string { return shellArgsFor(runtime.GOOS, os.Getenv, exec.LookPath) }
+
+// shellArgsFor is ShellArgs for a given platform, environment and PATH.
+//
+// A shell the environment names is only taken if it can be run. SHELL outlives
+// the shell it names -- one uninstalled since the login began, a path carried
+// over from another machine's dotfiles -- and a shell pane started on it did
+// not start at all, saying only that the program was not found, when the
+// fallback that stands in for SHELL being unset was there to be used.
+func shellArgsFor(goos string, getenv func(string) string, look func(string) (string, error)) []string {
+	runnable := func(p string) bool {
+		_, err := look(p)
+		return err == nil
+	}
+	if goos == "windows" {
+		if ps, err := look("pwsh"); err == nil {
 			return []string{ps, "-NoLogo"}
 		}
-		if comspec := os.Getenv("COMSPEC"); comspec != "" {
+		if comspec := getenv("COMSPEC"); comspec != "" && runnable(comspec) {
 			return []string{comspec}
 		}
 		return []string{"powershell", "-NoLogo"}
 	}
-	if sh := os.Getenv("SHELL"); sh != "" {
+	if sh := getenv("SHELL"); sh != "" && runnable(sh) {
 		return []string{sh, "-l"}
 	}
 	return []string{"/bin/sh"}

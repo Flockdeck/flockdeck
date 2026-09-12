@@ -368,3 +368,36 @@ func TestTrustIsOnlyAskedOfAnAgentWithATrustQuestion(t *testing.T) {
 		t.Error("trust must never be invented for a directory that does not have it")
 	}
 }
+
+// TestAShellThatIsNotThereFallsBack covers SHELL naming a program that is not
+// there any more -- uninstalled since the login began, or a path carried over
+// from another machine's dotfiles. The shell pane did not start at all, when
+// the shell used for SHELL being unset was there to be run; COMSPEC on Windows
+// is the same.
+func TestAShellThatIsNotThereFallsBack(t *testing.T) {
+	have := map[string]bool{"/bin/zsh": true, `C:\Windows\System32\cmd.exe`: true}
+	look := func(p string) (string, error) {
+		if have[p] {
+			return p, nil
+		}
+		return "", os.ErrNotExist
+	}
+	env := func(vars map[string]string) func(string) string {
+		return func(k string) string { return vars[k] }
+	}
+	for _, c := range []struct {
+		goos string
+		vars map[string]string
+		want []string
+	}{
+		{"linux", map[string]string{"SHELL": "/bin/zsh"}, []string{"/bin/zsh", "-l"}},
+		{"linux", map[string]string{"SHELL": "/opt/gone/bin/fish"}, []string{"/bin/sh"}},
+		{"darwin", map[string]string{}, []string{"/bin/sh"}},
+		{"windows", map[string]string{"COMSPEC": `C:\Windows\System32\cmd.exe`}, []string{`C:\Windows\System32\cmd.exe`}},
+		{"windows", map[string]string{"COMSPEC": `D:\gone\cmd.exe`}, []string{"powershell", "-NoLogo"}},
+	} {
+		if got := shellArgsFor(c.goos, env(c.vars), look); !slices.Equal(got, c.want) {
+			t.Errorf("%s %v: shell = %q, want %q", c.goos, c.vars, got, c.want)
+		}
+	}
+}
