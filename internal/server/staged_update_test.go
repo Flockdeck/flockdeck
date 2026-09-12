@@ -24,6 +24,18 @@ func TestAStagedUpdateReachesAQuietWindow(t *testing.T) {
 	conn := dialControl(t, srv)
 	r := readControl(conn)
 	r.settle(t)
+	// The shell goes idle a second or two after its prompt, and that change is
+	// broadcast -- which would carry the update out by itself. Hours into a run
+	// it happened long ago, so it is waited out here: three seconds with nothing
+	// sent at all.
+	for deadline := time.Now().Add(20 * time.Second); ; {
+		if _, ok := r.stateWithin(3*time.Second, nil); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the control connection never went quiet")
+		}
+	}
 
 	srv.SetUpdate(&UpdateView{Version: "9.9.9"})
 	if _, ok := r.stateWithin(2*time.Second, func(s stateMsg) bool {
