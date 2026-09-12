@@ -50,8 +50,10 @@ settings, hooks and permissions still apply.
 Not every coding agent has a lifecycle to report, and Flockdeck runs those too. For
 their panes the status is read from the terminal instead: the bell an agent
 rings when it wants you, a quiet timer for when it has stopped producing
-output, and the lines it prints — the shape of a permission question, the shape
-of a prompt waiting to be typed at. Only the last few hundred bytes are looked
+output, and — where its entry in `agents.json` gives it `patterns` — the lines
+it prints: the shape of a permission question, the shape of a prompt waiting
+to be typed at. None of the built-in agents has patterns yet. Only the last
+few hundred bytes are looked
 at, with the escape sequences stripped, so a question two screens back does not
 keep a finished pane amber.
 

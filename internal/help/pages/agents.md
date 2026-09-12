@@ -56,8 +56,16 @@ cooperating, and they do not all cooperate in the same ways.
 An agent that does none of it still works perfectly well: it is a terminal with
 a program in it, which is where every one of these features started. Where a
 capability is missing Flockdeck falls back rather than failing — status comes from
-the terminal bell, a quiet timer and the lines the agent prints; fan out reads
-the screen; resume is not attempted, and the pane starts fresh.
+the terminal bell and a quiet timer; fan out reads the screen; resume is not
+attempted, and the pane starts fresh.
+
+Of the built-in agents, Claude Code and the four API agents report their own
+lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
+Cursor Agent are read from their terminals, and are not briefed. An entry in
+`agents.json` can give such an agent `"patterns"` — `"waiting"` and `"idle"`,
+each a list of phrases its output shows in that state — so that its status is
+read from what it prints as well. They are plain text, not expressions, and
+case does not matter; none of the built-ins has any yet.
 
 ## Keys, for the API agents
 

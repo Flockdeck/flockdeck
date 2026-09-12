@@ -63,8 +63,8 @@ on its standard error, and that is where Claude Code shows it.
 ## A pane's status is vague, or late
 
 Check what is running in it. An agent with no lifecycle of its own to report is
-read from its terminal instead — the bell, a quiet timer and the lines it
-prints — which is a guess, and a guess is sometimes a beat behind and sometimes
+read from its terminal instead — the bell, a quiet timer and, if its entry has
+`patterns`, the lines it prints — which is a guess, and a guess is sometimes a beat behind and sometimes
 wrong. **Agents and models** says which agents report and which are read. There
 is nothing to fix here; it is the price of running an agent that was never
 built to be watched.
