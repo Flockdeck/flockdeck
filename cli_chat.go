@@ -141,9 +141,10 @@ func (c chatTool) Run(ctx context.Context, args json.RawMessage) (string, error)
 	return c.t.Run(ctx, args)
 }
 
-// AlwaysKey lets a tool that can be approved in bulk say so. Only run_command
-// offers it, as the command prefix -- "go test", "npm run" -- that the user
-// would be agreeing to for the rest of the session.
+// AlwaysKey lets a tool that can be approved in bulk say so: run_command as the
+// command prefix -- "go test", "npm run" -- and write_file and edit_file as
+// every edit to a file, which is what the user would be agreeing to for the
+// rest of the session.
 func (c chatTool) AlwaysKey(args json.RawMessage) string {
 	p, ok := c.t.(interface {
 		Prefix(json.RawMessage) string
