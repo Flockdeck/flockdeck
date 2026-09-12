@@ -45,11 +45,31 @@ body { display: flex; flex-direction: column; }
 
 #tabs { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 #tabs::-webkit-scrollbar { display: none; }
+/* With the scroll bar hidden, tabs past an end of the strip were out of sight
+ * with nothing to say they were there, so an end with more beyond it fades.
+ * Not while something is dragged over the strip: its end is then where a tab
+ * lands, and the marker saying so has to show. */
+#tabs.more-right:not(.drop-end) { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+#tabs.more-left:not(.drop-end) { mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+#tabs.more-left.more-right:not(.drop-end) {
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+/* A tab brought into view stops clear of the fade, which would otherwise lie
+ * over its close button. */
+#tabs { scroll-padding-inline: 32px; }
 
 /* The tab strip is the one part of the bar that scrolls, so it is also the one
  * part that should give up width. Without this the buttons on the right shrink
  * too and the last of them is clipped off the edge of a narrow window. */
 #topbar > .chip, #topbar > .icon-btn, #topbar > .divider-v { flex: 0 0 auto; }
+/* In a narrow window the chips took all of that: measured in Chrome, at 640px
+ * the strip was left 23px, the one tab in it unreadable, and at 480px the bar
+ * ran 129px past the edge and the help button with it, out of reach. The
+ * three that open dialogs step aside there - each is in the palette and has a
+ * key of its own - so the tabs, the summary and the help stay. */
+@media (max-width: 820px) {
+  #btn-changes, #btn-history, #btn-worktrees { display: none; }
+}
 
 .tab {
   display: flex;
@@ -81,6 +101,14 @@ body { display: flex; flex-direction: column; }
  * would otherwise be sitting on a button they cannot see. */
 .tab:hover .close, .tab.active .close, .tab .close:focus-visible { opacity: 1; }
 .tab .close:hover { background: #3a414d; color: var(--fg); }
+/* Opacity hides the button from the eye and not from the finger. On a touch
+ * screen - this page is opened on tablets and phones through the relay - there
+ * is no hover to reveal it first, so a tap near the right end of a tab meant
+ * to switch to it closed it instead, and every agent in it. There only the
+ * current tab's close button is there to be pressed. */
+@media (hover: none) {
+  .tab:not(.active) .close { display: none; }
+}
 
 /* An agent in this tab is blocked on the user. */
 .tab.attention { color: var(--waiting); }
@@ -179,7 +207,10 @@ textarea:focus-visible {
 .split.h { flex-direction: row; }
 .split.v { flex-direction: column; }
 
-.divider { flex: 0 0 4px; background: var(--bg); position: relative; z-index: 1; }
+/* touch-action: a finger drawn along a divider is otherwise a pan, which the
+ * browser takes for itself with a pointercancel a few pixels in, so a split
+ * could not be resized from a touch screen at all. */
+.divider { flex: 0 0 4px; background: var(--bg); position: relative; z-index: 1; touch-action: none; }
 .divider::after {
   content: ""; position: absolute; inset: 0; background: var(--line);
 }
@@ -266,7 +297,9 @@ textarea:focus-visible {
   font-size: 12px;
   color: var(--fg-dim);
   flex: 0 0 auto;
-  cursor: default;
+  /* No cursor here: the header is what a pane is dragged by, and the grab
+   * cursor set above is the only thing saying so. This rule comes later, and
+   * setting the default cursor here quietly took it away. */
   user-select: none;
 }
 .pane.focused .pane-header { color: var(--fg); }
@@ -324,7 +357,7 @@ textarea:focus-visible {
  * couple of hundred pixels wide, a long branch or an MCP tool name must
  * truncate rather than push the buttons out past the clipped edge. */
 .pane-detail { color: var(--accent); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; }
+.pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; cursor: pointer; }
 .pane-git .dirty { color: var(--waiting); }
 .pane-git .ahead { color: var(--working); }
 .pane-git .behind { color: var(--exited); }
@@ -337,6 +370,10 @@ textarea:focus-visible {
   color: var(--fg-dim); font-size: 11px; white-space: nowrap;
   overflow: hidden; flex: 0 1000 auto; min-width: 0;
   font-variant-numeric: tabular-nums;
+  /* Clipped bare, "0% 7.6 MB" lost its unit and read as a smaller number
+   * than the pane was using - seen at 800px with three panes. An ellipsis
+   * says it was cut. */
+  text-overflow: ellipsis;
 }
 .pane-usage.hot { color: var(--working); }
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -349,9 +386,20 @@ textarea:focus-visible {
 }
 .pane-actions button:hover { background: #333a45; color: var(--fg); }
 .pane-actions button.on { background: var(--cast); color: #1f0d02; }
+/* Zoomed: the accent rather than broadcast's orange, which means something else. */
+.pane-actions button.zoomed { background: var(--accent); color: #06101f; }
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; }
+/* Shown only while the pane is scrolled back from its newest line. Clear of
+ * the terminal's scroll bar at the right edge. */
+.to-latest {
+  position: absolute; right: 18px; bottom: 10px; z-index: 3;
+  padding: 3px 10px; border-radius: 12px; font: inherit; font-size: 12px;
+  background: var(--bg-raised); color: var(--fg); border: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+.to-latest:hover, .to-latest:focus-visible { border-color: var(--accent); }
 
 .pane-error {
   position: absolute; inset: 0; padding: 12px;
@@ -545,6 +593,9 @@ textarea:focus-visible {
 .fan-tasks:focus { outline: none; border-color: var(--accent); }
 .fan-opts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; align-items: center; }
 .fan-opt { display: flex; align-items: center; gap: 7px; color: var(--fg-dim); cursor: pointer; }
+/* The trust option is hidden while none of the agents chosen asks for it,
+ * and the display above would otherwise keep it on screen. */
+.fan-opt[hidden] { display: none; }
 .fan-opt input { accent-color: var(--accent); }
 .fan-go { display: flex; align-items: center; gap: 10px; }
 .fan-count { color: var(--fg-dim); font-size: 12px; }
@@ -666,6 +717,9 @@ textarea:focus-visible {
   display: flex; align-items: center; gap: 12px; padding: 9px 8px;
   border-bottom: 1px solid var(--line); cursor: pointer;
 }
+/* The filter above the list hides the rows it leaves out, and the display
+ * the row sets would otherwise keep them on screen. */
+.conv-row[hidden] { display: none; }
 .conv-row:last-child { border-bottom: 0; }
 .conv-row:hover { background: #22262e; }
 .conv-row.open { opacity: .6; cursor: default; }
@@ -717,7 +771,10 @@ textarea:focus-visible {
 }
 
 /* In a narrow window the contents would leave the prose a gutter to read in,
- * so it goes above the page rather than beside it. */
+ * so it goes above the page rather than beside it. The index is a fixed
+ * 240px, and beside it the article would be left narrower than the shortcut
+ * tables and command lines it is made of, which would then scroll sideways;
+ * above it, the index keeps its own scroll. */
 @media (max-width: 760px) {
   .help { flex-direction: column; }
   .help-nav {
@@ -752,16 +809,10 @@ textarea:focus-visible {
 .help-content th { color: var(--fg-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .help-content td:first-child { white-space: nowrap; }
 
-/* The index is a fixed 240px, so on a narrow window the article it sits beside
- * is left with under 200px - narrower than the shortcut tables and the command
- * lines it is made of, both of which would then scroll sideways. Below that
- * width the index moves above the article instead and keeps its own scroll. */
+/* Narrower still, the stacked index gives up a little more of the height and
+ * the article's margins close in. The stacking itself is the rule above. */
 @media (max-width: 720px) {
-  .help { flex-direction: column; }
-  .help-nav {
-    flex: 0 1 auto; max-height: 42%;
-    border-right: 0; border-bottom: 1px solid var(--line);
-  }
+  .help-nav { max-height: 42%; }
   .help-content { padding: 4px 14px 30px; }
 }
 
@@ -799,6 +850,7 @@ kbd {
 /* A search that found nothing leaves the terminal exactly where it was, so the
  * field has to be the thing that says so. */
 #searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); }
+#search-count { color: var(--fg-dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------- command palette */
 
@@ -890,6 +942,11 @@ kbd {
   cursor: pointer;
 }
 #notice[hidden] { display: none; }
+/* The prompt and find bars sit along the bottom of the window too, and a
+ * message dropped over the field being typed into hid it and took the click
+ * meant for it. While either is open the message goes above it. */
+body:has(#promptbar:not([hidden])) #notice,
+body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 #notice.error { border-color: var(--exited); color: var(--exited); }
 
 /* ------------------------------------------------------------ disconnected */

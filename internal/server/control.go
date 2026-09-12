@@ -250,6 +250,9 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
+	// Size is the terminal font size for fontSize, and a number of lines for
+	// scrollback.
+	Size int `json:"size"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
 	// which is what every keystroke that does not go through the picker sends
@@ -886,6 +889,27 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "dismissTip":
 		s.dismissTip(cmd.ID)
+		return
+	case "fontSize":
+		s.setFontSize(cmd.Size)
+		return
+	case "notifications":
+		s.setNotifications(cmd.Kind == "off")
+		return
+	case "scrollback":
+		s.setScrollback(cmd.Size)
+		return
+	case "updates":
+		s.setUpdates(cmd.Kind == "off")
+		return
+	case "resetTips":
+		s.resetTips()
+		return
+	case "cursorBlink":
+		s.setCursorSteady(cmd.Kind == "off")
+		return
+	case "fontFamily":
+		s.setFontFamily(cmd.Text)
 		return
 	case "forgetRecent":
 		// On the workspace goroutine, where opening or switching to a project

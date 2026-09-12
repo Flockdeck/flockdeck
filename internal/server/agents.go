@@ -356,7 +356,8 @@ func (s *Server) splitPaneFor(cmd command) {
 //
 // A target of "all" sets the default every project falls back on instead. The
 // picker offers only the project's own, which left that one reachable by
-// nothing but editing agents.json.
+// nothing but editing agents.json. The picker sends it as kind, and target is
+// read too, so either spelling reaches the same place.
 //
 // No agent at all clears the default, which then falls back to the one above
 // it. An agent the catalog has never heard of is refused rather than written:
@@ -376,7 +377,7 @@ func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
 		return
 	}
 	root, where := "", "every project"
-	if cmd.Target != "all" {
+	if cmd.Target != "all" && cmd.Kind != "all" {
 		root = f.root
 		if root == "" {
 			c.notify("there is no project open to set a default for", true)
@@ -388,9 +389,15 @@ func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
 		c.notify("could not save the default agent: "+err.Error(), true)
 		return
 	}
-	if cmd.Agent == "" {
-		c.notify("cleared the default agent for "+where, false)
-	} else {
+	switch {
+	case cmd.Agent == "" && root == "":
+		c.notify("cleared the default agent for every project", false)
+	case cmd.Agent == "":
+		// A project that forgets its own choice is not left with none: it
+		// runs the one every project falls back on, and saying so is clearer
+		// than saying only what went.
+		c.notify("cleared the default agent for "+where+", which now runs the default for every project", false)
+	default:
 		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+where, false)
 	}
 	s.refreshAgents()

@@ -19,6 +19,23 @@ type Prefs struct {
 	// DismissedTips holds the ids of the inline hints that have been sent
 	// away. A hint that is dismissed should stay dismissed.
 	DismissedTips []string `json:"dismissedTips,omitempty"`
+	// FontSize is the size the terminals are drawn at, in pixels. Zero is the
+	// default size.
+	FontSize int `json:"fontSize,omitempty"`
+	// NotificationsOff stops the desktop notification raised when an agent
+	// stops to wait while the window is behind something else.
+	NotificationsOff bool `json:"notificationsOff,omitempty"`
+	// Scrollback is how many lines each terminal keeps once they have
+	// scrolled off the top. Zero is the default.
+	Scrollback int `json:"scrollback,omitempty"`
+	// UpdatesOff stops the background check for a new release, as the
+	// FLOCKDECK_UPDATE=off environment variable does.
+	UpdatesOff bool `json:"updatesOff,omitempty"`
+	// CursorSteady stops the terminal cursors blinking.
+	CursorSteady bool `json:"cursorSteady,omitempty"`
+	// FontFamily is the typeface the terminals are drawn in, as a CSS font
+	// family list. Empty is the default.
+	FontFamily string `json:"fontFamily,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

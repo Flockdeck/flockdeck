@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // readAsset returns one of the embedded front-end files.
@@ -631,7 +633,7 @@ assert.ok(rows[15].scrolledTo > 0, "the highlight was moved out of sight rather 
 
 // A pointer crossing the list is the same move, once per row.
 const crossing = h.made();
-for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mouseenter", {}));
+for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mousemove", {}));
 console.log("elements built by a pointer crossing ten rows: " + (h.made() - crossing));
 assert.ok(rows[9].classList.contains("sel"), "the pointer did not move the highlight");
 assert.ok(list.children[9] === rows[9], "the row under the pointer was replaced");
@@ -682,7 +684,7 @@ assert.strictEqual(rows.filter((r) => r.getAttribute("aria-selected") === "true"
   "exactly one row is the current one");
 
 // The pointer moves it too, and it is the same claim either way.
-h.dispatch(rows[5], new h.Ev("mouseenter", {}));
+h.dispatch(rows[5], new h.Ev("mousemove", {}));
 assert.ok(named() === rows[5], "the field did not follow the pointer");
 
 // Nothing matches: there is no row to name, so the field must not claim one.
@@ -708,7 +710,10 @@ for (let i = 0; i < 4; i++) four.panes["p" + i] = pane("p" + i, { name: "task " 
 h.recv(fixture(four));
 
 assert.strictEqual(h.terms.length, 4, "one terminal per pane");
-assert.strictEqual(h.observers.length, 4, "one size watcher per pane");
+// The tab strip has a size watcher of its own; these are the panes'. Picked
+// out now, while each still watches something.
+const watchers = h.observers.filter((o) => !o.targets.includes(h.$("tabs")));
+assert.strictEqual(watchers.length, 4, "one size watcher per pane");
 assert.strictEqual(h.sockets.filter((s) => s.url.includes("/ws/pty")).length, 4, "one stream per pane");
 
 // Someone rests the pointer on a pane's header while three of the four finish.
@@ -722,14 +727,14 @@ h.recv(fixture({ tabs: [{ id: "t1", title: "fan out", focus: "p0", root: leaf("n
 
 for (let i = 1; i < 4; i++) {
   assert.ok(h.terms[i].disposed, "the terminal of pane " + i + " was not disposed");
-  assert.ok(h.observers[i].disconnected,
+  assert.ok(watchers[i].disconnected,
     "the size watcher of pane " + i + " is still registered, and holds the pane through its callback");
   assert.strictEqual(h.sockets.filter((s) => s.url.includes("id=p" + i))[0].readyState, 3,
     "the stream of pane " + i + " is still open");
 }
 // The one still running kept all of it.
 assert.ok(!h.terms[0].disposed, "the surviving pane lost its terminal");
-assert.ok(!h.observers[0].disconnected, "the surviving pane lost its size watcher");
+assert.ok(!watchers[0].disconnected, "the surviving pane lost its size watcher");
 assert.ok(!h.doc.body.querySelector("div.tip"), "a bubble was left over a pane that is gone");
 `)
 }
@@ -2024,6 +2029,2844 @@ assert.deepStrictEqual(heads, ["Installed"], "the newly installed agent is still
 `)
 }
 
+// paletteRun is the prelude for a case that opens something from the palette:
+// open it, type the words, press Enter.
+const paletteRun = `
+const paletteRun = (words) => {
+  h.press("palette");
+  const input = h.$("palette-input");
+  input.value = words;
+  input.oninput();
+  h.key({ key: "Enter" });
+};
+`
+
+// The key dialog has an implementation and no entry in the action table, so
+// the palette, which lists the table, never offered it and nothing else opened
+// it either.
+func TestTheKeyDialogCanBeOpened(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("api keys");
+assert.ok(!h.$("overlay").hidden, "the palette did not open the key dialog");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
+`)
+}
+
+// A dialog is opened by asking for it, not by its answer arriving. The answer
+// also comes back after a push, a commit or a worktree being removed, which
+// take seconds, and a dialog closed in the meantime used to come back over the
+// terminals by itself and take the keyboard from the pane being typed into.
+func TestAClosedDialogStaysClosedWhenItsAnswerArrives(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const changes = { type: "changes", cwd: "C:/repo", branch: "main", upstream: "origin/main",
+  hasRemote: true, ahead: 1, files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] };
+h.click(h.$("btn-changes"));
+h.recv(changes);
+const push = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Push 1")[0];
+h.click(push);
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape did not close the dialog");
+h.recv(changes);
+assert.ok(h.$("overlay").hidden, "the push's answer opened the dialog again");
+
+// Worktrees open when asked for, so their answer has nothing to open either.
+h.click(h.$("btn-worktrees"));
+assert.ok(!h.$("overlay").hidden, "the Worktrees button did not open the dialog");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktrees" });
+h.key({ key: "Escape" });
+h.recv({ type: "worktrees", root: "C:/repo", items: [], branches: [] });
+assert.ok(h.$("overlay").hidden, "a worktree list arriving opened the dialog again");
+
+// Nor does one dialog's answer land in another.
+h.click(h.$("btn-history"));
+h.recv(changes);
+assert.strictEqual(h.$("overlay-title").textContent, "Conversations");
+assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn into the history dialog");
+`)
+}
+
+// The update dialog took over the panel without saying so, so the dialog it
+// replaced still believed the panel was its own: its answer, arriving a
+// moment later, was drawn over the question of whether to restart.
+func TestTheUpdateDialogIsNotDrawnOver(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
+h.click(h.$("btn-changes"));
+h.click(h.$("btn-update"));
+assert.strictEqual(h.$("overlay-title").textContent, "Update to 9.9.9");
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+assert.ok(h.$("overlay-body").textContent.includes("Restart now"), "the review was drawn over the update");
+assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn over the update");
+`)
+}
+
+// The help links out to where Claude Code is installed from. Followed in
+// place, that page replaced the application in its own window, which has no
+// address bar or back button to return by.
+func TestALinkOutOfTheHelpOpensAWindowOfItsOwn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const opened = [];
+h.win.open = (url, target) => { opened.push([url, target]); return null; };
+h.press("help");
+await h.sleep(20);
+const content = h.$("help-content");
+assert.ok(content, "the help did not load");
+// The harness does not parse the page's HTML into elements, so the link the
+// troubleshooting page renders is put there by hand.
+const a = h.doc.createElement("a");
+a.setAttribute("href", "https://claude.com/claude-code");
+content.append(a);
+const ev = new h.Ev("click", { target: a });
+h.dispatch(a, ev);
+assert.ok(ev.defaultPrevented, "following the link replaced the application with it");
+assert.deepStrictEqual(opened, [["https://claude.com/claude-code", "_blank"]]);
+`)
+}
+
+// A file dragged in from the desktop and let go over a pane was opened by the
+// browser in place of the application. The page has to claim the drag to stop
+// that, and refuses it.
+func TestAFileDroppedOnTheWindowDoesNotReplaceIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const host = h.terms[0].host;
+const over = new h.Ev("dragover", { target: host, dataTransfer: { types: ["Files"], dropEffect: "copy" } });
+h.dispatch(host, over);
+assert.ok(over.defaultPrevented, "the page left the file to the browser, which opens it in its place");
+assert.strictEqual(over.dataTransfer.dropEffect, "none", "the pointer does not say the drop is refused");
+const drop = new h.Ev("drop", { target: host, dataTransfer: { types: ["Files"] } });
+h.dispatch(host, drop);
+assert.ok(drop.defaultPrevented, "the drop was left to the browser");
+
+// A pane being moved is still a pane being moved.
+const other = new h.Ev("dragover", { target: host, dataTransfer: { types: ["text/plain"], dropEffect: "move" } });
+h.dispatch(host, other);
+assert.ok(!other.defaultPrevented, "a drag that is not a file was claimed as well");
+`)
+}
+
+// Ctrl+Shift+Left selects the word before the caret and Ctrl+Shift+Z redoes,
+// in any text field. Taken as the bindings for moving and zooming a pane, they
+// did that to the panes behind the dialog while the field lost the gesture.
+func TestATextFieldKeepsItsOwnEditingKeys(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+h.$("commit-message").focus();
+const before = h.commands().length;
+for (const id of ["movePaneLeft", "movePaneRight", "movePaneUp", "movePaneDown", "zoomPane"]) {
+  const ev = h.press(id);
+  assert.ok(!ev.defaultPrevented, id + " took the key away from the commit message");
+}
+assert.strictEqual(h.commands().length, before, "a pane was moved from inside a text field");
+
+// In a terminal they are the bindings they always were.
+h.key({ key: "Escape" });
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+term.focus();
+h.press("movePaneLeft");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "movePaneDir", dir: "left" });
+`)
+}
+
+// On a Russian layout the key marked D types "в", and the bindings were
+// matched on the character alone, so none of the letter bindings worked there.
+func TestBindingsWorkOnALayoutWithoutLatinLetters(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "В", code: "KeyD", ctrlKey: true, shiftKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "splitPane", id: "p1", dir: "h", kind: "agent" });
+// A Latin layout that has moved the letter still gets the letter it typed:
+// on AZERTY the key in QWERTY's Q place types "a", and Ctrl+Shift+A is that.
+h.key({ key: "A", code: "KeyQ", ctrlKey: true, shiftKey: true });
+assert.ok(!h.$("overlay").hidden && h.$("overlay-title").textContent === "Agents", "the typed letter no longer decides");
+`)
+}
+
+// On AZERTY the digit row types & é " ' unless Shift is held, so Alt+2 arrived
+// as Alt+é and picked no tab.
+func TestTabsCanBePickedByNumberOnAZERTY(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "é", code: "Digit2", altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
+// The keypad has no row to read and types a digit everywhere.
+h.key({ key: "1", code: "Numpad1", altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
+`)
+}
+
+// Typing Chinese or Japanese goes through an input method, and the Enter that
+// confirms the characters it composed arrives as a keydown of its own. Taken
+// as Enter, it sent the half-written prompt and ran whatever palette command
+// was picked out.
+func TestEnterThatConfirmsAnInputMethodIsNotSubmit(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+const composing = { key: "Enter", isComposing: true, keyCode: 229 };
+
+h.press("promptAll");
+h.$("prompt-input").value = "\u4f60\u597d";
+h.key(composing);
+assert.ok(!h.$("promptbar").hidden, "confirming the characters sent the prompt");
+assert.ok(!h.commands().some((c) => c.cmd === "sendPrompt"), "confirming the characters sent the prompt");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "\u4f60\u597d" });
+
+h.press("palette");
+h.$("palette-input").value = "zoom";
+h.$("palette-input").oninput();
+h.key(composing);
+assert.ok(!h.$("palette").hidden, "confirming the characters ran a command");
+
+h.key({ key: "Escape" });
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", items: [], branches: [] });
+const branch = h.$("wt-branch");
+branch.focus();
+branch.value = "fix";
+const before = h.commands().length;
+h.key(composing);
+assert.strictEqual(h.commands().length, before, "confirming the characters created a worktree");
+`)
+}
+
+// The prompt bar leaves the panes usable, and one clicked into while it is up
+// is being typed at. Escape is how an agent is interrupted; the bar took it
+// wherever the keyboard was, closing itself instead, and left every binding
+// dead while it was open.
+func TestThePromptBarOnlyTakesKeysTypedIntoIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+assert.ok(!h.$("promptbar").hidden, "the prompt bar did not open");
+
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+term.focus();
+const esc = h.key({ key: "Escape" });
+assert.ok(!esc.defaultPrevented, "Escape typed into a terminal never reached the agent");
+assert.ok(!h.$("promptbar").hidden, "Escape typed into a terminal closed the prompt bar");
+h.press("newAgentTab");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent" });
+
+// In the bar itself Escape still closes it.
+h.$("prompt-input").focus();
+h.key({ key: "Escape" });
+assert.ok(h.$("promptbar").hidden, "Escape in the bar no longer closes it");
+`)
+}
+
+// The palette opens over a dialog as readily as over the terminals. Closing it
+// sent the keyboard to a terminal regardless, behind the dialog that was still
+// open, and the next thing typed went to an agent.
+func TestClosingThePaletteGivesTheKeyboardBack(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+const box = h.$("commit-message");
+box.focus();
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette did not open over the dialog");
+h.key({ key: "Escape" });
+assert.ok(h.$("palette").hidden, "Escape did not close the palette");
+assert.ok(!h.$("overlay").hidden, "closing the palette closed the dialog under it");
+assert.ok(h.doc.activeElement === box, "the keyboard did not go back to the commit message");
+`)
+}
+
+// Fitting a terminal measures it, which makes the browser lay the window out.
+// Every status push fitted every terminal on screen, and while agents work
+// those pushes arrive several times a second; a pane that has not changed size
+// has nothing to fit.
+func TestAStatusPushDoesNotMeasureTheTerminals(t *testing.T) {
+	runFrontEnd(t, `
+let fits = 0;
+const proto = h.win.FitAddon.FitAddon.prototype;
+const fit = proto.fit;
+proto.fit = function () { fits++; return fit.call(this); };
+h.hello();
+h.recv(fixture());
+await h.sleep(80);
+assert.ok(fits > 0, "the tab on screen was never fitted");
+
+fits = 0;
+for (let i = 0; i < 5; i++) {
+  h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working", detail: "Reading " + i }), p2: pane("p2") } }));
+}
+await h.sleep(80);
+assert.strictEqual(fits, 0, "a status push measured the terminals again");
+
+// A tab coming on screen is still fitted, since it could not be while hidden.
+h.recv(fixture({ activeTab: "t2" }));
+await h.sleep(80);
+assert.ok(fits > 0, "the tab switched to was not fitted");
+`)
+}
+
+// Every fit that lands during a divider drag resizes the agents either side,
+// and each of them redraws its whole screen on a resize. The panes are fitted
+// once, when the divider is let go.
+func TestDraggingADividerResizesTheAgentsOnceAtTheEnd(t *testing.T) {
+	runFrontEnd(t, `
+let fits = 0;
+const proto = h.win.FitAddon.FitAddon.prototype;
+const fit = proto.fit;
+proto.fit = function () { fits++; return fit.call(this); };
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+await h.sleep(80);
+fits = 0;
+
+const d = h.$("workspace").querySelector(".divider");
+h.dispatch(d, new h.Ev("pointerdown", { button: 0, pointerId: 1, clientX: 100 }));
+for (let x = 110; x < 160; x += 10) {
+  h.dispatch(d, new h.Ev("pointermove", { pointerId: 1, clientX: x }));
+  // The panes change size under their observers as the divider moves, and
+  // the drag pauses between moves for longer than the fit waits.
+  h.observers.forEach((o) => o.fn());
+  await h.sleep(50);
+}
+assert.strictEqual(fits, 0, "the agents were resized while the divider was still moving");
+h.dispatch(d, new h.Ev("pointerup", { pointerId: 1, clientX: 160 }));
+await h.sleep(80);
+assert.ok(fits >= 2, "the panes either side were not fitted when the drag ended");
+`)
+}
+
+// A commit that fails - a hook refusing it, say - is answered with an error and
+// the working tree again, which redraws the dialog. The message had already
+// been let go of, so it went with the redraw and had to be written again.
+func TestAFailedCommitKeepsItsMessage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (file) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: file, label: "M", added: 1, removed: 0 }] });
+h.recv(tree("a.go"));
+const box = h.$("commit-message");
+box.value = "webui: a message worth keeping";
+box.oninput();
+h.click(h.$("rev-commit"));
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false });
+
+// The hook refuses it; the server says so and sends the tree back.
+h.recv({ type: "notice", text: "pre-commit hook failed", error: true });
+h.recv(tree("a.go"));
+assert.strictEqual(h.$("commit-message").value, "webui: a message worth keeping", "the message went with the failed commit");
+
+// When it goes through, the box is emptied for the next one.
+h.click(h.$("rev-commit"));
+h.recv({ type: "notice", text: "committed in repo", error: false });
+h.recv(tree("b.go"));
+assert.strictEqual(h.$("commit-message").value, "", "a message that was committed was left in the box");
+`)
+}
+
+// The tab strip scrolls sideways with its scrollbar hidden, and a mouse wheel
+// turns the other way, so with more tabs than fit the ones past the edge could
+// not be reached with the mouse at all.
+func TestTheWheelScrollsATabStripThatOverflows(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const strip = h.$("tabs");
+strip.scrollLeft = 0;
+strip.scrollWidth = 900;
+strip.clientWidth = 300;
+const wheel = new h.Ev("wheel", { target: strip, deltaX: 0, deltaY: 120, deltaMode: 0 });
+h.dispatch(strip, wheel);
+assert.strictEqual(strip.scrollLeft, 120, "the wheel did not move the strip");
+assert.ok(wheel.defaultPrevented, "the wheel went on to scroll something else as well");
+
+// A strip that fits has nothing to scroll and leaves the wheel alone.
+strip.scrollWidth = 300;
+const idle = new h.Ev("wheel", { target: strip, deltaX: 0, deltaY: 120, deltaMode: 0 });
+h.dispatch(strip, idle);
+assert.ok(!idle.defaultPrevented, "a strip that fits took the wheel");
+`)
+}
+
+// A tab's title is cut short at 220 pixels, and a title written from an
+// agent's task nearly always is. Nothing let the rest be read, and nothing
+// said that a double-click renames it.
+func TestATabSaysItsWholeTitle(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const long = "Identify and fix every bug in the desktop front end, one per commit";
+h.recv(fixture({ tabs: [
+  { id: "t1", title: long, focus: "p1", zoom: false, attention: false, root: { id: "n1", pane: "p1", weight: 1 } },
+  { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: { id: "n2", pane: "p2", weight: 1 } },
+] }));
+const tab = h.$("tabs").children[0];
+assert.ok((tab.dataset.tip || "").startsWith(long), "the whole title cannot be read anywhere");
+assert.ok(/rename/.test(tab.dataset.tip), "nothing says how to rename the tab");
+
+h.recv(fixture());
+assert.ok(h.$("tabs").children[0].dataset.tip.startsWith("one"), "the bubble kept the old title");
+`)
+}
+
+// A pane is dragged by its header, and the grab cursor is the only thing on
+// screen that says so. A later rule for the same selector set the cursor back
+// to the default, so it never showed.
+func TestAPaneHeaderLooksDraggable(t *testing.T) {
+	css := readAsset(t, "app.css")
+	var last string
+	for _, block := range regexp.MustCompile(`(?m)^\.pane-header\s*\{([^}]*)\}`).FindAllStringSubmatch(css, -1) {
+		if m := regexp.MustCompile(`(?:^|[;\s])cursor:\s*([\w-]+)`).FindStringSubmatch(block[1]); m != nil {
+			last = m[1]
+		}
+	}
+	if last != "grab" {
+		t.Fatalf("the last .pane-header rule to set a cursor sets %q, so the header does not look draggable", last)
+	}
+}
+
+// A tab's close button is hidden with opacity until the tab is hovered, which
+// hides it from the eye and not from a finger. On a touch screen there is no
+// hover, so tapping near the end of another tab closed it and its agents.
+func TestATapOnAnotherTabCannotCloseIt(t *testing.T) {
+	css := readAsset(t, "app.css")
+	block := regexp.MustCompile(`@media\s*\(hover:\s*none\)\s*\{([^{}]*\{[^}]*\})*`).FindString(css)
+	if !regexp.MustCompile(`\.tab:not\(\.active\)\s+\.close\s*\{[^}]*display:\s*none`).MatchString(block) {
+		t.Fatal("on a touch screen the close button of a tab that is not current can still be tapped")
+	}
+}
+
+// A finger drawn along a divider is a pan to the browser unless the element
+// says otherwise, and the browser ends the page's pointer with pointercancel
+// to perform it, so a split could not be resized from a touch screen.
+func TestADividerCanBeDraggedByTouch(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`(?m)^\.divider\s*\{[^}]*touch-action:\s*none`).MatchString(css) {
+		t.Fatal("a divider leaves touch to the browser, which takes a drag along it as a pan")
+	}
+}
+
+// The broadcast toggle in a pane header lights up while its pane is in the
+// set. It was found as the first button in the row, which is fan out, so it
+// was fan out that lit up and the toggle never did.
+func TestTheBroadcastToggleShowsItsOwnState(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { broadcast: true }), p2: pane("p2") } }));
+const buttons = h.terms[0].host.parentElement.parentElement.querySelectorAll("button");
+const fan = buttons.find((b) => b.textContent === "⑂");
+const cast = buttons.find((b) => b.textContent === "⇉");
+assert.ok(cast.classList.contains("on"), "the broadcast toggle does not show that it is on");
+assert.strictEqual(cast.getAttribute("aria-pressed"), "true", "a screen reader is not told the toggle is on");
+assert.ok(!fan.classList.contains("on"), "fan out lit up for a pane in the broadcast set");
+
+h.recv(fixture());
+assert.ok(!cast.classList.contains("on"), "the toggle stayed on after the pane left the set");
+assert.strictEqual(cast.getAttribute("aria-pressed"), "false");
+`)
+}
+
+// Walking a long list with the arrow keys scrolls it, which slides a row under
+// a pointer that has not moved, and the browser reports that as the pointer
+// entering the row. The highlight followed, jumping back under the pointer
+// every time the list scrolled.
+func TestScrollingAListUnderThePointerLeavesTheHighlight(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+const rows = h.$("palette-list").children;
+assert.ok(rows[2].classList.contains("sel"), "the arrow keys did not move the highlight");
+// The list scrolled; row 0 is now under the resting pointer.
+h.dispatch(rows[0], new h.Ev("mouseenter", { target: rows[0] }));
+assert.ok(rows[2].classList.contains("sel"), "a row sliding under the pointer took the highlight");
+// Moving the pointer is what picks a row with the mouse.
+h.dispatch(rows[4], new h.Ev("mousemove", { target: rows[4] }));
+assert.ok(rows[4].classList.contains("sel"), "moving the pointer over a row did not pick it");
+
+// The agent picker is walked the same way.
+h.key({ key: "Escape" });
+h.press("palette");
+h.$("palette-input").value = "new agent tab choose";
+h.$("palette-input").oninput();
+h.key({ key: "Enter" });
+const pick = h.$("agent-list").querySelectorAll("div.pick-row");
+h.key({ key: "ArrowDown" });
+h.dispatch(pick[0], new h.Ev("mouseenter", { target: pick[0] }));
+assert.ok(pick[1].classList.contains("sel"), "a picker row sliding under the pointer took the highlight");
+`)
+}
+
+// The font size was kept in local storage, which belongs to the page's origin,
+// and the origin changes with the port on every run: the size chosen was back
+// to the default the next time the application started. It is kept with the
+// other preferences now, and arrives with them.
+func TestTheFontSizeComesBackOnTheNextRun(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 17 });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.fontSize, 17, "the size chosen on an earlier run was not used");
+
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 18 });
+assert.strictEqual(h.terms[0].options.fontSize, 18);
+
+// A size chosen in another window follows here too.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], fontSize: 12 } });
+assert.strictEqual(h.terms[0].options.fontSize, 12, "a size chosen in another window was not followed");
+`)
+}
+
+// A dialog is drawn again from each answer, and emptying it to do so put its
+// scroll back at the top: a list scrolled down to the worktree being removed,
+// or the agent being looked for, jumped back to the start when the answer came.
+func TestADialogKeepsItsPlaceWhenItIsRedrawn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+const agents = { type: "agents", items: [] };
+for (let i = 0; i < 30; i++) {
+  agents.items.push({ paneId: "p" + i, tabId: "t1", root: "C:/repo", tab: "tab " + i, name: "agent " + i,
+    project: "repo", status: "idle" });
+}
+h.recv(agents);
+const body = h.$("overlay-body");
+body.scrollTop = 480;
+h.recv(agents);
+assert.strictEqual(body.scrollTop, 480, "the list jumped back to the top when it was drawn again");
+`)
+}
+
+// Reading a review file by file took Tab and Enter for every file. The lists
+// answer the arrow keys as lists do, and in the review arriving at a file shows
+// its diff; in the agents list, where Enter leaves the dialog, they only move.
+func TestTheArrowKeysWalkTheReviewAndAgentLists(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [
+  { path: "a.go", label: "M", added: 1, removed: 0 },
+  { path: "b.go", label: "M", added: 1, removed: 0 },
+  { path: "c.go", label: "A", added: 1, removed: 0 },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+rows[0].focus();
+const down = h.key({ key: "ArrowDown" });
+assert.ok(down.defaultPrevented, "Down scrolled the dialog instead");
+assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next file");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "b.go" });
+h.key({ key: "End" });
+assert.ok(h.doc.activeElement === rows[2], "End did not reach the last file");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "c.go" });
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[2], "Down walked off the end of the list");
+
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle" },
+  { paneId: "p2", tabId: "t2", root: "C:/repo", project: "repo", tab: "two", name: "b", status: "waiting" },
+] });
+const agents = h.$("overlay-body").querySelectorAll("div.agent-row");
+agents[0].focus();
+const before = h.commands().length;
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === agents[1], "Down did not move to the next agent");
+assert.strictEqual(h.commands().length, before, "moving through the agents went to one");
+assert.ok(!h.$("overlay").hidden);
+`)
+}
+
+// Desktop notifications could be stopped only through the browser's own
+// permission, which belongs to the page's origin: that changes with the port
+// on every run, so it was asked again and refused again at every start.
+func TestNotificationsCanBeTurnedOffFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ notificationsOff: true });
+h.recv(fixture());
+h.doc._hasFocus = false;
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(h.notifications.length, 0, "a notification was raised with notifications turned off");
+h.key({ key: "a" });
+assert.strictEqual(h.win.Notification.asked, 0, "permission was asked for with notifications turned off");
+
+paletteRun("notifications on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "on" });
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+h.recv(fixture());
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(h.notifications.length, 1, "turned back on, the notification did not come");
+paletteRun("notifications off");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" });
+`)
+}
+
+// The picker could make a choice this project's default and nothing else: the
+// default for every project needed agents.json edited by hand, and a project's
+// own choice, once made, could not be undone from the window.
+func TestThePickerSetsEitherDefaultAndUndoesAProjects(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ agents: catalog({ project: { agent: "codex", model: "gpt-5" } }) }));
+h.click(h.$("new-tab-pick"));
+const body = h.$("overlay-body");
+const forget = body.querySelectorAll("button").find((b) => b.textContent === "Use the default for every project");
+assert.ok(forget, "a project's own default cannot be undone");
+h.click(forget);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "", model: "" });
+
+const scope = body.querySelector("select.pick-scope");
+assert.ok(scope, "the default for every project cannot be chosen");
+scope.value = "all";
+h.dispatch(scope, new h.Ev("change", { target: scope }));
+assert.ok(body.querySelector("label.pick-default").querySelector("input").checked,
+  "choosing which default did not say the choice is to become one");
+h.key({ key: "ArrowRight" });
+h.key({ key: "Enter" });
+const sent = h.commands();
+assert.deepStrictEqual(sent[sent.length - 2], { cmd: "setAgentDefault", agent: "claude", model: "", kind: "all" });
+assert.deepStrictEqual(sent[sent.length - 1], { cmd: "newTab", kind: "agent", agent: "claude", model: "" });
+`)
+}
+
+// How many lines a terminal keeps was a number in the source. It is asked for
+// from the palette, kept with the other preferences, and follows a change made
+// in another window.
+func TestTheScrollbackCanBeChosen(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ scrollback: 50000 });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.scrollback, 50000, "the scrollback chosen on an earlier run was not used");
+
+h.win._prompt = "25,000";
+paletteRun("scrollback");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 25000 });
+assert.strictEqual(h.terms[0].options.scrollback, 25000, "the terminals did not take the new scrollback");
+
+h.win._prompt = "12";
+paletteRun("scrollback");
+assert.ok(!h.commands().some((c) => c.cmd === "scrollback" && c.size === 12), "a scrollback of 12 lines was accepted");
+assert.ok(h.$("notice").textContent.includes("1,000"), "nothing said what a scrollback may be");
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], scrollback: 90000 } });
+assert.strictEqual(h.terms[1].options.scrollback, 90000, "a scrollback chosen in another window was not followed");
+`)
+}
+
+// The palette and the agent picker moved one row per arrow and answered no
+// other key, so the last of the palette's forty-odd commands was forty presses
+// away. Page Up and Page Down move a boxful, and Home and End go to the ends
+// while nothing has been typed.
+func TestTheListsPageAndJumpToTheirEnds(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const rows = () => h.$("palette-list").children;
+const sel = () => rows().findIndex((r) => r.classList.contains("sel"));
+h.key({ key: "PageDown" });
+assert.strictEqual(sel(), 8, "Page Down did not move a boxful");
+h.key({ key: "End" });
+assert.strictEqual(sel(), rows().length - 1, "End did not reach the last command");
+h.key({ key: "PageUp" });
+assert.strictEqual(sel(), rows().length - 9);
+h.key({ key: "Home" });
+assert.strictEqual(sel(), 0, "Home did not go back to the first command");
+
+// With something typed, Home and End are the caret's.
+h.$("palette-input").value = "tab";
+h.$("palette-input").oninput();
+const home = h.key({ key: "Home" });
+assert.ok(!home.defaultPrevented, "Home was taken from the caret in a field with text in it");
+
+h.key({ key: "Escape" });
+h.click(h.$("new-tab-pick"));
+const picks = h.$("agent-list").querySelectorAll("div.pick-row");
+h.key({ key: "End" });
+assert.ok(picks[picks.length - 1].classList.contains("sel"), "End did not reach the last agent");
+`)
+}
+
+// The find bar answered the keyboard only while its field had it. A click on
+// one of its arrows left the keyboard on that button, where Escape did not
+// close the bar and the next letters of the search went nowhere.
+func TestTheFindBarKeepsTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const input = h.$("search-input");
+input.value = "error";
+h.$("search-next").focus();
+h.click(h.$("search-next"));
+assert.ok(h.doc.activeElement === input, "the arrow kept the keyboard, so typing more of the search went nowhere");
+
+h.$("search-prev").focus();
+h.key({ key: "Escape" });
+assert.ok(h.$("searchbar").hidden, "Escape on one of the bar's buttons did not close it");
+`)
+}
+
+// The find bar searched only when Enter was pressed, so the field said nothing
+// about whether a word was there until it had been typed in full and sent. It
+// searches as the word is typed, once per pause rather than once per letter.
+func TestTheFindBarSearchesAsItIsTypedInto(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const input = h.$("search-input");
+const search = h.searchers[0];
+for (const q of ["e", "er", "err"]) { input.value = q; input.oninput(); }
+await h.sleep(200);
+assert.deepStrictEqual(search.forward, ["err"], "typing did not search, or searched once for every letter");
+
+search.hit = false;
+input.value = "errx";
+input.oninput();
+await h.sleep(200);
+assert.strictEqual(input.getAttribute("aria-invalid"), "true", "a word that is not there was not said to be missing");
+
+const cleared = search.cleared;
+input.value = "";
+input.oninput();
+await h.sleep(200);
+assert.ok(search.cleared > cleared, "emptying the field left the last search marked");
+assert.strictEqual(input.getAttribute("aria-invalid"), "false");
+`)
+}
+
+// The notice sits at the bottom of the window, and so do the prompt and find
+// bars: a message arriving while one was open covered the field being typed
+// into and took the click meant for it.
+func TestANoticeDoesNotCoverTheBarBeingTypedInto(t *testing.T) {
+	css := readAsset(t, "app.css")
+	for _, bar := range []string{"promptbar", "searchbar"} {
+		re := regexp.MustCompile(`body:has\(#` + bar + `:not\(\[hidden\]\)\) #notice[^{]*\{[^}]*bottom:`)
+		if !re.MatchString(css) {
+			t.Errorf("the notice is not moved clear of #%s while it is open", bar)
+		}
+	}
+}
+
+// A zoomed pane looked exactly like the only pane in its tab: the others
+// seemed to have closed, and nothing said where they had gone or how to get
+// them back. The zoom button says it is on, and how many panes it is hiding.
+func TestAZoomedPaneSaysWhatItIsHiding(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tabs = (zoom) => [{ id: "t1", title: "one", focus: "p1", zoom: zoom, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }];
+const panes = { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") };
+h.recv(fixture({ tabs: tabs(true), panes }));
+const zoom = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⤢");
+assert.ok(zoom.classList.contains("zoomed"), "the zoom button does not show that the pane is zoomed");
+assert.strictEqual(zoom.getAttribute("aria-pressed"), "true");
+assert.ok(/2 other panes are hidden/.test(zoom.dataset.tip), "nothing says what the zoom is hiding: " + zoom.dataset.tip);
+
+h.recv(fixture({ tabs: tabs(false), panes }));
+assert.ok(!zoom.classList.contains("zoomed"), "the zoom button stayed on after the zoom was released");
+assert.strictEqual(zoom.getAttribute("aria-pressed"), "false");
+`)
+}
+
+// A worktree with agents working in it is not removed from under them: the
+// server refuses it, forced or not, and the dialog says so before sending
+// anything, naming what to do instead. Force is only for uncommitted work in
+// a worktree nothing is running in.
+func TestAWorktreeAgentsAreInIsNotRemovedFromUnderThem(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [
+  { label: "main", path: "C:/repo", main: true },
+  { label: "fix-auth", path: "C:/repo-fix-auth", panes: 2, dirty: 3, untracked: 0 },
+  { label: "spare", path: "C:/repo-spare", panes: 0, dirty: 1, untracked: 0 },
+] });
+const removes = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove");
+let asked = "";
+h.win.confirm = (q) => { asked = q; return true; };
+const before = h.commands().length;
+h.click(removes[0]);
+assert.strictEqual(h.commands().length, before, "a worktree was removed from under the agents working in it");
+assert.strictEqual(asked, "", "the dialog offered to go ahead past the agents working in it");
+assert.ok(/2 agents are working in fix-auth\. Close those panes first/.test(h.$("notice").textContent),
+  "nothing said why, or what to do: " + h.$("notice").textContent);
+
+h.click(removes[1]);
+assert.ok(/uncommitted changes/.test(asked), "uncommitted work was discarded without asking");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-spare", force: true });
+`)
+}
+
+// The new-worktree form created the worktree on Enter in the branch field and
+// not in the base field beside it, which is the one filled in last.
+func TestEnterInEitherWorktreeFieldCreatesIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [] });
+h.$("wt-branch").value = "fix-auth";
+const base = h.$("wt-base");
+base.value = "develop";
+base.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "develop" });
+`)
+}
+
+// The worktrees dialog offers branches without a worktree as buttons, at most
+// fourteen of them, and the rest simply were not there: a branch further down
+// looked as though it did not exist.
+func TestBranchesPastTheFirstFourteenAreAccountedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const branches = [];
+for (let i = 0; i < 20; i++) branches.push({ name: "branch-" + i, checkedIn: false });
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches, items: [] });
+const text = h.$("overlay-body").textContent;
+assert.ok(text.includes("6 more branches"), "the branches past the first fourteen vanished without a word");
+`)
+}
+
+// Going into a folder in the projects dialog redraws the list, and the button
+// that was pressed goes with the folder it named: the keyboard fell out of
+// the dialog, and each folder deeper meant tabbing down from the top again.
+func TestTheFolderBrowserKeepsTheKeyboardOnTheWayDown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: [
+  { name: "api", path: "C:/code/api" }, { name: "web", path: "C:/code/web" } ] });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/api" });
+h.recv({ type: "browse", path: "C:/code/api", parent: "C:/code", entries: [
+  { name: "cmd", path: "C:/code/api/cmd" } ] });
+assert.ok(h.doc.activeElement === into()[0], "going into a folder dropped the keyboard out of the list");
+`)
+}
+
+// A tab was renamed by double-clicking it and in no other way, so it could not
+// be done from the keyboard and nothing listed it as something that could be
+// done at all.
+func TestATabCanBeRenamedFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+h.win._prompt = "api work";
+paletteRun("rename");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "renameTab", id: "t1", text: "api work" });
+`)
+}
+
+// The background check for new releases could be turned off only with an
+// environment variable set before the application started.
+func TestUpdateChecksCanBeTurnedOffFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("update checks off");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], updatesOff: true } });
+paletteRun("update checks on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "on" });
+`)
+}
+
+// The help's contents are walked with the arrow keys from its search box, and
+// each step rebuilds the list, which puts it back at the top: the highlight
+// went past the bottom of the box and out of sight.
+func TestWalkingTheHelpKeepsItsPlaceInView(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+for (let i = 0; i < 8; i++) h.key({ key: "ArrowDown" });
+const sel = h.$("overlay-body").querySelector("button.sel");
+assert.ok(sel, "no page is picked out in the contents");
+assert.ok(sel.scrolledTo > 0, "the page picked out was never brought into view");
+`)
+}
+
+// With every tab closed the window says so and offers a new one. Closing the
+// last tab left the keyboard on the page with nothing to act on, and each
+// status push - they keep coming while other projects' agents work - built
+// the placeholder again and took the keyboard off whatever it was on.
+func TestTheEmptyWorkspaceHoldsTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.recv(fixture({ tabs: [], panes: {} }));
+const buttons = () => h.$("workspace").querySelectorAll("button");
+const start = buttons().find((b) => b.textContent === "New agent tab");
+assert.ok(start, "the empty workspace offers no new tab");
+assert.ok(h.doc.activeElement === start, "closing the last tab left the keyboard with nothing to act on");
+
+const help = buttons().find((b) => b.textContent === "Help");
+help.focus();
+h.recv(fixture({ tabs: [], panes: {}, working: 2 }));
+assert.ok(buttons().includes(help), "a status push built the empty workspace again");
+assert.ok(h.doc.activeElement === help, "a status push took the keyboard off the Help button");
+`)
+}
+
+// The commit message is the last thing written before committing, and a box
+// like it commits on Ctrl+Enter nearly everywhere else. Here it took the
+// pointer, or tabbing past the box to the button.
+func TestCtrlEnterCommitsFromTheMessage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+const box = h.$("commit-message");
+box.value = "webui: something";
+box.oninput();
+box.focus();
+const plain = h.key({ key: "Enter" });
+assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the message");
+const ev = h.key({ key: "Enter", ctrlKey: true });
+assert.ok(ev.defaultPrevented);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false });
+`)
+}
+
+// A pane told the server it had the focus only when it was clicked. Tabbed
+// into from its header buttons, its terminal took the typing while the server
+// went on treating the last pane clicked as focused - the one Close pane would
+// close.
+func TestThePaneTheKeyboardIsInIsTheFocusedOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[1].host.append(term);
+h.dispatch(term, new h.Ev("focusin", { target: term }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p2" });
+`)
+}
+
+// Closing a project stops every agent in every tab of it, and the small cross
+// in the projects dialog did it on one click. It asks first when an agent
+// there has something under way, as Quit does.
+func TestClosingABusyProjectAsksFirst(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 3, waiting: 1, working: 2 },
+  { root: "C:/docs", name: "docs", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+h.press("projects");
+const closes = h.$("overlay-body").querySelectorAll("button").filter((b) => (b.dataset.tip || "").startsWith("Close this project"));
+let asked = "";
+h.win.confirm = (q) => { asked = q; return false; };
+const before = h.commands().length;
+h.click(closes[1]);
+assert.ok(/3 agents are still working/.test(asked), "a project with agents at work was closed without asking");
+assert.strictEqual(h.commands().length, before, "the project was closed although the answer was no");
+
+asked = "";
+h.click(closes[2]);
+assert.strictEqual(asked, "", "a project with every agent idle was asked about");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeProject", root: "C:/docs" });
+`)
+}
+
+// A refresh, a fetch or a push answers with the working tree again, and the
+// review was drawn afresh from it: a long diff went back to its first line
+// under the person reading it, and the file list back to its top.
+func TestAReviewKeepsItsPlaceInTheDiff(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const files = [];
+for (let i = 0; i < 30; i++) files.push({ path: "f" + i + ".go", label: "M", added: 1, removed: 0 });
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", files };
+h.recv(tree);
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[20]);
+h.recv({ type: "diff", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
+const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
+const list = () => h.$("overlay-body").querySelector("div.rev-files");
+diff().scrollTop = 900;
+list().scrollTop = 400;
+
+h.recv(tree);
+assert.strictEqual(diff().scrollTop, 900, "the diff went back to its first line when the tree was read again");
+assert.strictEqual(list().scrollTop, 400, "the file list went back to its top when the tree was read again");
+`)
+}
+
+// The review reads the tree again when an agent changes it, and the list came
+// back current while the diff beside it - of the file being read - stayed as
+// it was first read.
+func TestTheDiffOnShowFollowsTheTree(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (added) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added, removed: 0 }, { path: "b.go", label: "M", added: 1, removed: 0 }] });
+h.recv(tree(1));
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[0]);
+const lines = (n) => Array.from({ length: n }, (_, i) => "+line " + i).join("\n");
+h.recv({ type: "diff", file: "a.go", text: lines(300) });
+const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
+diff().scrollTop = 900;
+const diffs = () => h.commands().filter((c) => c.cmd === "diff");
+const before = diffs().length;
+
+h.recv(tree(40));
+assert.strictEqual(diffs().length, before + 1, "the tree changed and the diff on show was not read again");
+assert.deepStrictEqual(diffs().pop(), { cmd: "diff", path: "C:/repo", text: "a.go" });
+assert.ok(!/Loading/.test(diff().textContent), "the diff on show was taken away while the new one was read");
+h.recv({ type: "diff", file: "a.go", text: lines(340) });
+assert.ok(/line 339/.test(diff().textContent), "the new diff is not shown");
+assert.strictEqual(diff().scrollTop, 900, "the new diff lost the reader's place");
+
+// Another file chosen starts at its top.
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[1]);
+h.recv({ type: "diff", file: "b.go", text: lines(300) });
+assert.strictEqual(diff().scrollTop, 0, "a file just chosen did not start at its top");
+`)
+}
+
+// The agents overview is where you look to see who needs you, and it was a
+// picture taken when it opened: an agent that stopped to wait while it was up
+// went on being listed as working.
+func TestTheAgentsOverviewFollowsTheAgents(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+const list = (status) => ({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: status } ] });
+h.recv(list("working"));
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const before = asked();
+
+// A push that changes nothing the overview lists does not ask again.
+h.recv(fixture({ panes: { p1: pane("p1", { detail: "Reading" }), p2: pane("p2") } }));
+assert.strictEqual(asked(), before, "the overview was asked for again when nothing it lists had moved");
+
+h.$("agent-p1").focus();
+h.recv(fixture({ waiting: 1, projects: [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 }],
+  panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(asked(), before + 1, "an agent stopping to wait did not bring the overview up to date");
+h.recv(list("waiting"));
+assert.ok(h.$("overlay-body").textContent.includes("waiting"), "the overview still says the agent is working");
+assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard when its status changed");
+`)
+}
+
+// In a narrow window the chips on the right of the top bar took all the room.
+// Measured in Chrome: at 640px the tab strip was 23px wide and its one tab
+// unreadable, and at 480px the bar ran 129px past the edge, the help button
+// with it. The chips that open dialogs, which the palette and their keys also
+// reach, step aside there.
+func TestANarrowWindowKeepsTheTabsAndTheHelp(t *testing.T) {
+	css := readAsset(t, "app.css")
+	block := regexp.MustCompile(`@media\s*\(max-width:\s*(\d+)px\)\s*\{\s*#btn-changes,\s*#btn-history,\s*#btn-worktrees\s*\{\s*display:\s*none`).FindStringSubmatch(css)
+	if block == nil {
+		t.Fatal("the dialog chips keep their room in a narrow window, so the tabs and the help button are squeezed out")
+	}
+}
+
+// Several commands are reached only from the palette - tiling, restarting a
+// pane, the settings - and one used a minute ago had to be typed for again
+// each time. The last ones run come first while nothing has been typed.
+func TestThePaletteOffersWhatWasLastRunFirst(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("tile");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "tilePanes" });
+paletteRun("restart");
+h.press("palette");
+const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.deepStrictEqual(labels.slice(0, 2), ["Restart pane", "Tile these panes evenly"],
+  "the commands just run are not the first offered: " + labels.slice(0, 3).join(", "));
+// Enter on the first row runs the last command again.
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "restartPane", id: "p1" });
+`)
+}
+
+// The usage figure is the first part of a pane header to give up its width,
+// and it was clipped bare: "0% 7.6 MB" lost its unit and read as a different,
+// smaller number. Cut short, it says it has been.
+func TestAClippedUsageFigureSaysItIsClipped(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`(?m)^\.pane-usage\s*\{[^}]*text-overflow:\s*ellipsis`).MatchString(css) {
+		t.Fatal("the usage figure is clipped without an ellipsis, so a cut-off figure reads as a different number")
+	}
+}
+
+// A hint sent away stays away, and there was no way back for one dismissed by
+// mistake short of editing prefs.json. The palette offers one while any is
+// dismissed, and not otherwise.
+func TestDismissedTipsCanBeBroughtBackFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const labels = () => h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(!labels().includes("Show the tips again"), "offered to bring back tips when none were dismissed");
+h.key({ key: "Escape" });
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"] } });
+paletteRun("tips again");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
+`)
+}
+
+// Stepping through a search's matches gave no idea how many there were, which
+// one was showing, or whether Enter had wrapped round to the first.
+func TestTheFindBarCountsTheMatches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const search = h.searchers[0];
+h.$("search-input").value = "error";
+search.results({ resultIndex: 2, resultCount: 12 });
+assert.strictEqual(h.$("search-count").textContent, "3 of 12", "the find bar does not say where in the matches it is");
+search.results({ resultIndex: -1, resultCount: 0 });
+assert.strictEqual(h.$("search-count").textContent, "No matches");
+
+// Another pane's search is not this bar's business.
+h.searchers[1].results({ resultIndex: 0, resultCount: 5 });
+assert.strictEqual(h.$("search-count").textContent, "No matches", "another pane's matches were counted here");
+
+h.key({ key: "Escape" });
+h.press("findInTerminal");
+assert.strictEqual(h.$("search-count").textContent, "", "the last search's count was left on a new one");
+`)
+}
+
+// The projects dialog listed eight recent projects and simply left out the
+// rest, of up to forty remembered: an older one could be reached only by
+// browsing to its folder again.
+func TestEveryRecentProjectCanBeReached(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+const items = [];
+for (let i = 0; i < 12; i++) items.push({ root: "C:/p" + i, name: "p" + i, exists: true, open: false });
+h.recv({ type: "recents", items });
+const body = h.$("overlay-body");
+const more = body.querySelectorAll("button").find((b) => b.textContent === "Show 4 more");
+assert.ok(more, "the recent projects past the eighth are not offered at all");
+h.click(more);
+assert.ok(body.textContent.includes("p11"), "the rest of the recent projects did not appear");
+assert.ok(h.doc.activeElement === h.$("recent-8"), "the keyboard did not land on the first of the projects shown");
+`)
+}
+
+// The fan-out's tasks go one to a line, so Enter is a new line there and
+// starting the agents took the pointer, or Tab past every option to the
+// button. Ctrl+Enter starts them.
+func TestCtrlEnterStartsTheFanOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["Add a health endpoint", "Write tests"], isRepo: false, cwd: "C:/repo" });
+const box = h.$("overlay-body").querySelector("textarea.fan-tasks");
+box.focus();
+const plain = h.key({ key: "Enter" });
+assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the task list");
+h.key({ key: "Enter", ctrlKey: true });
+const sent = h.commands().pop();
+assert.strictEqual(sent.cmd, "fanout", "Ctrl+Enter did not start the agents");
+assert.deepStrictEqual(sent.tasks, ["Add a health endpoint", "Write tests"]);
+`)
+}
+
+// The prompt bar is how one instruction reaches every agent, and sending it
+// again, or a variation on it, meant typing it out in full. Up recalls what
+// was sent, as it does at a prompt, and Down comes back to what was being
+// typed.
+func TestThePromptBarRemembersWhatWasSent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("prompt-input");
+for (const text of ["run the tests", "commit what you have"]) {
+  h.press("promptAll");
+  input.value = text;
+  h.key({ key: "Enter" });
+}
+h.press("promptAll");
+input.value = "half typ";
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "commit what you have", "Up did not recall the last prompt sent");
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "run the tests");
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "run the tests", "Up walked past the first prompt sent");
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(input.value, "half typ", "Down did not come back to what was being typed");
+h.key({ key: "ArrowUp" });
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "commit what you have" });
+`)
+}
+
+// A key that runs one of the window's actions went on to the terminal as well:
+// xterm reads keydown on its own textarea without asking whether it was
+// prevented. In headless Chrome against a real pane, Ctrl+Shift+Left moved the
+// pane and sent ESC[1;6D to the program in it, and Alt+1 sent ESC 1.
+func TestABoundKeyDoesNotAlsoReachTheTerminal(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+const reached = [];
+term.addEventListener("keydown", (e) => reached.push(e.key));
+term.focus();
+h.press("movePaneLeft");
+h.key({ key: "1", code: "Digit1", altKey: true });
+h.press("fontUp");
+assert.deepStrictEqual(reached, [], "a key that ran an action reached the terminal too: " + reached.join(", "));
+h.key({ key: "x" });
+assert.deepStrictEqual(reached, ["x"], "an ordinary key no longer reaches the terminal");
+`)
+}
+
+// Ctrl++ makes the text bigger in anything with a font size, and the key table
+// says Ctrl+= does it here. On a US or UK keyboard + is Shift and =, so Ctrl++
+// arrived with Shift held and matched nothing.
+func TestCtrlPlusMakesTheTextBigger(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "+", code: "Equal", ctrlKey: true, shiftKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 }, "Ctrl++ did not make the text bigger");
+h.key({ key: "+", code: "NumpadAdd", ctrlKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 15 }, "Ctrl and the keypad's + did not either");
+`)
+}
+
+// The fan-out's trust row is about Claude Code's folder-trust question, in
+// Claude's words, and was drawn whichever agents had been chosen. It shows
+// only while one that asks the question is among them: the server says which
+// do, and until it does, that is Claude.
+func TestTheFanOutOffersTrustOnlyForAgentsThatAsk(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const preview = (agents, agent) => ({ type: "fanoutPreview", paneId: "p1", tasks: ["one task"], isRepo: true,
+  trusted: true, project: "repo", cwd: "C:/repo", agent, agents });
+const trustRow = () => h.$("overlay-body").querySelectorAll("label.fan-opt").find((l) => l.textContent.includes("Trust"));
+const runSel = () => h.$("overlay-body").querySelector("select.fan-agent-sel");
+const pick = (value) => { const s = runSel(); s.value = value; h.dispatch(s, new h.Ev("change", { target: s })); };
+const agents = [
+  { id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
+  { id: "codex", name: "Codex", models: [{ id: "gpt-5" }] },
+];
+
+h.press("fanout");
+h.recv(preview(agents, "codex"));
+assert.ok(trustRow().hidden, "the trust row is offered for an agent that asks no such question");
+pick("claude\n");
+assert.ok(!trustRow().hidden, "the trust row is not offered when Claude is chosen");
+h.$("overlay-body").querySelector("button.primary").onclick();
+assert.strictEqual(h.commands().pop().trust, true);
+
+// Where the server says which agents ask, that is what counts.
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv(preview([{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }], askTrust: false },
+                { id: "other", name: "Other", models: [{ id: "m" }], askTrust: true }], "other"));
+assert.ok(!trustRow().hidden, "an agent the server says asks was not offered trust");
+pick("claude\n");
+assert.ok(trustRow().hidden, "the id was trusted over what the server said");
+`)
+}
+
+// The agent picker's ? opened the help page on panes, not the one on agents
+// and models, which is what the picker chooses between.
+func TestThePickersHelpIsTheAgentsPage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("new-tab-pick"));
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "agents", "the picker's ? opened another page");
+`)
+}
+
+// The fan-out dialog says how many agents will start, and the server stops at
+// a cap it announces only afterwards. The dialog's number and the server's are
+// the same number, written in two places, so this holds them level.
+func TestTheFanOutCapIsTheServers(t *testing.T) {
+	m := regexp.MustCompile(`const FANOUT_MAX = (\d+);`).FindStringSubmatch(readAsset(t, "app.js"))
+	if m == nil || m[1] != strconv.Itoa(workspace.MaxTasks) {
+		t.Fatalf("app.js caps a fan-out at %v, the server at %d", m, workspace.MaxTasks)
+	}
+}
+
+// A fan-out of fifteen tasks offered to "Start 15 agents", and twelve started.
+func TestTheFanOutDoesNotPromiseMoreThanItStarts(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+const tasks = Array.from({ length: 15 }, (_, i) => "task " + (i + 1));
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks, isRepo: false, cwd: "C:/repo" });
+const start = h.$("overlay-body").querySelector("button.primary");
+assert.strictEqual(start.textContent, "Start 12 agents", "the button promised agents that will not start");
+assert.ok(/only the first 12 start/.test(h.$("overlay-body").querySelector("span.fan-count").textContent),
+  "nothing said the rest will not start");
+`)
+}
+
+// The help's search box had a placeholder and no name, and a placeholder is
+// gone as soon as anything is typed and is not reliably read out as a label.
+func TestTheHelpSearchIsNamed(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+assert.strictEqual(h.$("help-search").getAttribute("aria-label"), "Search the help", "the help's search box has no name");
+`)
+}
+
+// Every dialog has a ? in its header for the page that explains it, except
+// the update and API key dialogs, which had none although both are covered:
+// updating on the command line page, keys on the page about agents.
+func TestTheUpdateAndKeyDialogsHaveTheirHelp(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-update"));
+assert.ok(h.$("overlay-help"), "the update dialog has no ?");
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "cli");
+
+h.key({ key: "Escape" });
+paletteRun("api keys");
+assert.ok(h.$("overlay-help"), "the API key dialog has no ?");
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "agents");
+`)
+}
+
+// The broadcast tooltip said it mirrors what you type into every pane in the
+// set. Nothing mirrors typing: the set is where the prompt bar's message goes
+// (BroadcastTargets is used by SendPrompt alone), and a terminal typed into
+// still reaches only itself.
+func TestTheBroadcastTipSaysWhatBroadcastDoes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const cast = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⇉");
+const tip = cast.dataset.tip;
+assert.ok(!/mirrors what you type/i.test(tip), "the tooltip still says typing is mirrored: " + tip);
+assert.ok(/prompt bar/.test(tip), "the tooltip does not say it is the prompt bar's message that goes to the set: " + tip);
+`)
+}
+
+// Choosing a page in the help's contents rebuilt the list, which destroyed the
+// item the choice was made on and dropped the keyboard out of the dialog.
+func TestChoosingAHelpPageKeepsTheKeyboardInTheContents(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const items = () => h.$("overlay-body").querySelectorAll("button.help-item");
+const second = items()[1];
+const title = second.querySelector(".help-item-title").textContent;
+second.focus();
+h.key({ key: "Enter" });
+const now = h.doc.activeElement;
+assert.ok(items().includes(now), "choosing a page dropped the keyboard out of the contents");
+assert.strictEqual(now.querySelector(".help-item-title").textContent, title, "the keyboard landed on another page");
+`)
+}
+
+// The page open in the help was marked in its contents by colour alone, so a
+// screen reader walking the list was told nothing about which one it was.
+func TestTheHelpSaysWhichPageIsOpen(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const items = h.$("overlay-body").querySelectorAll("button.help-item");
+const current = items.filter((b) => b.getAttribute("aria-current") === "page");
+assert.strictEqual(current.length, 1, "the contents do not say which page is open");
+assert.ok(current[0].classList.contains("sel"), "the page said to be open is not the one shown");
+`)
+}
+
+// The help's search box keeps the keyboard while the help is open, and Page Up
+// and Page Down did nothing there, so the page being read could not be
+// scrolled without the mouse.
+func TestPageKeysScrollTheHelpBeingRead(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const content = h.$("help-content");
+content.clientHeight = 400;
+content.scrollTop = 0;
+h.$("help-search").focus();
+const down = h.key({ key: "PageDown" });
+assert.ok(down.defaultPrevented);
+assert.strictEqual(content.scrollTop, 360, "Page Down did not scroll the page being read");
+h.key({ key: "PageUp" });
+assert.strictEqual(content.scrollTop, 0, "Page Up did not scroll it back");
+`)
+}
+
+// Help pages refer to each other, and the references were bold text with no
+// way to follow them. A link to a page's slug opens that page in the viewer.
+func TestAHelpPageLinksToAnother(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const content = h.$("help-content");
+// The harness does not parse the page's HTML into elements, so the link a
+// page renders is put there by hand.
+const a = h.doc.createElement("a");
+a.setAttribute("href", "#worktrees");
+content.append(a);
+const ev = new h.Ev("click", { target: a });
+h.dispatch(a, ev);
+assert.ok(ev.defaultPrevented, "the link was left to the browser");
+assert.strictEqual(content.dataset.slug, "worktrees", "following the link did not open the page it names");
+
+// A hash that names no page is left alone.
+const b = h.doc.createElement("a");
+b.setAttribute("href", "#no-such-page");
+h.$("help-content").append(b);
+const other = new h.Ev("click", { target: b });
+h.dispatch(b, other);
+assert.ok(!other.defaultPrevented);
+`)
+}
+
+// The tooltip is the only place most glyph buttons say what they do, and it
+// came only for a pointer: tabbing onto ⟳ or ⤢ told somebody who can see
+// nothing at all. Keyboard focus brings it too, and taking the focus away
+// takes it away.
+func TestKeyboardFocusShowsTheTooltip(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const zoom = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⤢");
+zoom.focus();
+h.dispatch(zoom, new h.Ev("focusin", { target: zoom }));
+await h.sleep(320);
+const tip = h.doc.body.querySelector("div.tip");
+assert.ok(tip, "tabbing onto a glyph button showed nothing about what it does");
+assert.strictEqual(tip.textContent, zoom.dataset.tip);
+h.dispatch(zoom, new h.Ev("focusout", { target: zoom }));
+assert.ok(!h.doc.body.querySelector("div.tip"), "the bubble stayed after the focus left");
+`)
+}
+
+// Each worktree row carried four or five buttons, each a Tab stop of its own,
+// so with ten worktrees the form for a new one was fifty presses of Tab away.
+// A row is one stop, walked with the arrow keys, as a pane's header is.
+func TestAWorktreeRowIsOneStop(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const items = [{ label: "main", path: "C:/repo", main: true }];
+for (let i = 0; i < 3; i++) items.push({ label: "wt" + i, path: "C:/repo-wt" + i, dirty: 0, untracked: 0 });
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const bars = h.$("overlay-body").querySelectorAll("div.wt-actions");
+assert.strictEqual(bars.length, 4);
+for (const bar of bars) {
+  assert.strictEqual(bar.getAttribute("role"), "toolbar");
+  const stops = bar.children.filter((b) => b.getAttribute("tabindex") === "0");
+  assert.strictEqual(stops.length, 1, "a worktree row is still one Tab stop per button");
+}
+const first = bars[1].children[0];
+first.focus();
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === bars[1].children[1], "the arrows do not walk a worktree's buttons");
+`)
+}
+
+// Escape in the help's search box, or in the agent picker's filter, closed the
+// whole dialog even with something typed in it. It empties the field first,
+// as a search field does, and closes the dialog from an empty one.
+func TestEscapeEmptiesASearchBeforeClosingItsDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const all = h.$("overlay-body").querySelectorAll("button.help-item").length;
+const search = h.$("help-search");
+search.value = "worktree";
+search.oninput();
+search.focus();
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape with a search typed closed the help");
+assert.strictEqual(search.value, "", "Escape did not empty the search");
+assert.strictEqual(h.$("overlay-body").querySelectorAll("button.help-item").length, all, "the contents stayed narrowed");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape in an empty search no longer closes the help");
+
+h.click(h.$("new-tab-pick"));
+const filter = h.$("agent-filter");
+filter.value = "codex";
+filter.oninput();
+filter.focus();
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape with a filter typed closed the picker");
+assert.strictEqual(filter.value, "");
+`)
+}
+
+// Double-clicking a pane's header did nothing, where double-clicking a title
+// bar makes the thing it belongs to fill its space; zooming took the small
+// glyph at the far end of the header. It zooms the pane now, but not when the
+// double-click lands on one of the header's own buttons.
+func TestDoubleClickingAPaneHeaderZoomsIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const header = h.$("workspace").querySelector("div.pane-header");
+h.dispatch(header, new h.Ev("dblclick", { target: header }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p1" }, "double-clicking the header did not zoom the pane");
+
+const restart = header.querySelectorAll("button").find((b) => b.textContent === "⟳");
+const before = h.commands().length;
+h.dispatch(restart, new h.Ev("dblclick", { target: restart }));
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "toggleZoom"), "a double-click on a header button zoomed the pane");
+`)
+}
+
+// The prompt bar's message goes to the focused pane and every pane in the
+// broadcast set, and a pane picked by hand stays in the set with broadcast
+// off. The bar counted its recipients only while broadcast was on, and a
+// picked pane's tooltip said it would receive the message once broadcast was
+// turned on: with it off, both said less was happening than was.
+func TestThePromptBarSaysWhoItReachesWithBroadcastOff(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ broadcast: false,
+  tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+    root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2", { broadcast: true }) } }));
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes",
+  "with broadcast off the bar said it reaches one pane, and the message reaches two");
+h.key({ key: "Escape" });
+
+const cast = h.$("workspace").querySelectorAll("span.pane-cast").find((s) => s.dataset.tip);
+assert.ok(!/once broadcast is on/.test(cast.dataset.tip), "a picked pane still says it waits for broadcast: " + cast.dataset.tip);
+`)
+}
+
+// The style sheet stills its animations for somebody whose system asks for
+// reduced motion, but a terminal's cursor blinks by script rather than CSS,
+// so every terminal went on blinking for them regardless.
+func TestReducedMotionStillsTheCursor(t *testing.T) {
+	runFrontEnd(t, `
+h.win.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {} });
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "the cursor blinks although reduced motion was asked for");
+`)
+}
+
+// Whether the terminal cursors blink was fixed in the source. It is chosen
+// from the palette, kept with the other preferences, and followed by every
+// terminal, including in another window.
+func TestTheCursorBlinkCanBeTurnedOff(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ cursorSteady: true });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "a steady cursor chosen on an earlier run blinks");
+paletteRun("cursor blink");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "on" });
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.strictEqual(h.terms[0].options.cursorBlink, true, "the terminals did not follow the choice");
+paletteRun("cursor blinking");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
+`)
+}
+
+// The conversations list answered no key: each row had a Resume button to tab
+// to, and the arrows did nothing. It is walked like the other lists now, and
+// Enter on a row resumes that conversation.
+func TestTheConversationsListIsWalkedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("history");
+h.recv({ type: "conversations", cwd: "C:/repo", items: [
+  { id: "aaaaaaaa-1", summary: "fix the parser", ago: "1h", messages: 20 },
+  { id: "bbbbbbbb-2", summary: "write the docs", ago: "2h", messages: 12 },
+  { id: "cccccccc-3", summary: "already open", ago: "3h", messages: 5, open: true },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.conv-row");
+assert.strictEqual(rows[0].getAttribute("role"), "button", "a conversation row cannot be reached from the keyboard");
+rows[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next conversation");
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[1], "Down walked onto a conversation that is already open");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "resumeConversation", id: "bbbbbbbb-2", path: "C:/repo", text: "write the docs" });
+assert.ok(h.$("overlay").hidden);
+`)
+}
+
+// A conversation's summary is cut short at the row's width, and summaries often
+// begin alike, so the part that tells two conversations apart was the part
+// hidden, with nothing to read the rest by.
+func TestAConversationsWholeSummaryCanBeRead(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("history");
+const long = "Read the brief at C:/Users/someone/scratchpad/AUDIT-BRIEF.md and follow it exactly: your area is the relay";
+h.recv({ type: "conversations", cwd: "C:/repo", items: [{ id: "aaaaaaaa-1", summary: long, ago: "1h", messages: 20 }] });
+const summary = h.$("overlay-body").querySelector("div.conv-summary");
+assert.strictEqual(summary.dataset.tip, long, "the whole summary cannot be read anywhere");
+`)
+}
+
+// Names and paths are cut short with an ellipsis wherever there is not room
+// for them - a pane's name in its header, a tab's title in the agents
+// overview, a worktree's or a project's path - and paths differ at the end,
+// which is the part cut. Each can be read whole in its tooltip.
+func TestCutNamesAndPathsCanBeReadWhole(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const longName = "Identify and fix every bug in the desktop front end, one per commit";
+h.recv(fixture({ panes: { p1: pane("p1", { name: longName }), p2: pane("p2") } }));
+const name = h.$("workspace").querySelector("span.pane-name");
+assert.strictEqual(name.dataset.tip, longName, "a pane's whole name cannot be read");
+h.recv(fixture({ panes: { p1: pane("p1", { name: "renamed" }), p2: pane("p2") } }));
+assert.strictEqual(name.dataset.tip, "renamed", "the pane's name tip kept its old name");
+
+h.click(h.$("btn-worktrees"));
+const path = "C:/Users/someone/code/flockdeck-worktrees/fix-the-parser-for-long-branch-names";
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [],
+  items: [{ label: "fix-the-parser", path: path, dirty: 0, untracked: 0 }] });
+assert.strictEqual(h.$("overlay-body").querySelector("div.wt-path").dataset.tip, path, "a worktree's whole path cannot be read");
+
+h.key({ key: "Escape" });
+h.press("projects");
+assert.strictEqual(h.$("overlay-body").querySelector("span.proj-path").dataset.tip, "C:/repo", "a project's whole path cannot be read");
+
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [{ paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: longName, name: "a", status: "idle" }] });
+assert.strictEqual(h.$("overlay-body").querySelector("span.agent-tab").dataset.tip, longName, "a tab's whole title cannot be read in the overview");
+`)
+}
+
+// In a review of forty files or an overview of a dozen agents the arrows were
+// the only way to a row. Typing the start of a row's name goes to it, as in
+// nearly every list: letters typed together make one prefix, a pause starts
+// again, and the search comes round from the top.
+func TestTypingTheStartOfANameFindsTheRow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: ["alpha", "beta", "bravo"].map((tab, i) =>
+  ({ paneId: "p" + i, tabId: "t" + i, root: "C:/repo", project: "repo", tab, name: tab, status: "idle" })) });
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+rows[0].focus();
+h.key({ key: "b" });
+assert.ok(h.doc.activeElement === rows[1], "typing b did not go to beta");
+h.key({ key: "r" });
+assert.ok(h.doc.activeElement === rows[2], "typing br did not go on to bravo");
+await h.sleep(750);
+h.key({ key: "a" });
+assert.ok(h.doc.activeElement === rows[0], "after a pause, typing a did not come round to alpha");
+
+// In the review the row found shows its diff, by the file's name, not its folders.
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [
+  { path: "internal/webui/assets/app.css", label: "M", added: 1, removed: 0 },
+  { path: "internal/webui/assets/app.js", label: "M", added: 1, removed: 0 },
+  { path: "internal/server/server.go", label: "M", added: 1, removed: 0 },
+] });
+const files = h.$("overlay-body").querySelectorAll("div.rev-file");
+files[0].focus();
+h.key({ key: "s" });
+assert.ok(h.doc.activeElement === files[2], "typing s did not find server.go");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "internal/server/server.go" });
+`)
+}
+
+// Opening a folder is how anybody new starts, and the folder list answered
+// neither the arrows nor typing: two buttons a folder, so a directory of fifty
+// repositories was a hundred presses of Tab. The arrows move between folders
+// and typing the start of a name goes to it.
+func TestTheFolderListIsWalkedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: ["api", "docs", "web", "worker"].map((name) =>
+  ({ name, path: "C:/code/" + name })) });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === into()[1], "Down did not move to the next folder");
+h.key({ key: "w" });
+assert.ok(h.doc.activeElement === into()[2], "typing w did not go to web");
+h.key({ key: "o" });
+assert.ok(h.doc.activeElement === into()[3], "typing wo did not go on to worker");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/worker" });
+`)
+}
+
+// Page Down on a folder scrolled the list and left the keyboard on a folder
+// now out of sight, so the next arrow jumped the list back to where it was.
+func TestTheDialogListsPageWithTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: Array.from({ length: 20 }, (_, i) =>
+  ({ name: "repo" + String(i).padStart(2, "0"), path: "C:/code/repo" + i })) });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "PageDown" });
+const at = () => into().indexOf(h.doc.activeElement);
+assert.ok(at() > 1, "Page Down did not move the keyboard a page: at " + at());
+h.key({ key: "End" });
+h.key({ key: "PageDown" });
+assert.strictEqual(at(), 19, "Page Down at the end left the list");
+h.key({ key: "PageUp" });
+assert.ok(at() < 18, "Page Up did not move the keyboard a page: at " + at());
+h.key({ key: "Home" });
+h.key({ key: "PageUp" });
+assert.strictEqual(at(), 0, "Page Up at the top left the list");
+
+// The dialogs' other lists - the review's files here - page the same way.
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: Array.from({ length: 20 }, (_, i) =>
+  ({ path: "f" + String(i).padStart(2, "0") + ".go", label: "M", added: 1, removed: 0 })) });
+const files = h.$("overlay-body").querySelectorAll("div.rev-file");
+files[0].focus();
+const page = h.key({ key: "PageDown" });
+assert.ok(page.defaultPrevented, "Page Down scrolled the review instead");
+assert.ok(files.indexOf(h.doc.activeElement) > 1, "Page Down did not move through the review's files");
+`)
+}
+
+// The palette found a command only by words its name contains, so the
+// abbreviations most palettes take - "nat" for New agent tab, "rp" for
+// Restart pane - found nothing. They find the command now, after anything
+// whose name holds the letters as they were typed.
+func TestThePaletteFindsACommandByItsInitials(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const labels = (q) => {
+  input.value = q;
+  input.oninput();
+  return h.$("palette-list").querySelectorAll("span.pal-label").map((n) => n.textContent);
+};
+assert.strictEqual(labels("nat")[0], "New agent tab", "nat did not find New agent tab");
+assert.ok(labels("rp").includes("Restart pane"), "rp did not find Restart pane");
+assert.strictEqual(labels("tile")[0], "Tile these panes evenly", "a word the name holds no longer comes first");
+assert.ok(!labels("z").includes("Restart pane"), "a single letter matched by initials");
+`)
+}
+
+// Two rows of chips were a Tab stop a chip: up to fourteen branches without a
+// worktree between the worktree list and the rest of that dialog, and the
+// places between the folder browser's path field and its list. Each row is one
+// stop walked with the arrows, as the worktree rows and pane headers are.
+func TestARowOfChipsIsOneStop(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const oneStop = (bar, what) => {
+  assert.ok(bar, what + " is missing");
+  assert.strictEqual(bar.getAttribute("role"), "toolbar", what + " is not a toolbar");
+  assert.strictEqual(bar.children.filter((b) => b.getAttribute("tabindex") === "0").length, 1, what + " is a Tab stop a chip");
+};
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", items: [],
+  branches: ["a", "b", "c", "d"].map((name) => ({ name, checkedIn: false })) });
+oneStop(h.$("overlay-body").querySelector("div.places"), "the branches without a worktree");
+
+h.key({ key: "Escape" });
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: [],
+  places: [{ name: "Home", path: "C:/Users/me" }, { name: "Desktop", path: "C:/Users/me/Desktop" }, { name: "Code", path: "C:/code" }] });
+oneStop(h.$("overlay-body").querySelector("div.places"), "the places");
+`)
+}
+
+// The terminals' typeface was fixed in the source. It is asked for from the
+// palette, kept with the other preferences, and a font the machine does not
+// have still falls back to a fixed-width one.
+func TestTheTerminalFontCanBeChosen(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ fontFamily: "Fira Code" });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.fontFamily, "Fira Code, monospace", "the font chosen on an earlier run was not used");
+
+h.win._prompt = "Iosevka";
+paletteRun("terminal font");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "Iosevka" });
+assert.strictEqual(h.terms[0].options.fontFamily, "Iosevka, monospace", "the terminals did not take the new font");
+
+h.win._prompt = "";
+paletteRun("terminal font");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "" });
+assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer did not go back to the default");
+`)
+}
+
+// A font name the machine has no font for was saved and announced, and the
+// terminals were drawn in the fallback: nothing changed, and nothing said why.
+func TestAFontTheMachineLacksIsRefused(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+// A canvas on which only "Real Mono" is installed: any other name measures
+// exactly as its generic family does.
+const make = h.doc.createElement.bind(h.doc);
+h.doc.createElement = (tag) => tag !== "canvas" ? make(tag) : { getContext: () => ({
+  font: "",
+  measureText() { return { width: /Real Mono/.test(this.font) ? 999 : (/sans-serif/.test(this.font) ? 300 : /serif/.test(this.font) ? 500 : 400) }; },
+}) };
+h.hello({ fontFamily: "Real Mono" });
+h.recv(fixture());
+const sent = () => h.commands().filter((c) => c.cmd === "fontFamily").length;
+
+h.win._prompt = "Fira Cod";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 0, "a font the machine does not have was saved");
+assert.strictEqual(h.terms[0].options.fontFamily, "Real Mono, monospace", "the terminals were given a font the machine does not have");
+
+// One that is there, alone or first in a list, is taken.
+h.win._prompt = "Fira Cod, Real Mono";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 1, "a list with an installed font in it was refused");
+h.win._prompt = "";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 2, "going back to the default was refused");
+h.win._prompt = "monospace";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 3, "a generic family was refused as a font the machine does not have");
+`)
+}
+
+// The disconnected panel said the connection was lost and offered a button,
+// and nothing about the window already trying again every couple of seconds,
+// or about what to do if flockdeck had stopped - so nobody could tell whether
+// to wait, press the button, or go and start something.
+func TestTheDisconnectedPanelSaysWhatIsHappening(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.control.onclose();
+assert.ok(!h.$("disconnected").hidden, "losing the connection did not show the panel");
+const text = h.$("disconnected-desc").textContent;
+assert.ok(/tries again on its own/.test(text), "the panel does not say it is already trying again: " + text);
+assert.ok(/start it again/.test(text), "the panel does not say what to do if flockdeck has stopped: " + text);
+`)
+}
+
+// Every terminal announces itself alike and the header beside it names
+// nothing, so a screen reader landing in one of six agents' terminals was not
+// told whose it was. Each pane is a group named after the pane, and the name
+// follows a rename.
+func TestAPaneIsNamedForAScreenReader(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const wrap = h.terms[0].host.parentElement.parentElement;
+assert.strictEqual(wrap.getAttribute("role"), "group", "a pane is not a group a screen reader can name");
+assert.strictEqual(wrap.getAttribute("aria-label"), "agent p1", "a pane does not say whose it is");
+h.recv(fixture({ panes: { p1: pane("p1", { name: "api" }), p2: pane("p2") } }));
+assert.strictEqual(wrap.getAttribute("aria-label"), "api", "the pane's name did not follow a rename");
+`)
+}
+
+// Tab inside a terminal belongs to the program in it, and nothing moved the
+// keyboard from one pane to another, so in a tab of six agents somebody
+// without a mouse stayed in the terminal they were in. The palette moves it to
+// the next pane or the previous one, coming round at either end.
+func TestTheKeyboardCanMoveBetweenPanes(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } }));
+paletteRun("focus the next pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p2" }, "the keyboard cannot be moved to the next pane");
+paletteRun("focus the previous pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p3" }, "going back from the first pane did not come round to the last");
+`)
+}
+
+// The tab strip's buttons are tabs, and the pages they show were not marked as
+// the panels they control, so a screen reader heard "tab 2 of 4" and nothing
+// tied it to the panes below.
+func TestATabNamesThePanelItShows(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tabs").children[0];
+const page = h.$("page-t1");
+assert.ok(page, "the tab's page has no id to be controlled by");
+assert.strictEqual(page.getAttribute("role"), "tabpanel", "the tab's page is not a tab panel");
+assert.strictEqual(tab.getAttribute("aria-controls"), "page-t1", "the tab does not say which panel it shows");
+assert.strictEqual(page.getAttribute("aria-labelledby"), tab.id, "the panel is not labelled by its tab");
+`)
+}
+
+// The prompt bar opened empty every time, so an instruction half-written for
+// every agent went with an Escape pressed a moment too soon, and never sent,
+// it was not in the history either. It is there when the bar opens again, and
+// sending it clears it.
+func TestThePromptBarKeepsAnUnsentDraft(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("prompt-input");
+h.press("promptAll");
+input.value = "stop and run the tests";
+h.key({ key: "Escape" });
+h.press("promptAll");
+assert.strictEqual(input.value, "stop and run the tests", "closing the bar threw away what was being written");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "stop and run the tests" });
+h.press("promptAll");
+assert.strictEqual(input.value, "", "a prompt that was sent came back as an unsent draft");
+`)
+}
+
+// The find bar opened empty every time, so looking for the same word again -
+// after closing the bar, or in the next pane - meant typing it again. The
+// last search comes back selected, so Enter repeats it and typing replaces it.
+func TestTheFindBarRemembersTheLastSearch(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("search-input");
+h.press("findInTerminal");
+input.value = "panic";
+h.key({ key: "Escape" });
+h.press("findInTerminal");
+assert.strictEqual(input.value, "panic", "the last search was not there when the bar opened again");
+assert.deepStrictEqual([input.selectionStart, input.selectionEnd], [0, 5], "the last search is not selected, so typing adds to it");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.searchers[0].forward.slice(-1), ["panic"], "Enter did not repeat the last search");
+`)
+}
+
+// Starting an agent in a worktree just created is what nearly everybody does
+// next, and the keyboard was left on Create with the new row's Agent button to
+// be found among the others. When the list comes back with the new worktree,
+// the keyboard is on its Agent button.
+func TestANewWorktreeIsReadyForAnAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+h.recv(list([{ label: "main", path: "C:/repo", main: true }]));
+const branch = h.$("wt-branch");
+branch.value = "fix-auth";
+branch.focus();
+h.key({ key: "Enter" });
+h.recv(list([{ label: "main", path: "C:/repo", main: true },
+             { label: "fix-auth", path: "C:/repo-fix-auth", dirty: 0, untracked: 0 }]));
+await h.sleep(10);
+const row = h.$("overlay-body").querySelectorAll("div.wt-row")[1];
+const agent = row.querySelector("button");
+assert.strictEqual(agent.textContent, "Agent");
+assert.ok(h.doc.activeElement === agent, "the keyboard was not left on the new worktree's Agent button");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path: "C:/repo-fix-auth", text: "fix-auth" });
+`)
+}
+
+// A redraw finds the control the keyboard was on by what it is, and by
+// wording alone one row's Remove is the next row's. Removing a clean worktree,
+// which does not ask, left the keyboard on the next one's Remove, and a second
+// Enter removed that one too.
+func TestRemovingAWorktreeDoesNotAimAtTheNext(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const main = { label: "main", path: "C:/repo", main: true };
+const a = { label: "a", path: "C:/repo-a", dirty: 0, untracked: 0 };
+const b = { label: "b", path: "C:/repo-b", dirty: 0, untracked: 0 };
+h.recv(list([main, a, b]));
+const removeA = h.$("overlay-body").querySelectorAll("button").filter((x) => x.textContent === "Remove")[0];
+removeA.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-a", force: false });
+
+h.recv(list([main, b]));
+const now = h.doc.activeElement;
+assert.ok(now.textContent !== "Remove", "the keyboard landed on another worktree's Remove button");
+assert.ok(h.$("overlay-body").contains(now), "the keyboard fell out of the dialog");
+const before = h.commands().length;
+h.key({ key: "Enter" });
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "worktreeRemove"), "a second Enter removed another worktree");
+`)
+}
+
+// A redraw finds the control the keyboard was on by what it is and what it
+// says, and by wording alone one row's Clear is the next row's. Clearing one
+// stored API key, which does not ask, left the keyboard on the next agent's
+// Clear, and a second Enter cleared that key as well.
+func TestClearingOneKeyDoesNotAimAtTheNext(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("api keys");
+const keys = (aSet) => ({ type: "keys", items: [
+  { agent: "anthropic", name: "Anthropic API", set: aSet, source: aSet ? "store" : "", vars: ["ANTHROPIC_API_KEY"] },
+  { agent: "openai", name: "OpenAI API", set: true, source: "store", vars: ["OPENAI_API_KEY"] },
+] });
+h.recv(keys(true));
+const clears = () => h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Clear");
+const first = clears()[0];
+first.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "anthropic" });
+h.recv(keys(false));
+assert.ok(h.doc.activeElement !== clears()[0], "the keyboard landed on another agent's Clear");
+// The harness keeps the keyboard on the removed button where a browser would
+// put it on the page, so only the other agent's key is the question here.
+const before = h.commands().length;
+h.key({ key: "Enter" });
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "keyClear" && c.id === "openai"),
+  "a second Enter cleared another agent's key");
+`)
+}
+
+// The projects dialog's Open section was drawn only when a recents or folder
+// listing arrived, and closing a project answers with a state push alone: the
+// closed project stayed listed as open, its close button doing nothing.
+func TestTheProjectsDialogFollowsTheOpenProjects(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (list) => list.map((name, i) =>
+  ({ root: "C:/" + name, name, active: i === 0, tabs: 1, waiting: 0, working: 0 }));
+h.recv(fixture({ projects: projects(["repo", "api", "docs"]) }));
+h.press("projects");
+assert.ok(h.$("overlay-body").textContent.includes("docs"), "the open projects are not listed");
+h.recv(fixture({ projects: projects(["repo", "api"]) }));
+assert.ok(!h.$("overlay-body").textContent.includes("docs"), "a closed project is still listed as open");
+
+// A push that changes nothing the dialog lists leaves it alone.
+const row = h.$("overlay-body").querySelector("div.proj-row");
+h.recv(fixture({ projects: projects(["repo", "api"]), working: 1 }));
+assert.ok(h.$("overlay-body").querySelector("div.proj-row") === row, "a status push redrew the projects dialog");
+`)
+}
+
+// A worktree's count of agents is taken when the list is read, and Remove
+// refuses while any are there. Close them and the dialog went on counting
+// them, refusing for agents that were gone until Refresh was pressed. The list
+// is asked for again when panes open or close while the dialog is up.
+func TestTheWorktreesDialogFollowsThePanes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [],
+  items: [{ label: "fix", path: "C:/repo-fix", panes: 1, dirty: 0, untracked: 0 }] });
+const asked = () => h.commands().filter((c) => c.cmd === "worktrees").length;
+const before = asked();
+
+// A push with the same panes asks for nothing.
+h.recv(fixture({ working: 1 }));
+assert.strictEqual(asked(), before, "the list was read again although no pane had opened or closed");
+
+// A pane closes: the counts are read again.
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: { id: "n1", pane: "p1", weight: 1 } }], panes: { p1: pane("p1") } }));
+assert.strictEqual(asked(), before + 1, "closing a pane left the worktree counts as they were");
+`)
+}
+
+// The review was read once while the agents went on writing, so a review left
+// open listed files as they had been minutes before. It reads the tree again
+// when the pushes say its checkout's counts moved - but not while a push is
+// under way, when a redraw would give back the buttons disabled until it
+// answers.
+func TestTheReviewFollowsTheWorkingTree(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const panesWith = (dirty) => ({ p1: pane("p1", { cwd: "C:/repo", dirty }), p2: pane("p2", { cwd: "C:/other" }) });
+h.recv(fixture({ panes: panesWith(1) }));
+h.click(h.$("btn-changes"));
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", ahead: 1,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] };
+h.recv(tree);
+const asked = () => h.commands().filter((c) => c.cmd === "changes").length;
+const before = asked();
+
+h.recv(fixture({ panes: panesWith(1), working: 1 }));
+assert.strictEqual(asked(), before, "the tree was read again although its counts had not moved");
+
+h.recv(fixture({ panes: panesWith(3) }));
+assert.strictEqual(asked(), before + 1, "an agent writing more files left the review as it was");
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo" });
+h.recv(tree);
+
+// While a push is under way its buttons stay disabled: no redraw is asked for.
+h.click(h.$("rev-push"));
+const during = asked();
+h.recv(fixture({ panes: panesWith(5) }));
+assert.strictEqual(asked(), during, "the review was read again in the middle of a push");
+`)
+}
+
+// A push carries only the active project's panes, so an agent that stopped
+// to wait in another open project raised no desktop notification at all -
+// while the window was behind something, which is when one is needed. Its
+// project's waiting count rising is the event; clicking goes to that project.
+func TestAnAgentWaitingInAnotherProjectIsNotified(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (apiWaiting) => [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: apiWaiting, working: 0 },
+];
+h.recv(fixture({ projects: projects(0) }));
+h.doc._hasFocus = false;
+h.recv(fixture({ projects: projects(1) }));
+assert.strictEqual(h.notifications.length, 1, "an agent waiting in another project raised no notification");
+const n = h.notifications[0];
+assert.ok(/api/.test(n.title), "the notification does not say which project: " + n.title);
+n.onclick();
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/api" });
+
+// The same count again is not news.
+h.recv(fixture({ projects: projects(1) }));
+assert.strictEqual(h.notifications.length, 1, "a count that did not rise raised another notification");
+`)
+}
+
+// The project button turns amber when an agent in another project is waiting,
+// and nothing said which project or why: its tooltip named the current folder
+// alone.
+func TestTheProjectButtonSaysWhereAnAgentIsWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+const btn = h.$("project-btn");
+assert.ok(btn.classList.contains("attention"));
+assert.ok(/waiting on you in api/.test(btn.dataset.tip), "the amber does not say where the agent is: " + btn.dataset.tip);
+
+h.recv(fixture());
+assert.ok(!/waiting/.test(h.$("project-btn").dataset.tip), "the tooltip kept saying an agent was waiting");
+`)
+}
+
+// The hint explaining the amber dot came up whenever anything was waiting,
+// and the waiting count is every project's: an agent waiting in a project not
+// on screen had the hint explaining a dot that was nowhere to be seen.
+func TestTheWaitingHintNeedsADotToPointAt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ dismissedTips: ["palette", "drag-panes"] });
+h.recv(fixture({ waiting: 1, projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+assert.ok(h.$("hints").hidden || !/amber dot/.test(h.$("hints").textContent),
+  "the hint explained an amber dot that is not on screen");
+
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.ok(!h.$("hints").hidden && /amber dot/.test(h.$("hints").textContent),
+  "the hint no longer shows when a waiting pane is on screen");
+`)
+}
+
+// Choosing a project from the palette showed only each one's folder, when
+// whether an agent there is waiting on you is what decides where to go next.
+func TestThePaletteSaysWhichProjectsAreWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 2, working: 0 },
+  { root: "C:/docs", name: "docs", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "switch to project";
+input.oninput();
+const rows = h.$("palette-list").children;
+const hint = (name) => rows.find((r) => r.querySelector(".pal-label").textContent === "Switch to project: " + name)
+  .querySelector(".pal-hint").textContent;
+assert.ok(/2 waiting/.test(hint("api")), "the palette does not say agents are waiting in api: " + hint("api"));
+assert.ok(!/waiting/.test(hint("docs")), "a project with nobody waiting says somebody is");
+`)
+}
+
+// The tab strip marks a tab with an agent waiting in it, and the palette's
+// entry for the same tab said nothing.
+func TestThePaletteSaysWhichTabsAreWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [
+    { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+    { id: "t2", title: "two", focus: "p2", attention: true, root: leaf("n2", "p2") },
+    { id: "t3", title: "three", focus: "p3", root: leaf("n3", "p3") },
+  ],
+  panes: { p1: pane("p1"), p2: pane("p2", { status: "waiting" }), p3: pane("p3") },
+}));
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "go to tab";
+input.oninput();
+const rows = h.$("palette-list").children;
+const hint = (title) => {
+  const row = rows.find((r) => r.querySelector(".pal-label").textContent === "Go to tab: " + title);
+  const span = row.querySelector(".pal-hint");
+  return span ? span.textContent : "";
+};
+assert.ok(/waiting/.test(hint("two")), "the palette does not say an agent is waiting in tab two");
+assert.ok(!/waiting/.test(hint("three")), "a tab with nobody waiting says somebody is");
+`)
+}
+
+// Every setting is a palette command, and typing "settings" - what somebody
+// looking for one types - found none of them.
+func TestThePaletteFindsTheSettingsByThatName(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const labels = (q) => {
+  input.value = q;
+  input.oninput();
+  return h.$("palette-list").children.map((r) => r.querySelector(".pal-label")).filter(Boolean).map((l) => l.textContent);
+};
+for (const q of ["settings", "preferences", "options"]) {
+  const found = labels(q);
+  for (const want of ["Terminal scrollback…", "Terminal font…", "Increase font size", "Turn desktop notifications off", "Stop the terminal cursor blinking", "Turn update checks off"]) {
+    assert.ok(found.includes(want), "typing " + q + " does not find " + want + ": " + JSON.stringify(found));
+  }
+  assert.ok(!found.includes("Rename this tab…"), "typing " + q + " offers a command that is not a setting");
+}
+`)
+}
+
+// Scrolled back, a pane showed the old lines with nothing saying newer ones
+// had arrived, and the way back down was the wheel however far that was.
+func TestAScrolledBackPaneOffersTheWayBackDown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const term = h.terms[0];
+const latest = term.host.parentElement.querySelector(".to-latest");
+assert.ok(latest, "a pane has no way back to its newest output");
+const buf = term.buffer.active;
+buf.baseY = 100; buf.viewportY = 100;
+term._parsed();
+assert.ok(latest.hidden, "the way back down shows while the pane is at the bottom");
+buf.viewportY = 40;
+term._scroll(40);
+assert.ok(!latest.hidden, "a pane scrolled back does not offer the way back down");
+buf.baseY = 120;
+term._parsed();
+assert.ok(!latest.hidden, "new output hides the way back while the pane is still scrolled back");
+latest.onclick({ stopPropagation() {} });
+assert.strictEqual(buf.viewportY, buf.baseY, "the button does not go to the newest output");
+assert.ok(latest.hidden, "the button stays after going to the bottom");
+assert.ok(term.focused, "the keyboard is not back in the terminal");
+`)
+}
+
+// The palette's settings said nothing of what each was set to: finding out
+// the scrollback or the font meant opening the question that changes it.
+func TestThePaletteSaysWhatEachSettingIsNow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const hint = (label) => {
+  input.value = label.toLowerCase();
+  input.oninput();
+  const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label") && r.querySelector(".pal-label").textContent === label);
+  assert.ok(row, label + " is not in the palette");
+  const span = row.querySelector(".pal-hint");
+  return span ? span.textContent : "";
+};
+assert.ok(/Ctrl\+=/.test(hint("Increase font size")), "the font size command lost its key");
+assert.ok(/13px/.test(hint("Increase font size")), "the font size command does not say the size: " + hint("Increase font size"));
+assert.ok(/\d lines/.test(hint("Terminal scrollback…")), "the scrollback command does not say how many lines: " + hint("Terminal scrollback…"));
+assert.ok(/default/.test(hint("Terminal font…")), "the font command does not say which font: " + hint("Terminal font…"));
+`)
+}
+
+// The middle button closes a tab in a browser or an editor, and on this strip
+// it did nothing.
+func TestTheMiddleButtonClosesATab(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [
+    { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+    { id: "t2", title: "two", focus: "p2", root: leaf("n2", "p2") },
+  ],
+  panes: { p1: pane("p1"), p2: pane("p2") },
+}));
+const two = h.$("tabs").children[1];
+assert.ok(two.onauxclick, "a tab does not answer the middle button");
+let stopped = false;
+two.onauxclick({ button: 1, preventDefault() { stopped = true; } });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeTab", id: "t2" }, "the middle button did not close the tab");
+assert.ok(stopped, "the browser was left to act on the middle button too");
+const before = h.commands().length;
+two.onauxclick({ button: 2, preventDefault() {} });
+assert.strictEqual(h.commands().length, before, "the right button closed a tab");
+`)
+}
+
+// The header cuts a long branch, or an agent with a long model, short, and
+// their bubbles explained what a branch or an agent is rather than which one:
+// the whole name could be read nowhere.
+func TestThePaneHeaderBubblesNameTheBranchAndAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const branch = "feature/retry-the-release-upload-when-the-relay-drops";
+h.recv(fixture({ panes: { p1: pane("p1", { branch, agent: "claude", model: "claude-opus-5-with-a-long-name" }) } }));
+// The terminal's host sits in the pane's body, which sits in the pane.
+const wrap = h.terms[0].host.parentElement.parentElement;
+const tip = (cls) => wrap.querySelector(cls).dataset.tip || "";
+assert.ok(tip(".pane-branch").includes(branch), "the branch's bubble does not name the branch: " + tip(".pane-branch"));
+assert.ok(tip(".pane-agent").includes("claude-opus-5-with-a-long-name"), "the agent's bubble does not name the model: " + tip(".pane-agent"));
+assert.ok(/working tree/.test(tip(".pane-branch")), "the branch's bubble lost its explanation");
+`)
+}
+
+// A pane's header counts its checkout's changes, and nothing went from the
+// counts to the changes: the review was a trip to the top bar.
+func TestAPanesChangeCountsOpenItsReview(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { cwd: "C:/repo/sub", dirty: 3 }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const git = wrap.querySelector("span.pane-git");
+assert.ok(git.onclick, "a pane's changes cannot be clicked through to");
+git.onclick({ stopPropagation() {} });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "changes", path: "C:/repo/sub" }, "the review is not of the pane's checkout");
+assert.ok(!h.$("overlay").hidden, "the review did not open");
+assert.ok(/review/i.test(git.dataset.tip || ""), "the bubble does not say the counts open the review: " + git.dataset.tip);
+`)
+}
+
+// What a pane is doing is cut short in its header - an MCP tool's name
+// nearly always is - and it had no bubble, so the rest could be read nowhere.
+func TestThePaneDetailCanBeReadInFull(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tool = "mcp__github__create_pull_request_review_comment";
+h.recv(fixture({ panes: { p1: pane("p1", { status: "working", detail: tool }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const detail = wrap.querySelector(".pane-detail");
+assert.strictEqual(detail.dataset.tip, tool, "the detail cut short in the header has no bubble with the whole of it");
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", detail: "" }) } }));
+assert.ok(!detail.dataset.tip, "a bubble is left on a detail that is no longer there");
+`)
+}
+
+// The folder a dialog is about is set at its foot and cut short from the
+// end, where paths differ, and it had no bubble: which checkout the dialog
+// was for could not be read.
+func TestTheFolderADialogIsAboutCanBeReadInFull(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const root = "C:/code/checkouts/flockdeck-review-second-copy";
+h.click(h.$("btn-worktrees"));
+h.recv({
+  type: "worktrees", root, defaultBase: "main",
+  items: [{ label: "main", path: root, main: true, dirty: 0, untracked: 0, head: "abc1234" }],
+  branches: [{ name: "main", checkedIn: true }],
+});
+const line = h.$("overlay-body").querySelector(".wt-root");
+assert.ok(line, "the worktrees dialog does not say which folder it is about");
+assert.strictEqual(line.dataset.tip, root, "the folder cut short at the foot of the dialog has no bubble with the whole of it");
+`)
+}
+
+// F3 and Shift+F3 step through what was found in nearly every Windows
+// program; here they opened the browser's own find bar over the page.
+func TestF3StepsThroughTheTerminalsMatches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const [s] = h.searchers;
+h.$("search-input").value = "panic";
+const next = h.key({ key: "F3" });
+assert.deepStrictEqual(s.forward, ["panic"], "F3 did not go to the next match");
+assert.ok(next.defaultPrevented, "F3 was left to the browser, which opens a find bar of its own");
+
+// With the keyboard gone from the box, the bar still open.
+h.$("tabs").children[0].focus();
+h.key({ key: "F3", shiftKey: true });
+assert.deepStrictEqual(s.back, ["panic"], "Shift+F3 away from the box did not go to the previous match");
+
+// Closed, F3 is not the window's.
+h.$("search-input").focus();
+h.key({ key: "Escape" });
+const after = h.key({ key: "F3" });
+assert.deepStrictEqual(s.forward, ["panic"], "F3 searched with the find bar closed");
+assert.ok(!after.defaultPrevented, "F3 was taken with the find bar closed");
+`)
+}
+
+// Renaming a tab to nothing did nothing and said nothing: the empty answer
+// was dropped before the server, which says a tab needs a name, could say so.
+func TestAnEmptiedTabNameIsAnswered(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+const renames = () => h.commands().filter((c) => c.cmd === "renameTab");
+h.win._prompt = "";
+paletteRun("rename this tab");
+assert.deepStrictEqual(renames().pop(), { cmd: "renameTab", id: "t1", text: "" },
+  "an emptied name went nowhere, so nothing said why the tab kept its old one");
+h.win._prompt = null;
+const before = renames().length;
+paletteRun("rename this tab");
+assert.strictEqual(renames().length, before, "Cancel renamed the tab");
+`)
+}
+
+// Installing an update stops every agent in every pane, and the dialog put
+// the keyboard on Restart now: a chip clicked by mistake while typing to an
+// agent had the next Enter stop them all.
+func TestTheUpdateDialogStartsOnTheChoiceThatStopsNothing(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-update"));
+const on = h.doc.activeElement;
+assert.ok(on && on.textContent === "Later", "the keyboard starts on " + (on && on.textContent) + ", not on Later");
+`)
+}
+
+// Forgetting a recent project took away the row the keyboard was on, and the
+// redraw had nowhere to put it: it fell out of the dialog, so clearing out a
+// second old project meant tabbing all the way back to the list.
+func TestForgettingARecentProjectKeepsTheKeyboardInTheList(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+const recent = (names) => ({ type: "recents", items: names.map((n) =>
+  ({ root: "C:/old/" + n, name: n, exists: true, open: false })) });
+h.recv(recent(["alpha", "beta", "gamma"]));
+const forgets = () => h.$("overlay-body").querySelectorAll("button.proj-forget");
+assert.strictEqual(forgets().length, 3, "each recent project has its ×");
+forgets()[1].focus();
+h.click(forgets()[1]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "forgetRecent", root: "C:/old/beta" });
+h.recv(recent(["alpha", "gamma"]));
+assert.ok(h.doc.activeElement === forgets()[1], "the keyboard did not go to the project that took the forgotten one's place");
+
+// The last one gone, the keyboard goes to the next row up.
+h.click(forgets()[1]);
+h.recv(recent(["alpha"]));
+assert.ok(h.doc.activeElement === forgets()[0], "forgetting the last project lost the keyboard");
+`)
+}
+
+// Closing an open project from the dialog took away the row the keyboard was
+// on, and it fell out of the dialog. It goes to the project that takes the
+// closed one's place - to its own button, not its ×: an idle project closes
+// without asking, so a second Enter there would stop its agents too.
+func TestClosingAProjectKeepsTheKeyboardInTheDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (names) => names.map((n, i) =>
+  ({ root: "C:/" + n, name: n, active: i === 0, tabs: 1, waiting: 0, working: 0 }));
+h.recv(fixture({ projects: projects(["repo", "api", "docs"]) }));
+h.press("projects");
+const body = h.$("overlay-body");
+const closes = () => body.querySelectorAll("button.icon-btn").filter((b) => b.textContent === "\u00d7");
+closes()[1].focus();
+h.click(closes()[1]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeProject", root: "C:/api" });
+h.recv(fixture({ projects: projects(["repo", "docs"]) }));
+const on = h.doc.activeElement;
+assert.ok(on === body.querySelectorAll("button.proj-go")[1],
+  "the keyboard did not go to the project that took the closed one's place: " + (on && on.className));
+`)
+}
+
+// The harness has no style sheet, so an element the front end hides is
+// hidden in every test - while in a browser a display set on its class
+// beats the hidden attribute and keeps it on screen. These are the classes
+// app.js hides whose rules set a display.
+func TestWhatTheFrontEndHidesLeavesTheScreen(t *testing.T) {
+	css := readAsset(t, "app.css")
+	for cls, what := range map[string]string{
+		"conv-row": "the conversations a filter leaves out stay on screen",
+		"fan-opt":  "the fan-out's trust option stays on screen while no agent chosen asks for it",
+	} {
+		if !regexp.MustCompile(`\.` + cls + `\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
+			t.Errorf("app.css gives .%s a display and nothing puts a hidden one back to none, so %s", cls, what)
+		}
+	}
+}
+
+// A long history could be searched only by the start of a summary, and
+// summaries often begin alike. A field narrows the list to the conversations
+// holding every word typed.
+func TestTheConversationsCanBeNarrowedByTyping(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-history"));
+const conv = (id, summary) => ({ id, summary, ago: "1h", messages: 3, open: false });
+h.recv({ type: "conversations", cwd: "C:/repo", items: [
+  conv("aaaa1111", "Fix the login bug in auth"),
+  conv("bbbb2222", "Fix the login page layout"),
+  conv("cccc3333", "Write docs for the auth relay"),
+] });
+const field = h.$("history-filter");
+assert.ok(field, "the conversations cannot be narrowed");
+const rows = () => h.$("overlay-body").querySelectorAll("div.conv-row");
+const shown = () => rows().filter((r) => !r.hidden).map((r) => r.querySelector(".conv-summary").textContent);
+
+field.value = "fix login";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login bug in auth", "Fix the login page layout"]);
+field.value = "layout";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login page layout"]);
+
+// Down from the field goes to the first conversation left.
+field.focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows()[1], "Down from the field did not go to the conversation left");
+
+// The arrows pass over the rows hidden: "auth" leaves the first and the
+// third, and Down from the first goes to the third.
+field.value = "auth";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login bug in auth", "Write docs for the auth relay"]);
+rows()[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows()[2], "Down went to a hidden conversation");
+
+// Escape empties the field first and leaves the dialog open.
+field.value = "layout";
+field.oninput();
+field.focus();
+h.key({ key: "Escape" });
+assert.strictEqual(field.value, "", "Escape did not empty the field");
+assert.ok(!h.$("overlay").hidden, "Escape closed the dialog instead of emptying the field");
+`)
+}
+
+// Dismissing a hint took away the button pressed, and the keyboard with it:
+// it was left on nothing, and typing went nowhere until a terminal was
+// clicked.
+func TestDismissingAHintGivesTheKeyboardBackToTheTerminal(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const close = () => h.$("hints").querySelector("button.icon-btn");
+assert.ok(!h.$("hints").hidden && close(), "no hint is showing to dismiss");
+h.terms[0].blur();
+close().focus();
+h.click(close());
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "dismissTip").pop(), { cmd: "dismissTip", id: "palette" });
+assert.ok(h.terms[0].focused, "dismissing the hint left the keyboard on nothing");
+`)
+}
+
+// The find bar searches the pane it was opened for. Closing that pane left
+// the bar open, still naming it, while Enter and F3 quietly did nothing.
+func TestTheFindBarGoesWithThePaneItSearches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const both = { tabs: [{ id: "t1", title: "pair", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "builder" }) } };
+h.recv(fixture(both));
+h.press("findInTerminal");
+assert.strictEqual(h.$("search-label").textContent, "Find in reviewer");
+h.recv(fixture({ tabs: [{ id: "t1", title: "pair", focus: "p2", root: leaf("n2", "p2") }],
+  panes: { p2: pane("p2", { name: "builder" }) } }));
+assert.ok(h.$("searchbar").hidden, "the find bar stayed open for a pane that is gone");
+
+// Closing the other pane leaves it alone.
+h.recv(fixture(both));
+h.press("findInTerminal");
+h.recv(fixture({ tabs: [{ id: "t1", title: "pair", focus: "p1", root: leaf("n1", "p1") }],
+  panes: { p1: pane("p1", { name: "reviewer" }) } }));
+assert.ok(!h.$("searchbar").hidden, "closing another pane closed the find bar");
+`)
+}
+
+// The tab strip hides its scroll bar, so with more tabs than fit, the ones
+// past an end were out of sight with nothing to say they were there.
+func TestTheTabStripSaysWhenTabsRunPastItsEnds(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const strip = h.$("tabs");
+const ends = () => [strip.classList.contains("more-left"), strip.classList.contains("more-right")];
+const scrolled = (left) => { strip.scrollLeft = left; h.dispatch(strip, new h.Ev("scroll", {})); };
+strip.scrollWidth = 900; strip.clientWidth = 300;
+scrolled(0);
+assert.deepStrictEqual(ends(), [false, true], "tabs past the right end are not marked");
+scrolled(300);
+assert.deepStrictEqual(ends(), [true, true], "tabs past both ends are not marked");
+scrolled(600);
+assert.deepStrictEqual(ends(), [true, false], "tabs past the left end are not marked");
+strip.scrollWidth = 300;
+scrolled(0);
+assert.deepStrictEqual(ends(), [false, false], "a strip whose tabs all fit is marked");
+
+// A tab arriving is measured then, without waiting for the strip to scroll.
+// A tab of its own, so the push is sure to bring one the strip did not have.
+strip.scrollWidth = 900;
+const base = fixture();
+h.recv(fixture({
+  tabs: base.tabs.concat([{ id: "t-new", title: "new", focus: "p-new", root: leaf("n-new", "p-new") }]),
+  panes: Object.assign({}, base.panes, { "p-new": pane("p-new") }),
+}));
+assert.deepStrictEqual(ends(), [false, true], "a new tab running the strip past its end is not marked: " +
+  JSON.stringify({ scrollWidth: strip.scrollWidth, clientWidth: strip.clientWidth, scrollLeft: strip.scrollLeft }));
+`)
+}
+
+// A pane alone in its tab can be zoomed, and the zoom hides nothing; shown
+// as zoomed anyway, its bubble said "0 other panes are hidden" and offered
+// to bring them back.
+func TestALonePaneIsNotShownAsZoomed(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: true, root: leaf("n1", "p1") }],
+  panes: { p1: pane("p1") } }));
+const zoom = h.terms[0].host.parentElement.parentElement.querySelector("button.zoomed");
+assert.ok(!zoom, "a pane with nothing to hide is shown as zoomed: " + (zoom && zoom.dataset.tip));
+
+// Zoomed past another pane, it says so.
+h.recv(fixture({ tabs: [{ id: "t1", title: "two", focus: "p1", zoom: true,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2") } }));
+const on = h.doc.querySelectorAll("button.zoomed");
+assert.strictEqual(on.length, 1, "the zoomed pane is not shown as zoomed");
+assert.ok(/1 other pane is hidden/.test(on[0].dataset.tip), on[0].dataset.tip);
+`)
+}
+
+// The prompt bar's field is one line, and a text field removes the breaks
+// from what is pasted into it outright: an instruction pasted in several
+// lines ran the end of each into the start of the next.
+func TestAPastedMultiLinePromptKeepsItsWordsApart(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+const input = h.$("prompt-input");
+input.value = "go: ";
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: () => text } });
+  h.dispatch(input, ev);
+  return ev;
+};
+const ev = paste("1. add tests\r\n2. run them\n\n3. push\n");
+assert.ok(ev.defaultPrevented, "the browser was left to strip the breaks");
+assert.strictEqual(input.value, "go: 1. add tests 2. run them 3. push");
+
+// One line is left to the browser.
+input.value = "";
+assert.ok(!paste("just this").defaultPrevented, "a paste of one line was taken over");
+`)
+}
+
+// The prompt bar says how many panes its message will reach, and said it once,
+// when it opened: a pane leaving the set while it was open left it promising
+// agents the message would not reach.
+func TestThePromptBarKeepsCountOfWhoItReaches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const two = (member) => fixture({ tabs: [{ id: "t1", title: "pair", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2", { broadcast: member }) } });
+h.recv(two(true));
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes");
+h.recv(two(false));
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt", "the bar still counts a pane that left the set");
+h.recv(two(true));
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes", "the bar does not count a pane added to the set");
+`)
+}
+
+// Left on one of an agent's models closed the agent but left the highlight at
+// the same place in the now shorter list, on whichever agent had moved up into
+// it - and Enter started that agent instead of the one being looked at.
+func TestClosingAnAgentsModelsLandsOnTheAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const agent = (id, name, models) => ({ id, name, runner: "cli", available: true, defaultModel: "",
+  models: models.map((m) => ({ id: m, name: m })) });
+h.recv(fixture({ agents: catalog({ items: [
+  agent("alpha", "Alpha", ["a1", "a2", "a3"]), agent("beta", "Beta", []), agent("gamma", "Gamma", []),
+] }) }));
+// The caret beside the + opens the picker; the action has no key of its own.
+h.click(h.$("new-tab-pick"));
+const sel = () => h.$("agent-list").querySelector(".sel").querySelector(".pick-name").textContent;
+assert.strictEqual(sel(), "Alpha");
+h.key({ key: "ArrowRight" });
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(sel(), "a3", "the third model is not the one picked out");
+h.key({ key: "ArrowLeft" });
+assert.strictEqual(sel(), "Alpha", "closing the agent's models left the highlight on another agent");
+// Enter acts on the agent closed - opening its models again, since it has
+// some - and not on the one the highlight used to slide onto.
+h.key({ key: "Enter" });
+assert.ok(!h.commands().some((c) => JSON.stringify(c).includes('"gamma"')), "Enter started another agent");
+assert.ok(h.$("agent-list").querySelectorAll(".pick-name").some((n) => n.textContent === "a1"),
+  "Enter did not act on the agent that was closed");
+`)
+}
+
+// The picker asks for the catalog again as it opens, and the answer can come
+// after the arrows have moved: an agent added ahead of the one picked out
+// shifted every row, and the highlight named another agent.
+func TestTheAgentPickedOutSurvivesTheCatalogArriving(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const agent = (id, name) => ({ id, name, runner: "cli", available: true, defaultModel: "", models: [] });
+const three = [agent("alpha", "Alpha"), agent("beta", "Beta"), agent("gamma", "Gamma")];
+h.recv(fixture({ agents: catalog({ items: three }) }));
+h.click(h.$("new-tab-pick"));
+const sel = () => h.$("agent-list").querySelector(".sel").querySelector(".pick-name").textContent;
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(sel(), "Gamma");
+h.recv(fixture({ agents: catalog({ items: [agent("aardvark", "Aardvark")].concat(three) }) }));
+assert.strictEqual(sel(), "Gamma", "the catalog arriving moved the highlight to another agent");
+
+// Narrowing the list still starts from the first match.
+const field = h.$("agent-filter");
+field.value = "a";
+field.oninput();
+assert.strictEqual(sel(), "Aardvark", "typing did not start from the first match");
+
+// Opened afresh, the picker starts on its first row, not on the one the last
+// picker left picked out.
+field.value = "gam";
+field.oninput();
+assert.strictEqual(sel(), "Gamma");
+h.key({ key: "Escape" });
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "the picker did not close");
+h.click(h.$("new-tab-pick"));
+assert.strictEqual(sel(), "Aardvark", "a fresh picker started on the row the last one left picked out");
+`)
+}
+
+// Enter in the new-worktree form's base field, the one filled in last, with
+// no branch named did nothing and said nothing.
+func TestAWorktreeWithNoBranchSaysWhatIsMissing(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, dirty: 0, untracked: 0, head: "abc1234" }],
+  branches: [{ name: "main", checkedIn: true }] });
+const branch = h.$("wt-branch");
+const base = branch.parentElement.querySelectorAll("input")[1];
+base.value = "main";
+base.focus();
+h.key({ key: "Enter" });
+assert.ok(!h.commands().some((c) => c.cmd === "worktreeAdd"), "a worktree was asked for with no branch");
+assert.ok(/branch/i.test(h.$("notice").textContent) && !h.$("notice").hidden, "nothing said the branch was missing");
+assert.ok(h.doc.activeElement === branch, "the keyboard was not put where the branch goes");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -2155,6 +4998,9 @@ class Element {
   get textContent() { return this.childNodes.map((n) => n.textContent).join(""); }
   set textContent(v) {
     this.childNodes.slice().forEach((k) => this.removeChild(k));
+    // Emptied, an element has nothing to be scrolled through, and a browser
+    // puts it back at the top.
+    if (this.scrollTop) this.scrollTop = 0;
     if (v !== "" && v !== null && v !== undefined) this.append(new TextNode(v));
   }
 
@@ -2213,6 +5059,7 @@ class Element {
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
   scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
   setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
+  select() { this.selectionStart = 0; this.selectionEnd = String(this.value || "").length; }
   setPointerCapture(id) { this.captured = id; }
   releasePointerCapture() { this.captured = undefined; }
 }
@@ -2406,10 +5253,14 @@ class FakeTerm {
     this.options = Object.assign({}, opts);
     this.cols = 80; this.rows = 24;
     this.written = []; this.disposed = false; this.focused = false;
+    this.buffer = { active: { viewportY: 0, baseY: 0 } };
     terms.push(this);
   }
   loadAddon() {}
   open(host) { this.host = host; }
+  onScroll(fn) { this._scroll = fn; }
+  onWriteParsed(fn) { this._parsed = fn; }
+  scrollToBottom() { this.buffer.active.viewportY = this.buffer.active.baseY; if (this._scroll) this._scroll(this.buffer.active.viewportY); }
   onData(fn) { this._data = fn; }
   onBinary(fn) { this._bin = fn; }
   write(d) { this.written.push(d); }
@@ -2426,6 +5277,7 @@ class FakeSearch {
   findNext(q) { this.forward.push(q); return this.hit; }
   findPrevious(q) { this.back.push(q); return this.hit; }
   clearDecorations() { this.cleared++; }
+  onDidChangeResults(fn) { this.results = fn; }
 }
 class FakeWebgl { onContextLoss() {} dispose() {} }
 
@@ -2534,6 +5386,8 @@ function tabTo(doc, back) {
 
 // -------------------------------------------------------------------- boot
 
+function unref(t) { t.unref(); return t; }
+
 /** boot starts the front end. opts.pathname is where the page was served
  *  from, which is "/" locally and a machine's own prefix through the relay. */
 function boot(opts) {
@@ -2562,7 +5416,13 @@ function boot(opts) {
     Notification: FakeNotification,
     CSS: { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") },
     TextEncoder, TextDecoder, console,
-    setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    // The page's own timers - a notice taking itself away twelve seconds on,
+    // a reconnect - are not what a case waits for, and holding the process
+    // open they made every case last as long as the longest of them after its
+    // last assertion had run. A case that waits does so with h.sleep.
+    setTimeout: (fn, ms, ...args) => unref(setTimeout(fn, ms, ...args)),
+    setInterval: (fn, ms, ...args) => unref(setInterval(fn, ms, ...args)),
+    clearTimeout, clearInterval, queueMicrotask,
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
       setItem: (k, v) => store.set(k, String(v)),

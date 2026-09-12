@@ -47,10 +47,13 @@
     branch:      "The branch this checkout has in its working tree.",
     project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
     splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
-    broadcast:   "Mirrors what you type into every pane in the broadcast set, so one instruction reaches them all.",
+    // Not what is typed into a terminal: nothing mirrors that. It is the
+    // prompt bar's message that goes to the set, and this used to say
+    // otherwise.
+    broadcast:   "Sends what you write in the prompt bar to every pane in the broadcast set, so one instruction reaches them all. Typing in a terminal still reaches only that terminal.",
     fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
-    zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back.",
+    zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
@@ -145,6 +148,20 @@
   // Slow in, instant out - and out for anything that means the question has
   // stopped being asked: the pointer leaving the window, a click, a scroll
   // moving the target out from under the bubble, Escape.
+  // Arriving from the keyboard counts as asking too. The bubble was the only
+  // place most of the glyph buttons - ⑂, ⇉, ⟳, ⤢ - say what they do, and it
+  // came only for a pointer: a screen reader has their names, but somebody
+  // who can see and is tabbing through the window was told nothing at all.
+  // Only for keyboard focus, so a click does not leave a bubble behind it.
+  document.addEventListener("focusin", (e) => {
+    let keyboard = true;
+    try { keyboard = e.target.matches(":focus-visible"); } catch { /* no such selector here */ }
+    const node = keyboard ? tipFind(e.target) : null;
+    if (node && node === tipFor) return;
+    hideTip();
+    if (node) tipTimer = setTimeout(() => showTip(node), TIP_DELAY);
+  }, true);
+  document.addEventListener("focusout", hideTip, true);
   document.addEventListener("pointerout", (e) => { if (!e.relatedTarget) hideTip(); }, true);
   document.addEventListener("pointerdown", hideTip, true);
   document.addEventListener("scroll", hideTip, true);
@@ -202,9 +219,11 @@
    *  whenever any agent changes what it is doing — is not mistaken for the
    *  catalog changing and does not redraw the picker under the keyboard. */
   let catalogKey = "";
-  let fontSize = (() => {
-    try { return Number(localStorage.getItem("fontSize")) || 13; } catch { return 13; }
-  })();
+  /** The size the terminals are drawn at. It is kept on the Go side with the
+   *  other preferences and arrives with them, before the first pane is drawn:
+   *  kept in local storage, it was forgotten on every run, for the reason
+   *  given for prefs above. */
+  let fontSize = 13;
 
   // ---------------------------------------------------------------- control
 
@@ -240,10 +259,27 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; renderHints(); }
-      else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
-      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
-      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); }
+      // A button that went with its worktree leaves the keyboard on the list
+      // - the first row's first button, which removes nothing - rather than
+      // out of the dialog.
+      else if (msg.type === "worktrees") {
+        keepFocus(() => renderWorktrees(msg), (body) => {
+          const bar = body.querySelector("div.wt-actions");
+          return bar && bar.querySelector("button");
+        });
+      }
+      else if (msg.type === "recents") {
+        recents = msg.items || [];
+        // A forgotten project's row is gone with the keyboard on it: the ×
+        // of the row now in its place, or the folder field when none is.
+        const inPlace = (body) => {
+          const xs = body.querySelectorAll("button.proj-forget");
+          return xs[Math.min(Math.max(forgotAt, 0), xs.length - 1)] || body.querySelector("input");
+        };
+        if (dialog === "projects") keepFocus(renderProjects, inPlace);
+      }
+      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
@@ -257,7 +293,7 @@
         detaching = true;
         window.close();
       }
-      else if (msg.type === "notice") notice(msg.text, msg.error);
+      else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
     };
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
@@ -296,7 +332,12 @@
   function openUpdate() {
     const u = state && state.update;
     if (!u) return;
-    openOverlay("Update to " + u.version);
+    // Named like every other dialog, so that the one it replaced — whose answer
+    // may still be on its way — no longer thinks the panel is its own.
+    dialog = "update";
+    // The ? every other dialog has: the page on the command line covers
+    // updating, and how to stop the checks.
+    openOverlay("Update to " + u.version, "cli");
     const body = $("overlay-body");
     body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
     if (u.notes) body.append(el("pre", "update-notes", u.notes));
@@ -312,7 +353,10 @@
     later.onclick = closeOverlay;
     row.append(go, later);
     body.append(row);
-    go.focus();
+    // The keyboard starts on the choice that stops nothing. On Restart now,
+    // a chip clicked by mistake while typing to an agent had the next Enter
+    // stop every agent in every pane.
+    later.focus();
   }
 
   // ----------------------------------------------------------------- remote
@@ -448,6 +492,7 @@
     if (!devices.length && !roster.error) dev.append(el("div", "dir-empty", "Nothing is paired yet."));
     devices.forEach((d) => {
       const item = el("div", "wt-row");
+      item.dataset.key = "device:" + d.id;
       const main = el("div", "wt-main");
       const title = el("div", "wt-title");
       title.append(el("span", "wt-label", d.name || "Unnamed device"));
@@ -533,9 +578,14 @@
     showActiveTab(s, rebuilt);
     renderTabs(s);
     renderSummary(s);
+    followAgents(s);
+    followProjects(s);
+    followWorktrees(s);
+    followChanges(s);
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
+    if (!$("promptbar").hidden) labelPrompt(s);
     prunePanes(s);
     notifyAttention(s);
     renderHints();
@@ -586,6 +636,10 @@
     const host = $("workspace");
 
     if (!s.tabs.length) {
+      // Built once and left standing. Pushes keep arriving while nothing is
+      // open here - agents in other projects go on working - and building it
+      // again for each took the keyboard off its buttons.
+      if (emptyPage) return false;
       host.textContent = "";
       tabPages.clear();
       tabShapes.clear();
@@ -599,6 +653,9 @@
       empty.append(b, h);
       host.append(empty);
       emptyPage = empty;
+      // Closing the last tab took the terminal the keyboard was in, and left
+      // it on the page with nothing to act on; the obvious next step is here.
+      if (!dialogOpen()) b.focus();
       return true;
     }
     // The "no tabs" placeholder is not a tab page, so it goes by hand.
@@ -611,6 +668,12 @@
       if (!page || tabShapes.get(tab.id) !== shape) {
         if (page) page.remove();
         page = el("div", "tab-page");
+        // The panel its tab controls, and labelled by it. The strip said
+        // "tab 2 of 4" to a screen reader, and nothing tied that tab to
+        // the panes it was showing.
+        page.id = "page-" + tab.id;
+        page.setAttribute("role", "tabpanel");
+        page.setAttribute("aria-labelledby", "tab-" + tab.id);
         if (tab.zoom && tab.focus) {
           // A zoomed pane takes the whole tab. The others stay in the pane
           // registry with their terminals and connections intact, simply
@@ -835,10 +898,16 @@
     if (!tab) { shownTab = ""; shownFocus = ""; return; }
     const ids = new Set();
     collectPanes(tab.root, ids);
-    ids.forEach((id) => {
-      const p = panes.get(id);
-      if (p) scheduleFit(p);
-    });
+    // Only when the tab has just come on screen. A status push arrives several
+    // times a second while agents work, and measuring every visible terminal
+    // on each one made the browser lay the window out again for nothing: a
+    // pane that changes size is refitted by its own observer.
+    if (tab.id !== shownTab || rebuilt) {
+      ids.forEach((id) => {
+        const p = panes.get(id);
+        if (p) scheduleFit(p);
+      });
+    }
     // Switching tab means switching agent, so the keyboard has to come along:
     // the click that caused the switch left the focus on the tab button, and
     // the revealed terminal would ignore everything typed at it.
@@ -877,20 +946,45 @@
   /** The tab the strip was last scrolled to. */
   let scrolledTab = "";
 
+  /** markStripEdges says which ends of the tab strip have tabs beyond them,
+   *  for the style sheet to fade. The strip hides its scroll bar, so tabs
+   *  past an end were out of sight with nothing to say they were there. It
+   *  is measured when it scrolls, when its width changes, and when renderTabs
+   *  changes what is in it. */
+  function markStripEdges() {
+    const strip = $("tabs");
+    const left = (strip.scrollLeft || 0) > 1;
+    const right = (strip.scrollLeft || 0) + (strip.clientWidth || 0) < (strip.scrollWidth || 0) - 1;
+    strip.classList.toggle("more-left", left);
+    strip.classList.toggle("more-right", right);
+  }
+  $("tabs").addEventListener("scroll", markStripEdges, { passive: true });
+  if (window.ResizeObserver) new ResizeObserver(markStripEdges).observe($("tabs"));
+
   function renderTabs(s) {
     // Rebuilding the strip would destroy the element a drag is holding, and
     // the drag would end nowhere. Status pushes arrive constantly, so this is
     // not a rare case; the bar catches up when the drag finishes.
     if (dragging && dragging.kind === "tab") return;
     const bar = $("tabs");
+    // Whether a tab came, went or changed width, for the fades at the ends.
+    let changed = false;
     s.tabs.forEach((tab, i) => {
       const node = tabNode(tab.id);
       const title = tab.title || "tab " + (i + 1);
-      if (node.label.textContent !== title) node.label.textContent = title;
+      if (node.label.textContent !== title) {
+        changed = true;
+        node.label.textContent = title;
+        // A title is cut short at the tab's width, and the ones written from
+        // an agent's task usually are. The bubble is the only place the rest
+        // can be read, and the only thing saying how to change it.
+        describe(node.btn, title + " — double-click to rename");
+      }
       const active = tab.id === s.activeTab;
       node.btn.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));
       node.btn.classList.toggle("attention", !!tab.attention);
+      if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
       // One stop on the way through the window rather than two per tab. With
       // a dozen agents open, tabbing past the strip to reach the terminal
@@ -898,13 +992,18 @@
       // which is what a tab strip is expected to answer to anyway.
       const stop = active ? 0 : -1;
       if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
-      if (bar.childNodes[i] !== node.btn) bar.insertBefore(node.btn, bar.childNodes[i] || null);
+      if (bar.childNodes[i] !== node.btn) { bar.insertBefore(node.btn, bar.childNodes[i] || null); changed = true; }
     });
     for (const [id, node] of tabNodes) {
       if (s.tabs.some((t) => t.id === id)) continue;
       node.btn.remove();
       tabNodes.delete(id);
+      changed = true;
     }
+    // Measured only when a tab came, went or changed width: reading the
+    // strip's width on every status push would lay the page out again
+    // several times a second.
+    if (changed) markStripEdges();
     // The strip is only as wide as the bar and scrolls when there are more
     // tabs than fit, so switching to one that is off the end has to bring it
     // into view — otherwise walking the tabs from the keyboard or the palette
@@ -946,6 +1045,8 @@
     if (node) return node;
     const btn = el("button", "tab");
     btn.setAttribute("role", "tab");
+    btn.id = "tab-" + id;
+    btn.setAttribute("aria-controls", "page-" + id);
     const label = el("span", "label");
     const close = el("button", "close", "×");
     describe(close, "Close tab");
@@ -958,6 +1059,14 @@
       else send({ cmd: "selectTab", id });
     };
     btn.ondblclick = () => renameTab(id);
+    // The middle button closes a tab, as it does a browser's or an editor's;
+    // here it did nothing, or began the browser's autoscroll over the strip.
+    btn.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
+    btn.onauxclick = (ev) => {
+      if (ev.button !== 1) return;
+      ev.preventDefault();
+      send({ cmd: "closeTab", id });
+    };
     btn.onkeydown = (ev) => tabStripKey(ev, id);
     makeTabDraggable(id, btn);
     node = { btn, label, close, attn: null };
@@ -984,7 +1093,11 @@
     const tab = (state ? state.tabs : []).find((t) => t.id === id);
     if (!tab) return;
     const name = window.prompt("Rename tab", tab.title || "");
-    if (name) send({ cmd: "renameTab", id, text: name });
+    // Every answer but Cancel goes, and the server says what it made of it.
+    // An emptied name was dropped here, so OK on it did nothing and said
+    // nothing - while one of spaces reached the server and was told a tab
+    // needs a name.
+    if (name !== null && name !== undefined) send({ cmd: "renameTab", id, text: name });
   }
 
   /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
@@ -1059,12 +1172,14 @@
     // replaced the button's description with a bare path and took the binding
     // away with it — the one thing the action table exists to prevent.
     const btn = $("project-btn");
-    const tip = actionTip("projects", active ? active.root : "");
-    if (btn.dataset.tip !== tip) describe(btn, tip);
     // Highlight when another project needs attention, so switching away does
-    // not hide the fact that an agent there is blocked.
-    const elsewhere = (s.projects || []).some((p) => !p.active && p.waiting > 0);
-    btn.classList.toggle("attention", elsewhere);
+    // not hide the fact that an agent there is blocked - and say which, since
+    // the amber on its own says only that something somewhere wants you.
+    const elsewhere = (s.projects || []).filter((p) => !p.active && p.waiting > 0);
+    const why = elsewhere.length ? "waiting on you in " + elsewhere.map((p) => p.name).join(", ") : "";
+    const tip = actionTip("projects", [active ? active.root : "", why].filter(Boolean).join("; "));
+    if (btn.dataset.tip !== tip) describe(btn, tip);
+    btn.classList.toggle("attention", elsewhere.length > 0);
   }
 
   // ------------------------------------------------- rearranging the layout
@@ -1235,6 +1350,21 @@
   function wireDragSafetyNet() {
     document.addEventListener("dragend", endDrag);
     document.addEventListener("drop", endDrag);
+    // A file dragged in from outside is none of the above, and the browser's
+    // own answer to one being dropped on a page that does not claim it is to
+    // open the file in the page's place. In this window that took the whole
+    // application away - there is no back button to return by - for a
+    // gesture a terminal user makes expecting the path to be typed. The page
+    // cannot learn a dropped file's path, so the drop is refused outright,
+    // which the pointer shows while the file is still held over the window.
+    const fromOutside = (ev) => !dragging && ev.dataTransfer &&
+      Array.from(ev.dataTransfer.types || []).includes("Files");
+    document.addEventListener("dragover", (ev) => {
+      if (!fromOutside(ev)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "none";
+    });
+    document.addEventListener("drop", (ev) => { if (fromOutside(ev)) ev.preventDefault(); });
   }
 
   /** wireTabStripDrops handles the space past the last tab and the + button:
@@ -1293,6 +1423,10 @@
     if (p) return p;
 
     const wrap = el("div", "pane");
+    // A group named after the pane. Every terminal announces itself alike,
+    // and the header beside it names nothing, so in a tab of six agents a
+    // screen reader landing in one was not told whose it was.
+    wrap.setAttribute("role", "group");
     const header = el("div", "pane-header");
     const dot = el("span", "dot");
     const name = el("span", "pane-name");
@@ -1301,6 +1435,15 @@
     const agent = el("span", "pane-agent");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
+    // The counts say something changed, and nothing went from them to what
+    // did: the review was a trip to the top bar, and for the focused pane
+    // only. The checkout is read at the click, so a pane that moved is
+    // reviewed where it is now.
+    git.onclick = (ev) => {
+      ev.stopPropagation();
+      const v = state && state.panes && state.panes[id];
+      if (v && v.cwd) openChanges(v.cwd);
+    };
     const usage = el("span", "pane-usage");
     const cast = el("span", "pane-cast");
     const actions = el("div", "pane-actions");
@@ -1314,15 +1457,17 @@
       b.onclick = (ev) => { ev.stopPropagation(); fn(); };
       return describe(b, tip);
     };
+    const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
+      () => send({ cmd: "toggleBroadcastMember", id }));
+    const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
-      btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
-        () => send({ cmd: "toggleBroadcastMember", id })),
+      castBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
-      btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
+      zoomBtn,
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
-    makeToolbar(actions);
+    makeToolbar(actions, "What to do with this pane");
     header.append(dot, project, name, branch, agent, git, detail, usage, cast, actions);
 
     const body = el("div", "pane-body");
@@ -1334,18 +1479,33 @@
     dropZone.hidden = true;
     wrap.append(header, body, dropZone);
     makePaneDraggable(id, wrap, header, dropZone);
-
-    wrap.addEventListener("mousedown", () => {
-      if (state && currentTab() && currentTab().focus !== id) send({ cmd: "focusPane", id });
+    // Double-clicking the header zooms the pane, as double-clicking a title
+    // bar does a window: the button for it is a small glyph at the far end of
+    // the header, and the header itself did nothing. Not on the header's own
+    // buttons, which have their own business.
+    header.addEventListener("dblclick", (ev) => {
+      // Nor on the change counts, whose click opens the review over the pane.
+      if (ev.target.closest && (ev.target.closest("button") || ev.target.closest(".pane-git"))) return;
+      send({ cmd: "toggleZoom", id });
     });
+
+    const claimFocus = () => {
+      if (state && currentTab() && currentTab().focus !== id) send({ cmd: "focusPane", id });
+    };
+    wrap.addEventListener("mousedown", claimFocus);
+    // The keyboard arriving counts as much as the pointer. Tabbed into from
+    // its own header buttons, a terminal took the typing while the server
+    // went on treating the last pane clicked as the focused one: that one
+    // kept the highlighted border, and it was the one Close pane closed.
+    wrap.addEventListener("focusin", claimFocus);
 
     const term = new Terminal({
       allowProposedApi: true,
-      cursorBlink: true,
-      fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace',
+      cursorBlink: cursorBlinks(),
+      fontFamily: terminalFont(),
       fontSize: fontSize,
       lineHeight: 1.15,
-      scrollback: 10000,
+      scrollback: scrollback,
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -1359,10 +1519,28 @@
     try {
       search = new SearchAddon.SearchAddon();
       term.loadAddon(search);
+      if (search.onDidChangeResults) {
+        search.onDidChangeResults((r) => { if (searchPane === id) showMatchCount(r); });
+      }
     } catch {
       /* Search is a convenience; the terminal works without it. */
     }
     term.open(host);
+    // Scrolled back to read what an agent wrote earlier, a pane went on
+    // showing the old lines with nothing to say newer ones had arrived below,
+    // and the only way back down was the wheel, however far that was.
+    const latest = el("button", "to-latest", "↓ Latest");
+    latest.hidden = true;
+    describe(latest, "Scroll to the newest output");
+    latest.onclick = (ev) => { ev.stopPropagation(); term.scrollToBottom(); latest.hidden = true; term.focus(); };
+    body.append(latest);
+    const scrolledBack = () => {
+      const b = term.buffer && term.buffer.active;
+      const back = !!b && b.viewportY < b.baseY;
+      if (latest.hidden === back) latest.hidden = !back;
+    };
+    if (term.onScroll) term.onScroll(scrolledBack);
+    if (term.onWriteParsed) term.onWriteParsed(scrolledBack);
     try {
       const webgl = new WebglAddon.WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
@@ -1372,7 +1550,7 @@
     }
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -1398,6 +1576,27 @@
     return p;
   }
 
+  /** reducedMotion reports whether the system has been asked for less
+   *  movement on screen. The style sheet already stills its animations for
+   *  it, but a terminal's cursor blinks by script, not by CSS, so every one
+   *  of them went on blinking for somebody who had asked for it to stop. */
+  function reducedMotion() {
+    try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+  }
+
+  /** cursorBlinks is whether the terminal cursors should blink: not where the
+   *  system asks for reduced motion, and not where somebody has turned the
+   *  blinking off from the palette, which was otherwise fixed in the source. */
+  function cursorBlinks() { return !prefs.cursorSteady && !reducedMotion(); }
+  function applyCursorBlink() {
+    for (const p of panes.values()) p.term.options.cursorBlink = cursorBlinks();
+  }
+  // The system setting can change while the window is open, and the
+  // terminals already drawn follow it.
+  try {
+    matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyCursorBlink);
+  } catch { /* an engine without matchMedia keeps the blink */ }
+
   /** makeToolbar makes a row of buttons one stop on the way through the window,
    *  walked with the arrow keys.
    *
@@ -1405,9 +1604,9 @@
    *  sit between the top bar and the terminals, so reaching a terminal from the
    *  keyboard meant pressing Tab past every one of them. A toolbar is the shape
    *  this already is; it just did not say so. */
-  function makeToolbar(bar) {
+  function makeToolbar(bar, label) {
     bar.setAttribute("role", "toolbar");
-    bar.setAttribute("aria-label", "What to do with this pane");
+    bar.setAttribute("aria-label", label);
     const buttons = [...bar.children];
     buttons.forEach((b, i) => { b.tabIndex = i === 0 ? 0 : -1; });
     bar.addEventListener("keydown", (ev) => {
@@ -1496,6 +1695,11 @@
   }
 
   function scheduleFit(p) {
+    // Not while a divider is being dragged. A fit that lands mid-drag resizes
+    // the agent's terminal, and an agent redraws its whole screen on every
+    // resize, so a slow drag across a split was a stream of redraws in the
+    // panes either side of it. The drag ends by fitting everything it moved.
+    if (resizing) return;
     clearTimeout(p.fitTimer);
     p.fitTimer = setTimeout(() => doFit(p), 40);
   }
@@ -1523,6 +1727,17 @@
    */
   function updatePaneChrome(s) {
     const tab = activeTabOf(s);
+    // The zoomed pane of each tab, and how many panes the zoom is hiding.
+    const zoomed = new Map();
+    for (const t of s.tabs) {
+      if (!t.zoom || !t.focus) continue;
+      const ids = new Set();
+      collectPanes(t.root, ids);
+      // A pane alone in its tab can be zoomed - by a stray double-click on
+      // its header - and hides nothing; shown as zoomed, its bubble said
+      // "0 other panes are hidden" and offered to bring them back.
+      if (ids.size > 1) zoomed.set(t.focus, ids.size - 1);
+    }
     for (const [id, p] of panes) {
       const v = s.panes[id];
       if (!v) continue;
@@ -1541,7 +1756,14 @@
         p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
         describe(p.dot, TIPS[v.status] || v.status);
       }
-      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; }
+      // The name is cut short with an ellipsis in a narrow pane, and names
+      // taken from an agent's task are long; the bubble has the whole of it.
+      if (was.name !== v.name) {
+        was.name = v.name;
+        p.name.textContent = v.name;
+        describe(p.name, v.name);
+        p.wrap.setAttribute("aria-label", v.name);
+      }
 
       const project = v.project || "";
       if (was.project !== project) { was.project = project; renderPaneProject(p, v); }
@@ -1555,7 +1777,14 @@
       if (was.agent !== agent) { was.agent = agent; renderPaneAgent(p, v); }
 
       const detail = v.detail || "";
-      if (was.detail !== detail) { was.detail = detail; p.detail.textContent = detail; }
+      if (was.detail !== detail) {
+        was.detail = detail;
+        p.detail.textContent = detail;
+        // Cut short in a narrow pane - an MCP tool's name nearly always is -
+        // and with no bubble, so the rest could be read nowhere.
+        if (detail) describe(p.detail, detail);
+        else delete p.detail.dataset.tip;
+      }
 
       const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
@@ -1569,6 +1798,9 @@
       const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
       if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
 
+      const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
+      if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
+
       p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
       renderPaneOverlay(p, v);
     }
@@ -1581,14 +1813,36 @@
     p.cast.textContent = "";
     if (v.broadcast) {
       p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
+      // In the set it receives the prompt bar's message whether broadcast is
+      // on or not; this used to say it would only once broadcast was turned
+      // on, which is not what happens.
       describe(p.cast, s.broadcast
         ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
-        : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
+        : "This pane is in the broadcast set, which it was put in by hand, so what you send from the prompt bar reaches it now, broadcast on or off. " + TIPS.broadcast);
     } else {
       delete p.cast.dataset.tip;
     }
     p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
-    p.actions.firstChild.classList.toggle("on", !!v.broadcast);
+    // The toggle says whether it is on, to the eye and to a screen reader. It
+    // was found as the first button in the row, which is fan out, so it was
+    // fan out that lit up for a pane in the set and the toggle never did.
+    p.castBtn.classList.toggle("on", !!v.broadcast);
+    p.castBtn.setAttribute("aria-pressed", String(!!v.broadcast));
+  }
+
+  /** renderPaneZoom says that a pane is zoomed, and what that is hiding. A
+   *  zoomed pane looked exactly like the only pane in its tab, so the others
+   *  seemed to have been closed, with nothing on screen saying where they had
+   *  gone or that the button beside the close button brings them back.
+   *  `hidden` is how many there are, and undefined when it is not zoomed. */
+  function renderPaneZoom(p, hidden) {
+    const on = hidden !== undefined;
+    p.zoomBtn.classList.toggle("zoomed", on);
+    p.zoomBtn.setAttribute("aria-pressed", String(on));
+    describe(p.zoomBtn, on
+      ? "Zoomed: " + (hidden === 1 ? "1 other pane is" : hidden + " other panes are") +
+        " hidden, still running. Press to bring them back."
+      : TIPS.zoom);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -1610,7 +1864,9 @@
     p.branch.textContent = "";
     if (!v.branch) { delete p.branch.dataset.tip; return; }
     p.branch.append(glyph("⎇"), document.createTextNode(" " + v.branch));
-    describe(p.branch, TIPS.branch);
+    // The header cuts a long branch short, and the bubble said what a branch
+    // is rather than which: the whole name could be read nowhere.
+    describe(p.branch, v.branch + " — " + TIPS.branch);
   }
 
   /** renderPaneAgent names what is running in the pane: the agent, and the
@@ -1621,7 +1877,8 @@
     p.agent.textContent = "";
     if (!v.agent) { delete p.agent.dataset.tip; return; }
     p.agent.textContent = v.model ? v.agent + " · " + v.model : v.agent;
-    describe(p.agent, TIPS.agent);
+    // Cut short like the branch, and named in its bubble for the same reason.
+    describe(p.agent, p.agent.textContent + " — " + TIPS.agent);
   }
 
   /** renderPaneUsage shows what the pane is costing the machine: its share of a
@@ -1695,6 +1952,9 @@
       clearTimeout(p.retryTimer);
       clearTimeout(p.fitTimer);
       panes.delete(id); // stop the close handler from reconnecting
+      // The find bar searches the pane it was opened for, and with that pane
+      // gone it stayed open, still naming it, while Enter and F3 did nothing.
+      if (searchPane === id && !$("searchbar").hidden) closeSearch();
       try { p.ws && p.ws.close(); } catch {}
       p.resize.disconnect();
       p.term.dispose();
@@ -1713,26 +1973,89 @@
   }
 
   function currentTab() { return activeTabOf(state); }
+
+  /** focusNeighbour moves the keyboard to the next pane in the tab, or the
+   *  one before, in the order the layout holds them, coming round at either
+   *  end. Tab inside a terminal belongs to the program in it, and nothing
+   *  else moved the keyboard from one pane to another: in a tab of six
+   *  agents, somebody without a mouse stayed in the terminal they were in. */
+  function focusNeighbour(step) {
+    const t = currentTab();
+    if (!t) return;
+    const ids = new Set();
+    collectPanes(t.root, ids);
+    const order = [...ids];
+    if (order.length < 2) return;
+    const at = Math.max(0, order.indexOf(t.focus));
+    send({ cmd: "focusPane", id: order[(at + step + order.length) % order.length] });
+  }
   function focusedPaneId() { const t = currentTab(); return t ? t.focus : ""; }
 
   // -------------------------------------------------------------- prompt bar
 
+  /** What has been sent from the prompt bar this session, oldest first, and
+   *  where Up and Down have got to in it. The bar is how one instruction
+   *  reaches every agent, and sending it again, or a variation on it, meant
+   *  typing it out again in full; Up recalls it, as it does at a prompt. */
+  const promptHistory = [];
+  let promptAt = 0;
+  let promptDraft = "";
+  /** What was left in the bar when it was closed without sending. The bar
+   *  opened empty every time, so an instruction half-written for every agent
+   *  went with an Escape pressed a moment too soon - and, never sent, it was
+   *  not in the history either. */
+  let promptUnsent = "";
+
+  function promptKey(ev) {
+    const input = $("prompt-input");
+    if (ev.key === "ArrowUp" && promptAt > 0) {
+      if (promptAt === promptHistory.length) promptDraft = input.value;
+      input.value = promptHistory[--promptAt];
+    } else if (ev.key === "ArrowDown" && promptAt < promptHistory.length) {
+      promptAt++;
+      input.value = promptAt === promptHistory.length ? promptDraft : promptHistory[promptAt];
+    } else {
+      return;
+    }
+    ev.preventDefault();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  /** labelPrompt says how many panes the prompt bar's message will reach.
+   *  Whether or not broadcast is on: the message goes to the focused pane and
+   *  every pane in the set, and a pane picked by hand with ⇉ stays in the set
+   *  with broadcast off. Counting only while it was on said "Prompt" over a
+   *  message about to reach three agents. Kept current while the bar is open,
+   *  since the set changes under it - a pane added with ⇉, a member closed. */
+  function labelPrompt(s) {
+    const n = s ? countBroadcast(s) : 1;
+    const text = n > 1 ? `Prompt → ${n} panes` : "Prompt";
+    if ($("prompt-label").textContent !== text) $("prompt-label").textContent = text;
+  }
+
   function openPrompt() {
     const bar = $("promptbar");
     bar.hidden = false;
-    const n = state ? countBroadcast(state) : 1;
-    $("prompt-label").textContent = state && state.broadcast && n > 1 ? `Prompt → ${n} panes` : "Prompt";
+    promptAt = promptHistory.length;
+    promptDraft = "";
+    labelPrompt(state);
     const input = $("prompt-input");
-    input.value = "";
+    input.value = promptUnsent;
     input.focus();
   }
   function closePrompt() {
+    promptUnsent = $("prompt-input").value;
     $("promptbar").hidden = true;
     focusTerminal();
   }
   function submitPrompt() {
     const text = $("prompt-input").value;
-    if (text.trim()) send({ cmd: "sendPrompt", text });
+    if (text.trim()) {
+      send({ cmd: "sendPrompt", text });
+      if (promptHistory[promptHistory.length - 1] !== text) promptHistory.push(text);
+      if (promptHistory.length > 50) promptHistory.shift();
+    }
+    $("prompt-input").value = "";
     closePrompt();
   }
   function countBroadcast(s) {
@@ -1864,12 +2187,17 @@
    *  by what it is and what it says, which is how a person finds it too, and
    *  the text caret is put back where it was for a field.
    */
-  function keepFocus(draw) {
+  function keepFocus(draw, fallback) {
     const body = $("overlay-body");
     const was = document.activeElement;
     const key = was && body.contains(was) ? identify(was) : "";
     const at = was && was.selectionStart;
+    // Emptying the body to draw it again takes its scroll position with it, so
+    // a list scrolled to its twentieth worktree jumped back to the first when
+    // one was removed, or when a refresh came back.
+    const top = body.scrollTop;
     draw();
+    body.scrollTop = top;
     if (!key) return;
     for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
       if (identify(node) !== key) continue;
@@ -1879,6 +2207,12 @@
       }
       return;
     }
+    // The control went with what it acted on - the folder gone into, say - so
+    // the keyboard goes to where the answer put things, where the caller has
+    // named such a place, rather than falling out of the dialog altogether.
+    // The place is a selector, or a function finding it in the body.
+    const next = typeof fallback === "function" ? fallback(body) : fallback && body.querySelector(fallback);
+    if (next) next.focus();
   }
 
   /** identify is what makes a control the same control across a redraw. An id
@@ -1886,8 +2220,14 @@
    *  which is how a person finds it again too. A control whose wording changes
    *  while it is working needs the id. */
   function identify(node) {
-    return node.id ? "#" + node.id
-      : [node.tagName, node.className, (node.textContent || "").trim()].join("|");
+    if (node.id) return "#" + node.id;
+    // A control repeated on every row - Clear, Unpair, a project's close - is
+    // told apart by the row it is on, where the row carries a key. By wording
+    // alone one row's is the next row's, and a redraw after clearing one key,
+    // which does not ask, left the keyboard on the next agent's Clear.
+    let row = node;
+    while (row && !(row.dataset && row.dataset.key)) row = row.parentElement;
+    return [row ? row.dataset.key : "", node.tagName, node.className, (node.textContent || "").trim()].join("|");
   }
 
   /** refreshDialog asks again for whatever the open dialog is showing. */
@@ -1921,14 +2261,53 @@
    *  was removed, or Refresh was pressed, went with the redraw. It is kept for
    *  as long as the dialog is open and no longer. */
   let wtDraft = { branch: "", base: "" };
+  /** The branch just asked for with the form, until the list comes back with
+   *  it. Starting an agent in a new worktree is what nearly everybody does
+   *  next, and the keyboard was left on Create with the new row's Agent
+   *  button to be found among the others; it lands there instead. */
+  let wtCreated = "";
+
+  /** The panes the worktree list last counted. How many agents work in each
+   *  worktree is counted when the list is read, and Remove refuses while any
+   *  do; close those panes and the dialog went on counting them, refusing
+   *  for agents that were no longer there until Refresh was pressed. The list
+   *  is asked for again whenever panes open or close while it is up. */
+  let worktreePanes = "";
+  function followWorktrees(s) {
+    const key = Object.keys(s.panes || {}).sort().join(",");
+    if (key === worktreePanes) return;
+    worktreePanes = key;
+    if (dialog === "worktrees") send({ cmd: "worktrees" });
+  }
+
+  /** openWorktrees opens the dialog and asks for what goes in it. It opens at
+   *  once rather than when the answer arrives, because the same answer comes
+   *  back after every add, remove and prune, and those take seconds: opened
+   *  by its answer, a dialog closed while one of them ran came back over the
+   *  terminals on its own and took the keyboard from the pane being typed
+   *  into. The other dialogs already opened this way; their answers are now
+   *  drawn only into the dialog they belong to. */
+  /** rootLabel is the line at the foot of a dialog naming the folder it is
+   *  about. It is cut short with an ellipsis, paths differ at the end the
+   *  ellipsis takes, and it had no bubble: which checkout a dialog was for
+   *  could not be read. */
+  function rootLabel(path) {
+    const n = el("span", "wt-root", path);
+    return path ? describe(n, path) : n;
+  }
+
+  function openWorktrees() {
+    dialog = "worktrees";
+    worktrees = null;
+    wtDraft = { branch: "", base: "" };
+    openOverlay("Worktrees", "worktrees");
+    $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
+    send({ cmd: "worktrees" });
+  }
 
   function renderWorktrees(msg) {
     if (msg) worktrees = msg;
-    if ($("overlay").hidden || dialog !== "worktrees") {
-      dialog = "worktrees";
-      wtDraft = { branch: "", base: "" };
-      openOverlay("Worktrees", "worktrees");
-    }
+    if (dialog !== "worktrees") return; // closed, or replaced by another
     const m = worktrees || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -1988,7 +2367,8 @@
       if (wt.head) meta.append(describe(el("span", "wt-head", wt.head),
         "The commit this worktree has checked out."));
       main.append(meta);
-      main.append(el("div", "wt-path", wt.path));
+      // Cut from the end with an ellipsis, and paths differ at the end.
+      main.append(describe(el("div", "wt-path", wt.path), wt.path));
       row.append(main);
 
       const actions = el("div", "wt-actions");
@@ -2007,18 +2387,40 @@
       review.title = "See what changed here, commit and push";
       review.onclick = () => openChanges(wt.path);
       actions.append(agent, shell, split, review);
+      // Named by the worktree they act on. A redraw finds the control the
+      // keyboard was on by what it is, and by wording alone "Remove" in one
+      // row is "Remove" in the next: removing a clean worktree - which does
+      // not ask - left the keyboard on the next one's Remove, and a second
+      // Enter removed that as well.
+      const key = "wt-" + encodeURIComponent(wt.path) + "-";
+      agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
 
       if (!wt.main) {
         const rm = el("button", "chip danger", "Remove");
+        rm.id = key + "remove";
         const unsafe = wt.dirty || wt.untracked;
         rm.title = unsafe ? "This worktree has uncommitted work" : "Remove this worktree";
         rm.onclick = () => {
+          // Not while agents are working in it: they would be left in a
+          // directory that no longer exists, and the server refuses it,
+          // forced or not. Saying so here, before anything is sent, is where
+          // the person can do something about it. Force is only ever the
+          // answer to uncommitted work in a worktree nothing is running in.
+          if (wt.panes) {
+            notice((wt.panes === 1 ? "An agent is" : wt.panes + " agents are") + " working in " + wt.label +
+              ". Close " + (wt.panes === 1 ? "that pane" : "those panes") + " first, then remove it.", true);
+            return;
+          }
           if (unsafe && !window.confirm(
             wt.label + " has uncommitted changes.\n\nRemove it and discard them?")) return;
           send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
         };
         actions.append(rm);
       }
+      // One stop per worktree, walked with the arrows, as a pane's header
+      // is. Four or five stops a row put the new-worktree form fifty presses
+      // of Tab past a list of ten.
+      makeToolbar(actions, "What to do with " + wt.label);
       row.append(actions);
       list.append(row);
     });
@@ -2052,13 +2454,22 @@
 
     const go = el("button", "chip primary", "Create");
     const submit = () => {
-      if (!branch.value.trim()) return;
+      // Enter in the base field, filled in last, with no branch named did
+      // nothing and said nothing - and the branch is what the worktree is for.
+      if (!branch.value.trim()) {
+        notice("Name the branch for the new worktree first", true);
+        branch.focus();
+        return;
+      }
+      wtCreated = branch.value.trim();
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
       wtDraft.branch = "";
     };
     go.onclick = submit;
-    branch.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
+    // From either field: the base is the one filled in last, and Enter there
+    // did nothing at all.
+    branch.onkeydown = base.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
     form.append(branch, base, go, bases);
     create.append(form);
     create.append(el("div", "wt-hint",
@@ -2076,7 +2487,19 @@
         btn.onclick = () => send({ cmd: "worktreeAdd", text: b.name });
         chips.append(btn);
       });
+      // One stop, walked with the arrows, like the rows above it: up to
+      // fourteen branches, each a Tab stop, stood between the list and the
+      // rest of the dialog.
+      makeToolbar(chips, "Branches without a worktree");
       bs.append(chips);
+      // Only the first fourteen are offered as buttons, and the rest simply
+      // were not there: a branch further down the list looked as though it
+      // did not exist. Typing its name into the form above checks it out.
+      if (free.length > 14) {
+        const more = free.length - 14;
+        bs.append(el("div", "wt-hint", (more === 1 ? "1 more branch" : more + " more branches") +
+          " not shown - type a branch name into the form above to check it out."));
+      }
       body.append(bs);
     }
 
@@ -2087,15 +2510,58 @@
     const prune = el("button", "chip", "Prune");
     prune.title = "Drop records for worktrees whose folders are gone";
     prune.onclick = () => send({ cmd: "worktreePrune" });
-    tools.append(refresh, prune, el("span", "wt-root", m.root || ""));
+    tools.append(refresh, prune, rootLabel(m.root || ""));
     body.append(tools);
+
+    if (wtCreated) {
+      const made = (m.items || []).findIndex((wt) => wt.label === wtCreated);
+      if (made >= 0) {
+        wtCreated = "";
+        // After the redraw's own keyboard handling, which put it back on
+        // Create: the row for the new worktree is where it is wanted.
+        setTimeout(() => {
+          const row = list.querySelectorAll("div.wt-row")[made];
+          const agent = row && row.querySelector("button");
+          if (agent && dialog === "worktrees") agent.focus();
+        }, 0);
+      }
+    }
   }
 
   // -------------------------------------------------------------- projects
 
+  /** Whether every recent project is listed, rather than the first eight. */
+  let recentsAll = false;
+
+  /** The projects dialog's Open section is drawn from the state, and was
+   *  drawn only when a recents or folder listing arrived: closing a project
+   *  from it - which answers with a state push and nothing else - left the
+   *  project listed as open, with a close button that did nothing, and an
+   *  agent starting to wait in another project did not show. It follows the
+   *  pushes that change what it lists, and no others. */
+  let projectsKey = "";
+  function followProjects(s) {
+    const key = (s.projects || []).map((p) => [p.root, p.active, p.tabs, p.waiting, p.working].join(":")).join("|");
+    if (key === projectsKey) return;
+    projectsKey = key;
+    // A closed project's row is gone with the keyboard on it: to the project
+    // now in its place - its own button, never its ×, which an idle project
+    // answers without asking.
+    const inPlace = (body) => closedAt < 0 ? null :
+      body.querySelectorAll("button.proj-go")[Math.min(closedAt, ((state && state.projects) || []).length - 1)] || null;
+    if (dialog === "projects") keepFocus(renderProjects, inPlace);
+  }
+
+  /** Which recent project's × was last pressed, by its place in the list,
+   *  so the keyboard can go to whichever row takes that place. */
+  let forgotAt = -1;
+  /** The same for an open project whose × was last pressed. */
+  let closedAt = -1;
+
   function openProjects() {
     dialog = "projects";
     browseDraft = null;
+    recentsAll = false;
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -2112,6 +2578,7 @@
     const openSection = section("Open");
     open.forEach((p) => {
       const row = el("div", "proj-row" + (p.active ? " active" : ""));
+      row.dataset.key = "open:" + p.root;
       // The row's own action — switch to this project — is a real button
       // wrapping everything that describes it, rather than a click handler on
       // the row. A handler on a div cannot be tabbed to and does not answer
@@ -2120,7 +2587,8 @@
       const go = el("button", "proj-go");
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
-      main.append(el("span", "proj-path", p.root));
+      // Cut from the end with an ellipsis, and paths differ at the end.
+      main.append(describe(el("span", "proj-path", p.root), p.root));
       go.append(main);
 
       const badge = el("span", "proj-badge");
@@ -2158,7 +2626,17 @@
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
         describe(close, "Close this project. The agents running in it stop.");
-        close.onclick = () => send({ cmd: "closeProject", root: p.root });
+        close.onclick = () => {
+          // Every agent in every tab of it stops, on one click of a small
+          // cross - the one other thing that stops work on that scale, Quit,
+          // asks first. Only agents with something under way are worth the
+          // question; a project where every agent is idle closes at once.
+          const busy = (p.working || 0) + (p.waiting || 0);
+          if (busy && !window.confirm("Close " + p.name + "? " + (busy === 1 ? "1 agent is" : busy + " agents are") +
+            " still working or waiting on you there, and every agent in it stops.")) return;
+          closedAt = open.indexOf(p);
+          send({ cmd: "closeProject", root: p.root });
+        };
         row.append(close);
       }
       openSection.append(row);
@@ -2169,27 +2647,43 @@
     const notOpen = recents.filter((r) => !r.open);
     if (notOpen.length) {
       const rec = section("Recent");
-      notOpen.slice(0, 8).forEach((r) => {
+      const shown = recentsAll ? notOpen : notOpen.slice(0, 8);
+      shown.forEach((r, i) => {
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
+        row.dataset.key = "recent:" + r.root;
         const main = el("span", "proj-main");
         main.append(el("span", "proj-name", r.name));
-        main.append(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
+        main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
         // A project whose folder has gone cannot be opened, so it stays text
         // rather than becoming a button that does nothing when it is pressed.
         if (r.exists) {
           const go = el("button", "proj-go");
+          go.id = "recent-" + i;
           go.append(main);
           go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
           row.append(go);
         } else {
           row.append(main);
         }
-        const forget = el("button", "icon-btn", "\u00d7");
+        const forget = el("button", "icon-btn proj-forget", "\u00d7");
         describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = () => send({ cmd: "forgetRecent", root: r.root });
+        forget.onclick = () => { forgotAt = i; send({ cmd: "forgetRecent", root: r.root }); };
         row.append(forget);
         rec.append(row);
       });
+      // Eight at first, and the rest - up to forty are remembered - simply
+      // were not there, so an older project could be reached only by browsing
+      // to its folder again.
+      if (shown.length < notOpen.length) {
+        const more = el("button", "chip", "Show " + (notOpen.length - shown.length) + " more");
+        more.onclick = () => {
+          recentsAll = true;
+          renderProjects();
+          const next = $("recent-" + shown.length);
+          if (next) next.focus();
+        };
+        rec.append(more);
+      }
       body.append(rec);
     }
 
@@ -2200,17 +2694,66 @@
    *  mouse. A div carrying an onclick cannot be reached with Tab and does not
    *  answer Enter, so a list built out of them is a list only a pointer can
    *  use — and these lists are how the file an agent changed gets read and how
-   *  the agent that is blocked gets found. */
-  function rowAction(row, fn) {
+   *  the agent that is blocked gets found.
+   *
+   *  The arrow keys, Home and End walk the list the row is in, as they do any
+   *  list. Where the choice has nothing to undo - which file's diff is shown -
+   *  `follow` makes arriving at a row choose it, so a review is read by
+   *  pressing Down rather than by Tab and Enter for every file. */
+  /** rowStep is where a key moves the keyboard in a list of rows, or
+   *  undefined. Page Down on a row scrolled the box and left the keyboard on
+   *  a row now out of sight, and the next arrow jumped the list back to it;
+   *  the pages move the keyboard as the palette's do. */
+  function rowStep(key, at, count) {
+    return { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: count - 1,
+      PageDown: Math.min(at + LIST_PAGE, count - 1), PageUp: Math.max(at - LIST_PAGE, 0) }[key];
+  }
+
+  function rowAction(row, fn, follow, label) {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.onclick = fn;
+    // What typing the start of it finds the row by: a file's name rather
+    // than the folders in front of it, a pane's tab, a conversation's first
+    // words.
+    row.dataset.label = (label || row.textContent || "").toLowerCase();
     row.onkeydown = (ev) => {
-      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(ev); return; }
+      // Not the rows a filter has hidden, which the arrows would walk into
+      // and leave the keyboard on out of sight.
+      const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button" && !n.hidden);
+      const at = rows.indexOf(row);
+      let to = rowStep(ev.key, at, rows.length);
+      if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at, row.parentElement);
+      if (to === undefined || to < 0 || !rows[to]) return;
       ev.preventDefault();
-      fn(ev);
+      rows[to].focus();
+      if (follow && to !== at) rows[to].onclick(ev);
     };
     return row;
+  }
+
+  /* Typing the start of a row's name goes to it, as it does in nearly every
+   * list: in a review of forty files, or an overview of a dozen agents, the
+   * arrows were the only way to a row. Letters typed within a moment of each
+   * other make one prefix; a pause starts a new one. */
+  let typed = "";
+  let typedAt = 0;
+  /** The list the letters were typed in: a prefix belongs to one list, and
+   *  one begun in another list a moment ago is not carried into this one. */
+  let typedIn = null;
+  function typeAhead(key, rows, at, list) {
+    const now = Date.now();
+    typed = now - typedAt < 700 && typedIn === list ? typed + key.toLowerCase() : key.toLowerCase();
+    typedAt = now;
+    typedIn = list;
+    // A row that still matches as the prefix grows keeps the keyboard;
+    // otherwise the search starts after it and comes round from the top.
+    for (let i = typed.length > 1 ? 0 : 1; i <= rows.length; i++) {
+      const j = (at + i) % rows.length;
+      if (rows[j].dataset.label.startsWith(typed)) return j;
+    }
+    return -1;
   }
 
   function section(title) {
@@ -2256,6 +2799,8 @@
         btn.onclick = () => send({ cmd: "browse", path: pl.path });
         places.append(btn);
       });
+      // One stop between the path field and the folder list, not one a place.
+      makeToolbar(places, "Places");
       wrap.append(places);
     }
 
@@ -2282,12 +2827,31 @@
         into.append(el("span", "dir-name", e.name));
         if (e.isRepo) into.append(el("span", "dir-repo", "git"));
         into.onclick = () => send({ cmd: "browse", path: e.path });
+        into.dataset.label = e.name.toLowerCase();
         row.append(into);
         const openBtn = el("button", "chip", "Open");
         openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
         row.append(openBtn);
         list.append(row);
       });
+      // The folders answer the arrows and the start of a name, as the other
+      // lists do. Two buttons a folder, and nothing else, made a directory of
+      // fifty repositories a hundred presses of Tab to the one wanted - and
+      // opening a folder is how anybody new gets started. The arrows move
+      // between the folders themselves; Open stays one Tab from its folder.
+      list.onkeydown = (ev) => {
+        const rows = [...list.querySelectorAll("button.dir-into")];
+        const at = rows.indexOf(document.activeElement);
+        if (at < 0) return;
+        let to = rowStep(ev.key, at, rows.length);
+        if (to === undefined && ev.key.length === 1 && ev.key !== " " && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+          to = typeAhead(ev.key, rows, at, list);
+        }
+        if (to === undefined || to < 0 || !rows[to]) return;
+        ev.preventDefault();
+        rows[to].focus();
+        rows[to].scrollIntoView({ block: "nearest" });
+      };
     }
     wrap.append(list);
     return wrap;
@@ -2323,7 +2887,7 @@
     const text = parts.join(" ");
     p.git.setAttribute("role", "img");
     p.git.setAttribute("aria-label", text);
-    describe(p.git, text);
+    describe(p.git, text + " Click to review them.");
   }
 
   /** mark is one git marker: a glyph the row's description explains, and a
@@ -2337,13 +2901,121 @@
   // -------------------------------------------------------------- font size
 
   function setFontSize(px) {
-    fontSize = Math.max(8, Math.min(28, px));
-    try { localStorage.setItem("fontSize", String(fontSize)); } catch {}
+    applyFontSize(px);
+    send({ cmd: "fontSize", size: fontSize });
+    notice("Font size " + fontSize + "px", false);
+  }
+
+  /** applyPrefs puts into effect the preferences that change how the
+   *  terminals behave. They arrive before the first pane is drawn, and again
+   *  whenever another window changes one. */
+  function applyPrefs() {
+    applyFontSize(prefs.fontSize);
+    applyScrollback(prefs.scrollback);
+    applyCursorBlink();
+    applyFontFamily();
+  }
+
+  /** The typeface the terminals are drawn in where nobody has chosen one. */
+  const DEFAULT_FONT = '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace';
+
+  /** terminalFont is the font list the terminals use: the one chosen, with
+   *  monospace behind it so a font this machine does not have falls back to
+   *  a fixed-width one rather than to the page's own. */
+  function terminalFont() {
+    return prefs.fontFamily ? prefs.fontFamily + ", monospace" : DEFAULT_FONT;
+  }
+
+  function applyFontFamily() {
+    const font = terminalFont();
     for (const p of panes.values()) {
+      if (p.term.options.fontFamily === font) continue;
+      p.term.options.fontFamily = font;
+      scheduleFit(p);
+    }
+  }
+
+  /** fontMissing is whether this machine has none of the fonts named: text
+   *  measured in them, with each generic family behind, comes out exactly as
+   *  wide as in the generic family alone. Three generics, so a font that is
+   *  itself the machine's monospace is not taken for missing. Where nothing
+   *  can be measured the fonts are taken to be there. */
+  function fontMissing(family) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext && canvas.getContext("2d");
+    if (!ctx) return false;
+    // A generic family is always there, and quoted would name a font called
+    // "monospace", which nobody has.
+    if (/^(ui-)?(monospace|serif|sans-serif)$|^system-ui$/i.test(family)) return false;
+    const named = /[,"']/.test(family) ? family : '"' + family + '"';
+    const sample = "mmmmmmmmmmlli0O@#WW";
+    return ["monospace", "serif", "sans-serif"].every((generic) => {
+      ctx.font = "32px " + generic;
+      const plain = ctx.measureText(sample).width;
+      ctx.font = "32px " + named + ", " + generic;
+      return ctx.measureText(sample).width === plain;
+    });
+  }
+
+  /** askFontFamily asks which typeface the terminals should use. It was
+   *  fixed in the source, and a terminal's font is among the first things
+   *  anybody who works in one sets to their own. */
+  function askFontFamily() {
+    const answer = window.prompt("Which font should the terminals use? Leave it empty for the default.", prefs.fontFamily || "");
+    if (answer === null || answer === undefined) return;
+    const family = String(answer).trim();
+    // A name this machine has no font for was taken, announced as the
+    // terminals' font, and drawn in the fallback: nothing changed on screen,
+    // and nothing said why - a misspelling looked like the setting not working.
+    if (family && fontMissing(family)) {
+      notice("No font called " + family + " was found on this machine, so the terminals keep " +
+        (prefs.fontFamily || "the default font"), true);
+      return;
+    }
+    prefs.fontFamily = family;
+    applyFontFamily();
+    send({ cmd: "fontFamily", text: family });
+    notice(family ? "The terminals now use " + family : "The terminals use the default font again", false);
+  }
+
+  /** How many lines a terminal keeps once they have scrolled off the top,
+   *  where nobody has chosen, and what has been chosen. */
+  const SCROLLBACK = 10000;
+  let scrollback = SCROLLBACK;
+
+  function applyScrollback(lines) {
+    scrollback = lines || SCROLLBACK;
+    for (const p of panes.values()) {
+      if (p.term.options.scrollback !== scrollback) p.term.options.scrollback = scrollback;
+    }
+  }
+
+  /** askScrollback asks how much each terminal should keep. The number was
+   *  fixed in the source: too few lines for a long agent session to be read
+   *  back through, and more than a dozen panes need where memory is short. */
+  function askScrollback() {
+    const answer = window.prompt("How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)", String(scrollback));
+    if (answer === null || answer === undefined) return;
+    const n = Number(String(answer).replace(/[,\s_]/g, ""));
+    if (!Number.isInteger(n) || n < 1000 || n > 200000) {
+      notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
+      return;
+    }
+    applyScrollback(n);
+    send({ cmd: "scrollback", size: n });
+    notice("Each terminal now keeps " + n.toLocaleString("en") + " lines", false);
+  }
+
+  /** applyFontSize draws every terminal at a size without announcing it,
+   *  which is how a size chosen on an earlier run, or in another window,
+   *  arrives. Zero, for a person who has never chosen one, is the default. */
+  function applyFontSize(px) {
+    fontSize = Math.max(8, Math.min(28, px || 13));
+    for (const p of panes.values()) {
+      if (p.term.options.fontSize === fontSize) continue;
       p.term.options.fontSize = fontSize;
       scheduleFit(p);
     }
-    notice("Font size " + fontSize + "px", false);
   }
 
   // ----------------------------------------------------------------- search
@@ -2354,6 +3026,11 @@
    *  user was not looking at and leave the first one marked for good, since
    *  only the focused pane's marks were ever cleared. */
   let searchPane = "";
+  /** The last thing searched for. The bar opened empty every time, so
+   *  looking for the same word again - after closing the bar, or in the next
+   *  pane - meant typing it again; it comes back selected, so Enter repeats
+   *  it and typing replaces it, as in a browser or an editor. */
+  let lastSearch = "";
 
   function openSearch() {
     searchPane = focusedPaneId();
@@ -2362,22 +3039,33 @@
     const v = state && state.panes ? state.panes[searchPane] : null;
     $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
     const input = $("search-input");
-    input.value = "";
+    input.value = lastSearch;
     noMatch(false);
+    showMatchCount(null);
     input.focus();
+    if (input.select) input.select();
   }
   function closeSearch() {
+    lastSearch = $("search-input").value;
     $("searchbar").hidden = true;
     const p = panes.get(searchPane);
     if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
     searchPane = "";
     focusTerminal();
   }
-  function runSearch(back) {
+  /** runSearch finds the next or previous match. `typing` is a search made
+   *  as the words are typed rather than asked for with Enter, which keeps the
+   *  match already found while it still matches instead of moving past it. */
+  function runSearch(back, typing) {
     const p = panes.get(searchPane);
     const q = $("search-input").value;
-    if (!p || !p.search || !q) { noMatch(false); return; }
-    const opts = { decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
+    if (!p || !p.search || !q) {
+      if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
+      noMatch(false);
+      showMatchCount(null);
+      return;
+    }
+    const opts = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
     let found = false;
     try {
       found = back ? p.search.findPrevious(q, opts) : p.search.findNext(q, opts);
@@ -2393,14 +3081,41 @@
     input.setAttribute("aria-invalid", String(on));
   }
 
+  /** showMatchCount says which match is showing and how many there are, as
+   *  the search addon reports them. Stepping through the matches gave no idea
+   *  how far there was to go, or whether Enter had wrapped round to the
+   *  first. The addon stops counting past its highlight limit. */
+  function showMatchCount(r) {
+    const n = r ? r.resultCount : 0;
+    $("search-count").textContent = !r || !$("search-input").value ? ""
+      : n > 0 ? (r.resultIndex + 1) + " of " + n
+      : n === 0 ? "No matches"
+      : "Many matches";
+  }
+
   // --------------------------------------------------------- notifications
 
   /** Remembering the last status per pane is what makes it possible to notify
    *  on the transition into "waiting" rather than repeatedly while it stays
    *  there. */
   const lastStatus = new Map();
+  /** How many agents were waiting in each open project, by root. The panes a
+   *  push carries are only the active project's, so an agent that stopped to
+   *  wait in another open project raised no notification at all - when the
+   *  window is least likely to be looked at. Its project's count does arrive,
+   *  and a rise in it is the event. */
+  const lastProjectWaiting = new Map();
 
   function notifyAttention(s) {
+    const elsewhere = [];
+    for (const p of s.projects || []) {
+      const before = lastProjectWaiting.get(p.root);
+      lastProjectWaiting.set(p.root, p.waiting || 0);
+      if (!p.active && before !== undefined && (p.waiting || 0) > before) elsewhere.push(p);
+    }
+    for (const root of [...lastProjectWaiting.keys()]) {
+      if (!(s.projects || []).some((p) => p.root === root)) lastProjectWaiting.delete(root);
+    }
     const fresh = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
       const before = lastStatus.get(id);
@@ -2415,7 +3130,7 @@
     }
     // Only when the window is not in front: otherwise the marker on the tab is
     // enough and a notification would be noise.
-    if (!fresh.length || (document.hasFocus() && !document.hidden)) return;
+    if ((!fresh.length && !elsewhere.length) || (document.hasFocus() && !document.hidden)) return;
 
     // One notification for however many stopped at once. They all carry the
     // same tag, so several sent together replace each other on the desktop and
@@ -2423,15 +3138,30 @@
     // them reaching the same permission question within a second of each
     // other, of which you would have been told about exactly one, chosen by
     // whatever order the panes happened to arrive in.
-    const one = fresh.length === 1;
-    showNotification(
-      one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
-      one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
-          : fresh.map((f) => f.name).join(", "),
-      fresh[0].id);
+    if (!elsewhere.length) {
+      const one = fresh.length === 1;
+      showNotification(
+        one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
+        one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
+            : fresh.map((f) => f.name).join(", "),
+        fresh[0].id);
+      return;
+    }
+    if (!fresh.length && elsewhere.length === 1) {
+      showNotification("An agent in " + elsewhere[0].name + " needs you",
+        "waiting for input, in another open project", "", elsewhere[0].root);
+      return;
+    }
+    const names = fresh.map((f) => f.name).concat(elsewhere.map((p) => "in " + p.name));
+    showNotification("Agents need you", names.join(", "),
+      fresh.length ? fresh[0].id : "", fresh.length ? "" : elsewhere[0].root);
   }
 
-  function showNotification(title, body, paneID) {
+  /** showNotification raises the desktop notification. Clicking it goes to
+   *  the pane that asked, or - for an agent in another project, whose pane
+   *  this window has not been told about - to that project. */
+  function showNotification(title, body, paneID, root) {
+    if (prefs.notificationsOff) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
       const n = new Notification(title, { body, tag: "flockdeck" });
@@ -2441,12 +3171,14 @@
         // screen does not answer the question. The pane that asked it does,
         // and it may well be on a tab that is not the one showing.
         if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
+        else if (root) send({ cmd: "selectProject", root });
         n.close();
       };
     } catch { /* notifications are best effort */ }
   }
 
   function askForNotifications() {
+    if (prefs.notificationsOff) return; // asked and answered, for every run
     if (!("Notification" in window) || Notification.permission !== "default") return;
     try { Notification.requestPermission(); } catch {}
   }
@@ -2472,6 +3204,8 @@
     movePaneToNewTab: () => send({ cmd: "movePaneToNewTab", id: focusedPaneId() }),
     tilePanes: () => send({ cmd: "tilePanes" }),
     zoomPane: () => send({ cmd: "toggleZoom", id: focusedPaneId() }),
+    focusNextPane: () => focusNeighbour(1),
+    focusPrevPane: () => focusNeighbour(-1),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
 
@@ -2487,6 +3221,7 @@
       if (tab) send({ cmd: "selectTab", id: tab.id });
     },
     mergeAllTabs: () => send({ cmd: "mergeAllTabs", id: state ? state.activeTab : "", dir: "h" }),
+    renameTab: () => { if (state) renameTab(state.activeTab); },
 
     toggleBroadcast: () => send({ cmd: "toggleBroadcast" }),
     promptAll: () => openPrompt(),
@@ -2494,7 +3229,7 @@
     agents: () => openAgents(),
     apiKeys: () => openKeys(),
 
-    worktrees: () => send({ cmd: "worktrees" }),
+    worktrees: () => openWorktrees(),
     changes: () => openChanges(),
 
     palette: () => openPalette(),
@@ -2506,6 +3241,8 @@
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
+    scrollback: () => askScrollback(),
+    fontFamily: () => askFontFamily(),
     remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
@@ -2518,6 +3255,7 @@
   function applyHello(msg) {
     keyTable = msg.keys || [];
     prefs = msg.prefs || prefs;
+    applyPrefs();
     bindings = new Map();
     keyTable.forEach((k) => {
       const s = signatureOf(k.keys);
@@ -2591,12 +3329,36 @@
     return (ctrl ? "c" : "") + (shift ? "s" : "") + (alt ? "a" : "") + ":" + key;
   }
 
+  /** editsText reports whether a keydown belongs to the text field it was
+   *  typed into rather than to the window. Ctrl+Shift with an arrow selects
+   *  by the word, and Ctrl+Shift+Z is redo, in every text field there is. The
+   *  table gives both to the panes, which is right in a terminal and wrong in
+   *  a commit message: selecting a word there moved a pane behind the dialog
+   *  instead. xterm types through a textarea of its own, which keeps them. */
+  function editsText(e) {
+    const t = e.target;
+    if (!t || (t.tagName !== "TEXTAREA" && t.tagName !== "INPUT")) return false;
+    if (t.classList.contains("xterm-helper-textarea") || /^(checkbox|radio|button)$/.test(t.type || "")) return false;
+    const k = (e.key || "").toLowerCase();
+    return e.ctrlKey && e.shiftKey && (k.startsWith("arrow") || k === "z");
+  }
+
   /** actionFor reports which action a keydown is, if it is one. */
   function actionFor(e) {
     let key = (e.key || "").toLowerCase();
-    // Ctrl+= and Ctrl++ are the same gesture on most layouts.
-    if (key === "+") key = "=";
-    return bindings.get(signature(e.ctrlKey, e.shiftKey, e.altKey, key)) || "";
+    let shift = e.shiftKey;
+    // Ctrl+= and Ctrl++ are the same gesture on most layouts. On a US or UK
+    // keyboard + is Shift and =, so it arrives with Shift held, and matched
+    // nothing until the Shift was let go of here as well.
+    if (key === "+") { key = "="; shift = false; }
+    // A layout that does not type Latin letters - Russian, Greek, Hebrew -
+    // reports the key marked D as "в", so every Ctrl+Shift binding was dead
+    // on it. There the binding can only mean the physical key.
+    if (/^[^\x00-\x7f]$/.test(key)) {
+      const m = /^Key([A-Z])$/.exec(e.code || "");
+      if (m) key = m[1].toLowerCase();
+    }
+    return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
   }
 
   // -------------------------------------------------------- command palette
@@ -2613,28 +3375,86 @@
     // The fixed commands are the action table, in the order it gives them.
     // Anything the table names but the front end has not implemented is left
     // out rather than offered and found dead; a test keeps the two level.
+    // The settings are commands like any other, and "settings" is the word
+    // somebody looking for one types - it matched none of them.
+    const SETTING = "settings preferences options";
+    const SETTINGS = new Set(["fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
+    const also = (id) => SETTINGS.has(id) ? SETTING : "";
+    // What a setting is now, beside the command that changes it: choosing a
+    // scrollback or a font meant opening the question to find out.
+    const value = {
+      fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
+      scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
+    };
+    const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => ({ label: k.label, hint: k.keys, run: () => runAction(k.id) }));
+      .map((k) => ({ label: k.label, hint: now(k.id, k.keys), also: also(k.id), run: () => runAction(k.id) }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
-    // never twice.
+    // never twice. The key dialog is in the same position: the table has no
+    // entry for it, and without this there was no way to open it at all.
     [["newAgentTabChoose", "New agent tab (choose agent)…"],
-     ["splitRightChoose", "Split right (choose agent)…"]].forEach(([id, label]) => {
+     ["splitRightChoose", "Split right (choose agent)…"],
+     ["apiKeys", "API keys…"],
+     ["scrollback", "Terminal scrollback…"],
+     ["fontFamily", "Terminal font…"],
+     // Renaming was a double-click on the tab and nothing else: nothing a
+     // keyboard could reach, and nothing that said it could be done.
+     ["renameTab", "Rename this tab…"],
+     // Moving the keyboard between panes had no key and no command at all.
+     ["focusNextPane", "Focus the next pane"],
+     ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
-      cmds.push({ label: label, run: () => runAction(id) });
+      cmds.push({ label: label, hint: now(id), also: also(id), run: () => runAction(id) });
     });
+    // A setting kept as "off": the entry turns it back on while it is off and
+    // off while it is on, and says which it did.
+    const toggle = (off, cmd, [turnOn, turnOff], [isOn, isOff]) => cmds.push({
+      label: off ? turnOn : turnOff,
+      also: SETTING,
+      run: () => { send({ cmd, kind: off ? "on" : "off" }); notice(off ? isOn : isOff, false); },
+    });
+    // Desktop notifications reach past the window, and the only way to stop
+    // them was the browser's own permission - which belongs to the page's
+    // origin, changes with the port on every run, and so was asked again, and
+    // had to be refused again, every time the application started.
+    toggle(!!prefs.notificationsOff, "notifications",
+      ["Turn desktop notifications on", "Turn desktop notifications off"],
+      ["Desktop notifications are on", "Desktop notifications are off"]);
+    // The cursor's blink was fixed in the source, and one blinking cursor
+    // among a tab of still terminals is a distraction some people want gone.
+    toggle(!!prefs.cursorSteady, "cursorBlink",
+      ["Make the terminal cursor blink", "Stop the terminal cursor blinking"],
+      ["The terminal cursor blinks", "The terminal cursor is steady"]);
+    // A hint sent away stays away, which is the point, but there was no way
+    // back for one dismissed by mistake short of editing prefs.json.
+    if ((prefs.dismissedTips || []).length) {
+      cmds.push({
+        label: "Show the tips again",
+        also: SETTING,
+        run: () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
+      });
+    }
+    // The background check for a new release could be turned off only with
+    // an environment variable set before the application started.
+    toggle(!!prefs.updatesOff, "updates",
+      ["Turn update checks on", "Turn update checks off"],
+      ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"]);
     (s.projects || []).forEach((p) => {
       if (p.active) return;
-      cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
-      if (!p.active) {
-        cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
-      }
+      // Whether anybody there is waiting on you is what decides where to go
+      // next, and the entry showed only the folder.
+      const waiting = p.waiting ? "▲ " + p.waiting + " waiting · " : "";
+      cmds.push({ label: "Switch to project: " + p.name, hint: waiting + p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
+      cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
     });
     (s.tabs || []).forEach((t) => {
       if (t.id === s.activeTab) return;
-      cmds.push({ label: "Go to tab: " + t.title, run: () => send({ cmd: "selectTab", id: t.id }) });
+      // The strip marks a tab with an agent waiting; the palette did not.
+      const hint = t.attention ? "▲ an agent here is waiting" : "";
+      cmds.push({ label: "Go to tab: " + t.title, hint, run: () => send({ cmd: "selectTab", id: t.id }) });
       cmds.push({
         label: "Merge tab into this one: " + t.title,
         run: () => send({ cmd: "mergeTab", id: t.id, target: s.activeTab, dir: "h" }),
@@ -2649,7 +3469,50 @@
     return cmds;
   }
 
+  /** The commands last run from the palette, newest first, by label. Several
+   *  have no key of their own and are reached only from here - tiling,
+   *  restarting a pane, giving one a tab of its own, the settings - and one
+   *  used a minute ago had to be typed for again every time. While nothing
+   *  has been typed they come first. */
+  const palRecent = [];
+  function recentFirst(all) {
+    const first = palRecent.map((label) => all.find((c) => c.label === label)).filter(Boolean);
+    return first.concat(all.filter((c) => !first.includes(c)));
+  }
+  function runFromPalette(c) {
+    closePalette();
+    if (!c) return;
+    const at = palRecent.indexOf(c.label);
+    if (at >= 0) palRecent.splice(at, 1);
+    palRecent.unshift(c.label);
+    palRecent.length = Math.min(palRecent.length, 5);
+    c.run();
+  }
+
+  /** Where the keyboard was when the palette opened, to go back to. The
+   *  palette opens over a dialog as readily as over the terminals, and sending
+   *  the keyboard to a terminal on the way out put it behind a dialog that was
+   *  still open, where the next thing typed went to an agent. */
+  let palReturn = null;
+
+  /** paletteMatches is what a query finds: the commands whose name holds
+   *  every word typed, and after them the ones whose words begin with the
+   *  letters typed - "nat" for New agent tab, "rp" for Restart pane - which
+   *  is how a command is typed for in most palettes and found nothing here.
+   *  A single letter spells out nearly everything, so it is left to the
+   *  first kind of match. */
+  function paletteMatches(all, q) {
+    const words = q.split(/\s+/);
+    const initials = (label) => label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join("");
+    const text = (c) => (c.also ? c.label + " " + c.also : c.label).toLowerCase();
+    const named = all.filter((c) => words.every((w) => text(c).includes(w)));
+    const spelled = all.filter((c) => !named.includes(c) &&
+      words.every((w) => w.length > 1 && initials(c.label).includes(w)));
+    return named.concat(spelled);
+  }
+
   function openPalette() {
+    palReturn = document.activeElement;
     $("palette").hidden = false;
     const input = $("palette-input");
     input.value = "";
@@ -2659,14 +3522,15 @@
   }
   function closePalette() {
     $("palette").hidden = true;
-    focusTerminal();
+    const back = palReturn;
+    palReturn = null;
+    if (back && back.isConnected && back !== document.body) back.focus();
+    else focusTerminal();
   }
   function renderPalette() {
     const q = $("palette-input").value.trim().toLowerCase();
     const all = paletteCommands();
-    palItems = q
-      ? all.filter((c) => q.split(/\s+/).every((w) => c.label.toLowerCase().includes(w)))
-      : all;
+    palItems = q ? paletteMatches(all, q) : recentFirst(all);
     if (palIndex >= palItems.length) palIndex = Math.max(0, palItems.length - 1);
 
     const list = $("palette-list");
@@ -2683,8 +3547,13 @@
       row.setAttribute("role", "option");
       row.append(el("span", "pal-label", c.label));
       if (c.hint) row.append(el("span", "pal-hint", c.hint));
-      row.onmouseenter = () => selectPaletteRow(i);
-      row.onclick = () => { closePalette(); c.run(); };
+      // On the pointer moving, not on its entering the row. The arrow keys
+      // scroll the list, which slides a row under a pointer that has not
+      // moved, and the browser reports that as the pointer entering it: the
+      // highlight jumped back under the pointer each time the list scrolled,
+      // and walking past the bottom of the box could not be done.
+      row.onmousemove = () => selectPaletteRow(i);
+      row.onclick = () => runFromPalette(c);
       palRows.push(row);
       list.append(row);
     });
@@ -2718,15 +3587,34 @@
     // brought along or arrowing down walks it off the bottom and out of sight.
     sel.scrollIntoView({ block: "nearest" });
   }
+  /** listStep is where a key moves the highlight of a list walked from the
+   *  field above it, or null for a key that is not the list's. The arrows
+   *  move one row and Page Up and Page Down a boxful; Home and End go to the
+   *  ends while the field is empty, and move its caret once there is text.
+   *  With only the arrows, the last of the palette's forty-odd commands was
+   *  forty presses away. */
+  const LIST_PAGE = 8;
+  function listStep(e, at, count, empty) {
+    if (!count) return null;
+    const last = count - 1;
+    switch (e.key) {
+      case "ArrowDown": return Math.min(at + 1, last);
+      case "ArrowUp": return Math.max(at - 1, 0);
+      case "PageDown": return Math.min(at + LIST_PAGE, last);
+      case "PageUp": return Math.max(at - LIST_PAGE, 0);
+      case "Home": return empty ? 0 : null;
+      case "End": return empty ? last : null;
+      default: return null;
+    }
+  }
+
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); selectPaletteRow(Math.min(palIndex + 1, palRows.length - 1)); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); selectPaletteRow(Math.max(palIndex - 1, 0)); return; }
+    const to = listStep(e, palIndex, palRows.length, !$("palette-input").value);
+    if (to !== null) { e.preventDefault(); selectPaletteRow(to); return; }
     if (e.key === "Enter") {
       e.preventDefault();
-      const c = palItems[palIndex];
-      closePalette();
-      if (c) c.run();
+      runFromPalette(palItems[palIndex]);
     }
   }
 
@@ -2734,9 +3622,13 @@
 
   let history = null;
   let detaching = false;
+  /** What the conversations are narrowed to, kept across the redraws a
+   *  refresh brings and dropped when the dialog is opened again. */
+  let historyQuery = "";
 
   function openHistory() {
     dialog = "history";
+    historyQuery = "";
     openOverlay("Conversations", "history");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Reading transcripts…"));
@@ -2747,10 +3639,7 @@
    *  them can be picked up again, not just the ones a pane is attached to. */
   function renderHistory(msg) {
     if (msg) history = msg;
-    if (dialog !== "history") {
-      dialog = "history";
-      openOverlay("Conversations", "history");
-    }
+    if (dialog !== "history") return; // see openWorktrees
     const m = history || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -2761,11 +3650,41 @@
       return;
     }
 
+    // Summaries often begin alike, so typing the start of one - all the list
+    // itself answers - does not tell them apart. The field narrows the list
+    // to the conversations holding every word typed, hiding rows rather than
+    // drawing them again, so the field keeps its caret.
+    const holds = (hay) => historyQuery.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+    const field = el("input", "pick-filter");
+    field.id = "history-filter";
+    field.type = "text";
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = "Type to narrow the list…";
+    field.setAttribute("aria-label", "Find a conversation");
+    field.value = historyQuery;
+    field.oninput = () => {
+      historyQuery = field.value;
+      for (const row of wrap.querySelectorAll("div.conv-row")) row.hidden = !holds(row.dataset.hay);
+    };
+    field.onkeydown = (ev) => {
+      if (ev.key !== "ArrowDown") return;
+      const first = [...wrap.querySelectorAll("div.conv-row")].find((r) => !r.hidden && r.getAttribute("role") === "button");
+      if (first) { ev.preventDefault(); first.focus(); }
+    };
+    body.append(field);
+
     const wrap = section("Resume a conversation");
     m.items.forEach((c) => {
       const row = el("div", "conv-row" + (c.open ? " open" : ""));
+      row.dataset.hay = (c.summary + " " + c.id).toLowerCase();
+      row.hidden = !holds(row.dataset.hay);
       const main = el("div", "conv-main");
-      main.append(el("div", "conv-summary", c.summary));
+      // Cut short at the row's width, and summaries often begin alike -
+      // agents given the same brief open with the same words - so the part
+      // that tells two apart was the part hidden. The whole of it is in the
+      // bubble.
+      main.append(describe(el("div", "conv-summary", c.summary), c.summary));
       const meta = el("div", "conv-meta");
       meta.append(el("span", null, c.ago));
       meta.append(el("span", null, c.messages + " entries"));
@@ -2776,14 +3695,20 @@
       row.append(main);
 
       if (!c.open) {
-        const open = el("button", "chip primary", "Resume");
-        open.onclick = (ev) => {
-          ev.stopPropagation();
+        const resume = () => {
           send({ cmd: "resumeConversation", id: c.id, path: m.cwd, text: c.summary });
           closeOverlay();
         };
+        const open = el("button", "chip primary", "Resume");
+        open.onclick = (ev) => { ev.stopPropagation(); resume(); };
+        // The row is what the keyboard walks - the arrows move through the
+        // conversations and Enter resumes one, as in the other lists - so the
+        // button is there for the pointer and is not a stop of its own. The
+        // rows answered no key at all, and a long history was a button to
+        // tab to for every conversation in it.
+        open.tabIndex = -1;
         row.append(open);
-        row.onclick = () => open.onclick(new Event("click"));
+        rowAction(row, resume, false, c.summary);
       }
       wrap.append(row);
     });
@@ -2792,7 +3717,7 @@
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "conversations" });
-    tools.append(refresh, el("span", "wt-root", m.cwd || ""));
+    tools.append(refresh, rootLabel(m.cwd || ""));
     body.append(tools);
   }
 
@@ -2801,6 +3726,36 @@
   let changes = null;
   let selectedFile = null;
   let diffText = "";
+
+  /* The review is read once and the agents go on writing: a review left open
+   * listed the files as they had been minutes before, until Refresh was
+   * pressed. The pane headers are told each checkout's counts on every push,
+   * so the review compares them for its own checkout and reads the tree again
+   * when they move - but not while a fetch, pull, push or commit is under
+   * way, whose buttons are disabled until its own answer comes back: drawing
+   * the dialog again then would give them back, and a second push could be
+   * sent while the first was still running. */
+  let changesBusy = false;
+  let changesCounts = "";
+
+  /** countsIn is what the pushes say about one checkout: the changed, new,
+   *  ahead and behind counts of every pane working in it. */
+  function countsIn(s, cwd) {
+    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = norm(cwd);
+    return Object.values((s && s.panes) || {})
+      .filter((v) => { const c = norm(v.cwd); return c === root || c.startsWith(root + "/"); })
+      .map((v) => [v.dirty || 0, v.untracked || 0, v.ahead || 0, v.behind || 0].join(","))
+      .sort().join("|");
+  }
+
+  function followChanges(s) {
+    if (dialog !== "changes" || !changes || !changes.cwd || changesBusy) return;
+    const now = countsIn(s, changes.cwd);
+    if (now === changesCounts) return;
+    changesCounts = now;
+    send({ cmd: "changes", path: changes.cwd });
+  }
   /** The two parts of the dialog that change on their own: the file rows, so
    *  the chosen one can be marked, and the panel the diff is drawn in. Picking
    *  a file and the diff coming back leave the rest of the page alone — above
@@ -2822,16 +3777,29 @@
   }
 
   function renderChanges(msg) {
+    // Where the file list and the diff were scrolled to, to put back below if
+    // the same file is still the one shown.
+    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop };
     changeView = null;
     if (msg) {
       changes = msg;
+      // Whatever was under way has answered, and this is the tree the counts
+      // are now measured against.
+      changesBusy = false;
+      changesCounts = countsIn(state, msg.cwd);
       // Keep the selection if that file is still in the list.
       if (selectedFile && !(msg.files || []).some((f) => f.path === selectedFile)) {
         selectedFile = null;
         diffText = "";
+      } else if (selectedFile && diffText) {
+        // The tree is read again because it changed, and the file on show
+        // may be what changed: its diff stayed as it was first read, beside
+        // a list saying otherwise. The old one stays up until the new one
+        // is back, rather than a "Loading" flashing under the reader.
+        send({ cmd: "diff", path: msg.cwd, text: selectedFile });
       }
     }
-    if (dialog !== "changes") { dialog = "changes"; openOverlay("Changes", "changes"); }
+    if (dialog !== "changes") return; // see openWorktrees
     const m = changes || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -2883,6 +3851,7 @@
     const running = (btn, saying) => {
       btn.textContent = saying;
       for (const b of body.querySelectorAll("button")) b.disabled = true;
+      changesBusy = true;
     };
 
     if (m.hasRemote) {
@@ -2939,7 +3908,7 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        rowAction(row, () => selectChangedFile(f.path, m.cwd));
+        rowAction(row, () => selectChangedFile(f.path, m.cwd), true, f.path.replace(/^.*[\\/]/, ""));
         rows.set(f.path, row);
         list.append(row);
       });
@@ -2948,14 +3917,18 @@
       const diff = el("div", "rev-diff");
       split.append(diff);
       body.append(split);
-      changeView = { rows, diff };
+      changeView = { rows, diff, list };
       fillDiff();
+      // A refresh, a fetch or a push answers with the working tree again, and
+      // drawing it afresh put a long diff back at its first line under the
+      // person reading it, and the file list back at its top.
+      if (was && was.file === selectedFile) { list.scrollTop = was.list; diff.scrollTop = was.diff; }
 
       // --- commit -----------------------------------------------------------
       const commit = el("div", "rev-commit");
       const box = el("textarea");
       box.id = "commit-message";
-      box.placeholder = "Commit message";
+      box.placeholder = "Commit message (Ctrl+Enter commits)";
       box.value = commitDraft;
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
@@ -2964,11 +3937,19 @@
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
         send({ cmd: "commit", path: m.cwd, text: message, push });
-        commitDraft = "";
+        commitPending = true;
       };
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
       c1.id = "rev-commit";
       c1.onclick = () => doCommit(c1, false);
+      // The message is the last thing written, and a box like this commits on
+      // Ctrl+Enter nearly everywhere else; here it took the pointer, or Tab
+      // past the box to the button.
+      box.onkeydown = (ev) => {
+        if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+        ev.preventDefault();
+        doCommit(c1, false);
+      };
       buttons.append(c1);
       if (m.hasRemote) {
         const c2 = el("button", "chip", "Commit and push");
@@ -2981,11 +3962,24 @@
     }
 
     const tools = el("div", "wt-tools");
-    tools.append(el("span", "wt-root", m.cwd || ""));
+    tools.append(rootLabel(m.cwd || ""));
     body.append(tools);
   }
 
   let commitDraft = "";
+  /** Whether a commit has been asked for and not yet answered. The message
+   *  stays in the box until it has: a commit that fails - a hook refusing it,
+   *  an identity git has not been given - answers by redrawing the dialog, and
+   *  clearing the draft when the commit was sent meant the message went with
+   *  the redraw and had to be written again. The server's first word on a
+   *  commit is a notice saying whether it was made. */
+  let commitPending = false;
+
+  function commitAnswered(isError) {
+    if (!commitPending) return;
+    commitPending = false;
+    if (!isError) commitDraft = "";
+  }
 
   /** selectChangedFile shows one file's diff. Only the marking on the rows and
    *  the diff panel change: rebuilding the dialog would take the commit box
@@ -3012,20 +4006,24 @@
   }
 
   /** fillDiff draws whatever the diff panel should be showing now. */
-  function fillDiff() {
+  function fillDiff(keep) {
     if (!changeView) return;
     const diff = changeView.diff;
+    const top = diff.scrollTop;
     diff.textContent = "";
     if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
     else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
     else renderDiffInto(diff, diffText);
-    diff.scrollTop = 0;
+    diff.scrollTop = keep ? top : 0;
   }
 
   function showDiff(msg) {
     if (msg.file !== selectedFile) return; // a stale reply for another file
+    // A diff already on show is being read again, and the reader's place in
+    // it is kept; a file just chosen starts at its top.
+    const again = !!diffText;
     diffText = msg.error ? msg.error : msg.text;
-    if (changeView) fillDiff();
+    if (changeView) fillDiff(again);
     else renderChanges();
   }
 
@@ -3070,6 +4068,18 @@
 
   let agents = null;
 
+  /** The overview is where you look to see which agent needs you, and it was
+   *  a picture taken when it opened: an agent that stopped to wait while it
+   *  was up went on being listed as working. It is asked for again whenever a
+   *  push shows the counts it lists moving, in any project. */
+  let agentsKey = "";
+  function followAgents(s) {
+    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs).join("|");
+    if (key === agentsKey) return;
+    agentsKey = key;
+    if (dialog === "agents") send({ cmd: "agents" });
+  }
+
   /** openAgents lists every pane in every open project. The tab bar only shows
    *  the active project, so this is what answers "where is the one that needs
    *  me" once several are open. */
@@ -3083,7 +4093,7 @@
 
   function renderAgents(msg) {
     if (msg) agents = msg;
-    if (dialog !== "agents") { dialog = "agents"; openOverlay("Agents", "status"); }
+    if (dialog !== "agents") return; // see openWorktrees
     const m = agents || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -3097,6 +4107,10 @@
     const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
     items.forEach((a) => {
       const row = el("div", "agent-row" + (a.active ? " active" : ""));
+      // By the pane, because the list is drawn again as the agents change
+      // what they are doing, and a row found again by its wording would lose
+      // the keyboard the moment its status did.
+      row.id = "agent-" + a.paneId;
       const main = el("div", "agent-main");
 
       const title = el("div", "agent-title");
@@ -3107,7 +4121,8 @@
       const dot = el("span", "dot " + a.status);
       dot.setAttribute("aria-hidden", "true");
       title.append(describe(dot, TIPS[a.status] || a.status));
-      title.append(el("span", "agent-tab", a.tab || a.name));
+      // Cut short with an ellipsis, like the tab it names; the bubble has it all.
+      title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
       title.append(el("span", "agent-project", a.project));
       main.append(title);
 
@@ -3143,7 +4158,7 @@
       rowAction(row, () => {
         send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
         closeOverlay();
-      });
+      }, false, a.tab || a.name);
       wrap.append(row);
     });
     body.append(wrap);
@@ -3173,9 +4188,14 @@
   let pickRows = [];
 
   function chooseAgent(title, onPick) {
-    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false };
+    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "" };
+    // A fresh picker starts on its first row, not on the row the last one
+    // left picked out, which renderAgentPicker would otherwise carry over.
+    pickRows = [];
     dialog = "agentPicker";
-    openOverlay(title, "panes");
+    // Its ? is the page on agents and models, which is what this chooses
+    // between; it opened the page on panes.
+    openOverlay(title, "agents");
     // The probe behind `available` is a few seconds old at most, but an agent
     // installed while this window was open is exactly what somebody opening
     // this dialog is about to look for.
@@ -3228,8 +4248,17 @@
     return (m.id || "") === want;
   }
 
+  /** The row picked out when the catalog redraws the picker, for the redraw
+   *  to pick out again. The highlight is a place in the list, and the catalog
+   *  the picker asks for as it opens can arrive after the arrows have moved
+   *  it: an agent added, or moved between installed and not, shifted every
+   *  row after it, and the highlight named another agent - which Enter then
+   *  started. */
+  let pickKeep = null;
+
   function renderAgentPicker() {
     if (dialog !== "agentPicker" || !picker) return;
+    pickKeep = pickRows[picker.index] ? pickRows[picker.index].item : null;
     const body = $("overlay-body");
     body.textContent = "";
 
@@ -3263,8 +4292,24 @@
     tick.type = "checkbox";
     tick.checked = picker.setDefault;
     tick.onchange = () => { picker.setDefault = tick.checked; };
-    box.append(tick, document.createTextNode(" Set as default for this project"));
-    foot.append(describe(box, "Remembers this choice in agents.json, so every pane opened in this project starts with it."));
+    box.append(tick, document.createTextNode(" Set as default for"));
+    foot.append(describe(box, "Remembers this choice in agents.json, so every pane opened without choosing starts with it."));
+    // Which default: this project's, or the one every project without a
+    // choice of its own runs. The second could only be set by editing
+    // agents.json, and a project's own choice could not be undone at all.
+    // Outside the label, which would otherwise pass a click on it to the box.
+    const scope = el("select", "fan-agent-sel pick-scope");
+    scope.setAttribute("aria-label", "Which default");
+    scope.append(agentOption("this project", ""), agentOption("every project", "all"));
+    scope.value = picker.scope;
+    scope.onchange = () => { picker.scope = scope.value; picker.setDefault = tick.checked = true; };
+    foot.append(scope);
+    if (catalog.project) {
+      const forget = el("button", "chip", "Use the default for every project");
+      describe(forget, "Forgets the agent chosen for this project, so it starts whatever every other project does.");
+      forget.onclick = () => send({ cmd: "setAgentDefault", agent: "", model: "" });
+      foot.append(forget);
+    }
     const cancel = el("button", "chip", "Cancel");
     cancel.onclick = closeOverlay;
     foot.append(cancel);
@@ -3279,6 +4324,10 @@
   function drawPickerList() {
     const list = $("agent-list");
     if (!list) return;
+    // Taken now so that it is used by this drawing and no later one, however
+    // this one ends.
+    const keep = pickKeep;
+    pickKeep = null;
     list.textContent = "";
     pickRows = [];
     const items = pickerItems();
@@ -3296,12 +4345,17 @@
       row.id = "pick-row-" + pickRows.length;
       row.setAttribute("role", "option");
       const at = pickRows.length;
-      row.onmouseenter = () => selectPickerRow(at);
+      row.onmousemove = () => selectPickerRow(at); // as in the palette
       row.onclick = () => { picker.index = at; takePickerRow(); };
       row.item = item;
       pickRows.push(row);
       list.append(row);
     });
+    if (keep) {
+      const at = pickRows.findIndex((r) => r.item.type === keep.type && r.item.agent.id === keep.agent.id &&
+        (keep.type !== "model" || (r.item.model.id || "") === (keep.model.id || "")));
+      if (at >= 0) picker.index = at;
+    }
     if (picker.index >= pickRows.length) picker.index = Math.max(0, pickRows.length - 1);
     markPickerRow();
   }
@@ -3377,15 +4431,19 @@
    *  opened it, remembering it first if that was asked for. */
   function startPicked(agentID, model) {
     const run = picker.onPick;
-    if (picker.setDefault) send({ cmd: "setAgentDefault", agent: agentID, model: model });
+    if (picker.setDefault) {
+      const req = { cmd: "setAgentDefault", agent: agentID, model: model };
+      if (picker.scope === "all") req.kind = "all";
+      send(req);
+    }
     closeOverlay();
     run(agentID, model);
   }
 
   function pickerKey(e) {
     if (!picker) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); selectPickerRow(Math.min(picker.index + 1, pickRows.length - 1)); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); selectPickerRow(Math.max(picker.index - 1, 0)); return; }
+    const to = listStep(e, picker.index, pickRows.length, !picker.query);
+    if (to !== null) { e.preventDefault(); selectPickerRow(to); return; }
     const row = pickRows[picker.index];
     const item = row && row.item;
     // Left and right open and close an agent — but only while nothing has been
@@ -3401,8 +4459,15 @@
       }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        picker.open.delete(item.agent.id);
+        const id = item.agent.id;
+        picker.open.delete(id);
         drawPickerList();
+        // Left on one of its models closes the agent and goes to it, as a
+        // tree does. Kept at the same place in the shorter list, the highlight
+        // landed on whichever agent had moved up into it - and Enter started
+        // that one.
+        const parent = pickRows.findIndex((r) => r.item.type === "agent" && r.item.agent.id === id);
+        if (parent >= 0) { picker.index = parent; markPickerRow(); }
         return;
       }
     }
@@ -3428,7 +4493,7 @@
     dialog = "keys";
     apiKeys = null;
     keyEditing = null;
-    openOverlay("API keys");
+    openOverlay("API keys", "agents"); // where keys are explained
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
     send({ cmd: "keys" });
@@ -3436,7 +4501,7 @@
 
   function renderKeys(msg) {
     if (msg) apiKeys = msg;
-    if (dialog !== "keys") { dialog = "keys"; openOverlay("API keys"); }
+    if (dialog !== "keys") return; // see openWorktrees
     const items = (apiKeys && apiKeys.items) || [];
     const body = $("overlay-body");
     body.textContent = "";
@@ -3454,6 +4519,7 @@
     const wrap = section(items.length === 1 ? "1 agent" : items.length + " agents");
     items.forEach((k) => {
       const row = el("div", "wt-row");
+      row.dataset.key = "key:" + k.agent;
       const main = el("div", "wt-main");
 
       const title = el("div", "wt-title");
@@ -3543,6 +4609,9 @@
   // --------------------------------------------------------------- fan out
 
   let fanout = null;
+  /** The most agents one fan-out starts: the server's workspace.MaxTasks,
+   *  which a test keeps this level with. */
+  const FANOUT_MAX = 12;
 
   /** openFanout turns what one agent proposed into a set of agents that do it.
    *
@@ -3613,7 +4682,7 @@
 
   function renderFanout(msg) {
     if (msg) fanout = msg;
-    if (dialog !== "fanout") { dialog = "fanout"; openOverlay("Fan out", "fanout"); }
+    if (dialog !== "fanout") return; // see openWorktrees
     const m = fanout || {};
     const body = $("overlay-body");
     body.textContent = "";
@@ -3645,7 +4714,7 @@
 
     const box = el("textarea", "fan-tasks");
     box.value = (m.tasks || []).join("\n");
-    box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser";
+    box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter starts them.";
     body.append(box);
 
     // Which agent each line gets, where it is not the one chosen for the run.
@@ -3722,11 +4791,31 @@
       return plural + " — " + parts.join(", ");
     };
 
+    /** Whether any agent this fan-out would start asks the folder-trust
+     *  question the trust row is about. Only Claude Code does, and the row
+     *  was drawn - in Claude's words - whichever agents had been chosen. The
+     *  server says which agents ask it; until it does, the answer is Claude. */
+    const asksTrust = (id) => {
+      const a = catalog.find((x) => x.id === id);
+      return catalog.some((x) => "askTrust" in x) ? !!(a && a.askTrust) : id === "claude";
+    };
+    const trustApplies = (lines) => {
+      const runID = choosable ? pickParts(runSel.value)[0] : (m.agent || (catalog[0] && catalog[0].id) || "claude");
+      if (asksTrust(runID) && lines.some((t) => !pickParts(overrides.get(t))[0])) return true;
+      return lines.some((t) => asksTrust(pickParts(overrides.get(t))[0]));
+    };
+
     const updateCount = () => {
       const lines = taskLines();
-      count.textContent = tally(lines);
+      tr.hidden = !trustApplies(lines.length ? lines : [""]);
+      // The server stops at its cap and says so only afterwards, so a list
+      // longer than that promised agents that were never going to start.
+      const starts = Math.min(lines.length, FANOUT_MAX);
+      count.textContent = lines.length > FANOUT_MAX
+        ? lines.length + " tasks - only the first " + FANOUT_MAX + " start; run the rest as a second fan-out"
+        : tally(lines);
       start.disabled = lines.length === 0;
-      start.textContent = lines.length === 1 ? "Start 1 agent" : "Start " + lines.length + " agents";
+      start.textContent = starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
     };
 
     const renderRows = () => {
@@ -3758,7 +4847,7 @@
         tasks,
         worktrees: wtBox.checked && !wtBox.disabled,
         split: spBox.checked,
-        trust: trBox.checked && !trBox.disabled,
+        trust: trBox.checked && !trBox.disabled && !tr.hidden,
       };
       // The agent fields are left off altogether where there was nothing to
       // choose, so a fan-out that made no decision about agents goes over the
@@ -3777,6 +4866,13 @@
       closeOverlay();
     };
     box.oninput = () => { if (choosable) renderRows(); updateCount(); };
+    // Enter is a new line here - the tasks go one to a line - so starting
+    // them took the pointer, or Tab past every option to the button.
+    box.onkeydown = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault();
+      start.onclick();
+    };
     if (choosable) {
       runSel.onchange = updateCount;
       renderRows();
@@ -3786,7 +4882,7 @@
     updateCount();
 
     const tools = el("div", "wt-tools");
-    tools.append(el("span", "wt-root", m.cwd || ""));
+    tools.append(rootLabel(m.cwd || ""));
     body.append(tools);
     box.focus();
   }
@@ -3819,7 +4915,10 @@
       id: "waiting",
       text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
       page: "status",
-      when: (s) => s.waiting > 0,
+      // Only with an amber dot on screen to point at. The waiting count is
+      // every project's, and an agent waiting in one not shown had this
+      // explaining a dot that was nowhere to be seen.
+      when: (s) => Object.values(s.panes || {}).some((v) => v.status === "waiting"),
     },
     {
       id: "worktrees",
@@ -3864,6 +4963,9 @@
       prefs.dismissedTips = (prefs.dismissedTips || []).concat(hint.id);
       send({ cmd: "dismissTip", id: hint.id });
       renderHints();
+      // The button pressed went with the hint, and the keyboard with it, onto
+      // nothing: back to the terminal, where the work is.
+      if (!dialogOpen()) focusTerminal();
     };
     bar.append(close);
     bar.hidden = false;
@@ -3960,6 +5062,9 @@
     search.id = "help-search";
     search.type = "search";
     search.placeholder = "Search the help";
+    // A placeholder is no name: it is gone as soon as anything is typed, and
+    // is not reliably read out as the field's label.
+    search.setAttribute("aria-label", "Search the help");
     search.value = helpQuery;
     search.autocomplete = "off";
     search.spellcheck = false;
@@ -3970,6 +5075,18 @@
     const content = el("div", "help-content");
     content.id = "help-content";
     content.tabIndex = 0;
+    // A page refers to another as a link to its slug - [Worktrees](#worktrees)
+    // - and following one opens that page here. The references were bold
+    // text before, with no way to get from one page to the next but the
+    // contents list.
+    content.onclick = (e) => {
+      const a = e.target.closest && e.target.closest("a[href]");
+      const href = a ? a.getAttribute("href") : "";
+      if (!href.startsWith("#") || !pageFor(href.slice(1))) return;
+      e.preventDefault();
+      showHelpPage(href.slice(1));
+      content.focus();
+    };
     wrap.append(nav, content);
     body.append(wrap);
     search.focus();
@@ -3978,19 +5095,33 @@
   function renderHelpList() {
     const list = $("overlay-body").querySelector(".help-list");
     if (!list) return;
+    // Choosing a page rebuilds the list, which destroyed the item the choice
+    // was made on and dropped the keyboard out of the dialog: reading the
+    // help from the keyboard meant tabbing back to the list after every page.
+    const hadKeyboard = list.contains(document.activeElement);
     list.textContent = "";
     const hits = helpMatches();
     if (!hits.length) {
       list.append(el("div", "help-none", "Nothing here matches."));
       return;
     }
+    let sel = null;
     hits.forEach((hit) => {
       const item = el("button", "help-item" + (hit.page.slug === helpSlug ? " sel" : ""));
       item.append(el("span", "help-item-title", hit.page.title));
       item.append(el("span", "help-item-sub", hit.snippet || hit.page.summary));
       item.onclick = () => { showHelpPage(hit.page.slug); };
       list.append(item);
+      // The colour was all that said which page is open; a screen reader was
+      // told nothing.
+      if (hit.page.slug === helpSlug) { sel = item; item.setAttribute("aria-current", "page"); }
     });
+    // Rebuilding the list puts it back at the top, so walking it with the
+    // arrow keys from the search box took the highlight past the bottom of
+    // the box and out of sight; the page it named was shown, and nothing said
+    // where in the list it was.
+    if (sel) sel.scrollIntoView({ block: "nearest" });
+    if (sel && hadKeyboard) sel.focus();
   }
 
   function renderHelpContent() {
@@ -4024,15 +5155,15 @@
     return (helpPages || []).find((p) => p.slug === slug) || null;
   }
 
-  /** helpMatches is the contents list, filtered by the search box. Each hit
-   *  carries the piece of the page the words were found in, so the list
-   *  answers "which page is this in" without opening each one. */
   /** The hits for the search as it currently reads. One keystroke asks for
    *  them from the contents list, from the page beside it and, on an arrow key,
    *  from the key handler as well; there is one answer between them. */
   let helpHits = null;
   let helpHitsFor = null;
 
+  /** helpMatches is the contents list, filtered by the search box. Each hit
+   *  carries the piece of the page the words were found in, so the list
+   *  answers "which page is this in" without opening each one. */
   function helpMatches() {
     if (helpHitsFor === helpQuery && helpHits) return helpHits;
     const pages = helpPages || [];
@@ -4063,6 +5194,18 @@
   }
 
   function helpSearchKey(e) {
+    // The search box keeps the keyboard for as long as the help is open, and
+    // the arrows walk the contents from it; Page Up and Page Down did
+    // nothing, so the page being read could not be scrolled without the
+    // mouse. They scroll it by a screenful, less a line of overlap.
+    if (e.key === "PageDown" || e.key === "PageUp") {
+      const content = $("help-content");
+      if (!content) return;
+      e.preventDefault();
+      const step = Math.max(40, (content.clientHeight || 0) - 40);
+      content.scrollTop = Math.max(0, (content.scrollTop || 0) + (e.key === "PageDown" ? step : -step));
+      return;
+    }
     const hits = helpMatches();
     if (!hits.length) return;
     const at = hits.findIndex((h) => h.page.slug === helpSlug);
@@ -4110,24 +5253,71 @@
 
   // -------------------------------------------------------------- shortcuts
 
+  /** claimKey keeps a key that has run one of the window's actions from going
+   *  any further. Preventing its default is not enough: xterm reads the
+   *  keydown on its own textarea without asking whether anything prevented
+   *  it, so - pressed in headless Chrome against a real pane - Ctrl+Shift+Left
+   *  moved the pane and also sent ESC[1;6D to the program in it, and Alt+1
+   *  switched tab and sent ESC 1, a numeric argument to a shell. This listener
+   *  runs first, on the window, so stopping the key here keeps it from the
+   *  terminal altogether. */
+  function claimKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   window.addEventListener("keydown", (e) => {
+    // A key pressed while an input method is composing belongs to it. Enter
+    // there confirms the characters being composed, and taking it as Enter
+    // sent a prompt, ran a palette command or created a worktree with a name
+    // half-written. The dialog fields that act on Enter are kept from seeing
+    // it too; xterm is not, because it reads these keys to follow the
+    // composition itself.
+    if (e.isComposing || e.keyCode === 229) {
+      if (!(e.target.classList && e.target.classList.contains("xterm-helper-textarea"))) e.stopPropagation();
+      return;
+    }
     if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
-    if (!$("searchbar").hidden && document.activeElement === $("search-input")) {
+    // Anywhere in the bar, not only in its field: after a click on one of its
+    // arrows the keyboard is on that button, and Escape did nothing there.
+    // F3 steps through the matches, as in nearly every Windows program, from
+    // the box or from the terminal being searched. Left to the browser it
+    // opened a find bar of its own, over the page's text.
+    if (!$("searchbar").hidden && e.key === "F3") { claimKey(e); runSearch(e.shiftKey); return; }
+    if (!$("searchbar").hidden && $("searchbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
-      if (e.key === "Enter") { e.preventDefault(); runSearch(e.shiftKey); return; }
+      if (e.key === "Enter" && document.activeElement === $("search-input")) { e.preventDefault(); runSearch(e.shiftKey); return; }
     }
-    if (!$("overlay").hidden && e.key === "Escape") { closeOverlay(); return; }
+    if (!$("overlay").hidden && e.key === "Escape") {
+      // A search field with something in it is emptied first, as search
+      // fields are: closing the help, or the picker, took the page being
+      // read or the dialog itself with it, when all that was wanted was to
+      // start the search again.
+      const f = e.target;
+      if (f && (f.id === "help-search" || f.id === "agent-filter" || f.id === "history-filter") && f.value) {
+        e.preventDefault();
+        f.value = "";
+        f.dispatchEvent(new Event("input"));
+        return;
+      }
+      closeOverlay();
+      return;
+    }
 
     // Font size keeps working while the prompt bar is up, so the sentence
     // being composed can be made readable without abandoning it.
     const sizing = actionFor(e);
     if (sizing === "fontUp" || sizing === "fontDown" || sizing === "fontReset") {
-      e.preventDefault();
+      claimKey(e);
       runAction(sizing);
       return;
     }
-    if (!$("promptbar").hidden) {
+    // Only while the keyboard is in the bar. The bar leaves the panes usable,
+    // and one clicked into while it is open is being typed at: Escape there is
+    // how an agent is interrupted, and it was closing the bar instead and
+    // never reaching the agent, while every other binding did nothing at all.
+    if (!$("promptbar").hidden && $("promptbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closePrompt(); }
       else if (e.key === "Enter" && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
       return;
@@ -4136,13 +5326,19 @@
     // Every other binding is dispatched from the action table, so what the
     // help says a key does is what the key does.
     const id = actionFor(e);
-    if (id) { e.preventDefault(); runAction(id); return; }
+    if (id && !editsText(e)) { claimKey(e); runAction(id); return; }
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key >= "1" && e.key <= "9") {
-      e.preventDefault();
-      runAction("selectTab", e.key);
+    // The digit row is read by position where it can be: on AZERTY it types
+    // & é " ' and gives digits only with Shift held, so Alt+1 arrived as Alt+&
+    // and no tab could be picked by number. The keypad has no position to
+    // read and types its digits on every layout.
+    const row = /^Digit([1-9])$/.exec(e.code || "");
+    const n = row ? row[1] : (/^[1-9]$/.test(e.key || "") ? e.key : "");
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
+      claimKey(e);
+      runAction("selectTab", n);
     }
   }, true);
 
@@ -4155,8 +5351,19 @@
   $("new-tab-pick").onclick = () => runAction("newAgentTabChoose");
   wireTabStripDrops();
   wireDragSafetyNet();
+  // The strip scrolls sideways and shows no scrollbar, and a mouse wheel turns
+  // the other way: with more tabs than fit, the ones past the edge could be
+  // reached from the keyboard and not with the mouse at all. The wheel moves
+  // the strip, as it does a browser's own. A trackpad already scrolls it
+  // sideways and is left to.
+  $("tabs").addEventListener("wheel", (e) => {
+    const strip = $("tabs");
+    if (strip.scrollWidth <= strip.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    strip.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
-  $("btn-worktrees").onclick = () => send({ cmd: "worktrees" });
+  $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;
@@ -4169,14 +5376,52 @@
   $("overlay-close").onclick = closeOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;
+  $("prompt-input").onkeydown = promptKey;
+  // A text field removes line breaks outright, so an instruction pasted in
+  // several lines - "1. add tests", "2. run them" - arrived as "1. add
+  // tests2. run them". The breaks become spaces. The field stays one line:
+  // the prompt reaches each agent as typed, and a break would press Enter.
+  $("prompt-input").addEventListener("paste", (ev) => {
+    const text = ev.clipboardData ? ev.clipboardData.getData("text") : "";
+    if (!/[\r\n]/.test(text)) return;
+    ev.preventDefault();
+    const input = $("prompt-input");
+    const flat = text.replace(/\s*[\r\n]+\s*/g, " ").trim();
+    const from = input.selectionStart ?? input.value.length;
+    const to = input.selectionEnd ?? from;
+    input.value = input.value.slice(0, from) + flat + input.value.slice(to);
+    input.setSelectionRange(from + flat.length, from + flat.length);
+  });
   $("prompt-cancel").onclick = closePrompt;
   $("retry").onclick = connectControl;
   $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
   $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
-  $("search-next").onclick = () => runSearch(false);
-  $("search-prev").onclick = () => runSearch(true);
+  // The arrows hand the keyboard back to the field, where a search is refined
+  // by typing more of it; left on the button, the next letters went nowhere.
+  $("search-next").onclick = () => { runSearch(false); $("search-input").focus(); };
+  $("search-prev").onclick = () => { runSearch(true); $("search-input").focus(); };
   $("search-close").onclick = closeSearch;
+  // The search follows the typing, as it does in any terminal or editor:
+  // waiting for Enter left the field saying nothing about whether the word
+  // was there at all until it had been typed in full and sent. A short pause
+  // first, so a long scrollback is not searched once for every letter.
+  let searchTimer = 0;
+  $("search-input").oninput = () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => runSearch(false, true), 120);
+  };
   $("notice").onclick = hideNotice;
+  // A link out of the application - the help has one, to where Claude Code is
+  // installed from - followed in place replaces the application with the page
+  // it points to. This is an app window, with no address bar and no back
+  // button, so the agents were left running with nothing on screen to reach
+  // them by. A link like that opens a window of its own instead.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a || a.target === "_blank" || !/^https?:/i.test(a.getAttribute("href"))) return;
+    e.preventDefault();
+    window.open(a.getAttribute("href"), "_blank", "noopener,noreferrer");
+  });
   // Asking on the first interaction rather than at load avoids a permission
   // prompt before the user has done anything. A keystroke is an interaction as
   // much as a click, and this is an application built to be driven from the
