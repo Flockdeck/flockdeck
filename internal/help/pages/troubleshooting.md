@@ -33,8 +33,8 @@ agent you have not installed is a decision rather than an absence.
 
 ## A pane is dead, with a Restart button
 
-The process exited. [[action:restartPane]] starts it again in the same directory and
-resumes the same conversation. If it exits immediately every time, run the
+The process exited. [[action:restartPane]] starts it again in the same directory
+and, where the agent can, resumes the same conversation. If it exits immediately every time, run the
 agent's own command yourself in that directory to see what it says — a bad
 model id and an expired login both look like this from outside.
 
