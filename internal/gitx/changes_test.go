@@ -1288,3 +1288,20 @@ func TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle(t *testing.T) {
 		t.Errorf("first push to a taken name: %v", err)
 	}
 }
+
+// TestPushBeforeTheFirstCommitSaysSo: git's answer was "src refspec main does
+// not match any", which says nothing to someone who has not committed yet.
+func TestPushBeforeTheFirstCommitSaysSo(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	origin := t.TempDir()
+	gitRun(t, origin, "init", "-q", "--bare", "--initial-branch=main")
+	fresh := t.TempDir()
+	gitRun(t, fresh, "init", "-q", "--initial-branch=main")
+	gitRun(t, fresh, "remote", "add", "origin", origin)
+	_, err := Push(fresh)
+	if err == nil || !strings.Contains(err.Error(), "commit something first") || strings.Contains(err.Error(), "refspec") {
+		t.Errorf("push before the first commit: %v", err)
+	}
+}

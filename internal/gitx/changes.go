@@ -709,6 +709,11 @@ func Push(dir string) (string, error) {
 	if branch == "" {
 		return "", errDetached
 	}
+	// A branch nobody has committed to yet has nothing on it to send, and git
+	// says so as "src refspec main does not match any".
+	if !branchExists(dir, branch) {
+		return "", &gitError{"nothing to push yet: " + branch + " has no commits; commit something first"}
+	}
 	args := []string{"push"}
 	var remote string
 	if UpstreamOf(dir) == "" {
