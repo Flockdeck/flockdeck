@@ -282,6 +282,11 @@ func TestRemoteAssetsAreSentCompressed(t *testing.T) {
 	if 2*len(packed) > len(plain) {
 		t.Errorf("app.js compressed to %d of %d bytes", len(packed), len(plain))
 	}
+
+	// The help pages, which the first window on a phone opens unasked.
+	if resp, _ := get(ts.URL + "/help.json"); resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Errorf("help.json through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
+	}
 }
 
 // dialRemoteControl opens the control socket through the tunnel as a page

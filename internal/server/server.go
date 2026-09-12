@@ -434,9 +434,10 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 		// megabyte of script, most of it the terminal emulator. Script and
 		// styles compress to a fraction, so they are sent that way when the
 		// browser says it can take it. Over loopback it would buy nothing.
-		if fromRemote(r) && acceptsGzip(r) {
-			if data, ok := gzipped(fsys, r.URL.Path); ok {
-				if ct := mime.TypeByExtension(path.Ext(r.URL.Path)); ct != "" {
+		if fromRemote(r) && acceptsGzip(r) && compressible(r.URL.Path) {
+			name := r.URL.Path
+			if data, ok := gzipped(name, func() ([]byte, error) { return fs.ReadFile(fsys, name) }); ok {
+				if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
 					w.Header().Set("Content-Type", ct)
 				}
 				w.Header().Set("Content-Encoding", "gzip")
@@ -449,6 +450,16 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 	})
 }
 
+// compressible reports whether a file is text worth gzipping. An image is
+// compressed already.
+func compressible(name string) bool {
+	switch path.Ext(name) {
+	case ".js", ".css", ".html", ".json", ".svg":
+		return true
+	}
+	return false
+}
+
 // acceptsGzip reports whether a request says it can take a gzipped reply.
 func acceptsGzip(r *http.Request) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
@@ -459,23 +470,19 @@ func acceptsGzip(r *http.Request) bool {
 	return false
 }
 
-// gzippedAssets holds each text asset compressed, keyed by its path. The files
-// are compiled in and never change, so each is compressed once, on its first
-// request through the relay, and the answer kept for the life of the process.
+// gzippedAssets holds what has been compressed, by key. Everything given to it
+// is compiled in and never changes -- the assets, the help pages -- so each is
+// compressed once, on its first request through the relay, and the answer kept
+// for the life of the process.
 var gzippedAssets sync.Map
 
-// gzipped returns an asset gzipped, and reports false for one that is not
-// worth it -- an image is compressed already -- or not there.
-func gzipped(fsys fs.FS, name string) ([]byte, bool) {
-	switch path.Ext(name) {
-	case ".js", ".css", ".html", ".json", ".svg":
-	default:
-		return nil, false
-	}
-	if data, ok := gzippedAssets.Load(name); ok {
+// gzipped returns what load gives, gzipped, compressing it the first time key
+// is asked for. It reports false when there is nothing to load.
+func gzipped(key string, load func() ([]byte, error)) ([]byte, bool) {
+	if data, ok := gzippedAssets.Load(key); ok {
 		return data.([]byte), true
 	}
-	plain, err := fs.ReadFile(fsys, name)
+	plain, err := load()
 	if err != nil {
 		return nil, false
 	}
@@ -485,7 +492,7 @@ func gzipped(fsys fs.FS, name string) ([]byte, bool) {
 	if zw.Close() != nil {
 		return nil, false
 	}
-	gzippedAssets.Store(name, buf.Bytes())
+	gzippedAssets.Store(key, buf.Bytes())
 	return buf.Bytes(), true
 }
 

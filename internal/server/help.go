@@ -101,5 +101,15 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	// since changed. It is fetched once per page load, over loopback or a link
 	// that is carrying a whole terminal anyway.
 	w.Header().Set("Cache-Control", "no-store")
+	// A fifth of the size gzipped, for the reason the assets are: through the
+	// relay the window is often a phone, and the first one opens the help
+	// unasked.
+	if fromRemote(r) && acceptsGzip(r) {
+		if packed, ok := gzipped("/help.json", func() ([]byte, error) { return data, nil }); ok {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Vary", "Accept-Encoding")
+			data = packed
+		}
+	}
 	_, _ = w.Write(data)
 }
