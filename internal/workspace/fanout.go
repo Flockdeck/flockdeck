@@ -545,9 +545,6 @@ func isDecoration(line string) bool {
 // that.
 const maxTaskBytes = 16 << 10
 
-// defaultAgentID is the agent a pane runs when nothing has chosen one.
-const defaultAgentID = "claude"
-
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
 // be run when it cannot. An empty id means the default agent.
 //

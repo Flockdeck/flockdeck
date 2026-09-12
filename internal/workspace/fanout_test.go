@@ -9,6 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 )
@@ -970,7 +971,7 @@ func TestAgentSpecResolvesByID(t *testing.T) {
 		want    string
 		unknown bool
 	}{
-		{name: "the default", id: "", want: defaultAgentID},
+		{name: "the default", id: "", want: agent.DefaultAgentID},
 		{name: "by name", id: "claude", want: "claude"},
 		{name: "one nobody has heard of", id: "nosuch", unknown: true},
 	}
