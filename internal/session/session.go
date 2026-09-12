@@ -600,6 +600,21 @@ func (s *Session) AltScreen() bool {
 	return false
 }
 
+// BracketedPaste reports whether the pane's program has asked for bracketed
+// paste (mode 2004) and not switched it back off: whether text it is sent
+// between ESC[200~ and ESC[201~ is taken as one paste, line breaks and all,
+// rather than typed a key at a time with each break pressing Enter.
+func (s *Session) BracketedPaste() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, t := range trackedModes {
+		if t.mode == 2004 {
+			return s.modes.changed&(1<<i) != 0
+		}
+	}
+	return false
+}
+
 // Unsubscribe removes a viewer.
 func (s *Session) Unsubscribe(id int) {
 	s.mu.Lock()

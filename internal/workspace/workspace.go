@@ -1730,14 +1730,53 @@ func (w *Workspace) BroadcastTargets() []*Pane {
 // reading its input fills after a few kilobytes on Linux and macOS, after
 // which a write into it blocks until the program reads again — which, done
 // here, held up the whole window for as long as one pane went on not reading.
+//
+// A prompt of several lines is pasted rather than typed into a pane whose
+// program takes bracketed paste: typed, every line break in it is an Enter,
+// and the first line was submitted on its own with the rest arriving as
+// further messages. Where the program has not asked for bracketed paste the
+// markers would reach it as text, so it is typed as before.
 func (w *Workspace) SendPrompt(text string, submit bool) {
 	for _, p := range w.BroadcastTargets() {
 		go func(s *session.Session) {
-			if err := s.WriteString(text); err == nil && submit {
+			typed, pasted := promptInput(text, s.BracketedPaste())
+			if err := s.WriteString(typed); err == nil && submit {
+				// The Enter waits a moment after a paste. A program can take
+				// a paste in on its own time -- Claude Code folds a long one
+				// into a placeholder first -- and an Enter arriving on the
+				// heels of the end marker could be read before the paste had
+				// reached the input, submitting what was there without it.
+				if pasted {
+					time.Sleep(pasteSettle)
+				}
 				_ = s.WriteString("\r")
 			}
 		}(p.Sess)
 	}
+}
+
+// pasteSettle is how long SendPrompt leaves between a pasted prompt and the
+// Enter that submits it.
+var pasteSettle = 100 * time.Millisecond
+
+// promptInput returns what the prompt bar writes to a pane for text, and
+// whether it is a paste. Only text with a line break in it is pasted: a line
+// on its own is typed exactly as it always was, so a slash command still
+// reaches an agent the way it would from the keyboard.
+//
+// The paste is what a terminal sends for one. Its line breaks are carriage
+// returns, as xterm makes them, and any paste markers inside the text are
+// removed, as terminals do: an end marker in it would close the paste early
+// and leave the rest to be typed, line breaks and all.
+func promptInput(text string, bracketed bool) (string, bool) {
+	if !bracketed || !strings.ContainsAny(text, "\r\n") {
+		return text, false
+	}
+	body := strings.NewReplacer(
+		"\x1b[200~", "", "\x1b[201~", "",
+		"\r\n", "\r", "\n", "\r",
+	).Replace(text)
+	return "\x1b[200~" + body + "\x1b[201~", true
 }
 
 // ---------------------------------------------------------------- attention
