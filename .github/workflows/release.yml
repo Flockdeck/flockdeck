@@ -19,7 +19,49 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is published that does not pass, on every platform a release is
+  # built for. Much of what differs between them — how a running program is
+  # replaced, how a file another process holds is waited out, how a failure
+  # to start is shown — is only exercised by the tests on the platform itself,
+  # and a Linux runner alone never ran the Windows code at all.
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The code is kept gofmt-clean by hand, and nothing held a release to
+      # it. Checked on Linux only: a Windows checkout turns line endings into
+      # CRLF, which gofmt would report in every file.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,38 +77,56 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The tag reaches every script through the environment rather than being
+      # written into it. A hand-run release takes it as free text, and pasted
+      # into a script it would run as shell with a token that can write to the
+      # repository.
       - name: Work out the version
         id: version
-        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      # Nothing is published that does not pass. A release is the one build
-      # people cannot easily go back from, so it is the last place to skip this.
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
+      # The tag is stamped into the binaries and is what the updater compares
+      # against. One it cannot read would ship a release that never updates
+      # and that no later release can replace, so it is refused before
+      # anything is built.
+      - name: Check the tag is a version
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::$TAG is not a version the updater can read; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
+            exit 1
+          fi
 
       # Every platform is cross-compiled from this one runner, which works
       # because the application builds with cgo disabled. The same command is
       # what `make package` runs locally, so a developer can produce the exact
       # artifacts a release will have before tagging anything.
       - name: Build and package
-        run: go run ./cmd/release -version "${{ steps.version.outputs.tag }}" -out dist
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: go run ./cmd/release -version "$TAG" -out dist
 
       - name: List what was built
         run: ls -l dist && cat dist/checksums.txt
 
       # gh is already on the runner, so the release is made without a
       # third-party action holding the token.
+      #
+      # A tag with a suffix, v1.4.0-rc.1, is a candidate. Published as an
+      # ordinary release it would be the latest one, which is what every
+      # running copy asks GitHub for and installs; a pre-release is skipped.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            gh release upload "${{ steps.version.outputs.tag }}" dist/* --clobber
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "${{ steps.version.outputs.tag }}" dist/* \
-              --title "${{ steps.version.outputs.tag }}" \
-              --generate-notes
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes $pre
           fi

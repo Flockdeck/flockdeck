@@ -83,8 +83,9 @@ type Pane struct {
 // Dir returns the per-user directory holding Flockdeck's state.
 //
 // It is kept private to the user. Below it sit the local server's auth token,
-// the browser profile the application window signs in through, and the
-// generated settings handed to each agent; the files themselves are written
+// the browser profile the application window signs in through (except on
+// Windows, where BrowserProfileDir keeps it in the local folder instead), and
+// the generated settings handed to each agent; the files themselves are written
 // 0600, but a world-readable directory still lets any other account on the
 // machine list them and read whatever was not written by this package.
 func Dir() (string, error) {
@@ -558,9 +559,13 @@ func renameWithRetry(src, dst string) error {
 		if err == nil {
 			return nil
 		}
-		// A missing source is our own bug, not contention: retrying it would
-		// only turn an immediate error into a delayed one.
-		if errors.Is(err, fs.ErrNotExist) || time.Now().After(deadline) {
+		// Only a file somebody else has open is worth waiting out. Anything
+		// else — a missing source, a directory where the file goes, a disk
+		// that is read-only — will be just as true a second from now, and
+		// waiting it out cost a second a save: at shutdown, where every open
+		// project is saved in turn, enough of them to run out the deadline
+		// before the last layout was written.
+		if !renameHeld(err) || time.Now().After(deadline) {
 			return err
 		}
 		delay = backOff(delay)
@@ -718,17 +723,67 @@ func sweepDir(dir string, cutoff time.Time, match func(name string) bool) (int, 
 // BrowserProfileDir returns the directory holding the browser profile used for
 // the application window. Keeping it separate from the user's own profile
 // means the window opens clean and does not disturb their browsing session.
+//
+// On Windows it is kept in the local application data folder rather than
+// beside the rest of the state, which is in the roaming one. The profile is a
+// couple of hundred megabytes of browser components and caches, and where
+// profiles roam Windows copies the roaming folder to and from the network at
+// every logon, or keeps it on a network share where it is redirected; Chrome
+// and Edge keep their own profiles out of it for the same reason. A profile
+// an earlier build left in the roaming folder is moved across, or deleted
+// once there is one here.
 func BrowserProfileDir() (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
 	sub := filepath.Join(dir, "window")
+	if runtime.GOOS == "windows" {
+		if local, err := os.UserCacheDir(); err == nil {
+			moved := filepath.Join(local, "flockdeck", "window")
+			adoptProfile(sub, moved)
+			sub = moved
+		}
+	}
 	if err := os.MkdirAll(sub, 0o700); err != nil {
 		return "", fmt.Errorf("create window profile dir: %w", err)
 	}
 	makePrivate(sub)
 	return sub, nil
+}
+
+// adoptProfile moves a window profile from where an earlier build kept it to
+// dir, when there is one there and nothing at dir yet.
+//
+// Otherwise the old one is deleted. A move can fail, across volumes where the
+// roaming folder is on a network share or while an earlier build's window
+// still has the profile open, and once the window has started a fresh profile
+// at dir the old one was left for good: a couple of hundred megabytes that
+// hold nothing the window could use, since each run is a new origin to the
+// browser. It is renamed aside before it is deleted, because Windows refuses
+// that rename while a browser has files in it open, so a profile in use is
+// left for a later start rather than half deleted under the browser.
+func adoptProfile(old, dir string) {
+	aside := old + ".removing"
+	_ = os.RemoveAll(aside) // what an interrupted deletion left
+	oi, err := os.Stat(old)
+	if err != nil || !oi.IsDir() {
+		return
+	}
+	switch di, err := os.Stat(dir); {
+	case errors.Is(err, fs.ErrNotExist):
+		if os.MkdirAll(filepath.Dir(dir), 0o700) == nil && os.Rename(old, dir) == nil {
+			return
+		}
+	case err != nil, os.SameFile(oi, di):
+		// Unreadable, or the two are one folder, as when both application
+		// data folders are pointed at the same place: that is the profile in
+		// use, not a copy of it.
+		return
+	}
+	if os.Rename(old, aside) == nil {
+		_ = os.RemoveAll(aside)
+	}
 }
 
 // Project is a directory the user has opened.
@@ -798,15 +853,15 @@ func Recents() ([]Project, error) {
 
 // TouchRecent records that a project was opened, moving it to the front.
 func TouchRecent(root string) error {
-	// The rewrite below replaces the whole file, so a list we could not read
-	// has to stop us: carrying on would quietly discard every other project
-	// the user has opened. A damaged or absent list reads as empty, which is
-	// the case where starting again is the right answer.
 	// An empty root is not a project. It would be stored as "." and then
 	// offered in the picker as a directory that opens somewhere unpredictable.
 	if strings.TrimSpace(root) == "" {
 		return errors.New("recent project: empty path")
 	}
+	// The rewrite below replaces the whole file, so a list we could not read
+	// has to stop us: carrying on would quietly discard every other project
+	// the user has opened. A damaged or absent list reads as empty, which is
+	// the case where starting again is the right answer.
 	list, err := Recents()
 	if err != nil {
 		return err

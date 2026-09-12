@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/coder/websocket"
+
+	"github.com/jmwri/flockdeck/cmd/internal/controlsock"
 )
 
 // node mirrors the layout tree as the control socket reports it.
@@ -37,6 +39,8 @@ func main() {
 		switch {
 		case arg == "-full" || arg == "--full":
 			full = true
+		case strings.HasPrefix(arg, "-"):
+			usage() // -h, most likely, which would otherwise be dialled
 		case url == "":
 			url = arg
 		default:
@@ -55,8 +59,7 @@ func main() {
 	}
 	defer conn.CloseNow()
 
-	// The first message on the socket is the state snapshot.
-	_, data, err := conn.Read(context.Background())
+	data, err := controlsock.ReadState(context.Background(), conn)
 	if err != nil {
 		fmt.Println("read:", err)
 		os.Exit(1)

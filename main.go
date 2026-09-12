@@ -1,10 +1,11 @@
-// Command flockdeck is a desktop application for running several Claude
-// Code agents at once.
+// Command flockdeck is a desktop application for running several coding agents
+// at once.
 //
-// It drives the `claude` CLI in real pseudo-terminals, so every agent behaves
-// exactly as it does in a normal terminal, and presents them in a window with
-// tabs and split panes, per-pane status, layout persistence, git worktrees and
-// broadcast input.
+// It runs each agent — a CLI such as Claude Code, Codex or Gemini, or its own
+// chat client talking to a model API — in a real pseudo-terminal, so every
+// agent behaves exactly as it does in a normal terminal, and presents them in a
+// window with tabs and split panes, per-pane status, layout persistence, git
+// worktrees and broadcast input.
 package main
 
 import (
@@ -14,10 +15,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -39,6 +44,27 @@ var version = "dev"
 const windowGrace = 3 * time.Second
 
 func main() {
+	// Not for `chat`: a pane is started by a Flockdeck that may still hold the
+	// terminal it was run from with -no-window, and the chat would appear there
+	// instead of in the pane.
+	if len(os.Args) < 2 || os.Args[1] != "chat" {
+		useConsole()
+	}
+
+	// `help` is what somebody who has never run the program types first, and
+	// they were told it was an unrecognised argument, with exit status 2,
+	// before being shown the usage -h would have printed. `help <subcommand>`
+	// is asking for that subcommand's usage, so it is handed on as `<subcommand>
+	// -h` to the dispatch below, rather than answered with the top-level one.
+	if len(os.Args) > 1 && os.Args[1] == "help" {
+		args, top := helpArgs(os.Args[2:])
+		if top {
+			flockdeckFlagSet(&cliFlags{}).Usage()
+			return
+		}
+		os.Args = append(os.Args[:1], args...)
+	}
+
 	// `hook` is how panes report their lifecycle back to a running instance.
 	// It is a hidden subcommand rather than a separate binary so there is only
 	// ever one artifact to ship.
@@ -114,9 +140,12 @@ func main() {
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
+	fs.Visit(func(f *flag.Flag) { c.dirGiven = c.dirGiven || f.Name == "C" })
 
 	if c.version {
-		fmt.Println("flockdeck", version)
+		// The platform is part of the answer: it is what a bug report needs
+		// alongside the version, and what says which archive to download.
+		fmt.Printf("flockdeck %s (%s/%s)\n", shownVersion(), runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
@@ -125,9 +154,18 @@ func main() {
 	// leave the user believing `flockdeck quit` had done something.
 	if fs.NArg() > 0 {
 		arg := fs.Arg(0)
-		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument %q\n", arg)
+		// Between plain quotes rather than %q, which would double every
+		// backslash of a Windows path and show a different one from the
+		// one typed.
+		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument \"%s\"\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
+			// Quoted when it would otherwise split, so the line can be copied
+			// as it stands. strconv.Quote is no use here: it doubles every
+			// backslash in a Windows path.
+			if strings.ContainsAny(arg, " \t") {
+				arg = `"` + arg + `"`
+			}
 			fmt.Fprintf(os.Stderr, "To open that directory: flockdeck -C %s\n", arg)
 		case fs.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
@@ -142,18 +180,46 @@ func main() {
 		fmt.Fprintln(os.Stderr, "flockdeck:", err)
 		os.Exit(2)
 	}
+	if w := notInstalledWarning(c.agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck:", w)
+	}
 	server.Version = version
 
 	if c.quit {
-		if err := quitRunning(); err != nil {
-			fail(err)
+		// Nothing running is nothing to do rather than a failure: it used to
+		// exit 1, append to error.log and, on Windows, put up an error box,
+		// all for a request that had already got what it asked for.
+		switch err := quitRunning(); {
+		case errors.Is(err, errNoneRunning):
+			fmt.Println("flockdeck: nothing is running, so there is nothing to stop")
+		case err != nil:
+			fail("Flockdeck could not stop the running instance.", err)
 		}
 		return
 	}
 
-	if err := run(c.options); err != nil {
-		fail(err)
+	if c.detach {
+		if done, code := detachFromTerminal(); done {
+			os.Exit(code)
+		}
 	}
+	if err := run(c.options); err != nil {
+		fail("Flockdeck could not start.", err)
+	}
+}
+
+// helpArgs turns what followed `flockdeck help` into the arguments to run
+// instead: `<subcommand> -h` for a subcommand the usage lists, each of which
+// prints its own usage for -h. top is true when the top-level usage is the
+// answer — for `help` alone, and for anything that is not a subcommand.
+func helpArgs(rest []string) (args []string, top bool) {
+	switch {
+	case len(rest) == 0:
+		return nil, true
+	case map[string]bool{"spawn": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+		return []string{rest[0], "-h"}, false
+	}
+	return nil, true
 }
 
 // cliFlags are the top-level flags and where their values land. The two that
@@ -169,7 +235,7 @@ type cliFlags struct {
 // and check the help documents it.
 func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
-	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
+	fs.StringVar(&c.dir, "C", ".", "`directory` to open the workspace on")
 	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
 	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
 	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
@@ -184,7 +250,7 @@ func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "flockdeck — run several Claude Code agents in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "flockdeck — run several coding agents at once, in tabs and split panes.\n\n")
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
@@ -193,6 +259,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
+	fmt.Fprintf(out, "  chat [flags]\n")
+	fmt.Fprintf(out, "        flockdeck's own chat client, which an API agent's pane runs; chat -h for its flags\n")
 	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
@@ -201,29 +269,44 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
+	// These are settings with no flag, so this is the only place a person
+	// reading the usage would learn that they exist.
+	fmt.Fprintf(out, "\nEnvironment:\n")
+	fmt.Fprintf(out, "  %s=<name or program>\n", appwindow.BrowserEnv)
+	fmt.Fprintf(out, "        the browser that provides the window, instead of the first one found:\n")
+	fmt.Fprintf(out, "        chrome, edge, brave, chromium or vivaldi, or the path to one\n")
+	fmt.Fprintf(out, "  %s=off\n", updateEnv)
+	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
+	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
+	fmt.Fprintf(out, "        the relay remote access goes through, instead of the default one\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
 
-// fail reports a startup error. When the process was started from a desktop
-// shortcut there is no console to print to, so the message is also written to
-// a log file the user can be pointed at.
-func fail(err error) {
+// fail reports an error that ends the run, under heading, which says what was
+// being attempted. When the process was started from a desktop shortcut there
+// is no console to print to, so the message is also written to a log file the
+// user can be pointed at.
+func fail(heading string, err error) {
 	fmt.Fprintln(os.Stderr, "flockdeck:", err)
+	text := heading + "\n\n" + err.Error()
 	if dir, dirErr := store.Dir(); dirErr == nil {
 		path := filepath.Join(dir, "error.log")
 		stamp := time.Now().Format(time.RFC3339)
 		if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
 			fmt.Fprintf(f, "%s %v\n", stamp, err)
 			f.Close()
+			text += "\n\nThis is also written to " + path
 		}
 	}
+	showStartupError(text)
 	os.Exit(1)
 }
 
 // options are the settings run needs.
 type options struct {
 	dir      string
+	dirGiven bool // -C was on the command line, rather than dir being its default
 	agent    string
 	fresh    bool
 	shell    bool
@@ -234,7 +317,13 @@ type options struct {
 
 // quitRunning stops an instance that is already going.
 func quitRunning() error {
-	inst, base, err := runningInstance()
+	// An instance that is still starting goes on record only once it has
+	// started. Asked before then, this said nothing was running and the
+	// instance came up anyway, so it waits for any start under way first.
+	holdStartLock(startLockWait, func(text string) {
+		fmt.Fprintln(os.Stderr, "flockdeck:", text)
+	})()
+	inst, err := store.LoadInstance()
 	// A record that cannot be read is not the same as there being nothing to
 	// stop: reporting it as "none found" sends the user looking for a process
 	// that is very likely still running.
@@ -242,47 +331,34 @@ func quitRunning() error {
 		return fmt.Errorf("read the record of the running instance: %w", err)
 	}
 	if inst == nil {
-		return fmt.Errorf("no running flockdeck found")
+		return errNoneRunning
 	}
-	if err := server.RequestQuit(base, inst.Token); err != nil {
-		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
-	}
-	// The request only asks. What follows it is saving every open project's
-	// layout and stopping a screenful of agent processes, and the instance is
-	// still listening the whole time — so `flockdeck -quit && flockdeck` used to find
-	// the old instance still answering and attach to one on its way out,
-	// opening a window onto agents that were in the middle of being killed.
-	// Saying "stopped" before it has is the same claim in words.
-	if !waitGone(func() bool { _, err := server.Probe(base, inst.Token); return err != nil }, quitWait) {
-		return fmt.Errorf("the instance at %s took the request but is still running", base)
+	// The instance is asked outright rather than probed first. One whose
+	// workspace has wedged answers the probe as too busy, which read as
+	// nothing running at all — and a wedged instance is exactly the one
+	// somebody reaches for -quit to stop, while the request to quit needs
+	// nothing from the workspace. Only a request that cannot even connect
+	// means the record was left by an instance that has gone.
+	//
+	// RequestQuit returns only once the instance has stopped answering, not
+	// when it has taken the request: saving every project and stopping the
+	// agents comes after, with the instance still listening, and a
+	// `flockdeck -quit && flockdeck` would otherwise attach to one on its way
+	// out. So "stopped" below is true when it is printed.
+	if err := server.RequestQuit(inst.URL, inst.Token); err != nil {
+		var dial *net.OpError
+		if errors.As(err, &dial) && dial.Op == "dial" {
+			_ = store.ClearInstance()
+			return errNoneRunning
+		}
+		return fmt.Errorf("ask the instance at %s to stop: %w", inst.URL, err)
 	}
 	fmt.Println("flockdeck: stopped")
 	return nil
 }
 
-// quitWait is how long `-quit` waits for the instance to actually go. It is
-// longer than the deadline the instance puts on its own shutdown, so an
-// instance that gives up on a wedged pane is still gone before this gives up
-// on the instance.
-const quitWait = 20 * time.Second
-
-// quitPoll is how often the address is tried while waiting. A refused
-// connection on loopback comes back at once, so this costs nothing.
-const quitPoll = 100 * time.Millisecond
-
-// waitGone polls until gone reports true, or until within has passed.
-func waitGone(gone func() bool, within time.Duration) bool {
-	deadline := time.Now().Add(within)
-	for {
-		if gone() {
-			return true
-		}
-		if !time.Now().Before(deadline) {
-			return false
-		}
-		time.Sleep(quitPoll)
-	}
-}
+// errNoneRunning is what -quit reports when there is nothing to stop.
+var errNoneRunning = errors.New("no running flockdeck found")
 
 // runningInstance returns the recorded instance if it is alive and answering.
 func runningInstance() (*store.Instance, string, error) {
@@ -299,12 +375,21 @@ func runningInstance() (*store.Instance, string, error) {
 	return inst, base, nil
 }
 
+// answering reports whether the instance on record is running and answering.
+// A record left by one that has gone is cleared on the way, as for any launch.
+func answering() bool {
+	inst, _, err := runningInstance()
+	return err == nil && inst != nil
+}
+
 // attach hands the requested project to an instance that is already running
 // and shows a window onto it, so a second launch joins the agents already
 // going instead of starting a rival set.
 func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if err := server.RequestOpen(base, inst.Token, root); err != nil {
-		return err
+		// On its own this was "open project: 400 Bad Request", which says
+		// neither what was being attempted nor what else there is to do.
+		return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
 	}
 	url := base + "/?t=" + inst.Token
 	if noWindow {
@@ -348,6 +433,49 @@ func joinRunning(lookup func() (*store.Instance, string, error), warn func(strin
 	return inst, base
 }
 
+// startLockWait is how long a launch waits for one already starting to put
+// itself on record. Restoring a large layout takes seconds; a start that takes
+// longer than this is stuck, and starting anyway is the lesser evil.
+const startLockWait = 30 * time.Second
+
+// holdStartLock takes the start lock, waiting up to wait for a launch that
+// holds it, and returns what lets it go. A lock that cannot be had at all is
+// done without, as every launch did before there was one; one held past wait
+// is done without too, and said so through warn.
+func holdStartLock(wait time.Duration, warn func(string)) (release func()) {
+	for deadline := time.Now().Add(wait); ; time.Sleep(50 * time.Millisecond) {
+		release, err := store.TryLockStart()
+		switch {
+		case err == nil:
+			return release
+		case !errors.Is(err, store.ErrStartLocked):
+			return func() {}
+		case time.Now().After(deadline):
+			warn(fmt.Sprintf("another flockdeck has been starting for %s without finishing; going ahead without waiting for it", wait))
+			return func() {}
+		}
+	}
+}
+
+// firstPaneKind is what the one pane of a project with nothing restored runs:
+// the agent new panes start as, where it can be started, and otherwise a
+// shell, which is also what -shell asks for. agentSpec resolves that agent,
+// and fails when it cannot be started; an empty id is the default.
+//
+// It used to ask whether Claude Code was installed, whichever agent new panes
+// start as. With another agent chosen, by -agent or as a project's default,
+// a machine without Claude Code opened on a shell rather than on the agent it
+// has, and a machine with it opened on a pane whose agent could not start.
+func firstPaneKind(shell bool, agentSpec func(id string) (agent.Spec, error)) session.Kind {
+	if shell {
+		return session.KindShell
+	}
+	if _, err := agentSpec(""); err != nil {
+		return session.KindShell
+	}
+	return session.KindAgent
+}
+
 // startupOnlyFlags lists the flags that describe a fresh start, and so mean
 // nothing when the launch turns into attaching to a running instance.
 func startupOnlyFlags(opts options) []string {
@@ -360,9 +488,6 @@ func startupOnlyFlags(opts options) []string {
 	}
 	if opts.agent != "" {
 		out = append(out, "-agent")
-	}
-	if opts.detach {
-		out = append(out, "-detach")
 	}
 	return out
 }
@@ -391,10 +516,37 @@ func run(opts options) error {
 	// Anything a previous update moved aside can go now, before the interface
 	// is up and while nothing is looking.
 	sweepReplacedBinary()
+	// And a console twin the installation lacks is made, before any pane
+	// needs it.
+	ensureChatTwin()
 
-	root, err := filepath.Abs(opts.dir)
+	// A staged update goes in, and a restart starts the program again, only
+	// once everything else has been torn down, which is why this is deferred
+	// first and so runs last. Both used to happen ahead of the deferred
+	// closes below: the new process came up while the old window was still
+	// open, the old instance still recorded and every old agent still running
+	// — and set about resuming the very conversations those agents still had
+	// open, because closing a pane only signals its process.
+	exiting, reopen := false, ""
+	defer func() {
+		if !exiting {
+			return
+		}
+		applyStagedUpdate(os.Stderr)
+		if restarting.Load() {
+			if err := relaunch(reopen); err != nil {
+				fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+			}
+		}
+	}()
+
+	root, err := filepath.Abs(expandHome(opts.dir))
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
+	}
+	if !opts.dirGiven {
+		saved, _ := store.LoadSession()
+		root = landingRoot(root, startedAs, saved)
 	}
 	// Say which of the three ways this can go wrong actually happened: a
 	// path that is missing and one that cannot be read are both common, and
@@ -407,6 +559,14 @@ func run(opts options) error {
 	case !fi.IsDir():
 		return fmt.Errorf("%s is not a directory", root)
 	}
+
+	// Held from looking for a running instance until this one is on record,
+	// so that a launch close behind this one waits and joins it rather than
+	// finding nothing on record and starting a rival.
+	releaseStart := holdStartLock(startLockWait, func(text string) {
+		fmt.Fprintln(os.Stderr, "flockdeck:", text)
+	})
+	defer releaseStart()
 
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
@@ -422,8 +582,22 @@ func run(opts options) error {
 					"flockdeck: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
 					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
 			}
-			return attach(inst, base, root, opts.noWindow)
+			// -detach asks for no window, and that much of it still holds
+			// when joining: the project goes to the running instance and
+			// its address is printed, rather than a window being opened by
+			// the one flag that asked for none.
+			return attach(inst, base, root, opts.noWindow || opts.detach)
 		}
+	}
+
+	// -new starts this project from nothing, but the save on the way out
+	// writes the list of open projects from what this run had, which was only
+	// this one. Every other project the user had open fell out of the next
+	// start without a word, from a flag that said nothing about them, so the
+	// list is kept to be put back once this run's own has been written.
+	var before *store.Session
+	if opts.fresh {
+		before, _ = store.LoadSession()
 	}
 
 	ws, err := workspace.New(workspace.Options{Root: root})
@@ -447,11 +621,12 @@ func run(opts options) error {
 		ws.RestoreSession()
 	}
 	if !restored {
-		kind := session.KindClaude
-		if opts.shell || !ws.ClaudeAvailable() {
-			kind = session.KindShell
-		}
-		ws.NewTab(kind, root, "")
+		ws.NewTab(firstPaneKind(opts.shell, ws.AgentSpec), root, "")
+	} else if opts.shell {
+		// -shell decides what the first pane is, and a restored layout
+		// already has its panes. Said, rather than dropped without a word,
+		// as the flags that mean nothing when joining a running instance are.
+		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
 	srv, err := server.New(ws)
@@ -460,14 +635,6 @@ func run(opts options) error {
 	}
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
-
-	// Record where this instance is listening so a later launch can attach.
-	if err := store.SaveInstance(&store.Instance{
-		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
-	}
-	defer store.ClearInstance()
 
 	// Remote access, for a machine enrolled with a relay. It is started from
 	// whatever the enrolment says now and told to look again whenever
@@ -483,10 +650,9 @@ func run(opts options) error {
 	// Shutdown can be requested by the window closing, by a signal, or by the
 	// user quitting from the UI.
 	quit := make(chan struct{})
-	var closeOnce = make(chan struct{}, 1)
+	var stopping sync.Once
 	stop := func() {
-		select {
-		case closeOnce <- struct{}{}:
+		stopping.Do(func() {
 			close(quit)
 			// Everything past this point closes panes and kills their
 			// processes. A pane whose process will not die must not be able to
@@ -498,15 +664,14 @@ func run(opts options) error {
 				time.Sleep(shutdownGrace)
 				forceQuit()
 			}()
-		default:
-		}
+		})
 	}
 
-	// Two deep, so a second interrupt arriving while the first is still being
-	// acted on is not dropped on the floor.
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt)
-	go interrupts(sigs, stop, forceQuit)
+	watchSignals(stop, forceQuit, srv.Detached)
+	// Closed once the layout and open projects are saved, which is what a
+	// session ending on Windows waits for before it lets the process go.
+	saved := make(chan struct{})
+	watchEndSession(stop, saved)
 
 	srv.OnQuit = stop
 	// A restart is a quit that comes back. The server only asks; the shutdown
@@ -517,6 +682,29 @@ func run(opts options) error {
 		stop()
 	}
 
+	// Record where this instance is listening so a later launch can attach.
+	// Only now, with the callbacks that answer for it in place: the server has
+	// been serving since it was made, and a `flockdeck -quit` that found the
+	// record any sooner was told yes and then ignored, since there was nothing
+	// yet to hand the request to.
+	//
+	// A -solo run beside an instance that is still answering leaves that
+	// one's record alone. Writing over it made the first instance unreachable
+	// — no later launch could attach to it or -quit it — and when this run
+	// quit, it took the record with it, leaving nothing on record while the
+	// first went on running: the next launch started a rival, and the start-up
+	// sweep stopped sparing the first one's pane settings.
+	recorded := !opts.solo || !answering()
+	if recorded {
+		if err := store.SaveInstance(&store.Instance{
+			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
+		}
+		defer store.ClearInstance()
+	}
+	releaseStart()
+
 	// Watching for releases runs for the life of the server and stops with it,
 	// so a check in flight cannot hold the shutdown open.
 	updateCtx, stopUpdates := context.WithCancel(context.Background())
@@ -526,61 +714,19 @@ func run(opts options) error {
 		srv.Detach()
 	}
 
-	var win *appwindow.Window
-	if opts.noWindow || opts.detach {
-		fmt.Println("flockdeck serving at:")
-		fmt.Println(" ", srv.URL())
-		if opts.detach {
-			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		} else {
-			fmt.Println("Press Ctrl+C to stop.")
-		}
-	} else {
-		profile, err := store.BrowserProfileDir()
-		if err != nil {
-			return err
-		}
-		win, err = appwindow.Open(srv.URL(), profile)
-		if err != nil {
-			// Unlike attaching, this server is ours and stops with us, so the
-			// address it was serving will not answer by the time anyone reads
-			// this. Name the ways to get a window instead.
-			if errors.Is(err, appwindow.ErrNoBrowser) {
-				return fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
-					err, appwindow.BrowserEnv)
-			}
-			return fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
-		}
-		defer win.Close()
+	win, err := showWindow(opts, recorded, srv, stop)
+	if err != nil {
+		return err
+	}
+	defer win.Close()
 
-		if win.AppMode {
-			// The window process ending is the user closing the application,
-			// unless they asked to leave the agents running.
-			go func() {
-				_ = win.Wait()
-				if !srv.Detached() {
-					stop()
-				}
-			}()
-		} else {
-			// A tab in the user's own browser cannot be watched, so fall back
-			// to shutting down when the page disconnects.
-			fmt.Println("Opened in your browser:", srv.URL())
-		}
-
-		// Whichever way the UI is shown, losing every connected window for
-		// more than a moment means nobody is looking any more. Only the
-		// windows on this machine count: one open through the relay is
-		// somebody elsewhere, and detaching is how the agents are left
-		// running for them.
-		srv.OnLastClientGone = func() {
-			go func() {
-				time.Sleep(windowGrace)
-				if srv.LocalClientCount() == 0 && !srv.Detached() {
-					stop()
-				}
-			}()
-		}
+	// Start-up is over, and with it everything worth printing to a terminal
+	// this was run from: -detach's address and how to stop it, the notes on
+	// flags that had no effect, a failure to start. A run that goes on without
+	// the terminal lets it go now, so that closing it does not end the run;
+	// -no-window has the terminal as its only interface and keeps it.
+	if !opts.noWindow {
+		releaseConsole()
 	}
 
 	<-quit
@@ -594,18 +740,193 @@ func run(opts options) error {
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
 	}
+	if err := keepOpenProjects(before); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
+	}
+	close(saved)
 
-	// The interface is closed and the panes are gone, which is the only moment
-	// the program's own file can be replaced without pulling it out from under
-	// a running session. A staged update goes in now, so the next start —
-	// whether the user's or the relaunch just below — is the new version.
-	applyStagedUpdate(os.Stderr)
-	if restarting.Load() {
-		if err := relaunch(); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+	// Once the deferred closes have run, the interface is closed and the panes
+	// are gone, which is the only moment the program's own file can be
+	// replaced without pulling it out from under a running session. The first
+	// defer puts a staged update in then, so the next start — whether the
+	// user's or a restart's — is the new version.
+	exiting, reopen = true, ws.ActiveRoot()
+	return nil
+}
+
+// showWindow puts the interface in front of the user, or for a run without a
+// window says where it is, and arranges for stop to be called once nobody is
+// looking at it any more. The window is nil when none was opened.
+//
+// recorded is whether this instance is the one on record, which is what
+// `flockdeck` attaches to and `flockdeck -quit` stops.
+func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*appwindow.Window, error) {
+	if opts.noWindow || opts.detach {
+		fmt.Println("flockdeck serving at:")
+		fmt.Println(" ", srv.URL())
+		switch {
+		case !recorded:
+			// A -solo run beside an instance that is answering leaves that
+			// one on record, so both commands the other messages name reach
+			// it, not this one: following them stopped the other instance and
+			// every agent in it. Opening the address is what works here, and
+			// on every platform.
+			fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
+			fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
+		case opts.detach:
+			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
+		case ctrlCStops():
+			fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
+		default:
+			// The Windows release borrows the terminal's console rather than
+			// having one of its own, and Ctrl+C typed there never reaches it,
+			// so the one way that works is all that is offered.
+			fmt.Println("Run `flockdeck -quit` to stop.")
+		}
+		return nil, nil
+	}
+
+	profile, err := store.BrowserProfileDir()
+	if err != nil {
+		return nil, err
+	}
+	win, err := appwindow.Open(srv.URL(), profile)
+	if err != nil {
+		// Unlike attaching, this server is ours and stops with us, so the
+		// address it was serving will not answer by the time anyone reads
+		// this. Name the ways to get a window instead.
+		if errors.Is(err, appwindow.ErrNoBrowser) {
+			return nil, fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
+				err, appwindow.BrowserEnv)
+		}
+		return nil, fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
+	}
+
+	if win.AppMode {
+		// The window process ending is the user closing the application,
+		// unless they asked to leave the agents running — or unless it
+		// handed the window to a browser already running, which leaves
+		// only the connection below to tell when it closes.
+		go func() {
+			if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
+				return
+			}
+			if !srv.Detached() {
+				stop()
+			}
+		}()
+	} else {
+		// A tab in the user's own browser cannot be watched, so fall back
+		// to shutting down when the page disconnects.
+		fmt.Println("Opened in your browser:", srv.URL())
+	}
+
+	// Whichever way the UI is shown, losing every connected window for more
+	// than a moment means nobody is looking any more. Only the windows on
+	// this machine count: one open through the relay is somebody elsewhere,
+	// and detaching is how the agents are left running for them.
+	srv.OnLastClientGone = func() {
+		go func() {
+			time.Sleep(windowGrace)
+			if srv.LocalClientCount() == 0 && !srv.Detached() {
+				stop()
+			}
+		}()
+	}
+	return win, nil
+}
+
+// landingRoot is the project a launch opens when none was named: cwd, the
+// directory it was started in, unless that is only where the program itself
+// lives or where the system starts a program it was told nothing about.
+//
+// From a terminal the working directory is where the user is standing, and
+// exactly right. A double-click, or a shortcut left as it was made, starts the
+// program in its own folder instead — Downloads, as often as not — and opening
+// that made every such start add the folder as a project, with a fresh agent
+// in it, beside the session the user actually had. A scheduled or login start
+// is worse: Task Scheduler with no "Start in" runs it in System32, launchd in
+// /, and that became a project, with an agent working in it, which every
+// start after reopened. The project the user was last in is the better answer
+// in both cases, when there is one to go back to; failing that a system
+// directory gives way to the home directory, while the program's own folder,
+// where somebody did choose to put it, stays.
+func landingRoot(cwd, exe string, saved *store.Session) string {
+	system := systemDir(cwd)
+	if !system && (exe == "" || !sameFolder(cwd, filepath.Dir(exe))) {
+		return cwd
+	}
+	if saved != nil && saved.Active != "" {
+		if fi, err := os.Stat(saved.Active); err == nil && fi.IsDir() {
+			return saved.Active
 		}
 	}
-	return nil
+	if system {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	return cwd
+}
+
+// systemDir reports whether dir is where the system starts a program that was
+// given no directory of its own: the Windows directory or anything below it,
+// or the root of the file system.
+func systemDir(dir string) bool {
+	dir = filepath.Clean(dir)
+	if runtime.GOOS != "windows" {
+		return dir == "/"
+	}
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		return false
+	}
+	root = filepath.Clean(root)
+	return sameFolder(dir, root) || strings.HasPrefix(strings.ToLower(dir), strings.ToLower(root)+`\`)
+}
+
+// expandHome reads a leading ~ as the home directory.
+//
+// A Unix shell does that before flockdeck ever sees the path, but PowerShell
+// and cmd.exe hand it over as typed, so `flockdeck -C ~/code/api` — the very
+// form the README and the usage give — became a directory called ~ below
+// wherever the command was run, and failed as one that did not exist.
+// ~user is a shell's business and is left alone.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
+}
+
+// sameFolder compares two directories the way the file systems holding them
+// do: without regard to case on Windows and macOS.
+func sameFolder(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// keepOpenProjects adds the projects open before a -new run back to the
+// session that run has just saved, after its own, which keeps its active
+// project the one the next start lands in. SaveSession drops the ones both
+// lists name. It does nothing for a run that was not started with -new.
+func keepOpenProjects(before *store.Session) error {
+	if before == nil {
+		return nil
+	}
+	now, err := store.LoadSession()
+	if err != nil || now == nil {
+		return err
+	}
+	now.Open = append(now.Open, before.Open...)
+	return store.SaveSession(now)
 }
 
 // shutdown stops serving, and only then saves.
@@ -644,6 +965,35 @@ func interrupts(sigs <-chan os.Signal, stop, force func()) {
 	force()
 }
 
+// watchSignals makes the signals that ask a program to end take the orderly
+// stop Ctrl+C does, rather than the runtime's, which ends the process on the
+// spot: no layout or open projects saved, agents not stopped, the instance
+// record left behind.
+//
+// SIGTERM is what a logout, a shutdown, `kill` or a service manager sends,
+// and what Windows makes of the console being closed. SIGHUP is what Linux
+// and macOS send when the terminal a run was started from is closed — except
+// to a run that has been detached, which promised its agents would carry on:
+// it lets the terminal go instead and keeps running.
+//
+// Two deep, so a second signal arriving while the first is still being acted
+// on is not dropped on the floor.
+func watchSignals(stop, force func(), isDetached func() bool) {
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	asks := make(chan os.Signal, 2)
+	go func() {
+		for sig := range sigs {
+			if sig == syscall.SIGHUP && isDetached() {
+				letTerminalGo()
+				continue
+			}
+			asks <- sig
+		}
+	}()
+	go interrupts(asks, stop, force)
+}
+
 // forceQuit ends the process without waiting for the orderly shutdown to
 // finish. It is the last resort: a window that has gone and an application
 // that will not stop is worse than an abrupt exit.
@@ -660,13 +1010,6 @@ var errReported = errors.New("already reported")
 // nothing left to do, so the command succeeds rather than failing.
 var errHelpAsked = errors.New("usage shown")
 
-// runSpawn implements the `spawn` subcommand, which starts another agent from
-// inside a pane.
-//
-// It exists so a lead agent can split its own work up: given a plan, it can run
-// this once per task and watch the helpers appear beside it. The address and
-// token come from the environment its pane was started with, so only processes
-// running inside a pane can use it.
 // paneEnv reads one of the variables a pane carries, accepting the name an
 // earlier build used alongside the one in use now. A pane started by an
 // instance of that build is still running with the old names in its
@@ -680,6 +1023,13 @@ func paneEnv(name string) string {
 	return os.Getenv("PERCH_" + name)
 }
 
+// runSpawn implements the `spawn` subcommand, which starts another agent from
+// inside a pane.
+//
+// It exists so a lead agent can split its own work up: given a plan, it can run
+// this once per task and watch the helpers appear beside it. The address and
+// token come from the environment its pane was started with, so only processes
+// running inside a pane can use it.
 func runSpawn(args []string) error {
 	req, err := parseSpawn(args)
 	if errors.Is(err, errHelpAsked) {
@@ -687,6 +1037,9 @@ func runSpawn(args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if w := notInstalledWarning(req.Agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck spawn:", w)
 	}
 	api := paneEnv("API")
 	token := paneEnv("TOKEN")
@@ -697,7 +1050,7 @@ func runSpawn(args []string) error {
 
 	res, err := hooks.Spawn(api, token, pane, req)
 	if err != nil {
-		return err
+		return explainSpawn(err)
 	}
 	// Where it landed is the part the caller could not have worked out:
 	// --worktree names a branch, and which directory that becomes is the
@@ -709,6 +1062,18 @@ func runSpawn(args []string) error {
 	}
 	fmt.Println("started agent", res.PaneID)
 	return nil
+}
+
+// explainSpawn says in words what a spawn that ran out of time means. The
+// instance is given a minute, and one that takes longer is busy — creating
+// several worktrees, say — rather than refusing; left alone the agent was told
+// `Post "http://127.0.0.1:…/spawn": context deadline exceeded`, which names a
+// URL and a deadline and not what to do. Any other failure is passed on.
+func explainSpawn(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("the flockdeck this pane belongs to did not answer within a minute; it is probably busy, so try again shortly")
+	}
+	return err
 }
 
 // parseSpawn turns the arguments of `flockdeck spawn` into the request to send.
@@ -768,7 +1133,7 @@ type spawnFlags struct {
 func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
+	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
@@ -846,27 +1211,32 @@ func takesValue(fs *flag.FlagSet, name string) bool {
 // somebody who has never installed Codex should still be able to learn from
 // here that Flockdeck would run it.
 func printAgents(w io.Writer) {
-	specs, defaultID := agentCatalog()
+	specs, defaultID, notice := agentCatalog()
 	fmt.Fprintf(w, "Agents flockdeck can run.\n\n")
+	if notice != "" {
+		fmt.Fprintf(w, "Note: %s\n\n", unreadAgentsFile(notice))
+	}
 	for _, s := range specs {
 		// A hidden entry is one somebody has taken out of the picker in their
 		// own agents.json, and this is the picker in another form.
 		if s.Hidden {
 			continue
 		}
-		notes := []string{"not installed"}
-		if agentAvailable(s) {
-			notes = []string{"installed"}
-		}
+		available := agentAvailable(s)
+		notes := []string{agentState(s, available)}
 		if s.ID == defaultID {
 			notes = append(notes, "default")
 		}
 		fmt.Fprintf(w, "%s - %s  [%s]\n", s.ID, agentName(s), strings.Join(notes, ", "))
 		fmt.Fprintf(w, "  models: %s\n", modelSummary(s))
 		// The install line answers the state just printed, so it is only worth
-		// the room when that state is "not installed".
-		if s.Install != "" && !agentAvailable(s) {
-			fmt.Fprintf(w, "  install: %s\n", s.Install)
+		// the room when the agent cannot be started yet.
+		if s.Install != "" && !available {
+			label := "install"
+			if s.Runner == agent.RunnerAPI {
+				label = "set up"
+			}
+			fmt.Fprintf(w, "  %s: %s\n", label, s.Install)
 		}
 		fmt.Fprintln(w)
 	}
@@ -881,6 +1251,23 @@ func agentName(s agent.Spec) string {
 		return s.Name
 	}
 	return s.ID
+}
+
+// agentState is how the listing describes whether an agent can be started.
+//
+// An API agent is not a program, and has nothing to install: what it lacks
+// is a key, or an endpoint. "not installed" above a line saying to set a key
+// sent people looking for a program to install.
+func agentState(s agent.Spec, available bool) string {
+	switch {
+	case s.Runner == agent.RunnerAPI && available:
+		return "ready"
+	case s.Runner == agent.RunnerAPI:
+		return "not set up"
+	case available:
+		return "installed"
+	}
+	return "not installed"
 }
 
 // modelSummary describes the models an agent offers, in one line.
@@ -969,12 +1356,16 @@ func offersModel(s agent.Spec, model string) bool {
 // project's default and is not known until the pane is made. That still
 // catches the typo, which is the point of checking at all.
 func checkAgent(id, model string) error {
-	specs, _ := agentCatalog()
+	specs, _, notice := agentCatalog()
 	if id != "" {
 		spec, ok := findSpec(specs, id)
 		if !ok {
-			return fmt.Errorf("no agent called %q; flockdeck can run %s (run `flockdeck agents` for what each of them offers)",
+			err := fmt.Errorf("no agent called %q; flockdeck can run %s (run `flockdeck agents` for what each of them offers)",
 				id, strings.Join(agentIDs(specs), ", "))
+			if notice != "" {
+				err = fmt.Errorf("%w. Also, %s", err, unreadAgentsFile(notice))
+			}
+			return err
 		}
 		if !offersModel(spec, model) {
 			return fmt.Errorf("%s has no model called %q; it offers %s",
@@ -993,18 +1384,58 @@ func checkAgent(id, model string) error {
 	return fmt.Errorf("no agent offers a model called %q; run `flockdeck agents` to see what each of them does", model)
 }
 
+// notInstalledWarning is what to say when the agent named on the command line
+// is in the catalog but cannot be started on this machine, or "" when there is
+// nothing to say.
+//
+// checkAgent only asks whether the name exists. Without this, `-agent codex`
+// on a machine with no Codex opened a window of panes that would not start,
+// with the reason only in the window. It is a warning rather than a refusal
+// because whether an agent is there is a probe, not a certainty.
+func notInstalledWarning(id string) string {
+	if id == "" {
+		return ""
+	}
+	specs, _, _ := agentCatalog()
+	s, ok := findSpec(specs, id)
+	if !ok || agentAvailable(s) {
+		return ""
+	}
+	if s.Runner == agent.RunnerAPI {
+		msg := agentName(s) + " is not set up here, so its panes will not start"
+		if s.Install != "" {
+			msg += "; to set it up: " + s.Install
+		}
+		return msg
+	}
+	msg := agentName(s) + " is not installed here, so its panes will not start"
+	if s.Install != "" {
+		msg += "; to install it: " + s.Install
+	}
+	return msg
+}
+
 // agentCatalog is how the command line reaches the catalog: the agents Flockdeck
 // can run -- the built-in ones overlaid with the user's agents.json -- and the
 // id of the one a pane takes when nothing has been chosen.
 //
 // It is a variable so that a test can hand it a catalog of its own.
-var agentCatalog = func() ([]agent.Spec, string) {
+//
+// The third value is the catalog's notice: empty unless the user's agents.json
+// could not be used in full, in which case an agent defined there may be
+// missing from the rest, and a name that is not found has to say why.
+var agentCatalog = func() ([]agent.Spec, string, string) {
 	c := agent.Load()
 	// The command line is not standing in any one project, so what it checks a
 	// name against is the installation's default rather than a project's. A
 	// project that runs something else of its own is answered where the pane is
 	// made, which is the only place the directory is known.
-	return c.Visible(), c.DefaultsFor("").Agent
+	return c.Visible(), c.DefaultsFor("").Agent, c.Notice
+}
+
+// unreadAgentsFile says what a catalog notice means for the command line.
+func unreadAgentsFile(notice string) string {
+	return "your agents.json was not fully read, so an agent defined there may be missing: " + notice
 }
 
 // agentAvailable reports whether an agent could actually be started here.

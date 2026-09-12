@@ -1,9 +1,19 @@
 package selfupdate
 
 import (
+	"cmp"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// describeSuffix matches what `git describe --dirty` adds after a tag: the
+// commits since it and the one built, and whether the tree had changes. The
+// Makefile stamps a build that way, and read as a pre-release it would be
+// ordered before the tag it came after, so a build three commits past v1.4.0
+// was replaced by v1.4.0 on its next restart. It is a local build, which is
+// not something to compare at all.
+var describeSuffix = regexp.MustCompile(`(^|-)(\d+-g[0-9a-f]+(-dirty)?|dirty)$`)
 
 // version is a release version, parsed far enough to be ordered against
 // another one. Only what the release tags actually carry is understood:
@@ -37,6 +47,10 @@ func parseVersion(s string) (version, bool) {
 			}
 		}
 		s = s[:i]
+	}
+
+	if describeSuffix.MatchString(v.pre) {
+		return version{}, false
 	}
 
 	parts := strings.Split(s, ".")
@@ -74,11 +88,35 @@ func compare(a, b version) int {
 		return 1
 	case b.pre == "":
 		return -1
-	case a.pre < b.pre:
-		return -1
-	default:
-		return 1
 	}
+	return comparePre(a.pre, b.pre)
+}
+
+// comparePre orders two pre-releases the way semantic versioning does: part by
+// part between the dots, and numerically where both parts are numbers. Compared
+// as text, rc.10 sorts before rc.2, and somebody on the second candidate would
+// never be offered the tenth.
+func comparePre(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		var c int
+		switch {
+		case aerr == nil && berr == nil:
+			c = cmp.Compare(an, bn)
+		case aerr == nil:
+			c = -1 // a number sorts before a word
+		case berr == nil:
+			c = 1
+		default:
+			c = strings.Compare(as[i], bs[i])
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
 }
 
 // Newer reports whether candidate is a release worth moving to from current.

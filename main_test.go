@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,15 +32,111 @@ func TestStartupOnlyFlags(t *testing.T) {
 		{"one", options{fresh: true}, []string{"-new"}},
 		{"the agent for the run", options{agent: "codex"}, []string{"-agent"}},
 		{"all of them", options{fresh: true, shell: true, agent: "codex", detach: true},
-			[]string{"-new", "-shell", "-agent", "-detach"}},
-		// -C and -no-window still mean something when attaching, so they are
-		// not in the list.
-		{"flags that still apply", options{dir: "/elsewhere", noWindow: true}, nil},
+			[]string{"-new", "-shell", "-agent"}},
+		// -C, -no-window and -detach still mean something when attaching —
+		// the last two that no window is opened — so they are not in the list.
+		{"flags that still apply", options{dir: "/elsewhere", noWindow: true, detach: true}, nil},
 	}
 	for _, c := range cases {
 		got := startupOnlyFlags(c.opts)
 		if strings.Join(got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Started from its own folder, as a double-click starts it, the program goes
+// back to the project the user was last in rather than opening the folder it
+// was downloaded to as a project of its own. From anywhere else the directory
+// it was started in is the one meant.
+func TestLandingRoot(t *testing.T) {
+	install, project, elsewhere := t.TempDir(), t.TempDir(), t.TempDir()
+	exe := filepath.Join(install, "flockdeck.exe")
+	saved := &store.Session{Open: []string{project}, Active: project}
+	gone := &store.Session{Active: filepath.Join(project, "deleted")}
+
+	cases := []struct {
+		name  string
+		cwd   string
+		saved *store.Session
+		want  string
+	}{
+		{"double-clicked, with a project to go back to", install, saved, project},
+		{"started from a terminal somewhere else", elsewhere, saved, elsewhere},
+		{"double-clicked, nothing saved yet", install, nil, install},
+		{"double-clicked, the last project has gone", install, gone, install},
+	}
+	for _, c := range cases {
+		if got := landingRoot(c.cwd, exe, c.saved); got != c.want {
+			t.Errorf("%s: landingRoot = %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// A scheduled or login start is run from a system directory — System32 under
+// Task Scheduler with no "Start in", / under launchd — which is nowhere anybody
+// works: it goes back to the last project, or failing that home.
+func TestLandingRootLeavesSystemDirectories(t *testing.T) {
+	home, project := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	sys := "/"
+	if runtime.GOOS == "windows" {
+		root := t.TempDir()
+		t.Setenv("SystemRoot", root)
+		sys = filepath.Join(root, "System32")
+	}
+	exe := filepath.Join(t.TempDir(), "flockdeck.exe")
+	saved := &store.Session{Open: []string{project}, Active: project}
+
+	if got := landingRoot(sys, exe, saved); got != project {
+		t.Errorf("started in %s with a project to go back to: landingRoot = %s, want %s", sys, got, project)
+	}
+	if got := landingRoot(sys, exe, nil); got != home {
+		t.Errorf("started in %s with nothing saved: landingRoot = %s, want the home directory %s", sys, got, home)
+	}
+}
+
+// PowerShell and cmd.exe pass a leading ~ through as typed, so -C has to read
+// it as the home directory itself, or the README's own example fails there.
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cases := []struct{ in, want string }{
+		{"~/code/api", filepath.Join(home, "code", "api")},
+		{"~", home},
+		{"~someone/code", "~someone/code"},
+		{"code/~/api", "code/~/api"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := expandHome(c.in); got != c.want {
+			t.Errorf("expandHome(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// `flockdeck help update` is asking for update's usage, the way `git help
+// commit` is; `help` alone, or followed by something that is not a
+// subcommand, gets the top-level usage.
+func TestHelpArgs(t *testing.T) {
+	cases := []struct {
+		rest    []string
+		want    []string
+		wantTop bool
+	}{
+		{nil, nil, true},
+		{[]string{"update"}, []string{"update", "-h"}, false},
+		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
+		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
+		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
+		{[]string{"nonsense"}, nil, true},
+	}
+	for _, c := range cases {
+		got, top := helpArgs(c.rest)
+		if top != c.wantTop || strings.Join(got, " ") != strings.Join(c.want, " ") {
+			t.Errorf("helpArgs(%q) = %q, %v; want %q, %v", c.rest, got, top, c.want, c.wantTop)
 		}
 	}
 }
@@ -71,6 +171,20 @@ func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
 	err := runSpawn([]string{"tidy", "the", "imports"})
 	if err == nil || !strings.Contains(err.Error(), "pane") {
 		t.Errorf("err = %v, want it to mention panes", err)
+	}
+}
+
+// A spawn the instance did not answer in time is explained as the instance
+// being busy; anything else is passed on as it was.
+func TestExplainSpawn(t *testing.T) {
+	late := &url.Error{Op: "Post", URL: "http://127.0.0.1:1/spawn", Err: context.DeadlineExceeded}
+	got := explainSpawn(late).Error()
+	if !strings.Contains(got, "did not answer within a minute") || strings.Contains(got, "127.0.0.1") {
+		t.Errorf("a spawn that ran out of time: %q, want it explained without the URL", got)
+	}
+	refused := errors.New("spawn: worktree fix-auth already exists")
+	if got := explainSpawn(refused); got != refused {
+		t.Errorf("a refusal became %q", got)
 	}
 }
 
@@ -282,6 +396,19 @@ func TestUsageNamesEveryFlag(t *testing.T) {
 	}
 }
 
+// The settings that have no flag are only discoverable if the usage names them.
+func TestUsageNamesTheEnvironment(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	for _, name := range []string{"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY"} {
+		if !strings.Contains(buf.String(), name) {
+			t.Errorf("%s is missing from the usage message", name)
+		}
+	}
+}
+
 // Saving walks the tabs and the pane tree; the server's own goroutine is still
 // changing them while any window is connected. Stopping the server has to come
 // first, or the one piece of state the user would notice losing is read while
@@ -309,46 +436,6 @@ func TestShutdownReportsTheSave(t *testing.T) {
 	}
 	if err := shutdown(func() error { return errors.New("still serving") }, func() error { return nil }); err != nil {
 		t.Errorf("err = %v, want nil when the layout was saved", err)
-	}
-}
-
-// `-quit` has to wait for the instance to actually go, not just to take the
-// request: until it has, its address still answers, and the next `flockdeck`
-// attaches to an instance in the middle of shutting down.
-func TestWaitGoneWaitsForTheInstance(t *testing.T) {
-	calls := 0
-	start := time.Now()
-	if !waitGone(func() bool { calls++; return calls >= 3 }, time.Second) {
-		t.Fatal("gave up on an instance that did stop")
-	}
-	if calls != 3 {
-		t.Errorf("asked %d times, want 3", calls)
-	}
-	if elapsed := time.Since(start); elapsed < quitPoll {
-		t.Errorf("returned after %s without waiting between tries", elapsed)
-	}
-}
-
-// An instance that never goes must not be reported as stopped.
-func TestWaitGoneGivesUp(t *testing.T) {
-	start := time.Now()
-	if waitGone(func() bool { return false }, 250*time.Millisecond) {
-		t.Error("reported an instance gone that never went")
-	}
-	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
-		t.Errorf("gave up after %s, before the deadline", elapsed)
-	}
-}
-
-// The common case is an instance that has already gone by the time it is
-// asked, and that must not cost a poll interval.
-func TestWaitGoneReturnsAtOnce(t *testing.T) {
-	start := time.Now()
-	if !waitGone(func() bool { return true }, time.Second) {
-		t.Fatal("did not see an instance that was already gone")
-	}
-	if elapsed := time.Since(start); elapsed >= quitPoll {
-		t.Errorf("took %s for an instance that had already gone", elapsed)
 	}
 }
 
@@ -401,7 +488,7 @@ func useCatalog(t *testing.T, specs []agent.Spec, defaultID string, installed ma
 	t.Helper()
 	catalog, available := agentCatalog, agentAvailable
 	t.Cleanup(func() { agentCatalog, agentAvailable = catalog, available })
-	agentCatalog = func() ([]agent.Spec, string) { return specs, defaultID }
+	agentCatalog = func() ([]agent.Spec, string, string) { return specs, defaultID, "" }
 	agentAvailable = func(s agent.Spec) bool { return installed[s.ID] }
 }
 
@@ -514,6 +601,88 @@ func TestPrintAgentsShowsWhatIsNotInstalled(t *testing.T) {
 	// form.
 	if strings.Contains(out, "Retired") {
 		t.Errorf("the listing shows a hidden agent:\n%s", out)
+	}
+}
+
+// When agents.json could not all be used, an agent defined there is missing
+// from the catalog, and "no agent called mine" alone sends the user to check
+// the spelling rather than the file. Both the error and the listing say so.
+func TestAnUnreadAgentsFileIsSaid(t *testing.T) {
+	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
+	agentCatalog = func() ([]agent.Spec, string, string) {
+		return testCatalog(), "claude", "agents.json: invalid character '}' after object key"
+	}
+	err := checkAgent("mine", "")
+	if err == nil || !strings.Contains(err.Error(), "agents.json was not fully read") || !strings.Contains(err.Error(), "invalid character") {
+		t.Errorf("checkAgent(mine) = %v, want it to say agents.json was not fully read, and why", err)
+	}
+	var buf bytes.Buffer
+	printAgents(&buf)
+	if !strings.Contains(buf.String(), "agents.json was not fully read") {
+		t.Errorf("the listing does not say agents.json was not fully read:\n%s", buf.String())
+	}
+}
+
+// An agent that exists but is not installed is still worth a word at the
+// command line, and the word says how to get it.
+func TestNotInstalledWarning(t *testing.T) {
+	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
+	if w := notInstalledWarning("codex"); !strings.Contains(w, "Codex") || !strings.Contains(w, "npm i -g @openai/codex") {
+		t.Errorf("codex, not installed: %q, want its name and install line", w)
+	}
+	if w := notInstalledWarning("claude"); w != "" {
+		t.Errorf("claude, installed: %q, want nothing", w)
+	}
+	if w := notInstalledWarning(""); w != "" {
+		t.Errorf("no agent chosen: %q, want nothing", w)
+	}
+}
+
+// A flag that takes a value says in -h what the value is. Go's default for a
+// string is the word "string", which is how `-C string` and `-worktree string`
+// sat beside `-agent id` and `-model model` in the usage.
+func TestEveryFlagNamesItsValue(t *testing.T) {
+	for name, fs := range map[string]*flag.FlagSet{
+		"flockdeck":       flockdeckFlagSet(&cliFlags{}),
+		"flockdeck spawn": spawnFlagSet(&spawnFlags{}),
+	} {
+		fs.VisitAll(func(f *flag.Flag) {
+			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+				return
+			}
+			switch value, _ := flag.UnquoteUsage(f); value {
+			case "string", "value", "int", "uint", "float", "duration":
+				t.Errorf("%s -%s is shown as taking a %q; say what goes there", name, f.Name, value)
+			}
+		})
+	}
+}
+
+// An API agent is not a program to install: what it lacks is a key. It was
+// listed as "not installed" above a line saying to set one, and warned about
+// as "not installed here".
+func TestAPIAgentsAreSetUpRatherThanInstalled(t *testing.T) {
+	api := agent.Spec{ID: "anthropic", Name: "Claude API", Runner: agent.RunnerAPI,
+		Install: "set a key with `flockdeck keys set anthropic`"}
+	for _, ready := range []bool{false, true} {
+		useCatalog(t, append(testCatalog(), api), "claude", map[string]bool{"claude": true, "anthropic": ready})
+		var buf bytes.Buffer
+		printAgents(&buf)
+		out := buf.String()
+		want, wantNot := "Claude API  [not set up]", "Claude API  [not installed]"
+		if ready {
+			want = "Claude API  [ready]"
+		}
+		if !strings.Contains(out, want) || strings.Contains(out, wantNot) {
+			t.Errorf("key set %v: the listing does not say %q:\n%s", ready, want, out)
+		}
+		if got := strings.Contains(out, "set up: set a key"); got == ready {
+			t.Errorf("key set %v: the line saying how to set it up is shown %v:\n%s", ready, got, out)
+		}
+	}
+	useCatalog(t, append(testCatalog(), api), "claude", map[string]bool{"claude": true})
+	if w := notInstalledWarning("anthropic"); !strings.Contains(w, "not set up") || !strings.Contains(w, "keys set anthropic") || strings.Contains(w, "install") {
+		t.Errorf("anthropic, no key: %q, want it called not set up, with how to set it up", w)
 	}
 }
 

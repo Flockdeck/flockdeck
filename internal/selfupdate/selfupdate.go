@@ -5,7 +5,8 @@
 // the application can afford to do the first two at any time and can only ever
 // do the third at a moment of the user's choosing:
 //
-//   - Check asks GitHub what the latest release is.
+//   - Latest asks GitHub what the latest release is, and Newer says whether
+//     it is one to move to; an untagged local build never has one.
 //   - Stage downloads it, checks it against the published SHA-256 and unpacks
 //     the binary into the state directory. Nothing about the installation has
 //     changed yet.
@@ -17,14 +18,23 @@
 // Staging is recorded on disk, so an update downloaded in one run is still
 // there to be applied by the next, and a half-finished download is never
 // mistaken for a finished one.
+//
+// On Windows the program has a console twin beside it (chatName), the same
+// program with its PE Subsystem set to console, which an API agent's pane
+// runs. Stage and Apply carry it with the program when a release has one,
+// and EnsureChatTwin keeps it exactly in step with the program at every start
+// however the program was put there.
 package selfupdate
 
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"debug/pe"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,8 +44,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Repo is the repository releases are read from, as owner/name.
@@ -47,6 +60,19 @@ var binaryName = func() string {
 		return "flockdeck.exe"
 	}
 	return "flockdeck"
+}()
+
+// chatName is the console twin a Windows release carries beside the program,
+// or "" where there is none. It is the same program linked as a console
+// program, which is what an API agent's pane runs: a pane is a pseudo-console,
+// and Windows attaches one only to a console program. It is updated with the
+// program, since the program starts it, and a new program beside an old twin
+// would run a chat client of another version in its panes.
+var chatName = func() string {
+	if runtime.GOOS == "windows" {
+		return "flockdeck-chat.exe"
+	}
+	return ""
 }()
 
 // ErrNoAsset is returned when a release carries nothing built for this
@@ -75,6 +101,7 @@ type Release struct {
 type Pending struct {
 	Version string    `json:"version"`
 	Binary  string    `json:"binary"`
+	Chat    string    `json:"chat,omitempty"` // the staged console twin (chatName), when the release has one
 	Notes   string    `json:"notes,omitempty"`
 	URL     string    `json:"url,omitempty"`
 	Staged  time.Time `json:"staged"`
@@ -98,6 +125,16 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		// GitHub turns away an address that has asked too often with a 403
+		// and says when it may ask again. "403 Forbidden" alone reads as
+		// though something were wrong with the release or with this machine.
+		if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			when := "later"
+			if reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+				when = "after " + time.Unix(reset, 0).Format("15:04")
+			}
+			return nil, fmt.Errorf("GitHub is limiting how often this address may ask for releases; try again %s", when)
+		}
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	return resp, nil
@@ -118,23 +155,6 @@ func Latest(ctx context.Context) (*Release, error) {
 	return &rel, nil
 }
 
-// Check returns the latest release when it is newer than the version given,
-// and nil when there is nothing to do.
-//
-// An unreadable current version — `dev`, which is what a build with no tag
-// behind it is stamped — means nothing to do, so a local build is never
-// replaced by a published one.
-func Check(ctx context.Context, current string) (*Release, error) {
-	rel, err := Latest(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if rel.Draft || !Newer(rel.Version, current) {
-		return nil, nil
-	}
-	return rel, nil
-}
-
 // assetFor picks the archive built for this platform. The name is the contract
 // with cmd/release, which writes flockdeck_<version>_<os>_<arch>.<ext>.
 func (r *Release) assetFor(goos, goarch string) (Asset, bool) {
@@ -147,6 +167,13 @@ func (r *Release) assetFor(goos, goarch string) (Asset, bool) {
 	return Asset{}, false
 }
 
+// DownloadSize is the size in bytes of the archive Stage would fetch for this
+// platform, or 0 when the release has none or does not say.
+func (r *Release) DownloadSize() int64 {
+	a, _ := r.assetFor(runtime.GOOS, runtime.GOARCH)
+	return a.Size
+}
+
 func (r *Release) checksums() (Asset, bool) {
 	for _, a := range r.Assets {
 		if a.Name == "checksums.txt" {
@@ -156,7 +183,8 @@ func (r *Release) checksums() (Asset, bool) {
 	return Asset{}, false
 }
 
-// Stage downloads the release, checks it and unpacks the binary under dir.
+// Stage downloads the release, checks it and unpacks the binary under dir,
+// with the console twin beside it when the release has one.
 //
 // The download is hashed as it is written rather than read back afterwards, so
 // a file that does not match is never on disk in a state anything could mistake
@@ -176,38 +204,67 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		return nil, err
 	}
 
-	// Anything left from an interrupted attempt goes first: a stale archive or
-	// a half-unpacked binary under the same name would otherwise be picked up
-	// as though this run had produced it.
-	staging := filepath.Join(dir, "staging")
-	if err := os.RemoveAll(staging); err != nil {
+	// The release is fetched beside whatever is staged already, not over it.
+	// There is one when a newer release comes out before the last was
+	// applied, and clearing it first meant a download that failed, or did
+	// not match, left nothing to apply while the top bar went on offering
+	// it. Anything left in the work directory by an interrupted attempt goes
+	// first, so a stale archive is never taken for this run's.
+	work := filepath.Join(dir, "staging.new")
+	if err := os.RemoveAll(work); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(staging, 0o755); err != nil {
+	if err := os.MkdirAll(work, 0o755); err != nil {
 		return nil, err
 	}
+	defer os.RemoveAll(work) // nothing left once it has become the staging
 
-	archive := filepath.Join(staging, asset.Name)
+	archive := filepath.Join(work, asset.Name)
 	if err := download(ctx, asset.URL, archive, want); err != nil {
 		return nil, err
 	}
-
-	binary := filepath.Join(staging, binaryName)
-	if err := unpack(archive, binary); err != nil {
+	if err := unpack(archive, filepath.Join(work, binaryName), binaryName); err != nil {
 		return nil, err
+	}
+	// A release from before the twin has none, and the program is then
+	// updated on its own, as it always was.
+	haveChat := false
+	if chatName != "" {
+		var missing notInArchive
+		switch err := unpack(archive, filepath.Join(work, chatName), chatName); {
+		case err == nil:
+			haveChat = true
+		case !errors.As(err, &missing):
+			return nil, err
+		}
 	}
 	if err := os.Remove(archive); err != nil {
 		return nil, err
 	}
 
+	staging := filepath.Join(dir, "staging")
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(work, staging); err != nil {
+		return nil, err
+	}
+
 	p := &Pending{
 		Version: rel.Version,
-		Binary:  binary,
+		Binary:  filepath.Join(staging, binaryName),
 		Notes:   rel.Notes,
 		URL:     rel.URL,
 		Staged:  time.Now().UTC(),
 	}
+	if haveChat {
+		p.Chat = filepath.Join(staging, chatName)
+	}
 	if err := save(dir, p); err != nil {
+		// The staging directory holds this release now, and a record still
+		// naming the one before would have it installed under that one's
+		// version. Nothing staged is better than that.
+		Discard(dir)
 		return nil, err
 	}
 	return p, nil
@@ -228,7 +285,15 @@ func fetchSum(ctx context.Context, url, name string) (string, error) {
 	for _, line := range strings.Split(string(body), "\n") {
 		f := strings.Fields(line)
 		if len(f) == 2 && f[1] == name {
-			return strings.ToLower(f[0]), nil
+			// Anything but a SHA-256 can only fail the comparison, and failing
+			// it used to panic on the way to saying so: the message quotes a
+			// prefix of each hash. That was in the background watcher, where a
+			// panic takes the application and every agent in it down.
+			sum := strings.ToLower(f[0])
+			if _, err := hex.DecodeString(sum); err != nil || len(sum) != 2*sha256.Size {
+				return "", fmt.Errorf("checksums.txt lists %s without a SHA-256", name)
+			}
+			return sum, nil
 		}
 	}
 	return "", fmt.Errorf("checksums.txt does not list %s", name)
@@ -262,15 +327,20 @@ func download(ctx context.Context, url, dest, want string) error {
 	return nil
 }
 
-// unpack writes the one file that matters — the binary — out of the archive.
-func unpack(archive, dest string) error {
+// notInArchive is unpack's error for a file the archive does not hold.
+type notInArchive struct{ name string }
+
+func (e notInArchive) Error() string { return "archive does not contain " + e.name }
+
+// unpack writes one program, name, out of the archive to dest.
+func unpack(archive, dest, name string) error {
 	if strings.HasSuffix(archive, ".zip") {
-		return unzip(archive, dest)
+		return unzip(archive, dest, name)
 	}
-	return untar(archive, dest)
+	return untar(archive, dest, name)
 }
 
-func unzip(archive, dest string) error {
+func unzip(archive, dest, name string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
 		return err
@@ -278,7 +348,7 @@ func unzip(archive, dest string) error {
 	defer zr.Close()
 
 	for _, f := range zr.File {
-		if filepath.Base(f.Name) != binaryName {
+		if filepath.Base(f.Name) != name {
 			continue
 		}
 		rc, err := f.Open()
@@ -288,10 +358,10 @@ func unzip(archive, dest string) error {
 		defer rc.Close()
 		return writeBinary(dest, rc)
 	}
-	return fmt.Errorf("archive does not contain %s", binaryName)
+	return notInArchive{name}
 }
 
-func untar(archive, dest string) error {
+func untar(archive, dest, name string) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -313,12 +383,12 @@ func untar(archive, dest string) error {
 		if err != nil {
 			return err
 		}
-		if h.Typeflag != tar.TypeReg || filepath.Base(h.Name) != binaryName {
+		if h.Typeflag != tar.TypeReg || filepath.Base(h.Name) != name {
 			continue
 		}
 		return writeBinary(dest, tr)
 	}
-	return fmt.Errorf("archive does not contain %s", binaryName)
+	return notInArchive{name}
 }
 
 func writeBinary(dest string, r io.Reader) error {
@@ -344,16 +414,16 @@ func writeBinary(dest string, r io.Reader) error {
 
 func pendingPath(dir string) string { return filepath.Join(dir, "pending.json") }
 
+// save records what is staged. It goes through store.WriteAtomic rather than a
+// temporary file of its own: two instances staging at once each get a
+// temporary of their own there, and on Windows a read of pending.json by the
+// other at that moment is waited out instead of failing the rename.
 func save(dir string, p *Pending) error {
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := pendingPath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, pendingPath(dir))
+	return store.WriteAtomic(pendingPath(dir), data)
 }
 
 // Load returns the update waiting to be applied, if there is one.
@@ -377,6 +447,11 @@ func Load(dir string) (*Pending, bool) {
 	if _, err := os.Stat(p.Binary); err != nil {
 		return nil, false
 	}
+	if p.Chat != "" {
+		if _, err := os.Stat(p.Chat); err != nil {
+			return nil, false
+		}
+	}
 	return &p, true
 }
 
@@ -388,17 +463,13 @@ func Discard(dir string) {
 
 // --- putting it in place --------------------------------------------------
 
-// Apply replaces the running program's file with the staged binary.
+// Apply replaces the running program's file with the staged binary, and on
+// Windows the console twin beside it (chatName) with the staged one.
 //
-// The running file is moved aside rather than written over. Windows will not
-// let an executable that is running be replaced, but it will let it be
-// renamed, so moving it out of the way and putting the new one at the old name
-// works while the program is still running from it. The moved-aside file is
-// swept up by the next start, once nothing holds it open.
-//
-// The staged binary is copied rather than renamed into place because the state
-// directory and the installation are frequently on different volumes, and a
-// rename across volumes fails.
+// The two go in together or not at all: a new program beside an old twin, or
+// the other way round, would run a chat client of another version in its
+// panes. So the twin goes in first and is taken back out if the program then
+// cannot be put in, and the update stays staged for the next attempt.
 func Apply(dir, exePath string) error {
 	p, ok := Load(dir)
 	if !ok {
@@ -409,41 +480,136 @@ func Apply(dir, exePath string) error {
 	if err != nil {
 		return err
 	}
-
-	// Landing the copy beside the program, rather than copying straight over
-	// it, keeps the window in which the file exists but is incomplete off the
-	// name that is about to be run.
-	next := exePath + ".new"
-	if err := copyFile(p.Binary, next); err != nil {
-		return fmt.Errorf("write the new version beside the old one: %w", err)
+	// Run as the twin, as `flockdeck-chat update` is, the program to replace
+	// is the one beside it. Taken as the program itself, the twin's file got
+	// the twin and then the program over it: a GUI program where the panes
+	// need the console one, and the program itself left as it was.
+	if chatName != "" && strings.EqualFold(filepath.Base(exePath), chatName) {
+		exePath = filepath.Join(filepath.Dir(exePath), binaryName)
 	}
 
-	old := exePath + ".old"
-	os.Remove(old)
-	if err := os.Rename(exePath, old); err != nil {
-		os.Remove(next)
-		return fmt.Errorf("move the running version aside: %w", err)
+	var undoChat func() error
+	if p.Chat != "" {
+		undo, err := replace(p.Chat, filepath.Join(filepath.Dir(exePath), chatName))
+		if err != nil {
+			return fmt.Errorf("put the new %s in place: %w", chatName, err)
+		}
+		undoChat = undo
 	}
-	if err := os.Rename(next, exePath); err != nil {
-		// Put back what was there. Leaving no program at all under the name
-		// the user starts is far worse than failing to update.
-		os.Rename(old, exePath)
-		os.Remove(next)
-		return fmt.Errorf("put the new version in place: %w", err)
+	if _, err := replace(p.Binary, exePath); err != nil {
+		if undoChat != nil {
+			if uerr := undoChat(); uerr != nil {
+				return fmt.Errorf("%w; the new %s, already in place, could not be taken back out either: %v", err, chatName, uerr)
+			}
+		}
+		return err
 	}
 
 	Discard(dir)
 	return nil
 }
 
-// Sweep removes the file a previous Apply moved aside. It is called at startup,
-// by which time nothing holds the old program open.
+// replace puts the staged file src at target, which may be running.
+//
+// A file there is moved aside rather than written over. Windows will not let
+// an executable that is running be replaced, but it will let it be renamed, so
+// moving it out of the way and putting the new one at the old name works while
+// the program is still running from it. The moved-aside file is swept up by
+// the next start, once nothing holds it open.
+//
+// The staged file is copied rather than renamed into place because the state
+// directory and the installation are frequently on different volumes, and a
+// rename across volumes fails.
+//
+// undo takes the new file back out: what was there before is put back, or,
+// where there was nothing, the new file is removed.
+func replace(src, target string) (undo func() error, err error) {
+	// Landing the copy beside the program, rather than copying straight over
+	// it, keeps the window in which the file exists but is incomplete off the
+	// name that is about to be run.
+	next := target + ".new"
+	if err := copyFile(src, next); err != nil {
+		return nil, fmt.Errorf("write the new version beside the old one: %w", err)
+	}
+
+	// The twin is missing from an installation made before there was one.
+	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(next, target); err != nil {
+			os.Remove(next)
+			return nil, fmt.Errorf("put the new version in place: %w", err)
+		}
+		return func() error { return os.Remove(target) }, nil
+	}
+
+	// The running program normally goes to <name>.old, but what is there can
+	// still be running itself: an instance started before one update runs
+	// from it when a second is put in place, and Windows will neither delete
+	// it nor rename anything over it. That one is left alone and this one
+	// takes a name of its own, which the sweep clears as well.
+	old := target + ".old"
+	if err := os.Remove(old); err != nil && !errors.Is(err, os.ErrNotExist) {
+		old = fmt.Sprintf("%s.old-%d", target, time.Now().UnixNano())
+	}
+	if err := os.Rename(target, old); err != nil {
+		os.Remove(next)
+		return nil, fmt.Errorf("move the running version aside: %w", err)
+	}
+	if err := os.Rename(next, target); err != nil {
+		// Put back what was there. Leaving no program at all under the name
+		// the user starts is far worse than failing to update — and when
+		// even that fails, where the program went is the one thing they
+		// need to be told.
+		if rerr := os.Rename(old, target); rerr != nil {
+			return nil, fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, target)
+		}
+		os.Remove(next)
+		return nil, fmt.Errorf("put the new version in place: %w", err)
+	}
+	// Nothing has started the new file yet, so it can simply be removed.
+	return func() error {
+		if err := os.Remove(target); err != nil {
+			return err
+		}
+		return os.Rename(old, target)
+	}, nil
+}
+
+// Sweep removes the files previous Applies moved aside, the console twin's as
+// well as the program's, and what an interrupted EnsureChatTwin left. It is
+// called at startup, by which time nothing holds the old program open — or,
+// for one an instance still running is using, fails to and leaves it for next
+// time.
 func Sweep(exePath string) {
 	if exePath == "" {
 		return
 	}
-	os.Remove(exePath + ".old")
-	os.Remove(exePath + ".new")
+	sweepAside(exePath)
+	if chatName == "" {
+		return
+	}
+	sweepAside(filepath.Join(filepath.Dir(exePath), chatName))
+	// And what an EnsureChatTwin that was cut short left of the twin it was
+	// writing.
+	dir := filepath.Dir(exePath)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasPrefix(n, chatName+".") && strings.HasSuffix(n, ".tmp") {
+			os.Remove(filepath.Join(dir, n))
+		}
+	}
+}
+
+// sweepAside removes what an Apply moved aside from path.
+func sweepAside(path string) {
+	os.Remove(path + ".old")
+	os.Remove(path + ".new")
+	dir, base := filepath.Split(path)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), base+".old-") {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -458,6 +624,13 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	_, err = io.Copy(out, in)
+	// The copy is renamed onto the name the program is started by, and that
+	// name has just been vacated, so no file system treats the rename as the
+	// replacement it is and flushes the data ahead of it. Without this a crash
+	// soon after an update could leave an empty file where the program was.
+	if err == nil {
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -466,6 +639,117 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.Chmod(dst, 0o755)
+}
+
+// EnsureChatTwin keeps the console twin (chatName) beside the program at
+// exePath exactly what the program makes of itself (ConsoleTwin), writing it
+// when it is missing or differs.
+//
+// A release carries the twin, but the first update to one is put in place by
+// the release before it, whose updater knows only the program, and an
+// installation made by an install script of before, or by `go install`, has
+// none either: without one an API agent's pane is blank. And a program
+// replaced by any route that leaves the twin as it was — a copy by hand, an
+// updater of before — would have its panes run a chat client of another
+// version, whose hook events, prompts and transcripts can have drifted.
+//
+// Only a file of exactly that name in the program's own directory is ever
+// written, never through a link, a reparse point or anything else that is
+// not a regular file. The new twin is written beside it and renamed over it;
+// a twin a chat pane is running from cannot be renamed over on Windows, and
+// is left for the next start, the pane working on meanwhile. It does nothing
+// off Windows, for the twin itself, or for a program that is not a GUI build,
+// which runs in a pane as it is.
+func EnsureChatTwin(exePath string) error {
+	if chatName == "" || exePath == "" {
+		return nil
+	}
+	exePath, err := filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(filepath.Base(exePath), binaryName) {
+		return nil
+	}
+	self, err := os.ReadFile(exePath)
+	if err != nil {
+		return err
+	}
+	want, ok := ConsoleTwin(self)
+	if !ok {
+		return nil
+	}
+
+	dir := filepath.Dir(exePath)
+	twin := filepath.Join(dir, chatName)
+	switch fi, err := os.Lstat(twin); {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return err
+	case !fi.Mode().IsRegular():
+		return nil
+	case fi.Size() == int64(len(want)):
+		// The size is compared first, so a stale twin of another build is
+		// told apart without reading it; the same size is read and compared.
+		if have, err := os.ReadFile(twin); err == nil && bytes.Equal(have, want) {
+			return nil
+		}
+	}
+
+	tmp, err := os.CreateTemp(dir, chatName+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(want)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o755)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), twin)
+	}
+	if err != nil {
+		// Most often a chat pane running from the twin, which Windows will
+		// not let anything be renamed over. The next start tries again.
+		os.Remove(tmp.Name())
+	}
+	return nil
+}
+
+// ConsoleTwin is program with its PE Subsystem field set to console: the
+// console twin of a GUI build, which is all that tells the two apart and all
+// that decides whether Windows gives a pane's process a console. It is false
+// for anything that is not a GUI-subsystem PE file.
+func ConsoleTwin(program []byte) ([]byte, bool) {
+	off, ok := subsystemOffset(program)
+	if !ok || binary.LittleEndian.Uint16(program[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_GUI {
+		return nil, false
+	}
+	twin := bytes.Clone(program)
+	binary.LittleEndian.PutUint16(twin[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_CUI)
+	return twin, true
+}
+
+// subsystemOffset is where a PE file keeps its Subsystem field: in the
+// optional header after the PE signature and the file header, 68 bytes in for
+// PE32 and PE32+ alike. It is false for anything that is not a PE file.
+func subsystemOffset(data []byte) (int, bool) {
+	if len(data) < 0x40 || data[0] != 'M' || data[1] != 'Z' {
+		return 0, false
+	}
+	at := int(binary.LittleEndian.Uint32(data[0x3c:]))
+	if at <= 0 || at+24+70 > len(data) || string(data[at:at+4]) != "PE\x00\x00" {
+		return 0, false
+	}
+	if magic := binary.LittleEndian.Uint16(data[at+24:]); magic != 0x10b && magic != 0x20b {
+		return 0, false
+	}
+	return at + 24 + 68, true
 }
 
 // Dir is where updates are staged, given the application's state directory.

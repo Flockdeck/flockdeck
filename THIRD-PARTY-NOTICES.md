@@ -53,12 +53,19 @@ SOFTWARE.
 ## Go modules, linked into the binary
 
 These are the modules the binary actually links, as reported by
-`go version -m flockdeck`. Test-only and build-only dependencies are not
-distributed and are not listed.
+`go version -m flockdeck`, on every platform a release is built for; what is
+linked differs by platform, and a module linked on only some of them says so.
+Test-only and build-only dependencies are not distributed and are not listed.
 
 ### github.com/aymanbagabas/go-pty — MIT
 
 Copyright (c) 2023 Ayman Bagabas
+
+### github.com/creack/pty — MIT
+
+Copyright (c) 2011 Keith Rarick
+
+Linked on Linux and macOS, where the PTY layer is built on it.
 
 ### github.com/yuin/goldmark — MIT
 
@@ -68,8 +75,42 @@ Copyright (c) 2019 Yusuke Inuzuka
 
 Copyright (c) 2016-2017 xtaci
 
-All three are under the MIT licence, whose full text is reproduced above and in
+All four are under the MIT licence, whose full text is reproduced above and in
 [LICENSE](LICENSE).
+
+### github.com/u-root/u-root — BSD 3-Clause
+
+Copyright (c) 2012-2019, u-root Authors
+All rights reserved.
+
+Linked on Linux and macOS, where the PTY layer uses its terminal handling.
+
+```
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
 ### github.com/coder/websocket — ISC
 

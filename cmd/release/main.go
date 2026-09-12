@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +28,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // platforms is what a release is built for. It matches the Makefile's list,
@@ -42,6 +45,19 @@ var platforms = []struct{ OS, Arch string }{
 }
 
 const binary = "flockdeck"
+
+// chatBinary is the console twin of the Windows build: the program with its
+// PE Subsystem set to console. An API agent's pane runs Flockdeck's own chat
+// client as its process, and a pane is a pseudo-console, which Windows
+// attaches only to console programs: started from the GUI build the pane
+// stayed blank. The launcher runs this one instead when it sits beside the
+// program.
+//
+// It is made from the program's own build rather than linked again, so it
+// holds exactly the bytes the program writes for itself when its twin is
+// missing or stale (selfupdate.EnsureChatTwin): one linked separately differs
+// throughout, and every installation would rewrite it at its first start.
+const chatBinary = "flockdeck-chat"
 
 func main() {
 	var (
@@ -63,42 +79,21 @@ func run(version, out string) error {
 	if err := checkExtras(); err != nil {
 		return err
 	}
+	if err := clearOldArchives(out); err != nil {
+		return err
+	}
 
 	// Sums are collected as the archives are written and spilled at the end,
 	// so checksums.txt can never describe an archive that failed to build.
 	sums := map[string]string{}
 
 	for _, p := range platforms {
-		exe := binary
-		if p.OS == "windows" {
-			exe += ".exe"
-		}
-		built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, p.OS, p.Arch, ext(p.OS)))
-
-		if err := build(version, p.OS, p.Arch, built); err != nil {
-			return fmt.Errorf("build %s/%s: %w", p.OS, p.Arch, err)
-		}
-
-		name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, p.OS, p.Arch, archiveExt(p.OS))
-		archive := filepath.Join(out, name)
-
-		var err error
-		if p.OS == "windows" {
-			err = writeZip(archive, built, exe)
-		} else {
-			err = writeTarGz(archive, built, exe)
-		}
+		name, err := packagePlatform(version, out, p.OS, p.Arch)
 		if err != nil {
-			return fmt.Errorf("package %s: %w", name, err)
-		}
-
-		// The loose binary has been folded into the archive and would only
-		// confuse a release page that is meant to offer one file per platform.
-		if err := os.Remove(built); err != nil {
 			return err
 		}
 
-		sum, err := sha256File(archive)
+		sum, err := sha256File(filepath.Join(out, name))
 		if err != nil {
 			return err
 		}
@@ -107,6 +102,79 @@ func run(version, out string) error {
 	}
 
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
+}
+
+// packagePlatform builds one platform and writes its archive to out, and
+// returns the archive's name. Windows gets the console twin (chatBinary)
+// beside the program.
+func packagePlatform(version, out, goos, goarch string) (string, error) {
+	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
+	if err := build(version, goos, goarch, built); err != nil {
+		return "", fmt.Errorf("build %s/%s: %w", goos, goarch, err)
+	}
+	files := []archived{{built, binary + ext(goos)}}
+
+	// The twin doubles the Windows download (4.7 MB to 9.4 MB for a build
+	// measured here: zip compresses the two near-identical programs apart),
+	// and a program that can write its own directory makes the same file at
+	// its first start anyway. It is shipped all the same, by decision: an
+	// archive unpacked where the program cannot write, such as under Program
+	// Files, would otherwise give blank API agent panes with nothing to say
+	// why, which is worse than a few megabytes. Do not drop it to save them.
+	if goos == "windows" {
+		program, err := os.ReadFile(built)
+		if err != nil {
+			return "", err
+		}
+		data, ok := selfupdate.ConsoleTwin(program)
+		if !ok {
+			return "", fmt.Errorf("%s/%s: the build is not a GUI-subsystem program to make %s from", goos, goarch, chatBinary)
+		}
+		twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, goos, goarch, ext(goos)))
+		if err := os.WriteFile(twin, data, 0o755); err != nil {
+			return "", err
+		}
+		files = append(files, archived{twin, chatBinary + ext(goos)})
+	}
+
+	name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, goos, goarch, archiveExt(goos))
+	archive := filepath.Join(out, name)
+
+	var err error
+	if goos == "windows" {
+		err = writeZip(archive, files)
+	} else {
+		err = writeTarGz(archive, files)
+	}
+	if err != nil {
+		return "", fmt.Errorf("package %s: %w", name, err)
+	}
+
+	// The loose binaries have been folded into the archive and would only
+	// confuse a release page that is meant to offer one file per platform.
+	for _, f := range files {
+		if err := os.Remove(f.path); err != nil {
+			return "", err
+		}
+	}
+	return name, nil
+}
+
+// clearOldArchives removes what an earlier run wrote to out. Archives of
+// another version would otherwise sit beside this run's, missing from its
+// checksums.txt, and uploading the directory as it stands would publish them
+// with the release. Only the names this command writes are touched.
+func clearOldArchives(out string) error {
+	old, err := filepath.Glob(filepath.Join(out, binary+"_*"))
+	if err != nil {
+		return err
+	}
+	for _, f := range append(old, filepath.Join(out, "checksums.txt")) {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func ext(goos string) string {
@@ -127,8 +195,8 @@ func archiveExt(goos string) string {
 //
 // The Windows build asks for the GUI subsystem for the same reason the
 // Makefile does: started from a shortcut it should not flash a console window
-// behind the interface, and standard handles are still inherited when it is
-// started from a terminal, so output on the console keeps working.
+// behind the interface. A program linked that way is given no console, even
+// by a terminal, so the program borrows the terminal's itself (useConsole).
 func build(version, goos, goarch, out string) error {
 	ldflags := "-s -w -X main.version=" + version
 	if goos == "windows" {
@@ -176,7 +244,10 @@ func checkExtras() error {
 	return nil
 }
 
-func writeZip(archive, binPath, nameInArchive string) error {
+// archived is a program built for an archive, and the name it has there.
+type archived struct{ path, name string }
+
+func writeZip(archive string, programs []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -184,13 +255,12 @@ func writeZip(archive, binPath, nameInArchive string) error {
 	defer f.Close()
 
 	zw := zip.NewWriter(f)
-	if err := zipOne(zw, binPath, nameInArchive, 0o755); err != nil {
-		return err
+	for _, p := range programs {
+		if err := zipOne(zw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
 	}
 	for _, e := range extras {
-		if _, err := os.Stat(e); err != nil {
-			continue
-		}
 		if err := zipOne(zw, e, filepath.Base(e), 0o644); err != nil {
 			return err
 		}
@@ -218,7 +288,7 @@ func zipOne(zw *zip.Writer, path, name string, mode os.FileMode) error {
 	return err
 }
 
-func writeTarGz(archive, binPath, nameInArchive string) error {
+func writeTarGz(archive string, programs []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -228,13 +298,12 @@ func writeTarGz(archive, binPath, nameInArchive string) error {
 	gz := gzip.NewWriter(f)
 	tw := tar.NewWriter(gz)
 
-	if err := tarOne(tw, binPath, nameInArchive, 0o755); err != nil {
-		return err
+	for _, p := range programs {
+		if err := tarOne(tw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
 	}
 	for _, e := range extras {
-		if _, err := os.Stat(e); err != nil {
-			continue
-		}
 		if err := tarOne(tw, e, filepath.Base(e), 0o644); err != nil {
 			return err
 		}

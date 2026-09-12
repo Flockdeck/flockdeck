@@ -23,3 +23,11 @@ const sharingViolation = syscall.Errno(32)
 func heldByAnother(err error) bool {
 	return errors.Is(err, sharingViolation)
 }
+
+// renameHeld is heldByAnother for a rename. Windows refuses to replace a file
+// anything else has open, whatever sharing it asked for, with access denied —
+// which a directory standing in the way also gets, and is waited out with it,
+// briefly and for nothing — or with a sharing violation.
+func renameHeld(err error) bool {
+	return errors.Is(err, syscall.ERROR_ACCESS_DENIED) || errors.Is(err, sharingViolation)
+}

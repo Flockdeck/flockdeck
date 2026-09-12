@@ -37,7 +37,9 @@ func TestPrefsRoundTrip(t *testing.T) {
 	}
 }
 
-// Damaged prefs must not stop a start-up, so they read as the defaults.
+// Damaged prefs must not stop a start-up, so they read as the defaults — but
+// the file is kept aside, since the next save would otherwise write the
+// defaults over the only copy.
 func TestPrefsIgnoreDamagedFile(t *testing.T) {
 	isolateConfig(t)
 	dir, err := Dir()
@@ -50,5 +52,12 @@ func TestPrefsIgnoreDamagedFile(t *testing.T) {
 
 	if got := LoadPrefs(); got.HelpSeen {
 		t.Errorf("damaged prefs should read as the defaults, got %+v", got)
+	}
+	if err := SavePrefs(Prefs{HelpSeen: true}); err != nil {
+		t.Fatalf("SavePrefs: %v", err)
+	}
+	kept, err := os.ReadFile(filepath.Join(dir, prefsFile+damagedSuffix))
+	if err != nil || string(kept) != "{not json" {
+		t.Errorf("damaged prefs = %q, %v; want them kept aside from the save", kept, err)
 	}
 }
