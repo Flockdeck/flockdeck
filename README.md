@@ -359,9 +359,10 @@ For an agent that reports its own lifecycle, this is not screen scraping. A
 Claude Code pane is launched with a generated `--settings` file registering its
 lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop`, …),
 and an API pane's chat client reports the same event names itself, so nothing
-in the workspace has to learn a second protocol. Either way the event re-invokes
-this same binary in a hidden `hook` mode, which posts it to a loopback server
-the app runs, authenticated with a per-run token. Status therefore reflects
+in the workspace has to learn a second protocol. A Claude Code event re-invokes
+this same binary in a hidden `hook` mode, and the chat client sends its own;
+either way it is posted to a loopback server the app runs, authenticated with a
+per-run token. Status therefore reflects
 what the agent is actually doing rather than what its output happens to look
 like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 
