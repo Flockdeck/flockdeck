@@ -64,7 +64,9 @@ func main() {
 
 	// A command the server refuses is answered with a notice and nothing else,
 	// so notices are printed as they arrive; otherwise a command that did
-	// nothing looks exactly like one that worked.
+	// nothing looks exactly like one that worked. A new snapshot is the
+	// server saying a command has taken effect, which is when the next can go.
+	states := make(chan struct{}, 1)
 	go func() {
 		for {
 			_, data, err := conn.Read(ctx)
@@ -76,12 +78,19 @@ func main() {
 				Text  string `json:"text"`
 				Error bool   `json:"error"`
 			}
-			if json.Unmarshal(data, &msg) != nil || msg.Type != "notice" {
+			if json.Unmarshal(data, &msg) != nil {
 				continue
 			}
-			if msg.Error {
+			switch {
+			case msg.Type == "state":
+				select {
+				case states <- struct{}{}:
+				default:
+				}
+			case msg.Type != "notice":
+			case msg.Error:
 				fmt.Println("refused:", msg.Text)
-			} else {
+			default:
 				fmt.Println("notice:", msg.Text)
 			}
 		}
@@ -97,14 +106,26 @@ func main() {
 			cmd["id"] = focus
 		}
 		out, _ := json.Marshal(cmd)
+		select { // a snapshot from before this command says nothing about it
+		case <-states:
+		default:
+		}
 		if err := conn.Write(ctx, websocket.MessageText, out); err != nil {
 			fmt.Println("write:", err)
 			return
 		}
 		fmt.Println("sent:", string(out))
-		time.Sleep(1500 * time.Millisecond)
+		// Waiting a fixed second and a half after each one made a script of
+		// ten commands take a quarter of a minute. The wait now ends with the
+		// snapshot the command causes, and only a command that changes
+		// nothing, so causes none, still waits the whole of it.
+		select {
+		case <-states:
+		case <-time.After(1500 * time.Millisecond):
+		}
 	}
-	time.Sleep(1500 * time.Millisecond)
+	// Long enough for a notice that follows the last snapshot to be printed.
+	time.Sleep(250 * time.Millisecond)
 }
 
 // readState returns the first state snapshot on the socket. A window is greeted
