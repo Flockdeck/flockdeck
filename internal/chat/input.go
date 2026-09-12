@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"io"
 	"os"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -38,6 +37,11 @@ type input struct {
 // paste that is too long.
 const maxLine = 8 << 20
 
+// lineTooLong stands in for a line longer than maxLine, which is not sent.
+// Reading used to stop at one: the scanner gave up on it, the input closed,
+// and the chat ended with nothing said about why.
+const lineTooLong = "\x00line too long"
+
 // interruptGrace is how long an end of input waits to learn whether it was
 // really a Ctrl+C, whose interrupt can arrive a moment either side of it.
 const interruptGrace = 300 * time.Millisecond
@@ -47,20 +51,26 @@ func newInput(r io.Reader, console bool) *input {
 	in := &input{lines: make(chan string), closed: make(chan struct{}), console: console}
 	go func() {
 		defer close(in.closed)
+		br := bufio.NewReaderSize(r, 64<<10)
 		for {
-			sc := bufio.NewScanner(r)
-			sc.Buffer(make([]byte, 0, 64<<10), maxLine)
-			for sc.Scan() {
-				// A pane on Windows delivers CRLF; the carriage return is not
-				// part of what the user typed.
-				in.lines <- strings.TrimRight(sc.Text(), "\r")
+			// A pane on Windows delivers CRLF; the line comes back without it,
+			// since the carriage return is not part of what the user typed.
+			line, long, err := readBoundedLine(br, maxLine)
+			switch {
+			case long:
+				in.lines <- lineTooLong
+			case err == nil || len(line) > 0:
+				in.lines <- string(line)
+			}
+			if err == nil {
+				continue
 			}
 			// On a Windows console a Ctrl+C ends the read it arrives during
 			// as though the input had ended, as well as raising the interrupt,
 			// and the console goes on reading lines afterwards. Taken at its
 			// word, it would close the chat on the key that is promised only
 			// to stop an answer.
-			if sc.Err() != nil || !console || !in.wasCtrlC() {
+			if err != io.EOF || !console || !in.wasCtrlC() {
 				return
 			}
 		}

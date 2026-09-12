@@ -404,6 +404,11 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 			case line = <-s.in.lines:
 			}
 		}
+		if line == lineTooLong {
+			s.out.line(ansiRed, fmt.Sprintf("(that line was longer than %d MB and was not sent; put it in a file and ask for the file instead)", maxLine>>20))
+			gathered = nil
+			continue
+		}
 		if strings.HasSuffix(line, "\\") {
 			gathered = append(gathered, strings.TrimSuffix(line, "\\"))
 			continue

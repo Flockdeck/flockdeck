@@ -187,13 +187,15 @@ func (l *Log) Close() error {
 // missing one entry is still a conversation.
 const maxEntry = 8 << 20
 
-// nextEntryLine reads one line of a transcript without its ending, and reports
-// whether it was longer than maxEntry, in which case none of it is kept.
-func nextEntryLine(br *bufio.Reader) (line []byte, long bool, err error) {
+// readBoundedLine reads one line without its ending, and reports whether it was
+// longer than max, in which case none of it is kept and the rest of it is read
+// past. It is how both a transcript and the user's typing are read: a line
+// that is too long is left out, and the ones after it are still read.
+func readBoundedLine(br *bufio.Reader, max int) (line []byte, long bool, err error) {
 	for {
 		chunk, err := br.ReadSlice('\n')
 		if !long {
-			if len(line)+len(chunk) > maxEntry {
+			if len(line)+len(chunk) > max {
 				line, long = nil, true
 			} else {
 				line = append(line, chunk...)
@@ -243,13 +245,13 @@ func readTail(path string, max int64) ([]Entry, error) {
 	}
 	br := bufio.NewReaderSize(f, 64<<10)
 	if partial {
-		if _, _, err := nextEntryLine(br); err != nil {
+		if _, _, err := readBoundedLine(br, maxEntry); err != nil {
 			return nil, nil
 		}
 	}
 	var out []Entry
 	for {
-		line, long, err := nextEntryLine(br)
+		line, long, err := readBoundedLine(br, maxEntry)
 		var e Entry
 		if !long && len(line) > 0 && json.Unmarshal(line, &e) == nil && e.Type != "" {
 			out = append(out, e)
