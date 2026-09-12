@@ -212,37 +212,31 @@ func places() []dirEntry {
 	return out
 }
 
-// recents answers the picker's request for previously opened projects.
+// recents answers the picker's request for previously opened projects. Which
+// of them are open is the workspace's to say; the list itself is a file, read
+// here like every other file a reply needs rather than on the goroutine that
+// owns the workspace.
 func (s *Server) recents(c *controlClient) {
-	open := map[string]bool{}
-	type result struct {
-		list []store.Project
-		err  error
-	}
-	done := make(chan result, 1)
-	s.do(func() {
-		for _, p := range s.ws.Projects() {
-			open[p.Root] = true
-		}
-		list, err := store.Recents()
-		done <- result{list: list, err: err}
-	})
-
 	go func() {
-		var res result
-		select {
-		case res = <-done:
-		case <-s.closed:
+		open, ok := ask(s, func() map[string]bool {
+			open := map[string]bool{}
+			for _, p := range s.ws.Projects() {
+				open[p.Root] = true
+			}
+			return open
+		})
+		if !ok {
 			return
 		}
-		if res.err != nil {
+		list, err := store.Recents()
+		if err != nil {
 			// A picker with nothing in it looks exactly like never having
 			// opened a project before, so an unreadable list has to say so
 			// rather than pass for an empty one.
-			c.notify("could not read the recent projects: "+res.err.Error(), true)
+			c.notify("could not read the recent projects: "+err.Error(), true)
 		}
 		msg := recentsMsg{Type: "recents"}
-		for _, p := range res.list {
+		for _, p := range list {
 			fi, err := os.Stat(p.Root)
 			msg.Items = append(msg.Items, recentView{
 				Root:   p.Root,
