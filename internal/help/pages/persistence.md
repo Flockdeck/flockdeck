@@ -46,9 +46,10 @@ flockdeck -quit     # stop everything
 Closing the window normally still quits, so nothing is left running by
 accident.
 
-Detached still means running in whatever started it. On macOS and Linux, a
-Flockdeck started from a terminal stops when that terminal closes, as abruptly
-as a crash. `nohup flockdeck -detach &` starts one that outlives it.
+`flockdeck -detach` gives the terminal back, and the run outlives it. Detaching
+from the palette is different on macOS and Linux: a Flockdeck started from a
+terminal still belongs to it, and closing that terminal quits Flockdeck, saving
+the layout first.
 
 ## Reloading the window
 

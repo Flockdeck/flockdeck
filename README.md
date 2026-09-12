@@ -158,9 +158,10 @@ place when Flockdeck exits; the subcommand still works.
 Double-click the binary, launch it from a shortcut, or run it from a terminal —
 all three work. It opens its own window. On Windows there is no terminal to keep
 around. On macOS and Linux, a Flockdeck started from a terminal runs in it, and
-so does a binary double-clicked on macOS, which opens one. Closing that terminal
-stops Flockdeck and its agents as abruptly as a crash, even with `-detach`.
-`nohup flockdeck -detach &` leaves it running on its own.
+so does a binary double-clicked on macOS, which opens one: closing that terminal
+quits Flockdeck, saving the layout and stopping the agents as quitting from the
+window would. `flockdeck -detach` gives the terminal back and keeps running
+after it closes.
 
 ```sh
 flockdeck                 # open the current directory
