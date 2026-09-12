@@ -465,6 +465,13 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 			break
 		}
 		if stop := s.runCalls(turnCtx, calls); stop {
+			if s.interrupted.Load() {
+				// Ctrl+C at a tool's question, or while a tool ran: the turn
+				// stopped as surely as one interrupted mid-answer, and is
+				// carried on the same way, from the calls' answers.
+				s.out.line(ansiDim, "(interrupted; /retry carries on)")
+				s.unfinished = true
+			}
 			break
 		}
 	}
