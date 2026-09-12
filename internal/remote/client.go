@@ -156,8 +156,7 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 	var out Pairing
 	var relayNow time.Time
-	date := func(h http.Header) { relayNow, _ = http.ParseTime(h.Get("Date")) }
-	if err := c.call(ctx, http.MethodPost, "/api/v1/host/pairings", map[string]string{"kind": kind}, &out, date); err != nil {
+	if err := c.call(ctx, http.MethodPost, "/api/v1/host/pairings", map[string]string{"kind": kind}, &out, relayDate(&relayNow)); err != nil {
 		return nil, err
 	}
 	if out.Code == "" {
@@ -166,9 +165,9 @@ func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 	// The expiry is by the relay's clock, and this machine's may not agree —
 	// a dual-booted PC's can be an hour out until it next syncs — so it is
 	// given back by this machine's, as long after its now as it is after the
-	// relay's, which the relay's Date header gives.
-	if !relayNow.IsZero() && !out.ExpiresAt.IsZero() {
-		out.ExpiresAt = time.Now().Add(out.ExpiresAt.Sub(relayNow))
+	// relay's.
+	if !relayNow.IsZero() {
+		out.ExpiresAt = byHere(out.ExpiresAt, time.Since(relayNow))
 	}
 	return &out, nil
 }
@@ -176,10 +175,39 @@ func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 // Devices lists the account's devices and hosts.
 func (c *Client) Devices(ctx context.Context) (*Roster, error) {
 	var out Roster
-	if err := c.call(ctx, http.MethodGet, "/api/v1/host/devices", nil, &out); err != nil {
+	var relayNow time.Time
+	if err := c.call(ctx, http.MethodGet, "/api/v1/host/devices", nil, &out, relayDate(&relayNow)); err != nil {
 		return nil, err
 	}
+	// The times are by the relay's clock, as a pairing code's expiry is, and
+	// are given back by this machine's for the same reason: "last seen just
+	// now" is to be said of a device the relay saw just now.
+	if !relayNow.IsZero() {
+		shift := time.Since(relayNow)
+		for i := range out.Devices {
+			out.Devices[i].Created = byHere(out.Devices[i].Created, shift)
+			out.Devices[i].LastSeen = byHere(out.Devices[i].LastSeen, shift)
+		}
+		for i := range out.Hosts {
+			out.Hosts[i].LastSeen = byHere(out.Hosts[i].LastSeen, shift)
+		}
+	}
 	return &out, nil
+}
+
+// relayDate is a look at an answer's headers that keeps the relay's now,
+// from its Date header, which Go's server puts on every answer.
+func relayDate(now *time.Time) func(http.Header) {
+	return func(h http.Header) { *now, _ = http.ParseTime(h.Get("Date")) }
+}
+
+// byHere is a time by the relay's clock given by this machine's, shift being
+// how far this machine's is ahead. A time that was never set stays unset.
+func byHere(t time.Time, shift time.Duration) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	return t.Add(shift)
 }
 
 // Revoke unpairs a device. Its session ends at once, including any window it

@@ -873,6 +873,32 @@ func TestPairingExpiryIsByThisMachinesClock(t *testing.T) {
 	}
 }
 
+// The roster's times are given by this machine's clock too, so that "last
+// seen just now" is said of a device the relay saw just now.
+func TestRosterTimesAreByThisMachinesClock(t *testing.T) {
+	relayNow := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", relayNow.UTC().Format(http.TimeFormat))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"devices": []map[string]any{{"id": "d1", "name": "phone", "created": relayNow, "lastSeen": relayNow}},
+			"hosts":   []map[string]any{{"id": "h1", "name": "desk", "self": true, "lastSeen": relayNow}},
+		})
+	}))
+	defer srv.Close()
+	r, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "v").Devices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, at := range map[string]time.Time{
+		"a device last seen": r.Devices[0].LastSeen, "a device paired": r.Devices[0].Created, "a machine last seen": r.Hosts[0].LastSeen,
+	} {
+		if ago := time.Since(at); ago < -time.Minute || ago > time.Minute {
+			t.Errorf("%s just now, by a relay's clock 30 minutes behind this one, is %v ago here", what, ago.Round(time.Second))
+		}
+	}
+}
+
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	quick(t)
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
