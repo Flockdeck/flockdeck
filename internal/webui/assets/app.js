@@ -2806,6 +2806,16 @@
         notice(quiet ? "Desktop notifications are on" : "Desktop notifications are off", false);
       },
     });
+    // The background check for a new release could be turned off only with
+    // an environment variable set before the application started.
+    const noUpdates = !!prefs.updatesOff;
+    cmds.push({
+      label: noUpdates ? "Turn update checks on" : "Turn update checks off",
+      run: () => {
+        send({ cmd: "updates", kind: noUpdates ? "on" : "off" });
+        notice(noUpdates ? "Flockdeck will check for new releases" : "Flockdeck will not check for new releases", false);
+      },
+    });
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });

@@ -2884,6 +2884,20 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "renameTab", id: "t1", text: "
 `)
 }
 
+// The background check for new releases could be turned off only with an
+// environment variable set before the application started.
+func TestUpdateChecksCanBeTurnedOffFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("update checks off");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], updatesOff: true } });
+paletteRun("update checks on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "on" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

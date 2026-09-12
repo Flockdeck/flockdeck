@@ -28,6 +28,9 @@ type Prefs struct {
 	// Scrollback is how many lines each terminal keeps once they have
 	// scrolled off the top. Zero is the default.
 	Scrollback int `json:"scrollback,omitempty"`
+	// UpdatesOff stops the background check for a new release, as the
+	// FLOCKDECK_UPDATE=off environment variable does.
+	UpdatesOff bool `json:"updatesOff,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

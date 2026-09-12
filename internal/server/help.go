@@ -123,6 +123,17 @@ func (s *Server) setScrollback(lines int) {
 	})
 }
 
+// setUpdates records whether the application checks for new releases, which
+// could otherwise only be turned off with an environment variable.
+func (s *Server) setUpdates(off bool) {
+	s.do(func() {
+		if s.prefs.UpdatesOff != off {
+			s.prefs.UpdatesOff = off
+			s.savePrefs()
+		}
+	})
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
