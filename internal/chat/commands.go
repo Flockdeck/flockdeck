@@ -51,25 +51,31 @@ func (s *session) command(ctx context.Context, line string) bool {
 		// whether what was said is gone.
 		s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")
 	case "status":
-		s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
-		// The two settings behind a pane that is failing, and where each is
-		// changed, since neither is anywhere else on the screen.
-		if s.opts.wire == nil {
-			s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; `flockdeck keys endpoint "+keyAgent(s.opts)+" <url>` changes it")
-			if strings.HasPrefix(s.keyFrom, "stored with") {
-				// The place is the command; naming it twice in one line reads
-				// as two different things.
-				s.out.line(ansiDim, "key "+s.keyFrom+"; running it again changes it")
-			} else {
-				s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
-			}
-		}
-		s.out.line(ansiDim, "session "+s.opts.Session)
-		s.out.line(ansiDim, "transcript "+s.log.Path())
+		s.status()
 	default:
 		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
 	}
 	return false
+}
+
+// status is /status: what has been spent, the settings behind the pane, and
+// where its conversation is kept.
+func (s *session) status() {
+	s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
+	// The two settings behind a pane that is failing, and where each is
+	// changed, since neither is anywhere else on the screen.
+	if s.opts.wire == nil {
+		s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; `flockdeck keys endpoint "+keyAgent(s.opts)+" <url>` changes it")
+		if strings.HasPrefix(s.keyFrom, "stored with") {
+			// The place is the command; naming it twice in one line reads
+			// as two different things.
+			s.out.line(ansiDim, "key "+s.keyFrom+"; running it again changes it")
+		} else {
+			s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
+		}
+	}
+	s.out.line(ansiDim, "session "+s.opts.Session)
+	s.out.line(ansiDim, "transcript "+s.log.Path())
 }
 
 // retry is /retry: it carries on a turn that ended without an answer -- a
