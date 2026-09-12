@@ -28,6 +28,9 @@ type input struct {
 	// interrupted is when the user last pressed Ctrl+C, in Unix nanoseconds,
 	// and 0 once an end of input has been put down to it.
 	interrupted atomic.Int64
+	// console is set when the input is a person at a terminal rather than a
+	// pipe or a file, where a line can have been typed ahead.
+	console bool
 }
 
 // maxLine bounds one line. It is generous because a line is often a paste --
@@ -41,7 +44,7 @@ const interruptGrace = 300 * time.Millisecond
 
 // newInput starts reading r. console says r is the terminal itself.
 func newInput(r io.Reader, console bool) *input {
-	in := &input{lines: make(chan string), closed: make(chan struct{})}
+	in := &input{lines: make(chan string), closed: make(chan struct{}), console: console}
 	go func() {
 		defer close(in.closed)
 		for {
@@ -63,6 +66,25 @@ func newInput(r io.Reader, console bool) *input {
 		}
 	}()
 	return in
+}
+
+// typedAhead collects the lines already waiting: typed while nothing was asking
+// for them, and so not answers to whatever is about to be asked. The reader
+// hands over one line and then reads the next the terminal already holds, so a
+// moment's wait is enough to be sure none is left.
+func (in *input) typedAhead() []string {
+	if !in.console {
+		return nil
+	}
+	var got []string
+	for {
+		select {
+		case line := <-in.lines:
+			got = append(got, line)
+		case <-time.After(20 * time.Millisecond):
+			return got
+		}
+	}
 }
 
 // interrupt notes that the user pressed Ctrl+C.

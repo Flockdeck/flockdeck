@@ -220,6 +220,9 @@ type session struct {
 	interrupted atomic.Bool
 	// autoWidth is set when the width is the terminal's rather than given.
 	autoWidth bool
+	// ahead are lines the user typed while the model was working, kept for
+	// the prompt they were meant for.
+	ahead []string
 }
 
 // systemPrompt is what the model is told about where it is before anything
@@ -371,33 +374,42 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 		} else {
 			s.out.bare(ansiBold, "   … ")
 		}
-		select {
-		case <-ctx.Done():
-			return "", false
-		case <-s.in.closed:
-			s.out.line("", "")
-			return "", false
-		case <-s.signals:
-			s.in.interrupt()
-			// Nothing is running, so there is no turn to interrupt. Leaving on
-			// the first Ctrl+C would throw away a conversation over a stray
-			// keystroke; leaving on none of them would trap somebody whose
-			// habit it is.
-			if !interruptedAt.IsZero() && time.Since(interruptedAt) < 2*time.Second {
+		var line string
+		if len(s.ahead) > 0 {
+			// Typed while the model worked; shown again after the prompt it
+			// now answers, since it went by in the middle of the answer.
+			line, s.ahead = s.ahead[0], s.ahead[1:]
+			s.out.line("", line)
+		} else {
+			select {
+			case <-ctx.Done():
+				return "", false
+			case <-s.in.closed:
 				s.out.line("", "")
 				return "", false
-			}
-			interruptedAt = time.Now()
-			gathered = nil
-			s.out.line(ansiDim, "(press Ctrl+C again to leave, or type /exit)")
-		case line := <-s.in.lines:
-			if strings.HasSuffix(line, "\\") {
-				gathered = append(gathered, strings.TrimSuffix(line, "\\"))
+			case <-s.signals:
+				s.in.interrupt()
+				// Nothing is running, so there is no turn to interrupt. Leaving
+				// on the first Ctrl+C would throw away a conversation over a
+				// stray keystroke; leaving on none of them would trap somebody
+				// whose habit it is.
+				if !interruptedAt.IsZero() && time.Since(interruptedAt) < 2*time.Second {
+					s.out.line("", "")
+					return "", false
+				}
+				interruptedAt = time.Now()
+				gathered = nil
+				s.out.line(ansiDim, "(press Ctrl+C again to leave, or type /exit)")
 				continue
+			case line = <-s.in.lines:
 			}
-			gathered = append(gathered, line)
-			return strings.TrimSpace(strings.Join(gathered, "\n")), true
 		}
+		if strings.HasSuffix(line, "\\") {
+			gathered = append(gathered, strings.TrimSuffix(line, "\\"))
+			continue
+		}
+		gathered = append(gathered, line)
+		return strings.TrimSpace(strings.Join(gathered, "\n")), true
 	}
 }
 
@@ -683,6 +695,11 @@ func (s *session) approved(t Tool, c ToolCall) (string, bool) {
 // of the letters is taken as what they would rather the model did: the one
 // thing a person saying no usually has to add.
 func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) (ok, asked bool, instead string) {
+	// A line already waiting was typed before the question was on the screen
+	// -- the next prompt, typed while the model worked -- and taken as the
+	// answer it would decline the call with the prompt as the reason. It is
+	// kept for the prompt instead.
+	s.ahead = append(s.ahead, s.in.typedAhead()...)
 	s.reporter.notification(t.Name())
 	always, canAlways := "", false
 	if a, is := t.(AlwaysApprover); is {
