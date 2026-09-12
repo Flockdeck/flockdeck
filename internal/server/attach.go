@@ -300,16 +300,21 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	deadline := time.Now().Add(busyGrace)
 	for {
 		h, err := probeOnce(baseURL, token)
-		if err == nil || !errors.Is(err, errNotReady) || !time.Now().Before(deadline) {
+		if err == nil || !errors.Is(err, ErrNotReady) || !time.Now().Before(deadline) {
 			return h, err
 		}
 		time.Sleep(busyRetry)
 	}
 }
 
-// errNotReady marks the one failure worth waiting out: flockdeck is listening on
+// ErrNotReady marks the one failure worth waiting out: flockdeck is listening on
 // that address, it just cannot answer for its workspace this moment.
-var errNotReady = errors.New("the instance is not ready")
+//
+// It is exported for the launch deciding what an error from Probe means. Every
+// other failure says nothing is there; this one says an instance is there and
+// busy, and taking it for a stale record would start a rival set of agents
+// beside the ones it is busy with.
+var ErrNotReady = errors.New("the instance is not ready")
 
 func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -331,7 +336,7 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
 		if decodeErr == nil && h.App == "flockdeck" {
-			return nil, fmt.Errorf("%w: %s", errNotReady, resp.Status)
+			return nil, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
 		}
 		return nil, fmt.Errorf("instance replied %s", resp.Status)
 	}
@@ -407,7 +412,7 @@ func RequestQuit(baseURL, token string) error {
 		// merely too busy to report on itself is still there -- and being busy
 		// is exactly what shutting down looks like from outside.
 		_, err := probeOnce(baseURL, token)
-		if err != nil && !errors.Is(err, errNotReady) {
+		if err != nil && !errors.Is(err, ErrNotReady) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {

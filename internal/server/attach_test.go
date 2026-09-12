@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -208,7 +209,13 @@ func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
 	srv.do(func() { <-release })
 
 	start := time.Now()
-	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
+	_, err := Probe(srv.BaseURL(), srv.Token())
+	// The launch is told which failure this is by name, and has to be: taking
+	// a busy instance for a stale record starts a rival set of agents.
+	if err != nil && !errors.Is(err, ErrNotReady) {
+		t.Errorf("a busy instance was reported as %v, not as ErrNotReady", err)
+	}
+	if err == nil {
 		t.Fatal("expected the probe to fail while the workspace is stuck")
 	}
 	// The probe waits a busy instance out rather than writing it off, so the
