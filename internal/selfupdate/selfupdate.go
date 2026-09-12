@@ -1,15 +1,16 @@
-// Package selfupdate keeps a running Flockdeck up to date from its GitHub
-// releases.
+// Package selfupdate keeps a running Flockdeck up to date from its releases,
+// published at dl.flockdeck.ai (Site) and mirrored on GitHub.
 //
 // The work is split into three steps that are deliberately kept apart, because
 // the application can afford to do the first two at any time and can only ever
 // do the third at a moment of the user's choosing:
 //
-//   - Latest asks GitHub what the latest release is, and Newer says whether
-//     it is one to move to; an untagged local build never has one.
-//   - Stage downloads it, checks it against the published SHA-256 and unpacks
-//     the binary into the state directory. Nothing about the installation has
-//     changed yet.
+//   - Latest asks what the latest release is, and Newer says whether it is
+//     one to move to; an untagged local build never has one.
+//   - Stage downloads it, checks it against the published SHA-256, signed by
+//     the release key when it comes from the site, and unpacks the binary
+//     into the state directory. Nothing about the installation has changed
+//     yet.
 //   - Apply swaps the staged binary into place. This is the only step that
 //     touches the installed program, and it is never done under a running
 //     session: panes hold live agents, and replacing the binary beneath them
@@ -94,6 +95,12 @@ type Release struct {
 	Draft   bool    `json:"draft"`
 	Pre     bool    `json:"prerelease"`
 	Assets  []Asset `json:"assets"`
+
+	// A release read from the site (latestFromSite) has these as well, and
+	// one read from GitHub's API has none of them.
+	sumsSig string            // checksums.txt.sig, which checksums.txt must pass
+	sums    map[string]string // each file's SHA-256, from the signed latest.json
+	mirror  *Release          // the same release on GitHub, if the site fails
 }
 
 // Pending is an update that has been downloaded, checked and unpacked, and is
@@ -140,9 +147,27 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 	return resp, nil
 }
 
-// Latest returns the most recent published release.
+// Latest returns the most recent published release: from the site when it
+// answers with a manifest signed by the release key, and otherwise from
+// GitHub, as every release before the site did, with the reason logged.
+//
+// Neither is sent anything but the request itself: no version, no identifier,
+// nothing a server could tell one installation from another by.
 func Latest(ctx context.Context) (*Release, error) {
-	resp, err := get(ctx, "https://api.github.com/repos/"+Repo+"/releases/latest")
+	rel, err := latestFromSite(ctx)
+	if err == nil {
+		return rel, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	fellBack("could not read the latest release from "+siteHost(), err)
+	return latestFromGitHub(ctx)
+}
+
+// latestFromGitHub asks GitHub's API for the latest release.
+func latestFromGitHub(ctx context.Context) (*Release, error) {
+	resp, err := get(ctx, githubAPIURL+"/repos/"+Repo+"/releases/latest")
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +211,24 @@ func (r *Release) checksums() (Asset, bool) {
 // Stage downloads the release, checks it and unpacks the binary under dir,
 // with the console twin beside it when the release has one.
 //
+// A release read from the site is downloaded from there, and from GitHub when
+// that fails for any reason, the reason logged. Either way the archive has to
+// match the SHA-256 the signed latest.json gave for it.
+func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+	p, err := stage(ctx, rel, dir)
+	if err == nil || rel.mirror == nil || ctx.Err() != nil || errors.Is(err, ErrNoAsset) {
+		return p, err
+	}
+	fellBack("could not download "+rel.Version+" from "+siteHost(), err)
+	return stage(ctx, rel.mirror, dir)
+}
+
+// stage is Stage from the one place rel says.
+//
 // The download is hashed as it is written rather than read back afterwards, so
 // a file that does not match is never on disk in a state anything could mistake
 // for finished, and a truncated transfer fails here rather than at the swap.
-func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	asset, ok := rel.assetFor(runtime.GOOS, runtime.GOARCH)
 	if !ok {
 		return nil, ErrNoAsset
@@ -199,7 +238,7 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		return nil, errors.New("release has no checksums.txt to check the download against")
 	}
 
-	want, err := fetchSum(ctx, sumsAsset.URL, asset.Name)
+	want, err := rel.fetchSum(ctx, sumsAsset.URL, asset.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -271,17 +310,37 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 }
 
 // fetchSum reads checksums.txt and returns the hash recorded for one file.
-func fetchSum(ctx context.Context, url, name string) (string, error) {
-	resp, err := get(ctx, url)
+//
+// For a release from the site, checksums.txt has to carry the release key's
+// signature, and the hash it gives has to be the one the signed latest.json
+// gave; from GitHub's mirror of that release, only the second. A release read
+// from GitHub's API has neither, and its checksums.txt is taken as it is.
+func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error) {
+	body, err := fetchSmall(ctx, url, 1<<20)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	if r.sumsSig != "" {
+		sig, err := fetchSmall(ctx, r.sumsSig, 1<<10)
+		if err != nil {
+			return "", err
+		}
+		if err := Verify(trustedKey, body, sig); err != nil {
+			return "", signatureError{sumsName, err}
+		}
+	}
+	sum, err := sumIn(body, name)
+	if err != nil {
+		return "", err
+	}
+	if signed, ok := r.sums[name]; ok && signed != sum {
+		return "", checksumError{fmt.Sprintf("checksums.txt gives %s a SHA-256 other than the signed latest.json does", name)}
+	}
+	return sum, nil
+}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", err
-	}
+// sumIn returns the hash checksums.txt records for one file.
+func sumIn(body []byte, name string) (string, error) {
 	for _, line := range strings.Split(string(body), "\n") {
 		f := strings.Fields(line)
 		if len(f) == 2 && f[1] == name {
@@ -322,7 +381,7 @@ func download(ctx context.Context, url, dest, want string) error {
 
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
 		os.Remove(dest)
-		return fmt.Errorf("download does not match its published checksum (got %s, want %s)", got[:12], want[:12])
+		return checksumError{fmt.Sprintf("download does not match its published checksum (got %s, want %s)", got[:12], want[:12])}
 	}
 	return nil
 }

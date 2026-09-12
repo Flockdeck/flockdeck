@@ -123,12 +123,13 @@ func TestUpdateSteps(t *testing.T) {
 	}
 }
 
-// Not reaching GitHub at all is explained in words; an answer GitHub gave is
-// passed on as it is, since it already says what happened.
+// Reaching neither the download site nor GitHub is explained in words; an
+// answer GitHub gave is passed on as it is, since it already says what
+// happened.
 func TestExplainUnreachable(t *testing.T) {
 	offline := &url.Error{Op: "Get", URL: "https://api.github.com/x", Err: errors.New("dial tcp: lookup api.github.com: no such host")}
 	got := explainUnreachable(fmt.Errorf("wrapped: %w", offline), "download the release").Error()
-	if !strings.Contains(got, "could not reach GitHub to download the release") || !strings.Contains(got, "no such host") || strings.Contains(got, "api.github.com/x") {
+	if !strings.Contains(got, "could not reach dl.flockdeck.ai or GitHub to download the release") || !strings.Contains(got, "no such host") || strings.Contains(got, "api.github.com/x") {
 		t.Errorf("unreachable: %q, want it explained, with the cause but not the URL", got)
 	}
 	limited := errors.New("GitHub is limiting how often this address may ask for releases; try again later")
