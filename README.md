@@ -521,13 +521,14 @@ what that agent last said, pulls the list items out of it, and offers them —
 editable, one per line — as a set of agents to start. Nothing runs until you say
 so; the extracted list is a suggestion, not a decision.
 
-What it reads is the agent's own transcript, not the pane's screen. The screen
-is a redrawn interface: bullets are wrapped to the pane's width and so cut
-mid-sentence, the status line begins with a glyph indistinguishable from a
-bullet, and the agent's thinking sits in the same column as its answer — all of
-of which arrives looking like a plan. The transcript is the markdown the agent
-actually wrote. A pane with no transcript Flockdeck can read — a shell, or an agent
-that keeps none — still falls back to the screen.
+For a Claude Code pane, what it reads is the agent's own transcript, not the
+pane's screen. The screen is a redrawn interface: bullets are wrapped to the
+pane's width and so cut mid-sentence, the status line begins with a glyph
+indistinguishable from a bullet, and the agent's thinking sits in the same
+column as its answer — all of which arrives looking like a plan. The
+transcript is the markdown the agent actually wrote. Every other pane — a
+shell, or any other agent, the built-in chat client included — still falls
+back to the screen.
 
 The list is narrowed to what reads as work. Nested bullets are detail about a
 job rather than jobs of their own; entries under a line that announces a plan
@@ -607,7 +608,8 @@ directory has. Claude Code's implementation is the one that was already here —
 the folder is derived from the working directory, and since that mangling is
 Claude's business, a folder that does not match is found by reading which
 directory its transcripts record. The built-in chat client keeps JSONL of its
-own and reads it the same way. An agent that writes nothing Flockdeck can read
+own, which resuming one of its panes reads, but the list is Claude Code's alone
+for now. An agent that writes nothing Flockdeck can read
 contributes nothing to the list, and every caller copes with that rather than
 special-casing it. A conversation already open in a pane is shown as such
 rather than offered twice, because two panes on one transcript would fight.
