@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -37,6 +38,34 @@ func TestStartupOnlyFlags(t *testing.T) {
 		got := startupOnlyFlags(c.opts)
 		if strings.Join(got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Started from its own folder, as a double-click starts it, the program goes
+// back to the project the user was last in rather than opening the folder it
+// was downloaded to as a project of its own. From anywhere else the directory
+// it was started in is the one meant.
+func TestLandingRoot(t *testing.T) {
+	install, project, elsewhere := t.TempDir(), t.TempDir(), t.TempDir()
+	exe := filepath.Join(install, "flockdeck.exe")
+	saved := &store.Session{Open: []string{project}, Active: project}
+	gone := &store.Session{Active: filepath.Join(project, "deleted")}
+
+	cases := []struct {
+		name  string
+		cwd   string
+		saved *store.Session
+		want  string
+	}{
+		{"double-clicked, with a project to go back to", install, saved, project},
+		{"started from a terminal somewhere else", elsewhere, saved, elsewhere},
+		{"double-clicked, nothing saved yet", install, nil, install},
+		{"double-clicked, the last project has gone", install, gone, install},
+	}
+	for _, c := range cases {
+		if got := landingRoot(c.cwd, exe, c.saved); got != c.want {
+			t.Errorf("%s: landingRoot = %s, want %s", c.name, got, c.want)
 		}
 	}
 }

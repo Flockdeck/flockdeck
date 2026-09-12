@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -115,6 +116,7 @@ func main() {
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
+	fs.Visit(func(f *flag.Flag) { c.dirGiven = c.dirGiven || f.Name == "C" })
 
 	if c.version {
 		fmt.Println("flockdeck", version)
@@ -237,6 +239,7 @@ func fail(err error) {
 // options are the settings run needs.
 type options struct {
 	dir      string
+	dirGiven bool // -C was on the command line, rather than dir being its default
 	agent    string
 	fresh    bool
 	shell    bool
@@ -399,6 +402,10 @@ func run(opts options) error {
 	root, err := filepath.Abs(opts.dir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
+	}
+	if !opts.dirGiven {
+		saved, _ := store.LoadSession()
+		root = landingRoot(root, startedAs, saved)
 	}
 	// Say which of the three ways this can go wrong actually happened: a
 	// path that is missing and one that cannot be read are both common, and
@@ -623,6 +630,36 @@ func run(opts options) error {
 	// user's or a restart's — is the new version.
 	exiting, reopen = true, ws.ActiveRoot()
 	return nil
+}
+
+// landingRoot is the project a launch opens when none was named: cwd, the
+// directory it was started in, unless that is only where the program itself
+// lives.
+//
+// From a terminal the working directory is where the user is standing, and
+// exactly right. A double-click, or a shortcut left as it was made, starts the
+// program in its own folder instead — Downloads, as often as not — and opening
+// that made every such start add the folder as a project, with a fresh agent
+// in it, beside the session the user actually had. The project they were last
+// in is the better answer there, when there is one to go back to.
+func landingRoot(cwd, exe string, saved *store.Session) string {
+	if exe == "" || saved == nil || saved.Active == "" || !sameFolder(cwd, filepath.Dir(exe)) {
+		return cwd
+	}
+	if fi, err := os.Stat(saved.Active); err != nil || !fi.IsDir() {
+		return cwd
+	}
+	return saved.Active
+}
+
+// sameFolder compares two directories the way the file systems holding them
+// do: without regard to case on Windows and macOS.
+func sameFolder(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // shutdown stops serving, and only then saves.
