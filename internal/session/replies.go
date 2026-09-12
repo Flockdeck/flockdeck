@@ -21,9 +21,3 @@ func RecentReplies(sessionID string, maxTurns int) []string {
 	// and a fan-out from an API pane read its plan off the screen instead.
 	return transcript.For(chatSpec).Replies(chatSpec, sessionID, maxTurns)
 }
-
-// TranscriptPath returns the file Claude Code keeps a session's conversation
-// in, or "" when there is none.
-func TranscriptPath(sessionID string) string {
-	return transcript.For(claudeSpec).Path(claudeSpec, sessionID)
-}
