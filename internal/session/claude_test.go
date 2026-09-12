@@ -251,6 +251,49 @@ func TestAnUnreadableVersionKeepsTheCommandLine(t *testing.T) {
 	}
 }
 
+// TestAFailedVersionQuestionIsAskedAgain covers a Claude Code that did not
+// answer the first time -- starting cold under antivirus, or in the middle of
+// updating itself. Keeping that failure for the rest of the run wrote every
+// later pane the hooks for an unknown version; it is asked again once
+// versionRetry has passed, and a real answer is kept from then on.
+func TestAFailedVersionQuestionIsAskedAgain(t *testing.T) {
+	wasAsk, wasRetry := askClaudeVersion, versionRetry
+	claudeVersions.Lock()
+	wasCache := claudeVersions.byExe
+	claudeVersions.byExe = nil
+	claudeVersions.Unlock()
+	t.Cleanup(func() {
+		askClaudeVersion, versionRetry = wasAsk, wasRetry
+		claudeVersions.Lock()
+		claudeVersions.byExe = wasCache
+		claudeVersions.Unlock()
+	})
+
+	answers := []string{"", "2.1.269 (Claude Code)"}
+	asked := 0
+	askClaudeVersion = func(string) string {
+		v := answers[min(asked, len(answers)-1)]
+		asked++
+		return v
+	}
+
+	versionRetry = time.Hour
+	if got := cachedClaudeVersion("claude"); got != "" || asked != 1 {
+		t.Fatalf("first question: %q after %d asks", got, asked)
+	}
+	if got := cachedClaudeVersion("claude"); got != "" || asked != 1 {
+		t.Errorf("a failure was asked again straight away (%d asks); a hanging program would cost every pane start the timeout", asked)
+	}
+
+	versionRetry = 0
+	if got := cachedClaudeVersion("claude"); got != "2.1.269 (Claude Code)" || asked != 2 {
+		t.Errorf("once versionRetry had passed: %q after %d asks, want the version on the second", got, asked)
+	}
+	if got := cachedClaudeVersion("claude"); got != "2.1.269 (Claude Code)" || asked != 2 {
+		t.Errorf("an answer was not kept: %q after %d asks", got, asked)
+	}
+}
+
 // A test binary started as `<binary> --version` with FLOCKDECK_SLOW_VERSION set
 // stands in for a Claude Code that takes too long to say its version. This
 // has to happen before the test flags are parsed, which would reject
