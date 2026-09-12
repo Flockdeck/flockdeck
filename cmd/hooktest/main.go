@@ -101,7 +101,10 @@ func main() {
 				last, lastDetail = st, detail
 				seen[st] = true
 			}
-			if st == session.StatusExited {
+			// A turn that has gone from working back to idle is the whole of
+			// what this sets out to see; waiting out the rest of -watch after
+			// it only kept the answer back for another minute or more.
+			if st == session.StatusExited || (seen[session.StatusWorking] && st == session.StatusIdle) {
 				dumpTail(p)
 				report(seen)
 				return
