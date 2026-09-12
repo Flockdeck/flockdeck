@@ -88,6 +88,12 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the name it came from follows as its own record
 		}
+		if code == "AD" {
+			// Staged as new, then deleted: neither the last commit nor the
+			// working tree has it, so a commit does nothing with it. It was
+			// listed as a deletion of content that was never committed.
+			continue
+		}
 
 		fc := FileChange{
 			Path:      path,

@@ -1150,3 +1150,24 @@ func TestRemoteFailuresSayWhatToDoNext(t *testing.T) {
 		t.Errorf("pull of diverged branches: %v", err)
 	}
 }
+
+// TestAddedThenDeletedIsNotAChange: a file staged as new and then deleted is
+// in neither the last commit nor the working tree, and was listed as the
+// deletion of content that had never been committed.
+func TestAddedThenDeletedIsNotAChange(t *testing.T) {
+	repo := newRepo(t)
+	gone := filepath.Join(repo, "brief.txt")
+	if err := os.WriteFile(gone, []byte("draft\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "brief.txt")
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if files, err := Changes(repo); err != nil || len(files) != 0 {
+		t.Errorf("changes = %+v, %v; want none", files, err)
+	}
+	if st := StatusOf(repo); st.HasChanges() {
+		t.Errorf("status = %+v; want nothing to commit, as the file list says", st)
+	}
+}
