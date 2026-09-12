@@ -832,6 +832,27 @@ func TestRefusedConnectionIsSaidInWords(t *testing.T) {
 	}
 }
 
+// A relay that answers in plain HTTP, reached as https:// (as an address
+// typed without a scheme is), is said to, by enrolling and by the tunnel.
+func TestPlainHTTPRelayIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	relay := "https://" + strings.TrimPrefix(srv.URL, "http://")
+	const want = "it answers in plain HTTP, not HTTPS"
+	if _, err := Register(context.Background(), relay, "v", RegisterRequest{Name: "desk"}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("enabling against a relay in plain HTTP = %v, want it to say %q", err, want)
+	}
+	c := NewConnector(Config{Relay: relay, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, want) {
+		t.Errorf("the tunnel's detail = %q, want it to say %q", d, want)
+	}
+}
+
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	quick(t)
 	srv := httptest.NewTLSServer(http.NotFoundHandler())

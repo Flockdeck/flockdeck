@@ -259,11 +259,12 @@ func decodeError(status int, data []byte) error {
 // transportError says why a relay could not be reached. It drops the
 // "Get \"https://…\":" prefix net/http puts on every transport error, since
 // the caller has already said which relay it was, and the same URL twice in
-// one line is the part people stop reading at. Three failures are said in
+// one line is the part people stop reading at. Four failures are said in
 // words rather than the library's: a certificate this machine does not
 // trust, which retrying will not mend, with the verifier's reason after it;
-// a name that cannot be looked up, which is how no network looks; and a
-// connection refused, which is nothing listening at the address.
+// a name that cannot be looked up, which is how no network looks; a
+// connection refused, which is nothing listening at the address; and an
+// answer in plain HTTP to a relay reached as https://.
 func transportError(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
@@ -287,6 +288,10 @@ func transportError(err error) error {
 		// On Windows the system's own words are "connectex: No connection
 		// could be made because the target machine actively refused it."
 		return errors.New("nothing is answering there (the connection was refused); check the address, and that the relay is running")
+	case errors.Is(err, http.ErrSchemeMismatch):
+		// An address typed without a scheme is taken as https://, and a
+		// relay of one's own may be serving plain HTTP on the port given.
+		return errors.New("it answers in plain HTTP, not HTTPS; a relay off this machine has to be reached over TLS, and one on this machine can be given as http://")
 	}
 	return err
 }
