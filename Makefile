@@ -4,9 +4,9 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 DIST    := dist
 
 # On Windows the GUI subsystem is used so that launching the application from a
-# shortcut or file manager does not flash a console window behind it. Standard
-# handles are still inherited when it is started from a terminal, so output on
-# the console keeps working.
+# shortcut or file manager does not flash a console window behind it. A program
+# linked that way is given no console, even by a terminal, so the program
+# borrows the terminal's itself (useConsole in console_windows.go).
 WINFLAGS := $(LDFLAGS) -H=windowsgui
 
 # Every target builds with cgo disabled, so all platforms cross-compile from

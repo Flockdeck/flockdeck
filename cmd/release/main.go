@@ -148,8 +148,8 @@ func archiveExt(goos string) string {
 //
 // The Windows build asks for the GUI subsystem for the same reason the
 // Makefile does: started from a shortcut it should not flash a console window
-// behind the interface, and standard handles are still inherited when it is
-// started from a terminal, so output on the console keeps working.
+// behind the interface. A program linked that way is given no console, even
+// by a terminal, so the program borrows the terminal's itself (useConsole).
 func build(version, goos, goarch, out string) error {
 	ldflags := "-s -w -X main.version=" + version
 	if goos == "windows" {

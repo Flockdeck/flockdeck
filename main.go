@@ -44,6 +44,13 @@ var version = "dev"
 const windowGrace = 3 * time.Second
 
 func main() {
+	// Not for `chat`: a pane is started by a Flockdeck that may still hold the
+	// terminal it was run from with -no-window, and the chat would appear there
+	// instead of in the pane.
+	if len(os.Args) < 2 || os.Args[1] != "chat" {
+		useConsole()
+	}
+
 	// `help` is what somebody who has never run the program types first, and
 	// they were told it was an unrecognised argument, with exit status 2,
 	// before being shown the usage -h would have printed. `help <subcommand>`
@@ -191,6 +198,11 @@ func main() {
 		return
 	}
 
+	// -no-window has the terminal as its only interface, the URL it prints
+	// included, so only it keeps a console borrowed from one.
+	if !c.noWindow {
+		releaseConsole()
+	}
 	if err := run(c.options); err != nil {
 		fail("Flockdeck could not start.", err)
 	}
