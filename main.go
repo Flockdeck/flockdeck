@@ -198,6 +198,11 @@ func main() {
 		return
 	}
 
+	if c.detach {
+		if done, code := detachFromTerminal(); done {
+			os.Exit(code)
+		}
+	}
 	if err := run(c.options); err != nil {
 		fail("Flockdeck could not start.", err)
 	}

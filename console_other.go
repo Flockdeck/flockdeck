@@ -1,8 +1,11 @@
-//go:build !windows
+//go:build !windows && !linux && !darwin
 
 package main
 
-// useConsole and releaseConsole have nothing to do outside Windows, where a
-// program's standard handles do not depend on how it was linked.
-func useConsole()     {}
-func releaseConsole() {}
+// useConsole and releaseConsole have nothing to do here, where a program's
+// standard handles do not depend on how it was linked, and -detach stays in
+// the terminal it was started from, as it always has outside the platforms
+// the release is built for.
+func useConsole()                               {}
+func releaseConsole()                           {}
+func detachFromTerminal() (done bool, code int) { return false, 0 }

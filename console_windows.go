@@ -78,6 +78,11 @@ func releaseConsole() {
 	borrowed.held = false
 }
 
+// detachFromTerminal has nothing to do here: a shell does not wait for a GUI
+// program, so the prompt is back at once, and releaseConsole lets the
+// terminal go as start-up ends, after which closing it does not end the run.
+func detachFromTerminal() (done bool, code int) { return false, 0 }
+
 func openConsole(name string) (syscall.Handle, error) {
 	p, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
