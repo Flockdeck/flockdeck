@@ -21,7 +21,7 @@ func notAFile(mode os.FileMode) bool {
 // a named pipe on Linux or macOS makes a read wait forever for a writer.
 // A directory is not asked about here; each tool says what to use instead.
 func regularFile(root *Root, abs string, info os.FileInfo) error {
-	if info.IsDir() || info.Mode().IsRegular() {
+	if info.IsDir() || !notAFile(info.Mode()) {
 		return nil
 	}
 	what := "a device"
