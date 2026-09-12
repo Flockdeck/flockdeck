@@ -129,6 +129,7 @@ func (p *printer) put(s string) {
 
 // text draws a piece of a streamed answer.
 func (p *printer) text(s string) {
+	s = visible(s)
 	for _, r := range s {
 		switch {
 		case p.swallow:
@@ -401,6 +402,9 @@ func (p *printer) endMessage() {
 // code it is asking about. Anything else is drawn as it is, tool output above
 // all, which is shown as it came.
 func (p *printer) line(st, s string) {
+	// A carriage return on its own draws the rest of a line over the start
+	// of it, which is how a progress bar works and how text is hidden.
+	s = strings.ReplaceAll(strings.ReplaceAll(visible(s), "\r\n", "\n"), "\r", "\n")
 	if p.started {
 		p.put("\n")
 		p.col, p.started = 0, false
@@ -447,6 +451,47 @@ func wrapNotice(s string, width int) []string {
 		lines = append(lines, cur)
 	}
 	return lines
+}
+
+// visible is s with the control characters a terminal would act on drawn as
+// marks instead: an escape as ␛, the rest as �. Tab, newline and carriage
+// return are left to whoever draws s.
+//
+// Everything drawn from outside -- the model's answer, a tool's output, a file
+// the model read -- goes through it, because the terminal does what an escape
+// sequence says whoever wrote it: a file the model reads and the user then
+// looks at with /output could set their clipboard (OSC 52), retitle the
+// window, draw over what is on the screen, or leave the pane red for good
+// where a line was clipped in the middle of a colour.
+func visible(s string) string {
+	// A byte that is not UTF-8 is counted as well: 0x9b alone is an eight-bit
+	// CSI to a terminal that takes one, and is written back out below as the
+	// replacement character it decodes to.
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, isControl) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			b.WriteString("␛")
+		case isControl(r):
+			b.WriteRune('�')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// isControl reports whether r is a C0 or C1 control character other than tab,
+// newline and carriage return, or DEL.
+func isControl(r rune) bool {
+	switch r {
+	case '\t', '\n', '\r':
+		return false
+	}
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0)
 }
 
 // bare writes text with no line of its own and no newline after it, which is
