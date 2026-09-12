@@ -344,7 +344,10 @@
     later.onclick = closeOverlay;
     row.append(go, later);
     body.append(row);
-    go.focus();
+    // The keyboard starts on the choice that stops nothing. On Restart now,
+    // a chip clicked by mistake while typing to an agent had the next Enter
+    // stop every agent in every pane.
+    later.focus();
   }
 
   // ----------------------------------------------------------------- remote

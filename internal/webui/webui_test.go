@@ -4509,6 +4509,19 @@ assert.strictEqual(renames().length, before, "Cancel renamed the tab");
 `)
 }
 
+// Installing an update stops every agent in every pane, and the dialog put
+// the keyboard on Restart now: a chip clicked by mistake while typing to an
+// agent had the next Enter stop them all.
+func TestTheUpdateDialogStartsOnTheChoiceThatStopsNothing(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-update"));
+const on = h.doc.activeElement;
+assert.ok(on && on.textContent === "Later", "the keyboard starts on " + (on && on.textContent) + ", not on Later");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
