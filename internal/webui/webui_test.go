@@ -3766,6 +3766,32 @@ assert.ok(!labels("z").includes("Restart pane"), "a single letter matched by ini
 `)
 }
 
+// Two rows of chips were a Tab stop a chip: up to fourteen branches without a
+// worktree between the worktree list and the rest of that dialog, and the
+// places between the folder browser's path field and its list. Each row is one
+// stop walked with the arrows, as the worktree rows and pane headers are.
+func TestARowOfChipsIsOneStop(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const oneStop = (bar, what) => {
+  assert.ok(bar, what + " is missing");
+  assert.strictEqual(bar.getAttribute("role"), "toolbar", what + " is not a toolbar");
+  assert.strictEqual(bar.children.filter((b) => b.getAttribute("tabindex") === "0").length, 1, what + " is a Tab stop a chip");
+};
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", items: [],
+  branches: ["a", "b", "c", "d"].map((name) => ({ name, checkedIn: false })) });
+oneStop(h.$("overlay-body").querySelector("div.places"), "the branches without a worktree");
+
+h.key({ key: "Escape" });
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: [],
+  places: [{ name: "Home", path: "C:/Users/me" }, { name: "Desktop", path: "C:/Users/me/Desktop" }, { name: "Code", path: "C:/code" }] });
+oneStop(h.$("overlay-body").querySelector("div.places"), "the places");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

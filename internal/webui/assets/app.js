@@ -2254,6 +2254,10 @@
         btn.onclick = () => send({ cmd: "worktreeAdd", text: b.name });
         chips.append(btn);
       });
+      // One stop, walked with the arrows, like the rows above it: up to
+      // fourteen branches, each a Tab stop, stood between the list and the
+      // rest of the dialog.
+      makeToolbar(chips, "Branches without a worktree");
       bs.append(chips);
       // Only the first fourteen are offered as buttons, and the rest simply
       // were not there: a branch further down the list looked as though it
@@ -2509,6 +2513,8 @@
         btn.onclick = () => send({ cmd: "browse", path: pl.path });
         places.append(btn);
       });
+      // One stop between the path field and the folder list, not one a place.
+      makeToolbar(places, "Places");
       wrap.append(places);
     }
 
