@@ -1260,3 +1260,31 @@ func TestDiffOfAFileBackAsItWasCommittedIsEmpty(t *testing.T) {
 		t.Errorf("diff = %q, want nothing: the file is as the last commit has it", diff)
 	}
 }
+
+// TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle: the push said
+// "pull them in", and the pull -- with no upstream, since only a push that
+// succeeds sets one -- said "push it first".
+func TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	theirs := newRepo(t)
+	gitRun(t, theirs, "remote", "add", "origin", origin)
+	gitRun(t, theirs, "push", "-q", "origin", "main")
+	gitRun(t, theirs, "checkout", "-q", "-b", "feature")
+	gitRun(t, theirs, "commit", "-q", "--allow-empty", "-m", "their feature")
+	gitRun(t, theirs, "push", "-q", "origin", "feature")
+
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+	gitRun(t, mine, "checkout", "-q", "-b", "feature")
+	gitRun(t, mine, "commit", "-q", "--allow-empty", "-m", "my feature")
+	_, err := Push(mine)
+	if err == nil || !strings.Contains(err.Error(), "already has a branch called feature") ||
+		!strings.Contains(err.Error(), "git pull origin feature") {
+		t.Errorf("first push to a taken name: %v", err)
+	}
+}

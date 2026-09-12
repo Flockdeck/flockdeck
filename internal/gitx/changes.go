@@ -710,9 +710,10 @@ func Push(dir string) (string, error) {
 		return "", errDetached
 	}
 	args := []string{"push"}
+	var remote string
 	if UpstreamOf(dir) == "" {
-		remote, err := pushRemote(dir)
-		if err != nil {
+		var err error
+		if remote, err = pushRemote(dir); err != nil {
 			return "", err
 		}
 		args = append(args, "--set-upstream", remote, branch)
@@ -722,6 +723,14 @@ func Push(dir string) (string, error) {
 	// leaving "failed to push some refs" and nothing about what to do. The
 	// "[rejected]" beside the ref is git's marker for it rather than prose.
 	if err != nil && strings.Contains(err.Error(), "[rejected]") {
+		if remote != "" {
+			// A first push, turned away because the name is already taken
+			// there. The upstream is set only by a push that succeeds, so
+			// "pull them in" sent the reader to a Pull that answered "push it
+			// first", and round again.
+			return "", &gitError{fmt.Sprintf("push rejected: %s already has a branch called %s, with commits this one does not have. "+
+				"Bring them in from a terminal (git pull %s %s), or push this work under another branch name.", remote, branch, remote, branch)}
+		}
 		return "", &gitError{"push rejected: the remote has commits this branch does not. Pull them in, then push again."}
 	}
 	return out, err
