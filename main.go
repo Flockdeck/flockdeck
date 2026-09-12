@@ -910,7 +910,7 @@ func runSpawn(args []string) error {
 
 	res, err := hooks.Spawn(api, token, pane, req)
 	if err != nil {
-		return err
+		return explainSpawn(err)
 	}
 	// Where it landed is the part the caller could not have worked out:
 	// --worktree names a branch, and which directory that becomes is the
@@ -922,6 +922,18 @@ func runSpawn(args []string) error {
 	}
 	fmt.Println("started agent", res.PaneID)
 	return nil
+}
+
+// explainSpawn says in words what a spawn that ran out of time means. The
+// instance is given a minute, and one that takes longer is busy — creating
+// several worktrees, say — rather than refusing; left alone the agent was told
+// `Post "http://127.0.0.1:…/spawn": context deadline exceeded`, which names a
+// URL and a deadline and not what to do. Any other failure is passed on.
+func explainSpawn(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("the flockdeck this pane belongs to did not answer within a minute; it is probably busy, so try again shortly")
+	}
+	return err
 }
 
 // parseSpawn turns the arguments of `flockdeck spawn` into the request to send.

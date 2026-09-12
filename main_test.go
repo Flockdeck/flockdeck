@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -145,6 +147,20 @@ func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
 	err := runSpawn([]string{"tidy", "the", "imports"})
 	if err == nil || !strings.Contains(err.Error(), "pane") {
 		t.Errorf("err = %v, want it to mention panes", err)
+	}
+}
+
+// A spawn the instance did not answer in time is explained as the instance
+// being busy; anything else is passed on as it was.
+func TestExplainSpawn(t *testing.T) {
+	late := &url.Error{Op: "Post", URL: "http://127.0.0.1:1/spawn", Err: context.DeadlineExceeded}
+	got := explainSpawn(late).Error()
+	if !strings.Contains(got, "did not answer within a minute") || strings.Contains(got, "127.0.0.1") {
+		t.Errorf("a spawn that ran out of time: %q, want it explained without the URL", got)
+	}
+	refused := errors.New("spawn: worktree fix-auth already exists")
+	if got := explainSpawn(refused); got != refused {
+		t.Errorf("a refusal became %q", got)
 	}
 }
 
