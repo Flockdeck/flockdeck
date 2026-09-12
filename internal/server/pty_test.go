@@ -320,6 +320,57 @@ func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string
 	}
 }
 
+// dialResumable opens a terminal socket the way the window does now, with
+// query saying what it already holds.
+func dialResumable(t *testing.T, srv *Server, paneID, query string) *websocket.Conn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+paneID+query, nil)
+	if err != nil {
+		t.Fatalf("dial pty: %v", err)
+	}
+	conn.SetReadLimit(16 << 20)
+	t.Cleanup(func() { conn.CloseNow() })
+	return conn
+}
+
+// TestTerminalResumeAfterARestartStartsAfresh covers a window cut off while
+// its pane was restarted. The place it holds is in the output of a process
+// that has gone, so it has to be told to start again, not be handed the new
+// process's bytes as though they followed on from the old one's.
+func TestTerminalResumeAfterARestartStartsAfresh(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	var h streamHeader
+	var held int64
+	first := dialResumable(t, srv, paneID, "&from=-1")
+	readResumable(t, first, "echo before_restart\r", "before_restart", &h, &held)
+	first.CloseNow()
+	old := h
+
+	before, _, _ := srv.paneSession(paneID)
+	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if sess, _, _ := srv.paneSession(paneID); sess != nil && sess != before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane was never restarted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	second := dialResumable(t, srv, paneID, fmt.Sprintf("&from=%d&epoch=%d", held, old.Epoch))
+	readResumable(t, second, "echo after_restart\r", "after_restart", &h, &held)
+	if h.Resumed || h.Epoch == old.Epoch {
+		t.Fatalf("after a restart a window holding the old run's output got %+v, want a fresh start on a new run", h)
+	}
+}
+
 // readResumable types line into a terminal socket until marker comes back,
 // counting the output the way the window does: from the offset in the last
 // header, a byte at a time. It returns the output that arrived.
@@ -372,28 +423,17 @@ func TestTerminalResumesWhereItWasCutOff(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ctl := dialControl(t, srv)
 	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
-	dial := func(query string) *websocket.Conn {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		conn, _, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+paneID+query, nil)
-		if err != nil {
-			t.Fatalf("dial pty: %v", err)
-		}
-		conn.SetReadLimit(16 << 20)
-		t.Cleanup(func() { conn.CloseNow() })
-		return conn
-	}
 
 	var h streamHeader
 	var held int64
-	first := dial("&from=-1")
+	first := dialResumable(t, srv, paneID, "&from=-1")
 	readResumable(t, first, "echo resume_one\r", "resume_one", &h, &held)
 	if h.Resumed {
 		t.Fatal("a window holding nothing was told it was resuming")
 	}
 	first.CloseNow()
 
-	second := dial(fmt.Sprintf("&from=%d&epoch=%d", held, h.Epoch))
+	second := dialResumable(t, srv, paneID, fmt.Sprintf("&from=%d&epoch=%d", held, h.Epoch))
 	was := held
 	got := readResumable(t, second, "echo resume_two\r", "resume_two", &h, &held)
 	if !h.Resumed || h.Offset != was {
