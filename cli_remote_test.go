@@ -475,7 +475,10 @@ func TestRemoteUsage(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "revoke", "-h"); err != nil {
 		t.Errorf("remote revoke -h = %v, want its usage", err)
 	}
-	if _, _, err := runRemoteCmd(t, "revoke"); err == nil {
+	// revoke with no id is answered with its own usage, not every command's.
+	if out, _, err := runRemoteCmd(t, "revoke"); err == nil {
 		t.Error("revoke with no device was accepted")
+	} else if strings.Contains(out, "Usage: flockdeck remote <command>") {
+		t.Errorf("revoke with no device printed the whole usage: %q", out)
 	}
 }

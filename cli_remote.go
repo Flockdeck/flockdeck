@@ -447,8 +447,10 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		return errReported
 	}
 	if fs.NArg() != 1 {
-		remoteUsage(rio.out)
-		return errors.New("usage: flockdeck remote revoke <device id>")
+		// Whoever typed revoke knows the command and missed its argument, so
+		// its own usage is the answer, not a screen of every command's.
+		fs.Usage()
+		return errReported
 	}
 	id := fs.Arg(0)
 	cfg, err := enrolled()
