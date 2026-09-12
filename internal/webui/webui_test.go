@@ -136,7 +136,7 @@ for (const s of ptys) {
 // that pairs devices and unpairs them — asking first, since unpairing ends
 // whatever that device has open.
 func TestRemoteAccessDialog(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, relayPromise+`
 h.hello();
 h.recv(fixture());
 const chip = h.$("btn-remote");
@@ -170,8 +170,9 @@ h.recv({ type: "remoteDevices", enabled: true, current: "d2",
 const body = h.$("overlay-body");
 assert.ok(body.textContent.includes("phone"), "the devices are listed");
 assert.ok(body.textContent.includes("this device"), "the device this window is on is marked");
-assert.ok(body.textContent.includes("Coming soon, for companies: run the relay on your own infrastructure, under licence."),
-  "an enrolled machine is not told the self-hosted relay is coming: " + body.textContent);
+assert.ok(body.textContent.includes("Coming soon, for companies: run the relay on your own infrastructure, with SSO and support."),
+  "an enrolled machine is not told Enterprise is coming: " + body.textContent);
+assert.ok(!relayPromise(body.textContent), "an enrolled machine is promised what the shared relay will cost: " + relayPromise(body.textContent));
 assert.ok(!/private relay/i.test(body.textContent), "an enrolled machine is still told of private relays");
 
 h.click(h.$("remote-pair"));
@@ -199,6 +200,14 @@ assert.deepStrictEqual(badged(), ["trouble"], "a tunnel that cannot connect has 
 assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialog's status line followed the state");
 `)
 }
+
+// relayPromise finds a sentence that speaks of the relay or remote access and
+// promises what it will cost from now on, which nothing may say while that is
+// not settled. A sentence about the app alone is left be.
+const relayPromise = `
+const relayPromise = (text) => text.split(/[.!?]/).find((s) => /relay|remote/i.test(s) &&
+  /\b(stays?|remains?|always( be)?) free\b|\bfree (forever|for ever|for good|for life)\b|never commits you to paying/i.test(s));
+`
 
 // This machine and each paired device are renamed from the dialog, starting
 // from the name each has; a cancelled or unchanged answer sends nothing.
@@ -242,7 +251,7 @@ assert.ok(body.textContent.includes("Devices page of a paired device"), "an offl
 // and a machine that is not enrolled given a form whose answer is shown under
 // it, with what was typed still there.
 func TestRemoteAccessCanBeTurnedOnAndOff(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, relayPromise+`
 h.hello();
 const remote = { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z", detail: "no route to host" };
@@ -274,7 +283,8 @@ h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
 const relay = h.$("remote-relay");
 assert.ok(relay, "a machine that is not enrolled is offered the form, not a command to type");
 assert.ok(h.$("overlay-body").textContent.includes("go on listing this machine"), "a relay left untold is still said");
-assert.ok(h.$("overlay-body").textContent.includes("Coming soon, for companies"), "a machine not enrolled is not told the self-hosted relay is coming");
+assert.ok(h.$("overlay-body").textContent.includes("Coming soon, for companies"), "a machine not enrolled is not told Enterprise is coming");
+assert.ok(!relayPromise(h.$("overlay-body").textContent), "a machine not enrolled is promised what the shared relay will cost");
 assert.ok(!/private relay/i.test(h.$("overlay-body").textContent), "a machine not enrolled is still told of private relays");
 relay.value = "relay.example";
 h.$("remote-name").value = "desk";
@@ -3571,7 +3581,7 @@ assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not pu
 // section chosen on the right, where it was left last time.
 // The account's section ends with whose Flockdeck is, under what licence, and
 // the way to the site's privacy policy, terms and licences, opened in the
-// browser as the self-hosted relay's link is rather than in place of the app.
+// browser as Enterprise's link is rather than in place of the app.
 func TestThePlanSaysWhoseItIsAndLinksThePolicies(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -3645,7 +3655,7 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 // the palette, the keys or another window changed, so there is one state
 // however it is changed. A key is never shown, and the plan invents no price.
 func TestEachSettingReachesItsSetting(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, relayPromise+`
 h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
 h.recv(fixture({ update: { version: "9.9.9" } }));
 h.click(h.$("btn-settings"));
@@ -3760,17 +3770,21 @@ assert.ok(pane.contains(h.$("remote-disable")), "remote access cannot be turned 
 h.click(h.$("settings-tab-plan"));
 const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
-// The self-hosted relay is for companies, under licence, and not here yet:
-// individuals keep the shared relay, and nothing offers them a relay.
-assert.ok(text.includes("Self-hosted relay") && text.includes("Coming soon"), "the self-hosted relay is not announced");
-assert.ok(text.includes("For companies: run the relay on your own infrastructure, under licence, with support."),
-  "the self-hosted relay is not said to be for companies, under licence: " + text);
-assert.ok(text.includes("The shared relay stays free"), "it does not say the shared relay stays free");
+// What the shared relay will cost is not settled, so the free plan says what
+// it covers today and promises nothing about tomorrow.
+assert.ok(text.includes("Every part of the desktop app, and remote access to your panes through the shared relay."),
+  "the free plan does not say what it covers: " + text);
+assert.ok(!relayPromise(text), "the plan promises what the shared relay will cost: " + relayPromise(text));
+// Enterprise is for companies and not here yet: individuals keep the shared
+// relay, and nothing offers them a relay.
+assert.ok(text.includes("Enterprise") && text.includes("Coming soon"), "Enterprise is not announced");
+assert.ok(text.includes("For companies: run the relay on your own infrastructure, with SSO and support."),
+  "Enterprise is not said to be for companies: " + text);
 assert.ok(!/private relay/i.test(text), "the plan still announces private relays: " + text);
 assert.ok(!text.includes("of your own"), "the plan offers a relay of your own: " + text);
 assert.ok(!/[$£€]\s?\d/.test(text), "a price was invented: " + text);
-assert.strictEqual(h.$("set-plan-link").textContent, "Read about self-hosting");
-assert.strictEqual(h.$("set-plan-link").getAttribute("href"), "https://flockdeck.ai/#self-hosted", "the link does not go to the site's self-hosted relay");
+assert.strictEqual(h.$("set-plan-link").textContent, "Read about Enterprise");
+assert.strictEqual(h.$("set-plan-link").getAttribute("href"), "https://flockdeck.ai/#enterprise", "the link does not go to the site's Enterprise card");
 `)
 }
 

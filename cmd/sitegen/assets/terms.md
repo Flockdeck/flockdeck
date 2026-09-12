@@ -55,7 +55,6 @@ make no promise that it will be available, uninterrupted or error-free.
 
 A licence for companies to run the relay on their own infrastructure is
 coming. It will have terms of its own.
-Using the free shared relay never commits you to paying for anything.
 
 ## Liability
 

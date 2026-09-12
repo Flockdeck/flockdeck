@@ -18,10 +18,10 @@ the keys change, so whichever you use, the others show it.
   never shown once it is set.
 - **Remote access** — turn it on or off, the relay it goes through, this
   machine's name, and the paired devices.
-- **Account & plan** — the free plan you are on, and the self-hosted relay,
-  coming for companies to run on their own infrastructure under licence; the
-  shared relay stays free. At its foot are the privacy policy and terms for the
-  shared relay, and the licences.
+- **Account & plan** — the free plan you are on, and Enterprise, coming for
+  companies to run the relay on their own infrastructure with SSO and support.
+  At its foot are the privacy policy and terms for the shared relay, and the
+  licences.
 
 Type into **Find a setting** to narrow the sections to the ones that mention a
 word. On a narrow screen the sections go across the top.

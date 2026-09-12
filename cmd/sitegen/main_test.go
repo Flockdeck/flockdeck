@@ -415,8 +415,8 @@ func TestEveryComponentHasItsLicenceText(t *testing.T) {
 // Only the desktop app is open source. The phone client and the relay are a
 // proprietary service, so the licences page says so of each and sends
 // neither's own licence to the desktop app's MIT licence, and no page offers
-// their source or a relay of your own. The self-hosted relay is announced, but
-// only as coming, for companies, under licence: "run the relay on your own
+// their source or a relay of your own. Enterprise is announced, but only as
+// coming, for companies, under licence: "run the relay on your own
 // infrastructure" is that announcement, which is why these phrases stop short
 // of "your own" alone.
 func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
@@ -460,34 +460,34 @@ func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
 }
 
 // Private relays, a relay Flockdeck would run for one paying account, were
-// dropped for a licence for companies to run the relay themselves. The site
-// announces that as coming, for companies, and still lands v0.2.9's Settings
-// link, which goes to #private-relays, on its card. No page announces private
-// relays any more.
-func TestTheSelfHostedRelayIsAnnouncedForCompanies(t *testing.T) {
+// dropped for Enterprise: a licence for companies to run the relay
+// themselves. The site announces that as coming, for companies, and still
+// lands v0.2.9's Settings link, which goes to #private-relays, on its card.
+// No page announces private relays any more.
+func TestEnterpriseIsAnnouncedForCompanies(t *testing.T) {
 	_, pages := generate(t)
 	page := pages["index.html"]
-	from := strings.Index(page, `id="self-hosted"`)
+	from := strings.Index(page, `id="enterprise"`)
 	if from < 0 {
-		t.Fatal("the landing page has no #self-hosted card")
+		t.Fatal("the landing page has no #enterprise card")
 	}
 	end := strings.Index(page[from:], "</div>")
 	if end < 0 {
-		t.Fatal("the #self-hosted card is not closed")
+		t.Fatal("the #enterprise card is not closed")
 	}
 	// The template wraps its text, so a sentence is looked for with its line
 	// breaks put back to spaces.
 	card := strings.Join(strings.Fields(page[from:from+end]), " ")
 	for _, want := range []string{
-		`id="private-relays"`, "coming soon", "for companies", "Self-hosted relay",
-		"run the relay on your own", "under licence", "with support", "The shared relay stays free.",
+		`id="private-relays"`, "coming soon", "for companies", "<h3>Enterprise</h3>",
+		"run the relay on your own", "under licence", "with SSO and support",
 	} {
 		if !strings.Contains(card, want) {
-			t.Errorf("the #self-hosted card does not have %q", want)
+			t.Errorf("the #enterprise card does not have %q", want)
 		}
 	}
-	if !strings.Contains(page, `<a href="#self-hosted">`) {
-		t.Error("the FAQ does not lead to the #self-hosted card")
+	if !strings.Contains(page, `<a href="#enterprise">`) {
+		t.Error("the FAQ does not lead to the #enterprise card")
 	}
 	if !strings.Contains(pages["terms.html"], "A licence for companies to run the relay on their own infrastructure") {
 		t.Error("the terms do not say a licence for companies is coming")
@@ -497,6 +497,50 @@ func TestTheSelfHostedRelayIsAnnouncedForCompanies(t *testing.T) {
 			t.Errorf("%s still announces private relays", name)
 		}
 	}
+}
+
+// What the shared relay, and remote access through it, will cost is not
+// settled, so no page may promise that it stays free: the FAQ, the Enterprise
+// card, the Settings screenshot's alt text and the terms each did. That the
+// app stays free and open source is the MIT licence's promise, and is kept.
+func TestNoPagePromisesTheSharedRelayStaysFree(t *testing.T) {
+	_, pages := generate(t)
+	for name, p := range pages {
+		for _, s := range promisesTheRelayStaysFree(p) {
+			t.Errorf("%s promises what the shared relay will cost: %q", name, s)
+		}
+	}
+	if !strings.Contains(pages["index.html"], "The app stays free and open source.") {
+		t.Error("the FAQ no longer says the app stays free and open source")
+	}
+}
+
+// pricePromises are the ways a sentence can promise what something will cost
+// from now on.
+var pricePromises = []string{
+	"stays free", "stay free", "remains free", "remain free", "always free", "always be free",
+	"free forever", "free for ever", "free for good", "free for life", "never commits you to paying",
+}
+
+// promisesTheRelayStaysFree returns each sentence of text that speaks of the
+// relay or remote access and promises it a price from now on. A sentence
+// about the app alone is left be. Markup ends a sentence too, so a promise in
+// an attribute, such as an image's alt text, is found as well as one in prose.
+func promisesTheRelayStaysFree(text string) []string {
+	var found []string
+	for _, s := range regexp.MustCompile(`[.!?<>]`).Split(strings.Join(strings.Fields(text), " "), -1) {
+		l := strings.ToLower(s)
+		if !strings.Contains(l, "relay") && !strings.Contains(l, "remote") {
+			continue
+		}
+		for _, p := range pricePromises {
+			if strings.Contains(l, p) {
+				found = append(found, strings.TrimSpace(s))
+				break
+			}
+		}
+	}
+	return found
 }
 
 // The licences page is made from copies of this repository's LICENSE and
