@@ -638,6 +638,26 @@ func TestNotInstalledWarning(t *testing.T) {
 	}
 }
 
+// A flag that takes a value says in -h what the value is. Go's default for a
+// string is the word "string", which is how `-C string` and `-worktree string`
+// sat beside `-agent id` and `-model model` in the usage.
+func TestEveryFlagNamesItsValue(t *testing.T) {
+	for name, fs := range map[string]*flag.FlagSet{
+		"flockdeck":       flockdeckFlagSet(&cliFlags{}),
+		"flockdeck spawn": spawnFlagSet(&spawnFlags{}),
+	} {
+		fs.VisitAll(func(f *flag.Flag) {
+			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+				return
+			}
+			switch value, _ := flag.UnquoteUsage(f); value {
+			case "string", "value", "int", "uint", "float", "duration":
+				t.Errorf("%s -%s is shown as taking a %q; say what goes there", name, f.Name, value)
+			}
+		})
+	}
+}
+
 // An API agent is not a program to install: what it lacks is a key. It was
 // listed as "not installed" above a line saying to set one, and warned about
 // as "not installed here".

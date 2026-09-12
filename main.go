@@ -235,7 +235,7 @@ type cliFlags struct {
 // and check the help documents it.
 func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
-	fs.StringVar(&c.dir, "C", ".", "directory to open the workspace on")
+	fs.StringVar(&c.dir, "C", ".", "`directory` to open the workspace on")
 	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
 	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
 	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
@@ -1112,7 +1112,7 @@ type spawnFlags struct {
 func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.StringVar(&f.worktree, "worktree", "", "branch name; the helper gets its own git worktree")
+	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
