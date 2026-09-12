@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/remote"
 )
@@ -351,6 +352,25 @@ func TestRemoteRelayFlagSaysWhatWins(t *testing.T) {
 	fs.PrintDefaults()
 	if want := "(default: $" + remote.RelayEnv + " if set, else " + remote.DefaultRelay + ")"; !strings.Contains(b.String(), want) {
 		t.Errorf("enable's flags = %q, want -relay to say %q", b.String(), want)
+	}
+}
+
+// A code's expiry is a clock time when it falls today, and names the day
+// when it does not, as a relay with a long pairing time can make it.
+func TestDescribeExpiry(t *testing.T) {
+	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.Local)
+	for _, tc := range []struct {
+		at   time.Time
+		want string
+	}{
+		{now.Add(10 * time.Minute), "until 12:10 (10 minutes from now)"},
+		{now.Add(50 * time.Hour), "until Thu 3 Jan 14:00 (2 days from now)"},
+		{now.Add(20 * time.Second), "for less than a minute"},
+		{time.Time{}, "for a short while"},
+	} {
+		if got := describeExpiry(tc.at, now); got != tc.want {
+			t.Errorf("describeExpiry(%v) = %q, want %q", tc.at.Sub(now), got, tc.want)
+		}
 	}
 }
 

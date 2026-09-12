@@ -531,7 +531,13 @@ func describeExpiry(at, now time.Time) string {
 	if left < time.Minute {
 		return "for less than a minute"
 	}
-	return fmt.Sprintf("until %s (%s from now)", at.Local().Format("15:04"), plainDuration(left))
+	// A clock time alone means today. A code that lasts into another day, as
+	// a relay with a long pairing time allows, says which.
+	when := at.Local().Format("15:04")
+	if at.Local().Format("2006-01-02") != now.Local().Format("2006-01-02") {
+		when = at.Local().Format("Mon 2 Jan 15:04")
+	}
+	return fmt.Sprintf("until %s (%s from now)", when, plainDuration(left))
 }
 
 // ago says how long since t, roughly.
