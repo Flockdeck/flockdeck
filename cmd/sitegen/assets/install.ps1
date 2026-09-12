@@ -87,8 +87,15 @@ function Install-Flockdeck {
         # the old file goes to flockdeck.exe.old, and its next start removes it.
         Copy-Item $exe "$dest.new" -Force
         if (Test-Path $dest) {
-            if (Test-Path "$dest.old") { Remove-Item "$dest.old" -Force }
-            Move-Item $dest "$dest.old"
+            # The last .old can itself still be running, when the installer is
+            # run a second time before the app has been restarted. Windows will
+            # not delete a running program but will rename one, so what is in
+            # the way is set aside under a name of its own instead.
+            $old = "$dest.old"
+            if (Test-Path $old) {
+                try { Remove-Item $old -Force } catch { $old = "$dest.$([Guid]::NewGuid().ToString('N')).old" }
+            }
+            Move-Item $dest $old
         }
         Move-Item "$dest.new" $dest
     } finally {
