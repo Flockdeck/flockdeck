@@ -3166,28 +3166,24 @@
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
     });
+    // A setting kept as "off": the entry turns it back on while it is off and
+    // off while it is on, and says which it did.
+    const toggle = (off, cmd, [turnOn, turnOff], [isOn, isOff]) => cmds.push({
+      label: off ? turnOn : turnOff,
+      run: () => { send({ cmd, kind: off ? "on" : "off" }); notice(off ? isOn : isOff, false); },
+    });
     // Desktop notifications reach past the window, and the only way to stop
     // them was the browser's own permission - which belongs to the page's
     // origin, changes with the port on every run, and so was asked again, and
     // had to be refused again, every time the application started.
-    const quiet = !!prefs.notificationsOff;
-    cmds.push({
-      label: quiet ? "Turn desktop notifications on" : "Turn desktop notifications off",
-      run: () => {
-        send({ cmd: "notifications", kind: quiet ? "on" : "off" });
-        notice(quiet ? "Desktop notifications are on" : "Desktop notifications are off", false);
-      },
-    });
+    toggle(!!prefs.notificationsOff, "notifications",
+      ["Turn desktop notifications on", "Turn desktop notifications off"],
+      ["Desktop notifications are on", "Desktop notifications are off"]);
     // The cursor's blink was fixed in the source, and one blinking cursor
     // among a tab of still terminals is a distraction some people want gone.
-    const steady = !!prefs.cursorSteady;
-    cmds.push({
-      label: steady ? "Make the terminal cursor blink" : "Stop the terminal cursor blinking",
-      run: () => {
-        send({ cmd: "cursorBlink", kind: steady ? "on" : "off" });
-        notice(steady ? "The terminal cursor blinks" : "The terminal cursor is steady", false);
-      },
-    });
+    toggle(!!prefs.cursorSteady, "cursorBlink",
+      ["Make the terminal cursor blink", "Stop the terminal cursor blinking"],
+      ["The terminal cursor blinks", "The terminal cursor is steady"]);
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
@@ -3198,14 +3194,9 @@
     }
     // The background check for a new release could be turned off only with
     // an environment variable set before the application started.
-    const noUpdates = !!prefs.updatesOff;
-    cmds.push({
-      label: noUpdates ? "Turn update checks on" : "Turn update checks off",
-      run: () => {
-        send({ cmd: "updates", kind: noUpdates ? "on" : "off" });
-        notice(noUpdates ? "Flockdeck will check for new releases" : "Flockdeck will not check for new releases", false);
-      },
-    });
+    toggle(!!prefs.updatesOff, "updates",
+      ["Turn update checks on", "Turn update checks off"],
+      ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"]);
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
