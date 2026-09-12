@@ -879,7 +879,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// machine; an API runner is this binary, which is by definition here.
 		if spec.Runner != agent.RunnerAPI && spec.Exe != "" {
 			if _, err := exec.LookPath(spec.Exe); err != nil {
-				p.Err = fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+				p.Err = missingCLI(spec)
 				return
 			}
 		}
