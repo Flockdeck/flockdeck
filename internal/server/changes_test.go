@@ -19,7 +19,7 @@ import (
 // one commit.
 func newRepoServer(t *testing.T) (*Server, *workspace.Workspace, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := stateTempDir(t)
 	t.Setenv("APPDATA", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)

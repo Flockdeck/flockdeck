@@ -23,11 +23,41 @@ import (
 // never touch the developer's real saved layouts or recent projects.
 func isolateConfig(t *testing.T) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := stateTempDir(t)
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
 	t.Setenv("HOME", dir)            // macOS and fallback
 	goTelemetryOff(t)
+}
+
+// stateTempDir is a temporary folder for a test's configuration and state,
+// removed when the test ends as t.TempDir's is, but given a few seconds to come
+// free first. On Windows a file that a pane's process or output reader still
+// holds is only marked for deletion until it lets go, so its folder is "not
+// empty" for a moment after the workspace has closed, and t.TempDir, which
+// does not wait for that, failed tests at random for it. A folder still held
+// after ten seconds fails the test: that is a leak.
+func stateTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "flockdeck-state-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("the test's state folder was still held ten seconds after the test ended: %v", err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+	return dir
 }
 
 // goTelemetryOff turns the go command's telemetry off in the configuration
