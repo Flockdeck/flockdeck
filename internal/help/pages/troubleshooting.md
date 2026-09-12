@@ -79,6 +79,25 @@ wrong. [Agents and models](#agents) says which agents report and which are read.
 is nothing to fix here; it is the price of running an agent that was never
 built to be watched.
 
+## A Claude pane shows no usage limit
+
+Claude Code hands its five-hour and weekly windows only to its status line,
+only on a Pro or Max plan, and only after the first answer in a session. By
+default Flockdeck reads them only where you have a status line of your own;
+**Settings › Agents › Claude Code's usage limits › Always** reads them in every
+Claude pane. That choice, and any change to your own status line, applies to a
+pane when it starts, so use [[action:restartPane]] on one already running.
+[Spend and limits](#spend) has the rest.
+
+## A fan-out shows no routed rows
+
+Routing is off until you turn it on, in **Settings › Agents › Routing**. When
+it is on, it still leaves a line alone when no rule matches its task, when the
+run is on a model whose size it does not know — Claude Code's **Default** among
+them — and when the agent has no model in the tier the rule asks for. The
+dialog says so when routing can do nothing for the run's model.
+[Agents and models](#agents) has the rules.
+
 ## The window looks like a browser tab
 
 The interface is a local web page shown in a chromeless application window,

@@ -22,9 +22,18 @@ without starting any.
 These choices go with it:
 
 - **Which agent, and which model.** One control at the top sets what the whole
-  run uses; each line carries an override of its own, so twelve tasks can be
-  split between two agents on purpose — the one that is good at the refactor
-  and the cheap one that is good enough for the six renames.
+  run uses, and starts on the project's default agent and model; each line
+  carries an override of its own, so twelve tasks can be split between two
+  agents on purpose — the one that is good at the refactor and the cheap one
+  that is good enough for the six renames.
+- **Routing**, when it is on for the project. A line whose task one of the
+  rules matches comes with its model already set — a smaller one for
+  mechanical work, a stronger one for hard work — and tagged **↘ routed** or
+  **↗ routed**; the tag's tooltip names the rule. One line above the tasks
+  counts them, beside **Use the run's model for every task**, which puts every
+  line back on the run's model. Change a line's model and it is yours again.
+  What the dialog shows is what runs. [Agents and models](#agents) has the
+  rules, and how to turn routing on.
 - **Give each agent its own git worktree.** On by default in a repository.
   Each child gets a branch named after its task, so they work in parallel
   without touching each other's files. [Git worktrees](#worktrees) covers what

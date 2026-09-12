@@ -20,15 +20,21 @@ model carries its tier — **small**, **mid** or **top**, how capable and so how
 costly it is among that agent's own — and a model of an API agent its published
 price per million tokens, in and out, with the day it was read. A command-line
 agent's models show no price: the same model may be billed per token or
-covered by a subscription, and only you know which. At the
+covered by a subscription, and only you know which. Every price comes from one
+table compiled into Flockdeck, each rate with the day it was read from the
+provider's own pricing page. It changes with releases; nothing is fetched. The
+chat's status line and the estimates in the pane header are priced from the
+same table. At the
 foot of the picker, **Set as default for** makes the choice stick, either for
 this project or for every project, so the one-keystroke split keeps doing the
 right thing. **Use the default for every project** removes this project's own
 choice.
 
 The pane header names what is running, beside the branch and in the same dim
-weight — `claude · sonnet`, `codex · gpt-5`. A shell pane shows nothing there,
-because there is nothing to choose.
+weight — `claude · sonnet`, `codex · gpt-5.6-sol`. A shell pane shows nothing there,
+because there is nothing to choose. For Claude Code and the API agents, what the
+conversation has spent and how near its usage limit it is follow;
+[Spend and limits](#spend) explains the figures.
 
 ## Two kinds of agent
 
@@ -41,12 +47,19 @@ whose command is not on your `PATH` is the greyed kind.
 **API agents** talk to a model API directly. There is no wrapper CLI, no node
 and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
 a real terminal chat client — streamed answers, a status line carrying the
-model, its token counts and, for Anthropic's models, the running cost, and tools for reading files, editing them and
+model, its token counts and, for a model in the price table, the running cost,
+and tools for reading files, editing them and
 running commands; the ones that write a file or run a command ask before they
 act. A command can be let through for the rest of the session by answering
 *always*; a write is asked about every time. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
+
+The price table holds Anthropic's, OpenAI's and Google's models. A model is
+priced only when its id is one the table names, or a dated snapshot of one
+such as `claude-haiku-4-5-20251001`; any other id, including one that only
+begins like a priced model, is shown in tokens with no dollars, because a
+made-up price is worse than none.
 
 ## An endpoint's address
 
@@ -141,7 +154,7 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
   "version": 1,
   "defaults": { "agent": "claude", "model": "" },
   "projects": {
-    "C:\\code\\api": { "agent": "codex", "model": "gpt-5" }
+    "C:\\code\\api": { "agent": "codex", "model": "gpt-5.6-terra" }
   },
   "agents": [
     { "id": "claude", "defaultModel": "sonnet" },
@@ -232,8 +245,9 @@ none. A project's own policy replaces the one for every project whole. A rule
 that cannot be used — a pattern that is not one, a tier that is not one — is
 named in the notice and skipped, and the rest still apply.
 
-Saving a default from a Flockdeck older than 0.2.10 writes a project's entry
-back without its `routing`, so a project's policy is lost that way.
+Saving a default from a Flockdeck that has no routing — 0.2.10 or older —
+writes a project's entry back without its `routing`, so a project's policy is
+lost that way.
 
 **Nothing leaves the machine.** Routing decides from these rules alone and
 makes no request of any kind. What it chose, and whether you kept it, is kept

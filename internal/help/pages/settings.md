@@ -14,6 +14,17 @@ the keys change, so whichever you use, the others show it.
 - **Agents** — the agent and model a pane starts when nobody chooses: for every
   project, and for the project on screen, which can go back to **Same as every
   project**.
+  - **Routing** — whether a fan-out's rows come with a model chosen for the
+    work: **Off**, which it is until you change it, **Suggest** or
+    **Automatic**, for every project and for this one. **Never go below** keeps
+    it off the smaller tiers. The rules in force are listed, with where
+    `agents.json` is, since that is where they are edited, and **Clear routing
+    history** empties the record of what it chose. [Agents and models](#agents)
+    has the rest.
+  - **Claude Code's usage limits** — which Claude panes read their five-hour
+    and weekly limits for the pane header: **Only where I have a status line**,
+    the default, **Always** or **Never**. It applies to a pane when it starts.
+    [Spend and limits](#spend) says what each one costs.
 - **API keys** — set, replace or clear the key each API agent uses. A key is
   never shown once it is set.
 - **Remote access** — turn it on or off, the relay it goes through, this
@@ -33,6 +44,11 @@ word. On a narrow screen the sections go across the top.
 - **Which agent and model a project starts** — **Agents** in the settings, or
   **Set as default for** at the foot of the picker. Kept in
   `agents.json`.
+- **Whether a fan-out's models are routed, and by which rules** — **Agents ›
+  Routing** in the settings for the mode and the floor; the rules themselves
+  are edited by hand. Kept in `agents.json`.
+- **Whether Claude panes read their usage limits** — **Agents › Claude Code's
+  usage limits** in the settings. Kept in `prefs.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
   `flockdeck keys set <agent>`. Kept in `keys.json`.
 - **A tab's name** — double-click the tab, or **Rename this tab…** in the
@@ -62,15 +78,20 @@ Windows, `~/Library/Application Support/flockdeck` on macOS, and
 `~/.config/flockdeck` on Linux (or `$XDG_CONFIG_HOME/flockdeck` where that is
 set).
 
-- `agents.json` — your own agents, changes to the built-in ones, and the
-  default agent and model: for every project under `defaults`, for one under
-  `projects`. [Agents and models](#agents) describes it. It is read again each
-  time the picker opens, so editing it needs no restart.
+- `agents.json` — your own agents, changes to the built-in ones, the default
+  agent and model, and the routing policy: for every project under `defaults`
+  and `routing`, for one under `projects`. [Agents and models](#agents)
+  describes it. It is read again each time the picker opens, so editing it
+  needs no restart.
 - `keys.json` — API keys set through Flockdeck. A key exported in the
   environment is used first.
 - `remote.json` — this machine's enrolment with the relay.
   `flockdeck remote disable` removes it.
-- `prefs.json` — the settings under General and Terminal, whether the help has
+- `routing.jsonl` — what routing chose for each routed fan-out row, and
+  whether you kept it: the rule's name and the models, never the task. It
+  keeps the last 10,000 lines, and **Clear routing history** empties it.
+- `prefs.json` — the settings under General and Terminal, Claude Code's usage
+  limits, whether the help has
   been opened, and which hints were dismissed. Delete it while Flockdeck is not
   running to have the help open on the next start, every hint back, and every
   one of those settings as it first was.
@@ -84,7 +105,8 @@ set).
   launch joins it.
 - `updates` — a downloaded release waiting to go in when Flockdeck next quits.
 - `sessions` — the settings file written for each pane whose agent reports its
-  status.
+  status, which also carries the pane's status line where that goes through
+  Flockdeck.
 - `chats` — the built-in chat client's conversations.
 - `window` — the browser profile the window runs in. On Windows it is kept
   apart from the rest, in `%LOCALAPPDATA%\flockdeck\window`.
