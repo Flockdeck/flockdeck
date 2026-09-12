@@ -40,6 +40,24 @@ func unknownFields(id string, raw json.RawMessage) []string {
 		}
 		problems = append(problems, msg)
 	}
+	// The keys inside "api" are read the same way and pass over a stranger
+	// just as quietly: an "api" given a "url" rather than a "baseURL" left the
+	// endpoint the vendor's own, and the agent greyed out, with nothing said.
+	for key, raw := range keys {
+		var api map[string]json.RawMessage
+		if !strings.EqualFold(key, "api") || json.Unmarshal(raw, &api) != nil {
+			continue
+		}
+		for inner := range api {
+			switch lower := strings.ToLower(inner); {
+			case apiFields[lower]:
+			case specFields[lower]:
+				problems = append(problems, fmt.Sprintf("agent %q: %q belongs beside \"api\", not inside it", id, inner))
+			default:
+				problems = append(problems, fmt.Sprintf("agent %q: %q in \"api\" is not something an endpoint has; it takes wire, baseURL and keyEnv", id, inner))
+			}
+		}
+	}
 	sort.Strings(problems)
 	return problems
 }
