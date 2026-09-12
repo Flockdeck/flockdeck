@@ -68,7 +68,9 @@ body { position: relative; }
 body::before {
   content: "";
   position: absolute;
-  inset: -20vh -10% auto -10%;
+  /* Not a pixel wider than the page: an absolute layer that pokes out at the
+     sides widens what a phone lays the page out at, and it zooms out to fit. */
+  inset: -20vh 0 auto 0;
   height: 70vh;
   background:
     radial-gradient(60% 55% at 22% 0%, rgba(79,209,219,.13), transparent 70%),
