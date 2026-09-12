@@ -190,7 +190,30 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 		}
 		return q
 	}
-	return fmt.Sprintf("Create %s (%s, %s)?\n%s", rel, newSize, linesOf(a.Content), excerpt(a.Content, 1))
+	// Missing directories are made along with the file, which is part of what
+	// is being agreed to and so part of the question.
+	also := ""
+	if dir := firstMissingDir(filepath.Dir(abs)); dir != "" {
+		also = fmt.Sprintf(", making the directory %s/", t.root.Rel(dir))
+	}
+	return fmt.Sprintf("Create %s (%s, %s)%s?\n%s", rel, newSize, linesOf(a.Content), also, excerpt(a.Content, 1))
+}
+
+// firstMissingDir is the outermost directory on the way to dir that does not
+// exist yet, or "" when dir is there already.
+func firstMissingDir(dir string) string {
+	missing := ""
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			return missing
+		}
+		missing = dir
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return missing
+		}
+		dir = parent
+	}
 }
 
 // excerptLines is how much of a write the question shows.
