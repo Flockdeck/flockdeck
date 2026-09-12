@@ -1,12 +1,10 @@
 package gitx
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Status summarises a working tree: what is checked out, whether it has
@@ -175,110 +173,4 @@ func Branches(dir string) ([]Branch, error) {
 		})
 	}
 	return branches, nil
-}
-
-// ListDetailed returns every worktree with its status filled in.
-//
-// Each worktree needs its own status call, so they are run concurrently: a
-// repository with several worktrees would otherwise make the panel wait for
-// them one after another.
-func ListDetailed(dir string) ([]Worktree, error) {
-	wts, err := List(dir)
-	if err != nil {
-		return nil, err
-	}
-	var wg sync.WaitGroup
-	for i := range wts {
-		// A worktree whose directory is gone has no status to read; asking
-		// only spends a process on an error.
-		if wts[i].Bare || wts[i].Prunable {
-			continue
-		}
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			wts[i].Status = StatusOf(wts[i].Path)
-		}(i)
-	}
-	wg.Wait()
-	return wts, nil
-}
-
-// Prune removes administrative records for worktrees whose directories have
-// been deleted behind git's back, and reports how many went.
-//
-// The count is what lets the panel say whether the button it just offered
-// did anything. git names each record it removes on stderr, one to a line,
-// so they are counted as lines rather than looked for by the word they start
-// with -- which is translated when git is speaking anything but English.
-func Prune(repoDir string) (int, error) {
-	_, said, err := runCapture(context.Background(), commandTimeout, repoDir,
-		"worktree", "prune", "--verbose")
-	if err != nil {
-		return 0, err
-	}
-	var pruned int
-	for _, line := range strings.Split(said, "\n") {
-		if strings.TrimSpace(line) != "" {
-			pruned++
-		}
-	}
-	return pruned, nil
-}
-
-// AddFrom creates a worktree at path.
-//
-// When branch names an existing local branch it is checked out; otherwise a new
-// branch is created, starting at base when one is given and at the current HEAD
-// when it is not.
-// The path and the starting point both arrive from the window, so they are put
-// after a "--": without it git reads anything beginning with a dash as one of
-// its own options. A base of "--force" was not refused, it was obeyed, and the
-// new worktree quietly started from HEAD with a force checkout instead of from
-// wherever the user had named.
-func AddFrom(repoDir, path, branch, base string) error {
-	args := []string{"worktree", "add"}
-	switch {
-	case branch == "":
-		args = append(args, "--detach", "--", path)
-		if base != "" {
-			args = append(args, base)
-		}
-	case branchExists(repoDir, branch):
-		args = append(args, "--", path, branch)
-	default:
-		args = append(args, "-b", branch, "--", path)
-		if base != "" {
-			args = append(args, base)
-		}
-	}
-	_, err := run(repoDir, args...)
-	return err
-}
-
-// DefaultBase returns a sensible starting point for a new branch: the current
-// branch of the main worktree.
-//
-// A rebase in progress there has to be stepped around. It detaches HEAD while
-// it replays commits, so there is no current branch to offer and "HEAD" means
-// whichever commit the replay happens to be sitting on -- a starting point
-// nobody means, and one that will not exist as anything once the rebase
-// finishes. The branch being rebased still points at where it was before the
-// rebase started, which is a real place to branch from.
-//
-// A branch nobody has committed to yet is not one either: it names no commit,
-// and the panel's pre-filled base made every new worktree in a fresh
-// repository fail with "invalid reference: main". Offering nothing leaves git
-// to start the new branch empty, as it does when no base is given.
-func DefaultBase(repoDir string) string {
-	if b := CurrentBranch(repoDir); b != "" {
-		if !branchExists(repoDir, b) {
-			return ""
-		}
-		return b
-	}
-	if b := rebasingBranch(repoDir); b != "" {
-		return b
-	}
-	return "HEAD"
 }
