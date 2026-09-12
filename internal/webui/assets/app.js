@@ -6582,39 +6582,70 @@
       updateCount();
     };
 
+    /* The row drawn for each task, by its text, with what its select and tag
+     * were drawn from. The box is typed into a line at a time, and building
+     * every row again for each keystroke - each with a select holding every
+     * model of every agent - was nearly all a keystroke cost: twelve tasks
+     * over three agents of four models were 240 elements a key. A row is kept
+     * while its task and what it shows are unchanged. */
+    let drawn = new Map();
+    const rowKey = (task) => {
+      const r = activeRoute(task);
+      return effective(task) + "\n" + (r ? [r.model, !!r.up, r.rule, r.reason].join("|") : "");
+    };
     const renderRows = () => {
-      rows.textContent = "";
+      const kept = new Map();
+      const order = [];
       taskLines().forEach((task, i) => {
-        const row = el("div", "fan-row");
-        row.append(el("span", "fan-row-n", String(i + 1)));
-        const text = el("span", "fan-row-task", task);
-        text.title = task;
-        row.append(text);
-        const sel = agentSelect(catalog, effective(task), "Same as the run");
-        const r = activeRoute(task);
-        let tag = null;
-        if (r) {
-          tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
-            r.reason + ". Choose another model here to decide this row yourself.");
-        }
-        sel.onchange = () => {
-          // Changing a routed row makes it the user's: the tag goes, and
-          // routing leaves the row alone from here on, even on "Same as the
-          // run".
-          const was = activeRoute(task);
-          if (was) {
-            overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
-              chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
-          }
-          if (sel.value || was) overrides.set(task, sel.value);
-          else overrides.delete(task);
-          if (tag) tag.remove();
-          updateCount();
-        };
-        row.append(sel);
-        if (tag) row.append(tag);
-        rows.append(row);
+        const key = rowKey(task);
+        const pool = drawn.get(task) || [];
+        const at = pool.findIndex((d) => d.key === key);
+        const d = at >= 0 ? pool.splice(at, 1)[0] : buildRow(task, key);
+        if (d.n.textContent !== String(i + 1)) d.n.textContent = String(i + 1);
+        if (!kept.has(task)) kept.set(task, []);
+        kept.get(task).push(d);
+        order.push(d.row);
       });
+      drawn = kept;
+      // Into place, moving only what is out of it; what is left over after
+      // the last row is what went from the box.
+      order.forEach((row, i) => { if (rows.children[i] !== row) rows.insertBefore(row, rows.children[i] || null); });
+      while (rows.children.length > order.length) rows.children[rows.children.length - 1].remove();
+    };
+    const buildRow = (task, key) => {
+      const row = el("div", "fan-row");
+      const n = el("span", "fan-row-n");
+      row.append(n);
+      const d = { row, n, key };
+      const text = el("span", "fan-row-task", task);
+      text.title = task;
+      row.append(text);
+      const sel = agentSelect(catalog, effective(task), "Same as the run");
+      const r = activeRoute(task);
+      let tag = null;
+      if (r) {
+        tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
+          r.reason + ". Choose another model here to decide this row yourself.");
+      }
+      sel.onchange = () => {
+        // Changing a routed row makes it the user's: the tag goes, and
+        // routing leaves the row alone from here on, even on "Same as the
+        // run".
+        const was = activeRoute(task);
+        if (was) {
+          overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
+            chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
+        }
+        if (sel.value || was) overrides.set(task, sel.value);
+        else overrides.delete(task);
+        if (tag) tag.remove();
+        // What the row shows now, so the next drawing keeps it.
+        d.key = rowKey(task);
+        updateCount();
+      };
+      row.append(sel);
+      if (tag) row.append(tag);
+      return d;
     };
 
     const start = el("button", "chip primary", "Start agents");

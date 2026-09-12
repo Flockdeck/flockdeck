@@ -338,3 +338,54 @@ h.recv(list);
 assert.ok(!h.$("history-none").hidden, "a refresh forgot that nothing matches");
 `)
 }
+
+// Typing into a fan-out's task list built every row again on each keystroke,
+// each row a select holding every model of every agent: twelve tasks over
+// three agents of four models were 240 elements a key. Only the line typed
+// into is drawn again, and what was chosen on the others stays as it was.
+func TestTypingIntoAFanOutDrawsOnlyTheLineTyped(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const agents = [
+  { id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }, { id: "sonnet" }, { id: "haiku" }] },
+  { id: "codex", name: "Codex", models: [{ id: "gpt-5" }, { id: "gpt-5-mini" }, { id: "o3" }, { id: "o4-mini" }] },
+  { id: "gemini", name: "Gemini", models: [{ id: "pro" }, { id: "flash" }, { id: "flash-lite" }, { id: "ultra" }] },
+];
+const tasks = [];
+for (let i = 0; i < 12; i++) tasks.push("task number " + i);
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks, isRepo: true, cwd: "C:/repo", agent: "claude", agents });
+const body = h.$("overlay-body");
+const box = body.querySelector("textarea.fan-tasks");
+const rows = () => body.querySelectorAll("div.fan-row");
+const first = rows()[0];
+const s0 = first.querySelector("select");
+s0.value = "codex\no3";
+h.dispatch(s0, new h.Ev("change", { target: s0 }));
+
+const before = h.made();
+for (const ch of " and more") { box.value += ch; box.oninput(); }
+const built = h.made() - before;
+console.log("nine keystrokes into a twelve-task fan-out built " + built + " elements");
+assert.ok(built < 9 * 40, "every keystroke built the whole list again: " + built + " elements");
+assert.ok(rows()[0] === first, "a row whose line was not touched was built again");
+assert.strictEqual(rows()[0].querySelector("select").value, "codex\no3", "the choice on an untouched row was lost");
+assert.strictEqual(rows().length, 12);
+assert.ok(rows()[11].textContent.includes("task number 11 and more"), "the line typed into does not show what was typed");
+assert.deepStrictEqual(rows().map((r) => r.querySelector(".fan-row-n").textContent),
+  ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
+
+// A line taken out takes its row with it, and the rest are numbered again.
+box.value = box.value.split(String.fromCharCode(10)).slice(1).join(String.fromCharCode(10));
+box.oninput();
+assert.strictEqual(rows().length, 11);
+assert.strictEqual(rows()[0].querySelector(".fan-row-task").textContent, "task number 1");
+assert.strictEqual(rows()[0].querySelector(".fan-row-n").textContent, "1");
+body.querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.strictEqual(sent.tasks.length, 11);
+assert.strictEqual(sent.tasks[10], "task number 11 and more");
+`)
+	t.Log(out)
+}
