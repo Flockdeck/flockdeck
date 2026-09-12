@@ -26,7 +26,8 @@ var (
 	idAttr  = regexp.MustCompile(`\sid="([^"]+)"`)
 	imgTag  = regexp.MustCompile(`<img\s[^>]*>`)
 	refAttr = regexp.MustCompile(`\s(?:aria-controls="|aria-labelledby="|href="#)([^"]+)"`)
-	srcAttr = regexp.MustCompile(`\s(?:src|href)="([^"#:]+)"`)
+	srcAttr    = regexp.MustCompile(`\s(?:src|href)="([^"#:]+)"`)
+	srcsetAttr = regexp.MustCompile(`\ssrcset="([^"]+)"`)
 )
 
 // The page is written by hand in a template, so nothing but a test notices an
@@ -46,10 +47,20 @@ func TestPageReferencesResolve(t *testing.T) {
 			t.Errorf("%q refers to an element the page does not have", strings.TrimSpace(m[0]))
 		}
 	}
-	// A relative address is a file the site has to ship beside the page.
+	// A relative address is a file the site has to ship beside the page, and
+	// so is every candidate a srcset offers.
+	files := []string{}
 	for _, m := range srcAttr.FindAllStringSubmatch(page, -1) {
-		if _, err := os.Stat(filepath.Join(dir, m[1])); err != nil {
-			t.Errorf("the page links %s, which the site does not contain", m[1])
+		files = append(files, m[1])
+	}
+	for _, m := range srcsetAttr.FindAllStringSubmatch(page, -1) {
+		for _, cand := range strings.Split(m[1], ",") {
+			files = append(files, strings.Fields(cand)[0])
+		}
+	}
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("the page links %s, which the site does not contain", f)
 		}
 	}
 }
