@@ -40,22 +40,27 @@ func (s *session) command(ctx context.Context, line string) bool {
 	case "retry":
 		s.retry(ctx)
 	case "clear":
-		s.messages = nil
-		// The transcript is marked rather than truncated: what was said was
-		// said, and a reader that does not know this entry still shows a
-		// conversation that really happened.
-		s.record(Entry{Type: entryClear})
-		s.reporter.sessionEnd()
-		s.system = s.systemWith(s.reporter.sessionStart("clear"))
-		// Said in full, because "cleared" alone leaves somebody wondering
-		// whether what was said is gone.
-		s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")
+		s.clear()
 	case "status":
 		s.status()
 	default:
 		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
 	}
 	return false
+}
+
+// clear is /clear: the conversation starts over, in the same pane.
+func (s *session) clear() {
+	s.messages = nil
+	// The transcript is marked rather than truncated: what was said was
+	// said, and a reader that does not know this entry still shows a
+	// conversation that really happened.
+	s.record(Entry{Type: entryClear})
+	s.reporter.sessionEnd()
+	s.system = s.systemWith(s.reporter.sessionStart("clear"))
+	// Said in full, because "cleared" alone leaves somebody wondering
+	// whether what was said is gone.
+	s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")
 }
 
 // status is /status: what has been spent, the settings behind the pane, and
