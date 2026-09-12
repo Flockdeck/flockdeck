@@ -185,6 +185,36 @@ func TestOpenProjectRejectsFiles(t *testing.T) {
 	}
 }
 
+// TestPlacesOfferWhereCodeUsuallyLives covers the project picker's shortcuts,
+// which looked only directly under the home folder. The tools that make a
+// folder of projects put it a level deeper -- Visual Studio's source\repos,
+// GitHub Desktop's Documents\GitHub -- so the folder a newcomer's projects
+// were in was not offered.
+func TestPlacesOfferWhereCodeUsuallyLives(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	made := []string{filepath.Join("source", "repos"), filepath.Join("Documents", "GitHub")}
+	for _, dir := range made {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	offered := map[string]bool{}
+	for _, pl := range places() {
+		offered[pl.Path] = true
+	}
+	for _, dir := range made {
+		if !offered[filepath.Join(home, dir)] {
+			t.Errorf("%s was not offered", dir)
+		}
+	}
+	if offered[filepath.Join(home, "Developer")] {
+		t.Error("a folder that does not exist was offered")
+	}
+}
+
 // TestBrowseReadsTildeAsHome covers a path typed or pasted into the folder
 // browser the way a shell writes it. "~/code" named a directory called "~"
 // inside wherever flockdeck was started, and the picker answered with an error.

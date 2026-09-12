@@ -147,7 +147,15 @@ func places() []dirEntry {
 	var out []dirEntry
 	if home, err := os.UserHomeDir(); err == nil {
 		out = append(out, dirEntry{Name: "Home", Path: home})
-		for _, name := range []string{"Documents", "Projects", "code", "src", "repos", "dev"} {
+		// Where code usually lives, each offered only where it exists: a few
+		// names people give a folder of projects, and the places the tools that
+		// make one put it -- Visual Studio's source\repos, GitHub Desktop's
+		// Documents\GitHub, Xcode's Developer. Those sit a folder deeper than
+		// the rest, and the folder a newcomer's projects were in was not
+		// offered at all.
+		for _, name := range []string{"Documents", "Projects", "code", "src", "repos", "dev",
+			"source/repos", "Documents/GitHub", "Documents/repos", "Developer"} {
+			name = filepath.FromSlash(name)
 			p := filepath.Join(home, name)
 			if fi, err := os.Stat(p); err == nil && fi.IsDir() {
 				out = append(out, dirEntry{Name: name, Path: p})
