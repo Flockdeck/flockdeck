@@ -359,6 +359,12 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// it has, which is the way in that is left. Its words are matched for
 		// the reason the invite's are.
 		return fmt.Errorf("%v; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here", err)
+	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
+		// A join code that has run out, been used, or was never one: the
+		// relay says which, but not where a good one comes from. With a
+		// join code given, its 400 is about the code; its other one is for
+		// a body this client never sends.
+		return fmt.Errorf("%v; `flockdeck remote pair -desktop` on the other machine makes a new one", err)
 	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusConflict:
 		// An account with all the machines it may have. The relay says to
 		// unregister one, which is not a word this command line uses.

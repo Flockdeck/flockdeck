@@ -747,6 +747,22 @@ func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
 	}
 }
 
+// A join code that has run out or been used is refused by the relay in its
+// own words, and the refusal says where a new one comes from.
+func TestRemoteJoinWithASpentCode(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"that join code is not valid, or has expired or already been used"}`)
+	}))
+	defer srv.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-join", "fdp_code")
+	if want := "already been used; `flockdeck remote pair -desktop` on the other machine makes a new one"; err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("joining with a spent code = %v, want it to end %q", err, want)
+	}
+}
+
 // Joining an account that has all the machines it may is refused by the
 // relay in its own words, and the refusal says which command here does what
 // they ask.
