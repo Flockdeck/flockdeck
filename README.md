@@ -185,8 +185,10 @@ like an application. `FLOCKDECK_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run. Remote access, below, does not change that: it
-is a connection this machine makes outward, not one it accepts.
+generated fresh for each run. Remote access, below, opens no port either: it
+is a connection this machine makes outward, not one it accepts, and what
+arrives through it is let in because the relay has already checked the device,
+not by the token.
 
 ## Keyboard shortcuts
 
