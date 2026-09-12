@@ -638,6 +638,34 @@ func TestNotInstalledWarning(t *testing.T) {
 	}
 }
 
+// An API agent is not a program to install: what it lacks is a key. It was
+// listed as "not installed" above a line saying to set one, and warned about
+// as "not installed here".
+func TestAPIAgentsAreSetUpRatherThanInstalled(t *testing.T) {
+	api := agent.Spec{ID: "anthropic", Name: "Claude API", Runner: agent.RunnerAPI,
+		Install: "set a key with `flockdeck keys set anthropic`"}
+	for _, ready := range []bool{false, true} {
+		useCatalog(t, append(testCatalog(), api), "claude", map[string]bool{"claude": true, "anthropic": ready})
+		var buf bytes.Buffer
+		printAgents(&buf)
+		out := buf.String()
+		want, wantNot := "Claude API  [not set up]", "Claude API  [not installed]"
+		if ready {
+			want = "Claude API  [ready]"
+		}
+		if !strings.Contains(out, want) || strings.Contains(out, wantNot) {
+			t.Errorf("key set %v: the listing does not say %q:\n%s", ready, want, out)
+		}
+		if got := strings.Contains(out, "set up: set a key"); got == ready {
+			t.Errorf("key set %v: the line saying how to set it up is shown %v:\n%s", ready, got, out)
+		}
+	}
+	useCatalog(t, append(testCatalog(), api), "claude", map[string]bool{"claude": true})
+	if w := notInstalledWarning("anthropic"); !strings.Contains(w, "not set up") || !strings.Contains(w, "keys set anthropic") || strings.Contains(w, "install") {
+		t.Errorf("anthropic, no key: %q, want it called not set up, with how to set it up", w)
+	}
+}
+
 // The models line has to say something for each of the three shapes an entry
 // can take, because "models:" followed by nothing reads as a bug.
 func TestModelSummary(t *testing.T) {

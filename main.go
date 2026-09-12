@@ -1201,19 +1201,21 @@ func printAgents(w io.Writer) {
 		if s.Hidden {
 			continue
 		}
-		notes := []string{"not installed"}
-		if agentAvailable(s) {
-			notes = []string{"installed"}
-		}
+		available := agentAvailable(s)
+		notes := []string{agentState(s, available)}
 		if s.ID == defaultID {
 			notes = append(notes, "default")
 		}
 		fmt.Fprintf(w, "%s - %s  [%s]\n", s.ID, agentName(s), strings.Join(notes, ", "))
 		fmt.Fprintf(w, "  models: %s\n", modelSummary(s))
 		// The install line answers the state just printed, so it is only worth
-		// the room when that state is "not installed".
-		if s.Install != "" && !agentAvailable(s) {
-			fmt.Fprintf(w, "  install: %s\n", s.Install)
+		// the room when the agent cannot be started yet.
+		if s.Install != "" && !available {
+			label := "install"
+			if s.Runner == agent.RunnerAPI {
+				label = "set up"
+			}
+			fmt.Fprintf(w, "  %s: %s\n", label, s.Install)
 		}
 		fmt.Fprintln(w)
 	}
@@ -1228,6 +1230,23 @@ func agentName(s agent.Spec) string {
 		return s.Name
 	}
 	return s.ID
+}
+
+// agentState is how the listing describes whether an agent can be started.
+//
+// An API agent is not a program, and has nothing to install: what it lacks
+// is a key, or an endpoint. "not installed" above a line saying to set a key
+// sent people looking for a program to install.
+func agentState(s agent.Spec, available bool) string {
+	switch {
+	case s.Runner == agent.RunnerAPI && available:
+		return "ready"
+	case s.Runner == agent.RunnerAPI:
+		return "not set up"
+	case available:
+		return "installed"
+	}
+	return "not installed"
 }
 
 // modelSummary describes the models an agent offers, in one line.
@@ -1360,6 +1379,13 @@ func notInstalledWarning(id string) string {
 	s, ok := findSpec(specs, id)
 	if !ok || agentAvailable(s) {
 		return ""
+	}
+	if s.Runner == agent.RunnerAPI {
+		msg := agentName(s) + " is not set up here, so its panes will not start"
+		if s.Install != "" {
+			msg += "; to set it up: " + s.Install
+		}
+		return msg
 	}
 	msg := agentName(s) + " is not installed here, so its panes will not start"
 	if s.Install != "" {
