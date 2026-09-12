@@ -129,6 +129,15 @@ func (c *Connector) Status() Status {
 	return c.status
 }
 
+// setName is the machine's new name, for the window to show. Nothing about
+// the tunnel depends on it.
+func (c *Connector) setName(name string) {
+	c.mu.Lock()
+	c.cfg.Name = name
+	c.status.Name = name
+	c.mu.Unlock()
+}
+
 // Start opens the tunnel and keeps it open until Stop, or until the relay
 // says there is no point.
 func (c *Connector) Start() {

@@ -313,6 +313,8 @@ func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
 			`"hosts":[{"id":"h1","name":"desk","online":true,"lastSeen":"2030-01-01T00:05:00Z","self":true}]}`)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/"):
 		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/host":
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/host":
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -1258,6 +1260,53 @@ func TestManagerEnablesAndDisables(t *testing.T) {
 	}
 	if _, ok := m.Status(); ok {
 		t.Error("the tunnel outlived disabling")
+	}
+}
+
+// Renaming this machine saves the new name and shows it, without dropping the
+// tunnel, and every remote window with it, to do so -- whether the window
+// renamed it, or `flockdeck remote rename` did and had the instance reload.
+func TestManagerRenamesWithoutReconnecting(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+
+	if err := m.Rename(context.Background(), "  Work PC "); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := m.Status(); st.Name != "Work PC" || st.State != StateConnected {
+		t.Errorf("after renaming, the tunnel is %+v; want it connected, and named Work PC", st)
+	}
+	if cfg, _ := Load(); cfg == nil || cfg.Name != "Work PC" {
+		t.Errorf("the enrolment saved is %+v, want the new name", cfg)
+	}
+
+	cfg, _ := Load()
+	cfg.Name = "Study"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := m.Status(); st.Name != "Study" {
+		t.Errorf("after a reload with a new name, the tunnel is called %q", st.Name)
+	}
+	if n := f.count(); n != 1 {
+		t.Errorf("renaming took %d connections to the relay, want the one it had", n)
+	}
+	f.mu.Lock()
+	calls := strings.Join(f.calls, "\n")
+	f.mu.Unlock()
+	if !strings.Contains(calls, "PATCH /api/v1/host") {
+		t.Errorf("the relay was not asked to rename the machine: %s", calls)
 	}
 }
 

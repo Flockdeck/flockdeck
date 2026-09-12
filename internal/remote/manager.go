@@ -48,9 +48,11 @@ func NewManager(version string, serve func(net.Listener) error, changed func()) 
 // Reload reads the enrolment again and makes the tunnel match it.
 //
 // A tunnel that already matches is left alone, so reloading costs a working
-// connection nothing. One that has given up — revoked, or displaced by another
-// instance — is started again, because being asked to reload is somebody
-// saying that whatever stopped it has been dealt with.
+// connection nothing, and so does a new name, which the relay keeps rather
+// than the tunnel: renaming this machine must not drop every remote window.
+// One that has given up — revoked, or displaced by another instance — is
+// started again, because being asked to reload is somebody saying that
+// whatever stopped it has been dealt with.
 //
 // A file that cannot be read is reported and the tunnel left as it was: there
 // is no telling what the file meant, and dropping every remote window over a
@@ -66,10 +68,18 @@ func (m *Manager) Reload() error {
 
 	m.mu.Lock()
 	old := m.conn
-	if cfg != nil && m.cfg != nil && *cfg == *m.cfg && old != nil {
+	if cfg != nil && m.cfg != nil && sameTunnel(*cfg, *m.cfg) && old != nil {
 		switch old.Status().State {
 		case StateConnecting, StateConnected, StateError:
+			renamed := cfg.Name != m.cfg.Name
+			m.cfg = cfg
 			m.mu.Unlock()
+			if renamed {
+				old.setName(cfg.Name)
+				if m.changed != nil {
+					m.changed()
+				}
+			}
 			return nil
 		}
 	}
@@ -95,6 +105,25 @@ func (m *Manager) Reload() error {
 		m.changed()
 	}
 	return nil
+}
+
+// sameTunnel reports whether two enrolments are one tunnel: the same relay,
+// the same machine and the same token, whatever each calls the machine.
+func sameTunnel(a, b Config) bool {
+	a.Name, b.Name = "", ""
+	return a == b
+}
+
+// Rename renames this machine on its relay and saves the name: what
+// `flockdeck remote rename` does, for the window. The tunnel carries on as it
+// was, and the window is told the new name.
+func (m *Manager) Rename(ctx context.Context, name string) error {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	if _, err := Rename(ctx, m.version, name); err != nil {
+		return err
+	}
+	return m.Reload()
 }
 
 // Reconnect tries the relay again now, for the window's "try again": a
