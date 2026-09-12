@@ -111,6 +111,20 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
 
+// busyWords is a busy API said in words, for the line that says it is being
+// asked again. The status is what the server sent, and in the middle of a
+// stream it is the error's own type -- "overloaded_error" -- which is a name
+// for a program, not a reason for a person.
+func busyWords(e *apiError) string {
+	switch e.Code {
+	case http.StatusTooManyRequests:
+		return "the API is limiting how often this key asks"
+	case 529:
+		return "the API is overloaded"
+	}
+	return "the API is failing on its side (" + strings.TrimSpace(e.Status) + ")"
+}
+
 // cutOffError is an answer that stopped because it reached a limit on its
 // length. What was written of it stands, and is the start of the answer rather
 // than a failed one: the way on is to ask for the rest, not to ask again.

@@ -441,7 +441,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 				wait = e.RetryAfter
 			}
 			retries++
-			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", e.Status, wait.Round(time.Second)))
+			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", busyWords(e), wait.Round(time.Second)))
 			select {
 			case <-time.After(wait):
 				continue
