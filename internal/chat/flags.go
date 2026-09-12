@@ -37,7 +37,7 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 	fs.StringVar(&o.Wire, "wire", paneEnv("WIRE"), "request shape: anthropic, openai or gemini")
 	fs.StringVar(&o.BaseURL, "base-url", paneEnv("BASE_URL"), "endpoint root; empty means the vendor's own")
 	fs.StringVar(&keyEnv, "key-env", paneEnv("KEY_ENV"), "comma-separated names an API key may arrive in")
-	fs.IntVar(&o.MaxTokens, "max-tokens", 0, "ceiling on one answer, in tokens")
+	fs.IntVar(&o.MaxTokens, "max-tokens", 0, "ceiling on one answer, in tokens; 0 leaves it to the model (32000 on the Anthropic API, which needs one)")
 	fs.StringVar(&o.Cwd, "cwd", "", "the working directory; empty means this one")
 	fs.Usage = func() { usage(fs, out) }
 

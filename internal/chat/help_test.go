@@ -12,7 +12,7 @@ func TestHelpMentionsTheCommands(t *testing.T) {
 	if _, err := ParseArgs([]string{"-h"}, &out); err != ErrHelpShown {
 		t.Fatalf("err = %v", err)
 	}
-	for _, want := range []string{"/help", "/model", "/history", "flockdeck keys set"} {
+	for _, want := range []string{"/help", "/model", "/history", "flockdeck keys set", "0 leaves it to the model"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the help does not mention %s:\n%s", want, out.String())
 		}
