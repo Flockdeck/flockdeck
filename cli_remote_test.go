@@ -505,6 +505,60 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	}
 }
 
+// What every command prints is read in a terminal, which is often 80 columns
+// wide, in each state it can find the enrolment in. The one line exempt is
+// the command pair -desktop gives to copy: no break in it would work in
+// every shell (175).
+func TestRemoteOutputFitsATerminal(t *testing.T) {
+	isolateKeys(t)
+	t.Setenv(remote.RelayEnv, "")
+	f := newFakeRelayAPI(t)
+	check := func(running bool, args ...string) {
+		t.Helper()
+		var out bytes.Buffer
+		_ = remoteCmd(args, remoteIO{out: &out, reload: func() (bool, error) { return running, nil }, running: func() bool { return running }})
+		for _, l := range strings.Split(out.String(), "\n") {
+			if strings.HasPrefix(l, "  flockdeck remote enable ") {
+				continue
+			}
+			if n := len([]rune(l)); n > 80 {
+				t.Errorf("remote %v (running=%v) printed a line %d wide: %q", args, running, n, l)
+			}
+		}
+	}
+	check(false, "status")
+	check(false, "enable", "-relay", f.URL, "-name", "desk")
+	for _, running := range []bool{false, true} {
+		check(running, "status")
+		check(running, "pair")
+		check(running, "pair", "-desktop")
+		check(running, "devices")
+		check(running, "revoke", "d1")
+	}
+	f.mu.Lock()
+	f.revoked = true
+	f.mu.Unlock()
+	check(true, "status")
+	f.mu.Lock()
+	f.revoked = false
+	f.mu.Unlock()
+	check(true, "disable")
+	check(false, "status")
+	// A relay that does not see this machine, with flockdeck running here
+	// and without.
+	offline := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"devices":[],"hosts":[{"id":"h1","name":"desk","online":false,"self":true}]}`)
+	}))
+	defer offline.Close()
+	if err := (&remote.Config{Relay: offline.URL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, running := range []bool{false, true} {
+		check(running, "status")
+		check(running, "devices")
+	}
+}
+
 // The general usage is read in a terminal, which is often 80 columns wide, as
 // each command's own help is.
 func TestRemoteUsageFitsATerminal(t *testing.T) {

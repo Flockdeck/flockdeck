@@ -299,7 +299,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 	}
 	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
-	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or from Remote access… in the window.")
+	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Remote access… in the window.")
 	return nil
 }
 
@@ -444,7 +444,9 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		case strings.TrimSpace(os.Getenv(remote.RelayEnv)) != "":
 			fmt.Fprintf(rio.out, "relay:   %s, from %s\n", relay, remote.RelayEnv)
 		default:
-			fmt.Fprintf(rio.out, "relay:   %s, unless enable is given -relay or %s is set\n", relay, remote.RelayEnv)
+			// Held to 80 columns, as everything here is, by carrying on under
+			// the value rather than under the label.
+			fmt.Fprintf(rio.out, "relay:   %s, unless enable is given -relay\n         or %s is set\n", relay, remote.RelayEnv)
 		}
 		return nil
 	}
@@ -453,7 +455,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	roster, err := remote.NewClient(cfg, version).Devices(context.Background())
 	switch {
 	case remote.IsRevoked(err):
-		fmt.Fprintln(rio.out, "state:   the relay no longer accepts this machine; `flockdeck remote enable` enrols it again")
+		fmt.Fprintln(rio.out, "state:   the relay no longer accepts this machine;\n         `flockdeck remote enable` enrols it again")
 		return nil
 	case err != nil:
 		// A relay that answered with an error was reached, so this says only
@@ -471,7 +473,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	case online:
 		fmt.Fprintln(rio.out, "state:   connected")
 	case rio.running != nil && rio.running():
-		fmt.Fprintln(rio.out, "state:   not connected, though flockdeck is running; the Remote chip in its window says why")
+		fmt.Fprintln(rio.out, "state:   not connected, though flockdeck is running;\n         the Remote chip in its window says why")
 	default:
 		fmt.Fprintln(rio.out, "state:   not connected — flockdeck connects while it is running")
 	}
