@@ -56,7 +56,13 @@ func (s *session) command(ctx context.Context, line string) bool {
 		// changed, since neither is anywhere else on the screen.
 		if s.opts.wire == nil {
 			s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; `flockdeck keys endpoint "+keyAgent(s.opts)+" <url>` changes it")
-			s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
+			if strings.HasPrefix(s.keyFrom, "stored with") {
+				// The place is the command; naming it twice in one line reads
+				// as two different things.
+				s.out.line(ansiDim, "key "+s.keyFrom+"; running it again changes it")
+			} else {
+				s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
+			}
 		}
 		s.out.line(ansiDim, "session "+s.opts.Session)
 		s.out.line(ansiDim, "transcript "+s.log.Path())
