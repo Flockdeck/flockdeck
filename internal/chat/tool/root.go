@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -83,6 +85,23 @@ func (r *Root) ResolveFile(p string) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 	return r.Resolve(p)
+}
+
+// explain turns an error from the file system into one that names the path the
+// way the model and the user do -- relative to the pane -- rather than as the
+// absolute path the system reported, which is long, the same for every file,
+// and not what anybody asked for. A missing file is said the same way on every
+// platform, rather than in each system's own words.
+func (r *Root) explain(err error) error {
+	var pe *fs.PathError
+	if !errors.As(err, &pe) || !filepath.IsAbs(pe.Path) {
+		return err
+	}
+	cause := pe.Err
+	if errors.Is(cause, fs.ErrNotExist) {
+		cause = fs.ErrNotExist
+	}
+	return fmt.Errorf("%s: %w", r.Rel(pe.Path), cause)
 }
 
 // Rel is a path as it should be shown: relative to the root, with forward

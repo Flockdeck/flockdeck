@@ -59,14 +59,14 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if !info.IsDir() {
 		return "", fmt.Errorf("%s is a file; use read_file", t.root.Rel(abs))
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if len(entries) == 0 {
 		return fmt.Sprintf("%s is empty.", t.root.Rel(abs)), nil

@@ -70,14 +70,14 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory; use list_dir", t.root.Rel(abs))
 	}
 	f, err := os.Open(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	defer f.Close()
 	// The file is read a line at a time rather than whole, because the model
@@ -274,10 +274,10 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 		return "", fmt.Errorf("%s is a directory", t.root.Rel(abs))
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	return fmt.Sprintf("Wrote %s (%d lines, %s).", t.root.Rel(abs), countLines(a.Content), humanBytes(int64(len(a.Content)))), nil
 }
@@ -331,7 +331,7 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, t.root.explain(err)
 	}
 	if looksBinary(data) {
 		return "", "", 0, fmt.Errorf("%s looks like a binary file", t.root.Rel(abs))
@@ -404,12 +404,12 @@ func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	// The file's own permissions are kept: an edit is not the moment to decide
 	// that a script should stop being executable.
 	if err := os.WriteFile(abs, []byte(updated), info.Mode().Perm()); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	noun := "occurrence"
 	if count != 1 {
