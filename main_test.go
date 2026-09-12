@@ -414,6 +414,34 @@ func TestUsageNamesEveryFlag(t *testing.T) {
 	}
 }
 
+// The usage's line for keys is a hand-written copy of keys' own list, and it
+// had fallen behind it: check and endpoint were in `flockdeck keys` and in the
+// help, and somebody reading `flockdeck -h` never learned either existed.
+func TestUsageNamesEveryKeysCommand(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "keys ") {
+			line = l
+		}
+	}
+	var own bytes.Buffer
+	keysUsage(&own)
+	for _, l := range strings.Split(own.String(), "\n") {
+		// keysUsage lists each command as "  <name> ..." under "Commands:".
+		if !strings.HasPrefix(l, "  ") || strings.HasPrefix(l, "   ") {
+			continue
+		}
+		name := strings.Fields(l)[0]
+		if !strings.Contains(line, name) {
+			t.Errorf("the usage's keys line %q does not name %q, which keys offers", line, name)
+		}
+	}
+}
+
 // The settings that have no flag are only discoverable if the usage names them.
 func TestUsageNamesTheEnvironment(t *testing.T) {
 	var buf bytes.Buffer

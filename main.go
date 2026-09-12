@@ -267,7 +267,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
 	fmt.Fprintf(out, "        flockdeck's own chat client, which an API agent's pane runs; chat -h for its flags\n")
-	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>]\n")
+	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url>]]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
