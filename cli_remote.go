@@ -285,6 +285,17 @@ func relayRefusal(err error) error {
 	return err
 }
 
+// relayToJoin is the relay a machine joining this one is told to enrol with:
+// the hosted relay by its current name even from a machine enrolled under the
+// old one, which the relay keeps answering only for the machines that already
+// were, so that no more are added to them.
+func relayToJoin(relay string) string {
+	if remote.SameRelay(relay, remote.DefaultRelay) {
+		return remote.DefaultRelay
+	}
+	return relay
+}
+
 func remotePairCmd(args []string, rio remoteIO) error {
 	var f remotePairFlags
 	if err := parseRemote(remotePairFlagSet(&f), args); err != nil {
@@ -304,7 +315,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	}
 	until := describeExpiry(p.ExpiresAt, time.Now())
 	if f.desktop {
-		fmt.Fprintf(rio.out, "On the other machine, run:\n\n  flockdeck remote enable -relay %s -join %s\n\n", cfg.Relay, p.Code)
+		fmt.Fprintf(rio.out, "On the other machine, run:\n\n  flockdeck remote enable -relay %s -join %s\n\n", relayToJoin(cfg.Relay), p.Code)
 		// What joining does is the reason to do it, and worth knowing before
 		// a code goes to a machine somebody else uses.
 		fmt.Fprintf(rio.out, "The machines then share an account: a device paired with either reaches both.\n")

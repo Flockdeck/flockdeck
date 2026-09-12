@@ -450,6 +450,20 @@ func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 	}
 }
 
+// A machine enrolled under the hosted relay's old name tells a machine
+// joining it the current one; any other relay is passed on as it is.
+func TestRelayToJoin(t *testing.T) {
+	for relay, want := range map[string]string{
+		"https://relay.flockdeck.ai": remote.DefaultRelay,
+		remote.DefaultRelay:          remote.DefaultRelay,
+		"https://relay.example":      "https://relay.example",
+	} {
+		if got := relayToJoin(relay); got != want {
+			t.Errorf("relayToJoin(%q) = %q, want %q", relay, got, want)
+		}
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
