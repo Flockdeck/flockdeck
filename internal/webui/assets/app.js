@@ -1416,7 +1416,7 @@
 
     const term = new Terminal({
       allowProposedApi: true,
-      cursorBlink: true,
+      cursorBlink: !reducedMotion(),
       fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace',
       fontSize: fontSize,
       lineHeight: 1.15,
@@ -1472,6 +1472,21 @@
     connectPTY(p);
     return p;
   }
+
+  /** reducedMotion reports whether the system has been asked for less
+   *  movement on screen. The style sheet already stills its animations for
+   *  it, but a terminal's cursor blinks by script, not by CSS, so every one
+   *  of them went on blinking for somebody who had asked for it to stop. */
+  function reducedMotion() {
+    try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+  }
+  // The setting can change while the window is open, and the terminals
+  // already drawn follow it.
+  try {
+    matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", () => {
+      for (const p of panes.values()) p.term.options.cursorBlink = !reducedMotion();
+    });
+  } catch { /* an engine without matchMedia keeps the blink */ }
 
   /** makeToolbar makes a row of buttons one stop on the way through the window,
    *  walked with the arrow keys.

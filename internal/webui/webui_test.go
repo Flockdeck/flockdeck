@@ -3581,6 +3581,18 @@ assert.ok(!/once broadcast is on/.test(cast.dataset.tip), "a picked pane still s
 `)
 }
 
+// The style sheet stills its animations for somebody whose system asks for
+// reduced motion, but a terminal's cursor blinks by script rather than CSS,
+// so every terminal went on blinking for them regardless.
+func TestReducedMotionStillsTheCursor(t *testing.T) {
+	runFrontEnd(t, `
+h.win.matchMedia = (q) => ({ matches: /reduce/.test(q), addEventListener() {} });
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "the cursor blinks although reduced motion was asked for");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
