@@ -888,7 +888,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.dismissTip(cmd.ID)
 		return
 	case "forgetRecent":
-		if err := store.ForgetRecent(cmd.Root); err != nil {
+		// On the workspace goroutine, where opening or switching to a project
+		// rewrites the same list (TouchRecent). Each is a read and a rewrite
+		// of the whole file, and side by side one could put back what the
+		// other had just taken out -- as could two windows forgetting at once.
+		if err, ok := ask(s, func() error { return store.ForgetRecent(cmd.Root) }); ok && err != nil {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
 			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
