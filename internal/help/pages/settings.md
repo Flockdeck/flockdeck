@@ -9,7 +9,7 @@ them, how to change it, and where it is kept.
 | Setting | How to change it | Kept |
 | --- | --- | --- |
 | The agent and model a pane runs | [[action:splitRightChoose]] or [[action:newAgentTabChoose]] | with the layout |
-| Which agent and model a project starts | **Set as default for this project**, at the foot of the picker | `agents.json` |
+| Which agent and model a project starts | **Set as default for this project**, at the foot of the picker; to go back to the default for every project, remove the project's entry under `projects` in `agents.json` | `agents.json` |
 | An API agent's key | [[action:apiKeys]], or `flockdeck keys set <agent>` | `keys.json` |
 | A tab's name | double-click the tab | with the layout |
 | Which panes the prompt bar reaches | [[key:toggleBroadcast]], and the `⇉` button in each pane header | until Flockdeck stops |
