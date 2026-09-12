@@ -3177,9 +3177,14 @@
     // The fixed commands are the action table, in the order it gives them.
     // Anything the table names but the front end has not implemented is left
     // out rather than offered and found dead; a test keeps the two level.
+    // The settings are commands like any other, and "settings" is the word
+    // somebody looking for one types - it matched none of them.
+    const SETTING = "settings preferences options";
+    const SETTINGS = new Set(["fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
+    const also = (id) => SETTINGS.has(id) ? SETTING : "";
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => ({ label: k.label, hint: k.keys, run: () => runAction(k.id) }));
+      .map((k) => ({ label: k.label, hint: k.keys, also: also(k.id), run: () => runAction(k.id) }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
@@ -3197,12 +3202,13 @@
      ["focusNextPane", "Focus the next pane"],
      ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
-      cmds.push({ label: label, run: () => runAction(id) });
+      cmds.push({ label: label, also: also(id), run: () => runAction(id) });
     });
     // A setting kept as "off": the entry turns it back on while it is off and
     // off while it is on, and says which it did.
     const toggle = (off, cmd, [turnOn, turnOff], [isOn, isOff]) => cmds.push({
       label: off ? turnOn : turnOff,
+      also: SETTING,
       run: () => { send({ cmd, kind: off ? "on" : "off" }); notice(off ? isOn : isOff, false); },
     });
     // Desktop notifications reach past the window, and the only way to stop
@@ -3222,6 +3228,7 @@
     if ((prefs.dismissedTips || []).length) {
       cmds.push({
         label: "Show the tips again",
+        also: SETTING,
         run: () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
       });
     }
@@ -3292,7 +3299,8 @@
   function paletteMatches(all, q) {
     const words = q.split(/\s+/);
     const initials = (label) => label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join("");
-    const named = all.filter((c) => words.every((w) => c.label.toLowerCase().includes(w)));
+    const text = (c) => (c.also ? c.label + " " + c.also : c.label).toLowerCase();
+    const named = all.filter((c) => words.every((w) => text(c).includes(w)));
     const spelled = all.filter((c) => !named.includes(c) &&
       words.every((w) => w.length > 1 && initials(c.label).includes(w)));
     return named.concat(spelled);

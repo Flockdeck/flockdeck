@@ -4197,6 +4197,29 @@ assert.ok(!/waiting/.test(hint("three")), "a tab with nobody waiting says somebo
 `)
 }
 
+// Every setting is a palette command, and typing "settings" - what somebody
+// looking for one types - found none of them.
+func TestThePaletteFindsTheSettingsByThatName(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const labels = (q) => {
+  input.value = q;
+  input.oninput();
+  return h.$("palette-list").children.map((r) => r.querySelector(".pal-label")).filter(Boolean).map((l) => l.textContent);
+};
+for (const q of ["settings", "preferences", "options"]) {
+  const found = labels(q);
+  for (const want of ["Terminal scrollback…", "Terminal font…", "Increase font size", "Turn desktop notifications off", "Stop the terminal cursor blinking", "Turn update checks off"]) {
+    assert.ok(found.includes(want), "typing " + q + " does not find " + want + ": " + JSON.stringify(found));
+  }
+  assert.ok(!found.includes("Rename this tab…"), "typing " + q + " offers a command that is not a setting");
+}
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
