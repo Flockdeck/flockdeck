@@ -391,12 +391,15 @@ func answering() bool {
 
 // attach hands the requested project to an instance that is already running
 // and shows a window onto it, so a second launch joins the agents already
-// going instead of starting a rival set.
+// going instead of starting a rival set. An empty root opens nothing and only
+// shows the window.
 func attach(inst *store.Instance, base, root string, noWindow bool) error {
-	if err := server.RequestOpen(base, inst.Token, root); err != nil {
-		// On its own this was "open project: 400 Bad Request", which says
-		// neither what was being attempted nor what else there is to do.
-		return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
+	if root != "" {
+		if err := server.RequestOpen(base, inst.Token, root); err != nil {
+			// On its own this was "open project: 400 Bad Request", which says
+			// neither what was being attempted nor what else there is to do.
+			return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
+		}
 	}
 	url := base + "/?t=" + inst.Token
 	if noWindow {
@@ -547,13 +550,9 @@ func run(opts options) error {
 		}
 	}()
 
-	root, err := filepath.Abs(expandHome(opts.dir))
+	root, chosen, err := launchRoot(opts, startedAs)
 	if err != nil {
-		return fmt.Errorf("resolve %s: %w", opts.dir, err)
-	}
-	if !opts.dirGiven {
-		saved, _ := store.LoadSession()
-		root = landingRoot(root, startedAs, saved)
+		return err
 	}
 	// Say which of the three ways this can go wrong actually happened: a
 	// path that is missing and one that cannot be read are both common, and
@@ -588,6 +587,14 @@ func run(opts options) error {
 				fmt.Fprintf(os.Stderr,
 					"flockdeck: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
 					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
+			}
+			// A launch that named nothing, from the Start menu say, is
+			// asking for the window onto the projects already open, and
+			// the one it would have landed in comes from a session saved
+			// when the last run ended: opening that would move the window
+			// off whatever the user has moved on to since.
+			if !chosen {
+				root = ""
 			}
 			// -detach asks for no window, and that much of it still holds
 			// when joining: the project goes to the running instance and
@@ -847,37 +854,93 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	return win, nil
 }
 
+// workingDir and loadSession are where a launch that names no project learns
+// the directory it was started in and what was open when the last run ended.
+// They are variables so that a test can start a launch anywhere, with any
+// saved session, without moving the test process or reading the real state.
+var (
+	workingDir  = os.Getwd
+	loadSession = store.LoadSession
+)
+
+// launchRoot is the project a launch opens, and whether it was chosen rather
+// than landed in. A directory named with -C is chosen, and so is the one a
+// launch was started in when that is somewhere a person works; anywhere else
+// it lands where landingRoot says. exe is the program's own path.
+func launchRoot(opts options, exe string) (root string, chosen bool, err error) {
+	if opts.dirGiven {
+		root, err = filepath.Abs(expandHome(opts.dir))
+		if err != nil {
+			return "", false, fmt.Errorf("resolve %s: %w", opts.dir, err)
+		}
+		return root, true, nil
+	}
+	cwd, err := workingDir()
+	if err != nil {
+		return "", false, fmt.Errorf("find the directory flockdeck was started in: %w", err)
+	}
+	if !startedNowhere(cwd, exe) {
+		return cwd, true, nil
+	}
+	// A session that cannot be read is no worse than none: the launch still
+	// has to open something, and LoadSession has kept a damaged one aside.
+	saved, _ := loadSession()
+	return landingRoot(cwd, exe, saved), false, nil
+}
+
 // landingRoot is the project a launch opens when none was named: cwd, the
-// directory it was started in, unless that is only where the program itself
-// lives or where the system starts a program it was told nothing about.
-//
-// From a terminal the working directory is where the user is standing, and
-// exactly right. A double-click, or a shortcut left as it was made, starts the
-// program in its own folder instead — Downloads, as often as not — and opening
-// that made every such start add the folder as a project, with a fresh agent
-// in it, beside the session the user actually had. A scheduled or login start
-// is worse: Task Scheduler with no "Start in" runs it in System32, launchd in
-// /, and that became a project, with an agent working in it, which every
-// start after reopened. The project the user was last in is the better answer
-// in both cases, when there is one to go back to; failing that a system
-// directory gives way to the home directory, while the program's own folder,
-// where somebody did choose to put it, stays.
+// directory it was started in, unless startedNowhere says that is no project
+// at all. Then it is the project the user was last in, which brings back
+// every other project that was open with it; failing that a system directory
+// gives way to the home directory, while the home directory itself and the
+// program's own folder, where somebody did choose to put it, stay.
 func landingRoot(cwd, exe string, saved *store.Session) string {
-	system := systemDir(cwd)
-	if !system && (exe == "" || !sameFolder(cwd, filepath.Dir(exe))) {
+	if !startedNowhere(cwd, exe) {
 		return cwd
 	}
-	if saved != nil && saved.Active != "" {
-		if fi, err := os.Stat(saved.Active); err == nil && fi.IsDir() {
-			return saved.Active
-		}
+	if last := saved.Landing(); last != "" {
+		return last
 	}
-	if system {
+	if systemDir(cwd) {
 		if home, err := os.UserHomeDir(); err == nil {
 			return home
 		}
 	}
 	return cwd
+}
+
+// startedNowhere reports whether cwd is only where a launch happened to be
+// started, rather than a directory anybody meant to open.
+//
+// From a terminal the working directory is where the user is standing, and
+// exactly right. A double-click, or a shortcut left as it was made, starts the
+// program in its own folder instead — Downloads, as often as not — and opening
+// that made every such start add the folder as a project, with a fresh agent
+// in it, beside the session the user actually had. The Start menu shortcut the
+// Windows installer makes starts it in the home directory, as a new terminal
+// does, and the home directory became a project the same way, while the
+// projects the user had open were restored behind it. A scheduled or login
+// start is worse: Task Scheduler with no "Start in" runs it in System32,
+// launchd in /, and that became a project, with an agent working in it, which
+// every start after reopened.
+func startedNowhere(cwd, exe string) bool {
+	return systemDir(cwd) || homeDir(cwd) || (exe != "" && sameFolder(cwd, filepath.Dir(exe)))
+}
+
+// homeDir reports whether dir is the user's home directory. It asks the file
+// system as well as comparing names, since a home directory can be reached by
+// more than one: through a symlink, or by a Windows short name.
+func homeDir(dir string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	if sameFolder(dir, home) {
+		return true
+	}
+	a, errA := os.Stat(dir)
+	b, errB := os.Stat(home)
+	return errA == nil && errB == nil && os.SameFile(a, b)
 }
 
 // systemDir reports whether dir is where the system starts a program that was
