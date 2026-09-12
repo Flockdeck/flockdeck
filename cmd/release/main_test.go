@@ -43,6 +43,31 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe")
 }
 
+// Archives left by an earlier run of another version must not end up beside
+// this run's, unlisted in its checksums, to be uploaded with it — but nothing
+// else in the directory is this command's to remove.
+func TestClearOldArchivesTakesOnlyItsOwn(t *testing.T) {
+	out := t.TempDir()
+	names := []string{"flockdeck_v0.9.0_linux_amd64.tar.gz", "flockdeck_v0.9.0_windows_amd64.zip", "checksums.txt", "notes.md"}
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(out, n), []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := clearOldArchives(out); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		_, err := os.Stat(filepath.Join(out, n))
+		if kept := err == nil; kept != (n == "notes.md") {
+			t.Errorf("%s: kept = %v", n, kept)
+		}
+	}
+	if err := clearOldArchives(t.TempDir()); err != nil {
+		t.Errorf("an empty directory: %v", err)
+	}
+}
+
 func checkArchive(t *testing.T, kind string, got map[string]entry, binary string) {
 	t.Helper()
 	bin, ok := got[binary]

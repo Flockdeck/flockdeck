@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -61,6 +62,9 @@ func run(version, out string) error {
 		return err
 	}
 	if err := checkExtras(); err != nil {
+		return err
+	}
+	if err := clearOldArchives(out); err != nil {
 		return err
 	}
 
@@ -107,6 +111,23 @@ func run(version, out string) error {
 	}
 
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
+}
+
+// clearOldArchives removes what an earlier run wrote to out. Archives of
+// another version would otherwise sit beside this run's, missing from its
+// checksums.txt, and uploading the directory as it stands would publish them
+// with the release. Only the names this command writes are touched.
+func clearOldArchives(out string) error {
+	old, err := filepath.Glob(filepath.Join(out, binary+"_*"))
+	if err != nil {
+		return err
+	}
+	for _, f := range append(old, filepath.Join(out, "checksums.txt")) {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func ext(goos string) string {
