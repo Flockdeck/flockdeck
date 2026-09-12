@@ -126,6 +126,7 @@ function Install-Flockdeck {
     } catch {
         Write-Host "flockdeck: could not add a Start menu shortcut: $_"
     }
+    Write-Host 'flockdeck: start it from the Start menu, or run: flockdeck'
 }
 
 Install-Flockdeck
