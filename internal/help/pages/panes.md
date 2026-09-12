@@ -29,7 +29,9 @@ Click a pane to give it the keyboard. Everything you type goes to the agent in
 it — that is the point, and it is why almost all of this application's own
 shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 
-- Drag the divider between two panes to resize them.
+- Drag the divider between two panes to resize them — or reach it with
+  <kbd>Tab</kbd> and use the arrow keys, and <kbd>Home</kbd> to share the room
+  equally again.
 - [[key:zoomPane]] gives the focused pane the whole tab, and gives it back.
   The others keep running; they are simply not on screen.
 - [[key:findInTerminal]] searches the focused terminal's scrollback.

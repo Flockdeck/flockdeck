@@ -269,9 +269,11 @@ which the command palette and the in-app help are also drawn from; run
 
 <!-- shortcuts:end -->
 
-Panes are focused by clicking, resized by dragging the divider between them,
-moved by dragging their header, and closed, restarted or zoomed from the
-buttons in their header.
+Panes are focused by clicking, resized by dragging the divider between them
+(or from the keyboard: `Tab` to it, then the arrow keys, and `Home` to share
+the room equally), moved by dragging their header, and closed, restarted or
+zoomed from the buttons in their header. In any dialog `Esc` closes it and the
+arrow keys and `Enter` work through its list.
 
 ## How each feature works
 
