@@ -1036,18 +1036,18 @@ func TestRemotesMatchWholeNames(t *testing.T) {
 	if !HasRemote(repo) {
 		t.Error("a repository with one remote can be pushed, whatever it is called")
 	}
-	if got, err := pushRemote(repo); err != nil || got != "my-origin" {
+	if got, err := pushRemote(repo, "main"); err != nil || got != "my-origin" {
 		t.Errorf("pushRemote = %q, %v; want the sole remote", got, err)
 	}
 
 	// Once there is a choice and no origin, the user has to make it.
 	gitRun(t, repo, "remote", "add", "other", "https://example.invalid/y.git")
-	if _, err := pushRemote(repo); err == nil {
+	if _, err := pushRemote(repo, "main"); err == nil {
 		t.Error("two remotes and no origin should not be guessed at")
 	}
 
 	gitRun(t, repo, "remote", "add", "origin", "https://example.invalid/z.git")
-	if got, err := pushRemote(repo); err != nil || got != "origin" {
+	if got, err := pushRemote(repo, "main"); err != nil || got != "origin" {
 		t.Errorf("pushRemote = %q, %v; want origin once it exists", got, err)
 	}
 }
@@ -1303,5 +1303,19 @@ func TestPushBeforeTheFirstCommitSaysSo(t *testing.T) {
 	_, err := Push(fresh)
 	if err == nil || !strings.Contains(err.Error(), "commit something first") || strings.Contains(err.Error(), "refspec") {
 		t.Errorf("push before the first commit: %v", err)
+	}
+}
+
+// TestPushWithNoRemoteToChooseSaysHow: the panel can neither add a remote nor
+// pick one, and "push manually" left the reader to work out how.
+func TestPushWithNoRemoteToChooseSaysHow(t *testing.T) {
+	repo := newRepo(t)
+	if _, err := Push(repo); err == nil || !strings.Contains(err.Error(), "git remote add origin") {
+		t.Errorf("push with no remote: %v", err)
+	}
+	gitRun(t, repo, "remote", "add", "fork", t.TempDir())
+	gitRun(t, repo, "remote", "add", "upstream", t.TempDir())
+	if _, err := Push(repo); err == nil || !strings.Contains(err.Error(), "git push -u fork main") {
+		t.Errorf("push with two remotes and no origin: %v", err)
 	}
 }

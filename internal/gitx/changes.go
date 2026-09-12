@@ -725,7 +725,7 @@ func Push(dir string) (string, error) {
 	var remote string
 	if UpstreamOf(dir) == "" {
 		var err error
-		if remote, err = pushRemote(dir); err != nil {
+		if remote, err = pushRemote(dir, branch); err != nil {
 			return "", err
 		}
 		args = append(args, "--set-upstream", remote, branch)
@@ -771,11 +771,15 @@ func UpstreamOf(dir string) string {
 // pushRemote picks where a branch with no upstream should go: "origin" by
 // convention, or the only remote when the repository names it something else.
 // More than one and no origin is a choice the user has to make themselves.
-func pushRemote(dir string) (string, error) {
+//
+// Either failure ends with the command that gets past it: the panel has no way
+// to add a remote or pick one, and "push manually" left the reader to work out
+// how.
+func pushRemote(dir, branch string) (string, error) {
 	remotes := Remotes(dir)
 	switch {
 	case len(remotes) == 0:
-		return "", &gitError{"this repository has no remote to push to"}
+		return "", &gitError{"this repository has no remote to push to; add one from a terminal: git remote add origin <url>"}
 	case len(remotes) == 1:
 		return remotes[0], nil
 	}
@@ -784,7 +788,9 @@ func pushRemote(dir string) (string, error) {
 			return r, nil
 		}
 	}
-	return "", &gitError{"no \"origin\" remote; push manually to one of: " + strings.Join(remotes, ", ")}
+	return "", &gitError{fmt.Sprintf("there is no \"origin\" among this repository's remotes (%s), so which to push to is yours "+
+		"to choose; push once from a terminal and the panel will follow it: git push -u %s %s",
+		strings.Join(remotes, ", "), remotes[0], branch)}
 }
 
 // Pull fast-forwards from the upstream. A merge that cannot fast-forward is
