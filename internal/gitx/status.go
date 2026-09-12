@@ -186,7 +186,9 @@ func ListDetailed(dir string) ([]Worktree, error) {
 	}
 	var wg sync.WaitGroup
 	for i := range wts {
-		if wts[i].Bare {
+		// A worktree whose directory is gone has no status to read; asking
+		// only spends a process on an error.
+		if wts[i].Bare || wts[i].Prunable {
 			continue
 		}
 		wg.Add(1)

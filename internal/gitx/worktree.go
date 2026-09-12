@@ -54,6 +54,10 @@ type Worktree struct {
 	Locked   bool
 	// Main reports whether this is the repository's primary worktree.
 	Main bool
+	// Prunable reports that the worktree's directory is gone -- deleted by
+	// hand, or on a drive that is not there -- and only git's record of it is
+	// left. Its Status is empty, which is not the same thing as clean.
+	Prunable bool
 	// Status is filled in by ListDetailed.
 	Status Status
 }
@@ -329,6 +333,10 @@ func List(dir string) ([]Worktree, error) {
 		case "locked":
 			if cur != nil {
 				cur.Locked = true
+			}
+		case "prunable":
+			if cur != nil {
+				cur.Prunable = true
 			}
 		}
 	}

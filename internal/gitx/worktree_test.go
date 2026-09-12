@@ -614,3 +614,23 @@ func TestPruneRemovesStaleRecords(t *testing.T) {
 		t.Errorf("second prune = %d, %v; want nothing removed", pruned, err)
 	}
 }
+
+// TestDeletedWorktreeIsReportedAsPrunable: a worktree whose directory was
+// deleted by hand came back with an empty status, which reads as clean.
+func TestDeletedWorktreeIsReportedAsPrunable(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "gone")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "gone", wt)
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	wts, err := ListDetailed(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range wts {
+		if gone := samePath(w.Path, wt); w.Prunable != gone {
+			t.Errorf("%s: prunable = %v, want %v", w.Path, w.Prunable, gone)
+		}
+	}
+}
