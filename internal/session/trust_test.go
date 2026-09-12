@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -516,6 +518,62 @@ func TestTrustFailsSafe(t *testing.T) {
 				t.Error("the worktree borrowed its repository's trust through a link that does not hold")
 			}
 		})
+	}
+}
+
+// fakeInfo is a file-system entry of a given kind, and nothing else.
+type fakeInfo fs.FileMode
+
+func (f fakeInfo) Name() string       { return "" }
+func (f fakeInfo) Size() int64        { return 0 }
+func (f fakeInfo) Mode() fs.FileMode  { return fs.FileMode(f) }
+func (f fakeInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeInfo) IsDir() bool        { return fs.FileMode(f).IsDir() }
+func (f fakeInfo) Sys() any           { return nil }
+
+// TestStaysLocalFollowsLinks covers the walk that keeps a worktree's links from
+// leading off the machine, with the links laid out in memory: the test cases
+// that make real ones skip on a Windows machine without the privilege, and
+// this is the part of the trust check that most needs to have run everywhere.
+func TestStaysLocalFollowsLinks(t *testing.T) {
+	base := t.TempDir()
+	links := map[string]string{
+		filepath.Join(base, "away"):   farAway(),
+		filepath.Join(base, "here"):   filepath.Join(base, "real"),
+		filepath.Join(base, "rel"):    "real",
+		filepath.Join(base, "hop"):    filepath.Join(base, "away"),
+		filepath.Join(base, "loop-a"): filepath.Join(base, "loop-b"),
+		filepath.Join(base, "loop-b"): filepath.Join(base, "loop-a"),
+	}
+	lstatWas, readlinkWas := lstat, readlink
+	t.Cleanup(func() { lstat, readlink = lstatWas, readlinkWas })
+	lstat = func(p string) (fs.FileInfo, error) {
+		if _, ok := links[p]; ok {
+			return fakeInfo(fs.ModeSymlink), nil
+		}
+		return fakeInfo(fs.ModeDir), nil
+	}
+	readlink = func(p string) (string, error) {
+		if target, ok := links[p]; ok {
+			return target, nil
+		}
+		return "", errors.New("not a link")
+	}
+
+	for _, c := range []struct {
+		name string
+		want bool
+	}{
+		{"real", true},
+		{"here", true},    // a link to a folder on this machine
+		{"rel", true},     // the same, written relative to where it is
+		{"away", false},   // a link to another machine
+		{"hop", false},    // a local link to a link to another machine
+		{"loop-a", false}, // a loop, which no count of hops gets out of
+	} {
+		if got := staysLocal(filepath.Join(base, c.name, "repo", ".git")); got != c.want {
+			t.Errorf("staysLocal through %q = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

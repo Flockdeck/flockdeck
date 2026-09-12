@@ -276,6 +276,14 @@ func networkPath(p string) bool {
 	return strings.EqualFold(first, "net") || strings.EqualFold(first, "network")
 }
 
+// lstat and readlink are how staysLocal looks at the file system. They are
+// variables so that a test can lay out links on a machine that will not let it
+// make real ones, as Windows without the privilege will not.
+var (
+	lstat    = os.Lstat
+	readlink = os.Readlink
+)
+
 // staysLocal reports whether an absolute path can be followed without leaving
 // the machine. Each link met on the way is read, not followed, and the walk
 // goes on from where it points; a link to another machine, or a chain of links
@@ -292,14 +300,14 @@ func staysLocal(p string) bool {
 		next := ""
 		for i, name := range parts {
 			cur = filepath.Join(cur, name)
-			fi, err := os.Lstat(cur)
+			fi, err := lstat(cur)
 			if err != nil {
 				return true // nothing there to follow; reading it fails on its own
 			}
 			if fi.Mode()&os.ModeSymlink == 0 {
 				continue
 			}
-			target, err := os.Readlink(cur)
+			target, err := readlink(cur)
 			if err != nil || target == "" || networkPath(target) {
 				return false
 			}
