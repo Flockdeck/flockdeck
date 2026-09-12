@@ -35,7 +35,26 @@ func resolveKey(o Options) (string, error) {
 	}
 	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`; %s",
 		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(keyNames(o), " or "),
-		firstNonEmpty(o.Agent, o.Wire, "<agent>"), then)
+		keyAgent(o), then)
+}
+
+// keyAgent is the agent whose stored key is looked for: the one the chat was
+// started as, or -- started by hand with only a wire named -- the built-in
+// agent that speaks that wire, which is the id `flockdeck keys set` would have
+// been given. Looked for under no id at all, a stored key was never found,
+// and the error said to run the very command that had stored it.
+func keyAgent(o Options) string {
+	if o.Agent != "" {
+		return o.Agent
+	}
+	switch strings.ToLower(strings.TrimSpace(o.Wire)) {
+	case "openai", "openai-compatible":
+		return "openai"
+	case "gemini", "google":
+		return "google"
+	default:
+		return "anthropic"
+	}
 }
 
 // lookupKey finds the key and says where it came from, in words that name the
@@ -50,8 +69,8 @@ func lookupKey(o Options) (key, from string) {
 		}
 	}
 	if KeyStore != nil {
-		if v := strings.TrimSpace(KeyStore(o.Agent)); v != "" {
-			return v, "stored with `flockdeck keys set " + o.Agent + "`"
+		if v := strings.TrimSpace(KeyStore(keyAgent(o))); v != "" {
+			return v, "stored with `flockdeck keys set " + keyAgent(o) + "`"
 		}
 	}
 	// An endpoint on this machine is usually a local model, which wants no key
