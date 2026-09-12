@@ -102,10 +102,13 @@ beside it is the same program built with one.
 | `flockdeck update` | Fetches the latest release and puts it in place |
 | `flockdeck update -check` | Says whether there is one, and stops |
 
-Releases are published on GitHub as one archive per platform, with a
-`checksums.txt` beside them. The download is checked against its published
-SHA-256 before anything is replaced, and a download that does not match is
-thrown away rather than installed.
+Releases are published at `dl.flockdeck.ai` as one archive per platform, with
+a `checksums.txt` beside them, signed with the release key that is built into
+Flockdeck. GitHub carries every release too: when `dl.flockdeck.ai` cannot be
+reached, or what it serves is not signed by the release key, Flockdeck
+downloads from GitHub instead and says why in its log. The download is checked
+against its published SHA-256 before anything is replaced, and a download that
+does not match is thrown away rather than installed.
 
 Replacing the binary does not disturb an instance that is already running: it
 is running from an image the operating system already holds, so the new version
