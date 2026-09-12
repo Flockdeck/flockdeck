@@ -543,6 +543,31 @@ func TestSessionDropsAnActiveProjectThatIsNotOpen(t *testing.T) {
 	}
 }
 
+// TestSessionLanding checks a launch that named no project goes back to the
+// one the user was last in, and to another that was open when that one has
+// gone, rather than to the directory it happened to start in.
+func TestSessionLanding(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	gone := filepath.Join(a, "deleted")
+
+	cases := []struct {
+		name string
+		s    *Session
+		want string
+	}{
+		{"nothing saved", nil, ""},
+		{"the project last in", &Session{Open: []string{a, b}, Active: b}, b},
+		{"the project last in has gone", &Session{Open: []string{gone, b}, Active: gone}, b},
+		{"no project was active", &Session{Open: []string{gone, a, b}}, a},
+		{"every project has gone", &Session{Open: []string{gone}, Active: gone}, ""},
+	}
+	for _, c := range cases {
+		if got := c.s.Landing(); got != c.want {
+			t.Errorf("%s: Landing = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // TestLoadRejectsAnotherProjectsLayout checks a layout file that turns out to
 // describe a different directory restores nothing, rather than opening one
 // project's tabs inside another.

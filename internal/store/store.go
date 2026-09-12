@@ -1007,6 +1007,26 @@ func tidySession(s *Session) *Session {
 	return out
 }
 
+// Landing is the project a launch that named none goes back to: the one the
+// user was last in, or failing that the first of the others that is still
+// there, so one deleted project does not cost them the rest. It is "" when
+// none of them is a directory any more, and for a nil session, so a caller
+// with nothing saved can ask all the same.
+func (s *Session) Landing() string {
+	if s == nil {
+		return ""
+	}
+	for _, root := range append([]string{s.Active}, s.Open...) {
+		if root == "" {
+			continue
+		}
+		if fi, err := os.Stat(root); err == nil && fi.IsDir() {
+			return root
+		}
+	}
+	return ""
+}
+
 // SaveSession records which projects are open.
 func SaveSession(s *Session) error {
 	dir, err := Dir()

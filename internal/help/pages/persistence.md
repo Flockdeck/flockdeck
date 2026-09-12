@@ -12,6 +12,11 @@ starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
 
+Started without one — from the Start menu, a shortcut, or a terminal in your
+home folder — Flockdeck opens the projects you had open last time and lands in
+the one you were in. Your home folder opens as a project only when there were
+none; to open it on purpose, run `flockdeck -C ~`.
+
 A layout is written when the window closes or reloads, when you detach,
 restart or quit, and when a project is closed — not as you work, so if
 Flockdeck is killed or crashes, the changes since then are lost.

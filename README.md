@@ -179,7 +179,7 @@ agents. A detached one carries on, whether it was started with
 command palette.
 
 ```sh
-flockdeck                 # open the current directory
+flockdeck                 # open the current directory, or the projects open last time
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
 flockdeck -new            # start without the saved layout, and replace it on exit
 flockdeck -shell          # first pane is a shell, not an agent
