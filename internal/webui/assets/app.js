@@ -346,6 +346,8 @@
         // A machine that has just been enrolled starts from an empty form the
         // next time it is turned off and on, not from the codes used once.
         if (msg.action === "enable" && !msg.error) remoteDraft = newRemoteDraft();
+        // A move that went ahead is done with its form, and its codes.
+        if (msg.action === "move" && !msg.error) remoteMoveDraft = newRemoteMoveDraft();
         if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
@@ -442,6 +444,10 @@
    *  rather than asking twice, and remoteOutcome the last answer to one. */
   const newRemoteDraft = () => ({ relay: "", name: "", join: "", invite: "", more: false });
   let remoteDraft = newRemoteDraft();
+  /** remoteMoveDraft is the same for the form that moves this machine to
+   *  another relay, folded away until it is asked for. */
+  const newRemoteMoveDraft = () => ({ open: false, relay: "", invite: "", join: "" });
+  let remoteMoveDraft = newRemoteMoveDraft();
   let remoteBusy = "";
   let remoteOutcome = null;
 
@@ -505,6 +511,7 @@
     remotePairing = null;
     remoteOutcome = null;
     remoteBusy = "";
+    remoteMoveDraft = newRemoteMoveDraft();
     openOverlay("Remote access", "remote");
     renderRemote();
     send({ cmd: "remoteDevices" });
@@ -759,9 +766,23 @@
       if (!window.confirm(q)) return;
       remoteDisable(false);
     };
-    row.append(off);
+    // Moving is for a company taking its machines onto a relay of its own,
+    // so it is offered beside turning it off, and its form folded away.
+    const move = el("button", "chip", remoteMoveDraft.open ? "Keep it here" : "Move to another relay…");
+    move.id = "remote-move";
+    move.disabled = !!remoteBusy;
+    move.onclick = () => {
+      remoteMoveDraft.open = !remoteMoveDraft.open;
+      remoteOutcome = null;
+      renderRemote();
+      const f = $("remote-move-relay");
+      if (f && f.focus) f.focus();
+    };
+    row.append(move, off);
     box.append(row);
-    if (o && o.action !== "enable" && o.error) box.append(el("p", "remote-error", o.error));
+    if (remoteMoveDraft.open) box.append(remoteMoveForm(r, roster));
+    if (o && o.action !== "enable" && o.action !== "move" && o.error) box.append(el("p", "remote-error", o.error));
+    if (o && o.action === "move" && o.warning) box.append(el("p", "remote-error", o.warning));
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
         "network, for now. Forgetting it here anyway turns remote access off on this machine, but the " +
@@ -782,6 +803,74 @@
       box.append(again);
     }
     box.append(enterpriseNote());
+    return box;
+  }
+
+  /** remoteMoveForm moves this machine to another relay: what `flockdeck
+   *  remote move` asks for, as fields. What moving costs, every device
+   *  pairing again, is said here before the button, and again in the
+   *  question the button asks, since moving back does not undo it. */
+  function remoteMoveForm(r, roster) {
+    const d = remoteMoveDraft;
+    const o = remoteOutcome;
+    const from = String((r && r.relay) || "the relay it is on").replace(/^https?:\/\//, "");
+    const box = el("div", "remote-move");
+    box.append(el("p", "fan-hint", "This machine is enrolled with the new relay first, and leaves " + from +
+      " only once the new one answers. Every device paired with it will then have to pair again, with the new relay."));
+    const form = el("div", "wt-form");
+    const fields = [];
+    const field = (key, id, placeholder, label) => {
+      const f = el("input");
+      f.id = id;
+      f.placeholder = placeholder;
+      f.value = d[key];
+      f.spellcheck = false;
+      f.autocomplete = "off";
+      f.setAttribute("aria-label", label);
+      f.oninput = () => { d[key] = f.value; };
+      f.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); go(); } };
+      fields.push([key, f]);
+      form.append(f);
+    };
+    field("relay", "remote-move-relay", "New relay, e.g. https://relay.example.com", "New relay address");
+    field("invite", "remote-move-invite", "Invitation code, if the new relay asks for one", "Invitation code");
+    field("join", "remote-move-join", "Join code, to join an account already on the new relay", "Join code");
+    box.append(form);
+
+    const go = () => {
+      if (remoteBusy) return;
+      fields.forEach(([key, f]) => { d[key] = f.value; });
+      const to = d.relay.trim();
+      if (!to) {
+        remoteOutcome = { action: "move", error: "Name the relay to move this machine to." };
+        renderRemote();
+        return;
+      }
+      const hosts = (roster && roster.hosts) || [];
+      const devices = (roster && roster.devices) || [];
+      let q = "Move this machine from " + from + " to " + to.replace(/^https?:\/\//, "") + "? " +
+        "Every device paired with it will have to pair again, with the new relay.";
+      // Leaving is taking the account's only machine off the old relay,
+      // which takes the account and its devices there with it.
+      if (hosts.length === 1 && devices.length) {
+        q += " It is the only machine on its account on " + from + ", so the account goes too, and " +
+          (devices.length === 1 ? "its paired device is" : "its " + devices.length + " paired devices are") + " unpaired there.";
+      }
+      if (!window.confirm(q)) return;
+      remoteBusy = "move";
+      remoteOutcome = null;
+      send({ cmd: "remoteMove", relay: to, invite: d.invite.trim(), join: d.join.trim() });
+      renderRemote();
+    };
+    const row = el("div", "update-row");
+    const btn = el("button", "chip primary", remoteBusy === "move" ? "Moving…" : "Move this machine");
+    btn.id = "remote-move-go";
+    btn.disabled = !!remoteBusy;
+    btn.onclick = go;
+    row.append(btn);
+    box.append(row);
+    if (o && o.action === "move" && o.error) box.append(el("p", "remote-error", o.error));
+    box.append(el("p", "fan-hint", "The same from a terminal: flockdeck remote move <relay>."));
     return box;
   }
 
