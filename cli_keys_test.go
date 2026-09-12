@@ -522,3 +522,39 @@ func TestKeysSetSaysWhenTheEndpointCannotBeReachedToCheck(t *testing.T) {
 		t.Error("the key was not kept")
 	}
 }
+
+// keys check asks the endpoint about the key a pane would use, says where it
+// comes from, and never shows it.
+func TestKeysCheckAsksAboutTheKeyAPaneWouldUse(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "sk-good-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
+			return
+		}
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	// The test endpoint is on this machine, which needs no key, and is said to.
+	out, err := runKeysCmd(t, "", "check", "anthropic")
+	if err != nil || !strings.Contains(out, "not needed") {
+		t.Errorf("with no key: %v\n%s", err, out)
+	}
+
+	name := keysAgent(t, "anthropic").API.KeyEnv[0]
+	for key, want := range map[string]string{"sk-bad-key": "refused", "sk-good-key": "accepted"} {
+		t.Setenv(name, key)
+		out, err := runKeysCmd(t, "", "check", "anthropic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, want) || !strings.Contains(out, name) || strings.Contains(out, key) {
+			t.Errorf("%s from %s: %q", want, name, out)
+		}
+	}
+}

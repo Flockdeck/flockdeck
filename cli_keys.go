@@ -85,6 +85,12 @@ func keysCmd(args []string, kio keysIO) error {
 			return fmt.Errorf("usage: flockdeck keys clear <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysClear(args[1], kio.out)
+	case "check", "test":
+		if len(args) != 2 {
+			keysUsage(kio.out)
+			return fmt.Errorf("usage: flockdeck keys check <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
+		}
+		return keysCheck(args[1], kio.out)
 	case "endpoint", "url":
 		if len(args) != 2 && len(args) != 3 {
 			keysUsage(kio.out)
@@ -108,6 +114,7 @@ func keysUsage(out io.Writer) {
 	fmt.Fprintf(out, "  list           show which agents have a key, and where it came from\n")
 	fmt.Fprintf(out, "  set <agent>    read a key from standard input and store it\n")
 	fmt.Fprintf(out, "  clear <agent>  forget a stored key\n")
+	fmt.Fprintf(out, "  check <agent>  ask the agent's endpoint whether it takes the key a pane would use\n")
 	fmt.Fprintf(out, "  endpoint <agent> [<url> | default]\n")
 	fmt.Fprintf(out, "                 show the address an agent talks to, or change it: a local\n")
 	fmt.Fprintf(out, "                 model server, a gateway; default goes back to the vendor's\n\n")
@@ -312,6 +319,26 @@ func keysClear(agentID string, out io.Writer) error {
 		return nil
 	}
 	fmt.Fprintf(out, "forgot the stored key for %s\n", agentID)
+	return nil
+}
+
+// keysCheck asks the agent's endpoint whether it takes the key a pane would
+// use now -- from the environment or the store, whichever wins -- and says
+// where that key comes from, never what it is. A pane told its key was
+// refused, with one key in the environment and another stored, otherwise left
+// nobody able to say which of the two it was.
+func keysCheck(agentID string, out io.Writer) error {
+	spec, err := keyAgentSpec(agentID)
+	if err != nil {
+		return err
+	}
+	k := creds.Resolve(spec)
+	if !k.Set() {
+		fmt.Fprintf(out, "%s: %s\n", agentID, creds.StatusOf(spec).Describe())
+		return nil
+	}
+	fmt.Fprintf(out, "%s's key is %s; asking its endpoint\n", agentID, k)
+	checkKey(agentID, k.Secret(), out)
 	return nil
 }
 
