@@ -336,6 +336,10 @@ func TestSpawnSaysWhatAFailureMeans(t *testing.T) {
 		t.Errorf("a spawn that timed out said %v; it should say the helper may still be starting", err)
 	}
 
+	// The real deadline again: a refusal arrives as fast as the machine sends
+	// it, and on a macOS runner that was not always inside 50ms, which made a
+	// closed application read as a slow one.
+	spawnTimeout = old
 	gone, _ := newServer(t)
 	api := gone.BaseURL()
 	_ = gone.Close()
