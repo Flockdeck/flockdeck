@@ -80,7 +80,54 @@ func Root(dir string) (string, error) {
 	if root == "" {
 		return "", &gitError{"git did not report a working tree root"}
 	}
-	return filepath.Clean(root), nil
+	return respeller(dir)(filepath.Clean(root)), nil
+}
+
+// respeller returns what gives a path git reported back in the spelling base
+// is written in.
+//
+// git names every path with its symlinks resolved, and everything else
+// Flockdeck holds about a project -- its tabs, its panes, the layout saved for
+// it -- is keyed on the path it was opened with. Where base reaches a path
+// through a link, as everything under /var does on macOS, the path is given
+// back through the same link, so the two compare equal. Windows is left as git
+// answers, where spellings differ in case rather than in links, and a base
+// with no link on its way is the common case and costs one lookup.
+func respeller(base string) func(string) string {
+	same := func(p string) string { return p }
+	if runtime.GOOS == "windows" {
+		return same
+	}
+	abs, err := filepath.Abs(base)
+	if err != nil {
+		return same
+	}
+	if real, err := filepath.EvalSymlinks(abs); err != nil || real == abs {
+		return same
+	}
+	// Each directory on the way up that a link changes, deepest first, so a
+	// path is put back under the nearest one it sits in.
+	type spelling struct{ given, real string }
+	var ways []spelling
+	for d := abs; ; d = filepath.Dir(d) {
+		if real, err := filepath.EvalSymlinks(d); err == nil && real != d {
+			ways = append(ways, spelling{d, real})
+		}
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	return func(p string) string {
+		for _, w := range ways {
+			if p == w.real {
+				return w.given
+			}
+			if rest, ok := strings.CutPrefix(p, w.real+string(filepath.Separator)); ok {
+				return filepath.Join(w.given, rest)
+			}
+		}
+		return p
+	}
 }
 
 // IsRepo reports whether dir is inside a git repository.
@@ -109,6 +156,7 @@ func List(dir string) ([]Worktree, error) {
 	if err != nil {
 		return nil, err
 	}
+	spell := respeller(dir)
 
 	var (
 		res []Worktree
@@ -131,7 +179,7 @@ func List(dir string) ([]Worktree, error) {
 		switch key {
 		case "worktree":
 			flush()
-			cur = &Worktree{Path: filepath.Clean(val)}
+			cur = &Worktree{Path: spell(filepath.Clean(val))}
 		case "HEAD":
 			if cur != nil {
 				cur.Head = val
@@ -314,9 +362,22 @@ func DefaultWorktreePath(repoRoot, branch string) string {
 	return path
 }
 
-// foldPath puts a path in the form two of them can be compared in.
+// foldPath puts a path in the form two of them can be compared in: cleaned,
+// with its symlinks resolved, and in one case on Windows.
+//
+// git reports every path with its symlinks resolved, and a directory can be
+// reached through one: on macOS the temporary directory is, since /var is
+// /private/var, and so is anything a person keeps under a linked folder.
+// Compared as given, a worktree there was never found in git's own list, so
+// it could not be removed. A path that is no longer there, a worktree deleted
+// by hand, has its folder resolved instead, which is as far as can be told.
 func foldPath(path string) string {
 	path = filepath.Clean(path)
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	} else if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		path = filepath.Join(dir, filepath.Base(path))
+	}
 	if runtime.GOOS == "windows" {
 		return strings.ToLower(path)
 	}

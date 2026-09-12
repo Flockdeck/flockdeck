@@ -395,7 +395,10 @@ func TestPathsAgreeAcrossCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if wts[0].Path != root {
+	// git lists paths with their links resolved and Root keeps the caller's
+	// spelling, so on macOS, where the temporary directory is reached through
+	// /var, the two are the same directory spelled two ways.
+	if !samePath(wts[0].Path, root) {
 		t.Errorf("main worktree path %q does not match root %q", wts[0].Path, root)
 	}
 

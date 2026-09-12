@@ -227,7 +227,9 @@ func Branches(dir string) ([]Branch, error) {
 		// git prints; clean it so it can be compared with a Worktree.Path.
 		checkedIn := parts[3]
 		if checkedIn != "" {
-			checkedIn = filepath.Clean(checkedIn)
+			// And spelled as the repository was asked about, as List spells
+			// every worktree, where a link lies on the way.
+			checkedIn = respeller(dir)(filepath.Clean(checkedIn))
 		}
 		branches = append(branches, Branch{
 			Name:      parts[0],

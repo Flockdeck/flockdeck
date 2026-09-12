@@ -132,6 +132,7 @@ func stateDir(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
+	t.Setenv("HOME", dir)            // macOS, under Library/Application Support
 	t.Setenv("HOME", dir)            // macOS and fallback
 	return dir
 }

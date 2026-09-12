@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -418,7 +419,9 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
 			return none, fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
-		case errors.As(err, &dial) && dial.Op == "dial":
+		// A connection reset before any answer is the same thing seen a step
+		// later: the application closing as the request reached it.
+		case errors.As(err, &dial) && dial.Op == "dial", errors.Is(err, syscall.ECONNRESET):
 			return none, fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
 		}
 		return none, err
