@@ -580,7 +580,17 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// be made to serve a page from one, had the token attached for it and
 	// could send any command a window can: prompt every agent, open a shell.
 	isRemote := fromRemote(r)
-	conn, err := websocket.Accept(w, r, nil)
+	// A window through the relay is often a phone on a metered link, and what
+	// it is sent is mostly the same snapshot over and over with a word or two
+	// changed: about 5.6 KB for six panes, which deflates to 58 bytes once the
+	// last one is in the compressor's window. So it is compressed, if the
+	// browser offers to be. A window on this machine is sent the same over
+	// loopback, where compressing it buys nothing.
+	var opts *websocket.AcceptOptions
+	if isRemote {
+		opts = &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover}
+	}
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		return
 	}

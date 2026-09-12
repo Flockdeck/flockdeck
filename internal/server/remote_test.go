@@ -143,6 +143,41 @@ func TestRemoteReloadFromTheLauncher(t *testing.T) {
 	}
 }
 
+// TestRemoteWindowsAreSentCompressed covers a window through the relay, often
+// a phone on a metered link, which is sent the same few kilobytes of snapshot
+// again and again with a word or two changed. It is compressed when the
+// browser offers; a window on this machine gains nothing from that and is not.
+func TestRemoteWindowsAreSentCompressed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	dial := func(url, origin string) (*websocket.Conn, *http.Response) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		conn, resp, err := websocket.Dial(ctx, url,
+			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionContextTakeover})
+		if err != nil {
+			t.Fatalf("dial %s: %v", url, err)
+		}
+		conn.SetReadLimit(16 << 20)
+		t.Cleanup(func() { conn.CloseNow() })
+		return conn, resp
+	}
+
+	remoteConn, resp := dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/control", ts.URL)
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); !strings.Contains(ext, "permessage-deflate") {
+		t.Errorf("a window through the relay was not offered compression: %q", ext)
+	}
+	readRemoteMsg(t, remoteConn, "state")
+
+	_, resp = dial("ws://"+srv.Addr()+"/ws/control?t="+srv.Token(), "http://"+srv.Addr())
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
+		t.Errorf("a window on this machine was compressed: %q", ext)
+	}
+}
+
 // dialRemoteControl opens the control socket through the tunnel as a page
 // from origin would.
 func dialRemoteControl(ts *httptest.Server, origin string) (*websocket.Conn, error) {
