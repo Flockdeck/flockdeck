@@ -16,3 +16,16 @@ func TestACommandIsSummarisedByItsResult(t *testing.T) {
 		t.Errorf("other output = %q, want it to lead with its first line", got)
 	}
 }
+
+// A search's result is how much it found, which it says last; its first line
+// is only the first match.
+func TestASearchIsSummarisedByWhatItFound(t *testing.T) {
+	for out, want := range map[string]string{
+		"a.go:1: x\nb.go:2: y\n\n2 matches in 2 files.\n":             "2 matches in 2 files.",
+		"a.go\nb.go\n[stopped at 1000 matches; narrow the pattern]\n": "[stopped at 1000 matches",
+	} {
+		if got := summarise(out, 80); !strings.HasPrefix(got, want) {
+			t.Errorf("summarise = %q, want it to lead with %q", got, want)
+		}
+	}
+}

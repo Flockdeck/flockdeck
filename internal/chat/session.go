@@ -717,9 +717,7 @@ func summarise(out string, width int) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	first := clipTo(strings.TrimSpace(lines[0]), width-12)
 	if len(lines) > 1 {
-		// A command's result is the last line -- its exit status -- and the
-		// first line of what it printed says nothing of whether it worked.
-		if last := strings.TrimSpace(lines[len(lines)-1]); strings.HasPrefix(last, "[exit status") || strings.HasPrefix(last, "[killed after") {
+		if last := strings.TrimSpace(lines[len(lines)-1]); isResultLine(last) {
 			first = clipTo(last, width-12)
 		}
 		return fmt.Sprintf("%s (%d lines; /output shows them)", first, len(lines))
@@ -728,6 +726,16 @@ func summarise(out string, width int) string {
 		return "(no output)"
 	}
 	return first
+}
+
+// isResultLine reports whether the last line of a tool's output is its result,
+// which the tools put last: a command's exit status, or how much a search
+// found. The first line of such an output -- what a command printed first, a
+// search's first match -- says nothing of how it went.
+func isResultLine(s string) bool {
+	return strings.HasPrefix(s, "[exit status") || strings.HasPrefix(s, "[killed after") ||
+		strings.HasPrefix(s, "[stopped at") ||
+		strings.Contains(s, " matches in ") && strings.HasSuffix(s, " files.")
 }
 
 // clipTo cuts s to n columns, on a rune boundary, marking that it was cut.
