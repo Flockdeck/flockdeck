@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -498,10 +499,9 @@ func run(opts options) error {
 	// Shutdown can be requested by the window closing, by a signal, or by the
 	// user quitting from the UI.
 	quit := make(chan struct{})
-	var closeOnce = make(chan struct{}, 1)
+	var stopping sync.Once
 	stop := func() {
-		select {
-		case closeOnce <- struct{}{}:
+		stopping.Do(func() {
 			close(quit)
 			// Everything past this point closes panes and kills their
 			// processes. A pane whose process will not die must not be able to
@@ -513,8 +513,7 @@ func run(opts options) error {
 				time.Sleep(shutdownGrace)
 				forceQuit()
 			}()
-		default:
-		}
+		})
 	}
 
 	// Two deep, so a second interrupt arriving while the first is still being
