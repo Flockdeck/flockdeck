@@ -401,6 +401,39 @@ func TestTunnelShowsTheRelaysReason(t *testing.T) {
 	}
 }
 
+// A relay that stops answering, which is what a dropped network or a laptop
+// asleep looks like from here, is found out by the keepalive, and the window
+// is told so in those words.
+func TestTunnelNoticesASilentRelay(t *testing.T) {
+	quick(t)
+	oldEvery, oldTimeout := keepAlive, keepAliveTimeout
+	keepAlive, keepAliveTimeout = 20*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { keepAlive, keepAliveTimeout = oldEvery, oldTimeout })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		// Take what the desktop sends, and say nothing back.
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "the silence to be noticed", func() bool { st = c.Status(); return st.State == StateError })
+	if want := "the relay stopped answering"; st.Detail != want {
+		t.Errorf("detail = %q, want %q", st.Detail, want)
+	}
+}
+
 // A relay that cannot be reached is retried, and the status says when.
 func TestUnreachableRelayIsRetried(t *testing.T) {
 	quick(t)

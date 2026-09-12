@@ -66,6 +66,11 @@ var (
 	// relay learns of a dropped connection anyway; a polite close only lets it
 	// say so sooner, and is not worth holding up a shutdown for.
 	closeWait = time.Second
+	// keepAlive is how often the tunnel is pinged, and keepAliveTimeout how
+	// long a relay may stay silent before it is taken to be gone. The relay
+	// uses the same two.
+	keepAlive        = 15 * time.Second
+	keepAliveTimeout = 45 * time.Second
 )
 
 // smuxConfig is the multiplexer's configuration, which has to agree with the
@@ -74,8 +79,8 @@ var (
 func smuxConfig() *smux.Config {
 	cfg := smux.DefaultConfig()
 	cfg.Version = 2
-	cfg.KeepAliveInterval = 15 * time.Second
-	cfg.KeepAliveTimeout = 45 * time.Second
+	cfg.KeepAliveInterval = keepAlive
+	cfg.KeepAliveTimeout = keepAliveTimeout
 	cfg.MaxReceiveBuffer = 4 << 20
 	cfg.MaxStreamBuffer = 1 << 20
 	return cfg
@@ -309,7 +314,7 @@ func (c *Connector) session(ctx context.Context) error {
 	served := make(chan error, 1)
 	go func() { served <- c.serve(listener{sess}) }()
 
-	serving := true
+	serving, silent := true, false
 	select {
 	case <-ctx.Done():
 		// Say goodbye, briefly. The relay would find out anyway; this only
@@ -325,6 +330,10 @@ func (c *Connector) session(ctx context.Context) error {
 		case <-time.After(closeWait):
 		}
 	case <-sess.CloseChan():
+		// Nothing but the keepalive closes the session of its own accord, and
+		// it does so when the relay has gone quiet. What reading the tunnel
+		// fails with after that is the closing, not the cause.
+		silent = true
 	// smux does not close a session whose connection has failed — it only
 	// refuses to do anything more with it, and CloseChan stays open until
 	// the keepalive gives up most of a minute later. The failure itself is
@@ -346,8 +355,15 @@ func (c *Connector) session(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if silent {
+		return errSilent
+	}
 	return why(rec.err())
 }
+
+// errSilent is the keepalive giving up on a relay that has stopped answering,
+// which is how a dropped network or a laptop gone to sleep looks from here.
+var errSilent = errors.New("the relay stopped answering")
 
 // why turns the way a tunnel ended into what to do next.
 func why(err error) error {
