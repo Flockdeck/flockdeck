@@ -70,6 +70,7 @@ Reach this machine's agents from another device, through a relay.
 | `flockdeck remote status` | Whether it is on, and whether it is connected |
 | `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
 | `flockdeck remote revoke <id>` | Unpair a device |
+| `flockdeck remote rename <name>` | Rename this machine; with `-device <id or name>`, a paired device instead |
 | `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
 
 A running instance is told when `enable` or `disable` changes anything, and

@@ -60,6 +60,8 @@ func remoteCmd(args []string, rio remoteIO) error {
 		err = remoteDevicesCmd(args[1:], rio)
 	case "revoke":
 		err = remoteRevokeCmd(args[1:], rio)
+	case "rename":
+		err = remoteRenameCmd(args[1:], rio)
 	case "disable":
 		err = remoteDisable(args[1:], rio)
 	case "-h", "--help", "help":
@@ -91,6 +93,8 @@ func remoteHelp(name string, rio remoteIO) error {
 		fs = remotePairFlagSet(&remotePairFlags{})
 	case "disable":
 		fs = remoteDisableFlagSet(&remoteDisableFlags{})
+	case "rename":
+		fs = remoteRenameFlagSet(&remoteRenameFlags{})
 	case "devices", "list", "ls":
 		fs = remoteFlags("devices")
 	case "status", "revoke":
@@ -105,7 +109,7 @@ func remoteHelp(name string, rio remoteIO) error {
 }
 
 // remoteCommands are the subcommands a mistyped one is compared with.
-var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "disable"}
+var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable"}
 
 // remoteGuesses are words somebody is likely to try for one of them. They are
 // answered with the command's name rather than taken for it: revoke and
@@ -116,6 +120,7 @@ var remoteGuesses = map[string]string{
 	"unpair": "revoke", "remove": "revoke", "rm": "revoke", "delete": "revoke",
 	"add": "pair", "link": "pair", "qr": "pair",
 	"info": "status", "state": "status",
+	"name": "rename", "mv": "rename",
 }
 
 // unknownRemote refuses a subcommand that is not one, naming the one most
@@ -173,6 +178,7 @@ Commands:
   status         say whether remote access is on, and connected
   devices        list the paired devices and enrolled machines
   revoke <id>    unpair a device, named by its id or its name
+  rename <name>  rename this machine; -device <id or name> renames a device
   disable [-force]  remove this machine from the relay
 
 Run flockdeck remote help <command> for more about one of them.
@@ -198,6 +204,8 @@ var remoteSynopses = map[string][2]string{
 		"List the paired devices, with the ids and names revoke takes, and the\naccount's machines."},
 	"revoke": {" <device id or name>",
 		"Unpair a device, closing any window it has open. `flockdeck remote devices`\nlists the paired devices with their ids and names."},
+	"rename": {" [-device <id or name>] <new name>",
+		"Give this machine a new name, which is what every paired device and the\naccount's other machines call it. With -device, rename a paired device\ninstead; `flockdeck remote devices` lists them by id and name."},
 	"disable": {" [-force]",
 		"Take this machine off its relay. If it is the account's only machine, its\npaired devices are unpaired too."},
 }
@@ -290,6 +298,14 @@ func remoteDisableFlagSet(f *remoteDisableFlags) *flag.FlagSet {
 	return fs
 }
 
+type remoteRenameFlags struct{ device string }
+
+func remoteRenameFlagSet(f *remoteRenameFlags) *flag.FlagSet {
+	fs := remoteFlags("rename")
+	fs.StringVar(&f.device, "device", "", "the paired `device` to rename, by its id or its name,\nrather than this machine")
+	return fs
+}
+
 func remoteEnable(args []string, rio remoteIO) error {
 	var f remoteEnableFlags
 	if err := parseRemote(remoteEnableFlagSet(&f), args); err != nil {
@@ -347,10 +363,10 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// be in only after leaving the one it is in.
 		return fmt.Errorf("%v; to join that account instead, run `flockdeck remote disable` first, which unpairs this machine's devices if it is its account's only machine, then run this again", err)
 	case errors.As(err, &already) && already.Err == nil && renaming(f.name):
-		// A new name is something to do, but the relay has no way to rename
-		// a machine: nothing takes a name but registering. So it takes
-		// enrolling again, and that costs what it costs.
-		return fmt.Errorf("%v, and the relay cannot rename a machine; to take a new name, run `flockdeck remote disable` first, which unpairs its devices if it is the account's only machine, then run this again", err)
+		// A new name is something to do, and rename does it without enrolling
+		// again, which would cost the account's devices if this is its only
+		// machine; the cost is said, for whoever meant to enrol again anyway.
+		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote disable`, unpairs its devices if it is the account's only machine", err, strings.TrimSpace(f.name))
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
@@ -359,7 +375,8 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 	case errors.As(err, &already):
 		// A relay out of reach is most often a network that is down for now,
 		// when trying again is the answer. -force is for a relay that is gone
-		// for good, and it costs a listing there that nothing can take off.
+		// for good, and it costs a listing there that only a paired device
+		// can then take off.
 		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run `flockdeck remote disable -force` to start again, which leaves this machine listed on it", err)
 	case f.invite == "" && strings.Contains(err.Error(), "needs an invite code"):
 		// The relay's words name an invite code but not the flag that takes
@@ -497,8 +514,18 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		return nil
 	}
 	fmt.Fprintf(rio.out, "relay:   %s\n", cfg.Relay)
-	fmt.Fprintln(rio.out, labelled("machine:", fmt.Sprintf("%s (%s)", cfg.Name, cfg.HostID)))
 	roster, err := remote.NewClient(cfg, version).Devices(context.Background())
+	// The relay's name for this machine, when it answers: a paired device may
+	// have renamed it since the name here was saved.
+	name := cfg.Name
+	if err == nil {
+		for _, h := range roster.Hosts {
+			if h.Self && strings.TrimSpace(h.Name) != "" {
+				name = h.Name
+			}
+		}
+	}
+	fmt.Fprintln(rio.out, labelled("machine:", fmt.Sprintf("%s (%s)", name, cfg.HostID)))
 	switch {
 	case remote.IsRevoked(err):
 		fmt.Fprintln(rio.out, "state:   the relay no longer accepts this machine;\n         `flockdeck remote enable` enrols it again")
@@ -718,6 +745,77 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	return nil
 }
 
+func remoteRenameCmd(args []string, rio remoteIO) error {
+	var f remoteRenameFlags
+	fs := remoteRenameFlagSet(&f)
+	// -device may come after the name, as in `rename Sam's phone -device d1`,
+	// and is taken out of it as spawn's flags are taken out of a task.
+	if err := fs.Parse(orderSpawnArgs(fs, args)); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return errHelpAsked
+		}
+		return errReported
+	}
+	// A name of several words, typed without quotes, arrives as several
+	// arguments, and is the one name.
+	name := strings.Join(fs.Args(), " ")
+	if strings.TrimSpace(name) == "" {
+		// Whoever typed rename knows the command and missed the name, so its
+		// own usage is the answer.
+		fs.Usage()
+		return errReported
+	}
+	clean, err := remote.CheckName(name)
+	if err != nil {
+		return err
+	}
+	cfg, err := enrolled()
+	if err != nil {
+		return err
+	}
+	if f.device == "" {
+		if _, err := remote.Rename(context.Background(), version, clean); err != nil {
+			return renameRefusal(err)
+		}
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("this machine is now %q on every paired device", clean)))
+		reportReload(rio, "")
+		return nil
+	}
+	id, old, err := pickDevice(rosterBriefly(cfg), f.device)
+	var machine *notADeviceError
+	switch {
+	case errors.As(err, &machine) && machine.host.Self:
+		return errors.New("that is this machine, not a device; `flockdeck remote rename <new name>`, without -device, renames it")
+	case errors.As(err, &machine):
+		return fmt.Errorf("%q is another of the account's machines, not a device; it is renamed from the Devices page of a paired device, or with `flockdeck remote rename` on it", orUnnamed(strings.TrimSpace(machine.host.Name)))
+	case err != nil:
+		return err
+	}
+	if err := remote.NewClient(cfg, version).RenameDevice(context.Background(), id, clean); err != nil {
+		return renameRefusal(err)
+	}
+	if old != "" {
+		id = old + " (" + id + ")"
+	}
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("renamed %s to %q", id, clean)))
+	return nil
+}
+
+// renameRefusal adds what to do to the relay refusing a rename. A relay from
+// before renaming has no such request, and answers it as a method its path
+// does not allow; an id it does not know is answered "no such device", which
+// is true but not where to look.
+func renameRefusal(err error) error {
+	var refused *remote.APIError
+	switch {
+	case errors.As(err, &refused) && refused.Status == http.StatusMethodNotAllowed:
+		return fmt.Errorf("%v; this relay is older than renaming, so a new name has to wait until it is updated", err)
+	case errors.As(err, &refused) && refused.Status == http.StatusNotFound && refused.Message != "":
+		return fmt.Errorf("%v; `flockdeck remote devices` lists the paired ones, by id and name", err)
+	}
+	return relayRefusal(err)
+}
+
 // pickDevice is the device revoke means by arg, as its id and its name: the
 // device with that id, in any case, else the one with that name, which is
 // what the devices list leads with and what somebody holding the phone knows
@@ -747,10 +845,7 @@ func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
 		// sent as a device's id it would come back "no such device".
 		for _, h := range r.Hosts {
 			if want != "" && (h.ID == arg || strings.EqualFold(h.ID, want) || strings.EqualFold(strings.TrimSpace(h.Name), want)) {
-				if h.Self {
-					return "", "", errors.New("that is this machine, not a device; `flockdeck remote disable` takes it off the relay")
-				}
-				return "", "", fmt.Errorf("%q is another of the account's machines, not a device, and only it can take itself off: run `flockdeck remote disable` on it", orUnnamed(strings.TrimSpace(h.Name)))
+				return "", "", &notADeviceError{host: h}
 			}
 		}
 		return arg, "", nil
@@ -762,6 +857,20 @@ func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
 		ids[i] = d.ID
 	}
 	return "", "", fmt.Errorf("%d devices are called %q; say which by its id: %s", len(named), want, strings.Join(ids, ", "))
+}
+
+// notADeviceError is pickDevice finding one of the account's machines where a
+// device was meant. Its words say what takes a machine off, which is what
+// revoke was reaching for; rename says what renames one instead.
+type notADeviceError struct{ host remote.Host }
+
+func (e *notADeviceError) Error() string {
+	if e.host.Self {
+		return "that is this machine, not a device; `flockdeck remote disable` takes it off the relay"
+	}
+	// The Devices page comes first: a machine that was wiped, which is what
+	// most often brings somebody here, has no Flockdeck left to run disable.
+	return fmt.Sprintf("%q is another of the account's machines, not a device; to take it off, remove it from the Devices page of a paired device, or run `flockdeck remote disable` on it", orUnnamed(strings.TrimSpace(e.host.Name)))
 }
 
 // rosterBriefly is the account's roster, for a detail worth a few seconds
@@ -806,11 +915,11 @@ func remoteDisable(args []string, rio remoteIO) error {
 	var relayUntold *remote.RelayUntoldError
 	switch {
 	case errors.As(err, &relayUntold):
-		// Nothing but this machine can take it off the relay, so forgetting
-		// the enrolment here leaves it listed there, and that is the cost. A
+		// Forgetting the enrolment here leaves this machine listed on the
+		// relay until a paired device removes it, and that is the cost. A
 		// relay out of reach is most often a network down for now, so trying
 		// again is said first, as enable's refusal says it.
-		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, for good, since nothing but this machine can take it off", err)
+		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, until it is removed from the Devices page of a paired device", err)
 	case err != nil:
 		return err
 	case !had:
