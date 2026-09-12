@@ -84,8 +84,8 @@ For each device you pair:
 - when it was paired, when it was last used and when its sign-in expires;
 - its sign-in token, stored only as a one-way hash.
 
-The relay also stores pairing codes, as hashes, for up to ten minutes, until
-they are used.
+The relay also stores pairing codes, as hashes, until they are used. One that
+is never used expires after ten minutes, and is deleted within ten more.
 
 ### What passes through
 
@@ -95,7 +95,7 @@ what you type, and the state of your panes pass through it. Remote access is
 **not end-to-end encrypted.**
 
 The relay does not record, inspect, store or log the content of that traffic.
-It never receives your API keys.
+It never receives your API keys, unless you type one in through remote access.
 
 When a paired device reaches your desktop, the relay passes your desktop
 three things: the device's IP address, its identifier and its name. That
