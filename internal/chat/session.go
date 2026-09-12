@@ -445,17 +445,25 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 	for step := 0; ; step++ {
 		before := len(s.messages)
 		calls, err := s.stream(turnCtx)
-		if e, ok := busy(err); ok && retries < len(busyBackoff) && len(s.messages) == before {
+		e, isBusy := busy(err)
+		if (isBusy || dropped(err)) && retries < len(busyBackoff) && len(s.messages) == before {
+			// A connection that dropped before a word of the answer came is as
+			// passing as a busy API, and asking again as safe: nothing was
+			// drawn to be drawn twice.
 			// Nothing of an answer arrived, so asking again repeats nothing;
 			// and a busy API is the one failure that asking again fixes. An
 			// answer the API gave up on part-way is not asked for again: what
 			// was drawn of it would be drawn twice.
 			wait := busyBackoff[retries]
-			if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
-				wait = e.RetryAfter
+			why := "the connection dropped before any of the answer came"
+			if isBusy {
+				why = busyWords(e)
+				if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
+					wait = e.RetryAfter
+				}
 			}
 			retries++
-			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", busyWords(e), wait.Round(time.Second)))
+			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", why, wait.Round(time.Second)))
 			select {
 			case <-time.After(wait):
 				continue
