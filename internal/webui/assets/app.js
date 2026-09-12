@@ -3088,6 +3088,21 @@
    *  still open, where the next thing typed went to an agent. */
   let palReturn = null;
 
+  /** paletteMatches is what a query finds: the commands whose name holds
+   *  every word typed, and after them the ones whose words begin with the
+   *  letters typed - "nat" for New agent tab, "rp" for Restart pane - which
+   *  is how a command is typed for in most palettes and found nothing here.
+   *  A single letter spells out nearly everything, so it is left to the
+   *  first kind of match. */
+  function paletteMatches(all, q) {
+    const words = q.split(/\s+/);
+    const initials = (label) => label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join("");
+    const named = all.filter((c) => words.every((w) => c.label.toLowerCase().includes(w)));
+    const spelled = all.filter((c) => !named.includes(c) &&
+      words.every((w) => w.length > 1 && initials(c.label).includes(w)));
+    return named.concat(spelled);
+  }
+
   function openPalette() {
     palReturn = document.activeElement;
     $("palette").hidden = false;
@@ -3107,9 +3122,7 @@
   function renderPalette() {
     const q = $("palette-input").value.trim().toLowerCase();
     const all = paletteCommands();
-    palItems = q
-      ? all.filter((c) => q.split(/\s+/).every((w) => c.label.toLowerCase().includes(w)))
-      : recentFirst(all);
+    palItems = q ? paletteMatches(all, q) : recentFirst(all);
     if (palIndex >= palItems.length) palIndex = Math.max(0, palItems.length - 1);
 
     const list = $("palette-list");

@@ -3744,6 +3744,28 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/worke
 `)
 }
 
+// The palette found a command only by words its name contains, so the
+// abbreviations most palettes take - "nat" for New agent tab, "rp" for
+// Restart pane - found nothing. They find the command now, after anything
+// whose name holds the letters as they were typed.
+func TestThePaletteFindsACommandByItsInitials(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const labels = (q) => {
+  input.value = q;
+  input.oninput();
+  return h.$("palette-list").querySelectorAll("span.pal-label").map((n) => n.textContent);
+};
+assert.strictEqual(labels("nat")[0], "New agent tab", "nat did not find New agent tab");
+assert.ok(labels("rp").includes("Restart pane"), "rp did not find Restart pane");
+assert.strictEqual(labels("tile")[0], "Tile these panes evenly", "a word the name holds no longer comes first");
+assert.ok(!labels("z").includes("Restart pane"), "a single letter matched by initials");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
