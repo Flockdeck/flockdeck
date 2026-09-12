@@ -21,7 +21,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
-// BrowserEnv names a specific browser binary to use, overriding the search.
+// BrowserEnv names the browser to use, overriding the search: a path, a
+// program on PATH, or one of browserNames.
 const BrowserEnv = "FLOCKDECK_BROWSER"
 
 // legacyBrowserEnv is what this setting was called before the program was
@@ -99,7 +100,7 @@ func (w *Window) Close() {
 // window opens clean and does not disturb their session.
 func Open(url, profileDir string) (*Window, error) {
 	if prog, from := pinnedBrowser(); prog != "" {
-		path, err := exec.LookPath(prog)
+		path, err := resolvePinned(prog)
 		if err != nil {
 			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
@@ -297,17 +298,69 @@ func darwinCandidates(home string) []string {
 // findBrowser returns the first available browser, or "".
 func findBrowser() string {
 	for _, c := range candidates() {
-		if strings.ContainsAny(c, `/\`) {
-			if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
-				return c
-			}
-			continue
-		}
-		if path, err := exec.LookPath(c); err == nil {
+		if path := available(c); path != "" {
 			return path
 		}
 	}
 	return ""
+}
+
+// available returns where the candidate c is when it is installed, or "".
+func available(c string) string {
+	if strings.ContainsAny(c, `/\`) {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+		return ""
+	}
+	if path, err := exec.LookPath(c); err == nil {
+		return path
+	}
+	return ""
+}
+
+// browserNames are the names a browser may be pinned by, each with the pieces
+// of a candidate's path, lower case and with forward slashes, that are that
+// browser.
+var browserNames = map[string][]string{
+	"chrome":   {"google/chrome/", "google chrome.app", "google-chrome"},
+	"edge":     {"microsoft/edge/", "microsoft edge.app", "microsoft-edge"},
+	"brave":    {"brave"},
+	"chromium": {"chromium"},
+	"vivaldi":  {"vivaldi"},
+}
+
+// resolvePinned finds the browser a pinned setting names: a path, or a program
+// on PATH, as it always was, or else one of browserNames, looked for where
+// Flockdeck looks for browsers anyway.
+//
+// Chrome, Edge and Brave are on no PATH on Windows or macOS, so the setting
+// the usage invites, FLOCKDECK_BROWSER=chrome, failed to start the window at
+// all, with the browser installed where the search would have found it.
+func resolvePinned(prog string) (string, error) {
+	path, err := exec.LookPath(prog)
+	if err == nil || strings.ContainsAny(prog, `/\`) {
+		return path, err
+	}
+	name := strings.TrimSuffix(strings.ToLower(prog), ".exe")
+	if name == "msedge" {
+		name = "edge"
+	}
+	pieces, ok := browserNames[name]
+	if !ok {
+		return "", err
+	}
+	for _, c := range candidates() {
+		lc := strings.ToLower(filepath.ToSlash(c))
+		for _, piece := range pieces {
+			if strings.Contains(lc, piece) {
+				if found := available(c); found != "" {
+					return found, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("%w, and no %s is installed where browsers are looked for either", err, prog)
 }
 
 // openDefaultBrowser hands the URL to the desktop's own handler.

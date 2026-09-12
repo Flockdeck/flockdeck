@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -118,6 +119,50 @@ func TestAPinnedBrowserThatWillNotStartIsNamed(t *testing.T) {
 
 // A path with spaces is written in quotes in cmd.exe, and `set` keeps them in
 // the value, so the pinned browser has to be read without them.
+// Chrome, Edge and Brave are on no PATH on Windows or macOS, so pinning one
+// by name, as the usage invites, failed to open the window at all. A name is
+// looked for where browsers are installed.
+func TestPinningABrowserByName(t *testing.T) {
+	var where string
+	var names []string
+	switch runtime.GOOS {
+	case "windows":
+		base := t.TempDir()
+		t.Setenv("ProgramFiles", base)
+		t.Setenv("ProgramFiles(x86)", "")
+		t.Setenv("LocalAppData", "")
+		where = filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`)
+		names = []string{"edge", "Edge", "msedge", "msedge.exe"}
+	case "darwin":
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		where = filepath.Join(home, "Applications", "Brave Browser.app", "Contents", "MacOS", "Brave Browser")
+		names = []string{"brave", "Brave"}
+	default:
+		t.Skip("browsers are on PATH here, under their own names")
+	}
+	if err := os.MkdirAll(filepath.Dir(where), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(where, []byte("a browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The one installed where the test put it, or one already installed in the
+	// same place under the system's own folders.
+	suffix := where[len(filepath.Dir(filepath.Dir(filepath.Dir(where)))):]
+	for _, n := range names {
+		if got, err := resolvePinned(n); err != nil || !strings.HasSuffix(got, suffix) {
+			t.Errorf("resolvePinned(%q) = %q, %v; want the browser installed as …%s", n, got, err, suffix)
+		}
+	}
+	if _, err := resolvePinned("netscape"); err == nil {
+		t.Error("a name that is no browser Flockdeck knows was resolved")
+	}
+	if _, err := resolvePinned(filepath.Join(t.TempDir(), "nope", "chrome.exe")); err == nil {
+		t.Error("a path with nothing at it was resolved")
+	}
+}
+
 func TestPinnedBrowserDropsQuotes(t *testing.T) {
 	t.Setenv(BrowserEnv, `"C:\Program Files\Chromium\chrome.exe"`)
 	if prog, from := pinnedBrowser(); prog != `C:\Program Files\Chromium\chrome.exe` || from != BrowserEnv {
