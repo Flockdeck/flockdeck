@@ -22,10 +22,12 @@ import (
 func TestAnAgentWithoutHooksIsWatchedForItsQuestions(t *testing.T) {
 	isolateConfig(t)
 	// An agent that asks a question and then sits there, as one waiting on an
-	// answer does.
-	exe, args := "sh", []string{"-c", "echo 'Do you want to proceed?'; sleep 30"}
+	// answer does. It waits in the shell itself: a sleep or a ping would be a
+	// second process, one closing the pane does not wait for, still sitting in
+	// the test's directory when the directory is removed.
+	exe, args := "sh", []string{"-c", "echo 'Do you want to proceed?'; read answer"}
 	if runtime.GOOS == "windows" {
-		exe, args = "cmd", []string{"/c", "echo Do you want to proceed?& ping -n 30 127.0.0.1 >nul"}
+		exe, args = "cmd", []string{"/c", "echo Do you want to proceed?& pause >nul"}
 	}
 	var argv []map[string]string
 	for _, a := range args {
@@ -56,6 +58,13 @@ func TestAnAgentWithoutHooksIsWatchedForItsQuestions(t *testing.T) {
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
 	}
+	// Closing a session does not wait for its process, and Windows will not
+	// remove a directory a dying process is still in. Cleanups run last first,
+	// so this one is done before the directory goes.
+	t.Cleanup(func() {
+		_ = p.Sess.Close()
+		waitExited(t, p.Sess)
+	})
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		if st, _ := p.Status(); st == session.StatusWaiting {
