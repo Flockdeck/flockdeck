@@ -14,6 +14,7 @@
 package workspace
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -66,6 +67,11 @@ type Pane struct {
 	// Git is a periodically refreshed summary of the checkout the pane works
 	// in: whether it has uncommitted work and how it stands against upstream.
 	Git gitx.Status
+	// GitTimedOut is set while the last refresh of the checkout gave up before
+	// git answered. Git then still holds what was read before, which is kept
+	// for when git answers again but must not be shown as though it were
+	// current: nothing says it still is.
+	GitTimedOut bool
 
 	// Cols and Rows are the terminal size the viewer last measured for this
 	// pane. They are remembered so a restart comes back at the size the pane
@@ -153,6 +159,14 @@ type Workspace struct {
 	// chosen pane by pane, so it can be dropped when broadcast is switched
 	// off instead of following the user into the next tab.
 	broadcastAuto bool
+
+	// gitMu guards what RefreshGit keeps across refreshes, which overlap now
+	// that one no longer waits for another: gitBusy holds, by pathKey, the
+	// checkouts git is being asked about, and gitSlots bounds how many it is
+	// asked about at once. Both are made on first use.
+	gitMu    sync.Mutex
+	gitBusy  map[string]bool
+	gitSlots chan struct{}
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
@@ -1761,15 +1775,35 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 	return waiting, working
 }
 
-// gitStatus reads one checkout's summary. It is a variable for the same reason
-// branchLookup is: how many are asked at once is the property worth checking.
-var gitStatus = gitx.StatusOf
+// gitStatus reads one checkout's summary within a deadline. It is a variable
+// for the same reason branchLookup is: how many are asked at once, and what
+// happens to the rest while one of them hangs, are the properties worth
+// checking.
+var gitStatus = gitx.StatusWithin
+
+// gitDeadline is how long one checkout's refresh has before it is given up on
+// and its panes are marked as not having answered. It is shorter than the
+// fifteen seconds between refreshes, so a checkout that hangs has been given
+// up on by the time the next refresh comes round to it rather than being
+// passed over as still busy, and far beyond the fraction of a second git
+// status takes anywhere it is not stuck. A variable so a test need not wait it
+// out.
+var gitDeadline = 10 * time.Second
 
 // RefreshGit updates every pane's git summary.
 //
 // The git calls are made off the caller's goroutine and only the results are
-// applied, so a slow repository cannot stall the interface. apply is invoked
-// with the collected results and must run where mutating panes is safe.
+// applied, so a slow repository cannot stall the interface. Each checkout's
+// result is handed to apply as soon as it is read, and apply must run it where
+// mutating panes is safe. RefreshGit returns once every checkout it asked
+// about has answered or been given up on.
+//
+// It applied nothing until every checkout had answered, so one that hung --
+// on a network drive gone away, behind a hook that never returned -- held
+// every pane's header at its old numbers for the twenty seconds git was
+// given, and then its own panes went on showing numbers from before it hung
+// as though nothing were wrong. Now a checkout holds up only its own panes,
+// for gitDeadline at most, and they are marked when it runs out.
 func (w *Workspace) RefreshGit(apply func(func())) {
 	if !gitx.Available() {
 		return
@@ -1797,55 +1831,92 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		return
 	}
 
-	// No more git processes at once than a restore asks for branches with. A
-	// fan-out leaves a dozen worktrees open, and starting a git process for
-	// every one of them in the same instant, every refresh, contends with the
-	// agents working in them for no answer that arrives any sooner.
-	dirs := make(map[string]gitx.Status, len(cwds))
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	slots := make(chan struct{}, branchLookups)
+	// A checkout still being read from an earlier refresh is left to that
+	// one. Asking again would only queue a second git process behind the
+	// first in the one checkout that is already slow.
+	w.gitMu.Lock()
+	if w.gitBusy == nil {
+		w.gitBusy = map[string]bool{}
+		// No more git processes at once than a restore asks for branches
+		// with. A fan-out leaves a dozen worktrees open, and starting a git
+		// process for every one of them in the same instant, every refresh,
+		// contends with the agents working in them for no answer that arrives
+		// any sooner. The bound is the workspace's rather than the refresh's
+		// because refreshes overlap.
+		w.gitSlots = make(chan struct{}, branchLookups)
+	}
+	slots := w.gitSlots
+	var asking []string
 	for _, cwd := range cwds {
+		if key := pathKey(cwd); !w.gitBusy[key] {
+			w.gitBusy[key] = true
+			asking = append(asking, cwd)
+		}
+	}
+	w.gitMu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, cwd := range asking {
 		wg.Add(1)
-		slots <- struct{}{}
 		go func(cwd string) {
-			defer func() { <-slots; wg.Done() }()
-			st := gitStatus(cwd)
-			mu.Lock()
-			dirs[cwd] = st
-			mu.Unlock()
+			defer wg.Done()
+			// The deadline starts once git does, not while waiting for a
+			// slot: a checkout queued behind slow ones has not been slow.
+			slots <- struct{}{}
+			st, err := gitStatus(cwd, gitDeadline)
+			<-slots
+			key := pathKey(cwd)
+			w.gitMu.Lock()
+			delete(w.gitBusy, key)
+			w.gitMu.Unlock()
+			late := errors.Is(err, context.DeadlineExceeded)
+			apply(func() { w.applyGit(key, st, late) })
 		}(cwd)
 	}
 	wg.Wait()
+}
 
-	apply(func() {
-		changed := false
-		w.mu.Lock()
-		for _, p := range w.panes {
-			st, ok := dirs[rep[pathKey(p.Cwd)]]
-			if !ok || p.Git == st {
-				continue
-			}
-			p.Git = st
-			// A checkout that has left its branch for a bare commit reports no
-			// branch at all, and keeping the old name would go on telling the
-			// user it is still on it. It is named the way the worktree panel
-			// names one. Nothing reported at all -- git failing, or no longer
-			// a repository -- is no evidence the branch moved, so it is kept.
-			branch := st.Branch
-			if branch == "" && st.Detached && st.Head != "" {
-				branch = "detached@" + st.Head
-			}
-			if branch != "" && branch != p.Branch {
-				p.Branch = branch
-			}
-			changed = true
+// applyGit gives every pane in the checkout key names what git said about it,
+// or, when late, marks them as not having heard.
+func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
+	changed := false
+	w.mu.Lock()
+	for _, p := range w.panes {
+		if p.Cwd == "" || pathKey(p.Cwd) != key {
+			continue
 		}
-		w.mu.Unlock()
-		if changed {
-			w.wake()
+		if late {
+			// What was read before is kept, since the checkout has not been
+			// seen to change, but it is no longer passed off as current.
+			if !p.GitTimedOut {
+				p.GitTimedOut = true
+				changed = true
+			}
+			continue
 		}
-	})
+		if p.Git == st && !p.GitTimedOut {
+			continue
+		}
+		p.Git = st
+		p.GitTimedOut = false
+		// A checkout that has left its branch for a bare commit reports no
+		// branch at all, and keeping the old name would go on telling the
+		// user it is still on it. It is named the way the worktree panel
+		// names one. Nothing reported at all -- git failing, or no longer
+		// a repository -- is no evidence the branch moved, so it is kept.
+		branch := st.Branch
+		if branch == "" && st.Detached && st.Head != "" {
+			branch = "detached@" + st.Head
+		}
+		if branch != "" && branch != p.Branch {
+			p.Branch = branch
+		}
+		changed = true
+	}
+	w.mu.Unlock()
+	if changed {
+		w.wake()
+	}
 }
 
 // TabNeedsAttention reports whether any pane in a tab is waiting on the user.
