@@ -53,6 +53,16 @@ device you want to pair, or open the link on it.
 A link works once and expires after a few minutes. Until then, whoever opens it
 can drive every agent here, so treat it like a password.
 
+## Renaming
+
+A machine is listed on every device under the name it was enrolled with — its
+host name, unless you gave another — and a device under whatever its browser
+suggested when it was paired. **Rename**, beside this machine and beside each
+device in the dialog, gives it a new one. From a terminal,
+`flockdeck remote rename <name>` renames this machine, and
+`flockdeck remote rename -device <id or name> <name>` a device. A paired device
+can rename any of them from its **Devices** page.
+
 ## What the relay can see
 
 Traffic is encrypted between your browser and the relay, and between the relay
@@ -96,4 +106,11 @@ From a terminal:
 | --- | --- |
 | `flockdeck remote devices` | What is paired, and each device's id |
 | `flockdeck remote revoke <id>` | Unpairs one |
+| `flockdeck remote rename <name>` | Renames this machine; `-device <id>` renames a device |
 | `flockdeck remote disable` | Removes this machine from the relay |
+
+A machine that was wiped or lost before remote access was turned off on it
+cannot take itself off, and would be listed as offline for good. Remove it from
+the **Devices** page of a paired device instead: no device can reach it after
+that, and its credential stops working, so a copy of Flockdeck restored from a
+backup cannot connect with it either.
