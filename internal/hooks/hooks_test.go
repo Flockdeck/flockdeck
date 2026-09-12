@@ -243,6 +243,36 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 }
 
+// TestSpawnSaysWhatAFailureMeans covers what the agent that ran `flockdeck
+// spawn` is told, since it acts on it. A timeout is not a refusal: the helper
+// may be on its way, and an agent that reads a bare deadline error asks again.
+// A refused connection is the application gone, which asking again cannot fix.
+func TestSpawnSaysWhatAFailureMeans(t *testing.T) {
+	srv, _ := newServer(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		<-release
+		return SpawnResult{PaneID: "late"}, nil
+	})
+	old := spawnTimeout
+	spawnTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { spawnTimeout = old })
+
+	_, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "x"})
+	if err == nil || !strings.Contains(err.Error(), "may still be starting") {
+		t.Errorf("a spawn that timed out said %v; it should say the helper may still be starting", err)
+	}
+
+	gone, _ := newServer(t)
+	api := gone.BaseURL()
+	_ = gone.Close()
+	_, err = Spawn(api, "token", "pane-1", SpawnRequest{Task: "x"})
+	if err == nil || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("a spawn to a closed application said %v; it should say Flockdeck is not answering", err)
+	}
+}
+
 // A PreToolUse payload carries the whole tool input, so a Write of a generated
 // file is megabytes of JSON. Reading a fixed slice of it leaves the payload
 // unparseable and loses the tool name, the directory and the prompt together —

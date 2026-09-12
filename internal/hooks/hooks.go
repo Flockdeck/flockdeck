@@ -22,6 +22,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -339,6 +340,10 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(res)
 }
 
+// spawnTimeout is how long `flockdeck spawn` waits for the application to
+// answer. It is a variable so a test does not have to wait that long.
+var spawnTimeout = 60 * time.Second
+
 // Spawn is the client half, used by the `spawn` subcommand inside a pane.
 func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	req.Token = token
@@ -348,7 +353,7 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	if err != nil {
 		return none, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), spawnTimeout)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
 	if err != nil {
@@ -357,6 +362,19 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
+		// What comes back is read by the agent that asked, which acts on it.
+		// "context deadline exceeded" reads as a failure, and an agent told
+		// that asks again -- while the application, which only answers once
+		// the worktree is made and the pane is started, may be doing exactly
+		// what it was asked. A refused connection is the application having
+		// gone, which no retry will fix.
+		var dial *net.OpError
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return none, fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
+		case errors.As(err, &dial) && dial.Op == "dial":
+			return none, fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
+		}
 		return none, err
 	}
 	defer resp.Body.Close()
