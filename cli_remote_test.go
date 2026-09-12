@@ -729,6 +729,24 @@ func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
 	}
 }
 
+// Enabling with a join code says the machine has joined the other's account,
+// which is what the code was for; enabling without one does not.
+func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	const joined = "Joined the other machine's account: a device paired with either reaches both.\n"
+	out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk", "-join", "fdp_code")
+	if err != nil || !strings.Contains(out, joined) {
+		t.Errorf("enable -join = %q, %v; want it to say it joined the other machine's account", out, err)
+	}
+	if _, _, err := runRemoteCmd(t, "disable"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil || strings.Contains(out, "Joined") {
+		t.Errorf("enable without a join code = %q, %v; want no word of joining", out, err)
+	}
+}
+
 // Joining an account that has all the machines it may is refused by the
 // relay in its own words, and the refusal says which command here does what
 // they ask.

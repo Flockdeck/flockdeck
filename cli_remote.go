@@ -305,6 +305,11 @@ func remoteEnable(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
 	}
 	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
+	if f.join != "" {
+		// Joining puts this machine in another's account rather than a new
+		// one, which is the whole point of the code, and worth confirming.
+		fmt.Fprintln(rio.out, "Joined the other machine's account: a device paired with either reaches both.")
+	}
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
 	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Remote access… in the window.")
 	return nil
