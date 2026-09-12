@@ -324,6 +324,11 @@ func isCommand(line string) bool {
 // A line ending in a backslash is continued on the next one, which is how a
 // prompt with a paragraph in it is typed without raw mode.
 func (s *session) readPrompt(ctx context.Context) (string, bool) {
+	// Lines typed while the model was answering were echoed by the terminal
+	// in the middle of the answer, and were sent from a prompt that showed
+	// nothing after it. They are taken now and drawn after the prompt, as the
+	// lines held back from a tool's question are.
+	s.ahead = append(s.ahead, s.in.pending()...)
 	var gathered []string
 	var interruptedAt time.Time
 	for {
