@@ -79,6 +79,32 @@ On a phone, when an agent stops to ask a question with set answers, the relay's
 own client shows its choices as buttons, so you can answer with a tap rather
 than typing into the terminal.
 
+## Notifications on your phone
+
+A paired phone can be told when an agent has been waiting on you for a while,
+whether or not the relay's page is open on it, and whether or not a window is
+open here: a run left detached reaches you too. On the phone, open a desktop
+and press **Notify me when an agent needs me**. On an iPhone or iPad, add the
+page to the Home Screen first — Share, then **Add to Home Screen** — and open
+it from there: iOS and iPadOS send notifications only to web apps added that
+way, from version 16.4. Tapping a notification opens the pane that is waiting.
+
+Here, Settings › **Remote access** says what is sent:
+
+- **Notify paired devices** turns notifications off for every device at once.
+- **After waiting** is how long an agent has to have been waiting first: 30
+  seconds, unless you choose otherwise. Each wait is told once, and an agent
+  that is answered and then asks again is a new wait.
+- **Send nothing identifying** has a notification say only "An agent on *this
+  machine* needs you", rather than naming the pane and its project.
+
+The relay encrypts each notification for the device it goes to, so the push
+service that carries it — Apple's, Google's, Mozilla's or Microsoft's, which
+is the browser's to choose — sees only that one was sent, and when. The relay
+itself sees what it says, as it sees everything that passes through it. A relay
+that does not send notifications, or an account whose plan does not include
+them, is said under the switch in the relay's own words.
+
 ## Renaming
 
 A machine is listed on every device under the name it was enrolled with — its
