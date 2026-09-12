@@ -108,11 +108,16 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 
 	var usage Usage
 	var calls []ToolCall
+	var finish, blocked string
 	err = readSSE(rc, func(event, data string) error {
 		var chunk struct {
 			Candidates []struct {
-				Content geminiContent `json:"content"`
+				Content      geminiContent `json:"content"`
+				FinishReason string        `json:"finishReason"`
 			} `json:"candidates"`
+			PromptFeedback struct {
+				BlockReason string `json:"blockReason"`
+			} `json:"promptFeedback"`
 			UsageMetadata struct {
 				PromptTokenCount     int `json:"promptTokenCount"`
 				CandidatesTokenCount int `json:"candidatesTokenCount"`
@@ -138,7 +143,13 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				Out: chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
 			}
 		}
+		if chunk.PromptFeedback.BlockReason != "" {
+			blocked = chunk.PromptFeedback.BlockReason
+		}
 		for _, c := range chunk.Candidates {
+			if c.FinishReason != "" {
+				finish = c.FinishReason
+			}
 			for _, p := range c.Content.Parts {
 				switch {
 				case p.Text != "" && p.Thought:
@@ -163,10 +174,34 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	if err != nil {
 		return err
 	}
+	// An answer that stopped short, and a prompt refused outright, say so in
+	// fields of their own; left unread, the pane showed half a reply, or none,
+	// as though it were the whole of one.
+	if why := geminiStopped(finish, blocked); why != nil {
+		emit(Event{Kind: EventUsage, Usage: usage})
+		return why
+	}
 	for _, c := range calls {
 		emit(Event{Kind: EventCall, Call: c})
 	}
 	emit(Event{Kind: EventUsage, Usage: usage})
+	return nil
+}
+
+// geminiStopped is why an answer ended before it was finished, or nil when it
+// ended because it was done.
+func geminiStopped(finish, blocked string) error {
+	switch {
+	case blocked != "":
+		return fmt.Errorf("Gemini refused the prompt (%s)", blocked)
+	case finish == "MAX_TOKENS":
+		return errors.New("the answer reached the model's limit on its length and was cut off there")
+	case finish == "MALFORMED_FUNCTION_CALL":
+		return errors.New("the model wrote a tool call that could not be read")
+	case finish == "SAFETY", finish == "RECITATION", finish == "BLOCKLIST",
+		finish == "PROHIBITED_CONTENT", finish == "SPII":
+		return fmt.Errorf("Gemini stopped the answer (%s)", finish)
+	}
 	return nil
 }
 
