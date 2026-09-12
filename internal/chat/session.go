@@ -66,6 +66,10 @@ type Options struct {
 	// wire, when set, is used instead of building one from Wire and BaseURL. It
 	// is how the loop is tested without a model to talk to.
 	wire Wire
+	// waitForKey waits for a key to be stored where there is none, as the
+	// chat does when a person is at the terminal. It is how that is tested
+	// without one.
+	waitForKey bool
 }
 
 // ModelChoice is one model /model offers.
@@ -131,7 +135,16 @@ func Run(ctx context.Context, o Options) error {
 		var err error
 		key, err = resolveKey(o)
 		if err != nil {
-			return err
+			// Somebody at a terminal is told how to set a key and the chat
+			// waits for one, rather than ending: a pane that has ended does
+			// not pick a key up later, and has to be restarted after it,
+			// which is the step people miss. A script is told at once.
+			if !o.waitForKey && !isConsole(o.In) {
+				return err
+			}
+			if key, err = waitForKey(ctx, o); err != nil {
+				return err
+			}
 		}
 		_, keyFrom = lookupKey(o)
 		wire, err = NewWire(o.Wire, o.BaseURL, key)

@@ -1,11 +1,13 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 // KeyStore is asked for an API key when the environment does not have one. It
@@ -33,9 +35,36 @@ func resolveKey(o Options) (string, error) {
 	if o.API != "" {
 		then = "then restart this pane (Restart pane, in the command palette)"
 	}
-	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`; %s",
-		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(keyNames(o), " or "),
-		keyAgent(o), then)
+	return "", fmt.Errorf("%s; %s", noKey(o), then)
+}
+
+// noKey says that there is no key, and where one goes.
+func noKey(o Options) string {
+	return fmt.Sprintf("no API key for %s: set %s, or run `flockdeck keys set %s`",
+		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(keyNames(o), " or "), keyAgent(o))
+}
+
+// keyPoll is how often a chat waiting for a key looks for one.
+var keyPoll = 2 * time.Second
+
+// waitForKey waits for a key to be stored, having said how to store one.
+//
+// Only the store is worth waiting on: a variable exported now reaches the
+// processes started after it, not this one. The key comes back without being
+// shown, and where it came from is said instead.
+func waitForKey(ctx context.Context, o Options) (string, error) {
+	fmt.Fprintf(o.Out, "%s in any terminal; this waits for it (Ctrl+C leaves)\n", noKey(o))
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(keyPoll):
+		}
+		if key, from := lookupKey(o); key != "" {
+			fmt.Fprintf(o.Out, "(found a key %s; carrying on)\n", from)
+			return key, nil
+		}
+	}
 }
 
 // keyAgent is the agent whose stored key is looked for: the one the chat was
