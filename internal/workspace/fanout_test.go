@@ -944,6 +944,19 @@ func TestSpawnRefusesATaskTooLongToStartWith(t *testing.T) {
 	if !strings.Contains(err.Error(), "characters") {
 		t.Errorf("err = %v, want it to name the length", err)
 	}
+	// The length is what the writer can count, which is characters rather
+	// than bytes in any script but ASCII, and the refusal says what to do.
+	accented := strings.Repeat("é", maxTaskBytes/2+1)
+	_, err = ws.Spawn(parent, SpawnOptions{Task: accented, Kind: session.KindShell})
+	if err == nil {
+		t.Fatal("a task too long for a command line was accepted")
+	}
+	if want := fmt.Sprint(utf8.RuneCountInString(accented)); !strings.Contains(err.Error(), want+" characters") {
+		t.Errorf("err = %v, want it to count %s characters", err, want)
+	}
+	if !strings.Contains(err.Error(), "file") {
+		t.Errorf("err = %v, want it to say what to do with a brief this long", err)
+	}
 	// Nothing may be left behind by a spawn that was refused.
 	if n := len(ws.VisibleTabs()); n != 1 {
 		t.Errorf("tabs = %d, want the refused child to have opened none", n)

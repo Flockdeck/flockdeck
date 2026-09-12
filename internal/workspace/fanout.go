@@ -622,7 +622,11 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		return "", fmt.Errorf("a task is required")
 	}
 	if len(o.Task) > maxTaskBytes {
-		return "", fmt.Errorf("the task is %d characters; a pane can be started with at most %d", len(o.Task), maxTaskBytes)
+		// The length said is in characters, which is what the person who wrote
+		// the task can check it against; the limit is in bytes, so it is not
+		// quoted, since in most scripts the two would never agree.
+		return "", fmt.Errorf("the task is %d characters, too long to start an agent with; save the detail to a file in the checkout and give the agent a task that points at it",
+			utf8.RuneCountInString(o.Task))
 	}
 	// Asked about the agent this pane will actually run rather than about
 	// Claude, because a fan-out may now hand half its tasks to one agent and
