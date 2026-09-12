@@ -679,15 +679,25 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// first keystroke. The state follows so the window can render.
 	s.do(func() {
 		s.sendHello(c)
-		if data, err := json.Marshal(s.snapshot()); err == nil {
+		data, err := json.Marshal(s.snapshot())
+		if err == nil {
 			c.sendState(data)
 		}
-		// What was last broadcast no longer describes what every window holds.
-		// Nothing was broadcast at all while there were no windows, so the
-		// state may since have moved away and come back to it; comparing
-		// against it would then skip a change this window has not been told
-		// about. Forgetting it costs one extra broadcast per window opened.
-		s.lastState = nil
+		// lastState has to go on describing what every window holds. Nothing
+		// was broadcast while there were no windows, so the state may since
+		// have moved away and come back to it; comparing against it would then
+		// skip a change this window has not been told about. A window that is
+		// the only one holds exactly what it was just handed, though, and so
+		// does every window when that is what they were last sent. Forgetting
+		// it there as well sent the next wake's identical snapshot again, which
+		// is the very send lastState is kept to spare.
+		switch {
+		case err == nil && s.ClientCount() == 1:
+			s.lastState = data
+		case err == nil && bytes.Equal(data, s.lastState):
+		default:
+			s.lastState = nil
+		}
 	})
 	// After the hello is handed over, so this window is still sent its key
 	// table first.
