@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,29 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe")
+}
+
+// A release is stamped with -X main.version, and the linker ignores an -X
+// naming a variable that does not exist. Were main.version renamed, every
+// release would ship stamped "dev", which the updater never replaces, and
+// nobody would know until nobody updated. So the release's own build is run
+// for this platform and the program is asked what it is.
+func TestReleaseBuildStampsTheVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the program")
+	}
+	t.Chdir(filepath.Join("..", ".."))
+	exe := filepath.Join(t.TempDir(), binary+ext(runtime.GOOS))
+	if err := build("v9.9.9", runtime.GOOS, runtime.GOARCH, exe); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	out, err := exec.Command(exe, "-version").Output()
+	if err != nil {
+		t.Fatalf("%s -version: %v", exe, err)
+	}
+	if !strings.Contains(string(out), "flockdeck v9.9.9") {
+		t.Errorf("-version printed %q, want the version the release stamped", out)
+	}
 }
 
 // Every module a release links has to be named in THIRD-PARTY-NOTICES.md,
