@@ -1369,12 +1369,6 @@ func (w *Workspace) SplitPane(dir layout.Dir, kind session.Kind) {
 	w.SplitPaneIn(dir, kind, "")
 }
 
-// SplitPaneWith is SplitPane with the agent and model to run named, which is
-// what the agent picker asks for.
-func (w *Workspace) SplitPaneWith(dir layout.Dir, c Choice) {
-	w.splitPaneIn(dir, c, "", "")
-}
-
 // SplitPaneInProject splits the focused pane and starts the new session in
 // another open project, which is how two projects come to be worked on side by
 // side in one tab. An unknown or empty project falls back to an ordinary
