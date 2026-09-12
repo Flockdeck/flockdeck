@@ -3,11 +3,13 @@ package chat
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -665,14 +667,36 @@ func compose(prompt, brief string) string {
 	return prompt + "\n\n<flockdeck-context>\n" + strings.TrimSpace(brief) + "\n</flockdeck-context>"
 }
 
-// describeCall is the one line a tool call is drawn as: its name and enough of
-// its arguments to recognise it by.
+// describeCall is the one line a tool call is drawn as: its name and what it
+// acts on -- the command, the path, the pattern and where it is looked for --
+// which is what somebody watching needs to recognise it by. The arguments as
+// JSON said the same less readably, and for a write they were the file itself,
+// escaped onto one line. Arguments of any other shape are still shown as JSON.
 func describeCall(c ToolCall, width int) string {
-	args := strings.Join(strings.Fields(string(c.Args)), " ")
-	if args == "{}" {
-		args = ""
+	var args map[string]any
+	_ = json.Unmarshal(c.Args, &args)
+	str := func(key string) string {
+		v, _ := args[key].(string)
+		return strings.Join(strings.Fields(v), " ")
 	}
-	return clipTo(c.Name+" "+args, width-4)
+	var what string
+	switch {
+	case str("command") != "":
+		what = str("command")
+	case str("pattern") != "":
+		what = strconv.Quote(str("pattern"))
+		if where := str("path"); where != "" {
+			what += " in " + where
+		}
+	case str("path") != "":
+		what = str("path")
+	default:
+		what = strings.Join(strings.Fields(string(c.Args)), " ")
+		if what == "{}" {
+			what = ""
+		}
+	}
+	return clipTo(c.Name+" "+what, width-4)
 }
 
 // summarise is what a tool's output is drawn as. The output itself goes to the
