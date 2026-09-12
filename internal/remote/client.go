@@ -284,6 +284,28 @@ func (c *Client) RenameDevice(ctx context.Context, deviceID, name string) error 
 	return c.call(ctx, http.MethodPatch, "/api/v1/host/devices/"+url.PathEscape(deviceID), map[string]string{"name": name}, nil)
 }
 
+// Notification is what a push to the account's paired devices says, and the
+// pane a tap on it opens.
+type Notification struct {
+	PaneID string `json:"paneId"`
+	Title  string `json:"title"`
+	Body   string `json:"body,omitempty"`
+}
+
+// Notify asks the relay to send a push notification to every device of the
+// account that asked for them, and says how many a push service took. A relay
+// that sends none, or an account whose plan does not include them, says so in
+// its own words: whether pushes are sent is the relay's to decide.
+func (c *Client) Notify(ctx context.Context, n Notification) (int, error) {
+	var out struct {
+		Sent int `json:"sent"`
+	}
+	if err := c.call(ctx, http.MethodPost, "/api/v1/host/notify", n, &out); err != nil {
+		return 0, err
+	}
+	return out.Sent, nil
+}
+
 // Unregister removes this host from the relay, which spends its token.
 func (c *Client) Unregister(ctx context.Context) error {
 	return c.call(ctx, http.MethodDelete, "/api/v1/host", nil, nil)
