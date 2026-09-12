@@ -97,6 +97,10 @@ make build      # a binary for this machine
 make dist       # binaries for all six supported platforms
 ```
 
+Where there is no `make`, as on many Windows machines, `go build .` builds the
+same program; on Windows add `-ldflags -H=windowsgui`, as the Makefile does,
+so that it opens without a console window behind it.
+
 The whole program builds with `CGO_ENABLED=0`, including the PTY layer and the
 front end, so `windows`, `linux` and `darwin` on both `amd64` and `arm64` all
 cross-compile from any one machine with nothing but the Go toolchain. There is

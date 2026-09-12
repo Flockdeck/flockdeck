@@ -331,8 +331,9 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <p>Or build from source:</p>
   <pre><code>make build      <span class="c"># a binary for this machine</span>
 make package    <span class="c"># archives for all six platforms</span></code></pre>
-  <p>A build made either of those ways never updates itself: update it the
-     same way you installed it.</p>
+  <p>No <code>make</code>, as on many Windows machines? <code>go build .</code>
+     builds the same program. A build made any of these ways never updates
+     itself: update it the same way you installed it.</p>
   <p>Downloads are also on the <a href="{{ .Repo }}/releases">releases page</a>.
      Flockdeck checks for updates, verifies every download and asks before it
      restarts, so an update never interrupts your work.</p>
