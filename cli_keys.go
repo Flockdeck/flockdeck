@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -57,13 +58,13 @@ func keysCmd(args []string, kio keysIO) error {
 	case "set":
 		if len(args) != 2 {
 			keysUsage(kio.out)
-			return errors.New("usage: flockdeck keys set <agent>")
+			return fmt.Errorf("usage: flockdeck keys set <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysSet(args[1], kio)
 	case "clear", "rm":
 		if len(args) != 2 {
 			keysUsage(kio.out)
-			return errors.New("usage: flockdeck keys clear <agent>")
+			return fmt.Errorf("usage: flockdeck keys clear <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysClear(args[1], kio.out)
 	case "-h", "--help", "help":
@@ -146,7 +147,24 @@ func keysSet(agentID string, kio keysIO) error {
 	// The confirmation names the agent and not the key, which is the rule
 	// everywhere else here too.
 	fmt.Fprintf(kio.out, "stored a key for %s\n", agentID)
+	// A key stored under a mistyped id is a key nothing will ever read, and
+	// the only sign would be the agent still asking for one. It is kept all
+	// the same -- the id may be an agent about to be added to agents.json --
+	// but the ids that do take a key are named.
+	ids := keyAgentIDs()
+	if !slices.Contains(ids, agentID) {
+		fmt.Fprintf(kio.out, "note: no agent called %s takes a key yet; the ones that do are %s\n", agentID, strings.Join(ids, ", "))
+	}
 	return nil
+}
+
+// keyAgentIDs are the ids of the agents that take a key, in catalog order.
+func keyAgentIDs() []string {
+	var ids []string
+	for _, s := range creds.StatusAll(keysAgents()) {
+		ids = append(ids, s.Agent)
+	}
+	return ids
 }
 
 func keysClear(agentID string, out io.Writer) error {

@@ -186,6 +186,27 @@ func TestAChatStartedByHandFindsAStoredKey(t *testing.T) {
 	}
 }
 
+// Which ids exist is the one thing somebody setting a key for the first time
+// cannot guess, and a mistyped one would otherwise be stored where nothing
+// reads it without a word.
+func TestKeysSaysWhichAgentsTakeAKey(t *testing.T) {
+	isolateKeys(t)
+	if _, err := runKeysCmd(t, "sk-x\n", "set"); err == nil || !strings.Contains(err.Error(), "anthropic") {
+		t.Errorf("keys set with no agent = %v, want the ids listed", err)
+	}
+	out, err := runKeysCmd(t, "sk-x\n", "set", "anthropc")
+	if err != nil {
+		t.Fatalf("keys set: %v", err)
+	}
+	if !strings.Contains(out, "no agent called anthropc") || !strings.Contains(out, "anthropic") {
+		t.Errorf("a mistyped id was stored without a word:\n%s", out)
+	}
+	out, _ = runKeysCmd(t, "sk-x\n", "set", "anthropic")
+	if strings.Contains(out, "note:") {
+		t.Errorf("a known id drew a note:\n%s", out)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
