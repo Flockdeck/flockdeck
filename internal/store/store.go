@@ -947,10 +947,20 @@ func TouchRecent(root string) error {
 	if err != nil {
 		return err
 	}
-	out := make([]Project, 0, len(list)+1)
 	// Store the tidied path, not whatever spelling this run happened to use:
 	// the picker shows these to the user verbatim.
-	out = append(out, Project{Root: filepath.Clean(root), LastUsed: time.Now()})
+	clean := filepath.Clean(root)
+	// A project that is already first, spelled as it would be written, is
+	// where the rewrite would put it: the times only order the list, and
+	// nothing shows them. Rewriting it anyway is a file created, flushed to
+	// the device and renamed on every switch between projects, which on
+	// Windows came to eleven milliseconds on the goroutine that owns the
+	// workspace, spent going back and forth between the same two projects.
+	if len(list) > 0 && list[0].Root == clean {
+		return nil
+	}
+	out := make([]Project, 0, len(list)+1)
+	out = append(out, Project{Root: clean, LastUsed: time.Now()})
 	for _, p := range list {
 		if !sameRoot(p.Root, root) {
 			out = append(out, p)
