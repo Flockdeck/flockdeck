@@ -550,66 +550,11 @@ func run(opts options) error {
 		srv.Detach()
 	}
 
-	var win *appwindow.Window
-	if opts.noWindow || opts.detach {
-		fmt.Println("flockdeck serving at:")
-		fmt.Println(" ", srv.URL())
-		if opts.detach {
-			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		} else {
-			fmt.Println("Press Ctrl+C to stop.")
-		}
-	} else {
-		profile, err := store.BrowserProfileDir()
-		if err != nil {
-			return err
-		}
-		win, err = appwindow.Open(srv.URL(), profile)
-		if err != nil {
-			// Unlike attaching, this server is ours and stops with us, so the
-			// address it was serving will not answer by the time anyone reads
-			// this. Name the ways to get a window instead.
-			if errors.Is(err, appwindow.ErrNoBrowser) {
-				return fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
-					err, appwindow.BrowserEnv)
-			}
-			return fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
-		}
-		defer win.Close()
-
-		if win.AppMode {
-			// The window process ending is the user closing the application,
-			// unless they asked to leave the agents running — or unless it
-			// handed the window to a browser already running, which leaves
-			// only the connection below to tell when it closes.
-			go func() {
-				if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
-					return
-				}
-				if !srv.Detached() {
-					stop()
-				}
-			}()
-		} else {
-			// A tab in the user's own browser cannot be watched, so fall back
-			// to shutting down when the page disconnects.
-			fmt.Println("Opened in your browser:", srv.URL())
-		}
-
-		// Whichever way the UI is shown, losing every connected window for
-		// more than a moment means nobody is looking any more. Only the
-		// windows on this machine count: one open through the relay is
-		// somebody elsewhere, and detaching is how the agents are left
-		// running for them.
-		srv.OnLastClientGone = func() {
-			go func() {
-				time.Sleep(windowGrace)
-				if srv.LocalClientCount() == 0 && !srv.Detached() {
-					stop()
-				}
-			}()
-		}
+	win, err := showWindow(opts, srv, stop)
+	if err != nil {
+		return err
 	}
+	defer win.Close()
 
 	<-quit
 
@@ -630,6 +575,71 @@ func run(opts options) error {
 	// user's or a restart's — is the new version.
 	exiting, reopen = true, ws.ActiveRoot()
 	return nil
+}
+
+// showWindow puts the interface in front of the user, or for a run without a
+// window says where it is, and arranges for stop to be called once nobody is
+// looking at it any more. The window is nil when none was opened.
+func showWindow(opts options, srv *server.Server, stop func()) (*appwindow.Window, error) {
+	if opts.noWindow || opts.detach {
+		fmt.Println("flockdeck serving at:")
+		fmt.Println(" ", srv.URL())
+		if opts.detach {
+			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
+		} else {
+			fmt.Println("Press Ctrl+C to stop.")
+		}
+		return nil, nil
+	}
+
+	profile, err := store.BrowserProfileDir()
+	if err != nil {
+		return nil, err
+	}
+	win, err := appwindow.Open(srv.URL(), profile)
+	if err != nil {
+		// Unlike attaching, this server is ours and stops with us, so the
+		// address it was serving will not answer by the time anyone reads
+		// this. Name the ways to get a window instead.
+		if errors.Is(err, appwindow.ErrNoBrowser) {
+			return nil, fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
+				err, appwindow.BrowserEnv)
+		}
+		return nil, fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
+	}
+
+	if win.AppMode {
+		// The window process ending is the user closing the application,
+		// unless they asked to leave the agents running — or unless it
+		// handed the window to a browser already running, which leaves
+		// only the connection below to tell when it closes.
+		go func() {
+			if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
+				return
+			}
+			if !srv.Detached() {
+				stop()
+			}
+		}()
+	} else {
+		// A tab in the user's own browser cannot be watched, so fall back
+		// to shutting down when the page disconnects.
+		fmt.Println("Opened in your browser:", srv.URL())
+	}
+
+	// Whichever way the UI is shown, losing every connected window for more
+	// than a moment means nobody is looking any more. Only the windows on
+	// this machine count: one open through the relay is somebody elsewhere,
+	// and detaching is how the agents are left running for them.
+	srv.OnLastClientGone = func() {
+		go func() {
+			time.Sleep(windowGrace)
+			if srv.LocalClientCount() == 0 && !srv.Detached() {
+				stop()
+			}
+		}()
+	}
+	return win, nil
 }
 
 // landingRoot is the project a launch opens when none was named: cwd, the
