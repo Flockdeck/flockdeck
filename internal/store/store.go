@@ -722,17 +722,50 @@ func sweepDir(dir string, cutoff time.Time, match func(name string) bool) (int, 
 // BrowserProfileDir returns the directory holding the browser profile used for
 // the application window. Keeping it separate from the user's own profile
 // means the window opens clean and does not disturb their browsing session.
+//
+// On Windows it is kept in the local application data folder rather than
+// beside the rest of the state, which is in the roaming one. The profile is a
+// couple of hundred megabytes of browser components and caches, and where
+// profiles roam Windows copies the roaming folder to and from the network at
+// every logon, or keeps it on a network share where it is redirected; Chrome
+// and Edge keep their own profiles out of it for the same reason. A profile
+// an earlier build left in the roaming folder is moved across once.
 func BrowserProfileDir() (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
 	sub := filepath.Join(dir, "window")
+	if runtime.GOOS == "windows" {
+		if local, err := os.UserCacheDir(); err == nil {
+			moved := filepath.Join(local, "flockdeck", "window")
+			adoptProfile(sub, moved)
+			sub = moved
+		}
+	}
 	if err := os.MkdirAll(sub, 0o700); err != nil {
 		return "", fmt.Errorf("create window profile dir: %w", err)
 	}
 	makePrivate(sub)
 	return sub, nil
+}
+
+// adoptProfile moves a window profile from where an earlier build kept it to
+// dir, when there is one there and nothing at dir yet. A move that cannot be
+// made — across volumes, where the roaming folder is on a network share —
+// leaves the old one where it is and the window starts a fresh profile, which
+// loses nothing it could keep: each run is a new origin to the browser.
+func adoptProfile(old, dir string) {
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return
+	}
+	_ = os.Rename(old, dir)
 }
 
 // Project is a directory the user has opened.
