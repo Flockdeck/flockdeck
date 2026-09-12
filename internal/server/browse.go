@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,6 +80,14 @@ func (s *Server) browse(c *controlClient, path string) {
 		}
 		msg.IsRepo = isRepoDir(abs)
 
+		// Every folder here is found first, and only the ones that will be
+		// offered are looked into: asking each whether it holds a .git is
+		// most of what a listing costs.
+		type found struct {
+			entry os.DirEntry
+			full  string
+		}
+		var dirs []found
 		for _, e := range entries {
 			name := e.Name()
 			full := filepath.Join(abs, name)
@@ -96,11 +105,23 @@ func (s *Server) browse(c *controlClient, path string) {
 					continue
 				}
 			}
+			dirs = append(dirs, found{e, full})
+		}
+		omitted := 0
+		if len(dirs) > maxBrowseEntries {
+			sort.Slice(dirs, func(i, j int) bool {
+				return strings.ToLower(dirs[i].entry.Name()) < strings.ToLower(dirs[j].entry.Name())
+			})
+			omitted = len(dirs) - maxBrowseEntries
+			dirs = dirs[:maxBrowseEntries]
+		}
+		for _, d := range dirs {
+			name := d.entry.Name()
 			msg.Entries = append(msg.Entries, dirEntry{
 				Name:   name,
-				Path:   full,
-				IsRepo: isRepoDir(full),
-				Hidden: strings.HasPrefix(name, ".") || hiddenOnDisk(e),
+				Path:   d.full,
+				IsRepo: isRepoDir(d.full),
+				Hidden: strings.HasPrefix(name, ".") || hiddenOnDisk(d.entry),
 			})
 		}
 		sort.Slice(msg.Entries, func(i, j int) bool {
@@ -114,8 +135,24 @@ func (s *Server) browse(c *controlClient, path string) {
 			return strings.ToLower(msg.Entries[i].Name) < strings.ToLower(msg.Entries[j].Name)
 		})
 		c.sendJSON(msg)
+		if omitted > 0 {
+			// Said, because a list that stops looks like a folder that ends.
+			c.notify(fmt.Sprintf("showing the first %d of %d folders in %s — type a path to reach the others",
+				len(msg.Entries), len(msg.Entries)+omitted, filepath.Base(abs)), false)
+		}
 	}()
 }
+
+// maxBrowseEntries bounds how many folders one listing offers. It is a
+// variable so a test can reach it with a few dozen folders.
+//
+// A folder can hold tens of thousands of others -- node_modules, a package
+// cache, C:\Windows\WinSxS -- and every one was looked into for a .git and
+// sent: measured on Windows, twenty thousand took four seconds and 2.4 MB, and
+// then as many rows for the window to build, for a list nobody picks a project
+// from by scrolling. Past this many the first by name are offered, and the
+// path box reaches the rest.
+var maxBrowseEntries = 2000
 
 // expandHome reads a leading ~ as the home directory. That is how a path is
 // written in every shell the person typing it uses, and what the folder
