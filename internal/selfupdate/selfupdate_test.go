@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -333,6 +334,26 @@ func TestLoadIgnoresARecordWhoseDownloadHasGone(t *testing.T) {
 	}
 	if _, ok := Load(dir); ok {
 		t.Error("an update whose binary is missing was reported as ready to apply")
+	}
+}
+
+// A rate limit is GitHub saying "not now", and the message has to say that
+// rather than a bare 403 that reads as a broken release.
+func TestGetExplainsARateLimit(t *testing.T) {
+	reset := time.Now().Add(20 * time.Minute)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprint(reset.Unix()))
+		http.Error(w, "rate limit exceeded", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := get(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("get succeeded against a rate limit")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "try again after "+reset.Format("15:04")) || strings.Contains(msg, "403") {
+		t.Errorf("err = %q, want it to say when to try again rather than quote the status", msg)
 	}
 }
 

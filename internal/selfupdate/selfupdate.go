@@ -34,6 +34,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -98,6 +99,16 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		// GitHub turns away an address that has asked too often with a 403
+		// and says when it may ask again. "403 Forbidden" alone reads as
+		// though something were wrong with the release or with this machine.
+		if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			when := "later"
+			if reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+				when = "after " + time.Unix(reset, 0).Format("15:04")
+			}
+			return nil, fmt.Errorf("GitHub is limiting how often this address may ask for releases; try again %s", when)
+		}
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	return resp, nil
