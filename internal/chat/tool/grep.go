@@ -171,7 +171,7 @@ func matchFile(abs string, re *regexp.Regexp, filesOnly bool, room int) ([]strin
 	}
 	defer f.Close()
 
-	r := bufio.NewReaderSize(f, 64<<10)
+	r, _ := utf16Text(bufio.NewReaderSize(f, 64<<10))
 	if head, _ := r.Peek(8 << 10); looksBinary(head) {
 		return nil, nil
 	}

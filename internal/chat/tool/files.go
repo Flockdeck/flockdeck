@@ -83,7 +83,7 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	// The file is read a line at a time rather than whole, because the model
 	// pages through a large log with offset and limit and a read of two
 	// thousand lines should not cost the memory of the whole file.
-	r := bufio.NewReaderSize(f, 64<<10)
+	r, _ := utf16Text(bufio.NewReaderSize(f, 64<<10))
 	if head, _ := r.Peek(8 << 10); looksBinary(head) {
 		return "", fmt.Errorf("%s looks like a binary file (%s)", t.root.Rel(abs), humanBytes(info.Size()))
 	}
@@ -332,6 +332,11 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return "", "", 0, t.root.explain(err)
+	}
+	if hasUTF16BOM(data) {
+		// read_file shows it as text, and an edit would have to be written
+		// back in its own encoding, which nothing here does.
+		return "", "", 0, fmt.Errorf("%s is UTF-16 text, which edit_file cannot change in place; write_file can rewrite it whole, as UTF-8", t.root.Rel(abs))
 	}
 	if looksBinary(data) {
 		return "", "", 0, fmt.Errorf("%s looks like a binary file", t.root.Rel(abs))
