@@ -610,7 +610,8 @@ func run(opts options) error {
 	// quit, it took the record with it, leaving nothing on record while the
 	// first went on running: the next launch started a rival, and the start-up
 	// sweep stopped sparing the first one's pane settings.
-	if !opts.solo || !answering() {
+	recorded := !opts.solo || !answering()
+	if recorded {
 		if err := store.SaveInstance(&store.Instance{
 			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
 		}); err != nil {
@@ -628,7 +629,7 @@ func run(opts options) error {
 		srv.Detach()
 	}
 
-	win, err := showWindow(opts, srv, stop)
+	win, err := showWindow(opts, recorded, srv, stop)
 	if err != nil {
 		return err
 	}
@@ -661,13 +662,25 @@ func run(opts options) error {
 // showWindow puts the interface in front of the user, or for a run without a
 // window says where it is, and arranges for stop to be called once nobody is
 // looking at it any more. The window is nil when none was opened.
-func showWindow(opts options, srv *server.Server, stop func()) (*appwindow.Window, error) {
+//
+// recorded is whether this instance is the one on record, which is what
+// `flockdeck` attaches to and `flockdeck -quit` stops.
+func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*appwindow.Window, error) {
 	if opts.noWindow || opts.detach {
 		fmt.Println("flockdeck serving at:")
 		fmt.Println(" ", srv.URL())
-		if opts.detach {
+		switch {
+		case !recorded:
+			// A -solo run beside an instance that is answering leaves that
+			// one on record, so both commands the other messages name reach
+			// it, not this one: following them stopped the other instance and
+			// every agent in it. Opening the address is what works here, and
+			// on every platform.
+			fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
+			fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
+		case opts.detach:
 			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		} else {
+		default:
 			// Ctrl+C alone was the advice, but the Windows build is linked
 			// for the GUI subsystem and is not attached to the console it was
 			// started from, so the key never reaches it there.
