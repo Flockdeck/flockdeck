@@ -178,6 +178,38 @@ func TestRemoteWindowsAreSentCompressed(t *testing.T) {
 	}
 }
 
+// TestRemoteTerminalsAreSentCompressed covers the terminal sockets of a window
+// through the relay, one per pane, whose output deflates to about a third. A
+// window on this machine is sent it as it is.
+func TestRemoteTerminalsAreSentCompressed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	ts := remoteServer(t, srv)
+	pane, _ := ask(srv, func() string { return ws.CurrentTab().Focus })
+	dial := func(url, origin string) *http.Response {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		conn, resp, err := websocket.Dial(ctx, url,
+			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionNoContextTakeover})
+		if err != nil {
+			t.Fatalf("dial %s: %v", url, err)
+		}
+		t.Cleanup(func() { conn.CloseNow() })
+		return resp
+	}
+
+	resp := dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+pane, ts.URL)
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); !strings.Contains(ext, "permessage-deflate") {
+		t.Errorf("a terminal through the relay was not offered compression: %q", ext)
+	}
+	resp = dial("ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+pane, "http://"+srv.Addr())
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
+		t.Errorf("a terminal on this machine was compressed: %q", ext)
+	}
+}
+
 // dialRemoteControl opens the control socket through the tunnel as a page
 // from origin would.
 func dialRemoteControl(ts *httptest.Server, origin string) (*websocket.Conn, error) {

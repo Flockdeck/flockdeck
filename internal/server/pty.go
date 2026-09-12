@@ -78,7 +78,19 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// localhost -- the user's own dev server, or anything that can be made to
 	// serve a page from one -- had the token attached to a socket it opened
 	// here, and could then type into every agent.
-	conn, err := websocket.Accept(w, r, nil)
+	//
+	// Through the relay the terminal is compressed, if the browser offers, for
+	// the reason the control socket is: the window is often a phone on a
+	// metered link, and terminal output -- escape sequences, diffs, redrawn
+	// lines -- deflates to a third even a frame at a time. Each frame is
+	// compressed on its own, which costs no memory held per socket, and
+	// matters here where one window holds a socket for every pane; a keystroke's
+	// echo is too small to be compressed at all, so typing is no slower.
+	var opts *websocket.AcceptOptions
+	if fromRemote(r) {
+		opts = &websocket.AcceptOptions{CompressionMode: websocket.CompressionNoContextTakeover}
+	}
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		return
 	}
