@@ -123,7 +123,9 @@ so that it opens without a console window behind it.
 The whole program builds with `CGO_ENABLED=0`, including the PTY layer and the
 front end, so `windows`, `linux` and `darwin` on both `amd64` and `arm64` all
 cross-compile from any one machine with nothing but the Go toolchain. There is
-one artifact: a single binary with no assets to install beside it.
+one artifact: a single binary with no assets to install beside it. The Windows
+release also carries `flockdeck-chat.exe`, the same program linked for the
+console, which is what an API agent's pane runs there.
 
 ### Staying up to date
 
@@ -790,8 +792,9 @@ agents running for later. A remote window closing never stops anything.
 - **The API agent is the same binary.** Talking to a model API directly is a
   subcommand run in the pane's own terminal, reporting the same lifecycle
   events over the same loopback endpoint as a CLI agent's hooks. Nothing in the
-  workspace learns a second protocol, and there is still one artifact to
-  install.
+  workspace learns a second protocol, and there is still one program to
+  install; on Windows it also ships as `flockdeck-chat.exe`, linked for the
+  console, because the window build gets none in a pane.
 - **Emulation happens in the browser.** xterm.js renders the terminal and
   encodes keystrokes for whatever modes the application has enabled, so raw
   bytes pass through Go untouched in both directions. Go never has to
