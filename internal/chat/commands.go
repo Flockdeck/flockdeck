@@ -111,7 +111,11 @@ func (s *session) forget() {
 	}
 	n := len(s.always)
 	clear(s.always)
-	s.out.line(ansiDim, fmt.Sprintf("withdrew %d standing %s; every call is asked about again", n, map[bool]string{true: "permission", false: "permissions"}[n == 1]))
+	what := "permissions"
+	if n == 1 {
+		what = "permission"
+	}
+	s.out.line(ansiDim, fmt.Sprintf("withdrew %d standing %s; every call is asked about again", n, what))
 }
 
 // retry is /retry: it carries on a turn that ended without an answer -- a
