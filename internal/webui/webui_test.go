@@ -2710,6 +2710,26 @@ assert.ok(picks[picks.length - 1].classList.contains("sel"), "End did not reach 
 `)
 }
 
+// The find bar answered the keyboard only while its field had it. A click on
+// one of its arrows left the keyboard on that button, where Escape did not
+// close the bar and the next letters of the search went nowhere.
+func TestTheFindBarKeepsTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const input = h.$("search-input");
+input.value = "error";
+h.$("search-next").focus();
+h.click(h.$("search-next"));
+assert.ok(h.doc.activeElement === input, "the arrow kept the keyboard, so typing more of the search went nowhere");
+
+h.$("search-prev").focus();
+h.key({ key: "Escape" });
+assert.ok(h.$("searchbar").hidden, "Escape on one of the bar's buttons did not close it");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -4309,9 +4309,11 @@
     }
     if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
-    if (!$("searchbar").hidden && document.activeElement === $("search-input")) {
+    // Anywhere in the bar, not only in its field: after a click on one of its
+    // arrows the keyboard is on that button, and Escape did nothing there.
+    if (!$("searchbar").hidden && $("searchbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
-      if (e.key === "Enter") { e.preventDefault(); runSearch(e.shiftKey); return; }
+      if (e.key === "Enter" && document.activeElement === $("search-input")) { e.preventDefault(); runSearch(e.shiftKey); return; }
     }
     if (!$("overlay").hidden && e.key === "Escape") { closeOverlay(); return; }
 
@@ -4390,8 +4392,10 @@
   $("retry").onclick = connectControl;
   $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
   $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
-  $("search-next").onclick = () => runSearch(false);
-  $("search-prev").onclick = () => runSearch(true);
+  // The arrows hand the keyboard back to the field, where a search is refined
+  // by typing more of it; left on the button, the next letters went nowhere.
+  $("search-next").onclick = () => { runSearch(false); $("search-input").focus(); };
+  $("search-prev").onclick = () => { runSearch(true); $("search-input").focus(); };
   $("search-close").onclick = closeSearch;
   $("notice").onclick = hideNotice;
   // A link out of the application - the help has one, to where Claude Code is
