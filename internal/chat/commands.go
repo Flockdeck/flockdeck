@@ -234,6 +234,30 @@ func (s *session) choices() []ModelChoice {
 	return s.listed
 }
 
+// pickOnlyModel is for a chat started with no model named. Where the catalog
+// lists none and a server on this machine offers exactly one -- a llama.cpp
+// server, LM Studio with one model loaded -- that one answers: there is
+// nothing to choose, and making somebody type /model to choose it is a step
+// for nothing. Otherwise it says how to choose.
+//
+// Only a server on this machine is asked, so that starting a chat never
+// sends a request to a vendor before anybody has asked it anything.
+func (s *session) pickOnlyModel(ctx context.Context) {
+	if lister, ok := s.wire.(modelLister); ok && len(s.opts.Models) == 0 && isLoopback(s.opts.BaseURL) {
+		// Briefly: this is before the first prompt, and an endpoint that is
+		// not answering will say so soon enough when it is asked something.
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if ids, err := lister.ListModels(ctx); err == nil && len(ids) == 1 {
+			s.model = ids[0]
+			s.listed = []ModelChoice{{ID: ids[0]}}
+			s.out.line(ansiDim, "(answering with "+ids[0]+", the one model the endpoint offers)")
+			return
+		}
+	}
+	s.out.line(ansiDim, "no model is named for this agent; /model shows the ones to choose from")
+}
+
 // listModels asks the endpoint which models it offers, for a moment, and keeps
 // the answer for /model to choose from.
 func (s *session) listModels(ctx context.Context) {

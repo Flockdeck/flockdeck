@@ -274,7 +274,7 @@ func (s *session) run(ctx context.Context) error {
 		// Most endpoints want a model named, a local model server above all,
 		// and the first sign of it would otherwise be the first answer
 		// failing with "model is required".
-		s.out.line(ansiDim, "no model is named for this agent; /model shows the ones to choose from")
+		s.pickOnlyModel(ctx)
 	}
 
 	queued := strings.TrimSpace(s.opts.Task)
