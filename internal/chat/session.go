@@ -279,7 +279,7 @@ func (s *session) run(ctx context.Context) error {
 		if prompt == "" {
 			continue
 		}
-		if strings.HasPrefix(prompt, "/") {
+		if isCommand(prompt) {
 			if leave := s.command(ctx, prompt); leave {
 				s.reporter.sessionEnd()
 				return nil
@@ -288,6 +288,22 @@ func (s *session) run(ctx context.Context) error {
 		}
 		s.turn(ctx, prompt)
 	}
+}
+
+// isCommand reports whether a line is a slash command rather than a prompt
+// that happens to begin with a slash. A path is the usual one -- "/usr/lib/
+// libssl.so is missing", "/c/Users/me/app.log says ..." -- and taken for a
+// command, it was answered "no such command" and the question was gone, with
+// no way to send it: a leading space is trimmed off like any other.
+func isCommand(line string) bool {
+	if !strings.HasPrefix(line, "/") {
+		return false
+	}
+	name := line[1:]
+	if i := strings.IndexAny(name, " \t\r\n"); i >= 0 {
+		name = name[:i]
+	}
+	return !strings.ContainsAny(name, `/\.:`)
 }
 
 // readPrompt draws the status line and waits for what the user types.
