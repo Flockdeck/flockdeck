@@ -301,6 +301,23 @@ func TestTheVariableCarryingAStoredKeyIsFound(t *testing.T) {
 	}
 }
 
+// Git Bash hands a program a pipe named after the pty behind it, and that name
+// is what tells a person typing from a script piping a key in.
+func TestAnMsysPtyIsToldFromAScriptsPipe(t *testing.T) {
+	for name, want := range map[string]bool{
+		`\msys-dd50a72ab4668b33-pty1-to-master`:   true,
+		`\msys-dd50a72ab4668b33-pty0-from-master`: true,
+		`\cygwin-e022582115c10879-pty4-to-master`: true,
+		`\msys-dd50a72ab4668b33-pipe-0x1`:         false,
+		`\mypipe`:                                 false,
+		`C:\Users\someone\keys.txt`:               false,
+	} {
+		if got := isMsysPtyName(name); got != want {
+			t.Errorf("isMsysPtyName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {

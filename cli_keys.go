@@ -254,9 +254,24 @@ func readKeyLine(r io.Reader) (string, error) {
 
 // stdinIsTerminal reports whether there is a person at the other end of
 // standard input, as opposed to a pipe or a file.
+//
+// Git Bash's window hands a program a pipe even when a person is typing into
+// it, and taken for a script's pipe it got no prompt: `flockdeck keys set`
+// there sat waiting with nothing on the screen to say what for.
 func stdinIsTerminal() bool {
 	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0 || isMsysTerminal(os.Stdin)
+}
+
+// isMsysPtyName reports whether a pipe's name is one mintty or another Cygwin
+// or MSYS2 terminal gives the pty behind it: \msys-<id>-pty<n>-from-master,
+// or -to-master, or the same with cygwin.
+func isMsysPtyName(name string) bool {
+	if !strings.HasPrefix(name, `\msys-`) && !strings.HasPrefix(name, `\cygwin-`) {
+		return false
+	}
+	return strings.Contains(name, "-pty") &&
+		(strings.HasSuffix(name, "-from-master") || strings.HasSuffix(name, "-to-master"))
 }
 
 // keysAgents is the list of agents that can want a key: the catalog, with the
