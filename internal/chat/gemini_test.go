@@ -17,7 +17,7 @@ func TestGeminiHandsBackACallsSignatureAndCountsItsThinking(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte(`data: {"candidates":[{"content":{"parts":[` +
-			`{"functionCall":{"name":"read_file","args":{"path":"a"}},"thoughtSignature":"sig-g"}]}}],` +
+			`{"functionCall":{"name":"read_file","args":{"path":"a"}},"thoughtSignature":"sig-g"}]},"finishReason":"STOP"}],` +
 			`"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,"thoughtsTokenCount":40}}` + "\n\n"))
 	}))
 	defer srv.Close()

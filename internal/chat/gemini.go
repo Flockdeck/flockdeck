@@ -206,6 +206,10 @@ func geminiStopped(finish, blocked string) error {
 	switch {
 	case blocked != "":
 		return fmt.Errorf("Gemini refused the prompt (%s)", blocked)
+	case finish == "":
+		// Every answer ends with a reason, so one with none was cut off --
+		// a dropped connection, a proxy's timeout -- part-way.
+		return errors.New("the connection closed before the answer was finished")
 	case finish == "MAX_TOKENS":
 		return errors.New("the answer reached the model's limit on its length and was cut off there")
 	case finish == "MALFORMED_FUNCTION_CALL":
