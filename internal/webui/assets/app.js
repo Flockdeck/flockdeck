@@ -3068,6 +3068,9 @@
   }
 
   function renderChanges(msg) {
+    // Where the file list and the diff were scrolled to, to put back below if
+    // the same file is still the one shown.
+    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop };
     changeView = null;
     if (msg) {
       changes = msg;
@@ -3194,8 +3197,12 @@
       const diff = el("div", "rev-diff");
       split.append(diff);
       body.append(split);
-      changeView = { rows, diff };
+      changeView = { rows, diff, list };
       fillDiff();
+      // A refresh, a fetch or a push answers with the working tree again, and
+      // drawing it afresh put a long diff back at its first line under the
+      // person reading it, and the file list back at its top.
+      if (was && was.file === selectedFile) { list.scrollTop = was.list; diff.scrollTop = was.diff; }
 
       // --- commit -----------------------------------------------------------
       const commit = el("div", "rev-commit");

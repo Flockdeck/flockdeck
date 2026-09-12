@@ -3002,6 +3002,31 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "closeProject", root: "C:/docs
 `)
 }
 
+// A refresh, a fetch or a push answers with the working tree again, and the
+// review was drawn afresh from it: a long diff went back to its first line
+// under the person reading it, and the file list back to its top.
+func TestAReviewKeepsItsPlaceInTheDiff(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const files = [];
+for (let i = 0; i < 30; i++) files.push({ path: "f" + i + ".go", label: "M", added: 1, removed: 0 });
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", files };
+h.recv(tree);
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[20]);
+h.recv({ type: "diff", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
+const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
+const list = () => h.$("overlay-body").querySelector("div.rev-files");
+diff().scrollTop = 900;
+list().scrollTop = 400;
+
+h.recv(tree);
+assert.strictEqual(diff().scrollTop, 900, "the diff went back to its first line when the tree was read again");
+assert.strictEqual(list().scrollTop, 400, "the file list went back to its top when the tree was read again");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
