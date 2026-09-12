@@ -20,6 +20,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -209,6 +211,102 @@ func TestStageUnpacksTheBinaryAndRecordsIt(t *testing.T) {
 	loaded, ok := Load(dir)
 	if !ok || loaded.Version != "v9.9.9" {
 		t.Errorf("Load = %+v, %v; want the staged update", loaded, ok)
+	}
+}
+
+// Two downloads can be under way at once -- `flockdeck update` while the
+// application's own check is downloading -- and each began by clearing the
+// one work directory there was, the other's half-written archive with it.
+func TestTwoStagingsAtOnceBothFinish(t *testing.T) {
+	const body = "the new program"
+	name, archive := buildArchive(t, body)
+	h := sha256.Sum256(archive)
+
+	// The first download stays under way, its file open and half written,
+	// until the second has finished.
+	started, hold := make(chan struct{}), make(chan struct{})
+	var downloads atomic.Int32
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		if downloads.Add(1) > 1 {
+			w.Write(archive)
+			return
+		}
+		w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		close(started)
+		<-hold
+		w.Write(archive[len(archive)/2:])
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(h[:]), name)
+	})
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Release{Version: "v9.9.9", Assets: []Asset{
+			{Name: name, URL: srv.URL + "/archive"},
+			{Name: "checksums.txt", URL: srv.URL + "/checksums.txt"},
+		}})
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	letGo := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(letGo) // before the server closes, which waits for the handler
+
+	dir := t.TempDir()
+	first := make(chan error, 1)
+	go func() {
+		_, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first download never started")
+	}
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err != nil {
+		t.Errorf("staging while another download was under way: %v", err)
+	}
+	letGo()
+	if err := <-first; err != nil {
+		t.Errorf("the download that was under way, once the other had finished: %v", err)
+	}
+	p, ok := Load(dir)
+	if !ok {
+		t.Fatal("nothing is staged")
+	}
+	if got, err := os.ReadFile(p.Binary); err != nil || string(got) != body {
+		t.Errorf("staged binary = %q, %v; want %q", got, err, body)
+	}
+}
+
+// What an interrupted download left is cleared once it is old enough that
+// nothing can still be writing it, and not before: a young one may be another
+// download's, under way.
+func TestStageClearsWhatAnInterruptedDownloadLeft(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+
+	dir := t.TempDir()
+	old, young := filepath.Join(dir, "staging.new"), filepath.Join(dir, "staging.new-123")
+	for _, d := range []string{old, young} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-2 * abandonedWork)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the work directory of a download interrupted long ago is still there")
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Errorf("a work directory another download may be writing was cleared: %v", err)
 	}
 }
 

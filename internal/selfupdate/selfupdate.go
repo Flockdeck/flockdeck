@@ -247,13 +247,21 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	// There is one when a newer release comes out before the last was
 	// applied, and clearing it first meant a download that failed, or did
 	// not match, left nothing to apply while the top bar went on offering
-	// it. Anything left in the work directory by an interrupted attempt goes
-	// first, so a stale archive is never taken for this run's.
-	work := filepath.Join(dir, "staging.new")
-	if err := os.RemoveAll(work); err != nil {
+	// it.
+	//
+	// Each download has a work directory of its own. Two can be under way at
+	// once -- `flockdeck update` run while the application's own check is
+	// downloading -- and with one fixed name each began by clearing it: the
+	// other's half-written archive went, and that one then failed to unpack
+	// it, or on Windows the clearing itself failed on the file held open.
+	// What an interrupted attempt left is cleared once nothing can still be
+	// writing it.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(work, 0o755); err != nil {
+	sweepWork(dir)
+	work, err := os.MkdirTemp(dir, "staging.new-")
+	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(work) // nothing left once it has become the staging
@@ -307,6 +315,28 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		return nil, err
 	}
 	return p, nil
+}
+
+// abandonedWork is how old a download's work directory has to be before it is
+// taken for one an interrupted attempt left behind. A download is given
+// minutes; nothing an hour old is still being written.
+const abandonedWork = time.Hour
+
+// sweepWork clears the work directories interrupted downloads left in dir: the
+// one name every download used before each had its own, and the ones since.
+func sweepWork(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "staging.new") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > abandonedWork {
+			os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // fetchSum reads checksums.txt and returns the hash recorded for one file.
