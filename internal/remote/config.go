@@ -167,6 +167,14 @@ func RelayURL(named string) (string, error) {
 // relay being developed or tested runs, and where there is no network for the
 // traffic to cross.
 func CheckRelay(raw string) (string, error) {
+	// One of the relay's own codes or credentials typed where its address
+	// goes would, taken below for a host name, be sent to the DNS resolver to
+	// look up, in the clear, so it is refused as what it is and not repeated.
+	for _, prefix := range []string{"fdh_", "fdd_", "fdp_", "fdi_"} {
+		if strings.HasPrefix(strings.TrimSpace(raw), prefix) {
+			return "", errors.New("that is one of the relay's codes or credentials, not its address; a relay address looks like " + DefaultRelay)
+		}
+	}
 	// An address typed without a scheme, as addresses mostly are, is taken
 	// to be HTTPS: that is the only one a relay off this machine may use.
 	addr := raw

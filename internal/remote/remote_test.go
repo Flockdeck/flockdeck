@@ -135,6 +135,14 @@ func TestRelayURL(t *testing.T) {
 	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
 		t.Errorf("CheckRelay kept the trailing slash: %q", got)
 	}
+	// One of the relay's secrets typed where its address goes is refused, not
+	// taken for a host name, which would send it to the DNS resolver in the
+	// clear, and the refusal does not repeat it.
+	for _, secret := range []string{"fdh_0123456789abcdefghijkl", "fdp_0123456789abcdefghijkl"} {
+		if got, err := CheckRelay(secret); err == nil || strings.Contains(err.Error(), secret) {
+			t.Errorf("CheckRelay(%q) = %q, %v; want it refused without repeating it", secret, got, err)
+		}
+	}
 	// A pairing link pasted as the relay is the wrong thing to hand, which the
 	// refusal says, and its one-time code is not repeated back.
 	if _, err := CheckRelay("https://remote.flockdeck.ai/pair#fdp_s3cretcode"); err == nil ||
