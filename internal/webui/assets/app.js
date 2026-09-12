@@ -6977,6 +6977,13 @@
    *  push you started before turning to another pane. */
   const NOTICE_MS = 4000;
   const ERROR_MS = 12000;
+  /** How long a message stays once the pointer has left it. */
+  const NOTICE_AFTER_MS = 1500;
+  /** Whether the pointer is resting on the message. A message is read with
+   *  the pointer on it as often as not, and it went on its own timer
+   *  regardless: a long git error was taken away mid-sentence. It stays while
+   *  the pointer is there, and for a moment after it leaves. */
+  let noticeHeld = false;
 
   function notice(text, isError) {
     const n = $("notice");
@@ -6989,7 +6996,7 @@
     n.textContent = text;
     n.hidden = false;
     clearTimeout(notice.timer);
-    notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
+    if (!noticeHeld) notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
   }
 
   /** hideNotice takes the message away. It is also what a click on it does:
@@ -6997,6 +7004,7 @@
    *  meant for the pane underneath was going nowhere at all. */
   function hideNotice() {
     clearTimeout(notice.timer);
+    noticeHeld = false;
     $("notice").hidden = true;
   }
 
@@ -7188,6 +7196,13 @@
     searchTimer = setTimeout(() => runSearch(false, true), 120);
   };
   $("notice").onclick = hideNotice;
+  $("notice").addEventListener("pointerenter", () => { noticeHeld = true; clearTimeout(notice.timer); });
+  $("notice").addEventListener("pointerleave", () => {
+    noticeHeld = false;
+    if ($("notice").hidden) return;
+    clearTimeout(notice.timer);
+    notice.timer = setTimeout(hideNotice, NOTICE_AFTER_MS);
+  });
   // A link out of the application - the help has one, to where Claude Code is
   // installed from - followed in place replaces the application with the page
   // it points to. This is an app window, with no address bar and no back

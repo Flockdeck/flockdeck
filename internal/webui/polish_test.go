@@ -202,3 +202,24 @@ h.recv(waiting());
 assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck", "the title went on saying the window was disconnected");
 `)
 }
+
+// A message is often read with the pointer resting on it, and it went on its
+// own timer regardless, taking a long git error away mid-sentence. It stays
+// while the pointer is on it - a second message arriving then as well - and
+// goes a moment after the pointer leaves.
+func TestANoticeStaysWhileThePointerIsOnIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+h.recv({ type: "notice", text: "pushed 2 commits to origin/main", error: false });
+h.dispatch(n, new h.Ev("pointerenter", { target: n }));
+h.recv({ type: "notice", text: "fetched origin", error: false });
+await h.sleep(4300);
+assert.ok(!n.hidden, "the message was taken away from under the pointer reading it");
+assert.ok(n.textContent.includes("fetched"), "the newer message is not the one shown");
+h.dispatch(n, new h.Ev("pointerleave", { target: n }));
+await h.sleep(1800);
+assert.ok(n.hidden, "the message stayed on after the pointer left it");
+`)
+}
