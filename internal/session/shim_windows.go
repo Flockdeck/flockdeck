@@ -3,7 +3,6 @@
 package session
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,9 +40,9 @@ func command(p pty.Pty, exe string, args []string) *pty.Cmd {
 		args = fit(args, maxCommandLine, func(a []string) int { return directLength(exe, a) })
 		return p.Command(exe, args...)
 	}
-	if node, script, ok := npmScript(exe); ok {
-		args = fit(args, maxCommandLine, func(a []string) int { return directLength(node, append([]string{script}, a...)) })
-		return p.Command(node, append([]string{script}, args...)...)
+	if node, prefix, ok := npmScript(exe); ok {
+		args = fit(args, maxCommandLine, func(a []string) int { return directLength(node, append(slices.Clone(prefix), a...)) })
+		return p.Command(node, append(prefix, args...)...)
 	}
 	args = fit(args, maxBatchLine, func(a []string) int { return len(batchCommandLine(exe, a)) })
 	shell := os.Getenv("COMSPEC")
@@ -157,39 +156,44 @@ func cutTask(task string, over int) string {
 	return task[:keep] + cutNote
 }
 
-// npmShimScript finds the script an npm shim starts: every form npm has
-// written names it relative to the shim's own folder, "%dp0%\" or "%~dp0\".
-var npmShimScript = regexp.MustCompile(`"%(?:~dp0|dp0%)\\([^"%]+\.[cm]?js)"`)
-
-// npmScript reports the node and the script an npm shim would run, or false
-// for a batch file that is not one, or whose script or node cannot be found.
-// A node.exe beside the shim is the one it prefers, as the shim itself does.
+// npmShimLine is the line an npm shim starts node on: the node it chose --
+// "%_prog%" in the shims npm writes now, "%~dp0\node.exe" or a bare node in
+// the older ones -- then the options the package's shebang asks node for,
+// then the script, named relative to the shim's own folder, then %*.
 //
-// A script beside a batch file is not proof of npm: `cscript "%~dp0\tool.js"`
-// runs one through Windows Script Host, and handing that to node would start
-// the wrong program. Every form npm writes names node, so a batch file that
-// does not is left to cmd.exe.
-func npmScript(shim string) (node, script string, ok bool) {
+// The options are taken only while each is a plain word, which is how cmd.exe
+// would split them too. One that is quoted or holds anything cmd.exe acts on
+// does not match, and that shim is left for cmd.exe to read rather than read
+// here by guesswork. So is a batch file that runs a script beside it with
+// something other than node -- `cscript "%~dp0\tool.js"` is Windows Script
+// Host's, and handing it to node would start the wrong program.
+var npmShimLine = regexp.MustCompile(`(?:"%_prog%"|"%~?dp0%?\\node\.exe"|\bnode)[ \t]+((?:[^"%\s&|<>^()]+[ \t]+)*)"%(?:~dp0|dp0%)\\([^"%]+\.[cm]?js)"[ \t]+%\*`)
+
+// npmScript reports the node an npm shim would run and the arguments it puts
+// in front of the task -- node's own options, then the script -- or false for
+// a batch file that is not one, or whose script or node cannot be found. A
+// node.exe beside the shim is the one it prefers, as the shim itself does.
+func npmScript(shim string) (node string, prefix []string, ok bool) {
 	data, err := os.ReadFile(shim)
-	if err != nil || len(data) > 64<<10 || !bytes.Contains(bytes.ToLower(data), []byte("node")) {
-		return "", "", false
+	if err != nil || len(data) > 64<<10 {
+		return "", nil, false
 	}
-	m := npmShimScript.FindSubmatch(data)
+	m := npmShimLine.FindSubmatch(data)
 	if m == nil {
-		return "", "", false
+		return "", nil, false
 	}
 	dir := filepath.Dir(shim)
-	script = filepath.Join(dir, string(m[1]))
+	script := filepath.Join(dir, string(m[2]))
 	if fi, err := os.Stat(script); err != nil || fi.IsDir() {
-		return "", "", false
+		return "", nil, false
 	}
 	node = filepath.Join(dir, "node.exe")
 	if _, err := os.Stat(node); err != nil {
 		if node, err = exec.LookPath("node"); err != nil {
-			return "", "", false
+			return "", nil, false
 		}
 	}
-	return node, script, true
+	return node, append(strings.Fields(string(m[1])), script), true
 }
 
 // batchCommandLine writes the command line that has cmd.exe run a batch file

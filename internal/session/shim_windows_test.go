@@ -36,6 +36,47 @@ func TestHelperPrintArgs(t *testing.T) {
 // cmd.exe accepts and the pane died with "The command line is too long"; all
 // the shim does is start node on a script, so node is started on it directly.
 func TestAnNpmShimIsNotRunThroughCmd(t *testing.T) {
+	shim := npmAgent(t, "", "ARGV:' + JSON.stringify(process.argv.slice(2)) + ':END")
+	task := "<flockdeck-context>\n" + strings.Repeat("a briefing & \"quoted\" 100% ", 500) + "\n</flockdeck-context>\n\nfix the parser"
+	var argv []string
+	if err := json.Unmarshal([]byte(agentSays(t, shim, task, "ARGV")), &argv); err != nil {
+		t.Fatalf("unreadable argv: %v", err)
+	}
+	if len(argv) != 1 || argv[0] != task {
+		t.Errorf("the agent was given %d arguments, want the %d-character task exactly as written", len(argv), len(task))
+	}
+}
+
+// TestAnNpmShimKeepsItsNodeOptions covers the options npm copies from a
+// package's shebang into the line that starts node, between node and the
+// script. Starting node on the script alone dropped them, and the agent ran
+// under a node configured differently from the one its package asked for.
+func TestAnNpmShimKeepsItsNodeOptions(t *testing.T) {
+	shim := npmAgent(t, "--no-warnings --stack-size=2048 ", "RAN:' + JSON.stringify({exec: process.execArgv, argv: process.argv.slice(2)}) + ':END")
+	var ran struct{ Exec, Argv []string }
+	if err := json.Unmarshal([]byte(agentSays(t, shim, "fix it", "RAN")), &ran); err != nil {
+		t.Fatalf("unreadable output: %v", err)
+	}
+	if !slices.Contains(ran.Exec, "--no-warnings") || !slices.Contains(ran.Exec, "--stack-size=2048") {
+		t.Errorf("node ran with %q, want the shim's options", ran.Exec)
+	}
+	if !slices.Equal(ran.Argv, []string{"fix it"}) {
+		t.Errorf("the agent was given %q, want the task alone", ran.Argv)
+	}
+
+	// An option the shim quotes is not split here by guesswork: that shim is
+	// left to cmd.exe, which knows how it meant it.
+	quoted := npmAgent(t, `"--title=a b" `, "x")
+	if _, _, ok := npmScript(quoted); ok {
+		t.Error("a shim with a quoted node option was read here rather than left to cmd.exe")
+	}
+}
+
+// npmAgent writes an agent laid out the way npm installs one, with opts in
+// the shim between node and the script, and a script that writes out. It
+// returns the shim.
+func npmAgent(t *testing.T, opts, out string) string {
+	t.Helper()
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed")
 	}
@@ -44,21 +85,25 @@ func TestAnNpmShimIsNotRunThroughCmd(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	js := "process.stdout.write('ARGV:' + JSON.stringify(process.argv.slice(2)) + ':END\\n')\n"
-	if err := os.WriteFile(script, []byte(js), 0o644); err != nil {
+	if err := os.WriteFile(script, []byte("process.stdout.write('"+out+"\\n')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// What npm writes today, in the part that matters.
 	shim := filepath.Join(dir, "agent.cmd")
 	body := "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n" +
 		"IF EXIST \"%dp0%\\node.exe\" (\r\n  SET \"_prog=%dp0%\\node.exe\"\r\n) ELSE (\r\n  SET \"_prog=node\"\r\n)\r\n" +
-		"endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\agent\\bin\\agent.js\" %*\r\n"
+		"endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  " + opts + "\"%dp0%\\node_modules\\agent\\bin\\agent.js\" %*\r\n"
 	if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	return shim
+}
 
-	task := "<flockdeck-context>\n" + strings.Repeat("a briefing & \"quoted\" 100% ", 500) + "\n</flockdeck-context>\n\nfix the parser"
-	s, err := Start(Config{ID: "npm", Kind: KindAgent, Cwd: dir, Argv: []string{shim, task}, Env: Env(), Cols: maxCols, Rows: 50})
+// agentSays starts an agent with a task and returns what it wrote between
+// "<mark>:" and ":END".
+func agentSays(t *testing.T, shim, task, mark string) string {
+	t.Helper()
+	s, err := Start(Config{ID: "npm", Kind: KindAgent, Cwd: filepath.Dir(shim), Argv: []string{shim, task}, Env: Env(), Cols: maxCols, Rows: 50})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -66,18 +111,12 @@ func TestAnNpmShimIsNotRunThroughCmd(t *testing.T) {
 	id, replay, out := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 	got, _ := collect(t, out, replay, ":END", 30*time.Second)
-
-	m := regexp.MustCompile(`(?s)ARGV:(.*?):END`).FindStringSubmatch(strings.ReplaceAll(stripANSI([]byte(got)), "\n", ""))
+	text := stripANSI([]byte(got))
+	m := regexp.MustCompile(`(?s)` + mark + `:(.*?):END`).FindStringSubmatch(strings.ReplaceAll(text, "\n", ""))
 	if m == nil {
-		t.Fatalf("the agent behind the shim printed nothing readable:\n%s", tail(stripANSI([]byte(got)), 400))
+		t.Fatalf("the agent printed nothing readable:\n%s", tail(text, 400))
 	}
-	var argv []string
-	if err := json.Unmarshal([]byte(m[1]), &argv); err != nil {
-		t.Fatalf("unreadable argv: %v", err)
-	}
-	if len(argv) != 1 || argv[0] != task {
-		t.Errorf("the agent was given %d arguments, want the %d-character task exactly as written", len(argv), len(task))
-	}
+	return m[1]
 }
 
 // TestOnlyAnNpmShimIsStartedAsNode covers a batch file that names a script
@@ -103,8 +142,8 @@ func TestOnlyAnNpmShimIsStartedAsNode(t *testing.T) {
 	if err := os.WriteFile(npm, []byte("@IF EXIST \"%~dp0\\node.exe\" (\r\n  \"%~dp0\\node.exe\" \"%~dp0\\tool.js\" %*\r\n) ELSE (\r\n  node \"%~dp0\\tool.js\" %*\r\n)\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, script, ok := npmScript(npm); !ok || script != filepath.Join(dir, "tool.js") {
-		t.Errorf("npm's older shim form was not recognised: %q, %v", script, ok)
+	if _, prefix, ok := npmScript(npm); !ok || !slices.Equal(prefix, []string{filepath.Join(dir, "tool.js")}) {
+		t.Errorf("npm's older shim form was not recognised: %q, %v", prefix, ok)
 	}
 }
 
