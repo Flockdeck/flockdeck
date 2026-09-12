@@ -972,6 +972,35 @@ func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
 	}
 }
 
+// A disable that cannot even read the enrolment leaves the tunnel alone:
+// had it been closed, Reload could not open it again, for the same reason.
+func TestManagerDisableOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	p, err := path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Disable(context.Background(), false); err == nil {
+		t.Fatal("disabling with an unreadable enrolment succeeded")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if st, _ := m.Status(); st.State != StateConnected {
+		t.Errorf("after a refused disable the tunnel is %s, want it left as it was", st.State)
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {

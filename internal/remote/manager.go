@@ -132,6 +132,11 @@ func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool,
 func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err error) {
 	m.enrolling.Lock()
 	defer m.enrolling.Unlock()
+	// An enrolment that cannot be read is refused before the tunnel is
+	// touched: Reload could not open it again afterwards, for the same reason.
+	if _, err := Load(); err != nil && !force {
+		return nil, err
+	}
 	// The relay closes the tunnel as revoked the moment it is told, and the
 	// window would show that, the relay no longer accepting this machine,
 	// until Reload caught up. So the tunnel is closed first; if the relay
