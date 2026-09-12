@@ -920,7 +920,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 	// for the built-in chat client, whose plan was then read off the screen.
 	if p.IsAgent() {
 		if spec, ok := w.specFor(p.Agent); ok {
-			src.SessionID, src.Spec = p.ID, spec
+			src.SessionID, src.Spec = w.conversationOf(p), spec
 		}
 	}
 	if p.Sess != nil {

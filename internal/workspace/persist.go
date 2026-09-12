@@ -119,6 +119,12 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 		if p.Root != "" && !sameDir(p.Root, tabRoot) {
 			out.Pane.Root = p.Root
 		}
+		// A conversation the agent has moved on to since the pane started is
+		// the one a restore has to resume; a pane still in its first one is
+		// written as panes always have been.
+		if c := w.conversationOf(p); c != p.ID {
+			out.Pane.Conversation = c
+		}
 		return out
 	}
 	out.Dir = dirName(n.Dir)
@@ -425,14 +431,15 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	}
 	if n.Pane != nil {
 		p := &Pane{
-			ID:    n.Pane.ID,
-			Kind:  parseKind(n.Pane.Kind),
-			Cwd:   n.Pane.Cwd,
-			Name:  n.Pane.Name,
-			Task:  n.Pane.Task,
-			Root:  n.Pane.Root,
-			Agent: n.Pane.Agent,
-			Model: n.Pane.Model,
+			ID:           n.Pane.ID,
+			Kind:         parseKind(n.Pane.Kind),
+			Cwd:          n.Pane.Cwd,
+			Name:         n.Pane.Name,
+			Task:         n.Pane.Task,
+			Root:         n.Pane.Root,
+			Agent:        n.Pane.Agent,
+			Model:        n.Pane.Model,
+			Conversation: n.Pane.Conversation,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot

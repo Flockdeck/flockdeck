@@ -85,6 +85,11 @@ type Pane struct {
 	// has been spent so the agent can still be told why it exists — after a
 	// restart, or after its context has been compacted away.
 	Task string
+	// Conversation is the agent's own id for the conversation the pane is in,
+	// once that is no longer the pane's id; empty means the pane's id. It is
+	// set from the hook goroutine, so it is only touched under the lock — read
+	// it through conversationOf.
+	Conversation string
 }
 
 // Alive reports whether the pane has a running process.
@@ -278,13 +283,23 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	// server's goroutine while the interface may be restarting the very pane
 	// the event is about, and a pane mid-restart has no session at all: read
 	// the field twice and the second read can be the nil.
-	w.mu.RLock()
+	w.mu.Lock()
 	p := w.panes[ev.SessionID]
 	var sess *session.Session
 	if p != nil {
 		sess = p.Sess
+		// Every event says which conversation the agent is in, and after
+		// /clear that is a new one. Following it is what lets a restart, a
+		// restore and a fan-out go on finding the conversation on screen
+		// rather than the one before it.
+		if ev.Conversation != "" {
+			p.Conversation = ev.Conversation
+			if ev.Conversation == p.ID {
+				p.Conversation = ""
+			}
+		}
 	}
-	w.mu.RUnlock()
+	w.mu.Unlock()
 	if sess == nil {
 		return
 	}
@@ -896,15 +911,15 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			model = spec.DefaultModel
 		}
 		tokens := agent.Tokens{
-			Session: p.ID,
+			// The conversation to start or reattach is the one the agent was
+			// last in, which is the pane's id until the agent moves to a new
+			// one — Claude Code does on /clear. The pane token stays the
+			// pane's id whatever happens, since that is what a lifecycle event
+			// is reported against.
+			Session: w.conversationOf(p),
 			Model:   model,
 			Cwd:     p.Cwd,
-			// A pane's id is also its conversation id, so the two tokens hold
-			// the same value here. They are separate because they answer
-			// different questions — which conversation to reattach, and which
-			// pane to report a lifecycle event against — and an agent whose
-			// two ids are not the same thing would need them apart.
-			Pane: p.ID,
+			Pane:    p.ID,
 		}
 		// Only an agent that reports its own lifecycle has anything to do with
 		// a settings file; for the rest the pane's status comes from watching
@@ -922,7 +937,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// Resuming an agent that has no transcript for this session fails
 		// immediately — `claude --resume` prints "No conversation found" and
 		// exits — so a pane that was never prompted must start fresh instead.
-		resuming := resume && spec.Caps.Resume && w.transcriptExists(spec, p.ID)
+		resuming := resume && spec.Caps.Resume && w.transcriptExists(spec, tokens.Session)
 		if !resuming {
 			// Handing the task over as an opening argument is far more
 			// reliable than typing into the terminal, which would mean
@@ -1786,18 +1801,30 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	if id == "" {
 		return fmt.Errorf("no conversation given")
 	}
-	if existing := w.Pane(id); existing != nil {
-		for _, t := range w.Tabs {
-			if t.Tree.Find(id) != nil {
+	// The pane in the conversation need not be the one whose id it is: that
+	// one may have moved on, on /clear, to a conversation of its own.
+	for _, t := range w.Tabs {
+		for _, pid := range t.Tree.Panes() {
+			if p := w.Pane(pid); p != nil && w.conversationOf(p) == id {
 				w.SelectTab(t.ID)
-				t.Focus = id
+				t.Focus = pid
 				w.wake()
 				return nil
 			}
 		}
-		// Registered but on screen nowhere. Reusing the id below would drop it
-		// from the registry with its process still running, so end it first.
-		w.destroyPane(id)
+	}
+	paneID := id
+	if w.Pane(id) != nil {
+		if w.tabOf(id) != nil {
+			// On screen, but in another conversation now, so this one gets a
+			// pane of its own under an id of its own.
+			paneID = uuid.NewString()
+		} else {
+			// Registered but on screen nowhere. Reusing the id below would
+			// drop it from the registry with its process still running, so
+			// end it first.
+			w.destroyPane(id)
+		}
 	}
 	if cwd == "" {
 		cwd = w.activeRoot
@@ -1825,13 +1852,16 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	}
 
 	p := &Pane{
-		ID:     id,
+		ID:     paneID,
 		Kind:   session.KindClaude,
 		Agent:  spec.ID,
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),
 		Root:   w.projectFor(cwd),
 		Branch: branchOf(cwd),
+	}
+	if paneID != id {
+		p.Conversation = id
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p

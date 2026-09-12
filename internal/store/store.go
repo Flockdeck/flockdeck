@@ -78,6 +78,11 @@ type Pane struct {
 	// Absent — which is every layout written before this — means the tab's own
 	// project, which is what those layouts meant.
 	Root string `json:"root,omitempty"`
+	// Conversation is the agent's own id for the conversation the pane is in,
+	// written only when that is no longer the pane's id: Claude Code carries on
+	// under a new one after /clear. Absent means the pane's id, which is what
+	// every layout written before this meant.
+	Conversation string `json:"conversation,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.
