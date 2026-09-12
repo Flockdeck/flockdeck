@@ -43,14 +43,19 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 				s.decline(calls[i+1:], "not run: the user did not answer an earlier question")
 				return true
 			}
+			// A no is said back, a reply in words above all: "yes please" is
+			// not one of the letters, and somebody who typed it would otherwise
+			// go on believing the call ran.
 			if !ok && instead != "" {
 				// What the user said instead is the next thing the model has
 				// to hear, and the calls it planned before hearing it are moot.
+				s.out.line(ansiDim, "  not run; what you typed goes to the model instead")
 				s.answer(c, "the user declined this, and said: "+instead)
 				s.decline(calls[i+1:], "not run: the user asked for something else first")
 				return false
 			}
 			if !ok {
+				s.out.line(ansiDim, "  not run")
 				s.answer(c, "the user declined this")
 				continue
 			}
