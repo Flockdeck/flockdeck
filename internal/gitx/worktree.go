@@ -90,14 +90,13 @@ func Root(dir string) (string, error) {
 // Flockdeck holds about a project -- its tabs, its panes, the layout saved for
 // it -- is keyed on the path it was opened with. Where base reaches a path
 // through a link, as everything under /var does on macOS, the path is given
-// back through the same link, so the two compare equal. Windows is left as git
-// answers, where spellings differ in case rather than in links, and a base
-// with no link on its way is the common case and costs one lookup.
+// back through the same link, so the two compare equal. Windows has the same
+// in short names: a user whose name has a space in it has a temporary
+// directory like C:\Users\JOHNSM~1\AppData\Local\Temp, which git names in
+// full. A base with nothing of the kind on its way is the common case and
+// costs one lookup.
 func respeller(base string) func(string) string {
 	same := func(p string) string { return p }
-	if runtime.GOOS == "windows" {
-		return same
-	}
 	abs, err := filepath.Abs(base)
 	if err != nil {
 		return same

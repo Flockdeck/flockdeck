@@ -26,6 +26,9 @@ jobs:
   # and a Linux runner alone never ran the Windows code at all.
   test:
     strategy:
+      # Every platform runs to the end even when another fails, so a failed
+      # release shows everything that needs fixing rather than the first of it.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}

@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,8 +17,16 @@ func TestDeadlineHoldsWhenAChildKeepsTheOutputOpen(t *testing.T) {
 	if !Available() {
 		t.Skip("git is not installed")
 	}
+	// The child is left running on purpose, and Windows will not delete a
+	// directory a process is working in, so this one is not t.TempDir, whose
+	// cleanup failing fails the test. It goes when it can.
+	dir, err := os.MkdirTemp("", "gitx-hang-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	start := time.Now()
-	_, _, err := runCapture(context.Background(), time.Second, t.TempDir(),
+	_, _, err = runCapture(context.Background(), time.Second, dir,
 		"-c", "alias.hang=!sleep 15", "hang")
 	if err == nil || !strings.Contains(err.Error(), "gave up") {
 		t.Fatalf("err = %v, want the deadline reported", err)
