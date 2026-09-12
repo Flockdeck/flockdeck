@@ -97,6 +97,18 @@ func (s *Server) setFontSize(size int) {
 	})
 }
 
+// setNotifications records whether the window raises desktop notifications.
+// The browser's own answer cannot stand in for this: it belongs to the page's
+// origin, which changes with the port on every run.
+func (s *Server) setNotifications(off bool) {
+	s.do(func() {
+		if s.prefs.NotificationsOff != off {
+			s.prefs.NotificationsOff = off
+			s.savePrefs()
+		}
+	})
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

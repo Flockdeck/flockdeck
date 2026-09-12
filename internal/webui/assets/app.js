@@ -2476,6 +2476,7 @@
   }
 
   function showNotification(title, body, paneID) {
+    if (prefs.notificationsOff) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
       const n = new Notification(title, { body, tag: "flockdeck" });
@@ -2491,6 +2492,7 @@
   }
 
   function askForNotifications() {
+    if (prefs.notificationsOff) return; // asked and answered, for every run
     if (!("Notification" in window) || Notification.permission !== "default") return;
     try { Notification.requestPermission(); } catch {}
   }
@@ -2692,6 +2694,18 @@
      ["apiKeys", "API keys…"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
+    });
+    // Desktop notifications reach past the window, and the only way to stop
+    // them was the browser's own permission - which belongs to the page's
+    // origin, changes with the port on every run, and so was asked again, and
+    // had to be refused again, every time the application started.
+    const quiet = !!prefs.notificationsOff;
+    cmds.push({
+      label: quiet ? "Turn desktop notifications on" : "Turn desktop notifications off",
+      run: () => {
+        send({ cmd: "notifications", kind: quiet ? "on" : "off" });
+        notice(quiet ? "Desktop notifications are on" : "Desktop notifications are off", false);
+      },
     });
     (s.projects || []).forEach((p) => {
       if (p.active) return;

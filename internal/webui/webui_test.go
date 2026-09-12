@@ -2599,6 +2599,31 @@ assert.ok(!h.$("overlay").hidden);
 `)
 }
 
+// Desktop notifications could be stopped only through the browser's own
+// permission, which belongs to the page's origin: that changes with the port
+// on every run, so it was asked again and refused again at every start.
+func TestNotificationsCanBeTurnedOffFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ notificationsOff: true });
+h.recv(fixture());
+h.doc._hasFocus = false;
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(h.notifications.length, 0, "a notification was raised with notifications turned off");
+h.key({ key: "a" });
+assert.strictEqual(h.win.Notification.asked, 0, "permission was asked for with notifications turned off");
+
+paletteRun("notifications on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "on" });
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+h.recv(fixture());
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(h.notifications.length, 1, "turned back on, the notification did not come");
+paletteRun("notifications off");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

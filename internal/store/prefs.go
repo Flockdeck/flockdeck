@@ -22,6 +22,9 @@ type Prefs struct {
 	// FontSize is the size the terminals are drawn at, in pixels. Zero is the
 	// default size.
 	FontSize int `json:"fontSize,omitempty"`
+	// NotificationsOff stops the desktop notification raised when an agent
+	// stops to wait while the window is behind something else.
+	NotificationsOff bool `json:"notificationsOff,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.
