@@ -56,6 +56,10 @@ func LoadPrefs() Prefs {
 	}
 	var p Prefs
 	if json.Unmarshal(data, &p) != nil {
+		// Still the defaults, but the file is moved aside first, as every
+		// other damaged state file is: the next hint dismissed rewrites it
+		// from what was read, and what was read is nothing.
+		quarantine(filepath.Join(dir, prefsFile))
 		return Prefs{}
 	}
 	return p
