@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 			"/retry        carry on a turn that failed, was interrupted or hit its limit",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, the endpoint, the key, the transcript",
+			"/forget       withdraw every \"always\" given in this session",
 			"/exit         leave; the pane's own conversation ends with it",
 			"",
 			"A line ending in a backslash is continued on the next one.",
@@ -43,6 +45,8 @@ func (s *session) command(ctx context.Context, line string) bool {
 		s.clear()
 	case "status":
 		s.status()
+	case "forget":
+		s.forget()
 	default:
 		if near := nearestCommand(name); near != "" {
 			s.out.line(ansiDim, "no such command: /"+name+" — did you mean /"+near+"?")
@@ -83,8 +87,31 @@ func (s *session) status() {
 			s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
 		}
 	}
+	// What "always" has been answered to is standing permission nothing else
+	// on the screen shows, for as long as the pane runs.
+	if len(s.always) > 0 {
+		var allowed []string
+		for key := range s.always {
+			allowed = append(allowed, "`"+key+"`")
+		}
+		slices.Sort(allowed)
+		s.out.line(ansiDim, "allowed without asking: "+strings.Join(allowed, ", ")+"; /forget withdraws them")
+	}
 	s.out.line(ansiDim, "session "+s.opts.Session)
 	s.out.line(ansiDim, "transcript "+s.log.Path())
+}
+
+// forget is /forget: every "always" given in this session is withdrawn, and
+// each call is asked about again. An "a" pressed by mistake -- for every edit
+// to every file -- otherwise stood until the pane was restarted.
+func (s *session) forget() {
+	if len(s.always) == 0 {
+		s.out.line(ansiDim, "nothing has been allowed without asking")
+		return
+	}
+	n := len(s.always)
+	clear(s.always)
+	s.out.line(ansiDim, fmt.Sprintf("withdrew %d standing %s; every call is asked about again", n, map[bool]string{true: "permission", false: "permissions"}[n == 1]))
 }
 
 // retry is /retry: it carries on a turn that ended without an answer -- a

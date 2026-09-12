@@ -4,7 +4,7 @@ import "strings"
 
 // commandNames are the commands command() knows, kept beside it: a name added
 // there and not here is still run, only never suggested.
-var commandNames = []string{"exit", "quit", "help", "model", "output", "history", "retry", "clear", "status"}
+var commandNames = []string{"exit", "quit", "help", "model", "output", "history", "retry", "clear", "status", "forget"}
 
 // nearestCommand is the command a mistyped name was most likely meant to be --
 // /modle for /model, /stauts for /status -- or "" when none is within two
