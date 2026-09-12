@@ -174,15 +174,22 @@ func prunedSummary(n int) string {
 	}
 }
 
+// foldPathCase is whether two paths differing only in case are the same
+// directory. They are on Windows and on a Mac as it comes, as the transcript
+// package also takes them to be; on Linux the other spelling is another
+// directory. It is a variable so a test can hold both answers to account on
+// any machine.
+var foldPathCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
 // underPath reports whether cwd is base or inside it.
 //
 // The two paths reach here from different places -- one from git, the other
-// from however the project was opened -- so on Windows they can name the same
-// directory in different case, which filepath.Rel treats as unrelated even
-// though the file system does not.
+// from however the project was opened -- so they can name the same directory
+// in different case, which filepath.Rel treats as unrelated even where the
+// file system does not.
 func underPath(cwd, base string) bool {
 	c, b := filepath.Clean(cwd), filepath.Clean(base)
-	if runtime.GOOS == "windows" {
+	if foldPathCase {
 		c, b = strings.ToLower(c), strings.ToLower(b)
 	}
 	rel, err := filepath.Rel(b, c)
