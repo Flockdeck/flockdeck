@@ -18,7 +18,9 @@ moved by dragging their header, and closed, restarted or zoomed from the
 buttons in their header. Double-click a tab to rename it.
 
 A divider can be resized from the keyboard too: reach it with <kbd>Tab</kbd>,
-then the arrow keys move it and <kbd>Home</kbd> shares the room equally.
+then the arrow keys move it and <kbd>Home</kbd> shares the room equally. In the
+tab bar, <kbd>←</kbd> and <kbd>→</kbd> move between tabs, and <kbd>Home</kbd>
+and <kbd>End</kbd> go to the first and the last.
 
 ## Inside a dialog
 
