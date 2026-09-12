@@ -41,8 +41,9 @@ keys` keeps it.
 - **Rearrange what is already running** — drag a pane to another edge, another
   tab or a tab of its own, or merge two tabs into one, without restarting the
   agent in any of them.
-- **Each agent knows where it is** — its own conversation, its own checkout, and
-  a briefing at session start on which pane it is and who else is working.
+- **Each agent knows where it is** — its own conversation, its own checkout, and,
+  for Claude Code and the API agents, a briefing at session start on which pane
+  it is and who else is working.
 - **One glance tells you who needs you** — per-pane status driven by the agent's
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
@@ -471,7 +472,8 @@ does not know that its neighbour is editing the same repository on another
 branch, that the directory it was dropped into is a worktree rather than the
 project, or that the thing it was asked to do came from another agent's plan.
 
-So every agent pane is told, in its own words, when it starts:
+So Claude Code and the API agents are told, in their own words, when they
+start:
 
 - which pane it is, in which tab and which project;
 - the directory and branch it has, and whether that is a worktree of its own
@@ -502,11 +504,14 @@ overwritten. `SessionStart` fires again after a compaction and on resume, so a
 pane that has been running all day is still oriented after its context has been
 summarised away.
 
-An agent with no hook to answer gets the same briefing in front of its opening
-prompt instead, fenced in a `<flockdeck-context>` block so it can tell the two
-apart — and gets it alone if there is no opening task. That is once per launch
-rather than once per compaction, which is honest as long as the briefing says
-when it was taken, and it does.
+An agent with no hook to answer can have the same briefing put in front of its
+opening prompt instead, when its entry in `agents.json` sets
+`"caps": {"context": "prompt"}`. It is fenced in a `<flockdeck-context>` block
+so the agent can tell the two apart, and sent alone if there is no opening
+task. That is once per launch rather than once per compaction, which is honest
+as long as the briefing says when it was taken, and it does. None of the
+built-in CLI agents asks for it, so Codex, Gemini CLI, Aider, opencode and
+Cursor Agent start unbriefed.
 
 Panes also carry `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`,
 `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` in their environment. The first three are what

@@ -61,7 +61,9 @@ attempted, and the pane starts fresh.
 
 Of the built-in agents, Claude Code and the four API agents report their own
 lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
-Cursor Agent are read from their terminals, and are not briefed. An entry in
+Cursor Agent are read from their terminals, and are not briefed; an entry in
+`agents.json` can have the briefing put in front of its opening task instead,
+with `"caps": {"context": "prompt"}`. An entry in
 `agents.json` can give such an agent `"patterns"` — `"waiting"` and `"idle"`,
 each a list of phrases its output shows in that state — so that its status is
 read from what it prints as well. They are plain text, not expressions, and
