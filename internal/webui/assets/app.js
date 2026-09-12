@@ -2421,21 +2421,50 @@
    *  list. Where the choice has nothing to undo - which file's diff is shown -
    *  `follow` makes arriving at a row choose it, so a review is read by
    *  pressing Down rather than by Tab and Enter for every file. */
-  function rowAction(row, fn, follow) {
+  function rowAction(row, fn, follow, label) {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.onclick = fn;
+    // What typing the start of it finds the row by: a file's name rather
+    // than the folders in front of it, a pane's tab, a conversation's first
+    // words.
+    row.dataset.label = (label || row.textContent || "").toLowerCase();
     row.onkeydown = (ev) => {
       if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(ev); return; }
       const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button");
       const at = rows.indexOf(row);
-      const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
-      if (to === undefined || !rows[to]) return;
+      let to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
+      if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at);
+      if (to === undefined || to < 0 || !rows[to]) return;
       ev.preventDefault();
       rows[to].focus();
-      if (follow) rows[to].onclick(ev);
+      if (follow && to !== at) rows[to].onclick(ev);
     };
     return row;
+  }
+
+  /* Typing the start of a row's name goes to it, as it does in nearly every
+   * list: in a review of forty files, or an overview of a dozen agents, the
+   * arrows were the only way to a row. Letters typed within a moment of each
+   * other make one prefix; a pause starts a new one. */
+  let typed = "";
+  let typedAt = 0;
+  /** The list the letters were typed in: a prefix belongs to one list, and
+   *  one begun in another list a moment ago is not carried into this one. */
+  let typedIn = null;
+  function typeAhead(key, rows, at) {
+    const now = Date.now();
+    const list = rows[0] && rows[0].parentElement;
+    typed = now - typedAt < 700 && typedIn === list ? typed + key.toLowerCase() : key.toLowerCase();
+    typedAt = now;
+    typedIn = list;
+    // A row that still matches as the prefix grows keeps the keyboard;
+    // otherwise the search starts after it and comes round from the top.
+    for (let i = typed.length > 1 ? 0 : 1; i <= rows.length; i++) {
+      const j = (at + i) % rows.length;
+      if (rows[j].dataset.label.startsWith(typed)) return j;
+    }
+    return -1;
   }
 
   function section(title) {
@@ -3210,7 +3239,7 @@
         // tab to for every conversation in it.
         open.tabIndex = -1;
         row.append(open);
-        rowAction(row, resume);
+        rowAction(row, resume, false, c.summary);
       }
       wrap.append(row);
     });
@@ -3369,7 +3398,7 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        rowAction(row, () => selectChangedFile(f.path, m.cwd), true);
+        rowAction(row, () => selectChangedFile(f.path, m.cwd), true, f.path.replace(/^.*[\\/]/, ""));
         rows.set(f.path, row);
         list.append(row);
       });
@@ -3615,7 +3644,7 @@
       rowAction(row, () => {
         send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
         closeOverlay();
-      });
+      }, false, a.tab || a.name);
       wrap.append(row);
     });
     body.append(wrap);

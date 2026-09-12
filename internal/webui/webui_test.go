@@ -3683,6 +3683,43 @@ assert.strictEqual(h.$("overlay-body").querySelector("span.agent-tab").dataset.t
 `)
 }
 
+// In a review of forty files or an overview of a dozen agents the arrows were
+// the only way to a row. Typing the start of a row's name goes to it, as in
+// nearly every list: letters typed together make one prefix, a pause starts
+// again, and the search comes round from the top.
+func TestTypingTheStartOfANameFindsTheRow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: ["alpha", "beta", "bravo"].map((tab, i) =>
+  ({ paneId: "p" + i, tabId: "t" + i, root: "C:/repo", project: "repo", tab, name: tab, status: "idle" })) });
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+rows[0].focus();
+h.key({ key: "b" });
+assert.ok(h.doc.activeElement === rows[1], "typing b did not go to beta");
+h.key({ key: "r" });
+assert.ok(h.doc.activeElement === rows[2], "typing br did not go on to bravo");
+await h.sleep(750);
+h.key({ key: "a" });
+assert.ok(h.doc.activeElement === rows[0], "after a pause, typing a did not come round to alpha");
+
+// In the review the row found shows its diff, by the file's name, not its folders.
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [
+  { path: "internal/webui/assets/app.css", label: "M", added: 1, removed: 0 },
+  { path: "internal/webui/assets/app.js", label: "M", added: 1, removed: 0 },
+  { path: "internal/server/server.go", label: "M", added: 1, removed: 0 },
+] });
+const files = h.$("overlay-body").querySelectorAll("div.rev-file");
+files[0].focus();
+h.key({ key: "s" });
+assert.ok(h.doc.activeElement === files[2], "typing s did not find server.go");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "internal/server/server.go" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
