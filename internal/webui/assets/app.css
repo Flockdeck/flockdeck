@@ -427,6 +427,10 @@ textarea:focus-visible {
 #prompt-input {
   flex: 1 1 auto; background: var(--bg-inset); border: 1px solid var(--line-strong);
   border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
+  /* It grows with the lines in it (fitPrompt) up to a third of the window and
+   * scrolls past that, so a long prompt cannot push the panes off the screen.
+   * A drag handle would only fight the growing. */
+  resize: none; max-height: 33vh; overflow-y: auto;
 }
 #prompt-input:focus { outline: none; border-color: var(--accent); }
 
