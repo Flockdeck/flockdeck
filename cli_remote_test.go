@@ -342,6 +342,18 @@ func TestRemoteEnableFlagsNameWhatTheyTake(t *testing.T) {
 	}
 }
 
+// The environment wins over the built-in relay whenever it is set, so
+// -relay's help puts it first.
+func TestRemoteRelayFlagSaysWhatWins(t *testing.T) {
+	var b bytes.Buffer
+	fs := remoteEnableFlagSet(&remoteEnableFlags{})
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	if want := "(default: $" + remote.RelayEnv + " if set, else " + remote.DefaultRelay + ")"; !strings.Contains(b.String(), want) {
+		t.Errorf("enable's flags = %q, want -relay to say %q", b.String(), want)
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {

@@ -168,7 +168,7 @@ type remoteEnableFlags struct{ relay, name, join, invite string }
 
 func remoteEnableFlagSet(f *remoteEnableFlags) *flag.FlagSet {
 	fs := remoteFlags("enable")
-	fs.StringVar(&f.relay, "relay", "", "the relay's `URL` (default "+remote.DefaultRelay+", or $"+remote.RelayEnv+")")
+	fs.StringVar(&f.relay, "relay", "", "the relay's `URL` (default: $"+remote.RelayEnv+" if set, else "+remote.DefaultRelay+")")
 	fs.StringVar(&f.name, "name", "", "the `name` this machine goes by on your devices (default: its host name)")
 	fs.StringVar(&f.join, "join", "", "a `code` from `flockdeck remote pair -desktop` on another machine, to join its account")
 	fs.StringVar(&f.invite, "invite", "", "an invitation `code`, for a relay that asks for one")
