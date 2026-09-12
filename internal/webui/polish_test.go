@@ -65,3 +65,29 @@ h.key({ key: "Enter", ctrlKey: true });
 assert.strictEqual(commits(), 2, "the box stayed dead after the answer came back");
 `)
 }
+
+// A pane with no live process is covered by its error and a Restart button.
+// The cover was built once and never written again, so a pane that exited and
+// then failed to restart went on saying only that it had exited, and a
+// second, different failure went on showing the first.
+func TestThePaneErrorFollowsTheError(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const push = (p1) => h.recv(fixture({ panes: { p1: pane("p1", p1), p2: pane("p2") } }));
+push({ status: "exited" });
+const cover = () => h.$("workspace").querySelector(".pane-error");
+assert.ok(cover(), "an exited pane is not covered");
+assert.ok(cover().textContent.includes("The process exited."), cover().textContent);
+const restart = cover().querySelector("button");
+
+push({ status: "exited", err: "claude was not found on PATH" });
+assert.ok(cover().textContent.includes("claude was not found on PATH"), "the error that arrived is not shown: " + cover().textContent);
+push({ status: "exited", err: "permission denied" });
+assert.ok(cover().textContent.includes("permission denied"), "a new error is not shown: " + cover().textContent);
+assert.ok(!cover().textContent.includes("PATH"), "the old error is still shown");
+assert.ok(cover().querySelector("button") === restart, "the Restart button was built again, taking the keyboard off it");
+
+push({ status: "idle" });
+assert.ok(!cover(), "a pane running again is still covered");
+`)
+}

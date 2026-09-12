@@ -2631,9 +2631,18 @@
       if (p.overlay) { p.overlay.remove(); p.overlay = null; }
       return;
     }
-    if (p.overlay) return;
+    const text = v.err || "The process exited.";
+    if (p.overlay) {
+      // The error can change under a cover already up - a pane that exited
+      // and then failed to restart, or failed again for another reason - and
+      // the cover went on showing the first. Only the words change, so the
+      // Restart button keeps the keyboard if it has it.
+      if (p.overlayText.textContent !== text) p.overlayText.textContent = text;
+      return;
+    }
     const box = el("div", "pane-error");
-    box.append(el("div", null, v.err || "The process exited."));
+    p.overlayText = el("div", null, text);
+    box.append(p.overlayText);
     const row = el("div");
     const restart = el("button", "chip primary", "Restart");
     restart.onclick = () => send({ cmd: "restartPane", id: p.id });
