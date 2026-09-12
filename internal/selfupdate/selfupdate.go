@@ -23,6 +23,7 @@ package selfupdate
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -574,8 +575,18 @@ func Sweep(exePath string) {
 		return
 	}
 	sweepAside(exePath)
-	if chatName != "" {
-		sweepAside(filepath.Join(filepath.Dir(exePath), chatName))
+	if chatName == "" {
+		return
+	}
+	sweepAside(filepath.Join(filepath.Dir(exePath), chatName))
+	// And what an EnsureChatTwin that was cut short left of the twin it was
+	// writing.
+	dir := filepath.Dir(exePath)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasPrefix(n, chatName+".") && strings.HasSuffix(n, ".tmp") {
+			os.Remove(filepath.Join(dir, n))
+		}
 	}
 }
 
@@ -621,20 +632,25 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, 0o755)
 }
 
-// EnsureChatTwin makes the console twin (chatName) beside the program at
-// exePath when there is none, from the program itself: the same bytes with
-// the PE Subsystem field set to console, which is all that tells the two
-// apart and all that decides whether Windows gives a pane's process a console.
+// EnsureChatTwin keeps the console twin (chatName) beside the program at
+// exePath exactly what the program makes of itself (ConsoleTwin), writing it
+// when it is missing or differs.
 //
 // A release carries the twin, but the first update to one is put in place by
 // the release before it, whose updater knows only the program, and an
 // installation made by an install script of before, or by `go install`, has
-// no twin either. Without one an API agent's pane is blank.
+// none either: without one an API agent's pane is blank. And a program
+// replaced by any route that leaves the twin as it was — a copy by hand, an
+// updater of before — would have its panes run a chat client of another
+// version, whose hook events, prompts and transcripts can have drifted.
 //
-// It does nothing off Windows, for the twin itself, where something is
-// already there (the release's own twin, or anything that cannot be told
-// apart from it), or for a program that is not a GUI build, which runs in a
-// pane as it is.
+// Only a file of exactly that name in the program's own directory is ever
+// written, never through a link, a reparse point or anything else that is
+// not a regular file. The new twin is written beside it and renamed over it;
+// a twin a chat pane is running from cannot be renamed over on Windows, and
+// is left for the next start, the pane working on meanwhile. It does nothing
+// off Windows, for the twin itself, or for a program that is not a GUI build,
+// which runs in a pane as it is.
 func EnsureChatTwin(exePath string) error {
 	if chatName == "" || exePath == "" {
 		return nil
@@ -646,30 +662,68 @@ func EnsureChatTwin(exePath string) error {
 	if !strings.EqualFold(filepath.Base(exePath), binaryName) {
 		return nil
 	}
-	twin := filepath.Join(filepath.Dir(exePath), chatName)
-	if _, err := os.Lstat(twin); !errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	data, err := os.ReadFile(exePath)
+	self, err := os.ReadFile(exePath)
 	if err != nil {
 		return err
 	}
-	off, ok := subsystemOffset(data)
-	if !ok || binary.LittleEndian.Uint16(data[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_GUI {
+	want, ok := ConsoleTwin(self)
+	if !ok {
 		return nil
 	}
-	binary.LittleEndian.PutUint16(data[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_CUI)
 
-	next := twin + ".new"
-	if err := os.WriteFile(next, data, 0o755); err != nil {
-		os.Remove(next)
+	dir := filepath.Dir(exePath)
+	twin := filepath.Join(dir, chatName)
+	switch fi, err := os.Lstat(twin); {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return err
+	case !fi.Mode().IsRegular():
+		return nil
+	case fi.Size() == int64(len(want)):
+		// The size is compared first, so a stale twin of another build is
+		// told apart without reading it; the same size is read and compared.
+		if have, err := os.ReadFile(twin); err == nil && bytes.Equal(have, want) {
+			return nil
+		}
+	}
+
+	tmp, err := os.CreateTemp(dir, chatName+".*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(next, twin); err != nil {
-		os.Remove(next)
-		return err
+	_, err = tmp.Write(want)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o755)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), twin)
+	}
+	if err != nil {
+		// Most often a chat pane running from the twin, which Windows will
+		// not let anything be renamed over. The next start tries again.
+		os.Remove(tmp.Name())
 	}
 	return nil
+}
+
+// ConsoleTwin is program with its PE Subsystem field set to console: the
+// console twin of a GUI build, which is all that tells the two apart and all
+// that decides whether Windows gives a pane's process a console. It is false
+// for anything that is not a GUI-subsystem PE file.
+func ConsoleTwin(program []byte) ([]byte, bool) {
+	off, ok := subsystemOffset(program)
+	if !ok || binary.LittleEndian.Uint16(program[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_GUI {
+		return nil, false
+	}
+	twin := bytes.Clone(program)
+	binary.LittleEndian.PutUint16(twin[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_CUI)
+	return twin, true
 }
 
 // subsystemOffset is where a PE file keeps its Subsystem field: in the

@@ -448,10 +448,11 @@ func TestApplyPutsTheChatTwinInPlaceToo(t *testing.T) {
 }
 
 // The first update to a release with the twin is put in place by the release
-// before, whose updater knows only the program, and an installation made by
-// an older install script or by go install has no twin either. The program
-// makes one at start from itself: the same bytes with the PE Subsystem field
-// set to console.
+// before, whose updater knows only the program, and a program replaced by
+// hand leaves an old twin behind. At start the program makes the twin that
+// belongs beside it from itself — the same bytes with the PE Subsystem field
+// set to console — when it is missing or stale, and leaves one that is right,
+// or that a pane has open, alone.
 func TestEnsureChatTwinMakesTheTwinFromTheProgram(t *testing.T) {
 	if chatName == "" {
 		t.Skip("only the Windows release has a console twin")
@@ -487,17 +488,69 @@ func TestEnsureChatTwinMakesTheTwinFromTheProgram(t *testing.T) {
 		t.Errorf("the twin made does not run: %v\n%s", err, out)
 	}
 
-	// A twin already there is left as it is, and the twin makes none.
+	// One that is right is not written again.
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(twin, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureChatTwin(exe); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(twin); err != nil || !fi.ModTime().Equal(past) {
+		t.Errorf("a twin that was right was written again (modified %v)", fi.ModTime())
+	}
+
+	// A stale one, of another build, is replaced, but not while a pane has it
+	// open: that is left without an error for the next start.
+	if err := os.WriteFile(twin, []byte("an old chat client"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.Open(twin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureChatTwin(exe); err != nil {
+		t.Errorf("with the twin held: %v", err)
+	}
+	if got, _ := os.ReadFile(twin); string(got) != "an old chat client" {
+		t.Errorf("a twin held open was written over")
+	}
+	held.Close()
+	if err := EnsureChatTwin(exe); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(twin); !bytes.Equal(got, console) {
+		t.Error("a stale twin was not replaced")
+	}
+	if left, _ := filepath.Glob(filepath.Join(install, chatName+".*.tmp")); len(left) > 0 {
+		t.Errorf("left beside the twin: %v", left)
+	}
+
+	// The twin makes none from itself.
 	if err := os.WriteFile(twin, []byte("the released twin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, from := range []string{exe, twin} {
-		if err := EnsureChatTwin(from); err != nil {
-			t.Errorf("from %s: %v", filepath.Base(from), err)
-		}
+	if err := EnsureChatTwin(twin); err != nil {
+		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(twin); string(got) != "the released twin" {
-		t.Errorf("a twin already there was replaced: %q", got)
+		t.Error("the twin rewrote itself")
+	}
+
+	// Nothing but a regular file is written: not through a link, and not over
+	// a directory of that name.
+	odd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(odd, binaryName), gui, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(odd, chatName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureChatTwin(filepath.Join(odd, binaryName)); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(filepath.Join(odd, chatName)); err != nil || !fi.IsDir() {
+		t.Error("a directory where the twin goes was written over")
 	}
 
 	// A console build runs in a pane as it is.
