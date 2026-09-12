@@ -675,11 +675,12 @@ its test rather than misleading a reader.
 
 ### Broadcast input
 
-Broadcast mirrors your typing into every pane in the broadcast set — by default
-every agent in the current tab, adjustable with the `⇉` button in each pane
-header. The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it to
-all of them at once, which is what you want for "run the tests and fix what
-breaks" across several worktrees.
+The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it as one
+submitted message, which is what you want for "run the tests and fix what
+breaks" across several worktrees. Broadcast decides who receives it: with it
+off, the focused pane and any panes picked with the `⇉` button in their
+header; with it on, every pane in the broadcast set — by default every agent
+in the tab on screen. What you type into a pane still goes to that pane alone.
 
 ### Remote access
 
