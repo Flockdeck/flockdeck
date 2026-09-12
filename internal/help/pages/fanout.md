@@ -34,8 +34,8 @@ These choices go with it:
   one — would stop and ask whether the folder is trusted before doing any work,
   once per child. If the project you are fanning out from is already trusted,
   this carries that same answer over. It will not invent trust: the box is
-  disabled unless the source directory is genuinely trusted already, and it is
-  not offered at all for an agent that has nothing to ask.
+  disabled unless the source directory is genuinely trusted already. The
+  question it answers is Claude Code's, so it does nothing for another agent.
 
 Each task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts rather than
