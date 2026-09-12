@@ -14,20 +14,17 @@
   {{template "contents" .}}
   <article class="prose licences">
     <h1>Licences</h1>
-    <p class="doc-lede">Flockdeck is free and open source. This page gives its
-       own licence, then every third-party component the desktop app, the
-       phone client and the relay are built with, each with its licence and
-       its copyright holder. Open <em>Full licence text</em> under any of them
-       to read that licence in full.</p>
+    <p class="doc-lede">The Flockdeck desktop app is free and open source. This
+       page gives its licence, then every third-party component the desktop
+       app, the phone client and the relay are built with, each with its
+       licence and its copyright holder. Open <em>Full licence text</em> under
+       any of them to read that licence in full.</p>
 
-    <h2 id="flockdeck">Flockdeck</h2>
-    <p>The desktop app, the phone client, the relay and this website are made
-       by Jim Wright and released under the MIT licence:</p>
+    <h2 id="flockdeck">The desktop app's licence</h2>
+    <p>The Flockdeck desktop app is made by Jim Wright and released under the
+       MIT licence:</p>
     <pre class="licence"><code>{{.Licences.Own}}</code></pre>
-    <p>Their source is on GitHub:
-       <a href="{{.Repo}}">flockdeck</a>,
-       <a href="https://github.com/jmwri/flockdeck-remote">flockdeck-remote</a> and
-       <a href="https://github.com/jmwri/flockdeck-relay">flockdeck-relay</a>.</p>
+    <p>Its source is on GitHub: <a href="{{.Repo}}">flockdeck</a>.</p>
 
     <h2 id="desktop">The desktop app</h2>
     <p>Every release of the desktop app carries these notices beside the
@@ -36,7 +33,9 @@
 
     <h2 id="phone">The phone client</h2>
     <p>The web client you open on a phone, tablet or laptop you have paired.
-       It is compiled into the relay, which serves it.</p>
+       It is compiled into the relay, which serves it. It is proprietary:
+       © 2026 Jim Wright, all rights reserved. These are the third-party
+       components it is built with, each under its own licence.</p>
     {{.Licences.Phone}}
     <h3 id="phone-fonts">The fonts' licence</h3>
     <p>Both typefaces are under the SIL Open Font License, Version 1.1, and
@@ -48,7 +47,8 @@
 
     <h2 id="relay">The relay</h2>
     <p>The server that connects your devices to your desktops, as it runs at
-       remote.flockdeck.ai. Its container image carries these notices under
+       remote.flockdeck.ai. It is proprietary: © 2026 Jim Wright, all rights
+       reserved. Its container image carries these notices under
        <code>/licenses</code>.</p>
     {{.Licences.Relay}}
 

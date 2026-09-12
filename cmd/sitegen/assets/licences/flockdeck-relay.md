@@ -12,46 +12,34 @@ These are the modules the binary links, as reported by
 the same on each. Test-only and build-only dependencies are not distributed
 and are not listed.
 
-Everything is permissive (MIT, ISC or BSD 3-Clause) apart from the MySQL
-driver, which is under the Mozilla Public License 2.0 and is used unmodified.
-Its section says where its source is.
+Every third-party module is permissive (MIT, ISC or BSD 3-Clause) apart from
+the MySQL driver, which is under the Mozilla Public License 2.0 and is used
+unmodified. Its section says where its source is.
 
 ---
 
 ## The web client, compiled into the binary
 
-### github.com/jmwri/flockdeck-remote — MIT
+### github.com/jmwri/flockdeck-remote — proprietary
 
-Copyright (c) 2026 Jim Wright
+Copyright (c) 2026 Jim Wright. All rights reserved.
 
 The web client people open on the relay, embedded in the binary and served
-from it. It is Flockdeck's own, under the same licence as this repository, and
-it carries notices of its own for what it includes (xterm.js, and the Archivo
-and JetBrains Mono fonts) in its
-[THIRD-PARTY-NOTICES.md](https://github.com/jmwri/flockdeck-remote/blob/main/THIRD-PARTY-NOTICES.md).
+from it. It is Flockdeck's own and proprietary, under the same licence as this
+repository, and it carries notices of its own for what it includes (xterm.js,
+and the Archivo and JetBrains Mono fonts) in its `THIRD-PARTY-NOTICES.md`.
 The image carries that file and the client's licence under
 `/licenses/flockdeck-remote`.
 
 ```
-MIT License
+Copyright (c) 2026 Jim Wright. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software and its source code are proprietary and confidential. No
+licence is granted to use, copy, modify or distribute them, in whole or in
+part, except as agreed in writing with Jim Wright.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Third-party components included in this software keep their own licences.
+They are listed, with those licences, in THIRD-PARTY-NOTICES.md.
 ```
 
 ---

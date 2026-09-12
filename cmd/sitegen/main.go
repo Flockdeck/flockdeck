@@ -124,7 +124,7 @@ var pages = []struct {
 		Description: "The terms for using the shared Flockdeck relay at remote.flockdeck.ai, and this website."},
 	{Path: "licences.html", Template: "licences.html.tmpl",
 		Title:       "Licences | Flockdeck",
-		Description: "Flockdeck's MIT licence, and every third-party component in the desktop app, the phone client and the relay, each with its licence in full."},
+		Description: "The Flockdeck desktop app's MIT licence, and every third-party component in the desktop app, the phone client and the relay, each with its licence in full."},
 }
 
 // page is what a page's template is given: where the site came from, and
@@ -360,7 +360,7 @@ type fontLicence struct{ Name, File, Text string }
 
 // licenceSections are the licences page's contents.
 var licenceSections = []heading{
-	{"flockdeck", "Flockdeck"},
+	{"flockdeck", "The desktop app's licence"},
 	{"desktop", "The desktop app"},
 	{"phone", "The phone client"},
 	{"relay", "The relay"},
@@ -378,20 +378,23 @@ func loadLicences() (*licences, error) {
 		return nil, err
 	}
 	l := &licences{Own: string(own)}
+	// Each notices file's own licence is the section of the page that says
+	// what it is: the desktop app's is the MIT licence at the top, and the
+	// phone client's and the relay's are proprietary, as their sections say.
 	for _, n := range []struct {
-		file string
-		into *template.HTML
+		file, licence string
+		into          *template.HTML
 	}{
-		{"licences/flockdeck.md", &l.Desktop},
-		{"licences/flockdeck-remote.md", &l.Phone},
-		{"licences/flockdeck-relay.md", &l.Relay},
+		{"licences/flockdeck.md", "#flockdeck", &l.Desktop},
+		{"licences/flockdeck-remote.md", "#phone", &l.Phone},
+		{"licences/flockdeck-relay.md", "#relay", &l.Relay},
 	} {
 		src, err := read(n.file)
 		if err != nil {
 			return nil, err
 		}
 		var b bytes.Buffer
-		if err := noticesMD.Convert(src, &b); err != nil {
+		if err := noticesMD(n.licence).Convert(src, &b); err != nil {
 			return nil, fmt.Errorf("render %s: %w", n.file, err)
 		}
 		*n.into = template.HTML(b.String())
@@ -409,25 +412,30 @@ func loadLicences() (*licences, error) {
 	return l, nil
 }
 
-// noticesMD renders a notices file into the licences page.
+// noticesMD renders a notices file into the licences page, where licence is
+// the page's anchor for the file's own licence.
 //
 // Each file is written to stand on its own, so its title gives way to the
 // page's heading for it and the rest steps down a level beneath that. Each
 // licence text is folded away under its component, which keeps the page a
 // list of names and holders that can be read down, rather than twenty-odd
 // screens of legal text with the names lost between them.
-var noticesMD = goldmark.New(
-	goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(noticesShape{}, 100))),
-	goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(foldedText{}, 100))),
-)
+func noticesMD(licence string) goldmark.Markdown {
+	return goldmark.New(
+		goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(noticesShape{licence}, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(foldedText{}, 100))),
+	)
+}
 
 // noticesShape fits a notices file under the page's heading for it. Its
-// links to its own repository's LICENSE go to Flockdeck's licence at the top
-// of the page instead, which is the same text: the file on its own sits
-// beside that LICENSE, and on the page it does not.
-type noticesShape struct{}
+// links to its own repository's LICENSE go to licence instead, the section of
+// the page that says what that licence is: the file on its own sits beside
+// that LICENSE, and on the page it does not. Only the desktop app's is the
+// MIT licence at the top, so the phone client's and the relay's, which are
+// proprietary, must not be sent there.
+type noticesShape struct{ licence string }
 
-func (noticesShape) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+func (s noticesShape) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
 	var title ast.Node
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -442,7 +450,7 @@ func (noticesShape) Transform(doc *ast.Document, _ text.Reader, _ parser.Context
 			}
 		case *ast.Link:
 			if string(n.Destination) == "LICENSE" {
-				n.Destination = []byte("#flockdeck")
+				n.Destination = []byte(s.licence)
 			}
 		}
 		return ast.WalkContinue, nil
