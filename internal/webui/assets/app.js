@@ -4150,6 +4150,9 @@
 
   function chooseAgent(title, onPick) {
     picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "" };
+    // A fresh picker starts on its first row, not on the row the last one
+    // left picked out, which renderAgentPicker would otherwise carry over.
+    pickRows = [];
     dialog = "agentPicker";
     // Its ? is the page on agents and models, which is what this chooses
     // between; it opened the page on panes.
@@ -4206,8 +4209,17 @@
     return (m.id || "") === want;
   }
 
+  /** The row picked out when the catalog redraws the picker, for the redraw
+   *  to pick out again. The highlight is a place in the list, and the catalog
+   *  the picker asks for as it opens can arrive after the arrows have moved
+   *  it: an agent added, or moved between installed and not, shifted every
+   *  row after it, and the highlight named another agent - which Enter then
+   *  started. */
+  let pickKeep = null;
+
   function renderAgentPicker() {
     if (dialog !== "agentPicker" || !picker) return;
+    pickKeep = pickRows[picker.index] ? pickRows[picker.index].item : null;
     const body = $("overlay-body");
     body.textContent = "";
 
@@ -4273,6 +4285,10 @@
   function drawPickerList() {
     const list = $("agent-list");
     if (!list) return;
+    // Taken now so that it is used by this drawing and no later one, however
+    // this one ends.
+    const keep = pickKeep;
+    pickKeep = null;
     list.textContent = "";
     pickRows = [];
     const items = pickerItems();
@@ -4296,6 +4312,11 @@
       pickRows.push(row);
       list.append(row);
     });
+    if (keep) {
+      const at = pickRows.findIndex((r) => r.item.type === keep.type && r.item.agent.id === keep.agent.id &&
+        (keep.type !== "model" || (r.item.model.id || "") === (keep.model.id || "")));
+      if (at >= 0) picker.index = at;
+    }
     if (picker.index >= pickRows.length) picker.index = Math.max(0, pickRows.length - 1);
     markPickerRow();
   }

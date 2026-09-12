@@ -4810,6 +4810,42 @@ assert.ok(h.$("agent-list").querySelectorAll(".pick-name").some((n) => n.textCon
 `)
 }
 
+// The picker asks for the catalog again as it opens, and the answer can come
+// after the arrows have moved: an agent added ahead of the one picked out
+// shifted every row, and the highlight named another agent.
+func TestTheAgentPickedOutSurvivesTheCatalogArriving(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const agent = (id, name) => ({ id, name, runner: "cli", available: true, defaultModel: "", models: [] });
+const three = [agent("alpha", "Alpha"), agent("beta", "Beta"), agent("gamma", "Gamma")];
+h.recv(fixture({ agents: catalog({ items: three }) }));
+h.click(h.$("new-tab-pick"));
+const sel = () => h.$("agent-list").querySelector(".sel").querySelector(".pick-name").textContent;
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(sel(), "Gamma");
+h.recv(fixture({ agents: catalog({ items: [agent("aardvark", "Aardvark")].concat(three) }) }));
+assert.strictEqual(sel(), "Gamma", "the catalog arriving moved the highlight to another agent");
+
+// Narrowing the list still starts from the first match.
+const field = h.$("agent-filter");
+field.value = "a";
+field.oninput();
+assert.strictEqual(sel(), "Aardvark", "typing did not start from the first match");
+
+// Opened afresh, the picker starts on its first row, not on the one the last
+// picker left picked out.
+field.value = "gam";
+field.oninput();
+assert.strictEqual(sel(), "Gamma");
+h.key({ key: "Escape" });
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "the picker did not close");
+h.click(h.$("new-tab-pick"));
+assert.strictEqual(sel(), "Aardvark", "a fresh picker started on the row the last one left picked out");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
