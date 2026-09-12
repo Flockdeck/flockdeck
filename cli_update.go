@@ -269,7 +269,10 @@ func relaunch(root string) error {
 	if startedAs == "" {
 		return errors.New("could not tell where the program is")
 	}
-	cmd := relaunchCommand(startedAs, root)
+	// Started here rather than in a helper: this is the one process the
+	// window guard (internal/sysproc) lets start without NoWindow, by name,
+	// since it is the next Flockdeck and has to come back as this one did.
+	cmd := exec.Command(startedAs, relaunchArgs(root)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -279,13 +282,13 @@ func relaunch(root string) error {
 	return cmd.Process.Release()
 }
 
-// relaunchCommand is the command relaunch runs, kept apart so a test can read
-// it without starting anything.
-func relaunchCommand(exe, root string) *exec.Cmd {
+// relaunchArgs are the arguments relaunch starts the program with, kept apart
+// so a test can read them without starting anything.
+func relaunchArgs(root string) []string {
 	if root == "" {
-		return exec.Command(exe)
+		return nil
 	}
-	return exec.Command(exe, "-C", root)
+	return []string{"-C", root}
 }
 
 // restarting records that the interface asked for a restart rather than a

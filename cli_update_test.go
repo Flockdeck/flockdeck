@@ -39,12 +39,12 @@ func stageForTest(t *testing.T, staged string) (dir, exe string) {
 // somewhere the user never asked to work.
 func TestRelaunchReopensTheProjectOnScreen(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "api")
-	got := relaunchCommand("flockdeck", root).Args
-	if want := []string{"flockdeck", "-C", root}; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("relaunch runs %q, want %q", got, want)
+	got := relaunchArgs(root)
+	if want := []string{"-C", root}; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("relaunch passes %q, want %q", got, want)
 	}
-	if got := relaunchCommand("flockdeck", "").Args; len(got) != 1 {
-		t.Errorf("with no project known, relaunch runs %q, want the program alone", got)
+	if got := relaunchArgs(""); len(got) != 0 {
+		t.Errorf("with no project known, relaunch passes %q, want nothing", got)
 	}
 }
 
