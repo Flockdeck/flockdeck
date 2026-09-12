@@ -3088,6 +3088,16 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "restartPane", id: "p1" });
 `)
 }
 
+// The usage figure is the first part of a pane header to give up its width,
+// and it was clipped bare: "0% 7.6 MB" lost its unit and read as a different,
+// smaller number. Cut short, it says it has been.
+func TestAClippedUsageFigureSaysItIsClipped(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`(?m)^\.pane-usage\s*\{[^}]*text-overflow:\s*ellipsis`).MatchString(css) {
+		t.Fatal("the usage figure is clipped without an ellipsis, so a cut-off figure reads as a different number")
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

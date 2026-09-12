@@ -358,6 +358,10 @@ textarea:focus-visible {
   color: var(--fg-dim); font-size: 11px; white-space: nowrap;
   overflow: hidden; flex: 0 1000 auto; min-width: 0;
   font-variant-numeric: tabular-nums;
+  /* Clipped bare, "0% 7.6 MB" lost its unit and read as a smaller number
+   * than the pane was using - seen at 800px with three panes. An ellipsis
+   * says it was cut. */
+  text-overflow: ellipsis;
 }
 .pane-usage.hot { color: var(--working); }
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
