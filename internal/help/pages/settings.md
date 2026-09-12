@@ -26,6 +26,8 @@ them, how to change it, and where it is kept.
   own, so the question comes back on the next start.
 - **Hints under the tab bar** — their close button sends one away for good.
   Kept in `prefs.json`.
+- **Theme** — there is only the one, dark. It does not follow the system's
+  light or dark mode.
 
 ## In the state directory
 
