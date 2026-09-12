@@ -2759,6 +2759,19 @@ assert.strictEqual(input.getAttribute("aria-invalid"), "false");
 `)
 }
 
+// The notice sits at the bottom of the window, and so do the prompt and find
+// bars: a message arriving while one was open covered the field being typed
+// into and took the click meant for it.
+func TestANoticeDoesNotCoverTheBarBeingTypedInto(t *testing.T) {
+	css := readAsset(t, "app.css")
+	for _, bar := range []string{"promptbar", "searchbar"} {
+		re := regexp.MustCompile(`body:has\(#` + bar + `:not\(\[hidden\]\)\) #notice[^{]*\{[^}]*bottom:`)
+		if !re.MatchString(css) {
+			t.Errorf("the notice is not moved clear of #%s while it is open", bar)
+		}
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

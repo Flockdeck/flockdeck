@@ -903,6 +903,11 @@ kbd {
   cursor: pointer;
 }
 #notice[hidden] { display: none; }
+/* The prompt and find bars sit along the bottom of the window too, and a
+ * message dropped over the field being typed into hid it and took the click
+ * meant for it. While either is open the message goes above it. */
+body:has(#promptbar:not([hidden])) #notice,
+body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 #notice.error { border-color: var(--exited); color: var(--exited); }
 
 /* ------------------------------------------------------------ disconnected */
