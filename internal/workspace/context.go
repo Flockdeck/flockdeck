@@ -634,7 +634,7 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"`FLOCKDECK_BROWSER` picks the browser that "+
 		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run, and exposes nothing to the "+
-		"network.\n\n", flockdeck, flockdeck, flockdeck)
+		"network.\n\n", flockdeck, flockdeck)
 
 	b.WriteString("Your pane carries the rest in its environment:\n\n" +
 		"| Variable | What it is |\n" +

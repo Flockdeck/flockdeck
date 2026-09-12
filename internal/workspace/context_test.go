@@ -911,6 +911,16 @@ func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
 	}
 }
 
+// Every agent's briefing carried "%!(EXTRA string=flockdeck)" in front of the
+// table of what its pane carries: the paragraph about the command line was
+// given the command once more than it names it.
+func TestTheBriefingHasNoFormattingFaults(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	if i := strings.Index(text, "%!"); i >= 0 {
+		t.Errorf("the briefing holds a formatting fault: %q", text[max(0, i-40):min(len(text), i+60)])
+	}
+}
+
 // TestTheBriefingNamesEveryVariableAPaneCarries covers the table of what a
 // pane has in its environment. FLOCKDECK_AGENT and FLOCKDECK_MODEL are set on
 // every agent pane, and are how a script or a prompt says what it is sitting
