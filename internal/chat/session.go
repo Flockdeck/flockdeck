@@ -409,6 +409,9 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 				agent := firstNonEmpty(s.opts.Agent, "<agent>")
 				s.out.line(ansiRed, "the API refused the key: "+err.Error())
 				s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
+			case contextFull(err):
+				s.out.line(ansiRed, "the model could not answer: "+err.Error())
+				s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
 			default:
 				s.out.line(ansiRed, "the model could not answer: "+err.Error())
 				s.out.line(ansiDim, "(/retry asks again)")

@@ -119,6 +119,29 @@ func busy(err error) (*apiError, bool) {
 	return nil, false
 }
 
+// contextFull reports whether err says the conversation is longer than the
+// model can read. Each vendor says it in words of its own, and none of them
+// says what to do, which is to start the conversation over: asking again
+// sends the same conversation and is refused the same way.
+func contextFull(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"context window",             // Anthropic's stop reason, and ours for it
+		"prompt is too long",         // Anthropic
+		"maximum context length",     // OpenAI and the servers that copy it
+		"input token count",          // Gemini
+		"exceeds the context window", // gateways
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // refusedKey reports whether err is the API refusing the key it was given.
 func refusedKey(err error) bool {
 	var e *apiError

@@ -241,20 +241,24 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		return err
 	}
 	usage := counts.usage()
-	// What was read is spent whether or not the answer is whole.
-	if !finished || stopReason == "max_tokens" || stopReason == "refusal" {
-		emit(Event{Kind: EventUsage, Usage: usage})
-	}
+	var stopped error
 	switch {
 	case !finished:
 		// The body ended without the event that says the answer has: the
 		// connection dropped, or something between here and the API cut it.
 		// A call whose arguments were still arriving is not one to run.
-		return errors.New("the connection closed before the answer was finished")
+		stopped = errors.New("the connection closed before the answer was finished")
 	case stopReason == "max_tokens":
-		return fmt.Errorf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)
+		stopped = fmt.Errorf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)
 	case stopReason == "refusal":
-		return errors.New("the model declined to go on with this")
+		stopped = errors.New("the model declined to go on with this")
+	case stopReason == "model_context_window_exceeded":
+		stopped = errors.New("the conversation has filled the model's context window")
+	}
+	if stopped != nil {
+		// What was read is spent whether or not the answer is whole.
+		emit(Event{Kind: EventUsage, Usage: usage})
+		return stopped
 	}
 	// The reasoning and the calls go out in index order: that is the order the
 	// model wrote them in, and a tool loop that runs them in map order runs
