@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FileChange is one modified file in a working tree.
@@ -680,10 +681,49 @@ func CommitAll(dir, message string) error {
 		}
 		return &gitError{"still in conflict: " + names + " — resolve the <<<<<<< markers first, then commit"}
 	}
-	if _, _, err := runCapture(context.Background(), networkTimeout, dir, "add", "--all"); err != nil {
+	if err := writingIndex(dir, "add", "--all"); err != nil {
 		return err
 	}
-	_, _, err := runCapture(context.Background(), networkTimeout, dir, "commit", "-m", message)
+	return writingIndex(dir, "commit", "-m", message)
+}
+
+// lockWait is how long a command that writes the index waits for another git
+// process to let go of it. It is a variable so a test can shorten it.
+var lockWait = 3 * time.Second
+
+// writingIndex runs a command that writes the index, waiting out another git
+// process that holds it.
+//
+// Agents commit in their own panes all the time, and the panel's Commit
+// pressed at that moment failed on git's index.lock with an explanation whose
+// last line -- the one saying what to do -- was cut from the toast. Their git
+// commands are brief, so the lock is waited for and the command tried once
+// more; a lock that stays is one to say so about, in the reader's terms.
+func writingIndex(dir string, args ...string) error {
+	_, _, err := runCapture(context.Background(), networkTimeout, dir, args...)
+	if err == nil {
+		return nil
+	}
+	out, perr := run(dir, "rev-parse", "--git-path", "index.lock")
+	if perr != nil {
+		return err
+	}
+	lock := strings.TrimSpace(out)
+	if !filepath.IsAbs(lock) {
+		lock = filepath.Join(dir, lock)
+	}
+	held := func() bool { _, serr := os.Lstat(lock); return serr == nil }
+	if !held() {
+		return err
+	}
+	for deadline := time.Now().Add(lockWait); held() && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if held() {
+		return &gitError{"another git command is using this repository right now; try again in a moment. " +
+			"If nothing is running, " + lock + " was left behind by one that stopped part way, and deleting it lets git go on."}
+	}
+	_, _, err = runCapture(context.Background(), networkTimeout, dir, args...)
 	return err
 }
 

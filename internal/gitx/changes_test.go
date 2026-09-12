@@ -1350,3 +1350,37 @@ func TestACopiedFileIsShownAsTheNewFileItIs(t *testing.T) {
 		t.Errorf("the copy's diff carried its source's edits:\n%s", diff)
 	}
 }
+
+// TestCommitWaitsOutAnotherGitsLock: an agent's own git command holding the
+// index made the panel's Commit fail at once, with the line saying what to do
+// cut from the toast.
+func TestCommitWaitsOutAnotherGitsLock(t *testing.T) {
+	restore := lockWait
+	t.Cleanup(func() { lockWait = restore })
+
+	repo := newRepo(t)
+	lock := filepath.Join(repo, ".git", "index.lock")
+
+	// Let go of shortly: the commit goes through.
+	write(t, repo, "a.txt", "a\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockWait = 5 * time.Second
+	go func() { time.Sleep(300 * time.Millisecond); os.Remove(lock) }()
+	if err := CommitAll(repo, "after the other one"); err != nil {
+		t.Fatalf("a lock let go of should be waited out: %v", err)
+	}
+
+	// Never let go of: say so, and name the file.
+	write(t, repo, "b.txt", "b\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(lock) })
+	lockWait = 200 * time.Millisecond
+	err := CommitAll(repo, "still locked")
+	if err == nil || !strings.Contains(err.Error(), "another git command") || !strings.Contains(err.Error(), "index.lock") {
+		t.Errorf("err = %v, want it to say another git command holds the lock", err)
+	}
+}
