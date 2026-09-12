@@ -3280,7 +3280,7 @@
   let pickRows = [];
 
   function chooseAgent(title, onPick) {
-    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false };
+    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "" };
     dialog = "agentPicker";
     openOverlay(title, "panes");
     // The probe behind `available` is a few seconds old at most, but an agent
@@ -3370,8 +3370,24 @@
     tick.type = "checkbox";
     tick.checked = picker.setDefault;
     tick.onchange = () => { picker.setDefault = tick.checked; };
-    box.append(tick, document.createTextNode(" Set as default for this project"));
-    foot.append(describe(box, "Remembers this choice in agents.json, so every pane opened in this project starts with it."));
+    box.append(tick, document.createTextNode(" Set as default for"));
+    foot.append(describe(box, "Remembers this choice in agents.json, so every pane opened without choosing starts with it."));
+    // Which default: this project's, or the one every project without a
+    // choice of its own runs. The second could only be set by editing
+    // agents.json, and a project's own choice could not be undone at all.
+    // Outside the label, which would otherwise pass a click on it to the box.
+    const scope = el("select", "fan-agent-sel pick-scope");
+    scope.setAttribute("aria-label", "Which default");
+    scope.append(agentOption("this project", ""), agentOption("every project", "all"));
+    scope.value = picker.scope;
+    scope.onchange = () => { picker.scope = scope.value; picker.setDefault = tick.checked = true; };
+    foot.append(scope);
+    if (catalog.project) {
+      const forget = el("button", "chip", "Use the default for every project");
+      describe(forget, "Forgets the agent chosen for this project, so it starts whatever every other project does.");
+      forget.onclick = () => send({ cmd: "setAgentDefault", agent: "", model: "" });
+      foot.append(forget);
+    }
     const cancel = el("button", "chip", "Cancel");
     cancel.onclick = closeOverlay;
     foot.append(cancel);
@@ -3484,7 +3500,11 @@
    *  opened it, remembering it first if that was asked for. */
   function startPicked(agentID, model) {
     const run = picker.onPick;
-    if (picker.setDefault) send({ cmd: "setAgentDefault", agent: agentID, model: model });
+    if (picker.setDefault) {
+      const req = { cmd: "setAgentDefault", agent: agentID, model: model };
+      if (picker.scope === "all") req.kind = "all";
+      send(req);
+    }
     closeOverlay();
     run(agentID, model);
   }

@@ -2624,6 +2624,34 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" }
 `)
 }
 
+// The picker could make a choice this project's default and nothing else: the
+// default for every project needed agents.json edited by hand, and a project's
+// own choice, once made, could not be undone from the window.
+func TestThePickerSetsEitherDefaultAndUndoesAProjects(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ agents: catalog({ project: { agent: "codex", model: "gpt-5" } }) }));
+h.click(h.$("new-tab-pick"));
+const body = h.$("overlay-body");
+const forget = body.querySelectorAll("button").find((b) => b.textContent === "Use the default for every project");
+assert.ok(forget, "a project's own default cannot be undone");
+h.click(forget);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "", model: "" });
+
+const scope = body.querySelector("select.pick-scope");
+assert.ok(scope, "the default for every project cannot be chosen");
+scope.value = "all";
+h.dispatch(scope, new h.Ev("change", { target: scope }));
+assert.ok(body.querySelector("label.pick-default").querySelector("input").checked,
+  "choosing which default did not say the choice is to become one");
+h.key({ key: "ArrowRight" });
+h.key({ key: "Enter" });
+const sent = h.commands();
+assert.deepStrictEqual(sent[sent.length - 2], { cmd: "setAgentDefault", agent: "claude", model: "", kind: "all" });
+assert.deepStrictEqual(sent[sent.length - 1], { cmd: "newTab", kind: "agent", agent: "claude", model: "" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

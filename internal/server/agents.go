@@ -309,17 +309,30 @@ func (s *Server) splitPaneFor(cmd command) {
 // applyAgentDefault stores what the active project should run when nobody
 // chooses, and says so: the picker's tick box is otherwise the only sign that
 // anything happened at all.
+//
+// Kind "all" sets the default for every project instead, which is what a
+// project with no choice of its own runs. An empty choice for the active
+// project forgets its own, so it goes back to that.
 func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
-	root := s.activeRoot()
-	if root == "" {
-		c.notify("there is no project open to set a default for", true)
-		return
+	root := ""
+	if cmd.Kind != "all" {
+		if root = s.activeRoot(); root == "" {
+			c.notify("there is no project open to set a default for", true)
+			return
+		}
 	}
 	if err := setAgentDefault(root, agentChoice{Agent: cmd.Agent, Model: cmd.Model}); err != nil {
 		c.notify("could not save the default agent: "+err.Error(), true)
 		return
 	}
-	c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+filepath.Base(root), false)
+	switch {
+	case root == "":
+		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for every project", false)
+	case cmd.Agent == "" && cmd.Model == "":
+		c.notify(filepath.Base(root)+" now runs the default for every project", false)
+	default:
+		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+filepath.Base(root), false)
+	}
 	s.refreshAgents()
 }
 
