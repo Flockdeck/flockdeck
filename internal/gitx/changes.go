@@ -138,10 +138,13 @@ func countUntracked(dir string, files []FileChange, limit int) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// One buffer a worker, not one a file: a buffer a file was 64KB of
+			// garbage for every new file counted, 64MB a refresh at the limit.
+			buf := make([]byte, 64<<10)
 			// Each worker writes to its own elements, which no one else reads
 			// until every one of them has finished.
 			for i := range jobs {
-				files[i].Added = countLines(filepath.Join(dir, files[i].Path))
+				files[i].Added = countLines(filepath.Join(dir, files[i].Path), buf)
 			}
 		}()
 	}
@@ -282,8 +285,9 @@ func looksBinary(data []byte) bool {
 //
 // It reads in chunks rather than whole: this runs for every untracked file on
 // every refresh of the panel, and one of them can be a multi-gigabyte log or
-// model checkpoint that nobody wants held in memory to be counted.
-func countLines(path string) int {
+// model checkpoint that nobody wants held in memory to be counted. buf is the
+// chunk, the caller's to reuse from one file to the next.
+func countLines(path string, buf []byte) int {
 	// Only a regular file is opened. git lists a named pipe in a working
 	// tree as an untracked file like any other, and opening one blocks until
 	// somebody writes to it -- with no deadline here, that is the review
@@ -300,7 +304,6 @@ func countLines(path string) int {
 	defer f.Close()
 
 	var (
-		buf   = make([]byte, 64<<10)
 		lines int
 		last  byte
 		empty = true
