@@ -10,6 +10,26 @@
  * light variant; every colour is still stated outright rather than inherited.
  */
 
+/* The fonts are the site's own files, the ones the phone client serves
+   (flockdeck-remote's web/app/fonts), rather than a font service's, which
+   would be told of every visit. Both are SIL OFL 1.1, and the licences are
+   beside the files. Archivo is one variable font covering every weight the
+   page sets it in, 400 to 800. */
+@font-face {
+  font-family: "Archivo";
+  src: url("fonts/archivo.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
 
@@ -104,6 +124,8 @@ a:hover { color: var(--accent-strong); }
   letter-spacing: -.015em; color: var(--text);
 }
 .wordmark svg { display: block; }
+/* Away from the home page the wordmark is the way back to it. */
+a.wordmark { text-decoration: none; }
 /* Both navs wrap rather than run off the side of a phone, where the body's
    overflow-x: hidden would cut the last links off without a scrollbar. */
 .top nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 14.5px; }
@@ -482,6 +504,101 @@ pre.has-copy { padding-right: 78px; }
 .foot .wrap { display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center; padding: 0; }
 .foot p { margin: 0; color: var(--idle); font-size: 14px; }
 .foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 14px; }
+/* The copyright, and the way to the privacy policy, the terms and the
+   licences: a quieter row of its own under the rest, on every page. */
+.foot-legal {
+  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px;
+  padding-top: 18px; border-top: 1px solid var(--edge-soft);
+}
+.foot .foot-legal p, .foot .foot-legal nav { font-size: 13px; }
+.foot nav a[aria-current="page"] { color: var(--text); text-decoration: none; }
+
+/* ------------------------------------------------------------- documents */
+
+/* The privacy policy, the terms and the licences: long prose, set to be read
+   rather than scanned. The measure stays near 70 characters, and the
+   contents sit beside it where there is room, so a section can be found
+   without scrolling through the rest; on a phone the page is simply the
+   prose. */
+.doc { display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px; padding-block: 28px 64px; }
+.doc-toc { display: none; }
+@media (min-width: 1000px) {
+  .doc { grid-template-columns: 210px minmax(0, 1fr); }
+  .doc-toc {
+    display: block; position: sticky; top: 28px; align-self: start;
+    max-height: calc(100vh - 56px); overflow-y: auto;
+  }
+}
+.doc-toc ol {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  border-left: 1px solid var(--edge-soft);
+}
+.doc-toc a {
+  display: block; padding: 5px 0 5px 14px; margin-left: -1px;
+  border-left: 1px solid transparent;
+  color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.4;
+}
+.doc-toc a:hover { color: var(--text); border-left-color: var(--edge-hard); }
+
+.prose { max-width: 70ch; min-width: 0; overflow-wrap: break-word; }
+.prose h1 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(2.2rem, 5vw, 3.2rem); line-height: 1.05; letter-spacing: -.03em;
+  margin: 12px 0 14px; text-wrap: balance;
+}
+/* The line under a policy's title is the date it last changed. */
+.prose h1 + p { font-family: var(--mono); font-size: 12.5px; color: var(--idle); margin: 0 0 36px; }
+.prose h1 + p em { font-style: normal; }
+.prose h1 + p.doc-lede { font-family: var(--body); font-size: clamp(1.05rem, 1.6vw, 1.15rem); color: var(--muted); }
+.prose h1 + p.doc-lede em { font-style: italic; }
+.prose h2 {
+  font-size: clamp(1.4rem, 2.4vw, 1.7rem);
+  margin: 52px 0 14px; padding-top: 28px; border-top: 1px solid var(--edge-soft);
+}
+.prose h3 {
+  font-family: var(--display); font-weight: 650; font-size: 1.15rem;
+  letter-spacing: -.012em; margin: 36px 0 10px;
+}
+.prose h4 {
+  font-family: var(--mono); font-weight: 500; font-size: 14px; color: var(--text);
+  margin: 30px 0 8px; overflow-wrap: anywhere;
+}
+.prose :is(h2, h3) { scroll-margin-top: 20px; }
+/* A section arrived at by a link to it, #cookies say, is marked. */
+.prose :is(h2, h3):target { color: var(--accent-strong); }
+.prose p, .prose li { color: var(--muted); font-size: 16.5px; line-height: 1.72; }
+.prose p { margin: 0 0 16px; }
+.prose strong { color: var(--text); font-weight: 600; }
+.prose ul, .prose ol { margin: 0 0 18px; padding-left: 1.25em; }
+.prose li { margin: 6px 0; }
+.prose li::marker { color: var(--idle); }
+.prose hr { border: 0; border-top: 1px solid var(--edge-soft); margin: 32px 0; }
+
+/* A licence text, folded under the component it belongs to, and Flockdeck's
+   own, which is short enough to show. They wrap rather than scroll sideways:
+   the lines are prose that happens to be set in a fixed width. */
+.licence-text {
+  margin: 10px 0 18px;
+  border: 1px solid var(--edge-soft); border-radius: var(--radius); background: var(--raised);
+}
+.licence-text summary {
+  cursor: pointer; list-style: none; padding: 9px 14px;
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--accent);
+}
+.licence-text summary::-webkit-details-marker { display: none; }
+.licence-text summary::before { content: "+"; content: "+" / ""; width: 1ch; }
+.licence-text[open] summary::before { content: "–"; content: "–" / ""; }
+.licence-text pre {
+  margin: 0; border: 0; border-top: 1px solid var(--edge-soft);
+  border-radius: 0 0 var(--radius) var(--radius); max-height: 28rem; overflow: auto;
+}
+.prose pre.licence { margin: 0 0 18px; }
+.licence-text pre code, .prose pre.licence code {
+  font-size: 12px; line-height: 1.6; color: var(--muted);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 
 /* ------------------------------------------------------------ responsive */
 

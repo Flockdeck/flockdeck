@@ -1,0 +1,20 @@
+{{/*
+  A page of prose rendered from Markdown: the privacy policy and the terms.
+  The words are in the .md beside this file, which is where to edit them.
+*/}}
+{{template "head" .}}
+</head>
+<body>
+
+{{template "header" .}}
+
+<main class="wrap doc">
+  {{template "contents" .}}
+  <article class="prose">
+{{.Body}}
+  </article>
+</main>
+
+{{template "footer" .}}
+</body>
+</html>

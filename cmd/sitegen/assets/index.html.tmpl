@@ -1,23 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Flockdeck | Run all your coding agents at once</title>
-<meta name="description" content="Flockdeck runs Claude Code, Codex, Gemini and other coding agents side by side, and shows you which one needs your input. For Windows, macOS and Linux.">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#0F1418">
-<meta property="og:title" content="Flockdeck | Run all your coding agents at once">
-<meta property="og:description" content="Run all your coding agents side by side and see which one needs you.">
-<meta property="og:type" content="website">
-<meta property="og:url" content="{{ .URL }}/">
-<meta property="og:image" content="{{ .URL }}/og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Flockdeck: run all your coding agents at once. A window of four agents, one waiting on you.">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{{ .URL }}/og.png">
-<link rel="canonical" href="{{ .URL }}/">
+{{template "head" .}}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -31,28 +12,10 @@
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- The fonts are a refinement, not the page: loaded as print first and
-     switched on when they arrive, they no longer hold up the first paint
-     while a third-party stylesheet is fetched, and the system faces named in
-     site.css stand in until then. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
-<link rel="stylesheet" href="site.css">
 </head>
 <body>
 
-<header class="top">
-  <span class="wordmark">{{ mark }}Flockdeck</span>
-  <nav aria-label="Site">
-    <a href="#what">Features</a>
-    <a href="#remote">Remote</a>
-    <a href="#install">Install</a>
-    <a href="#faq">FAQ</a>
-    <a href="{{ .Repo }}">Source</a>
-  </nav>
-</header>
+{{template "header" .}}
 
 <main class="wrap">
 
@@ -445,20 +408,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
 
 </main>
 
-<footer class="foot">
-  <div class="wrap">
-    <p>Flockdeck. Run all your coding agents at once.<br>
-       <span class="foot-note">Free and open source under the MIT licence.</span></p>
-    <nav aria-label="Footer">
-      <a href="#install">Install</a>
-      <a href="#remote">Remote access</a>
-      <a href="#faq">FAQ</a>
-      <a href="{{ .Repo }}/releases">Releases</a>
-      <a href="{{ .Repo }}">Source</a>
-      <a href="{{ .Repo }}/blob/main/LICENSE">Licence</a>
-    </nav>
-  </div>
-</footer>
+{{template "footer" .}}
 
 <script>
 // The deck runs a scripted session: three agents typing, one of them stopping
