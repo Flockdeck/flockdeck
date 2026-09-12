@@ -120,6 +120,13 @@ main() {
 		*) say "$dir is not on your PATH; add this line to your shell's profile:"
 			printf '    export PATH="%s:$PATH"\n' "$dir" ;;
 	esac
+	# A copy found first on PATH -- a go install, say -- is the one that runs.
+	found=$(command -v flockdeck 2>/dev/null || true)
+	if [ -n "$found" ] && [ "$found" != "$dir/flockdeck" ]; then
+		say "note: the flockdeck your shell finds first is $found, not this one"
+	fi
+	# Starting it again while an older copy runs joins that copy instead.
+	say "if Flockdeck is already running, quit it before starting this version"
 }
 
 main "$@"
