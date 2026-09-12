@@ -253,6 +253,82 @@ func TestEveryPageHasTheFooter(t *testing.T) {
 	}
 }
 
+// latestArchives are the files scripts/publish-downloads.sh puts under
+// /latest/ on dl.flockdeck.ai, one for each platform a release is built for,
+// with what the install section calls each one.
+var latestArchives = map[string]string{
+	"flockdeck_windows_amd64.zip":   "Windows (x64)",
+	"flockdeck_windows_arm64.zip":   "Windows (Arm)",
+	"flockdeck_darwin_arm64.tar.gz": "macOS (Apple silicon)",
+	"flockdeck_darwin_amd64.tar.gz": "macOS (Intel)",
+	"flockdeck_linux_amd64.tar.gz":  "Linux (x64)",
+	"flockdeck_linux_arm64.tar.gz":  "Linux (Arm)",
+}
+
+var (
+	downloadLink = regexp.MustCompile(`(?s)<a\s[^>]*\bclass="[^"]*\bdl\b[^"]*"[^>]*>(.*?)</a>`)
+	anyTag       = regexp.MustCompile(`<[^>]+>`)
+)
+
+// Every download button is a link to one of the latest release's archives,
+// under the name the publishing script gives it, and every archive has one: a
+// button naming a file the script does not upload is a download that fails for
+// everybody who presses it.
+func TestDownloadButtonsNameTheLatestArchives(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "scripts", "publish-downloads.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cmd/release names an archive flockdeck_<version>_<os>_<arch>.<ext>, and
+	// the script uploads it to /latest/ with the version taken out.
+	const upload = `"latest/flockdeck_${name#flockdeck_"$version"_}"`
+	if !strings.Contains(string(script), upload) {
+		t.Fatalf("scripts/publish-downloads.sh no longer uploads the archives as %s; bring latestArchives and the buttons into line with what it does", upload)
+	}
+	for _, p := range licencePlatforms {
+		ext := ".tar.gz"
+		if p.OS == "windows" {
+			ext = ".zip"
+		}
+		if _, ok := latestArchives["flockdeck_"+p.OS+"_"+p.Arch+ext]; !ok {
+			t.Errorf("latestArchives has no archive for %s/%s", p.OS, p.Arch)
+		}
+	}
+
+	_, page := home(t)
+	const base = "https://dl.flockdeck.ai/latest/"
+	seen := map[string]bool{}
+	for _, m := range downloadLink.FindAllStringSubmatch(page, -1) {
+		href := urlAttr.FindStringSubmatch(m[0])
+		if href == nil {
+			t.Errorf("download button %s has no href", m[0])
+			continue
+		}
+		name, ok := strings.CutPrefix(html.UnescapeString(href[1]), base)
+		if !ok {
+			t.Errorf("download button %s is not under %s", href[1], base)
+			continue
+		}
+		label, ok := latestArchives[name]
+		if !ok {
+			t.Errorf("download button %s names %s, which scripts/publish-downloads.sh does not upload", href[1], name)
+			continue
+		}
+		if seen[name] {
+			t.Errorf("%s has two download buttons", name)
+		}
+		seen[name] = true
+		if text := strings.TrimSpace(html.UnescapeString(anyTag.ReplaceAllString(m[1], ""))); !strings.HasSuffix(text, label) {
+			t.Errorf("the button for %s reads %q, not %q", name, text, label)
+		}
+	}
+	for name := range latestArchives {
+		if !seen[name] {
+			t.Errorf("the install section has no download button for %s", name)
+		}
+	}
+}
+
 // The site sets no cookies, so it needs no banner: the privacy policy's
 // section on cookies is its cookie notice, and has to be there to be linked
 // to.
