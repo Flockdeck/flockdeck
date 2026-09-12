@@ -83,11 +83,11 @@ The shared relay at `https://remote.flockdeck.ai` has a
 about this machine and your devices, how long it keeps it and how to have it
 deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
-## Self-hosted relay (coming soon)
+## Enterprise (coming soon)
 
-For companies: a licence to run the relay on your own infrastructure, with
-support, for a company whose rules don't allow a third party to decrypt its
-developers' terminal traffic. The shared relay stays free.
+For companies: a licence to run the relay on your own infrastructure, with SSO
+and support, for a company whose rules don't allow a third party to decrypt
+its developers' terminal traffic.
 
 ## Leaving the agents running for it
 

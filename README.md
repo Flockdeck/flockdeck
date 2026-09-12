@@ -867,10 +867,9 @@ A remote window needs Flockdeck running here. Closing the window on this
 machine still quits it, remote window or not — detach instead to leave the
 agents running for later. A remote window closing never stops anything.
 
-Coming soon, for companies: a licence to run the relay on your own
-infrastructure, with support, for a company whose rules don't allow a third
-party to decrypt its developers' terminal traffic. The shared relay stays
-free.
+Coming soon, for companies: Enterprise, a licence to run the relay on your own
+infrastructure, with SSO and support, for a company whose rules don't allow a
+third party to decrypt its developers' terminal traffic.
 
 ## Design notes
 
