@@ -5,10 +5,10 @@ list out of the pane's output and offers to start an agent for each item.
 
 Press [[key:fanout]], or use the `⑂` button in the pane header.
 
-The list is read out of the agent's own transcript where it wrote one — the
+For a Claude Code pane the list is read out of the agent's own transcript — the
 markdown it actually produced, rather than the wrapped and redrawn version of
-it on screen. A pane whose agent keeps no transcript Flockdeck can read, a shell
-among them, falls back to the screen and is more often wrong for it.
+it on screen. Any other pane, the built-in chat client and shells among them,
+falls back to the screen and is more often wrong for it.
 
 ## What the dialog does
 
