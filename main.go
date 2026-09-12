@@ -335,6 +335,13 @@ func runningInstance() (*store.Instance, string, error) {
 	return inst, base, nil
 }
 
+// answering reports whether the instance on record is running and answering.
+// A record left by one that has gone is cleared on the way, as for any launch.
+func answering() bool {
+	inst, _, err := runningInstance()
+	return err == nil && inst != nil
+}
+
 // attach hands the requested project to an instance that is already running
 // and shows a window onto it, so a second launch joins the agents already
 // going instead of starting a rival set.
@@ -595,12 +602,21 @@ func run(opts options) error {
 	// been serving since it was made, and a `flockdeck -quit` that found the
 	// record any sooner was told yes and then ignored, since there was nothing
 	// yet to hand the request to.
-	if err := store.SaveInstance(&store.Instance{
-		PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
+	//
+	// A -solo run beside an instance that is still answering leaves that
+	// one's record alone. Writing over it made the first instance unreachable
+	// — no later launch could attach to it or -quit it — and when this run
+	// quit, it took the record with it, leaving nothing on record while the
+	// first went on running: the next launch started a rival, and the start-up
+	// sweep stopped sparing the first one's pane settings.
+	if !opts.solo || !answering() {
+		if err := store.SaveInstance(&store.Instance{
+			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
+		}
+		defer store.ClearInstance()
 	}
-	defer store.ClearInstance()
 
 	// Watching for releases runs for the life of the server and stops with it,
 	// so a check in flight cannot hold the shutdown open.
