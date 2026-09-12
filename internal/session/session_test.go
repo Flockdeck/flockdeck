@@ -971,6 +971,62 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 }
 
+// TestEnterAnswersAPermissionPrompt covers the one question no hook reports
+// the answer to. Claude asks permission for a tool after the PreToolUse naming
+// it, and after approving it says nothing more until the tool has finished, so
+// the pane stayed amber -- counted among the agents needing you -- through the
+// whole of the command it had just been allowed to run.
+func TestEnterAnswersAPermissionPrompt(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindClaude
+	s.sawInput = true
+	report := func(event, tool string) {
+		if st, detail, ok := StatusForEvent(event, tool); ok {
+			s.SetStatus(st, detail)
+		}
+	}
+	press := func(keys string) {
+		if err := s.WriteString(keys); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	report("PreToolUse", "Bash")
+	report("Notification", "")
+	press("\x1b[B") // moving to another choice settles nothing
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v after an arrow key, want still waiting", st)
+	}
+	press("\r")
+	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
+		t.Errorf("status = %v %q after answering, want working on Bash", st, detail)
+	}
+
+	// AskUserQuestion can put several questions, and Enter moves from one to
+	// the next: its answer is the tool finishing, which a hook does report.
+	report("PostToolUse", "")
+	report("PreToolUse", "AskUserQuestion")
+	report("Notification", "") // Claude's nudge about the same question
+	if st, detail := s.Status(); st != StatusWaiting || detail != "AskUserQuestion" {
+		t.Fatalf("status = %v %q, want still waiting on AskUserQuestion", st, detail)
+	}
+	press("\r")
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after Enter on a question, want still waiting", st)
+	}
+
+	// Waiting at the prompt: what is typed there is reported by its own hook.
+	report("PostToolUse", "")
+	report("Stop", "")
+	report("Notification", "")
+	press("\r")
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after Enter at the prompt, want waiting until a hook says otherwise", st)
+	}
+}
+
 // TestScrollingIsNotAnswering covers a pane whose program asked for mouse
 // reports, as full-screen agents do: turning the wheel to read back over the
 // question arrives exactly like typing, and is no answer to it.

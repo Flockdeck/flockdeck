@@ -135,6 +135,10 @@ type Session struct {
 	// bridge until the first event arrives, and for every other agent they are
 	// the whole story, for as long as it runs.
 	hooksSeen bool
+	// toolQuestion records that the pane is waiting on a question put in the
+	// middle of a tool call -- Claude's permission prompt -- which is the one
+	// wait no hook reports the end of. See Write.
+	toolQuestion bool
 	// patterns are what to read out of an agent's output in place of the
 	// lifecycle it does not report. They are taken off the Spec at launch
 	// because the status machinery below runs on every chunk a pane prints and
@@ -575,11 +579,21 @@ func (s *Session) Write(p []byte) (int, error) {
 	// "waiting" alone. Without this a pane whose lifecycle hooks are not
 	// reporting stays in the count of agents needing you from the first
 	// question it ever asks until it exits.
-	answered := typed && !s.hooksSeen && s.status == StatusWaiting
+	//
+	// Where hooks report, a hook's wait outranks the keyboard, except for a
+	// question put in the middle of a tool call: Claude's permission prompt.
+	// Nothing reports its answer -- after approving, Claude says nothing until
+	// the tool has finished, however long it runs -- so the pane stayed amber,
+	// and in the count of agents needing you, through the whole of the command
+	// it had just been allowed to run. Enter is what settles it; the arrow keys
+	// only move between the choices.
+	answered := typed && s.status == StatusWaiting &&
+		(!s.hooksSeen || (s.toolQuestion && bytes.IndexByte(p, '\r') >= 0))
 	if answered {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
-		if !s.settling {
+		s.toolQuestion = false
+		if !s.hooksSeen && !s.settling {
 			s.settling = true
 			go s.settleIdle()
 		}
@@ -641,9 +655,18 @@ func (s *Session) SetStatus(st Status, detail string) {
 	// A waiting status that names nothing is about whatever the pane was
 	// running when it arrived: Claude asks permission for a tool in a
 	// Notification that follows the PreToolUse naming it, and puts no name in
-	// it. Keeping the tool's is what lets the pane say what it is asking.
-	if st == StatusWaiting && detail == "" && s.status == StatusWorking {
-		detail = s.detail
+	// it. Keeping the tool's is what lets the pane say what it is asking. A
+	// second nudge about a wait already showing is about the same wait, and
+	// keeps what the first said it was about -- a question from
+	// AskUserQuestion was otherwise renamed to nothing by the nudge about it.
+	question := false
+	if st == StatusWaiting && detail == "" {
+		switch s.status {
+		case StatusWorking:
+			detail, question = s.detail, s.detail != ""
+		case StatusWaiting:
+			detail, question = s.detail, s.toolQuestion
+		}
 	}
 	// An exited pane stays exited, and an event that changes nothing is not
 	// reported: every report rebuilds and sends the whole workspace, and
@@ -658,6 +681,7 @@ func (s *Session) SetStatus(st Status, detail string) {
 	}
 	s.status = st
 	s.detail = detail
+	s.toolQuestion = question
 	s.hooksSeen = true
 	s.mu.Unlock()
 	s.changed()
