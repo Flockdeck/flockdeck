@@ -206,6 +206,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.runLoop()
 	go s.pushLoop()
 	go s.gitLoop()
+	go s.usageLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 
@@ -357,6 +358,37 @@ func (s *Server) gitLoop() {
 				continue
 			}
 			s.ws.RefreshGit(s.do)
+		}
+	}
+}
+
+// usageRefresh is how often a snapshot is rebuilt while a window is open, so
+// that each pane's CPU and memory are read again. It matches how often the
+// session package reads the process table at most; a variable so a test need
+// not wait it out.
+var usageRefresh = 5 * time.Second
+
+// usageLoop has the snapshot rebuilt on a timer while a window is open.
+//
+// A pane's figures are read only as a snapshot is built, and a snapshot is
+// otherwise built only when something changes. An agent that had just stopped
+// was sent as idle with its fifteen-second CPU average still high, and nothing
+// built another: its header showed that share, marked hot, for as long as the
+// rest of the workspace stayed quiet. A rebuild whose rounded figures draw the
+// same as before is not sent (see shownUsage), so this costs a snapshot and a
+// comparison every few seconds, and sends only what a window would draw
+// differently.
+func (s *Server) usageLoop() {
+	tick := time.NewTicker(usageRefresh)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-tick.C:
+			if s.ClientCount() > 0 {
+				s.Wake()
+			}
 		}
 	}
 }
