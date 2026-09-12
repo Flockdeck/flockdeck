@@ -127,16 +127,26 @@ main() {
 		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
 	fi
 
+	# A copy found first on PATH -- a go install, say -- is the one that runs,
+	# so it is not the one to be told to start.
+	found=$(command -v flockdeck 2>/dev/null || true)
+	shadowed=
+	if [ -n "$found" ] && [ "$found" != "$dir/flockdeck" ]; then
+		shadowed=1
+	fi
 	case ":$PATH:" in
-		*":$dir:"*) say "start it with: flockdeck" ;;
+		*":$dir:"*)
+			if [ -n "$shadowed" ]; then
+				say "start it with: $dir/flockdeck"
+			else
+				say "start it with: flockdeck"
+			fi ;;
 		*) say "$dir is not on your PATH; add this line to your shell's profile:"
 			# Escaped for the double quotes it is printed in, so a directory with
 			# a quote, a dollar or a backslash in its name still pastes as itself.
 			printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')" ;;
 	esac
-	# A copy found first on PATH -- a go install, say -- is the one that runs.
-	found=$(command -v flockdeck 2>/dev/null || true)
-	if [ -n "$found" ] && [ "$found" != "$dir/flockdeck" ]; then
+	if [ -n "$shadowed" ]; then
 		say "note: the flockdeck your shell finds first is $found, not this one"
 	fi
 	# Starting it again while an older copy runs joins that copy instead.
