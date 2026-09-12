@@ -976,8 +976,9 @@ func TestEnableTellsSwappedCodesApart(t *testing.T) {
 		req  EnableRequest
 		want string
 	}{
-		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdi_0123456789abcdefghijkl"}, "that is an invitation, not a join code"},
-		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdp_0123456789abcdefghijkl"}, "that is a join code, not an invitation"},
+		// The window shows these too, so they name the code, not a flag.
+		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdi_0123456789abcdefghijkl"}, "that is an invitation, not a join code; give it as the invitation code instead"},
+		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdp_0123456789abcdefghijkl"}, "that is a join code, not an invitation; give it as the join code instead"},
 		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdh_0123456789abcdefghijkl"}, "that is a credential"},
 		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdd_0123456789abcdefghijkl"}, "that is a credential"},
 		{EnableRequest{Relay: f.URL, Name: "fdp_0123456789abcdefghijkl"}, "not a name"},

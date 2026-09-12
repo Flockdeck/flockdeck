@@ -68,11 +68,13 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	// The relay's codes say what they are in their prefixes (fdp_ a join or
 	// pairing code, fdi_ an invitation), so one given for the other is told
 	// so here, rather than by a relay that answers as if none had been given.
+	// The window shows these as well as the command line, so they name the
+	// code, which both ask for by that name, and not a flag only one has.
 	if strings.HasPrefix(strings.TrimSpace(req.Join), "fdi_") {
-		return nil, false, errors.New("that is an invitation, not a join code; give it as the invitation (-invite)")
+		return nil, false, errors.New("that is an invitation, not a join code; give it as the invitation code instead")
 	}
 	if strings.HasPrefix(strings.TrimSpace(req.Invite), "fdp_") {
-		return nil, false, errors.New("that is a join code, not an invitation; give it as the join code (-join)")
+		return nil, false, errors.New("that is a join code, not an invitation; give it as the join code instead")
 	}
 	// A machine's own credential (fdh_, as remote.json holds) or a browser's
 	// session (fdd_) is a secret, not a code for joining or registering, and
