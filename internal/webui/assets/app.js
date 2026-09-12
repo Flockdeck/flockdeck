@@ -2735,7 +2735,12 @@
       row.setAttribute("role", "option");
       row.append(el("span", "pal-label", c.label));
       if (c.hint) row.append(el("span", "pal-hint", c.hint));
-      row.onmouseenter = () => selectPaletteRow(i);
+      // On the pointer moving, not on its entering the row. The arrow keys
+      // scroll the list, which slides a row under a pointer that has not
+      // moved, and the browser reports that as the pointer entering it: the
+      // highlight jumped back under the pointer each time the list scrolled,
+      // and walking past the bottom of the box could not be done.
+      row.onmousemove = () => selectPaletteRow(i);
       row.onclick = () => { closePalette(); c.run(); };
       palRows.push(row);
       list.append(row);
@@ -3358,7 +3363,7 @@
       row.id = "pick-row-" + pickRows.length;
       row.setAttribute("role", "option");
       const at = pickRows.length;
-      row.onmouseenter = () => selectPickerRow(at);
+      row.onmousemove = () => selectPickerRow(at); // as in the palette
       row.onclick = () => { picker.index = at; takePickerRow(); };
       row.item = item;
       pickRows.push(row);

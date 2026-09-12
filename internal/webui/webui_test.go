@@ -631,7 +631,7 @@ assert.ok(rows[15].scrolledTo > 0, "the highlight was moved out of sight rather 
 
 // A pointer crossing the list is the same move, once per row.
 const crossing = h.made();
-for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mouseenter", {}));
+for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mousemove", {}));
 console.log("elements built by a pointer crossing ten rows: " + (h.made() - crossing));
 assert.ok(rows[9].classList.contains("sel"), "the pointer did not move the highlight");
 assert.ok(list.children[9] === rows[9], "the row under the pointer was replaced");
@@ -682,7 +682,7 @@ assert.strictEqual(rows.filter((r) => r.getAttribute("aria-selected") === "true"
   "exactly one row is the current one");
 
 // The pointer moves it too, and it is the same claim either way.
-h.dispatch(rows[5], new h.Ev("mouseenter", {}));
+h.dispatch(rows[5], new h.Ev("mousemove", {}));
 assert.ok(named() === rows[5], "the field did not follow the pointer");
 
 // Nothing matches: there is no row to name, so the field must not claim one.
@@ -2481,6 +2481,39 @@ assert.ok(!fan.classList.contains("on"), "fan out lit up for a pane in the broad
 h.recv(fixture());
 assert.ok(!cast.classList.contains("on"), "the toggle stayed on after the pane left the set");
 assert.strictEqual(cast.getAttribute("aria-pressed"), "false");
+`)
+}
+
+// Walking a long list with the arrow keys scrolls it, which slides a row under
+// a pointer that has not moved, and the browser reports that as the pointer
+// entering the row. The highlight followed, jumping back under the pointer
+// every time the list scrolled.
+func TestScrollingAListUnderThePointerLeavesTheHighlight(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+const rows = h.$("palette-list").children;
+assert.ok(rows[2].classList.contains("sel"), "the arrow keys did not move the highlight");
+// The list scrolled; row 0 is now under the resting pointer.
+h.dispatch(rows[0], new h.Ev("mouseenter", { target: rows[0] }));
+assert.ok(rows[2].classList.contains("sel"), "a row sliding under the pointer took the highlight");
+// Moving the pointer is what picks a row with the mouse.
+h.dispatch(rows[4], new h.Ev("mousemove", { target: rows[4] }));
+assert.ok(rows[4].classList.contains("sel"), "moving the pointer over a row did not pick it");
+
+// The agent picker is walked the same way.
+h.key({ key: "Escape" });
+h.press("palette");
+h.$("palette-input").value = "new agent tab choose";
+h.$("palette-input").oninput();
+h.key({ key: "Enter" });
+const pick = h.$("agent-list").querySelectorAll("div.pick-row");
+h.key({ key: "ArrowDown" });
+h.dispatch(pick[0], new h.Ev("mouseenter", { target: pick[0] }));
+assert.ok(pick[1].classList.contains("sel"), "a picker row sliding under the pointer took the highlight");
 `)
 }
 
