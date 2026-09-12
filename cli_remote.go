@@ -354,6 +354,12 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// one. They are matched rather than its 403, which a relay closed to
 		// new accounts also answers, and for which an invite does not help.
 		return fmt.Errorf("%v; pass it with -invite CODE", err)
+	case f.invite != "" && strings.Contains(err.Error(), "invite code is not valid"):
+		// An invitation that has been used, or was never one. Whoever runs
+		// the relay makes them, and can make another; the relay's words are
+		// matched because its 403 is also the closed relay's and the missing
+		// invitation's.
+		return fmt.Errorf("%v; whoever runs the relay makes invitations, and can make another", err)
 	case strings.Contains(err.Error(), "not accepting new accounts"):
 		// A relay closed to new accounts still takes machines into the ones
 		// it has, which is the way in that is left. Its words are matched for

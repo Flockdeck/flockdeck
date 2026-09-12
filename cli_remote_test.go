@@ -747,6 +747,22 @@ func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
 	}
 }
 
+// An invitation that has been used, or was never one, is refused by the relay
+// in its own words, and the refusal says who can make another.
+func TestRemoteEnableWithASpentInvitation(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"that invite code is not valid, or has already been used"}`)
+	}))
+	defer srv.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk", "-invite", "fdi_code")
+	if want := "already been used; whoever runs the relay makes invitations, and can make another"; err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("enabling with a spent invitation = %v, want it to end %q", err, want)
+	}
+}
+
 // A join code that has run out or been used is refused by the relay in its
 // own words, and the refusal says where a new one comes from.
 func TestRemoteJoinWithASpentCode(t *testing.T) {
