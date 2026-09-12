@@ -48,6 +48,33 @@ func TestQuitReachesAWedgedInstance(t *testing.T) {
 	}
 }
 
+// -new starts one project from nothing; it has no business dropping the other
+// projects the user had open from what the next start brings back.
+func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
+	isolateState(t)
+	a, b := t.TempDir(), t.TempDir()
+	before := &store.Session{Open: []string{a, b}, Active: b}
+	// What the -new run on a saved on its way out: only itself.
+	if err := store.SaveSession(&store.Session{Open: []string{a}, Active: a}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := keepOpenProjects(before); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("LoadSession = %v, %v", got, err)
+	}
+	if len(got.Open) != 2 || got.Open[0] != a || got.Open[1] != b || got.Active != a {
+		t.Errorf("session = %+v, want both projects open and this run's active", got)
+	}
+
+	if err := keepOpenProjects(nil); err != nil {
+		t.Errorf("a run without -new: %v", err)
+	}
+}
+
 // A record left behind by an instance that has gone still means nothing is
 // running, and the record is cleared on the way.
 func TestQuitWithOnlyAStaleRecord(t *testing.T) {

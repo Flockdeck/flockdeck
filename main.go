@@ -481,6 +481,16 @@ func run(opts options) error {
 		}
 	}
 
+	// -new starts this project from nothing, but the save on the way out
+	// writes the list of open projects from what this run had, which was only
+	// this one. Every other project the user had open fell out of the next
+	// start without a word, from a flag that said nothing about them, so the
+	// list is kept to be put back once this run's own has been written.
+	var before *store.Session
+	if opts.fresh {
+		before, _ = store.LoadSession()
+	}
+
 	ws, err := workspace.New(workspace.Options{Root: root})
 	if err != nil {
 		return err
@@ -604,6 +614,9 @@ func run(opts options) error {
 	}
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
+	}
+	if err := keepOpenProjects(before); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
 	}
 
 	// Once the deferred closes have run, the interface is closed and the panes
@@ -729,6 +742,22 @@ func sameFolder(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
+}
+
+// keepOpenProjects adds the projects open before a -new run back to the
+// session that run has just saved, after its own, which keeps its active
+// project the one the next start lands in. SaveSession drops the ones both
+// lists name. It does nothing for a run that was not started with -new.
+func keepOpenProjects(before *store.Session) error {
+	if before == nil {
+		return nil
+	}
+	now, err := store.LoadSession()
+	if err != nil || now == nil {
+		return err
+	}
+	now.Open = append(now.Open, before.Open...)
+	return store.SaveSession(now)
 }
 
 // shutdown stops serving, and only then saves.
