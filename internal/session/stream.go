@@ -115,9 +115,7 @@ type bellScanner struct {
 	// pos is how many bytes were scanned before the current chunk, and escAt
 	// where the escape that began the current sequence was.
 	pos, escAt int64
-	// private records that the control sequence being read is a DEC private
-	// one, CSI ?, and params holds its numbers.
-	private bool
+	// param and params hold the numbers of a DEC private sequence, CSI ?.
 	param   int
 	params  [4]int
 	nparams int
@@ -131,6 +129,22 @@ func (b *bellScanner) push() {
 		b.nparams++
 	}
 	b.param = 0
+}
+
+// control acts on a control character met inside a control sequence, which a
+// terminal does where it stands: a bell rings, and an escape or a CAN or SUB
+// abandons the sequence. i is where it is in the current chunk.
+func (b *bellScanner) control(c byte, i int) (bell bool) {
+	switch c {
+	case 0x07:
+		return true
+	case 0x1b:
+		b.state = scanEsc
+		b.escAt = b.pos + int64(i)
+	case 0x18, 0x1a:
+		b.state = scanNormal
+	}
+	return false
 }
 
 // trackedModes are the terminal modes a replay has to put back, alternate
@@ -211,6 +225,10 @@ const (
 	scanOSCEsc
 	scanCSI
 	scanEscArg
+	// scanCSIEntry is the first byte of a control sequence, which says whether
+	// it is a private one, and scanCSIPrivate the rest of one that is.
+	scanCSIEntry
+	scanCSIPrivate
 )
 
 // scan reports whether p contains a real bell.
@@ -242,8 +260,7 @@ func (b *bellScanner) scan(p []byte) bool {
 			case ']', 'P', '^', '_':
 				b.state = scanOSC
 			case '[':
-				b.state = scanCSI
-				b.private, b.param, b.nparams = false, 0, 0
+				b.state = scanCSIEntry
 			case 'c':
 				// A full reset puts every mode back as it started.
 				b.modes = termModes{}
@@ -257,14 +274,29 @@ func (b *bellScanner) scan(p []byte) bool {
 				// cannot be BEL, so tracking it adds nothing.
 				b.state = scanNormal
 			}
-		case scanCSI:
+		case scanCSIEntry, scanCSI:
 			// A control sequence is read for the modes it switches, which only
-			// a private one can. The others -- colours and cursor moves, which
-			// is nearly all of them -- are only watched for their end, and
-			// the checks are in the order that keeps them cheap.
+			// a private one -- CSI ? -- can. The others, colours and cursor
+			// moves and nearly everything else, are only watched for their end.
 			switch {
 			case c >= 0x40 && c <= 0x7e:
-				if b.private && (c == 'h' || c == 'l') {
+				b.state = scanNormal
+			case c < 0x20:
+				rang = b.control(c, i) || rang
+			case c == '?' && b.state == scanCSIEntry:
+				b.state = scanCSIPrivate
+				b.param, b.nparams = 0, 0
+			default:
+				b.state = scanCSI
+			}
+		case scanCSIPrivate:
+			switch {
+			case c >= '0' && c <= '9':
+				b.param = min(b.param*10+int(c-'0'), 1<<20)
+			case c == ';':
+				b.push()
+			case c >= 0x40 && c <= 0x7e:
+				if c == 'h' || c == 'l' {
 					b.push()
 					for _, mode := range b.params[:b.nparams] {
 						b.modes.set(mode, c == 'h', b.escAt)
@@ -272,23 +304,7 @@ func (b *bellScanner) scan(p []byte) bool {
 				}
 				b.state = scanNormal
 			case c < 0x20:
-				switch c {
-				case 0x07:
-					// A control character inside a sequence is acted on
-					// where it stands, the bell included.
-					rang = true
-				case 0x1b:
-					b.state = scanEsc
-					b.escAt = b.pos + int64(i)
-				case 0x18, 0x1a:
-					b.state = scanNormal // CAN and SUB abandon the sequence
-				}
-			case !b.private:
-				b.private = c == '?' && b.nparams == 0 && b.param == 0
-			case c >= '0' && c <= '9':
-				b.param = min(b.param*10+int(c-'0'), 1<<20)
-			case c == ';':
-				b.push()
+				rang = b.control(c, i) || rang
 			}
 		case scanOSC:
 			switch c {
