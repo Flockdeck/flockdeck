@@ -1384,3 +1384,40 @@ func TestCommitWaitsOutAnotherGitsLock(t *testing.T) {
 		t.Errorf("err = %v, want it to say another git command holds the lock", err)
 	}
 }
+
+// TestPullWaitsOutAnotherGitsLock: bringing a branch up to date writes the
+// index, and a pull that met an agent's own git holding it failed with git's
+// fetch lines and a cut-off explanation of the lock.
+func TestPullWaitsOutAnotherGitsLock(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+
+	restore := lockWait
+	t.Cleanup(func() { lockWait = restore })
+	lockWait = 10 * time.Second
+	lock := filepath.Join(mine, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(time.Second); os.Remove(lock) }()
+	if _, err := Pull(mine); err != nil {
+		t.Fatalf("a lock let go of should be waited out: %v", err)
+	}
+	if st := StatusOf(mine); st.Behind != 0 {
+		t.Errorf("behind = %d after the pull, want 0", st.Behind)
+	}
+}

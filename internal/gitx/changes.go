@@ -704,27 +704,47 @@ func writingIndex(dir string, args ...string) error {
 	if err == nil {
 		return nil
 	}
-	out, perr := run(dir, "rev-parse", "--git-path", "index.lock")
-	if perr != nil {
+	switch lock, held := waitForIndex(dir, err); {
+	case lock == "":
 		return err
-	}
-	lock := strings.TrimSpace(out)
-	if !filepath.IsAbs(lock) {
-		lock = filepath.Join(dir, lock)
-	}
-	held := func() bool { _, serr := os.Lstat(lock); return serr == nil }
-	if !held() {
-		return err
-	}
-	for deadline := time.Now().Add(lockWait); held() && time.Now().Before(deadline); {
-		time.Sleep(100 * time.Millisecond)
-	}
-	if held() {
-		return &gitError{"another git command is using this repository right now; try again in a moment. " +
-			"If nothing is running, " + lock + " was left behind by one that stopped part way, and deleting it lets git go on."}
+	case held:
+		return indexHeld(lock)
 	}
 	_, _, err = runCapture(context.Background(), networkTimeout, dir, args...)
 	return err
+}
+
+// waitForIndex is asked after a command that writes the index has failed with
+// failure. lock is empty when no other git process held the index, so the
+// failure was something else; otherwise it is the lock's path, and held says
+// whether it was still there after lockWait.
+//
+// The lock is usually gone by the time anyone looks -- the other git was
+// brief, which is the point of waiting for it -- so a failure that names the
+// lock file counts as having met it even when the file is no longer there.
+func waitForIndex(dir string, failure error) (lock string, held bool) {
+	out, err := run(dir, "rev-parse", "--git-path", "index.lock")
+	if err != nil {
+		return "", false
+	}
+	lock = strings.TrimSpace(out)
+	if !filepath.IsAbs(lock) {
+		lock = filepath.Join(dir, lock)
+	}
+	there := func() bool { _, serr := os.Lstat(lock); return serr == nil }
+	if !there() && !strings.Contains(failure.Error(), "index.lock") {
+		return "", false
+	}
+	for deadline := time.Now().Add(lockWait); there() && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
+	}
+	return lock, there()
+}
+
+// indexHeld is what a command that could not get at the index says.
+func indexHeld(lock string) error {
+	return &gitError{"another git command is using this repository right now; try again in a moment. " +
+		"If nothing is running, " + lock + " was left behind by one that stopped part way, and deleting it lets git go on."}
 }
 
 // conflicted names the files a merge left unresolved that still hold the
@@ -876,6 +896,17 @@ func Pull(dir string) (string, error) {
 		return "", &gitError{"this branch does not track anything on the remote yet, so there is nothing to pull; push it first to set that up"}
 	}
 	out, err := runVerbose(dir, "pull", "--ff-only")
+	if err != nil {
+		// Bringing the branch up to date writes the index, which an agent's
+		// own git may be holding at that moment; the fetch half is done by
+		// then, so trying again only has the rest to do.
+		if lock, held := waitForIndex(dir, err); lock != "" {
+			if held {
+				return "", indexHeld(lock)
+			}
+			out, err = runVerbose(dir, "pull", "--ff-only")
+		}
+	}
 	if err != nil {
 		if st := StatusOf(dir); st.Ahead > 0 && st.Behind > 0 {
 			return "", &gitError{fmt.Sprintf("this branch and %s have both moved on (%d commits here, %d there), "+
