@@ -430,8 +430,9 @@ func listItem(line string) (string, bool) {
 			return trimCheckbox(strings.TrimPrefix(line, marker)), true
 		}
 	}
-	// "1. text", "2) text", "10 - text", "(3) text"
-	if entry, ok := numberedItem(line); ok {
+	// "1. text", "2) text", "10 - text", "(3) text", and each of those written
+	// as a heading or in bold.
+	if entry, ok := numberedItem(unheaded(line)); ok {
 		return entry, true
 	}
 	// "TODO: text"
@@ -440,8 +441,25 @@ func listItem(line string) (string, bool) {
 			return line[len(prefix):], true
 		}
 	}
-	// "Task 2: text", "Step 3 — text"
-	return labelledItem(line)
+	// "Task 2: text", "Step 3 — text", "## Step 4: text"
+	return labelledItem(unheaded(line))
+}
+
+// unheaded strips what a numbered line of a plan may be dressed in: a markdown
+// heading, and bold.
+//
+// A plan long enough to put a paragraph under each step is as often numbered
+// with headings as with a list, and a plan written that way offered nothing to
+// fan out. Only the number makes such a line a task, so a heading without one
+// is still read as a heading.
+func unheaded(line string) string {
+	if h := strings.TrimLeft(line, "#"); h != line && strings.HasPrefix(h, " ") {
+		line = strings.TrimLeft(h, " ")
+	}
+	for _, mark := range []string{"**", "__"} {
+		line = strings.TrimPrefix(line, mark)
+	}
+	return line
 }
 
 // numberedItem strips a leading number and its separator.

@@ -923,6 +923,28 @@ func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
 	}
 }
 
+// A longer plan is often written as numbered headings, a paragraph under each,
+// or as numbered lines in bold. Neither began with a list marker, so the
+// extractor offered nothing for a plan it could have run as it stood.
+func TestExtractTasksReadsNumberedHeadings(t *testing.T) {
+	want := []string{"Split the router into its own package", "Add a timeout to every outbound request"}
+	for _, plan := range []string{
+		"## Plan\n\n### 1. Split the router into its own package\nIt has grown too big.\n\n### 2. Add a timeout to every outbound request\nNone has one.\n",
+		"## Step 1: Split the router into its own package\n\n## Step 2: Add a timeout to every outbound request\n",
+		"#### Task 1 — Split the router into its own package\n#### Task 2 — Add a timeout to every outbound request\n",
+		"**1. Split the router into its own package**\n\n**2. Add a timeout to every outbound request**\n",
+	} {
+		got := ExtractTasks(plan)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("ExtractTasks(%q) = %q, want %q", plan, got, want)
+		}
+	}
+	// A heading with no number is still a heading and not a job.
+	if got := ExtractTasks("## Overview of the router\n\n## Risks in the timeout work\n"); len(got) != 0 {
+		t.Errorf("plain headings were read as tasks: %q", got)
+	}
+}
+
 // The task becomes a command-line argument. Windows refuses a command line
 // past about thirty-two thousand characters, and what it says about that names
 // neither the task nor its length — so the length is checked here, where there
