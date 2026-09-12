@@ -132,10 +132,24 @@ func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool,
 func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err error) {
 	m.enrolling.Lock()
 	defer m.enrolling.Unlock()
-	if _, untold, err = Disable(ctx, m.version, force); err != nil {
+	// The relay closes the tunnel as revoked the moment it is told, and the
+	// window would show that, the relay no longer accepting this machine,
+	// until Reload caught up. So the tunnel is closed first; if the relay
+	// cannot be told after all, the enrolment stands and Reload reopens it.
+	m.reloading.Lock()
+	m.mu.Lock()
+	c := m.conn
+	m.mu.Unlock()
+	if c != nil {
+		c.Stop()
+	}
+	m.reloading.Unlock()
+	_, untold, err = Disable(ctx, m.version, force)
+	rerr := m.Reload()
+	if err != nil {
 		return nil, err
 	}
-	return untold, m.Reload()
+	return untold, rerr
 }
 
 // Close closes the tunnel, and every remote window with it.

@@ -843,6 +843,97 @@ func TestHostName(t *testing.T) {
 	}
 }
 
+// The relay closes the tunnel as revoked the moment it is told a machine is
+// leaving. Disabling from the window must not show that — the relay no
+// longer accepting this machine — to somebody who has just switched it off,
+// and a disable the relay refuses must leave the tunnel as it was.
+func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
+	isolate(t)
+	quick(t)
+	var mu sync.Mutex
+	var tunnel *websocket.Conn
+	refuse := true
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/host/connect", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		tunnel = conn
+		mu.Unlock()
+		sess, err := smux.Client(websocket.NetConn(context.Background(), conn, websocket.MessageBinary), smuxConfig())
+		if err != nil {
+			return
+		}
+		for {
+			if _, err := sess.AcceptStream(); err != nil {
+				return
+			}
+		}
+	})
+	mux.HandleFunc("POST /api/v1/hosts", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"hostId":"h1","accountId":"a1","token":"fdh_test"}`)
+	})
+	mux.HandleFunc("DELETE /api/v1/host", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		c, no := tunnel, refuse
+		mu.Unlock()
+		if no {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":"the relay could not unregister this desktop"}`)
+			return
+		}
+		// What the relay does: kick the tunnel as revoked, then answer.
+		if c != nil {
+			go c.Close(CloseRevoked, "this desktop was unregistered")
+			time.Sleep(20 * time.Millisecond)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var seen []State
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: srv.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	connected := func() bool { st, _ := m.Status(); return st.State == StateConnected }
+	waitFor(t, "connected", connected)
+
+	var untold *RelayUntoldError
+	if _, err := m.Disable(context.Background(), false); !errors.As(err, &untold) {
+		t.Fatalf("a disable the relay refused = %v, want a RelayUntoldError", err)
+	}
+	waitFor(t, "the tunnel back after a refused disable", connected)
+
+	mu.Lock()
+	refuse, seen = false, nil
+	mu.Unlock()
+	if _, err := m.Disable(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateRevoked {
+			t.Errorf("disabling showed the window %v on the way", seen)
+			break
+		}
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {
