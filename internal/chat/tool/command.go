@@ -203,7 +203,7 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	runErr := cmd.Run()
 
 	var b strings.Builder
-	b.WriteString(out.String())
+	b.WriteString(stripANSI(out.String()))
 	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
 		b.WriteString("\n")
 	}
