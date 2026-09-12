@@ -19,7 +19,6 @@ const (
 	ansiCyan  = "\x1b[36m"
 	ansiBlue  = "\x1b[34m"
 	ansiRed   = "\x1b[31m"
-	ansiGreen = "\x1b[32m"
 )
 
 // defaultWidth is what the answer is wrapped to when the terminal's width
@@ -365,8 +364,6 @@ func (p *printer) blankLine() {
 // conversation replayed from a transcript, or the model's own reasoning. Both
 // are there to be glanced at, and neither should read as what was just said.
 func (p *printer) setDim(on bool) { p.dim = on }
-
-func (p *printer) flush() { p.w.Flush() }
 
 // isHeadingMarker reports whether a word is a markdown heading's hashes and
 // nothing else. A hash on its own as a word in prose is rare; "#include" or
