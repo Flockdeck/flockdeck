@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -49,7 +50,7 @@ func runUpdate(args []string) error {
 	// first would turn "you built this yourself" into whatever the network had
 	// to say, which for a repository that has published nothing yet is a 404.
 	if !selfupdate.Parseable(version) {
-		fmt.Printf("This build (%s) was not made from a release, so there is no released version to compare it with.\n", version)
+		fmt.Printf("This build (%s) was not made from a release, so there is no released version to compare it with.\n", shownVersion())
 		fmt.Printf("Releases are published from %s; a build made here is stamped by git describe.\n", selfupdate.Repo)
 		return nil
 	}
@@ -127,6 +128,33 @@ func runUpdate(args []string) error {
 		fmt.Println("Flockdeck is running now: quit it and start it again to switch to the new version.")
 	}
 	return nil
+}
+
+// shownVersion is the version to show a person, as opposed to the one updates
+// are decided on.
+func shownVersion() string {
+	built := ""
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		built = bi.Main.Version
+	}
+	return displayVersion(version, built)
+}
+
+// displayVersion is shownVersion for a given stamp and the module version Go
+// recorded in the build.
+//
+// A release is stamped by its build, but `go install
+// github.com/jmwri/flockdeck@latest`, the README's first way to install, stamps
+// nothing, and so does a plain go build: the program called itself `dev`,
+// which is no use in a bug report, although Go records the version it was
+// built from — the module's, or since Go 1.24 a pseudo-version taken from the
+// checkout's tags. That is shown instead, marked as not a release. Updates are
+// still decided on the stamp, so such a build is never replaced by a release.
+func displayVersion(stamp, built string) string {
+	if stamp != "dev" || !selfupdate.Parseable(built) {
+		return stamp
+	}
+	return built + " (built from source, not a release)"
 }
 
 // upToDate is what `flockdeck update` says when there is nothing to install.

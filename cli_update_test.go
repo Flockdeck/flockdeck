@@ -67,6 +67,25 @@ func TestUpdateRefusesAStrayWord(t *testing.T) {
 	}
 }
 
+// A build stamped nothing shows the version Go recorded for it, marked as not
+// a release; a stamped release, or a build Go recorded nothing useful for, shows
+// what it always did.
+func TestDisplayVersion(t *testing.T) {
+	pseudo := "v0.2.3-0.20260912013310-d1bd2676a15b"
+	cases := []struct{ stamp, built, want string }{
+		{"v1.4.0", pseudo, "v1.4.0"},
+		{"dev", pseudo, pseudo + " (built from source, not a release)"},
+		{"dev", "v1.4.0", "v1.4.0 (built from source, not a release)"},
+		{"dev", "(devel)", "dev"},
+		{"dev", "", "dev"},
+	}
+	for _, c := range cases {
+		if got := displayVersion(c.stamp, c.built); got != c.want {
+			t.Errorf("displayVersion(%q, %q) = %q, want %q", c.stamp, c.built, got, c.want)
+		}
+	}
+}
+
 // A build newer than anything published is not "the latest release", and
 // saying so about a candidate or a withdrawn release was simply untrue.
 func TestUpToDate(t *testing.T) {
