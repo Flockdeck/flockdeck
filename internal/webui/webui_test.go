@@ -3055,6 +3055,19 @@ assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard wh
 `)
 }
 
+// In a narrow window the chips on the right of the top bar took all the room.
+// Measured in Chrome: at 640px the tab strip was 23px wide and its one tab
+// unreadable, and at 480px the bar ran 129px past the edge, the help button
+// with it. The chips that open dialogs, which the palette and their keys also
+// reach, step aside there.
+func TestANarrowWindowKeepsTheTabsAndTheHelp(t *testing.T) {
+	css := readAsset(t, "app.css")
+	block := regexp.MustCompile(`@media\s*\(max-width:\s*(\d+)px\)\s*\{\s*#btn-changes,\s*#btn-history,\s*#btn-worktrees\s*\{\s*display:\s*none`).FindStringSubmatch(css)
+	if block == nil {
+		t.Fatal("the dialog chips keep their room in a narrow window, so the tabs and the help button are squeezed out")
+	}
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

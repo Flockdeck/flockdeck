@@ -50,6 +50,14 @@ body { display: flex; flex-direction: column; }
  * part that should give up width. Without this the buttons on the right shrink
  * too and the last of them is clipped off the edge of a narrow window. */
 #topbar > .chip, #topbar > .icon-btn, #topbar > .divider-v { flex: 0 0 auto; }
+/* In a narrow window the chips took all of that: measured in Chrome, at 640px
+ * the strip was left 23px, the one tab in it unreadable, and at 480px the bar
+ * ran 129px past the edge and the help button with it, out of reach. The
+ * three that open dialogs step aside there - each is in the palette and has a
+ * key of its own - so the tabs, the summary and the help stay. */
+@media (max-width: 820px) {
+  #btn-changes, #btn-history, #btn-worktrees { display: none; }
+}
 
 .tab {
   display: flex;
