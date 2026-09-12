@@ -64,8 +64,9 @@ function Install-Flockdeck {
 
     $version = $env:FLOCKDECK_VERSION
     if (-not $version) {
-        # latest.json names the latest release. Anything that does not read
-        # as a release version is refused rather than downloaded.
+        # latest.json names the latest release, and holds nothing else:
+        # {"version":"v1.2.3"}. Anything that does not read as a release
+        # version is refused rather than downloaded.
         try {
             $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 "$primary/latest.json"
             $text = if ($resp.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($resp.Content) } else { $resp.Content }

@@ -66,7 +66,8 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprint(w, `{"tag_name": "v9.9.9", "draft": false}`)
 		return
 	case (place == "dl" || place == "mirror") && rest == "latest.json":
-		fmt.Fprintf(w, "{\n  \"version\": %q,\n  \"date\": \"2026-09-12T00:00:00Z\",\n  \"files\": []\n}\n", latest)
+		// As cmd/release writes it: the version, and nothing else.
+		fmt.Fprintf(w, "{\"version\":%q}\n", latest)
 		return
 	case place != "dl" && place != "gh" && place != "mirror":
 		http.NotFound(w, req)

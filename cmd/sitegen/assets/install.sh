@@ -87,10 +87,10 @@ detect_arch() {
 	esac
 }
 
-# latest_from prints the version the latest.json at $1 names. There is no jq
-# to lean on everywhere this runs, and none is needed: the release's version
-# is the one "version" the file holds, and anything that does not read as a
-# release version is refused rather than downloaded.
+# latest_from prints the version the latest.json at $1 names, which is all the
+# file holds: {"version":"v1.2.3"}. There is no jq to lean on everywhere this
+# runs, and none is needed, and anything that does not read as a release
+# version is refused rather than downloaded.
 latest_from() {
 	fetch "$1/latest.json" "$tmp/latest.json" 2>/dev/null || return 1
 	v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
