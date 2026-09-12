@@ -208,6 +208,10 @@ type paneView struct {
 	Untracked int    `json:"untracked"`
 	Ahead     int    `json:"ahead"`
 	Behind    int    `json:"behind"`
+	// GitTimedOut says the last read of the pane's checkout gave up before git
+	// answered, so the four counts above are the ones read before that and may
+	// no longer be true. The header says so instead of showing them.
+	GitTimedOut bool `json:"gitTimedOut,omitempty"`
 
 	// What the pane's process and everything it has spawned are costing the
 	// machine. Left out when there is nothing to report -- a pane with no
@@ -376,6 +380,7 @@ func (s *Server) snapshot() stateMsg {
 			}
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind
+			pv.GitTimedOut = p.GitTimedOut
 			msg.Panes[p.ID] = pv
 		}
 	}

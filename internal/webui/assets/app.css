@@ -361,6 +361,7 @@ textarea:focus-visible {
 .pane-git .dirty { color: var(--waiting); }
 .pane-git .ahead { color: var(--working); }
 .pane-git .behind { color: var(--exited); }
+.pane-git .late { color: var(--fg-dim); font-style: italic; }
 /* What the pane is costing the machine. It is glanceable detail rather than
  * identity, so it is the first thing in the header to give up its width: a
  * high shrink factor lets it clip away in a three-way split while the pane
