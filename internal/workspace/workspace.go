@@ -855,7 +855,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	var argv, env []string
 	if !p.IsAgent() {
 		argv = session.ShellArgs()
-		env = session.Env(w.paneEnv(p, "", "")...)
+		env = w.environ(w.paneEnv(p, "", "")...)
 	} else {
 		// An empty agent is not a missing one: it means whichever agent this
 		// pane would be opened with today -- the project's default, or the
@@ -950,7 +950,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// of a secret is a second place it can be read from.
 			extra = append(extra, creds.Env(spec)...)
 		}
-		env = session.Env(append(extra, w.paneEnv(p, spec.ID, model)...)...)
+		env = w.environ(append(extra, w.paneEnv(p, spec.ID, model)...)...)
 	}
 
 	s, err := session.Start(session.Config{
@@ -979,6 +979,17 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	w.mu.Unlock()
 	// The opening prompt is spent; a later restart resumes instead.
 	p.initial = ""
+}
+
+// environ builds a pane's environment: Flockdeck's own, less the markers every
+// agent in the catalog asks to have taken out, plus extra.
+//
+// The whole catalog's list rather than the built-in one, because the markers
+// are those of whatever session Flockdeck was launched from, which has nothing
+// to do with the agent in this pane — and an agent the user added with a
+// "stripEnv" of its own would otherwise have it ignored in every pane.
+func (w *Workspace) environ(extra ...string) []string {
+	return session.EnvStripping(w.agents().StripEnv(), extra...)
 }
 
 // paneEnv gives a pane what it needs to call back into the application, so an
