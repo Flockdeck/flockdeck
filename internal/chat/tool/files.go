@@ -308,6 +308,13 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", t.root.Rel(abs))
 	}
+	// read_file shows a file without its carriage returns, so a file with
+	// Windows line endings is rewritten with bare newlines, and every one of
+	// its lines would then show as changed. A rewrite keeps the file's own
+	// endings, as an edit does.
+	if old, err := os.ReadFile(abs); err == nil && bytes.Contains(old, []byte("\r\n")) {
+		a.Content = withCRLF(a.Content)
+	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return "", t.root.explain(err)
 	}
