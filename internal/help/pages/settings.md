@@ -85,7 +85,8 @@ set).
 - `sessions` — the settings file written for each pane whose agent reports its
   status.
 - `chats` — the built-in chat client's conversations.
-- `window` — the browser profile the window runs in.
+- `window` — the browser profile the window runs in. On Windows it is kept
+  apart from the rest, in `%LOCALAPPDATA%\flockdeck\window`.
 
 To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
 the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start

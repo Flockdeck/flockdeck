@@ -90,7 +90,7 @@ neither installing nor updating ever asks for admin rights. The scripts are in
 
 Both read a few settings from the environment:
 
-- `FLOCKDECK_VERSION` — a release such as `v0.1.1` instead of the latest. To
+- `FLOCKDECK_VERSION` — a release such as `v0.2.8` instead of the latest. To
   stay on it, also set `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it
   updates itself.
 - `FLOCKDECK_INSTALL_DIR` — another directory to install into.
@@ -106,7 +106,7 @@ curl -fsSL https://flockdeck.ai/install.sh | FLOCKDECK_INSTALL_DIR=~/bin sh
 ```
 
 ```powershell
-$env:FLOCKDECK_VERSION = 'v0.1.1'; irm https://flockdeck.ai/install.ps1 | iex
+$env:FLOCKDECK_VERSION = 'v0.2.8'; irm https://flockdeck.ai/install.ps1 | iex
 ```
 
 With Go:
