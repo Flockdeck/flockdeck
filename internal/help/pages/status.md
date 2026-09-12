@@ -13,6 +13,7 @@ Every pane header carries a status dot.
 | Green, pulsing | **Working** — producing output or running a tool |
 | Amber | **Waiting on you** — a permission prompt or a question |
 | Grey | **Idle** — it finished its turn and is ready for a new prompt |
+| Faint grey | **Starting** — launched, and not heard from yet |
 | Red | **Exited** — the process is gone |
 
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
