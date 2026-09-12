@@ -214,6 +214,16 @@ func keysSet(agentID string, kio keysIO) error {
 	// everywhere else here too. It says when the key takes effect, because a
 	// pane already running still holds the key it started with.
 	fmt.Fprintf(kio.out, "stored a key for %s\n", agentID)
+	// A key in the environment is used before a stored one, so one there
+	// makes the key just stored one that nothing reads: somebody replacing a
+	// refused key this way would go on having it refused.
+	if spec, err := keyAgentSpec(agentID); err == nil {
+		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
+			fmt.Fprintf(kio.out, "but %s is set in this environment, and is used before the stored key by anything started from it;\n", st.Env)
+			fmt.Fprintf(kio.out, "unset %s for the stored key to be used\n", st.Env)
+			return nil
+		}
+	}
 	fmt.Fprintf(kio.out, "new panes use it; one already running picks it up when its old key is refused, or when it is restarted\n")
 	return nil
 }

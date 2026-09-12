@@ -397,3 +397,24 @@ func TestKeysEndpointChangesOnlyTheAddress(t *testing.T) {
 		t.Errorf("an address with a password in it: %v", err)
 	}
 }
+
+// A key in the environment is used before a stored one, and storing a key
+// while one is there says so, naming the variable and never either key.
+func TestKeysSetSaysWhenTheEnvironmentWins(t *testing.T) {
+	isolateKeys(t)
+	name := keysAgent(t, "anthropic").API.KeyEnv[0]
+	t.Setenv(name, "sk-from-the-environment")
+	out, err := runKeysCmd(t, "sk-just-stored\n", "set", "anthropic")
+	if err != nil {
+		t.Fatalf("keys set: %v", err)
+	}
+	if !strings.Contains(out, name+" is set in this environment") || !strings.Contains(out, "unset "+name) {
+		t.Errorf("the variable that wins is not named:\n%s", out)
+	}
+	if strings.Contains(out, "new panes use it") {
+		t.Errorf("says new panes use a key they will not:\n%s", out)
+	}
+	if strings.Contains(out, "sk-from-the-environment") || strings.Contains(out, "sk-just-stored") {
+		t.Errorf("a key was printed:\n%s", out)
+	}
+}
