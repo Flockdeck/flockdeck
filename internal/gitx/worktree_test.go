@@ -724,3 +724,26 @@ func TestABranchHeldByADeletedWorktreeSaysToPrune(t *testing.T) {
 		t.Errorf("after pruning, the branch should check out again: %v", err)
 	}
 }
+
+// TestRemovingABusyWorktreeSaysWhatIsLeft: on Windows a file held open in the
+// worktree lets git drop its record and then fail to delete the folder, with
+// "Invalid argument"; pressing remove again answers only that it is not a
+// worktree.
+func TestRemovingABusyWorktreeSaysWhatIsLeft(t *testing.T) {
+	if filepath.Separator == '/' {
+		t.Skip("an open file stops a deletion only on Windows")
+	}
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "busy")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "busy", wt)
+	write(t, wt, "open.txt", "x\n")
+	f, err := os.Open(filepath.Join(wt, "open.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	err = Remove(repo, wt, true)
+	if err == nil || !strings.Contains(err.Error(), "could not be deleted") || !strings.Contains(err.Error(), wt) {
+		t.Errorf("err = %v, want it to say the folder is left and why", err)
+	}
+}

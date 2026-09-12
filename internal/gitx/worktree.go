@@ -205,6 +205,20 @@ func Remove(repoDir, path string, force bool) error {
 	}
 	args = append(args, "--", path)
 	_, err = run(repoDir, args...)
+	if err != nil {
+		// On Windows a file held open -- an editor, a shell sitting in the
+		// folder -- lets git drop its record of the worktree and then fail to
+		// delete the folder, with nothing better to say than "Invalid
+		// argument". The folder is left behind, no longer a worktree, and
+		// pressing remove again only answers that it is not one.
+		if _, still, lerr := findWorktree(repoDir, path); lerr == nil && !still {
+			if _, serr := os.Lstat(path); serr == nil {
+				return &gitError{fmt.Sprintf("%s is no longer a worktree, but its folder could not be deleted: "+
+					"something still has a file open in it. Close whatever is using %s, then delete the folder.",
+					filepath.Base(path), path)}
+			}
+		}
+	}
 	return err
 }
 
