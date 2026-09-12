@@ -710,8 +710,10 @@ func remoteDisable(args []string, rio remoteIO) error {
 	switch {
 	case errors.As(err, &relayUntold):
 		// Nothing but this machine can take it off the relay, so forgetting
-		// the enrolment here leaves it listed there, and that is the cost.
-		return fmt.Errorf("%v; run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, for good, since nothing but this machine can take it off", err)
+		// the enrolment here leaves it listed there, and that is the cost. A
+		// relay out of reach is most often a network down for now, so trying
+		// again is said first, as enable's refusal says it.
+		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, for good, since nothing but this machine can take it off", err)
 	case err != nil:
 		return err
 	case !had:

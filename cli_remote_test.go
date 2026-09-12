@@ -300,12 +300,17 @@ func TestRemoteDisableNeedsForceWhenTheRelayIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	if _, _, err := runRemoteCmd(t, "disable"); err == nil || !strings.Contains(err.Error(), "-force") {
+	_, _, err := runRemoteCmd(t, "disable")
+	if err == nil || !strings.Contains(err.Error(), "-force") {
 		t.Errorf("disable with the relay gone = %v, want it to suggest -force", err)
 	} else if strings.Contains(err.Error(), "paired device") || !strings.Contains(err.Error(), "nothing but this machine can take it off") {
 		// No device can remove a machine from the relay; the cost of -force
 		// is that it stays listed.
 		t.Errorf("disable with the relay gone = %v, want it to give the real cost of -force", err)
+	} else if !strings.Contains(err.Error(), "try again once the relay can be reached, or, if it is gone for good, run again with -force") {
+		// A relay out of reach is most often a network down for now, and
+		// -force is the step nothing can undo.
+		t.Errorf("disable with the relay gone = %v, want it to say to try again before forcing", err)
 	}
 	if cfg, _ := remote.Load(); cfg == nil {
 		t.Fatal("a failed disable forgot the enrolment")
