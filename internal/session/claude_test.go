@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -298,10 +299,51 @@ func TestAFailedVersionQuestionIsAskedAgain(t *testing.T) {
 // stands in for a Claude Code that takes too long to say its version. This
 // has to happen before the test flags are parsed, which would reject
 // --version and exit at once.
+//
+// Set to "orphan", it first starts a copy of itself that holds its standard
+// output for ten seconds, as node does when an npm shim's cmd.exe is killed.
 func init() {
-	if os.Getenv("FLOCKDECK_SLOW_VERSION") == "1" && len(os.Args) == 2 && os.Args[1] == "--version" {
+	if len(os.Args) != 2 || os.Args[1] != "--version" {
+		return
+	}
+	switch os.Getenv("FLOCKDECK_SLOW_VERSION") {
+	case "1":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
+	case "held":
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "orphan":
+		held := exec.Command(os.Args[0], "--version")
+		held.Env = append(os.Environ(), "FLOCKDECK_SLOW_VERSION=held")
+		held.Stdout = os.Stdout
+		_ = held.Start()
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+}
+
+// TestTheVersionQuestionIsNotHeldByAnOrphan covers a Claude Code that leaves
+// something behind holding its output when it is killed for taking too long:
+// an npm install on Windows is claude.cmd, and killing its cmd.exe leaves node
+// running. The answer was waited for until that let go as well, however long,
+// and it is asked on the goroutine that owns the workspace.
+func TestTheVersionQuestionIsNotHeldByAnOrphan(t *testing.T) {
+	wait := versionTimeout
+	// Long enough for the program to have started what it leaves behind.
+	versionTimeout = 1500 * time.Millisecond
+	t.Cleanup(func() { versionTimeout = wait })
+	t.Setenv("FLOCKDECK_SLOW_VERSION", "orphan")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	if got := installedClaudeVersion(self); got != "" {
+		t.Errorf("a program that did not answer in time reported %q", got)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("the version question took %v, held open by what the program left behind", took)
 	}
 }
 

@@ -166,6 +166,12 @@ func installedClaudeVersion(exe string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "--version")
 	sysproc.NoWindow(cmd)
+	// Killing the program on the timeout is not the end of waiting for its
+	// output: that goes on until everything holding the pipe has let go, and
+	// an npm install on Windows is claude.cmd, whose cmd.exe is what gets
+	// killed while the node it started carries on holding it. This is asked
+	// on the goroutine that owns the workspace, so the wait is bounded too.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
