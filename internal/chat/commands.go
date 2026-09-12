@@ -423,6 +423,17 @@ func (s *session) history(arg string) {
 // user's prompts dimmed under "you", the answers as answers, and each tool's
 // output as the one line it was drawn as then, not the whole of it.
 func (s *session) drawEntries(entries []Entry) {
+	// Each tool's output is numbered the way /output counts, back from the
+	// latest, so that the step somebody scrolled back to find can be opened
+	// whole: listed without its number, it could be seen and not reached.
+	// The entries drawn always run to the end of the conversation, which is
+	// where /output counts from.
+	left := 0
+	for _, e := range entries {
+		if e.Type == string(RoleTool) {
+			left++
+		}
+	}
 	for _, e := range entries {
 		switch e.Type {
 		case string(RoleUser):
@@ -437,9 +448,11 @@ func (s *session) drawEntries(entries []Entry) {
 			s.out.text(e.Text)
 			s.out.endMessage()
 		case string(RoleTool):
+			number := left
+			left--
 			summary := clipTo(leadLine(e.Text), s.opts.Width-16)
 			if n := strings.Count(strings.TrimRight(e.Text, "\n"), "\n") + 1; n > 1 {
-				summary += fmt.Sprintf(" (%d lines)", n)
+				summary += fmt.Sprintf(" (%d lines; /output %d)", n, number)
 			}
 			// What the call acted on, where the entry records it; a
 			// transcript written before it did names only the tool.

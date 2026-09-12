@@ -26,7 +26,7 @@ func TestHistoryDrawsACommandByItsResult(t *testing.T) {
 	log.Close()
 
 	out := run(t, Options{Agent: "anthropic", Resume: true, Dir: dir}, "/history\n/exit\n", &scriptedWire{})
-	if strings.Contains(out, "=== RUN") || !strings.Contains(out, "[exit status 1] (4 lines)") {
+	if strings.Contains(out, "=== RUN") || !strings.Contains(out, "[exit status 1] (4 lines; /output 1)") {
 		t.Errorf("the command was not drawn by its result:\n%s", out)
 	}
 }

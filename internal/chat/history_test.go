@@ -21,7 +21,7 @@ func TestResumeDrawsToolOutputAsItWasDrawn(t *testing.T) {
 	log.Close()
 
 	out := run(t, Options{Agent: "anthropic", Dir: dir, Resume: true}, "/exit\n", &scriptedWire{})
-	if !strings.Contains(out, "· read_file  1") || !strings.Contains(out, "(3 lines)") {
+	if !strings.Contains(out, "· read_file  1") || !strings.Contains(out, "(3 lines;") {
 		t.Errorf("the tool's output was not drawn as one line:\n%s", out)
 	}
 	if strings.Contains(out, "func main() {}") {
