@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -114,6 +115,24 @@ func cleanProgress(s string) string {
 
 // runCapture executes git in dir and returns stdout and stderr separately.
 func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
+	var out bytes.Buffer
+	errText, err := runTo(parent, timeout, dir, &out, args...)
+	if err != nil {
+		return "", "", err
+	}
+	return out.String(), errText, nil
+}
+
+// output is where runTo puts what git writes to stdout. It is read back only
+// for an error message, when git explained itself there instead of on stderr.
+type output interface {
+	io.Writer
+	String() string
+}
+
+// runTo is runCapture with stdout going to out, for a caller that means to
+// keep only part of it; stderr is returned.
+func runTo(parent context.Context, timeout time.Duration, dir string, out output, args ...string) (string, error) {
 	// An empty Dir does not mean "no repository" to exec: it means the
 	// directory this process happens to be running in. Flockdeck is often started
 	// from inside a checkout of something, so a caller that lost track of
@@ -122,7 +141,7 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 	// with a real status for an entirely unrelated repository, and shown it as
 	// though it were the project's.
 	if strings.TrimSpace(dir) == "" {
-		return "", "", fmt.Errorf("git %s: no working tree was named", strings.Join(args, " "))
+		return "", fmt.Errorf("git %s: no working tree was named", strings.Join(args, " "))
 	}
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
@@ -142,8 +161,8 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_OPTIONAL_LOCKS=0",
 	)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
+	var errb bytes.Buffer
+	cmd.Stdout = out
 	cmd.Stderr = &errb
 	// The deadline kills git and nothing git started. A hook, an ssh or a
 	// credential helper still holding the output pipes kept Run waiting for
@@ -160,10 +179,10 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
+			return "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
 		}
 		if parent.Err() != nil {
-			return "", "", parent.Err()
+			return "", parent.Err()
 		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back
@@ -175,9 +194,9 @@ func runCapture(parent context.Context, timeout time.Duration, dir string, args 
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 5))
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 5))
 	}
-	return out.String(), errb.String(), nil
+	return errb.String(), nil
 }
 
 // withoutHints drops git's advice when there is anything else to say.

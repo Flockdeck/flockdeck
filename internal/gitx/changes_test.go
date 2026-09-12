@@ -751,7 +751,7 @@ func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
 	line := "+" + strings.Repeat("é", 300) + "\n"
 	whole := strings.Repeat(line, (maxDiffBytes/len(line))+10)
 
-	got := truncateDiff(whole)
+	got := truncateDiff(whole, len(whole))
 	body, marker, found := strings.Cut(got, "… truncated")
 	if !found {
 		t.Fatal("a diff over the cap should say it was truncated")
@@ -770,7 +770,7 @@ func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
 
 	// Anything within the cap is passed through untouched.
 	small := "--- a\n+++ b\n+one\n"
-	if truncateDiff(small) != small {
+	if truncateDiff(small, len(small)) != small {
 		t.Error("a small diff should not be altered")
 	}
 }

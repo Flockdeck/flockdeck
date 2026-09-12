@@ -408,7 +408,7 @@ func Diff(dir, path string) (string, error) {
 			return "", err
 		}
 	}
-	return truncateDiff(out), nil
+	return out, nil
 }
 
 // pathspec wraps a file name so git reads it as the name of one file rather
@@ -433,14 +433,40 @@ func pathspec(path string) string { return ":(literal)" + path }
 // rendering writes by hand, leaving the two sources of diff text unalike.
 var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/"}
 
-// gitDiff runs a diff with those flags ahead of the caller's arguments.
+// gitDiff runs a diff with those flags ahead of the caller's arguments, and
+// returns it cut down to what the panel is sent.
+//
+// Only that much is kept as git writes it. A regenerated lockfile or bundle
+// can differ by tens of megabytes, and holding all of it to throw nearly all
+// of it away allocated 222MB for a 70MB diff, on every click of the file.
 func gitDiff(dir string, args ...string) (string, error) {
 	argv := make([]string, 0, len(diffFlags)+len(args)+1)
 	argv = append(argv, "diff")
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
-	return run(dir, argv...)
+	out := &headWriter{limit: maxDiffBytes + 1}
+	if _, err := runTo(context.Background(), commandTimeout, dir, out, argv...); err != nil {
+		return "", err
+	}
+	return truncateDiff(out.String(), out.total), nil
 }
+
+// headWriter keeps the first limit bytes written to it and counts the rest.
+type headWriter struct {
+	head  []byte
+	limit int
+	total int
+}
+
+func (w *headWriter) Write(p []byte) (int, error) {
+	w.total += len(p)
+	if room := w.limit - len(w.head); room > 0 {
+		w.head = append(w.head, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func (w *headWriter) String() string { return string(w.head) }
 
 // isWholeFileAddition reports whether a diff says the file did not exist
 // before. The test is anchored to the start of a line: a diff body carries
@@ -560,8 +586,10 @@ func renderAsAddition(path, content string, omitted int64) string {
 // truncateDiff caps a diff at maxDiffBytes, on a line boundary: cutting at an
 // exact byte count leaves half a line, which the panel colours as though it
 // were a real one, and can slice a UTF-8 character in two.
-func truncateDiff(s string) string {
-	if len(s) <= maxDiffBytes {
+//
+// s is at least the start of the diff, and total is how long all of it was.
+func truncateDiff(s string, total int) string {
+	if total <= maxDiffBytes {
 		return s
 	}
 	cut := s[:maxDiffBytes]
@@ -570,7 +598,7 @@ func truncateDiff(s string) string {
 	} else {
 		cut += "\n"
 	}
-	return cut + fmt.Sprintf("… truncated, %d more bytes\n", len(s)-len(cut))
+	return cut + fmt.Sprintf("… truncated, %d more bytes\n", total-len(cut))
 }
 
 // CommitAll stages everything and commits it.

@@ -52,3 +52,15 @@ func TestErrorsSkipBlankLines(t *testing.T) {
 		t.Errorf("identity failure reads %q, want the commands that fix it", got)
 	}
 }
+
+// TestHeadWriterKeepsOnlyWhatIsShown: a diff of tens of megabytes was held
+// whole to be cut down to the few hundred kilobytes the panel is sent.
+func TestHeadWriterKeepsOnlyWhatIsShown(t *testing.T) {
+	w := &headWriter{limit: 10}
+	for range 1000 {
+		w.Write([]byte("0123456789abcdef"))
+	}
+	if w.String() != "0123456789" || w.total != 16000 || cap(w.head) > 64 {
+		t.Errorf("kept %q (cap %d) of %d bytes; want the first 10 of 16000", w.String(), cap(w.head), w.total)
+	}
+}
