@@ -139,6 +139,10 @@ func (c *Connector) Start() {
 	c.done = make(chan struct{})
 	done := c.done
 	c.mu.Unlock()
+	// Connecting from the moment Start returns: whatever is told of it just
+	// after, the window as remote access comes on, would otherwise see it
+	// off for the instant before the goroutine below gets to run.
+	c.set(StateConnecting, "", time.Time{})
 	go func() {
 		defer close(done)
 		c.run(ctx)

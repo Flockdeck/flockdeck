@@ -1010,6 +1010,41 @@ func TestManagerDisableOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
 	}
 }
 
+// Remote access coming on is shown as connecting, never, for an instant, as
+// off: the window is told as soon as the tunnel is started.
+func TestEnablingIsNeverShownAsOff(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var cfg *Config
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	m.load = func() (*Config, error) { return cfg, nil }
+	defer m.Close()
+	c := f.config()
+	cfg = &c
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateOff {
+			t.Errorf("remote access coming on was shown as %v", seen)
+			break
+		}
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {
