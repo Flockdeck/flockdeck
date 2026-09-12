@@ -391,6 +391,19 @@ func AddFrom(repoDir, path, branch, base string) error {
 	case branchExists(repoDir, branch):
 		args = append(args, "--", path, branch)
 	default:
+		// git's word on a name it will not take is only that it is "not a
+		// valid branch name", after a line of its own progress, which leaves
+		// the person who typed "my feature" to guess what is wrong with it.
+		if _, err := run(repoDir, "check-ref-format", "--branch", branch); err != nil {
+			msg := fmt.Sprintf("%q cannot be a branch name: git allows no spaces, \"..\", \":\", \"~\", \"^\", \"?\", \"*\", \"[\" "+
+				"or backslash in one, and none ending in \"/\" or \".lock\"", branch)
+			if s := branchSuggestion(branch); s != "" && s != branch {
+				if _, serr := run(repoDir, "check-ref-format", "--branch", s); serr == nil {
+					msg += fmt.Sprintf("; %q would do", s)
+				}
+			}
+			return &gitError{msg}
+		}
 		args = append(args, "-b", branch, "--", path)
 		if base != "" {
 			args = append(args, base)
@@ -412,6 +425,37 @@ func AddFrom(repoDir, path, branch, base string) error {
 		}
 	}
 	return err
+}
+
+// branchSuggestion turns a name git refused into one it would take, for the
+// message that says so: runs of what a branch cannot hold become one dash,
+// and what it cannot end with is taken off.
+func branchSuggestion(name string) string {
+	var b strings.Builder
+	var dash bool
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == 0x5c || strings.ContainsRune("~^:?*[", r) {
+			if !dash {
+				b.WriteRune('-')
+				dash = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		dash = false
+	}
+	s := b.String()
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", ".")
+	}
+	s = strings.ReplaceAll(s, "@{", "@-")
+	for {
+		trimmed := strings.TrimSuffix(strings.Trim(s, "-/."), ".lock")
+		if trimmed == s {
+			return s
+		}
+		s = trimmed
+	}
 }
 
 // DefaultBase returns a sensible starting point for a new branch: the current

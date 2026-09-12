@@ -747,3 +747,25 @@ func TestRemovingABusyWorktreeSaysWhatIsLeft(t *testing.T) {
 		t.Errorf("err = %v, want it to say the folder is left and why", err)
 	}
 }
+
+// TestABranchNameGitRefusesSaysWhyAndOffersOne: git said only that the name
+// was "not a valid branch name", after a line of its own progress.
+func TestABranchNameGitRefusesSaysWhyAndOffersOne(t *testing.T) {
+	repo := newRepo(t)
+	for name, want := range map[string]string{
+		"my feature": `"my-feature" would do`,
+		"wip:today":  `"wip-today" would do`,
+		"topic.lock": `"topic" would do`,
+		"trailing/":  `"trailing" would do`,
+	} {
+		err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), name, "")
+		if err == nil || !strings.Contains(err.Error(), "cannot be a branch name") ||
+			!strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "Preparing") {
+			t.Errorf("%q: err = %v, want the reason and %s", name, err, want)
+		}
+	}
+	// A name git takes is untouched.
+	if err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "feature/ok-1", ""); err != nil {
+		t.Errorf("a valid name was refused: %v", err)
+	}
+}
