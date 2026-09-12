@@ -250,30 +250,40 @@ func dialFailure(err error, resp *http.Response) error {
 	return unwrapURLError(err)
 }
 
-// session is one tunnel, from dialling to losing it.
-func (c *Connector) session(ctx context.Context) error {
-	dialCtx, cancelDial := context.WithTimeout(ctx, dialTimeout)
-	defer cancelDial()
+// dial opens the WebSocket the tunnel runs over. The timeout is on the
+// handshake alone: the connection it hands back outlives it.
+func (c *Connector) dial(ctx context.Context) (*websocket.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+c.cfg.Token)
 	if c.version != "" {
 		h.Set("Flockdeck-Version", c.version)
 	}
-	conn, resp, err := websocket.Dial(dialCtx, c.cfg.Relay+"/api/v1/host/connect", &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(ctx, c.cfg.Relay+"/api/v1/host/connect", &websocket.DialOptions{
 		HTTPHeader:   h,
 		Subprotocols: []string{Subprotocol},
 	})
-	if err != nil {
-		// A refusal is the relay's to explain, and a 401 or 403 in particular
-		// is the one answer that must stop the retrying.
-		if resp != nil && resp.StatusCode >= 400 {
-			var body []byte
-			if resp.Body != nil {
-				body, _ = io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-			}
-			return decodeError(resp.StatusCode, body)
+	if err == nil {
+		return conn, nil
+	}
+	// A refusal is the relay's to explain, and a 401 or 403 in particular is
+	// the one answer that must stop the retrying.
+	if resp != nil && resp.StatusCode >= 400 {
+		var body []byte
+		if resp.Body != nil {
+			body, _ = io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		}
-		return dialFailure(err, resp)
+		return nil, decodeError(resp.StatusCode, body)
+	}
+	return nil, dialFailure(err, resp)
+}
+
+// session is one tunnel, from dialling to losing it.
+func (c *Connector) session(ctx context.Context) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
 	}
 
 	// The tunnel lives for as long as this session does, so the byte stream
