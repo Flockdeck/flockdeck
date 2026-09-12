@@ -228,20 +228,19 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	go func() {
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
-		// explain why everything it does from then on fails, so this is worth
-		// saying before the fact rather than discovering afterwards. git makes
-		// the same kind of check for uncommitted work, and force is already
-		// how the panel says it means it.
-		if !force {
-			if n := s.panesPerPath([]string{path})[path]; n > 0 {
-				subject, them := "pane is", "it"
-				if n > 1 {
-					subject, them = "panes are", "them"
-				}
-				c.notify(fmt.Sprintf("%d %s still working in %s — close %s first, or force the removal",
-					n, subject, filepath.Base(path), them), true)
-				return
+		// explain why everything it does from then on fails, and whatever it
+		// had not yet committed would go with the directory. So a worktree
+		// with panes in it is not removed, force or no force: force is how the
+		// panel says to throw away uncommitted work, which is the question git
+		// asks, and an agent still running there is not that.
+		if n := s.panesPerPath([]string{path})[path]; n > 0 {
+			subject, them := "pane is", "it"
+			if n > 1 {
+				subject, them = "panes are", "them"
 			}
+			c.notify(fmt.Sprintf("%d %s still working in %s — close %s first",
+				n, subject, filepath.Base(path), them), true)
+			return
 		}
 		if err := gitx.Remove(root, path, force); err != nil {
 			c.notify(err.Error(), true)
