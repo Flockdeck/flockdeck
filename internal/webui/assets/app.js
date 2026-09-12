@@ -1451,7 +1451,10 @@
     // holds, so it is sent only what it missed and keeps its scrollback and
     // the place the person had scrolled to. p.stream is what the server last
     // said about the stream; before it has said anything, this holds nothing.
-    const held = p.stream ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
+    // A stream that has delivered nothing yet is not resumed: its header's
+    // place counts the terminal modes put back ahead of the replay, and a
+    // terminal that never received them would carry on without them.
+    const held = p.stream && !p.stream.fresh ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
     const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + held);
     ws.binaryType = "arraybuffer";
     p.ws = ws;
@@ -1474,10 +1477,10 @@
         let h;
         try { h = JSON.parse(ev.data); } catch { return; }
         if (!h.resumed) p.term.reset();
-        p.stream = { epoch: h.epoch, offset: h.offset };
+        p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
         return;
       }
-      if (p.stream) p.stream.offset += ev.data.byteLength;
+      if (p.stream) { p.stream.offset += ev.data.byteLength; p.stream.fresh = false; }
       p.term.write(new Uint8Array(ev.data));
     };
     ws.onclose = () => {
