@@ -32,8 +32,9 @@ choice.
 
 The pane header names what is running, beside the branch and in the same dim
 weight — `claude · sonnet`, `codex · gpt-5.6-sol`. A shell pane shows nothing there,
-because there is nothing to choose. For Claude Code and the API agents, what the
-conversation has spent and how near its usage limit it is follow;
+because there is nothing to choose. For the API agents, and for Claude Code
+where its status line is read, what the conversation has spent and how near its
+usage limit it is follow;
 [Spend and limits](#spend) explains the figures.
 
 ## Two kinds of agent
@@ -249,8 +250,10 @@ Saving a default from a Flockdeck that has no routing — 0.2.10 or older —
 writes a project's entry back without its `routing`, so a project's policy is
 lost that way.
 
-**Nothing leaves the machine.** Routing decides from these rules alone and
-makes no request of any kind. What it chose, and whether you kept it, is kept
+**Routing makes no request.** It decides from these rules alone and
+makes no request of any kind; the routed mark on a pane travels only as the
+rest of the pane's state does, to your own paired devices when remote access
+is on. What it chose, and whether you kept it, is kept
 in `routing.jsonl` in the state directory, for your own numbers: the rule's
 name and the models, never the task. Settings has **Clear routing history**,
 and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the

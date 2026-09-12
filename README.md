@@ -51,9 +51,11 @@ keys` keeps it.
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
 - **What each agent has spent, and how near its limit it is** — an estimate of
-  the conversation's cost, or its tokens, in the header of every Claude Code
-  and API agent pane, and a Claude subscription's five-hour and weekly
-  windows, worked out on this machine and sent nowhere.
+  the conversation's cost, or its tokens, in the header of each API agent pane,
+  and in a Claude Code pane's once its status line is read (by default, where
+  you have one of your own), with a subscription's five-hour and weekly
+  windows. Worked out on this machine, and sent no further than your own
+  paired devices.
 - **Multiple projects open together**, switched without stopping anything.
 - **Worktrees as a first-class thing**: create, inspect, occupy and remove them
   without leaving the app.
@@ -493,7 +495,10 @@ about to stop, can be picked out of a tab of six.
   prices them from its dated price table: `~$1.24`, or `84k tok` for a model
   with no price, or `~$0.04+` when some of the tokens had none, which makes
   the figure a floor.
-- **Claude Code** hands its figures to its status line, above. On a Pro or Max
+- **Claude Code** hands its figures to its status line, above, so they are read
+  by default only where you have a status line of your own; Settings › Agents
+  › Claude Code's usage limits › *Always* reads them in every Claude pane, at
+  the cost of Claude's footer hints where you have none. On a Pro or Max
   plan the header leads with the tightest window, `5h 72%` over a small meter,
   amber at 80% and red at 95%, and shows tokens rather than dollars; the
   tooltip lists every window and when it resets, and what the tokens would
@@ -503,8 +508,9 @@ about to stop, can be picked out of a tab of six.
 Every money figure is an estimate, written with `~`, and its tooltip ends *An
 estimate at published prices, not your bill.* A limit belongs to the login,
 so every Claude pane on it shows the same windows. Nothing is fetched to work
-any of this out and nothing about it is sent anywhere; the figures are kept in
-memory, and start again with a new conversation or a new run of Flockdeck.
+any of this out, and the figures go no further than the pane state your own
+paired devices receive when remote access is on. They are kept in memory, and
+start again with a new conversation or a new run of Flockdeck.
 Codex, Gemini CLI, Aider, opencode and Cursor Agent report nothing yet, so
 their panes show neither.
 

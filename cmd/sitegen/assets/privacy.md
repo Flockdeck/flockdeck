@@ -36,8 +36,10 @@ computer. Nothing there is sent anywhere by Flockdeck.
 To show what each agent has spent, the app reads what the agents report about
 their own usage on your computer: the tokens, cost estimate and usage limits
 Claude Code hands its status line, and the token counts of the built-in API
-agents. It keeps those figures in memory only, and sends none of them
-anywhere.
+agents. It keeps those figures in memory only. Flockdeck sends them nowhere
+itself; if you turn on remote access, they are part of the state of your
+panes that your own paired devices receive through the relay, as
+[What passes through](#what-passes-through) describes.
 
 The app makes these network connections of its own.
 
@@ -104,8 +106,9 @@ is never used expires after ten minutes, and is deleted within ten more.
 
 Your devices and your desktop reach the relay over encrypted connections
 (TLS). To route your traffic, the relay decrypts it: your terminal output,
-what you type, and the state of your panes pass through it. Remote access is
-**not end-to-end encrypted.**
+what you type, and the state of your panes pass through it. That state
+includes what each pane's agent has spent, its usage limits, and which model
+routing chose for it. Remote access is **not end-to-end encrypted.**
 
 The relay does not record, inspect, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
