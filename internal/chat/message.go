@@ -74,14 +74,21 @@ type Thinking struct {
 
 // Usage is what a turn cost in tokens.
 type Usage struct {
-	In  int
-	Out int
+	// In is every token of input read, however it was priced; CacheRead and
+	// CacheWrite are the parts of it read from and written to a prompt cache,
+	// which cost a fraction and a premium of the rest.
+	In         int
+	Out        int
+	CacheRead  int
+	CacheWrite int
 }
 
 // Add accumulates one turn's usage into a running total.
 func (u *Usage) Add(v Usage) {
 	u.In += v.In
 	u.Out += v.Out
+	u.CacheRead += v.CacheRead
+	u.CacheWrite += v.CacheWrite
 }
 
 // Schema is a tool's arguments described as JSON Schema. Each wire translates

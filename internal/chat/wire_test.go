@@ -79,7 +79,8 @@ func TestWiresStream(t *testing.T) {
 				if sent["model"] != "m1" {
 					t.Errorf("model = %v", sent["model"])
 				}
-				if sent["system"] != "be brief" {
+				system, _ := sent["system"].([]any)
+				if len(system) != 1 || system[0].(map[string]any)["text"] != "be brief" {
 					t.Errorf("system = %v", sent["system"])
 				}
 				// Three, not four: the tool's answer and the prompt that follows

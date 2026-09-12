@@ -9,6 +9,9 @@ import (
 type rate struct {
 	in  float64
 	out float64
+	// read is what input read from the prompt cache costs, where it is not the
+	// usual tenth of in. Writing to the cache costs a quarter more than in.
+	read float64
 }
 
 // rates are published prices, in dollars per million tokens, matched against
@@ -21,15 +24,16 @@ type rate struct {
 // vendor, is priced by whoever serves it and is not guessed at here. Extending
 // the table is a line each.
 var rates = map[string]rate{
-	"claude-fable-5":    {10, 50},
-	"claude-mythos-5":   {10, 50},
-	"claude-opus-5":     {5, 25},
-	"claude-opus-4-8":   {5, 25},
-	"claude-opus-4-7":   {5, 25},
-	"claude-opus-4-6":   {5, 25},
-	"claude-sonnet-5":   {2, 10},
-	"claude-sonnet-4-6": {3, 15},
-	"claude-haiku-4-5":  {1, 5},
+	"claude-fable-5-1":  {in: 10, out: 50, read: 0.25},
+	"claude-fable-5":    {in: 10, out: 50},
+	"claude-mythos-5":   {in: 10, out: 50},
+	"claude-opus-5":     {in: 5, out: 25},
+	"claude-opus-4-8":   {in: 5, out: 25},
+	"claude-opus-4-7":   {in: 5, out: 25},
+	"claude-opus-4-6":   {in: 5, out: 25},
+	"claude-sonnet-5":   {in: 2, out: 10},
+	"claude-sonnet-4-6": {in: 3, out: 15},
+	"claude-haiku-4-5":  {in: 1, out: 5},
 }
 
 // cost returns what a turn's tokens cost, and whether that is known at all.
@@ -51,7 +55,13 @@ func cost(model string, u Usage) (float64, bool) {
 	if found == "" {
 		return 0, false
 	}
-	return float64(u.In)/1e6*best.in + float64(u.Out)/1e6*best.out, true
+	read := best.read
+	if read == 0 {
+		read = best.in / 10
+	}
+	fresh := max(u.In-u.CacheRead-u.CacheWrite, 0)
+	return (float64(fresh)*best.in + float64(u.CacheRead)*read +
+		float64(u.CacheWrite)*best.in*1.25 + float64(u.Out)*best.out) / 1e6, true
 }
 
 // spend is what a conversation has cost so far.
@@ -86,7 +96,11 @@ func statusLine(model string, u Usage, spent spend) string {
 		// answering. Saying that is honest; naming a model would not be.
 		parts = []string{"default model"}
 	}
-	parts = append(parts, tokens(u.In)+" in", tokens(u.Out)+" out")
+	in := tokens(u.In) + " in"
+	if u.CacheRead > 0 {
+		in += " (" + tokens(u.CacheRead) + " cached)"
+	}
+	parts = append(parts, in, tokens(u.Out)+" out")
 	switch {
 	case spent.dollars > 0 && spent.unpriced:
 		// Part of it is known, and the rest was spent at a price nobody here

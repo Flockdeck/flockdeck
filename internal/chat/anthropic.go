@@ -41,7 +41,18 @@ type anthropicBlock struct {
 	Thinking  *string `json:"thinking,omitempty"`
 	Signature string  `json:"signature,omitempty"`
 	Data      string  `json:"data,omitempty"`
+
+	CacheControl *anthropicCache `json:"cache_control,omitempty"`
 }
+
+// anthropicCache marks the end of a stretch of the request to be cached.
+type anthropicCache struct {
+	Type string `json:"type"`
+}
+
+// cacheHere is the mark itself: the default five-minute cache, which a
+// conversation going on at a person's pace refreshes with every request.
+var cacheHere = &anthropicCache{Type: "ephemeral"}
 
 type anthropicMessage struct {
 	Role    string           `json:"role"`
@@ -57,7 +68,7 @@ type anthropicTool struct {
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
-	System    string             `json:"system,omitempty"`
+	System    []anthropicBlock   `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
 	Stream    bool               `json:"stream"`
@@ -77,9 +88,23 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	body := anthropicRequest{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
-		System:    req.System,
 		Messages:  anthropicMessages(req.Messages),
 		Stream:    true,
+	}
+	// Every request of a conversation sends the whole of it again, and a turn
+	// that uses tools sends it again for every call: without a cache, each of
+	// thirty steps pays full price to be told what it was told a moment ago.
+	// Two marks make it cheap -- one after the system prompt, which outlasts a
+	// /clear, and one at the end of the conversation, so that the next request
+	// reads everything up to here from the cache. A prefix too short to cache
+	// is simply not cached; nothing is refused for it.
+	if req.System != "" {
+		body.System = []anthropicBlock{{Type: "text", Text: req.System, CacheControl: cacheHere}}
+	}
+	if n := len(body.Messages); n > 0 {
+		if b := len(body.Messages[n-1].Content); b > 0 {
+			body.Messages[n-1].Content[b-1].CacheControl = cacheHere
+		}
 	}
 	for _, t := range req.Tools {
 		d := t.Describe()
@@ -101,7 +126,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	}
 	defer rc.Close()
 
-	var usage Usage
+	var counts anthropicUsage
 	// Blocks are identified by an index rather than arriving one after another,
 	// so a call or a piece of reasoning being accumulated is kept per index.
 	calls := map[int]*callBuffer{}
@@ -143,7 +168,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		case "error":
 			return fmt.Errorf("%s", firstNonEmpty(ev.Error.Message, ev.Error.Type, "the stream reported an error"))
 		case "message_start":
-			usage = Usage{In: ev.Message.Usage.InputTokens, Out: ev.Message.Usage.OutputTokens}
+			counts = ev.Message.Usage
 		case "content_block_start":
 			switch ev.ContentBlock.Type {
 			case "tool_use":
@@ -184,21 +209,17 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 				stopReason = ev.Delta.StopReason
 			}
 			// These are running totals for the whole answer rather than what
-			// was added since message_start, and the input count is repeated
+			// was added since message_start, and the input counts are repeated
 			// here as well: adding them to the opening counts read every
 			// prompt twice.
-			if ev.Usage.InputTokens > 0 {
-				usage.In = ev.Usage.InputTokens
-			}
-			if ev.Usage.OutputTokens > 0 {
-				usage.Out = ev.Usage.OutputTokens
-			}
+			counts.update(ev.Usage)
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	usage := counts.usage()
 	// What was read is spent whether or not the answer is whole.
 	if !finished || stopReason == "max_tokens" || stopReason == "refusal" {
 		emit(Event{Kind: EventUsage, Usage: usage})
@@ -230,6 +251,36 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 type anthropicUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// The input read from the cache and written to it are counted apart from
+	// input_tokens, which is only what was neither.
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+}
+
+// update takes the running totals a later event repeats.
+func (u *anthropicUsage) update(v anthropicUsage) {
+	for _, f := range []struct {
+		to   *int
+		from int
+	}{
+		{&u.InputTokens, v.InputTokens},
+		{&u.OutputTokens, v.OutputTokens},
+		{&u.CacheReadInputTokens, v.CacheReadInputTokens},
+		{&u.CacheCreationInputTokens, v.CacheCreationInputTokens},
+	} {
+		if f.from > 0 {
+			*f.to = f.from
+		}
+	}
+}
+
+func (u anthropicUsage) usage() Usage {
+	return Usage{
+		In:         u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens,
+		Out:        u.OutputTokens,
+		CacheRead:  u.CacheReadInputTokens,
+		CacheWrite: u.CacheCreationInputTokens,
+	}
 }
 
 // anthropicMessages translates a conversation into Messages API entries.
