@@ -163,3 +163,17 @@ func TestInstallScriptsParse(t *testing.T) {
 		}
 	})
 }
+
+// The favicon is the application's own icon, copied rather than drawn again
+// (main.go says why), so the two must stay the same picture. Line endings are
+// set aside: a Windows checkout holds either file with CRLF.
+func TestFaviconIsTheAppIcon(t *testing.T) {
+	app, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf := func(b []byte) string { return strings.ReplaceAll(string(b), "\r\n", "\n") }
+	if lf(icon) != lf(app) {
+		t.Error("cmd/sitegen/assets/favicon.svg differs from internal/webui/assets/icon.svg; copy the app's icon over it")
+	}
+}
