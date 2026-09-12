@@ -181,8 +181,10 @@ func keysSet(agentID string, kio keysIO) error {
 		return err
 	}
 	// The confirmation names the agent and not the key, which is the rule
-	// everywhere else here too.
+	// everywhere else here too. It says when the key takes effect, because a
+	// pane already running still holds the key it started with.
 	fmt.Fprintf(kio.out, "stored a key for %s\n", agentID)
+	fmt.Fprintf(kio.out, "new panes use it; one already running picks it up when its old key is refused, or when it is restarted\n")
 	// A key stored under a mistyped id is a key nothing will ever read, and
 	// the only sign would be the agent still asking for one. It is kept all
 	// the same -- the id may be an agent about to be added to agents.json --

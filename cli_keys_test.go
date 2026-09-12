@@ -269,6 +269,19 @@ func TestKeysClearSaysWhereAKeyItCannotClearComesFrom(t *testing.T) {
 	}
 }
 
+// A key set while a pane is running does not reach that pane at once, and
+// somebody setting one needs to know when it will.
+func TestKeysSetSaysWhenTheKeyIsUsed(t *testing.T) {
+	isolateKeys(t)
+	out, err := runKeysCmd(t, "sk-new\n", "set", "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "already running") {
+		t.Errorf("keys set did not say when the key takes effect:\n%s", out)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
