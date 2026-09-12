@@ -131,6 +131,7 @@ func TestHelpArgs(t *testing.T) {
 		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
 		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
 		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
+		{[]string{"statusline"}, nil, true},
 		{[]string{"nonsense"}, nil, true},
 	}
 	for _, c := range cases {
