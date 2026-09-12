@@ -28,10 +28,10 @@ func TestStartupOnlyFlags(t *testing.T) {
 		{"one", options{fresh: true}, []string{"-new"}},
 		{"the agent for the run", options{agent: "codex"}, []string{"-agent"}},
 		{"all of them", options{fresh: true, shell: true, agent: "codex", detach: true},
-			[]string{"-new", "-shell", "-agent", "-detach"}},
-		// -C and -no-window still mean something when attaching, so they are
-		// not in the list.
-		{"flags that still apply", options{dir: "/elsewhere", noWindow: true}, nil},
+			[]string{"-new", "-shell", "-agent"}},
+		// -C, -no-window and -detach still mean something when attaching —
+		// the last two that no window is opened — so they are not in the list.
+		{"flags that still apply", options{dir: "/elsewhere", noWindow: true, detach: true}, nil},
 	}
 	for _, c := range cases {
 		got := startupOnlyFlags(c.opts)

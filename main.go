@@ -343,9 +343,6 @@ func startupOnlyFlags(opts options) []string {
 	if opts.agent != "" {
 		out = append(out, "-agent")
 	}
-	if opts.detach {
-		out = append(out, "-detach")
-	}
 	return out
 }
 
@@ -424,7 +421,11 @@ func run(opts options) error {
 					"flockdeck: joining the instance already running, so %s %s no effect here (use -solo to start a separate one)\n",
 					strings.Join(ignored, " and "), plural(len(ignored), "has", "have"))
 			}
-			return attach(inst, base, root, opts.noWindow)
+			// -detach asks for no window, and that much of it still holds
+			// when joining: the project goes to the running instance and
+			// its address is printed, rather than a window being opened by
+			// the one flag that asked for none.
+			return attach(inst, base, root, opts.noWindow || opts.detach)
 		}
 	}
 
