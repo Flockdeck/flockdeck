@@ -380,6 +380,22 @@ func TestDescribeExpiry(t *testing.T) {
 	}
 }
 
+// A relay that takes new accounts only with an invitation says it needs an
+// invite code; enable says which flag takes one.
+func TestRemoteEnableNamesTheInviteFlag(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"this relay needs an invite code to register"}`)
+	}))
+	defer srv.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk")
+	if err == nil || !strings.HasSuffix(err.Error(), "pass it with -invite CODE") {
+		t.Errorf("enable on a relay that needs an invite = %v, want it to name -invite", err)
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {

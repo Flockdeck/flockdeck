@@ -219,6 +219,11 @@ func remoteEnable(args []string, rio remoteIO) error {
 		return fmt.Errorf("%v, so there is nothing to do; to enrol this machine again, run `flockdeck remote disable` first, which unpairs its devices if it is the account's only machine", err)
 	case errors.As(err, &already):
 		return fmt.Errorf("%v; run `flockdeck remote disable -force` to start again", err)
+	case f.invite == "" && err != nil && strings.Contains(err.Error(), "needs an invite code"):
+		// The relay's words name an invite code but not the flag that takes
+		// one. They are matched rather than its 403, which a relay closed to
+		// new accounts also answers, and for which an invite does not help.
+		return fmt.Errorf("%v; pass it with -invite CODE", err)
 	case err != nil:
 		return err
 	}
