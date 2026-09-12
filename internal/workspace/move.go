@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/jmwri/flockdeck/internal/layout"
 )
 
@@ -205,8 +203,7 @@ func (w *Workspace) TilePanes() error {
 // MovePaneToNewTab pulls a pane out into a tab of its own, which is how a pane
 // that has outgrown its split gets the room to itself.
 func (w *Workspace) MovePaneToNewTab(paneID string) error {
-	p := w.Pane(paneID)
-	if p == nil {
+	if w.Pane(paneID) == nil {
 		return fmt.Errorf("that pane is no longer open")
 	}
 	src := w.tabOf(paneID)
@@ -216,21 +213,11 @@ func (w *Workspace) MovePaneToNewTab(paneID string) error {
 	if src.Tree.Count() <= 1 {
 		return fmt.Errorf("that pane already has a tab to itself")
 	}
+	w.detachPane(paneID)
 	// The tab stays with the project the pane was pulled out of, which is the
 	// tab bar the user is looking at, whatever project the agent itself
 	// belongs to.
-	root := src.Root
-	title, auto := paneTabTitle(p)
-
-	w.detachPane(paneID)
-	t := &Tab{
-		ID:        uuid.NewString(),
-		Root:      root,
-		Title:     title,
-		Tree:      layout.NewLeaf(paneID),
-		Focus:     paneID,
-		AutoTitle: auto,
-	}
+	t := w.tabHolding(paneID, src.Root)
 	// Put it directly after the tab it came from rather than at the far end,
 	// so a pane pulled out stays next to its old neighbours.
 	w.insertTabAfter(t, src)
