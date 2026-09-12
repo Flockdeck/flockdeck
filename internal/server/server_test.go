@@ -1155,6 +1155,80 @@ func TestTheKeyTableArrivesBeforeTheFirstState(t *testing.T) {
 	}
 }
 
+// TestABroadcastDoesNotOvertakeANewWindowsKeyTable covers a window that
+// connects while a broadcast is already queued for the workspace goroutine.
+// The window went on the list broadcasts are sent to the moment its socket
+// opened, and its hello was queued only after that -- behind the broadcast,
+// which handed it a snapshot first. Its palette and first-run hints were then
+// drawn without their shortcuts until the hello landed, on about one
+// connection in a few dozen: whenever git or an agent had just changed
+// something.
+func TestABroadcastDoesNotOvertakeANewWindowsKeyTable(t *testing.T) {
+	srv, _ := newTestServer(t)
+	first := dialControl(t, srv)
+	r := readControl(first)
+	r.settle(t)
+	id := srv.firstTabID(t)
+
+	// hold occupies the workspace goroutine until the function it returns is
+	// called.
+	hold := func() func() {
+		release := make(chan struct{})
+		srv.do(func() { <-release })
+		stop := sync.OnceFunc(func() { close(release) })
+		t.Cleanup(stop)
+		return stop
+	}
+
+	// A change and its broadcast queue up behind one hold and a second hold
+	// behind them, so the new window's hello is queued after the broadcast.
+	releaseChange := hold()
+	srv.do(func() {
+		if tab := srv.ws.Tab(id); tab != nil {
+			tab.Title, tab.AutoTitle = "changed", false
+		}
+	})
+	srv.broadcastState()
+	releaseHello := hold()
+	second := dialControl(t, srv)
+	// Time for the new window's handler to have queued its hello.
+	time.Sleep(200 * time.Millisecond)
+
+	releaseChange()
+	if _, ok := r.stateWithin(10*time.Second, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == "changed"
+	}); !ok {
+		t.Fatal("the change was never broadcast")
+	}
+	// Time for anything the broadcast handed the new window to be written.
+	time.Sleep(100 * time.Millisecond)
+	releaseHello()
+
+	if got := firstOfHelloOrState(t, second); got != "hello" {
+		t.Fatalf("a window that connected behind a broadcast was sent a %s first; want its key table", got)
+	}
+}
+
+// firstOfHelloOrState reads a window's messages until its key table or a
+// snapshot arrives, and says which came first.
+func firstOfHelloOrState(t *testing.T, conn *websocket.Conn) string {
+	t.Helper()
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		_, data, err := conn.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("read control: %v", err)
+		}
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &probe) == nil && (probe.Type == "hello" || probe.Type == "state") {
+			return probe.Type
+		}
+	}
+}
+
 // TestMalformedCommandsDoNotStopTheServer fires the whole shape of the command
 // surface at the socket with ids that name nothing, targets that are their own
 // source, oversized text and directions that do not exist.
