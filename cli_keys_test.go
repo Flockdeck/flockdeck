@@ -255,6 +255,20 @@ func TestKeysSetHidesTheKeyAtATerminal(t *testing.T) {
 	}
 }
 
+// Clearing a key that comes from the environment clears nothing, and the one
+// thing worth telling somebody trying is where it does come from.
+func TestKeysClearSaysWhereAKeyItCannotClearComesFrom(t *testing.T) {
+	isolateKeys(t)
+	t.Setenv("OPENAI_API_KEY", "sk-exported")
+	out, err := runKeysCmd(t, "", "clear", "openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "OPENAI_API_KEY") || strings.Contains(out, "sk-exported") {
+		t.Errorf("clear said %q", out)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {

@@ -210,6 +210,14 @@ func keysClear(agentID string, out io.Writer) error {
 	}
 	if !had {
 		fmt.Fprintf(out, "no stored key for %s\n", agentID)
+		// The usual reason to clear a key is that the agent is using one it
+		// should not, and where that one comes from the environment, clearing
+		// the store changes nothing; saying where it does come from does.
+		for _, s := range keysAgents() {
+			if st := creds.StatusOf(s); s.ID == agentID && st.Source == creds.SourceEnv {
+				fmt.Fprintf(out, "its key comes from %s in the environment, which this cannot clear\n", st.Env)
+			}
+		}
 		return nil
 	}
 	fmt.Fprintf(out, "forgot the stored key for %s\n", agentID)
