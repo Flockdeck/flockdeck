@@ -269,6 +269,16 @@ func (s *session) listModels(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	ids, err := lister.ListModels(ctx)
+	if err != nil && unreachable(err) {
+		// Said the way a failed answer says it: the dial error's own words
+		// are three lines about sockets, and the likely cause is one.
+		if isLoopback(s.opts.BaseURL) {
+			s.out.line(ansiDim, "(nothing is answering at "+s.opts.BaseURL+" to say which models it has; is the model server running?)")
+		} else {
+			s.out.line(ansiDim, "(could not reach "+endpointOf(s.opts)+" to ask which models it has; check the connection, or the address)")
+		}
+		return
+	}
 	if err != nil {
 		s.out.line(ansiDim, "(the endpoint could not say which models it has: "+err.Error()+")")
 		return
