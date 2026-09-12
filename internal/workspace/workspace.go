@@ -1288,13 +1288,27 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 // been installed still serves panes that can spawn, and an agent told to run a
 // command that is not there has no way of finding that out but to try it.
 func spawnCommand(selfExe string) string {
-	if _, err := exec.LookPath("flockdeck"); err == nil {
-		return "flockdeck"
-	}
 	if selfExe == "" {
 		return "flockdeck"
 	}
+	// `flockdeck` on PATH is this binary only if it resolves to it. A build
+	// run from its own folder while an older copy is installed would otherwise
+	// hand every agent the older one, whose spawn need not know the flags this
+	// one's briefing describes.
+	if onPath, err := exec.LookPath("flockdeck"); err == nil && sameFile(onPath, selfExe) {
+		return "flockdeck"
+	}
 	return selfExe
+}
+
+// sameFile reports whether two paths name one file.
+func sameFile(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
 }
 
 // branchOf reports the branch checked out in dir, or "" when dir is not a
