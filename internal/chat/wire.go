@@ -109,7 +109,10 @@ type apiError struct {
 	RetryAfter time.Duration
 }
 
-func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
+// Error is the failure as it is shown, with any part of a key the vendor quoted
+// back taken out: every line that says why an answer or a listing failed goes
+// through here.
+func (e *apiError) Error() string { return e.Status + ": " + redactKeys(e.Msg) }
 
 // outOfCredit reports whether err is the account behind the key having run out
 // of what it pays with, rather than the API being busy for a moment. OpenAI

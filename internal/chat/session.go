@@ -525,7 +525,7 @@ func (s *session) sayWhyItStopped(err error) {
 		s.out.line(ansiDim, "(interrupted; /retry carries on)")
 	case refusedKey(err):
 		agent := firstNonEmpty(s.opts.Agent, "<agent>")
-		s.out.line(ansiRed, "the API refused the key: "+redactKeys(err.Error()))
+		s.out.line(ansiRed, "the API refused the key: "+err.Error())
 		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
 	case outOfCredit(err):
 		// Not asked again, and not called busy: what fixes it is money or
