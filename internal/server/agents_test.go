@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -34,6 +35,48 @@ func TestDefaultForEveryProjectFromTheWindow(t *testing.T) {
 	if f.Defaults != (agent.Defaults{Agent: "claude", Model: "opus"}) || len(f.Projects) != 0 {
 		t.Errorf("agents.json holds %+v for every project and %+v per project, want claude · opus for every project and nothing else",
 			f.Defaults, f.Projects)
+	}
+}
+
+// TestAgentDefaultIsCheckedAndClearable covers the default agent as a setting
+// something other than the picker may write. A typo must not become the
+// default every pane then fails on, and clearing a project's default must say
+// that it did rather than that nothing is now the default.
+func TestAgentDefaultIsCheckedAndClearable(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() *agent.File {
+		t.Helper()
+		f, err := agent.ReadConfig(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	var note noticeMsg
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "codx", Target: "all"})
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "codx") {
+		t.Errorf("a default naming no agent was answered %+v, want a refusal naming it", note)
+	}
+	if f := read(); f.Defaults != (agent.Defaults{}) {
+		t.Errorf("a default naming no agent was written: %+v", f.Defaults)
+	}
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "claude", Model: "opus"})
+	readUntil(t, conn, "notice", &note)
+	sendCmd(t, conn, command{Cmd: "setAgentDefault"})
+	readUntil(t, conn, "notice", &note)
+	if note.Error || !strings.HasPrefix(note.Text, "cleared the default agent") {
+		t.Errorf("clearing the project's default was answered %+v", note)
+	}
+	if f := read(); len(f.Projects) != 0 {
+		t.Errorf("the project's default is still recorded: %+v", f.Projects)
 	}
 }
 

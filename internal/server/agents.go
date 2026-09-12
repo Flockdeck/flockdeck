@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"time"
@@ -313,10 +314,27 @@ func (s *Server) splitPaneFor(cmd command) {
 // A target of "all" sets the default every project falls back on instead. The
 // picker offers only the project's own, which left that one reachable by
 // nothing but editing agents.json.
+//
+// No agent at all clears the default, which then falls back to the one above
+// it. An agent the catalog has never heard of is refused rather than written:
+// the picker only offers real ones, but anything else speaking to this socket
+// could make a typo the default, and every pane started afterwards would fail.
 func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
+	type facts struct {
+		root  string
+		known bool
+	}
+	f, _ := ask(s, func() facts {
+		_, known := s.ws.Catalog().Find(cmd.Agent)
+		return facts{root: s.ws.ActiveRoot(), known: known || cmd.Agent == ""}
+	})
+	if !f.known {
+		c.notify(fmt.Sprintf("there is no agent called %q", cmd.Agent), true)
+		return
+	}
 	root, where := "", "every project"
 	if cmd.Target != "all" {
-		root = s.activeRoot()
+		root = f.root
 		if root == "" {
 			c.notify("there is no project open to set a default for", true)
 			return
@@ -327,7 +345,11 @@ func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
 		c.notify("could not save the default agent: "+err.Error(), true)
 		return
 	}
-	c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+where, false)
+	if cmd.Agent == "" {
+		c.notify("cleared the default agent for "+where, false)
+	} else {
+		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+where, false)
+	}
 	s.refreshAgents()
 }
 
