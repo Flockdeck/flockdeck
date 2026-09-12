@@ -3,10 +3,12 @@
 #
 #   curl -fsSL https://flockdeck.ai/install.sh | sh
 #
-# It downloads the release archive for this machine from GitHub, checks it
-# against the release's checksums.txt, and puts the one binary in ~/.local/bin.
-# That is a directory the user owns, which matters later: the application
-# updates itself in place, and it should never need a password to do it.
+# It downloads the release archive for this machine from dl.flockdeck.ai, or
+# from GitHub, which carries every release too, when that cannot be reached;
+# checks it against the release's checksums.txt from the same place; and puts
+# the one binary in ~/.local/bin. That is a directory the user owns, which
+# matters later: the application updates itself in place, and it should never
+# need a password to do it.
 #
 # Settings, all optional, read from the environment:
 #
@@ -14,7 +16,9 @@
 #                          To stay on it, also set FLOCKDECK_UPDATE=off where
 #                          Flockdeck runs, or it updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
-#   FLOCKDECK_DOWNLOAD     where release files are fetched from, for a mirror
+#   FLOCKDECK_DOWNLOAD     a mirror to fetch the release files from instead,
+#                          laid out as <mirror>/<version>/<file>; the latest is
+#                          read from <mirror>/latest.json, or asked of GitHub
 #
 # The archive names below are the ones cmd/release writes, and the updater in
 # internal/selfupdate reads. The three have to agree.
@@ -26,15 +30,23 @@ set -eu
 
 REPO="jmwri/flockdeck"
 
+# Where releases are found: dl.flockdeck.ai first, then GitHub. The tests
+# point these at servers of their own.
+DL="https://dl.flockdeck.ai"
+GITHUB="https://github.com"
+GITHUB_API="https://api.github.com"
+
 say() { printf 'flockdeck: %s\n' "$*"; }
 die() { printf 'flockdeck: %s\n' "$*" >&2; exit 1; }
 
 # fetch downloads a URL to a file with whichever of curl and wget is present.
+# A place that cannot be reached gives up in seconds rather than hanging, so
+# that the next one is tried.
 fetch() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 2 -o "$2" "$1"
+		curl -fsSL --retry 2 --connect-timeout 15 -o "$2" "$1"
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q -O "$2" "$1"
+		wget -q -T 30 -O "$2" "$1"
 	else
 		die "downloading the release needs curl or wget"
 	fi
@@ -75,6 +87,32 @@ detect_arch() {
 	esac
 }
 
+# latest_from prints the version the latest.json at $1 names. There is no jq
+# to lean on everywhere this runs, and none is needed: the release's version
+# is the one "version" the file holds, and anything that does not read as a
+# release version is refused rather than downloaded.
+latest_from() {
+	fetch "$1/latest.json" "$tmp/latest.json" 2>/dev/null || return 1
+	v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
+	case "$v" in
+		v[0-9]*.[0-9]*.[0-9]*) echo "$v" ;;
+		*) return 1 ;;
+	esac
+}
+
+# latest_from_github prints the tag of the latest release on GitHub.
+latest_from_github() {
+	fetch "$GITHUB_API/repos/$REPO/releases/latest" "$tmp/release.json" || return 1
+	sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/release.json" | head -n 1
+}
+
+# download fetches the archive and its checksums from one place, $1, so that
+# the one is always checked against that place's own copy of the other.
+download() {
+	fetch "$1/$version/$archive" "$tmp/$archive" &&
+		fetch "$1/$version/checksums.txt" "$tmp/checksums.txt"
+}
+
 main() {
 	os=$(detect_os)
 	arch=$(detect_arch "$os")
@@ -84,7 +122,15 @@ main() {
 		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
 	fi
 	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
-	base=${FLOCKDECK_DOWNLOAD:-"https://github.com/$REPO/releases/download"}
+
+	# A mirror given by hand is the only place files are fetched from.
+	if [ -n "${FLOCKDECK_DOWNLOAD:-}" ]; then
+		primary=${FLOCKDECK_DOWNLOAD%/}
+		fallback=
+	else
+		primary=$DL
+		fallback="$GITHUB/$REPO/releases/download"
+	fi
 
 	tmp=$(mktemp -d 2>/dev/null || mktemp -d -t flockdeck)
 	trap 'rm -rf "$tmp"' EXIT
@@ -92,10 +138,16 @@ main() {
 
 	version=${FLOCKDECK_VERSION:-}
 	if [ -z "$version" ]; then
-		fetch "https://api.github.com/repos/$REPO/releases/latest" "$tmp/latest.json" ||
-			die "could not find the latest release; set FLOCKDECK_VERSION to choose one"
-		version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
-		[ -n "$version" ] || die "GitHub's answer did not name a release"
+		if ! version=$(latest_from "$primary"); then
+			if [ -n "$fallback" ]; then
+				say "could not reach $primary; downloading from GitHub instead"
+				primary=$fallback
+				fallback=
+			fi
+			version=$(latest_from_github) ||
+				die "could not find the latest release; set FLOCKDECK_VERSION to choose one"
+			[ -n "$version" ] || die "GitHub's answer did not name a release"
+		fi
 	fi
 	# Releases are tagged v1.2.3, and a version is as often written without
 	# the v; either finds the release rather than a download that is not there.
@@ -103,10 +155,16 @@ main() {
 
 	archive="flockdeck_${version}_${os}_${arch}.tar.gz"
 	say "downloading $archive"
-	fetch "$base/$version/$archive" "$tmp/$archive" ||
-		die "could not download $base/$version/$archive"
-	fetch "$base/$version/checksums.txt" "$tmp/checksums.txt" ||
-		die "could not download the checksums for $version"
+	if [ -n "$fallback" ]; then
+		# A release from before dl.flockdeck.ai is only on GitHub, as is
+		# everything while the site cannot be reached.
+		if ! download "$primary" 2>/dev/null; then
+			say "could not download it from $primary; downloading it from GitHub instead"
+			download "$fallback" || die "could not download $fallback/$version/$archive"
+		fi
+	else
+		download "$primary" || die "could not download $primary/$version/$archive"
+	fi
 
 	want=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/checksums.txt")
 	[ -n "$want" ] || die "checksums.txt for $version does not list $archive"
