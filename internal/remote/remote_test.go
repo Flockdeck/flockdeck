@@ -144,10 +144,12 @@ func TestRelayURL(t *testing.T) {
 		}
 	}
 	// A pairing link pasted as the relay is the wrong thing to hand, which the
-	// refusal says, and its one-time code is not repeated back.
+	// refusal says, and its one-time code is not repeated back. The window
+	// says it too, so it points at the join code, not the flag.
 	if _, err := CheckRelay("https://remote.flockdeck.ai/pair#fdp_s3cretcode"); err == nil ||
-		!strings.Contains(err.Error(), "pairing link") || !strings.Contains(err.Error(), "-join") || strings.Contains(err.Error(), "s3cretcode") {
-		t.Errorf("CheckRelay of a pairing link = %v, want it named as one, pointing at -join, without its code", err)
+		!strings.Contains(err.Error(), "pairing link") || !strings.HasSuffix(err.Error(), "give the code it prints as the join code here") ||
+		strings.Contains(err.Error(), "s3cretcode") {
+		t.Errorf("CheckRelay of a pairing link = %v, want it named as one, pointing at the join code, without its code", err)
 	}
 	// A password in the address would be saved and printed back wherever the
 	// relay is named, so it is refused, and the refusal does not repeat it.
