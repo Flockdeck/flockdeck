@@ -830,7 +830,7 @@ Two development aids live under `cmd/` and are not part of the product:
   back.
 
 ```sh
-go build -o flockdeck.exe . && ./flockdeck.exe -no-window
+go build -o flockdeck.exe . && ./flockdeck.exe -solo -no-window
 go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"agent","agent":"claude"}'
 ```
 
