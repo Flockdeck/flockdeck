@@ -267,6 +267,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
 	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id> | disable [-force]\n")
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
+	fmt.Fprintf(out, "  remote rename [-device <id or name>] <name>\n")
+	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
 	// These are settings with no flag, so this is the only place a person

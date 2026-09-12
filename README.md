@@ -770,6 +770,7 @@ flockdeck remote enable           # enrol this machine with the relay
 flockdeck remote pair             # a one-time link, and a QR code of it, for a device
 flockdeck remote devices          # what is paired
 flockdeck remote revoke <id>      # unpair one
+flockdeck remote rename <name>    # what every paired device calls this machine
 flockdeck remote disable          # remove this machine from the relay
 ```
 
@@ -790,6 +791,11 @@ by **Remote access…** in the command palette (and the **Remote** chip in the
 top bar of an enrolled machine) or printed by `flockdeck remote pair`. The
 device that opens it can open this window until it is unpaired, from that
 dialog or from the command line, which ends its session at once.
+
+A machine or a device is renamed with **Rename** in that dialog, or
+`flockdeck remote rename`; a paired device can rename either from its Devices
+page. A machine wiped before remote access was turned off on it can no longer
+take itself off the relay, so that page removes it too.
 
 What the relay can see is stated plainly: traffic is TLS between the browser
 and the relay and between the relay and this machine, and the relay decrypts

@@ -44,8 +44,8 @@ func (e *AlreadyEnabledError) Unwrap() error { return e.Err }
 
 // RelayUntoldError is taking this machine off a relay that could not be told,
 // without being asked to forget the enrolment regardless. Forgetting it here
-// would leave the machine listed on the relay, offline, for good: nothing but
-// this machine can take it off.
+// would leave the machine listed on the relay, offline, until somebody removes
+// it from a paired device.
 type RelayUntoldError struct{ Err error }
 
 func (e *RelayUntoldError) Error() string {
@@ -165,6 +165,45 @@ func cleanName(name string) string {
 		n++
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// CheckName is a new name for this machine or a device as the relay will keep
+// it, or why it cannot be one: nothing left once it is cleaned, or one of the
+// relay's codes, which would be shown on every device as what it is called.
+func CheckName(name string) (string, error) {
+	if isRelayCode(name) {
+		return "", errors.New("that is one of the relay's codes, not a name; the name is what it is called on your devices")
+	}
+	clean := cleanName(name)
+	if clean == "" {
+		return "", errors.New("a name is needed, and that one is empty")
+	}
+	return clean, nil
+}
+
+// Rename gives this machine a new name on its relay, and saves it in the
+// enrolment, which status and the window show. It is saved as the relay keeps
+// it, trimmed and cut to length, so that both say what every device lists.
+func Rename(ctx context.Context, version, name string) (*Config, error) {
+	clean, err := CheckName(name)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, ErrNotEnabled
+	}
+	if err := NewClient(cfg, version).RenameHost(ctx, clean); err != nil {
+		return nil, err
+	}
+	cfg.Name = clean
+	if err := cfg.Save(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // Disable takes this machine off its relay and forgets the enrolment, and

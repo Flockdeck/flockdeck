@@ -74,10 +74,10 @@ func (e *APIError) Error() string {
 }
 
 // Revoked reports whether the relay no longer accepts this host's token —
-// because the host was taken off the relay by something holding that token,
-// from here or elsewhere, or the relay no longer has it. Nothing else can
-// remove a host: a device can remove only devices, and the relay's operator
-// only makes invites. There is nothing to retry: the enrolment is spent.
+// because the host was taken off the relay, by something holding that token
+// or by another member of its account, a paired device or another of its
+// machines, or the relay no longer has it. There is nothing to retry: the
+// enrolment is spent.
 //
 // Only a refusal in the relay's own words counts. A 403 is also what a proxy
 // or a firewall in front of the relay answers with, on a page of its own, and
@@ -257,13 +257,31 @@ func byHere(t time.Time, shift time.Duration) time.Time {
 // Revoke unpairs a device. Its session ends at once, including any window it
 // has open.
 func (c *Client) Revoke(ctx context.Context, deviceID string) error {
-	// A device's id is not a secret. One of the relay's codes or credentials
-	// typed in its place, a browser's session say, would travel in the
-	// request's path, which a relay may log, to be answered "no such device".
 	if isRelayCode(deviceID) {
-		return errors.New("that is one of the relay's codes or credentials, not a device's id; `flockdeck remote devices` lists the ids")
+		return errCodeForDevice
 	}
 	return c.call(ctx, http.MethodDelete, "/api/v1/host/devices/"+url.PathEscape(deviceID), nil, nil)
+}
+
+// errCodeForDevice refuses one of the relay's codes or credentials, a
+// browser's session say, typed where a device's id goes. An id is not a
+// secret, and goes in the request's path, which a relay may log, to be
+// answered "no such device".
+var errCodeForDevice = errors.New("that is one of the relay's codes or credentials, not a device's id; `flockdeck remote devices` lists the ids")
+
+// RenameHost gives this machine a new name, which is what every paired device
+// and the account's other machines list it as. Rename, which also saves it in
+// the enrolment, is what the command line and the window use.
+func (c *Client) RenameHost(ctx context.Context, name string) error {
+	return c.call(ctx, http.MethodPatch, "/api/v1/host", map[string]string{"name": name}, nil)
+}
+
+// RenameDevice gives one of the account's paired devices a new name.
+func (c *Client) RenameDevice(ctx context.Context, deviceID, name string) error {
+	if isRelayCode(deviceID) {
+		return errCodeForDevice
+	}
+	return c.call(ctx, http.MethodPatch, "/api/v1/host/devices/"+url.PathEscape(deviceID), map[string]string{"name": name}, nil)
 }
 
 // Unregister removes this host from the relay, which spends its token.

@@ -27,6 +27,24 @@ type fakeRelayAPI struct {
 	// devices, when set, is the roster's devices, as JSON, in place of the
 	// one phone.
 	devices string
+	// selfName, when set, is what the relay calls this machine, in place of
+	// "desk": the name a paired device gave it.
+	selfName string
+	// renames is each rename asked for, as its path and the name sent, and
+	// noRename answers one as a relay from before renaming does.
+	renames  []string
+	noRename bool
+}
+
+func (f *fakeRelayAPI) renamed(call string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.renames {
+		if c == call {
+			return true
+		}
+	}
+	return false
 }
 
 func newFakeRelayAPI(t *testing.T) *fakeRelayAPI {
@@ -42,9 +60,13 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 	revoked := f.revoked
 	devices := f.devices
+	selfName, noRename := f.selfName, f.noRename
 	f.mu.Unlock()
 	if devices == "" {
 		devices = `[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:00:00Z"}]`
+	}
+	if selfName == "" {
+		selfName = "desk"
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.URL.Path == "/healthz" {
@@ -78,11 +100,23 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "fdp_code", "url": url, "expiresAt": "2099-01-01T00:10:00Z"})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
 		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
-			`"hosts":[{"id":"h-desk","name":"desk","online":true,"self":true,"url":"`+f.URL+`/h/h-desk/"}]}`)
-	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/") &&
+			`"hosts":[{"id":"h-desk","name":"`+selfName+`","online":true,"self":true,"url":"`+f.URL+`/h/h-desk/"}]}`)
+	case r.Method == http.MethodPatch && noRename:
+		// As a relay from before renaming answers: the path is one it has,
+		// for another method.
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, `{"error":"PATCH is not something this address takes"}`)
+	case (r.Method == http.MethodDelete || r.Method == http.MethodPatch) && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/") &&
 		!strings.Contains(devices, `"id":"`+strings.TrimPrefix(r.URL.Path, "/api/v1/host/devices/")+`"`):
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"error":"there is no such device"}`)
+	case r.Method == http.MethodPatch:
+		var req struct{ Name string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		f.mu.Lock()
+		f.renames = append(f.renames, r.URL.Path+" "+req.Name)
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -211,7 +245,7 @@ func TestPickDeviceRefusesAMachine(t *testing.T) {
 	for arg, want := range map[string]string{
 		"desk":       "that is this machine, not a device; `flockdeck remote disable` takes it off the relay",
 		"H1":         "that is this machine, not a device",
-		"Old Laptop": `"old laptop" is another of the account's machines, not a device, and only it can take itself off: run ` + "`flockdeck remote disable`" + ` on it`,
+		"Old Laptop": `"old laptop" is another of the account's machines, not a device; to take it off, remove it from the Devices page of a paired device, or run ` + "`flockdeck remote disable`" + ` on it`,
 		"h2":         `"old laptop" is another of the account's machines`,
 	} {
 		if _, _, err := pickDevice(r, arg); err == nil || !strings.HasPrefix(err.Error(), want) {
@@ -368,9 +402,9 @@ func TestRemoteDisableNeedsForceWhenTheRelayIsGone(t *testing.T) {
 	_, _, err := runRemoteCmd(t, "disable")
 	if err == nil || !strings.Contains(err.Error(), "-force") {
 		t.Errorf("disable with the relay gone = %v, want it to suggest -force", err)
-	} else if strings.Contains(err.Error(), "paired device") || !strings.Contains(err.Error(), "nothing but this machine can take it off") {
-		// No device can remove a machine from the relay; the cost of -force
-		// is that it stays listed.
+	} else if !strings.Contains(err.Error(), "list this machine, offline, until it is removed from the Devices page of a paired device") {
+		// The cost of -force is that the machine stays listed, until a paired
+		// device removes it.
 		t.Errorf("disable with the relay gone = %v, want it to give the real cost of -force", err)
 	} else if !strings.Contains(err.Error(), "try again once the relay can be reached, or, if it is gone for good, run again with -force") {
 		// A relay out of reach is most often a network down for now, and
@@ -848,20 +882,99 @@ func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
 	}
 }
 
-// A new name given to an enrolled machine is something to do that the relay
-// cannot do, and the refusal says what it takes instead; the name it already
-// has is nothing to do.
+// A new name given to an enrolled machine is something to do, and the refusal
+// names the command that does it; the name it already has is nothing to do.
 func TestRemoteEnableWithANewName(t *testing.T) {
 	isolateKeys(t)
 	f := newFakeRelayAPI(t)
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "the relay cannot rename a machine; to take a new name, run `flockdeck remote disable` first") {
-		t.Errorf("enable with a new name = %v, want it to say the relay cannot rename and what it takes", err)
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "; to give this machine a new name, run `flockdeck remote rename new desk`, which keeps what is paired") {
+		t.Errorf("enable with a new name = %v, want it to name the rename that does it", err)
 	}
 	if _, _, err := runRemoteCmd(t, "enable", "-name", "desk"); err == nil || !strings.Contains(err.Error(), "nothing to do") || strings.Contains(err.Error(), "rename") {
 		t.Errorf("enable with the name it has = %v, want nothing to do", err)
+	}
+}
+
+// A machine is renamed without enrolling it again: the relay is told, the
+// name is saved here as the relay keeps it, and a running instance is told to
+// show it. A name of several words needs no quotes.
+func TestRemoteRenameThisMachine(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	out, reloads, err := runRemoteCmd(t, "rename", "Work", "PC ")
+	if err != nil || !f.renamed("/api/v1/host Work PC") {
+		t.Fatalf("rename Work PC = %q, %v; the relay was asked %v", out, err, f.renames)
+	}
+	if !strings.Contains(out, `this machine is now "Work PC" on every paired device`) || reloads != 1 {
+		t.Errorf("rename printed %q and told the instance %d times", out, reloads)
+	}
+	if cfg, _ := remote.Load(); cfg == nil || cfg.Name != "Work PC" || cfg.HostID != "h-desk" || cfg.Token != "fdh_desk" {
+		t.Errorf("rename saved %+v, want the new name and the same enrolment", cfg)
+	}
+	// No name is the usage, not a request.
+	if _, _, err := runRemoteCmd(t, "rename"); err == nil {
+		t.Error("rename with no name was accepted")
+	}
+	// One of the relay's codes is not a name, and is not sent as one.
+	if _, _, err := runRemoteCmd(t, "rename", "fdp_code"); err == nil || !strings.Contains(err.Error(), "not a name") {
+		t.Errorf("rename to a code = %v, want it refused", err)
+	}
+	// A relay from before renaming says so, rather than only refusing.
+	f.mu.Lock()
+	f.noRename = true
+	f.mu.Unlock()
+	if _, _, err := runRemoteCmd(t, "rename", "desk"); err == nil || !strings.HasSuffix(err.Error(), "this relay is older than renaming, so a new name has to wait until it is updated") {
+		t.Errorf("rename on an older relay = %v, want it to say the relay is older", err)
+	}
+	if cfg, _ := remote.Load(); cfg == nil || cfg.Name != "Work PC" {
+		t.Errorf("a refused rename saved %+v", cfg)
+	}
+}
+
+// A device is renamed by its id or its name, with -device before or after the
+// new name; a machine given as the device, or a device the relay does not
+// know, is answered with where to look.
+func TestRemoteRenameADevice(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runRemoteCmd(t, "rename", "Sam's", "phone", "-device", "Phone")
+	if err != nil || !f.renamed("/api/v1/host/devices/d1 Sam's phone") || !strings.Contains(out, `renamed phone (d1) to "Sam's phone"`) {
+		t.Errorf("rename -device Phone = %q, %v; the relay was asked %v", out, err, f.renames)
+	}
+	if _, _, err := runRemoteCmd(t, "rename", "-device", "d1", "phone"); err != nil || !f.renamed("/api/v1/host/devices/d1 phone") {
+		t.Errorf("rename -device d1 = %v; the relay was asked %v", err, f.renames)
+	}
+	if _, _, err := runRemoteCmd(t, "rename", "-device", "desk", "x"); err == nil || !strings.Contains(err.Error(), "without -device, renames it") {
+		t.Errorf("rename -device of this machine = %v, want it to say how this machine is renamed", err)
+	}
+	if _, _, err := runRemoteCmd(t, "rename", "-device", "d9", "x"); err == nil || !strings.HasSuffix(err.Error(), "`flockdeck remote devices` lists the paired ones, by id and name") {
+		t.Errorf("rename of an unknown device = %v, want it to say where the devices are listed", err)
+	}
+}
+
+// A machine renamed from a paired device is shown by status under its new
+// name, which the relay has and the enrolment here does not.
+func TestRemoteStatusUsesTheRelaysName(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.selfName = "Work PC"
+	f.mu.Unlock()
+	out, _, err := runRemoteCmd(t, "status")
+	if err != nil || !strings.Contains(out, "machine: Work PC (h-desk)\n") {
+		t.Errorf("status = %q, %v; want the name the relay has", out, err)
 	}
 }
 

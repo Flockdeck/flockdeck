@@ -332,6 +332,7 @@ func cliFlagNames() map[string]bool {
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),
 		remoteDisableFlagSet(&remoteDisableFlags{}),
+		remoteRenameFlagSet(&remoteRenameFlags{}),
 	} {
 		fs.VisitAll(func(f *flag.Flag) { names[f.Name] = true })
 	}
