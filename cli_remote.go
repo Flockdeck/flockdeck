@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -290,6 +291,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
 	})
 	var already *remote.AlreadyEnabledError
+	var refused *remote.APIError
 	if errors.As(err, &already) && f.relay != "" {
 		// Asking for another relay is moving this machine, which is two steps,
 		// and the refusal names both rather than only the first.
@@ -323,6 +325,10 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// one. They are matched rather than its 403, which a relay closed to
 		// new accounts also answers, and for which an invite does not help.
 		return fmt.Errorf("%v; pass it with -invite CODE", err)
+	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusConflict:
+		// An account with all the machines it may have. The relay says to
+		// unregister one, which is not a word this command line uses.
+		return fmt.Errorf("%v; running `flockdeck remote disable` on one of that account's machines does that", err)
 	case err != nil:
 		return err
 	}

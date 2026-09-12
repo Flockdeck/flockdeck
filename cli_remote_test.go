@@ -518,6 +518,23 @@ func TestRemoteUnknownCommandSuggests(t *testing.T) {
 	}
 }
 
+// Joining an account that has all the machines it may is refused by the
+// relay in its own words, and the refusal says which command here does what
+// they ask.
+func TestRemoteJoinAFullAccount(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"this account already has as many desktops as it may; unregister one first"}`)
+	}))
+	defer srv.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-join", "fdp_code")
+	if want := "; running `flockdeck remote disable` on one of that account's machines does that"; err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("joining a full account = %v, want it to end %q", err, want)
+	}
+}
+
 // Moving off a relay that can no longer be reached takes disable -force, and
 // the refusal says so, not the plain disable, which would stop there too.
 func TestRemoteMoveFromAGoneRelay(t *testing.T) {
