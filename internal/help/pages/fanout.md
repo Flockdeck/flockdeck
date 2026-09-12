@@ -39,7 +39,10 @@ These choices go with it:
   once per child. If the project you are fanning out from is already trusted,
   this carries that same answer over. It will not invent trust: the box is
   disabled unless the source directory is genuinely trusted already. The
-  question it answers is Claude Code's, so it does nothing for another agent.
+  project's answer to Claude Code's second question, "Allow external CLAUDE.md
+  file imports?", comes across the same way: a yes stays a yes, a no stays a
+  no, and nothing is written if the project was never asked. The questions are
+  Claude Code's, so it does nothing for another agent.
 
 Each task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts rather than

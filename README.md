@@ -575,8 +575,11 @@ folder is trusted before doing any work, once per child. If the project you are
 fanning out from is already trusted, the dialog offers to carry that same
 answer over to the worktrees it creates. It is a checkbox, it says what it
 does, and it will not invent trust: inheriting is refused unless the source
-directory is genuinely trusted already. The answer it carries is Claude Code's,
-so it does nothing for another agent.
+directory is genuinely trusted already. The project's answer to Claude Code's
+second question, "Allow external CLAUDE.md file imports?", comes across the
+same way: a yes stays a yes, a no stays a no, and nothing is written if the
+project was never asked. The questions are Claude Code's, so it does nothing
+for another agent.
 
 #### An agent starting its own helpers
 
