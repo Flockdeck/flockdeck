@@ -517,6 +517,11 @@ func run(opts options) error {
 			kind = session.KindShell
 		}
 		ws.NewTab(kind, root, "")
+	} else if opts.shell {
+		// -shell decides what the first pane is, and a restored layout
+		// already has its panes. Said, rather than dropped without a word,
+		// as the flags that mean nothing when joining a running instance are.
+		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
 	srv, err := server.New(ws)
