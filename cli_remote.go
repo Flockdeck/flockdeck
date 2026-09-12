@@ -191,7 +191,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 	}
 	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
-	fmt.Fprintln(rio.out, "Pair a device with: flockdeck remote pair")
+	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or from Remote access… in the window.")
 	return nil
 }
 

@@ -108,7 +108,7 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, `"desk"`) || reloads != 1 || !strings.Contains(out, "picked this up") {
+	if !strings.Contains(out, `"desk"`) || reloads != 1 || !strings.Contains(out, "picked this up") || !strings.Contains(out, "Remote access… in the window") {
 		t.Errorf("enable printed %q and told the instance %d times", out, reloads)
 	}
 	cfg, err := remote.Load()
