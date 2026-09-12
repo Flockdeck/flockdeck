@@ -77,22 +77,26 @@ func remoteCmd(args []string, rio remoteIO) error {
 }
 
 func remoteUsage(out io.Writer) {
-	fmt.Fprintf(out, "Usage: flockdeck remote <command>\n\n")
-	fmt.Fprintf(out, "Reach this machine's agents from another device, through a relay.\n\n")
-	fmt.Fprintf(out, "Commands:\n")
-	fmt.Fprintf(out, "  enable [-relay URL] [-name N] [-join CODE] [-invite CODE]\n")
-	fmt.Fprintf(out, "                 enrol this machine with a relay\n")
-	fmt.Fprintf(out, "  pair [-desktop]  print a one-time link (and QR code) that pairs a device;\n")
-	fmt.Fprintf(out, "                 -desktop prints a code for enrolling another machine instead\n")
-	fmt.Fprintf(out, "  status         say whether remote access is on, and connected\n")
-	fmt.Fprintf(out, "  devices        list the paired devices and enrolled machines\n")
-	fmt.Fprintf(out, "  revoke <id>    unpair a device\n")
-	fmt.Fprintf(out, "  disable [-force]  remove this machine from the relay\n\n")
-	fmt.Fprintf(out, "The relay is %s unless -relay or %s says otherwise.\n", remote.DefaultRelay, remote.RelayEnv)
-	fmt.Fprintf(out, "To move to another relay, disable remote access, then enable it with -relay.\n")
-	fmt.Fprintf(out, "In the window, Remote access… in the command palette does the same things.\n")
-	fmt.Fprintf(out, "Traffic is encrypted on its way to and from the relay, which decrypts it to\n")
-	fmt.Fprintf(out, "forward it: the relay is trusted, and it is not end-to-end encrypted.\n")
+	fmt.Fprintf(out, `Usage: flockdeck remote <command>
+
+Reach this machine's agents from another device, through a relay.
+
+Commands:
+  enable [-relay URL] [-name N] [-join CODE] [-invite CODE]
+                 enrol this machine with a relay
+  pair [-desktop]  print a one-time link (and QR code) that pairs a device;
+                 -desktop prints a code for enrolling another machine instead
+  status         say whether remote access is on, and connected
+  devices        list the paired devices and enrolled machines
+  revoke <id>    unpair a device
+  disable [-force]  remove this machine from the relay
+
+The relay is %s unless -relay or %s says otherwise.
+To move to another relay, disable remote access, then enable it with -relay.
+In the window, Remote access… in the command palette does the same things.
+Traffic is encrypted on its way to and from the relay, which decrypts it to
+forward it: the relay is trusted, and it is not end-to-end encrypted.
+`, remote.DefaultRelay, remote.RelayEnv)
 }
 
 // remoteFlags is a flag set for one of the subcommands, reporting to stderr
