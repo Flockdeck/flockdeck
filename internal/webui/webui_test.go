@@ -4083,6 +4083,32 @@ assert.strictEqual(asked(), during, "the review was read again in the middle of 
 `)
 }
 
+// A push carries only the active project's panes, so an agent that stopped
+// to wait in another open project raised no desktop notification at all -
+// while the window was behind something, which is when one is needed. Its
+// project's waiting count rising is the event; clicking goes to that project.
+func TestAnAgentWaitingInAnotherProjectIsNotified(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (apiWaiting) => [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: apiWaiting, working: 0 },
+];
+h.recv(fixture({ projects: projects(0) }));
+h.doc._hasFocus = false;
+h.recv(fixture({ projects: projects(1) }));
+assert.strictEqual(h.notifications.length, 1, "an agent waiting in another project raised no notification");
+const n = h.notifications[0];
+assert.ok(/api/.test(n.title), "the notification does not say which project: " + n.title);
+n.onclick();
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/api" });
+
+// The same count again is not news.
+h.recv(fixture({ projects: projects(1) }));
+assert.strictEqual(h.notifications.length, 1, "a count that did not rise raised another notification");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

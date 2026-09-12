@@ -2899,8 +2899,23 @@
    *  on the transition into "waiting" rather than repeatedly while it stays
    *  there. */
   const lastStatus = new Map();
+  /** How many agents were waiting in each open project, by root. The panes a
+   *  push carries are only the active project's, so an agent that stopped to
+   *  wait in another open project raised no notification at all - when the
+   *  window is least likely to be looked at. Its project's count does arrive,
+   *  and a rise in it is the event. */
+  const lastProjectWaiting = new Map();
 
   function notifyAttention(s) {
+    const elsewhere = [];
+    for (const p of s.projects || []) {
+      const before = lastProjectWaiting.get(p.root);
+      lastProjectWaiting.set(p.root, p.waiting || 0);
+      if (!p.active && before !== undefined && (p.waiting || 0) > before) elsewhere.push(p);
+    }
+    for (const root of [...lastProjectWaiting.keys()]) {
+      if (!(s.projects || []).some((p) => p.root === root)) lastProjectWaiting.delete(root);
+    }
     const fresh = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
       const before = lastStatus.get(id);
@@ -2915,7 +2930,7 @@
     }
     // Only when the window is not in front: otherwise the marker on the tab is
     // enough and a notification would be noise.
-    if (!fresh.length || (document.hasFocus() && !document.hidden)) return;
+    if ((!fresh.length && !elsewhere.length) || (document.hasFocus() && !document.hidden)) return;
 
     // One notification for however many stopped at once. They all carry the
     // same tag, so several sent together replace each other on the desktop and
@@ -2923,15 +2938,29 @@
     // them reaching the same permission question within a second of each
     // other, of which you would have been told about exactly one, chosen by
     // whatever order the panes happened to arrive in.
-    const one = fresh.length === 1;
-    showNotification(
-      one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
-      one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
-          : fresh.map((f) => f.name).join(", "),
-      fresh[0].id);
+    if (!elsewhere.length) {
+      const one = fresh.length === 1;
+      showNotification(
+        one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
+        one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
+            : fresh.map((f) => f.name).join(", "),
+        fresh[0].id);
+      return;
+    }
+    if (!fresh.length && elsewhere.length === 1) {
+      showNotification("An agent in " + elsewhere[0].name + " needs you",
+        "waiting for input, in another open project", "", elsewhere[0].root);
+      return;
+    }
+    const names = fresh.map((f) => f.name).concat(elsewhere.map((p) => "in " + p.name));
+    showNotification("Agents need you", names.join(", "),
+      fresh.length ? fresh[0].id : "", fresh.length ? "" : elsewhere[0].root);
   }
 
-  function showNotification(title, body, paneID) {
+  /** showNotification raises the desktop notification. Clicking it goes to
+   *  the pane that asked, or - for an agent in another project, whose pane
+   *  this window has not been told about - to that project. */
+  function showNotification(title, body, paneID, root) {
     if (prefs.notificationsOff) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
@@ -2942,6 +2971,7 @@
         // screen does not answer the question. The pane that asked it does,
         // and it may well be on a tab that is not the one showing.
         if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
+        else if (root) send({ cmd: "selectProject", root });
         n.close();
       };
     } catch { /* notifications are best effort */ }
