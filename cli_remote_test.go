@@ -209,8 +209,8 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, "d1") || !strings.Contains(out, "phone") || !strings.Contains(out, "(this one)") {
 		t.Errorf("devices = %q, %v", out, err)
 	}
-	// The ids are there to be unpaired by, so the list says how.
-	if !strings.Contains(out, "flockdeck remote revoke <id>") {
+	// The ids and names are there to be unpaired by, so the list says how.
+	if !strings.Contains(out, "flockdeck remote revoke <id or name>") {
 		t.Errorf("devices does not say how to unpair one: %q", out)
 	}
 	out, _, err = runRemoteCmd(t, "status")

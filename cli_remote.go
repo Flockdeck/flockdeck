@@ -485,7 +485,7 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time) {
 	if len(r.Devices) == 0 {
 		fmt.Fprintln(out, "No devices are paired. `flockdeck remote pair` pairs one.")
 	} else {
-		fmt.Fprintln(out, "Devices (`flockdeck remote revoke <id>` unpairs one):")
+		fmt.Fprintln(out, "Devices (`flockdeck remote revoke <id or name>` unpairs one):")
 		width := 0
 		for _, d := range r.Devices {
 			width = max(width, len(d.ID))
