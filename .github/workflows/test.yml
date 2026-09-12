@@ -65,16 +65,30 @@ jobs:
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
       # unable to check what it downloads. Other runs have no key to hold.
       #
-      # The output is kept as well as shown, for the step after this one. Bash
-      # on every platform, so that the pipe keeps go test's exit status; on
-      # Windows that is Git's bash, which is where the tests are run by hand.
+      # The output is kept as well as shown, for the step after this one.
       - name: Test
+        if: runner.os != 'Windows'
         shell: bash
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: |
           set -o pipefail
           go test ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+
+      # Windows runs the tests from the runner's own shell, PowerShell 7, as
+      # it always has: moving them to Git's bash changed what they ran in, and
+      # one failed there that had never failed before. cmd does the
+      # redirection, so that nothing depends on how PowerShell treats a
+      # program writing to stderr; the output is shown once the tests end.
+      - name: Test
+        if: runner.os == 'Windows'
+        env:
+          FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
+        run: |
+          cmd /c "go test ./... > `"$env:RUNNER_TEMP\go-test.log`" 2>&1"
+          $status = $LASTEXITCODE
+          Get-Content "$env:RUNNER_TEMP\go-test.log"
+          exit $status
 
       # A job's log can only be read signed in to GitHub, and its annotations
       # can be read by anyone, from the web or the API. So a failure is also
