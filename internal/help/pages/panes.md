@@ -35,7 +35,9 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 - [[key:zoomPane]] gives the focused pane the whole tab, and gives it back.
   The others keep running; they are simply not on screen.
 - [[key:findInTerminal]] searches the focused terminal's scrollback.
-- [[key:closePane]] closes a pane and stops the agent in it.
+- [[key:closePane]] closes a pane and stops the agent in it, without asking.
+  Closing a tab's last pane closes the tab, and the `×` on a tab closes every
+  pane in it.
 
 The buttons in a pane header do the same things: fan out, include in
 broadcast, restart, zoom, close. Double-click a tab to rename it.
