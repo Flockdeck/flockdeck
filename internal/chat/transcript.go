@@ -154,11 +154,16 @@ func (l *Log) Append(e Entry) error {
 	if e.Cwd == "" {
 		e.Cwd = l.cwd
 	}
-	data, err := json.Marshal(e)
-	if err != nil {
+	// Code is most of what a transcript holds, and encoding/json would write
+	// every < > and & in it as < and the like; the file is read by people
+	// as well as by programs. Encode ends the entry with its newline.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(e); err != nil {
 		return err
 	}
-	if _, err := l.f.Write(append(data, '\n')); err != nil {
+	if _, err := l.f.Write(buf.Bytes()); err != nil {
 		return err
 	}
 	return nil
