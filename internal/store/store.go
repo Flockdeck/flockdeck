@@ -308,6 +308,7 @@ func Load(root string) (*State, error) {
 		return nil, err
 	}
 	data, err := readState(p)
+	noteRead(p, err)
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
@@ -437,9 +438,61 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
+	if err := keepUnread(p); err != nil {
+		return fmt.Errorf("write layout: %w", err)
+	}
 	if err := writeAtomic(p, data); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
+	return nil
+}
+
+// unreadSuffix marks a layout this run could not read, moved out of the way of
+// the save that replaced it. Like damagedSuffix it is neither ".json" nor
+// ".tmp", so nothing looks for it again and nothing sweeps it away.
+const unreadSuffix = ".unread"
+
+// unreadLayouts holds the layout files this run looked for and could not read,
+// for a reason other than their not being there.
+//
+// A layout that cannot be read is a project that opens with no tabs, or with
+// the one fresh tab the caller gives it, and the save on the way out used to
+// write that over the file nobody had been able to read: the tabs the user
+// had saved were lost to a moment's trouble reading them — a file held past
+// the retry budget, a drive that was slow to wake, a permission put right by
+// the next run. The file is still the user's layout, so it is moved aside
+// before it is written over, and kept.
+var unreadLayouts = struct {
+	sync.Mutex
+	paths map[string]bool
+}{paths: map[string]bool{}}
+
+// noteRead records how reading a layout file went. A file read, or found not
+// to be there, has nothing left to keep.
+func noteRead(p string, err error) {
+	unreadLayouts.Lock()
+	defer unreadLayouts.Unlock()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		unreadLayouts.paths[p] = true
+		return
+	}
+	delete(unreadLayouts.paths, p)
+}
+
+// keepUnread moves a layout this run could not read aside, ahead of the save
+// about to replace it. Where it cannot be moved either, the save is refused:
+// the tabs on screen are lost with it, but they are the ones the user has
+// just seen, and the layout that could not be read is the one they have not.
+func keepUnread(p string) error {
+	unreadLayouts.Lock()
+	defer unreadLayouts.Unlock()
+	if !unreadLayouts.paths[p] {
+		return nil
+	}
+	if err := renameWithRetry(p, p+unreadSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("the layout saved before could not be read when the project was opened, and could not be moved aside, so it was left as it was rather than written over: %w", err)
+	}
+	delete(unreadLayouts.paths, p)
 	return nil
 }
 
@@ -614,7 +667,7 @@ func readState(path string) ([]byte, error) {
 	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
 	for {
-		data, err := os.ReadFile(path)
+		data, err := readFile(path)
 		if err == nil {
 			return data, nil
 		}
@@ -624,6 +677,12 @@ func readState(path string) ([]byte, error) {
 		delay = backOff(delay)
 	}
 }
+
+// readFile reads a whole file. It is a variable so a test can stand in for a
+// read that fails for a reason other than the file not being there, which no
+// test can arrange portably: permissions stop nobody running as root, and a
+// sharing violation exists only on Windows.
+var readFile = os.ReadFile
 
 // hashRoot turns a path into a short stable filename component.
 func hashRoot(root string) string {
