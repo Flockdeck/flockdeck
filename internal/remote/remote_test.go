@@ -660,6 +660,27 @@ func TestNotARelayIsAskedAbout(t *testing.T) {
 	}
 }
 
+// A relay whose certificate this machine does not trust, a self-hosted one
+// with a certificate of its own making say, is said to be that, in words,
+// in the terminal and in the window, with the verifier's reason kept.
+func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	const want = "its certificate is not one this machine trusts (x509: "
+	if _, err := Register(context.Background(), srv.URL, "v", RegisterRequest{Name: "desk"}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("enabling against an untrusted relay = %v, want it to say %q", err, want)
+	}
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "an error", func() bool { st = c.Status(); return st.State == StateError })
+	if !strings.HasPrefix(st.Detail, want) {
+		t.Errorf("detail = %q, want it to begin %q", st.Detail, want)
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()

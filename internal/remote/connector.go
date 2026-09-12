@@ -261,7 +261,7 @@ func dialFailure(err error, resp *http.Response) error {
 	case resp != nil && resp.StatusCode != http.StatusSwitchingProtocols:
 		return fmt.Errorf("it answered %s rather than opening the tunnel", resp.Status)
 	}
-	return unwrapURLError(err)
+	return transportError(err)
 }
 
 // dial opens the WebSocket the tunnel runs over. The timeout is on the

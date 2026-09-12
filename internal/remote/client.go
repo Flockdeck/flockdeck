@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,7 +199,7 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("reach the relay at %s: no answer within %s", c.Relay, requestTimeout)
 		}
-		return fmt.Errorf("reach the relay at %s: %w", c.Relay, unwrapURLError(err))
+		return fmt.Errorf("reach the relay at %s: %w", c.Relay, transportError(err))
 	}
 	defer resp.Body.Close()
 
@@ -232,13 +233,20 @@ func decodeError(status int, data []byte) error {
 	return &APIError{Status: status, Message: msg}
 }
 
-// unwrapURLError drops the "Get \"https://…\":" prefix net/http puts on every
-// transport error. The caller has already said which relay it was, and the
-// same URL twice in one line is the part people stop reading at.
-func unwrapURLError(err error) error {
+// transportError says why a relay could not be reached. It drops the
+// "Get \"https://…\":" prefix net/http puts on every transport error, since
+// the caller has already said which relay it was, and the same URL twice in
+// one line is the part people stop reading at. A certificate this machine
+// does not trust, which retrying will not mend, is said in words first, with
+// the verifier's reason after it.
+func transportError(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
-		return ue.Err
+		err = ue.Err
+	}
+	var cert *tls.CertificateVerificationError
+	if errors.As(err, &cert) {
+		return fmt.Errorf("its certificate is not one this machine trusts (%v)", cert.Err)
 	}
 	return err
 }
