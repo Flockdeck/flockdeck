@@ -714,6 +714,15 @@ func (c PaneContext) siblingAgentsNamed() bool {
 // Files", the brackets after it. Anything but what a bare path is made of is
 // quoted, rather than the space alone.
 func shellWord(s string) string {
+	// Double quotes keep a space and a bracket, but sh still reads a $, a
+	// backtick and a double quote inside them, and a doubled backslash
+	// anywhere — so a build run from a Windows share (\\server\...) was mangled
+	// even though every character in its path is one a bare path is made of.
+	// Single quotes keep every character as it is, and only a single quote
+	// itself has to be written around.
+	if strings.ContainsAny(s, "$`\"") || strings.Contains(s, `\\`) {
+		return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`
+	}
 	if s == "" || !strings.ContainsFunc(s, needsQuoting) {
 		return s
 	}

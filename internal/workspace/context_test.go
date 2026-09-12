@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -823,6 +825,43 @@ func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
 		text := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: in}.Render()
 		if !strings.Contains(text, want+" spawn ") {
 			t.Errorf("the examples do not run %s:\n%s", want, text)
+		}
+	}
+}
+
+// TestTheSpawnCommandSurvivesTheShell covers the characters sh still reads
+// inside double quotes. The examples an agent is given are run by a shell, and
+// a path through a folder with a $ in its name, or a build run from a Windows
+// share, was quoted into a command for some other path.
+func TestTheSpawnCommandSurvivesTheShell(t *testing.T) {
+	paths := []string{
+		`/home/me/$work/flockdeck`,
+		`C:\Users\me\a$b\flockdeck.exe`,
+		`\\server\share\flockdeck.exe`,
+		"/opt/odd`dir/flockdeck",
+		`/opt/it's $here/flockdeck`,
+	}
+	// Reading the word back through a real sh proves it, but only where sh is
+	// given its argument as it stands: on Windows the one to hand is Git's,
+	// whose runtime rewrites backslashes in the command line it is started
+	// with before sh ever sees the quotes.
+	sh, err := exec.LookPath("sh")
+	for _, p := range paths {
+		word := shellWord(p)
+		if !strings.HasPrefix(word, `'`) {
+			t.Errorf("shellWord(%q) = %s, which sh would expand", p, word)
+			continue
+		}
+		if err != nil || runtime.GOOS == "windows" {
+			continue
+		}
+		out, runErr := exec.Command(sh, "-c", "printf %s "+word).Output()
+		if runErr != nil {
+			t.Errorf("sh could not read %s: %v", word, runErr)
+			continue
+		}
+		if string(out) != p {
+			t.Errorf("sh read %s as %q, want %q", word, out, p)
 		}
 	}
 }
