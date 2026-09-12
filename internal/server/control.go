@@ -771,6 +771,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "agents":
 		s.listAgents(c)
 		return
+	case "keys":
+		s.listKeys(c)
+		return
+	case "keySet":
+		s.setKey(c, cmd.ID, cmd.Text)
+		return
+	case "keyClear":
+		s.clearKey(c, cmd.ID)
+		return
 	case "refreshAgents":
 		s.refreshAgents()
 		return
