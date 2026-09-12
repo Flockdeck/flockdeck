@@ -15,7 +15,7 @@ them, how to change it, and where it is kept.
 | Which panes the prompt bar reaches | [[key:toggleBroadcast]], and the `⇉` button in each pane header | until Flockdeck stops |
 | Terminal font size | [[key:fontUp]], [[key:fontDown]], [[key:fontReset]] | until Flockdeck is next started |
 | Paired devices | [[action:remote]] — **Pair a device**, **Unpair** | on the relay |
-| Desktop notifications | the browser's own site settings, for the address in the title bar | the browser |
+| Desktop notifications | allow them when the window first asks | the browser, for that run only: each run has an address of its own, so the question comes back on the next start |
 | Hints under the tab bar | their close button, which sends one away for good | `prefs.json` |
 
 ## In the state directory
