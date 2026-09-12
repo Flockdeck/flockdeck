@@ -705,6 +705,11 @@ func summarise(out string, width int) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	first := clipTo(strings.TrimSpace(lines[0]), width-12)
 	if len(lines) > 1 {
+		// A command's result is the last line -- its exit status -- and the
+		// first line of what it printed says nothing of whether it worked.
+		if last := strings.TrimSpace(lines[len(lines)-1]); strings.HasPrefix(last, "[exit status") || strings.HasPrefix(last, "[killed after") {
+			first = clipTo(last, width-12)
+		}
 		return fmt.Sprintf("%s (%d lines; /output shows them)", first, len(lines))
 	}
 	if first == "" {
