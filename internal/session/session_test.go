@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -220,7 +221,14 @@ func TestSessionConcurrentAccess(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				_ = s.WriteString("x")
+				// Each character is taken back with ^U, which every shell
+				// reads as erasing the line. Typing without end grew one
+				// line in the shell's editor for as long as this ran, and a
+				// shell redrawing that line on every resize falls behind:
+				// a pseudo-terminal's input queue is small, a write into a
+				// full one waits for the shell, and on macOS closing the
+				// terminal does not free it.
+				_ = s.WriteString("x\x15")
 				s.SetStatus(StatusWorking, "tool")
 				_, _ = s.Status()
 			}
@@ -229,13 +237,38 @@ func TestSessionConcurrentAccess(t *testing.T) {
 
 	time.Sleep(1500 * time.Millisecond)
 	close(stop)
-	wg.Wait()
+	waitOrDump(t, &wg, 20*time.Second)
+}
+
+// waitOrDump waits for wg, and fails with every goroutine's stack once d has
+// gone by. A goroutine stuck for good otherwise holds the test until the
+// binary's own limit kills it, which took ten minutes of a release run and
+// showed only the one waiting here rather than the one it was waiting for.
+func waitOrDump(t *testing.T, wg *sync.WaitGroup, d time.Duration) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		buf := make([]byte, 1<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		t.Fatalf("the goroutines were still running %v after being told to stop:\n%s", d, buf)
+	}
 }
 
 // TestSlowViewerIsDroppedNotBlocking checks that a viewer which stops reading
 // cannot stall the process feeding it.
 func TestSlowViewerIsDroppedNotBlocking(t *testing.T) {
-	s := startShell(t)
+	// No process behind the pane, so this goroutine stands in for its reader
+	// rather than publishing alongside a real one: publish belongs to the one
+	// reader, and the bell scanner it runs keeps state between chunks.
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
 	id, _, out := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 

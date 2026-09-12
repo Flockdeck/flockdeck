@@ -472,7 +472,7 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 	// One budget covers handing the question over and getting the answer, as
 	// waiting to hand it over has no deadline of its own and the queue in
 	// front of the workspace fills up exactly when the workspace is slow.
-	deadline := time.After(paneLookup)
+	deadline := time.After(s.paneLookup)
 	select {
 	case s.cmds <- func() {
 		if p := s.ws.Pane(id); p != nil {

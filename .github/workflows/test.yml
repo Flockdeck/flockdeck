@@ -64,13 +64,8 @@ jobs:
       # mistake in that is a race rather than a failure. The detector needs a C
       # toolchain, which the application itself never does, so it runs where
       # the runner has one.
-      #
-      # Its first run found races the suite had never been able to look for.
-      # Until those are fixed it reports without holding anything up; making
-      # it blocking again is part of fixing them.
       - name: Race
         if: runner.os == 'Linux'
-        continue-on-error: true
         env:
           CGO_ENABLED: "1"
         run: go test -race ./...

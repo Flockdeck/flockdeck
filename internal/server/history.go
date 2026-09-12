@@ -108,6 +108,21 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 
 	go func() {
 		defer s.survive("listing conversations")
+		// A listing that panics before it answers is forgotten on the way out,
+		// or its window is tracked for as long as the server runs. Only then:
+		// answering forgets the window, whose next request is numbered from
+		// the start again, so forgetting this one a second time could be
+		// forgetting that one.
+		answered := false
+		defer func() {
+			if !answered {
+				answerListing(c, asked)
+			}
+		}()
+		answer := func() bool {
+			answered = true
+			return answerListing(c, asked)
+		}
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
 		items, err := allConversations(transcript.Agents(), dir)
 		// One agent's store being unreadable is worth saying, but not at the
@@ -117,7 +132,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		// With conversations to show it goes beside them, as a notice.
 		if err != nil && len(items) == 0 {
 			msg.Error = err.Error()
-			if answerListing(c, asked) {
+			if answer() {
 				c.sendJSON(msg)
 			}
 			return
@@ -135,7 +150,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 				Open:     open[conv.ID],
 			})
 		}
-		if answerListing(c, asked) {
+		if answer() {
 			c.sendJSON(msg)
 			if err != nil {
 				c.notify(err.Error(), true)

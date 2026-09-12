@@ -21,11 +21,21 @@ func TestAReplyThatPanicsLeavesTheInstanceRunning(t *testing.T) {
 	}
 
 	conn := dialControl(t, srv)
-	srv.listConversations(&controlClient{out: make(chan []byte, 8)}, ws.ActiveRoot())
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.listConversations(c, ws.ActiveRoot())
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
 	if !note.Error {
 		t.Fatalf("the panic was reported as %+v; want an error notice", note)
+	}
+	// The listing never answered, and the notice goes out only after it has
+	// been forgotten: left behind, its window was tracked for as long as the
+	// server ran.
+	listings.Lock()
+	_, tracked := listings.seq[c]
+	listings.Unlock()
+	if tracked {
+		t.Error("a listing that panicked left its window tracked")
 	}
 	if v, ok := ask(srv, func() int { return 7 }); !ok || v != 7 {
 		t.Fatalf("after the panic the workspace answered %d, %v; want 7, true", v, ok)
