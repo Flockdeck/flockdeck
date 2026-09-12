@@ -59,13 +59,16 @@ func statusLine(model string, u Usage, spent spend) string {
 		in += " (" + tokens(u.CacheRead) + " cached)"
 	}
 	parts = append(parts, in, tokens(u.Out)+" out")
+	// The cost is an estimate from the price table, never the bill, and is
+	// marked "~" as the pane header marks the same figure; the tokens are
+	// counted exactly and carry no mark.
 	switch {
 	case spent.dollars > 0 && spent.unpriced:
 		// Part of it is known, and the rest was spent at a price nobody here
 		// can say: what is known is a floor, and is shown as one.
-		parts = append(parts, money(spent.dollars)+"+")
+		parts = append(parts, "~"+money(spent.dollars)+"+")
 	case spent.dollars > 0:
-		parts = append(parts, money(spent.dollars))
+		parts = append(parts, "~"+money(spent.dollars))
 	}
 	return strings.Join(parts, " · ")
 }
