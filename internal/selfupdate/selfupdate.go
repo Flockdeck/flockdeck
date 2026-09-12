@@ -475,8 +475,12 @@ func Apply(dir, exePath string) error {
 	}
 	if err := os.Rename(next, exePath); err != nil {
 		// Put back what was there. Leaving no program at all under the name
-		// the user starts is far worse than failing to update.
-		os.Rename(old, exePath)
+		// the user starts is far worse than failing to update — and when
+		// even that fails, where the program went is the one thing they
+		// need to be told.
+		if rerr := os.Rename(old, exePath); rerr != nil {
+			return fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, exePath)
+		}
 		os.Remove(next)
 		return fmt.Errorf("put the new version in place: %w", err)
 	}
