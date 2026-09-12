@@ -167,3 +167,20 @@ assert.strictEqual(spend({ usd: 0.009999, source: "table", tokens: 10 }), "~$0.0
 assert.strictEqual(spend({ usd: 0.0421, source: "table", tokens: 10 }), "~$0.042");
 `)
 }
+
+// The summary in the top bar is a button whose words are the counts. It was
+// named from the action table while it was still empty, and that name
+// outlasted every count written into it: tabbed to, it said what it opens and
+// never who was waiting.
+func TestTheSummarySaysItsCountsWhenTabbedTo(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ waiting: 1, working: 2, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2", { status: "working" }) } }));
+const s = h.$("summary");
+const name = () => s.getAttribute("aria-label") || s.textContent;
+assert.ok(name().includes("1 waiting") && name().includes("2 working"), "the button's name leaves out the counts: " + name());
+h.recv(fixture({ waiting: 0, working: 0 }));
+assert.ok(!name().includes("waiting") && !name().includes("working"), "the name kept counts that are gone: " + name());
+assert.ok(name().length > 0, "an idle summary has no name at all");
+`)
+}

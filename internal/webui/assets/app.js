@@ -1495,6 +1495,14 @@
       // The gap between the two is the eye's; a screen reader needs a pause.
       if (s.waiting > 0 && s.working > 0) box.append(el("span", "sr-only", ", "));
       if (s.working > 0) box.append(tally("working", s.working, TIPS.working));
+      // The button was named from the action table while it was still empty,
+      // and a name set that way outlasts the counts written into it after:
+      // tabbed to, it said what it opens and never who was waiting.
+      const counts = [s.waiting > 0 && s.waiting + " waiting", s.working > 0 && s.working + " working"]
+        .filter(Boolean).join(", ");
+      const name = [counts, actionTip("agents")].filter(Boolean).join(" — ");
+      if (name) box.setAttribute("aria-label", name);
+      else box.removeAttribute("aria-label");
       document.title = s.waiting > 0
         ? `▲ ${s.waiting} waiting · flockdeck`
         : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
