@@ -24,7 +24,7 @@ keys` keeps it.
 │ ◭  │ api ▾ │ [ main ] [ fix-auth ▲ ] + ˅  ▲ 1 waiting │ Commands Ctrl+Shift+K │
 │ AP ├──────────────────────────────┬───────────────────────────────────────────┤
 │ WB▲│ ● api ⎇ main ●3  Read        │ ▲ api ⎇ fix-auth ↑2                       │
-│ ▭  │   claude · sonnet            │   codex · gpt-5                           │
+│ ▭  │   claude · sonnet  5h 72%    │   codex · gpt-5.6-sol                     │
 │    │  (live agent terminal)       │  (live agent terminal)                    │
 │ ⇉  ├──────────────────────────────┴───────────────────────────────────────────┤
 │ ±  │ ○ shell ⎇ main                                                           │
@@ -32,6 +32,7 @@ keys` keeps it.
 └────┴──────────────────────────────────────────────────────────────────────────┘
    AP WB = open projects   ▭ = Open a project   ⇉ ± ⚙ = tools, Settings last
    ▲ = blocked on you   ●3 = uncommitted files   ↑2 = ahead
+   5h 72% = how much of Claude's five-hour limit is used
 ```
 
 ## What it gives you
@@ -49,6 +50,10 @@ keys` keeps it.
 - **One glance tells you who needs you** — per-pane status driven by the agent's
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
+- **What each agent has spent, and how near its limit it is** — an estimate of
+  the conversation's cost, or its tokens, in the header of every Claude Code
+  and API agent pane, and a Claude subscription's five-hour and weekly
+  windows, worked out on this machine and sent nowhere.
 - **Multiple projects open together**, switched without stopping anything.
 - **Worktrees as a first-class thing**: create, inspect, occupy and remove them
   without leaving the app.
@@ -59,6 +64,9 @@ keys` keeps it.
   a relay, with no port opened on this machine.
 - **One agent's plan becomes several agents doing the work**, each in its own
   git worktree.
+- **The right model for each task** — routing rules, off until you turn them
+  on, pre-set a fan-out's rows to a smaller model for mechanical work and a
+  stronger one for hard work, shown for you to change before anything starts.
 - **Review, commit and push** what an agent did without leaving the app.
 
 ## Why
@@ -369,9 +377,13 @@ default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
 should still learn that Flockdeck would run it. An OpenAI-compatible endpoint
 is given its address there too: pick it, type where the model server answers,
-and one on this machine, which needs no key, is offered at once. The pane header then names what it
+and one on this machine, which needs no key, is offered at once. Each model
+shows its tier — *small*, *mid* or *top*, how capable and so how costly it is
+among that agent's own — and an API agent's models their published price per
+million tokens with the day it was read; a CLI agent's show none, since it may
+be on a subscription. The pane header then names what it
 got beside the branch, in the same dim weight — `claude · sonnet`,
-`codex · gpt-5`.
+`codex · gpt-5.6-sol`.
 
 There are two ways an agent gets run:
 
@@ -471,6 +483,59 @@ and a reported event always beats a pattern. None of the built-in agents has
 patterns yet. It is a guess where the other is a fact, and the help says which
 agents are which so you know which you are looking at.
 
+### Spend and limits
+
+Each pane header says what its agent has spent in the conversation and the
+tightest usage limit it runs under, so the agent that is burning money, or
+about to stop, can be picked out of a tab of six.
+
+- **An API agent** reports every call's tokens, counted exactly, and Flockdeck
+  prices them from its dated price table: `~$1.24`, or `84k tok` for a model
+  with no price, or `~$0.04+` when some of the tokens had none, which makes
+  the figure a floor.
+- **Claude Code** hands its figures to its status line, above. On a Pro or Max
+  plan the header leads with the tightest window, `5h 72%` over a small meter,
+  amber at 80% and red at 95%, and shows tokens rather than dollars; the
+  tooltip lists every window and when it resets, and what the tokens would
+  cost on the API. On an API key it shows Claude Code's own estimate of the
+  session, `~$0.50`.
+
+Every money figure is an estimate, written with `~`, and its tooltip ends *An
+estimate at published prices, not your bill.* A limit belongs to the login,
+so every Claude pane on it shows the same windows. Nothing is fetched to work
+any of this out and nothing about it is sent anywhere; the figures are kept in
+memory, and start again with a new conversation or a new run of Flockdeck.
+Codex, Gemini CLI, Aider, opencode and Cursor Agent report nothing yet, so
+their panes show neither.
+
+### Model routing
+
+Every built-in model has a tier — `small`, `mid` or `top` — and one table in
+`internal/pricing` holds every price the app states, each rate dated with the
+day it was read from the provider's own pricing page. A release build's tests
+fail when any rate is more than 120 days old, so the table is read again for
+each release; it is never fetched at run time.
+
+On those tiers, rules in `agents.json` pre-set a fan-out's rows to a model
+suited to the work: the built-in ones move running the tests, a short rename
+or move, and changelog or README wording to the smallest model, and a
+refactor, a race, a migration or a security fix to the strongest. Routing is
+**off** until it is turned on in Settings › Agents › Routing, for every project
+or for one, and a project's own policy replaces the other whole.
+
+What it chooses is shown in the dialog before anything starts: a routed row's
+select is pre-set, tagged `↘ routed` or `↗ routed` with the rule in its
+tooltip, and one button puts every row back on the run's model. The server
+never routes a fan-out itself — the dialog sends the rows as though they had
+been chosen by hand — so what was shown is what runs. A pane started on a
+routed model says so in its header, `claude · haiku ↘`.
+
+Routing only ever changes the model, never the agent, and only between models
+whose tier it knows; Claude Code's *Default*, which is whatever the CLI is set
+to, is left alone. It makes no request of any kind. What it chose, and whether
+the choice was kept, goes in `routing.jsonl` in the state directory: rule
+names and model ids, never the task.
+
 ### Rearranging what is already running
 
 A layout is rarely right first time: the agent you thought was a side errand
@@ -538,7 +603,7 @@ start:
 - what it was spawned to do, when it was started by a fan-out or by another
   agent rather than by hand;
 - which other agents are running beside it, where each of them is working,
-  which agent and model each of them is — `codex · gpt-5`, because what is in
+  which agent and model each of them is — `codex · gpt-5.6-sol`, because what is in
   the next pane changes what is worth asking of it — and what each was asked
   for, and that their conversations are separate, so nothing passes between
   panes except through the user or a commit;
@@ -654,7 +719,9 @@ made, the window is left where you are.
 The dialog carries one agent-and-model control for the whole run and an
 override on each row, so twelve tasks can be split between two agents
 deliberately — the capable one for the refactor, the cheap one for the six
-renames.
+renames. The run starts on the project's default agent and model, and with
+[routing](#model-routing) on for the project, rows its rules match come with a
+model already chosen.
 
 The task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts rather than
@@ -777,7 +844,8 @@ it. Settings → Terminal sets the size, typeface, scrollback and cursor.
 
 `Ctrl+,`, or **Settings** at the foot of the rail, opens one dialog for
 everything Flockdeck remembers: notifications and updates (General), font,
-scrollback and cursor (Terminal), the default agent and model (Agents), keys
+scrollback and cursor (Terminal), the default agent and model, routing and
+whether Claude panes read their usage limits (Agents), keys
 (API keys), pairing (Remote access), and your plan (Account & plan). Every
 control changes its setting at once. Below 640px wide the rail folds into a
 menu behind the ☰ button at the left of the top bar, which is how a phone or a
@@ -982,6 +1050,9 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
   terminal instead, so its status is a guess and can be a beat behind. Status
   is a fact only for the agents that report one — Claude Code, and the built-in
   API client.
+- Spend figures are estimates, kept in memory only, and only Claude Code and
+  the built-in API agents report them. There is no history of them yet, by
+  day or by month.
 - Commits take the working tree as it stands; there is no selective staging in
   the Changes panel. A shell pane is the answer for anything finer.
 - The window needs a browser engine present. Every supported platform ships one
