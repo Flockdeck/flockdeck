@@ -568,7 +568,8 @@ func isDecoration(line string) bool {
 const maxTaskBytes = 16 << 10
 
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
-// be run when it cannot. An empty id means the default agent.
+// be run when it cannot. An empty id means the default agent of the project on
+// screen.
 //
 // The question asked here is about one spec rather than about Claude. A
 // fan-out may now give four of its tasks to one agent and eight to another,
@@ -576,7 +577,7 @@ const maxTaskBytes = 16 << 10
 // other half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
-	spec, ok := w.specFor(id)
+	spec, ok := w.specFor(w.activeRoot, id)
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}
@@ -921,7 +922,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 	// arrangement: asking Claude Code's store about every agent found nothing
 	// for the built-in chat client, whose plan was then read off the screen.
 	if p.IsAgent() {
-		if spec, ok := w.specFor(p.Agent); ok {
+		if spec, ok := w.specFor(p.Root, p.Agent); ok {
 			src.SessionID, src.Spec = w.conversationOf(p), spec
 		}
 	}

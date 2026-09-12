@@ -883,21 +883,21 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		env = w.environ(w.paneEnv(p, "", "")...)
 	} else {
 		// An empty agent is not a missing one: it means whichever agent this
-		// pane would be opened with today -- the project's default, or the
+		// pane would be opened with today -- its project's default, or the
 		// installation's -- which is how a layout written before panes could
 		// choose still restores, and how a project that has settled on another
 		// agent gets it without every pane having to record the name.
 		agentID := p.Agent
+		if agentID == "" {
+			agentID = w.defaultAgentFor(p.Root)
+		}
 		var ok bool
-		spec, ok = w.specFor(agentID)
+		spec, ok = w.agents().Find(agentID)
 		if !ok {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
 			// from a machine that had it. That is this pane's problem and no
 			// other's, so it is reported in place.
-			if agentID == "" {
-				agentID = w.agents().DefaultsFor(w.activeRoot).Agent
-			}
 			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
 			return
 		}
@@ -1163,12 +1163,12 @@ func (w *Workspace) agents() *agent.Catalog {
 
 // specFor resolves the agent id recorded on a pane to the Spec that says how
 // to start it, reporting whether the catalog has one. An empty id is the
-// project's default rather than a missing answer, which is how a layout
+// default of project root rather than a missing answer, which is how a layout
 // written before panes could choose still restores.
-func (w *Workspace) specFor(id string) (agent.Spec, bool) {
+func (w *Workspace) specFor(root, id string) (agent.Spec, bool) {
 	c := w.agents()
 	if id == "" {
-		id = w.defaultAgent()
+		id = w.defaultAgentFor(root)
 	}
 	return c.Find(id)
 }

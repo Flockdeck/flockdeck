@@ -52,7 +52,7 @@ func TestAConversationReopensWithTheAgentThatRecordedIt(t *testing.T) {
 	if p == nil {
 		t.Fatal("no pane was opened on the conversation")
 	}
-	if spec, ok := ws.specFor(p.Agent); !ok || spec.Runner != agent.RunnerAPI {
+	if spec, ok := ws.specFor("", p.Agent); !ok || spec.Runner != agent.RunnerAPI {
 		t.Errorf("the chat conversation reopened as %q, want the chat client", p.Agent)
 	}
 }

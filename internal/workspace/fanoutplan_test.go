@@ -33,7 +33,7 @@ func TestFanOutReadsAChatPanesOwnTranscript(t *testing.T) {
 	w := &Workspace{panes: map[string]*Pane{
 		id: {ID: id, Kind: session.KindClaude, Agent: "anthropic"},
 	}}
-	if _, ok := w.specFor("anthropic"); !ok {
+	if _, ok := w.specFor("", "anthropic"); !ok {
 		t.Skip("the catalog has no built-in anthropic agent")
 	}
 	tasks, fromTranscript := w.PlanSourceFor(id).Tasks()
