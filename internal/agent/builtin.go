@@ -271,6 +271,8 @@ func openAICompatibleSpec() Spec {
 		ResumeArgs: chatArgs("openai-compatible", true),
 		API:        APISpec{Wire: "openai"},
 		Caps:       chatCaps(),
-		Install:    `add a "baseURL" for it to agents.json`,
+		// The shape is spelled out: "add a baseURL" was taken at its word, and
+		// one written beside the id rather than inside "api" is not read.
+		Install: `give it an address in agents.json: {"id": "openai-compatible", "api": {"baseURL": "http://…/v1"}}`,
 	}
 }
