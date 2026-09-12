@@ -2,6 +2,12 @@
 
 The things that go wrong most often, and what they mean.
 
+## It will not start at all
+
+Started from a shortcut, Flockdeck has no terminal to print to, so a failure to
+start is also written to `error.log` in the state directory — **Settings** says
+where that is. Running `flockdeck` from a terminal shows the same message there.
+
 ## A pane says its CLI was not found on PATH
 
 The agent's command is not on your `PATH`, so the pane shows that message where
