@@ -1,10 +1,11 @@
-// Command flockdeck is a desktop application for running several Claude
-// Code agents at once.
+// Command flockdeck is a desktop application for running several coding agents
+// at once.
 //
-// It drives the `claude` CLI in real pseudo-terminals, so every agent behaves
-// exactly as it does in a normal terminal, and presents them in a window with
-// tabs and split panes, per-pane status, layout persistence, git worktrees and
-// broadcast input.
+// It runs each agent — a CLI such as Claude Code, Codex or Gemini, or its own
+// chat client talking to a model API — in a real pseudo-terminal, so every
+// agent behaves exactly as it does in a normal terminal, and presents them in a
+// window with tabs and split panes, per-pane status, layout persistence, git
+// worktrees and broadcast input.
 package main
 
 import (
