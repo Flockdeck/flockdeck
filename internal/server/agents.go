@@ -401,9 +401,16 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 	}
 	go func() {
 		defer s.survive("saving an agent's address")
+		// The address is written into the same agents.json as the defaults
+		// and the routing, read and written back whole, so it waits for
+		// those saves as they wait for one another. Saved beside one of them
+		// from another window, whichever wrote second put back a copy without
+		// the other's change, after both windows were told theirs was saved.
 		path, err := agent.ConfigPath()
 		if err == nil {
+			defaultWrites.Lock()
 			err = agent.SetBaseURL(filepath.Dir(path), id, address)
+			defaultWrites.Unlock()
 		}
 		if err != nil {
 			reply(err.Error())
