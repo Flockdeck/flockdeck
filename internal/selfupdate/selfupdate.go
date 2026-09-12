@@ -5,7 +5,8 @@
 // the application can afford to do the first two at any time and can only ever
 // do the third at a moment of the user's choosing:
 //
-//   - Check asks GitHub what the latest release is.
+//   - Latest asks GitHub what the latest release is, and Newer says whether
+//     it is one to move to; an untagged local build never has one.
 //   - Stage downloads it, checks it against the published SHA-256 and unpacks
 //     the binary into the state directory. Nothing about the installation has
 //     changed yet.
@@ -129,23 +130,6 @@ func Latest(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("read release: %w", err)
 	}
 	return &rel, nil
-}
-
-// Check returns the latest release when it is newer than the version given,
-// and nil when there is nothing to do.
-//
-// An unreadable current version — `dev`, which is what a build with no tag
-// behind it is stamped — means nothing to do, so a local build is never
-// replaced by a published one.
-func Check(ctx context.Context, current string) (*Release, error) {
-	rel, err := Latest(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if rel.Draft || !Newer(rel.Version, current) {
-		return nil, nil
-	}
-	return rel, nil
 }
 
 // assetFor picks the archive built for this platform. The name is the contract

@@ -404,7 +404,7 @@ func TestDownloadSizeIsThisPlatformsArchive(t *testing.T) {
 	}
 }
 
-func TestCheckIgnoresAnUntaggedLocalBuild(t *testing.T) {
+func TestNewerIgnoresAnUntaggedLocalBuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{Version: "v9.9.9"})
 	}))
