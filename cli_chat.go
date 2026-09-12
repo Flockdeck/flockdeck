@@ -33,8 +33,25 @@ func runChat(args []string) error {
 		opts.Cwd, _ = os.Getwd()
 	}
 	opts.Tools = chatTools(opts.Cwd)
+	opts.Models = catalogModels(opts.Agent)
 	chat.KeyStore = storedKey
 	return chat.Run(context.Background(), opts)
+}
+
+// catalogModels are the models the pane's agent offers in the catalog,
+// agents.json included, for /model to list and pick from by number.
+func catalogModels(agentID string) []chat.ModelChoice {
+	for _, s := range agent.Load().Specs {
+		if s.ID != agentID {
+			continue
+		}
+		out := make([]chat.ModelChoice, 0, len(s.Models))
+		for _, m := range s.Models {
+			out = append(out, chat.ModelChoice{ID: m.ID, Name: m.Name, Note: m.Note})
+		}
+		return out
+	}
+	return nil
 }
 
 // storedKey is the key `flockdeck keys set` stored for an agent, or "".

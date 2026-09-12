@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -21,8 +22,11 @@ import (
 type Options struct {
 	// Agent is the catalog id of the agent this pane was started as. It names
 	// the key to look for and is what the header says.
-	Agent   string
-	Model   string
+	Agent string
+	Model string
+	// Models are what the agent's catalog entry offers, which /model lists and
+	// picks from by number. Any other id can still be named.
+	Models  []ModelChoice
 	Session string
 	Resume  bool
 	// Task is the opening prompt, which arrives in the argv rather than being
@@ -64,6 +68,13 @@ type Options struct {
 	// wire, when set, is used instead of building one from Wire and BaseURL. It
 	// is how the loop is tested without a model to talk to.
 	wire Wire
+}
+
+// ModelChoice is one model /model offers.
+type ModelChoice struct {
+	ID   string
+	Name string
+	Note string
 }
 
 // KeyStore is asked for an API key when the environment does not have one. It
@@ -612,7 +623,7 @@ func (s *session) command(line string) bool {
 	case "help":
 		s.out.line(ansiBold, "commands")
 		for _, l := range []string{
-			"/model <id>   answer with a different model from here on",
+			"/model        the models to choose from; /model 2 or /model <id> switches",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
@@ -623,12 +634,7 @@ func (s *session) command(line string) bool {
 			s.out.line(ansiDim, "  "+l)
 		}
 	case "model":
-		if rest == "" {
-			s.out.line(ansiDim, "the model is "+firstNonEmpty(s.model, "whatever the endpoint is set to"))
-			return false
-		}
-		s.model = rest
-		s.out.line(ansiDim, "answering with "+rest+" from here on")
+		s.chooseModel(rest)
 	case "clear":
 		s.messages = nil
 		// The transcript is marked rather than truncated: what was said was
@@ -646,6 +652,45 @@ func (s *session) command(line string) bool {
 		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
 	}
 	return false
+}
+
+// chooseModel is /model. With nothing after it, it lists the models there are
+// to choose from and which one is answering, because switching is otherwise a
+// matter of already knowing the exact id; with a number, it takes the model at
+// that place in the list; with anything else, it takes that as the id.
+func (s *session) chooseModel(arg string) {
+	if arg == "" {
+		s.out.line(ansiDim, "answering with "+firstNonEmpty(s.model, "whatever the endpoint is set to"))
+		if len(s.opts.Models) == 0 {
+			s.out.line(ansiDim, "switch with /model <id>")
+			return
+		}
+		for i, m := range s.opts.Models {
+			mark := " "
+			if m.ID == s.model {
+				mark = "*"
+			}
+			label := m.ID
+			if m.Name != "" && m.Name != m.ID {
+				label += "  " + m.Name
+			}
+			if m.Note != "" {
+				label += " — " + m.Note
+			}
+			s.out.line(ansiDim, fmt.Sprintf("  %s %d  %s", mark, i+1, label))
+		}
+		s.out.line(ansiDim, "switch with /model <number>, or /model <id> for any other")
+		return
+	}
+	if n, err := strconv.Atoi(arg); err == nil {
+		if n < 1 || n > len(s.opts.Models) {
+			s.out.line(ansiRed, fmt.Sprintf("there is no model %d in the list; /model shows it", n))
+			return
+		}
+		arg = s.opts.Models[n-1].ID
+	}
+	s.model = arg
+	s.out.line(ansiDim, "answering with "+arg+" from here on")
 }
 
 // compose puts the pane's briefing after the system prompt, fenced so the model

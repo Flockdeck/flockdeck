@@ -207,6 +207,21 @@ func TestKeysSaysWhichAgentsTakeAKey(t *testing.T) {
 	}
 }
 
+// /model lists what the pane's agent offers, which comes from the catalog.
+func TestAChatIsOfferedItsAgentsModels(t *testing.T) {
+	isolateKeys(t)
+	var ids []string
+	for _, m := range catalogModels("anthropic") {
+		ids = append(ids, m.ID)
+	}
+	if !strings.Contains(strings.Join(ids, " "), "claude-") {
+		t.Errorf("the Claude API agent offers %q", ids)
+	}
+	if got := catalogModels("no-such-agent"); len(got) != 0 {
+		t.Errorf("an unknown agent offers %+v", got)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
