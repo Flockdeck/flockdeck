@@ -62,6 +62,11 @@ func remoteCmd(args []string, rio remoteIO) error {
 	case "disable":
 		err = remoteDisable(args[1:], rio)
 	case "-h", "--help", "help":
+		// `remote help pair` is how most commands are asked about one of
+		// their own, so it gives that subcommand's help.
+		if len(args) > 1 {
+			return remoteHelp(args[1], rio)
+		}
 		remoteUsage(rio.out)
 		return nil
 	default:
@@ -72,6 +77,30 @@ func remoteCmd(args []string, rio remoteIO) error {
 		return nil
 	}
 	return err
+}
+
+// remoteHelp gives one subcommand's help, as its -h does, but on stdout: it
+// was asked for, so it is the output and not a complaint.
+func remoteHelp(name string, rio remoteIO) error {
+	var fs *flag.FlagSet
+	switch name {
+	case "enable":
+		fs = remoteEnableFlagSet(&remoteEnableFlags{})
+	case "pair":
+		fs = remotePairFlagSet(&remotePairFlags{})
+	case "disable":
+		fs = remoteDisableFlagSet(&remoteDisableFlags{})
+	case "devices", "list", "ls":
+		fs = remoteFlags("devices")
+	case "status", "revoke":
+		fs = remoteFlags(name)
+	default:
+		remoteUsage(rio.out)
+		return fmt.Errorf("unknown command %q", name)
+	}
+	fs.SetOutput(rio.out)
+	fs.Usage()
+	return nil
 }
 
 func remoteUsage(out io.Writer) {

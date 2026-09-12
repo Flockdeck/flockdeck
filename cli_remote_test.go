@@ -406,6 +406,18 @@ func TestRemoteEnableNamesTheInviteFlag(t *testing.T) {
 	}
 }
 
+// `remote help <command>` gives that command's own help, as most commands'
+// help does, rather than the general usage again.
+func TestRemoteHelpForOneCommand(t *testing.T) {
+	out, _, err := runRemoteCmd(t, "help", "disable")
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || !strings.Contains(out, "-force") {
+		t.Errorf("remote help disable = %q, %v; want disable's own help", out, err)
+	}
+	if _, _, err := runRemoteCmd(t, "help", "nonsense"); err == nil {
+		t.Error("help for an unknown command was accepted")
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
