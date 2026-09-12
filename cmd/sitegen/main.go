@@ -117,24 +117,20 @@ func run(out, repo, module, url string) error {
 		}
 		files[name] = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 	}
-
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
-		}
-	}
-
+	// The screenshots are served beside the page, not from a folder of their own.
 	shots, err := assets.ReadDir("assets/shots")
 	if err != nil {
 		return err
 	}
 	for _, e := range shots {
-		data, err := assets.ReadFile("assets/shots/" + e.Name())
-		if err != nil {
+		if files[e.Name()], err = assets.ReadFile("assets/shots/" + e.Name()); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(out, e.Name()), data, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", e.Name(), err)
+	}
+
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}
 
