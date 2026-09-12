@@ -214,6 +214,18 @@ func Remove(repoDir, path string, force bool) error {
 	}
 	args = append(args, "--", path)
 	_, err = run(repoDir, args...)
+	if err != nil && !force {
+		// The panel forces a removal only when the row it drew showed work
+		// that would be lost, so a worktree that has changed since was
+		// refused with git's "use --force to delete it" -- a flag nobody
+		// pressing a button can pass. The status says what is there, in the
+		// panel's terms.
+		if st := StatusOf(path); st.HasChanges() {
+			return &gitError{fmt.Sprintf("%s has uncommitted work now (%d changed, %d new); "+
+				"refresh the list and remove it again to discard it, or commit it first",
+				filepath.Base(path), st.Dirty, st.Untracked)}
+		}
+	}
 	if err != nil {
 		// On Windows a file held open -- an editor, a shell sitting in the
 		// folder -- lets git drop its record of the worktree and then fail to

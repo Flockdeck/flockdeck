@@ -805,3 +805,21 @@ func TestAWorktreeMidRebaseIsLabelledByItsBranch(t *testing.T) {
 		}
 	}
 }
+
+// TestRemovingAWorktreeThatChangedSinceSaysSo: the panel forces a removal
+// only when the row it drew showed changes, and git refused one made since
+// with "use --force", a flag the panel cannot pass.
+func TestRemovingAWorktreeThatChangedSinceSaysSo(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "busy")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "busy", wt)
+	write(t, wt, "README.md", "changed since the panel drew it\n")
+	write(t, wt, "new.txt", "new\n")
+	err := Remove(repo, wt, false)
+	if err == nil || !strings.Contains(err.Error(), "1 changed, 1 new") || strings.Contains(err.Error(), "--force") {
+		t.Errorf("err = %v, want what is there and how to go on", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("an unforced removal should leave the work where it is: %v", err)
+	}
+}
