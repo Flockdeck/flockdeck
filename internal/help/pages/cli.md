@@ -52,6 +52,7 @@ first, and then in `keys.json` in the state directory.
 ```sh
 flockdeck keys set openai    # reads the key from stdin, so it misses shell history
 flockdeck keys list          # which agents have one, not what it is
+flockdeck keys clear openai  # forget the one Flockdeck stored
 ```
 
 Nothing here ever prints a key back, and neither does the interface.

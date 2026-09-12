@@ -77,6 +77,7 @@ in Flockdeck's own store.
 ```sh
 flockdeck keys set openai    # reads the key from stdin, so it misses shell history
 flockdeck keys list          # which agents have one, not what it is
+flockdeck keys clear openai  # forget the one Flockdeck stored
 ```
 
 Or set them from the window: [[action:apiKeys]], in the command palette, lists
