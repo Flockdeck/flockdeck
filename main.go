@@ -316,6 +316,12 @@ type options struct {
 
 // quitRunning stops an instance that is already going.
 func quitRunning() error {
+	// An instance that is still starting goes on record only once it has
+	// started. Asked before then, this said nothing was running and the
+	// instance came up anyway, so it waits for any start under way first.
+	holdStartLock(startLockWait, func(text string) {
+		fmt.Fprintln(os.Stderr, "flockdeck:", text)
+	})()
 	inst, err := store.LoadInstance()
 	// A record that cannot be read is not the same as there being nothing to
 	// stop: reporting it as "none found" sends the user looking for a process

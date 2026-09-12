@@ -48,6 +48,35 @@ func TestQuitReachesAWedgedInstance(t *testing.T) {
 	}
 }
 
+// -quit while an instance is still starting, with nothing on record yet,
+// said nothing was running and let it come up. It waits for the start under
+// way and stops what it started.
+func TestQuitWaitsForAStartUnderWay(t *testing.T) {
+	isolateState(t)
+	starting, err := store.TryLockStart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/quit" {
+			w.WriteHeader(http.StatusNoContent)
+			go func() { time.Sleep(50 * time.Millisecond); srv.Close() }()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	go func() {
+		// The start finishes: on record, then the lock let go.
+		time.Sleep(200 * time.Millisecond)
+		_ = store.SaveInstance(&store.Instance{PID: os.Getpid(), URL: srv.URL, Token: "t"})
+		starting()
+	}()
+
+	if err := quitRunning(); err != nil {
+		t.Errorf("quitRunning = %v, want the instance that was starting stopped", err)
+	}
+}
+
 // -new starts one project from nothing; it has no business dropping the other
 // projects the user had open from what the next start brings back.
 func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
