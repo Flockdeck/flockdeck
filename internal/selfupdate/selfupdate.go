@@ -53,6 +53,19 @@ var binaryName = func() string {
 	return "flockdeck"
 }()
 
+// chatName is the console twin a Windows release carries beside the program,
+// or "" where there is none. It is the same program linked as a console
+// program, which is what an API agent's pane runs: a pane is a pseudo-console,
+// and Windows attaches one only to a console program. It is updated with the
+// program, since the program starts it, and a new program beside an old twin
+// would run a chat client of another version in its panes.
+var chatName = func() string {
+	if runtime.GOOS == "windows" {
+		return "flockdeck-chat.exe"
+	}
+	return ""
+}()
+
 // ErrNoAsset is returned when a release carries nothing built for this
 // platform, which is what a partly-uploaded release looks like from here.
 var ErrNoAsset = errors.New("this release has no build for this platform")
@@ -79,6 +92,7 @@ type Release struct {
 type Pending struct {
 	Version string    `json:"version"`
 	Binary  string    `json:"binary"`
+	Chat    string    `json:"chat,omitempty"` // the staged console twin (chatName), when the release has one
 	Notes   string    `json:"notes,omitempty"`
 	URL     string    `json:"url,omitempty"`
 	Staged  time.Time `json:"staged"`
@@ -199,8 +213,20 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	if err := download(ctx, asset.URL, archive, want); err != nil {
 		return nil, err
 	}
-	if err := unpack(archive, filepath.Join(work, binaryName)); err != nil {
+	if err := unpack(archive, filepath.Join(work, binaryName), binaryName); err != nil {
 		return nil, err
+	}
+	// A release from before the twin has none, and the program is then
+	// updated on its own, as it always was.
+	haveChat := false
+	if chatName != "" {
+		var missing notInArchive
+		switch err := unpack(archive, filepath.Join(work, chatName), chatName); {
+		case err == nil:
+			haveChat = true
+		case !errors.As(err, &missing):
+			return nil, err
+		}
 	}
 	if err := os.Remove(archive); err != nil {
 		return nil, err
@@ -220,6 +246,9 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		Notes:   rel.Notes,
 		URL:     rel.URL,
 		Staged:  time.Now().UTC(),
+	}
+	if haveChat {
+		p.Chat = filepath.Join(staging, chatName)
 	}
 	if err := save(dir, p); err != nil {
 		// The staging directory holds this release now, and a record still
@@ -288,15 +317,20 @@ func download(ctx context.Context, url, dest, want string) error {
 	return nil
 }
 
-// unpack writes the one file that matters — the binary — out of the archive.
-func unpack(archive, dest string) error {
+// notInArchive is unpack's error for a file the archive does not hold.
+type notInArchive struct{ name string }
+
+func (e notInArchive) Error() string { return "archive does not contain " + e.name }
+
+// unpack writes one program, name, out of the archive to dest.
+func unpack(archive, dest, name string) error {
 	if strings.HasSuffix(archive, ".zip") {
-		return unzip(archive, dest)
+		return unzip(archive, dest, name)
 	}
-	return untar(archive, dest)
+	return untar(archive, dest, name)
 }
 
-func unzip(archive, dest string) error {
+func unzip(archive, dest, name string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
 		return err
@@ -304,7 +338,7 @@ func unzip(archive, dest string) error {
 	defer zr.Close()
 
 	for _, f := range zr.File {
-		if filepath.Base(f.Name) != binaryName {
+		if filepath.Base(f.Name) != name {
 			continue
 		}
 		rc, err := f.Open()
@@ -314,10 +348,10 @@ func unzip(archive, dest string) error {
 		defer rc.Close()
 		return writeBinary(dest, rc)
 	}
-	return fmt.Errorf("archive does not contain %s", binaryName)
+	return notInArchive{name}
 }
 
-func untar(archive, dest string) error {
+func untar(archive, dest, name string) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -339,12 +373,12 @@ func untar(archive, dest string) error {
 		if err != nil {
 			return err
 		}
-		if h.Typeflag != tar.TypeReg || filepath.Base(h.Name) != binaryName {
+		if h.Typeflag != tar.TypeReg || filepath.Base(h.Name) != name {
 			continue
 		}
 		return writeBinary(dest, tr)
 	}
-	return fmt.Errorf("archive does not contain %s", binaryName)
+	return notInArchive{name}
 }
 
 func writeBinary(dest string, r io.Reader) error {
@@ -403,6 +437,11 @@ func Load(dir string) (*Pending, bool) {
 	if _, err := os.Stat(p.Binary); err != nil {
 		return nil, false
 	}
+	if p.Chat != "" {
+		if _, err := os.Stat(p.Chat); err != nil {
+			return nil, false
+		}
+	}
 	return &p, true
 }
 
@@ -414,17 +453,13 @@ func Discard(dir string) {
 
 // --- putting it in place --------------------------------------------------
 
-// Apply replaces the running program's file with the staged binary.
+// Apply replaces the running program's file with the staged binary, and on
+// Windows the console twin beside it (chatName) with the staged one.
 //
-// The running file is moved aside rather than written over. Windows will not
-// let an executable that is running be replaced, but it will let it be
-// renamed, so moving it out of the way and putting the new one at the old name
-// works while the program is still running from it. The moved-aside file is
-// swept up by the next start, once nothing holds it open.
-//
-// The staged binary is copied rather than renamed into place because the state
-// directory and the installation are frequently on different volumes, and a
-// rename across volumes fails.
+// The two go in together or not at all: a new program beside an old twin, or
+// the other way round, would run a chat client of another version in its
+// panes. So the twin goes in first and is taken back out if the program then
+// cannot be put in, and the update stays staged for the next attempt.
 func Apply(dir, exePath string) error {
 	p, ok := Load(dir)
 	if !ok {
@@ -436,12 +471,57 @@ func Apply(dir, exePath string) error {
 		return err
 	}
 
+	var undoChat func() error
+	if p.Chat != "" {
+		undo, err := replace(p.Chat, filepath.Join(filepath.Dir(exePath), chatName))
+		if err != nil {
+			return fmt.Errorf("put the new %s in place: %w", chatName, err)
+		}
+		undoChat = undo
+	}
+	if _, err := replace(p.Binary, exePath); err != nil {
+		if undoChat != nil {
+			if uerr := undoChat(); uerr != nil {
+				return fmt.Errorf("%w; the new %s, already in place, could not be taken back out either: %v", err, chatName, uerr)
+			}
+		}
+		return err
+	}
+
+	Discard(dir)
+	return nil
+}
+
+// replace puts the staged file src at target, which may be running.
+//
+// A file there is moved aside rather than written over. Windows will not let
+// an executable that is running be replaced, but it will let it be renamed, so
+// moving it out of the way and putting the new one at the old name works while
+// the program is still running from it. The moved-aside file is swept up by
+// the next start, once nothing holds it open.
+//
+// The staged file is copied rather than renamed into place because the state
+// directory and the installation are frequently on different volumes, and a
+// rename across volumes fails.
+//
+// undo takes the new file back out: what was there before is put back, or,
+// where there was nothing, the new file is removed.
+func replace(src, target string) (undo func() error, err error) {
 	// Landing the copy beside the program, rather than copying straight over
 	// it, keeps the window in which the file exists but is incomplete off the
 	// name that is about to be run.
-	next := exePath + ".new"
-	if err := copyFile(p.Binary, next); err != nil {
-		return fmt.Errorf("write the new version beside the old one: %w", err)
+	next := target + ".new"
+	if err := copyFile(src, next); err != nil {
+		return nil, fmt.Errorf("write the new version beside the old one: %w", err)
+	}
+
+	// The twin is missing from an installation made before there was one.
+	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(next, target); err != nil {
+			os.Remove(next)
+			return nil, fmt.Errorf("put the new version in place: %w", err)
+		}
+		return func() error { return os.Remove(target) }, nil
 	}
 
 	// The running program normally goes to <name>.old, but what is there can
@@ -449,28 +529,32 @@ func Apply(dir, exePath string) error {
 	// from it when a second is put in place, and Windows will neither delete
 	// it nor rename anything over it. That one is left alone and this one
 	// takes a name of its own, which the sweep clears as well.
-	old := exePath + ".old"
+	old := target + ".old"
 	if err := os.Remove(old); err != nil && !errors.Is(err, os.ErrNotExist) {
-		old = fmt.Sprintf("%s.old-%d", exePath, time.Now().UnixNano())
+		old = fmt.Sprintf("%s.old-%d", target, time.Now().UnixNano())
 	}
-	if err := os.Rename(exePath, old); err != nil {
+	if err := os.Rename(target, old); err != nil {
 		os.Remove(next)
-		return fmt.Errorf("move the running version aside: %w", err)
+		return nil, fmt.Errorf("move the running version aside: %w", err)
 	}
-	if err := os.Rename(next, exePath); err != nil {
+	if err := os.Rename(next, target); err != nil {
 		// Put back what was there. Leaving no program at all under the name
 		// the user starts is far worse than failing to update — and when
 		// even that fails, where the program went is the one thing they
 		// need to be told.
-		if rerr := os.Rename(old, exePath); rerr != nil {
-			return fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, exePath)
+		if rerr := os.Rename(old, target); rerr != nil {
+			return nil, fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, target)
 		}
 		os.Remove(next)
-		return fmt.Errorf("put the new version in place: %w", err)
+		return nil, fmt.Errorf("put the new version in place: %w", err)
 	}
-
-	Discard(dir)
-	return nil
+	// Nothing has started the new file yet, so it can simply be removed.
+	return func() error {
+		if err := os.Remove(target); err != nil {
+			return err
+		}
+		return os.Rename(old, target)
+	}, nil
 }
 
 // Sweep removes the files previous Applies moved aside. It is called at
@@ -480,9 +564,17 @@ func Sweep(exePath string) {
 	if exePath == "" {
 		return
 	}
-	os.Remove(exePath + ".old")
-	os.Remove(exePath + ".new")
-	dir, base := filepath.Split(exePath)
+	sweepAside(exePath)
+	if chatName != "" {
+		sweepAside(filepath.Join(filepath.Dir(exePath), chatName))
+	}
+}
+
+// sweepAside removes what an Apply moved aside from path.
+func sweepAside(path string) {
+	os.Remove(path + ".old")
+	os.Remove(path + ".new")
+	dir, base := filepath.Split(path)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), base+".old-") {

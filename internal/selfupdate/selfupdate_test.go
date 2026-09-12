@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -81,17 +82,31 @@ func TestApplyWhileTheLastReplacedProgramIsStillRunning(t *testing.T) {
 // the format this platform's release uses, holding body as the binary.
 func buildArchive(t *testing.T, body string) (name string, data []byte) {
 	t.Helper()
+	return buildArchiveOf(t, map[string]string{binaryName: body})
+}
+
+// buildArchiveOf is buildArchive holding each named file with its body.
+func buildArchiveOf(t *testing.T, files map[string]string) (name string, data []byte) {
+	t.Helper()
+	names := make([]string, 0, len(files))
+	for n := range files {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
 	if runtime.GOOS == "windows" {
 		bw := &byteWriter{}
 		zw := zip.NewWriter(bw)
-		h := &zip.FileHeader{Name: binaryName, Method: zip.Deflate}
-		h.SetMode(0o755)
-		w, err := zw.CreateHeader(h)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write([]byte(body)); err != nil {
-			t.Fatal(err)
+		for _, n := range names {
+			h := &zip.FileHeader{Name: n, Method: zip.Deflate}
+			h.SetMode(0o755)
+			w, err := zw.CreateHeader(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(files[n])); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if err := zw.Close(); err != nil {
 			t.Fatal(err)
@@ -102,13 +117,15 @@ func buildArchive(t *testing.T, body string) (name string, data []byte) {
 	bw := &byteWriter{}
 	gz := gzip.NewWriter(bw)
 	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{
-		Name: binaryName, Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tw.Write([]byte(body)); err != nil {
-		t.Fatal(err)
+	for _, n := range names {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: n, Mode: 0o755, Size: int64(len(files[n])), Format: tar.FormatPAX,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(files[n])); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
@@ -339,6 +356,145 @@ func TestApplySwapsTheBinaryAndMovesTheOldOneAside(t *testing.T) {
 	Sweep(exe)
 	if _, err := os.Stat(exe + ".old"); !os.IsNotExist(err) {
 		t.Error("Sweep left the moved-aside program behind")
+	}
+}
+
+// The Windows release carries the console twin an API agent's pane runs, and
+// it is staged with the program. A release from before the twin stages the
+// program alone.
+func TestStageUnpacksTheChatTwin(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	for _, withTwin := range []bool{true, false} {
+		files := map[string]string{binaryName: "the new program"}
+		if withTwin {
+			files[chatName] = "the new chat client"
+		}
+		name, archive := buildArchiveOf(t, files)
+		h := sha256.Sum256(archive)
+		srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+
+		dir := t.TempDir()
+		p, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+		if err != nil {
+			t.Fatalf("with the twin %v: Stage: %v", withTwin, err)
+		}
+		if !withTwin {
+			if p.Chat != "" {
+				t.Errorf("a release without the twin staged one: %q", p.Chat)
+			}
+			continue
+		}
+		if got, err := os.ReadFile(p.Chat); err != nil || string(got) != "the new chat client" {
+			t.Errorf("staged twin = %q, %v; want the new chat client", got, err)
+		}
+		if loaded, ok := Load(dir); !ok || loaded.Chat != p.Chat {
+			t.Errorf("Load = %+v, %v; want the staged twin recorded", loaded, ok)
+		}
+	}
+}
+
+// The twin goes in with the program, whether the installation had one yet or
+// not, and what it replaced is swept like the program's.
+func TestApplyPutsTheChatTwinInPlaceToo(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, hadTwin := range []bool{true, false} {
+		dir, install := t.TempDir(), t.TempDir()
+		exe, twin := filepath.Join(install, binaryName), filepath.Join(install, chatName)
+		write(exe, "the old program")
+		if hadTwin {
+			write(twin, "the old chat client")
+		}
+		staging := filepath.Join(dir, "staging")
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(filepath.Join(staging, binaryName), "the new program")
+		write(filepath.Join(staging, chatName), "the new chat client")
+		if err := save(dir, &Pending{Version: "v9.9.9", Binary: filepath.Join(staging, binaryName), Chat: filepath.Join(staging, chatName)}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := Apply(dir, exe); err != nil {
+			t.Fatalf("had a twin %v: Apply: %v", hadTwin, err)
+		}
+		if got, _ := os.ReadFile(exe); string(got) != "the new program" {
+			t.Errorf("had a twin %v: program = %q", hadTwin, got)
+		}
+		if got, _ := os.ReadFile(twin); string(got) != "the new chat client" {
+			t.Errorf("had a twin %v: twin = %q, want the new chat client", hadTwin, got)
+		}
+		_, err := os.Stat(twin + ".old")
+		if hadTwin != (err == nil) {
+			t.Errorf("had a twin %v: the replaced twin moved aside = %v", hadTwin, err == nil)
+		}
+		Sweep(exe)
+		if _, err := os.Stat(twin + ".old"); !os.IsNotExist(err) {
+			t.Errorf("had a twin %v: Sweep left the replaced twin behind", hadTwin)
+		}
+	}
+}
+
+// The program and its twin go in together or not at all: a program that
+// cannot be put in place takes the twin that went in before it back out, and
+// the update stays staged for the next attempt.
+func TestApplyNeverLeavesAHalfUpdatedPair(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, hadTwin := range []bool{true, false} {
+		dir, install := t.TempDir(), t.TempDir()
+		exe, twin := filepath.Join(install, binaryName), filepath.Join(install, chatName)
+		write(exe, "the old program")
+		if hadTwin {
+			write(twin, "the old chat client")
+		}
+		staging := filepath.Join(dir, "staging")
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(filepath.Join(staging, binaryName), "the new program")
+		write(filepath.Join(staging, chatName), "the new chat client")
+		if err := save(dir, &Pending{Version: "v9.9.9", Binary: filepath.Join(staging, binaryName), Chat: filepath.Join(staging, chatName)}); err != nil {
+			t.Fatal(err)
+		}
+		// Where the program's copy would land is taken, so only the program
+		// fails to go in.
+		if err := os.Mkdir(exe+".new", 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := Apply(dir, exe); err == nil {
+			t.Fatalf("had a twin %v: Apply succeeded with the program unable to go in", hadTwin)
+		}
+		if got, _ := os.ReadFile(exe); string(got) != "the old program" {
+			t.Errorf("had a twin %v: program = %q, want the old one", hadTwin, got)
+		}
+		got, err := os.ReadFile(twin)
+		switch {
+		case hadTwin && string(got) != "the old chat client":
+			t.Errorf("twin = %q, %v; want the old one put back", got, err)
+		case !hadTwin && err == nil:
+			t.Errorf("a twin the installation never had was left in place: %q", got)
+		}
+		if _, ok := Load(dir); !ok {
+			t.Errorf("had a twin %v: the update is no longer staged for the next attempt", hadTwin)
+		}
 	}
 }
 
