@@ -113,6 +113,14 @@ func main() {
 		return
 	}
 
+	// `help` is what somebody who has never run the program types first, and
+	// they were told it was an unrecognised argument, with exit status 2,
+	// before being shown the usage -h would have printed.
+	if len(os.Args) > 1 && os.Args[1] == "help" {
+		flockdeckFlagSet(&cliFlags{}).Usage()
+		return
+	}
+
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
