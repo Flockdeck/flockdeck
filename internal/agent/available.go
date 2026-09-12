@@ -91,12 +91,21 @@ func Refresh() {
 	probes.Unlock()
 }
 
-// ProbeAll returns availability for a whole catalog, keyed by id, which is what
-// the picker and the startup probe both want.
+// ProbeAll returns availability for a whole catalog, keyed by id.
+//
+// The probes are made side by side. Each one that misses walks the whole of
+// PATH, and one after another they took 270ms over the built-in catalog on a
+// Windows machine with half the agents not installed, against 160ms together.
 func ProbeAll(specs []Spec) map[string]bool {
+	ok := make([]bool, len(specs))
+	var wg sync.WaitGroup
+	for i, s := range specs {
+		wg.Go(func() { ok[i] = Available(s) })
+	}
+	wg.Wait()
 	out := make(map[string]bool, len(specs))
-	for _, s := range specs {
-		out[s.ID] = Available(s)
+	for i, s := range specs {
+		out[s.ID] = ok[i]
 	}
 	return out
 }
