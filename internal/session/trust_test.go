@@ -147,6 +147,53 @@ func TestInheritedTrustIsWhereClaudeLooks(t *testing.T) {
 	}
 }
 
+// TestInheritTrustCarriesTheExternalImportsAnswer covers the other question a
+// fresh checkout is asked: a project whose CLAUDE.md imports files from
+// outside it is asked whether to allow that, and a worktree is a project
+// Claude Code has never seen, so every child of a fan-out stopped on it.
+func TestInheritTrustCarriesTheExternalImportsAnswer(t *testing.T) {
+	dir := t.TempDir()
+	answered := filepath.Clean(filepath.Join(dir, "answered"))
+	unasked := filepath.Clean(filepath.Join(dir, "unasked"))
+	path := writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{
+			answered: map[string]any{
+				"hasTrustDialogAccepted":                  true,
+				"hasClaudeMdExternalIncludesApproved":     false,
+				"hasClaudeMdExternalIncludesWarningShown": true,
+			},
+			unasked: map[string]any{"hasTrustDialogAccepted": true},
+		},
+	})
+	fromAnswered := filepath.Join(dir, "answered-wt")
+	fromUnasked := filepath.Join(dir, "unasked-wt")
+	for from, to := range map[string]string{answered: fromAnswered, unasked: fromUnasked} {
+		if err := InheritTrust(from, to); err != nil {
+			t.Fatalf("inherit %s: %v", from, err)
+		}
+	}
+
+	var got map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	projects := got["projects"].(map[string]any)
+	child, _ := projects[claudeProjectKey(fromAnswered)].(map[string]any)
+	// A "no" is carried as a "no": the child is not asked, and does not load
+	// the imports either, exactly as the project does not.
+	if child["hasClaudeMdExternalIncludesApproved"] != false || child["hasClaudeMdExternalIncludesWarningShown"] != true {
+		t.Errorf("the worktree's entry is %v, want the project's answer to the imports question", child)
+	}
+	other, _ := projects[claudeProjectKey(fromUnasked)].(map[string]any)
+	if _, asked := other["hasClaudeMdExternalIncludesWarningShown"]; asked {
+		t.Errorf("an answer was invented for a project never asked: %v", other)
+	}
+}
+
 // TestInheritTrustIsIdempotent covers fanning out twice into the same worktree.
 func TestInheritTrustIsIdempotent(t *testing.T) {
 	dir := t.TempDir()

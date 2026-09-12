@@ -138,6 +138,20 @@ func InheritTrust(from, to string) error {
 		entry = map[string]any{}
 	}
 	entry["hasTrustDialogAccepted"] = true
+	// Trust is not the only question a fresh checkout is asked. A project
+	// whose CLAUDE.md imports files from outside it is also asked "Allow
+	// external CLAUDE.md file imports?", and a worktree is a project Claude
+	// Code has never seen, so every child of a fan-out stopped on it again. The
+	// answer the user gave the project itself is carried over as it stands --
+	// yes or no -- and nothing is written where they were never asked.
+	for _, k := range trustKeys(from) {
+		source, _ := projects[k].(map[string]any)
+		for _, answer := range []string{"hasClaudeMdExternalIncludesApproved", "hasClaudeMdExternalIncludesWarningShown"} {
+			if v, ok := source[answer].(bool); ok {
+				entry[answer] = v
+			}
+		}
+	}
 	projects[key] = entry
 
 	return writeClaudeConfig(cfg)
