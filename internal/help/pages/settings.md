@@ -62,8 +62,10 @@ set).
 - `chats` — the built-in chat client's conversations.
 - `window` — the browser profile the window runs in.
 
-To uninstall Flockdeck, quit it and delete the `flockdeck` binary, then this
-directory; turn remote access off first if it is on, so the relay forgets the
+To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
+the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start
+menu shortcut and its entry in your PATH), then this directory; turn remote
+access off first if it is on, so the relay forgets the
 machine. Worktrees it made are ordinary git worktrees, and stay beside their
 repositories until you remove them.
 
