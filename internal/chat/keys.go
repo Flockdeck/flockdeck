@@ -54,6 +54,9 @@ var keyPoll = 2 * time.Second
 // shown, and where it came from is said instead.
 func waitForKey(ctx context.Context, o Options) (string, error) {
 	fmt.Fprintf(o.Out, "%s in any terminal; this waits for it (Ctrl+C leaves)\n", noKey(o))
+	// Waiting on the user is what turns a pane amber, the same as a tool's
+	// question does: of a dozen panes, this is the one they have to look at.
+	newReporter(o.API, o.Token, o.Session, o.Cwd).notification("")
 	for {
 		select {
 		case <-ctx.Done():
