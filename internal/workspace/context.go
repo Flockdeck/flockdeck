@@ -507,9 +507,10 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 		"how to do something gets an answer from you.\n\n")
 
 	if hooked {
-		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
-			"is started with a generated `--settings` file registering Claude Code's lifecycle "+
-			"hooks — your own settings, hooks and permissions still apply on top — and Flockdeck reads "+
+		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** You report your "+
+			"own lifecycle to Flockdeck — Claude Code through the hooks a generated `--settings` file "+
+			"registers, with your own settings, hooks and permissions still applying on top, and "+
+			"Flockdeck's built-in chat client by itself — and Flockdeck reads "+
 			"your state from those rather than from your output: green while you work, amber while "+
 			"you wait on the user, grey between turns, red once the process exits. A pane that is "+
 			"waiting marks its tab and the window title, and raises a desktop notification when the "+

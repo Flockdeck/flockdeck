@@ -258,6 +258,22 @@ func TestTheBriefingSaysWhatBroadcastDoes(t *testing.T) {
 	}
 }
 
+// TestTheBriefingDoesNotTellEveryAgentItHasClaudesSettings covers the agents
+// briefed through a lifecycle hook, which are Claude Code and Flockdeck's own chat
+// client. Both were told they had been started with a generated `--settings`
+// file registering Claude Code's hooks, which the chat client never is.
+func TestTheBriefingDoesNotTellEveryAgentItHasClaudesSettings(t *testing.T) {
+	text := PaneContext{PaneName: "one", Cwd: "/repo"}.Render()
+	if strings.Contains(text, "Every agent pane is started with a generated `--settings` file") {
+		t.Errorf("the briefing tells every hooked agent it has Claude Code's settings file:\n%s", text)
+	}
+	for _, want := range []string{"Claude Code through the hooks", "chat client by itself"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q:\n%s", want, text)
+		}
+	}
+}
+
 // TestBroadcastDefaultIsDroppedWhenBroadcastIsTurnedOff covers the selection
 // nobody made: it describes the tab it was built from, so carrying it into
 // the next tab would leave broadcast on with nothing to send to.
