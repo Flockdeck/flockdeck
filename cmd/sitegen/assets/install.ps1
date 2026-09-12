@@ -102,6 +102,8 @@ function Install-Flockdeck {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
     Write-Host "flockdeck: installed $version to $dest"
+    # Starting it again while an older copy runs joins that copy instead.
+    Write-Host 'flockdeck: if Flockdeck is already running, quit it before starting this version'
 
     if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') { return }
 
