@@ -48,7 +48,7 @@ var Keys = []Key{
 	// The plain splits and the plain new tab take the default agent and stay one
 	// keystroke; these two are the same thing with the picker in front of it, and
 	// they have no binding of their own because they are reached by the caret
-	// beside New tab and from the palette.
+	// beside the + in the tab bar and from the palette.
 	{ID: "splitRightChoose", Label: "Split right (choose agent)…", Section: "Panes", Page: "agents"},
 	{ID: "splitRightShell", Label: "Split right (shell)", Section: "Panes", Page: "panes"},
 	{ID: "movePaneLeft", Keys: "Ctrl+Shift+←", Label: "Move pane left", Section: "Panes", Page: "rearranging"},
