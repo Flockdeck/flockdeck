@@ -117,6 +117,16 @@ function Install-Flockdeck {
     # Starting it again while an older copy runs joins that copy instead.
     Write-Host 'flockdeck: if Flockdeck is already running, quit it before starting this version'
 
+    # A copy found first on PATH -- a go install, say -- is the one that
+    # `flockdeck` runs, and adding this directory to the end of PATH will not
+    # change that.
+    $run = 'flockdeck'
+    $found = Get-Command flockdeck -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found -and $found.Source -ne $dest) {
+        Write-Host "flockdeck: note: the flockdeck your shell finds first is $($found.Source), not this one"
+        $run = "& '$dest'"
+    }
+
     if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') { return }
 
     # PATH is read and written through the registry, unexpanded, because
@@ -147,7 +157,7 @@ function Install-Flockdeck {
     } catch {
         Write-Host "flockdeck: could not add a Start menu shortcut: $_"
     }
-    Write-Host 'flockdeck: start it from the Start menu, or run: flockdeck'
+    Write-Host "flockdeck: start it from the Start menu, or run: $run"
 }
 
 Install-Flockdeck
