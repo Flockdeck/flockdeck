@@ -289,7 +289,9 @@ func runningInstance() (*store.Instance, string, error) {
 // going instead of starting a rival set.
 func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if err := server.RequestOpen(base, inst.Token, root); err != nil {
-		return err
+		// On its own this was "open project: 400 Bad Request", which says
+		// neither what was being attempted nor what else there is to do.
+		return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
 	}
 	url := base + "/?t=" + inst.Token
 	if noWindow {
