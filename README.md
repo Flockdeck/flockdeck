@@ -711,7 +711,11 @@ git.
 
 Pane headers carry the same information for the checkout they are working in —
 branch, `●n` uncommitted files, `↑n`/`↓n` against upstream — refreshed in the
-background, so you can see the state of every agent's tree at a glance.
+background, so you can see the state of every agent's tree at a glance. Each
+checkout is read on its own: one that git does not answer for within ten seconds — a
+very large checkout, or one on a network drive gone quiet — holds up no other
+pane, and its own headers say *git timed out* in place of counts that may be out
+of date, until it answers again.
 
 ### Finding your way around
 

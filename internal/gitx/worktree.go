@@ -582,7 +582,7 @@ func DefaultBase(repoDir string) string {
 		}
 		return b
 	}
-	if b, _ := operationBranch(repoDir); b != "" {
+	if b, _ := operationBranch(context.Background(), repoDir); b != "" {
 		return b
 	}
 	return "HEAD"

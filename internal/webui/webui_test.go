@@ -4485,6 +4485,30 @@ assert.ok(/review/i.test(git.dataset.tip || ""), "the bubble does not say the co
 `)
 }
 
+// A checkout git stopped answering in kept its old counts in the header,
+// drawn as though they were current: a pane on a checkout that had hung went
+// on looking clean, or as far ahead as it last was, for as long as it hung.
+func TestAPaneWhoseGitTimedOutSaysSoInsteadOfItsOldCounts(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const counts = { cwd: "C:/repo", dirty: 3, untracked: 1, ahead: 2 };
+h.recv(fixture({ panes: { p1: pane("p1", Object.assign({ gitTimedOut: true }, counts)) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const git = wrap.querySelector("span.pane-git");
+assert.ok(/timed out/.test(git.textContent), "the header does not say git timed out: " + git.textContent);
+assert.ok(!/[0-9]/.test(git.textContent), "the header still shows the old counts: " + git.textContent);
+assert.ok(/timed out/i.test(git.getAttribute("aria-label") || ""), "a screen reader is not told: " + git.getAttribute("aria-label"));
+assert.ok(/out of date/.test(git.dataset.tip || ""), "the bubble does not say why nothing is counted: " + git.dataset.tip);
+assert.ok(/review/i.test(git.dataset.tip || "") && git.onclick, "the checkout can no longer be reviewed from the header");
+
+// The refresh that answers brings the counts back, though they are the ones
+// that were there before.
+h.recv(fixture({ panes: { p1: pane("p1", counts) } }));
+assert.ok(!/timed out/.test(git.textContent), "the header still says git timed out: " + git.textContent);
+assert.ok((git.getAttribute("aria-label") || "").includes("3 changed"), "got: " + git.getAttribute("aria-label"));
+`)
+}
+
 // What a pane is doing is cut short in its header - an MCP tool's name
 // nearly always is - and it had no bubble, so the rest could be read nowhere.
 func TestThePaneDetailCanBeReadInFull(t *testing.T) {

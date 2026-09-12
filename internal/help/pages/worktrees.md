@@ -39,3 +39,9 @@ Every pane header carries the same information for the checkout it is working
 in — branch, `●n` uncommitted files, `↑n` and `↓n` against upstream —
 refreshed in the background. That is the state of every agent's tree at a
 glance, without opening anything.
+
+Each checkout is read on its own. One that git does not answer for within ten
+seconds — a very large checkout, or one on a network drive gone quiet — holds
+up no other pane, and its own headers say *git timed out* in place of counts
+that may be out of date. It is asked again on the next refresh; running
+`git status` in a terminal there shows what is slow.

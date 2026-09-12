@@ -44,6 +44,7 @@
     changed:     "Tracked files with edits that have not been committed yet.",
     untracked:   "New files git is not tracking yet - they are in no commit, and a push leaves them behind.",
     clean:       "Nothing to commit - this working tree matches its last commit.",
+    gitLate:     "Git did not finish reading this checkout in time, so its changed files and ahead and behind counts are not shown: the last ones read may be out of date. It is asked again on the next refresh. A very large checkout, or one on a slow or network drive, can do this - running git status in a terminal there shows how long it takes.",
     branch:      "The branch this checkout has in its working tree.",
     project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
     splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
@@ -1944,7 +1945,7 @@
         else delete p.detail.dataset.tip;
       }
 
-      const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
+      const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
       // Keyed on what is actually displayed — the processor figure is drawn
@@ -3022,6 +3023,16 @@
    *  before letting an agent loose in it. */
   function renderPaneGit(p, v) {
     p.git.textContent = "";
+    if (v.gitTimedOut) {
+      // The counts still in the push are the ones read before git stopped
+      // answering. Drawn as usual they claimed to be current, and a checkout
+      // that hung went on looking clean, or as far ahead as it last was.
+      p.git.append(el("span", "late", "git timed out"));
+      p.git.setAttribute("role", "img");
+      p.git.setAttribute("aria-label", "Git status timed out.");
+      describe(p.git, TIPS.gitLate + " Click to review the checkout.");
+      return;
+    }
     const changed = (v.dirty || 0) + (v.untracked || 0);
     if (changed) p.git.append(mark("dirty", "●", changed));
     if (v.ahead) p.git.append(mark("ahead", "↑", v.ahead));

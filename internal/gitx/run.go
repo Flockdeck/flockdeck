@@ -184,7 +184,7 @@ func runTo(parent context.Context, timeout time.Duration, dir string, in io.Read
 	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("%s: gave up after %s", gitLabel(args), timeout)
+			return "", &timeoutError{fmt.Sprintf("%s: gave up after %s", gitLabel(args), timeout)}
 		}
 		if parent.Err() != nil {
 			return "", parent.Err()
@@ -264,3 +264,12 @@ func firstLines(msg string, n int) string {
 type gitError struct{ msg string }
 
 func (e *gitError) Error() string { return e.msg }
+
+// timeoutError is a command given up on at its deadline. errors.Is finds
+// context.DeadlineExceeded in it, so a caller can tell a checkout that did not
+// answer in time -- whose last answer is now of unknown age -- from one that
+// answered with an error, such as no longer being a repository.
+type timeoutError struct{ msg string }
+
+func (e *timeoutError) Error() string { return e.msg }
+func (e *timeoutError) Unwrap() error { return context.DeadlineExceeded }

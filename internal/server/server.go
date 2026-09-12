@@ -347,9 +347,14 @@ func (s *Server) RefreshGitNow() {
 	}
 }
 
-// gitLoop keeps the per-pane git summaries current. Doing it here rather than
-// per caller keeps one refresh running at a time: each one shells out to git
-// once per distinct checkout and waits for them all.
+// gitLoop keeps the per-pane git summaries current.
+//
+// Each refresh runs on a goroutine of its own. A refresh waits for every
+// checkout it asked about, and one that hangs is waited on until its deadline:
+// run here, that held back the next refresh of every other checkout too, so a
+// commit made in one pane went uncounted in its header while an unrelated
+// checkout was stuck. The workspace does not ask about a checkout still being
+// read, so refreshes that overlap do not pile git processes onto the slow one.
 func (s *Server) gitLoop() {
 	tick := time.NewTicker(gitStatusInterval)
 	defer tick.Stop()
@@ -361,9 +366,9 @@ func (s *Server) gitLoop() {
 		case <-s.closed:
 			return
 		case <-first:
-			s.ws.RefreshGit(s.do)
+			go s.ws.RefreshGit(s.do)
 		case <-s.gitNow:
-			s.ws.RefreshGit(s.do)
+			go s.ws.RefreshGit(s.do)
 		case <-tick.C:
 			// Nothing is reading the branch labels while every window is
 			// closed, and a detached run can sit like that for hours: polling
@@ -372,7 +377,7 @@ func (s *Server) gitLoop() {
 			if s.ClientCount() == 0 {
 				continue
 			}
-			s.ws.RefreshGit(s.do)
+			go s.ws.RefreshGit(s.do)
 		}
 	}
 }
