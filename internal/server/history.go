@@ -67,6 +67,11 @@ func answerListing(c *controlClient, n uint64) bool {
 	return true
 }
 
+// allConversations reads every agent's stored conversations. It is a variable
+// so a test can have one agent's store fail beside another's that works, which
+// no file system arrangement does reliably everywhere.
+var allConversations = transcript.All
+
 // listConversations answers a window's request for the project's conversation
 // history. Reading transcripts touches the disk, so it happens away from the
 // goroutine that owns the workspace.
@@ -87,18 +92,18 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 
 	go func() {
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
-		items, err := transcript.All(transcript.Agents(), dir)
+		items, err := allConversations(transcript.Agents(), dir)
 		// One agent's store being unreadable is worth saying, but not at the
-		// price of what the others found: the panel draws the conversations
-		// there are and the notice explains what is missing from among them.
-		if err != nil {
+		// price of what the others found. Only a listing with nothing in it
+		// carries the error: the panel draws an error in place of the whole
+		// list, so one sent alongside conversations hid every one of them.
+		// With conversations to show it goes beside them, as a notice.
+		if err != nil && len(items) == 0 {
 			msg.Error = err.Error()
-			if len(items) == 0 {
-				if answerListing(c, asked) {
-					c.sendJSON(msg)
-				}
-				return
+			if answerListing(c, asked) {
+				c.sendJSON(msg)
 			}
+			return
 		}
 		open := s.openConversationIDs()
 		for _, conv := range items {
@@ -115,6 +120,9 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		}
 		if answerListing(c, asked) {
 			c.sendJSON(msg)
+			if err != nil {
+				c.notify(err.Error(), true)
+			}
 		}
 	}()
 }
