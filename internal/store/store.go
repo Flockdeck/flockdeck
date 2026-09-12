@@ -558,9 +558,13 @@ func renameWithRetry(src, dst string) error {
 		if err == nil {
 			return nil
 		}
-		// A missing source is our own bug, not contention: retrying it would
-		// only turn an immediate error into a delayed one.
-		if errors.Is(err, fs.ErrNotExist) || time.Now().After(deadline) {
+		// Only a file somebody else has open is worth waiting out. Anything
+		// else — a missing source, a directory where the file goes, a disk
+		// that is read-only — will be just as true a second from now, and
+		// waiting it out cost a second a save: at shutdown, where every open
+		// project is saved in turn, enough of them to run out the deadline
+		// before the last layout was written.
+		if !renameHeld(err) || time.Now().After(deadline) {
 			return err
 		}
 		delay = backOff(delay)
