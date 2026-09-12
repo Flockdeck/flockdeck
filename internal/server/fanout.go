@@ -37,14 +37,22 @@ type fanoutPreviewMsg struct {
 	Agents []fanoutAgentView `json:"agents,omitempty"`
 	Agent  string            `json:"agent,omitempty"`
 	Model  string            `json:"model,omitempty"`
+	// Routing is the project's routing mode where it routes at all, and
+	// Routes what it chose for each task, positional against Tasks and null
+	// where a row is left alone. RouteNote says why nothing can be routed
+	// from the model the run starts on, where that is so. All three are left
+	// out while routing is off, and the dialog is then what it always was.
+	Routing   string       `json:"routing,omitempty"`
+	Routes    []*routeView `json:"routes,omitempty"`
+	RouteNote string       `json:"routeNote,omitempty"`
 }
 
 // fanoutAgentView is one agent the dialog can offer, for the whole run or for
 // a single row of it.
 type fanoutAgentView struct {
-	ID     string        `json:"id"`
-	Name   string        `json:"name"`
-	Models []agent.Model `json:"models,omitempty"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Models []modelView `json:"models,omitempty"`
 	// Default is the model this agent is asked for when nothing chooses one.
 	Default string `json:"default,omitempty"`
 	// Unavailable is why this agent cannot be started on this machine, and
@@ -79,7 +87,7 @@ func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 			continue
 		}
 		view := fanoutAgentView{
-			ID: spec.ID, Name: spec.Name, Models: spec.Models,
+			ID: spec.ID, Name: spec.Name, Models: modelViews(spec),
 			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
 		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
@@ -102,6 +110,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		src   workspace.PlanSource
 		specs []agent.Spec
 		def   string
+		root  string
+		model string
 	}
 	in, ok := ask(s, func() info {
 		id := paneID
@@ -119,7 +129,14 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		// own goroutine, it raced every project switch -- and a switch landing
 		// in between offered the run to the other project's default.
 		specs, def := s.ws.Agents()
-		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), specs: specs, def: def}
+		// The run starts on the project's own default model where its default
+		// agent is the one the run is on: a project set to Sonnet fanned out
+		// on whatever the CLI was set to.
+		root, model := s.ws.ActiveRoot(), ""
+		if d := s.ws.Catalog().DefaultsFor(root); d.Agent == def {
+			model = d.Model
+		}
+		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), specs: specs, def: def, root: root, model: model}
 	})
 	if !ok {
 		return
@@ -143,7 +160,17 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			Project:   filepath.Base(in.cwd),
 			Agents:    agents,
 			Agent:     def,
+			Model:     in.model,
 		}
+		current := in.model
+		if current == "" {
+			for _, a := range agents {
+				if a.ID == def {
+					current = a.Default
+				}
+			}
+		}
+		msg.Routes, msg.Routing, msg.RouteNote = routeRows(s.ws.Catalog(), in.root, def, current, tasks)
 		c.sendJSON(msg)
 	}()
 }
@@ -180,6 +207,14 @@ type fanoutRequest struct {
 	// that knows nothing about agents still sends a fan-out this side reads.
 	TaskAgents []string
 	TaskModels []string
+	// TaskRouted names, positional against Tasks, the routing rule that chose
+	// a row's model, for a row that starts on the model routing chose; the
+	// model itself is in TaskModels like any other. Overrides are the routed
+	// choices the user changed before starting. Both only mark the panes and
+	// feed the routing log: nothing here routes a row. A window from before
+	// routing sends neither.
+	TaskRouted []string
+	Overrides  []routeOverride
 	Worktrees  bool
 	Split      bool
 	Trust      bool
@@ -310,9 +345,13 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 
 		// Where the child landed, so the next one can be sent to the same tab.
 		type spawned struct {
+			id  string
 			tab string
 			err error
 		}
+		// The routed rows that started, and the pane each started in, for the
+		// routing log.
+		routed := map[*fanoutJob]string{}
 
 		// failed is already counting the rows runnable dropped for want of
 		// their agent, so this adds to it rather than starting again.
@@ -324,21 +363,25 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				continue
 			}
 			first := started == 0
+			opts := workspace.SpawnOptions{
+				Task:  j.task,
+				Cwd:   j.cwd,
+				Tab:   tab,
+				Split: req.Split,
+				Kind:  session.KindClaude,
+				Agent: j.agent,
+				Model: j.model,
+				Title: title,
+			}
+			if j.routed != "" {
+				opts.Routed, opts.RoutedFrom = j.routed, req.Model
+			}
 			r, ok := ask(s, func() spawned {
-				id, err := s.ws.Spawn(parent, workspace.SpawnOptions{
-					Task:  j.task,
-					Cwd:   j.cwd,
-					Tab:   tab,
-					Split: req.Split,
-					Kind:  session.KindClaude,
-					Agent: j.agent,
-					Model: j.model,
-					Title: title,
-				})
+				id, err := s.ws.Spawn(parent, opts)
 				if err == nil && first {
 					s.revealFirstChild(id, in.shown)
 				}
-				return spawned{tab: s.ws.TabIDOf(id), err: err}
+				return spawned{id: id, tab: s.ws.TabIDOf(id), err: err}
 			})
 			if !ok {
 				return
@@ -356,7 +399,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				continue
 			}
 			started++
+			routed[j] = r.id
 		}
+		logRoutes(fanoutRouteLog(req, baseCwd, routed))
 
 		c.notify(fanoutSummary(started, failed))
 		s.Wake()
@@ -509,6 +554,7 @@ func planJobs(req fanoutRequest, cwd string) ([]*fanoutJob, bool) {
 		} else if m := overrideAt(req.TaskModels, i); m != "" {
 			j.model = m
 		}
+		j.routed = overrideAt(req.TaskRouted, i)
 		jobs = append(jobs, j)
 	}
 	return jobs, false
@@ -522,6 +568,9 @@ type fanoutJob struct {
 	// asked for: the run's choice, or the row's own override of it.
 	agent string
 	model string
+	// routed names the routing rule that chose model, for a row the dialog
+	// started on the model routing pre-filled.
+	routed string
 	// branch is the branch the agent gets when it is given a worktree.
 	branch string
 	// err is why this task could not be prepared. It is reported when the

@@ -102,3 +102,27 @@ func TestSpendFiguresAreClippedWithAnEllipsis(t *testing.T) {
 		t.Error("the limit figure is clipped without an ellipsis")
 	}
 }
+
+// A routed pane's arrow is the end of its agent label, which is where a header
+// also carrying spend and a limit cuts it short. The arrow is kept out of the
+// cut, so a narrow pane still says its model was routed.
+func TestTheRoutingArrowOutlastsACutAgentLabel(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`(?m)^\.pane-agent \.agent-name\s*\{[^}]*text-overflow:\s*ellipsis`).MatchString(css) {
+		t.Error("the agent label is not cut on its own, apart from the arrow")
+	}
+	if !regexp.MustCompile(`(?m)^\.pane-agent \.agent-route\s*\{[^}]*flex:\s*none`).MatchString(css) {
+		t.Error("the routing arrow shrinks with the agent label, so a narrow pane loses it first")
+	}
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "haiku", routed: "run the tests", routedFrom: "sonnet", route: "down",
+  spend: { usd: 0.5, source: "agent", tokens: 84210, windows: [{ name: "five_hour", pct: 72 }] } }), p2: pane("p2") } }));
+const head = h.$("workspace").querySelectorAll(".pane-header")[0];
+const agent = head.querySelector("span.pane-agent");
+assert.strictEqual(agent.querySelector("span.agent-name").textContent, "claude · haiku");
+assert.strictEqual(agent.querySelector("span.agent-route").textContent, " ↘");
+assert.strictEqual(head.querySelector(".pane-spend").textContent, "84k tok", "a routed pane lost its spend");
+assert.ok(head.querySelector(".pane-limit").textContent.startsWith("5h 72%"), "a routed pane lost its limit");
+`)
+}

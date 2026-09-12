@@ -2029,6 +2029,46 @@ assert.ok(h.$("overlay").hidden, "the picker stayed open after choosing");
 `)
 }
 
+// Choosing a model by hand is better informed for knowing how capable each is
+// and, where it means something, what it costs: each model row carries its
+// tier, and an API agent's model its price with the day it was read.
+func TestThePickerShowsTiersAndDatedPrices(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const checked = "2026-09-12";
+h.recv(fixture({ agents: catalog({ items: [
+  { id: "anthropic", name: "Claude API", runner: "api", available: true, defaultModel: "claude-opus-5",
+    models: [{ id: "claude-opus-5", name: "Opus 5", tier: "top", price: { in: 5, out: 25, checked } },
+             { id: "claude-haiku-4-5", name: "Haiku 4.5", tier: "small", price: { in: 1, out: 5, checked } },
+             { id: "odd", name: "Unpriced" }] },
+] }) }));
+h.click(h.$("new-tab-pick"));
+h.key({ key: "ArrowRight" });
+const rows = h.$("agent-list").querySelectorAll("div.pick-row.model");
+assert.strictEqual(rows.length, 3, "the models did not appear");
+const tier = rows[0].querySelector("span.pick-tier");
+assert.ok(tier && tier.textContent === "top", "the model's tier is not shown: " + rows[0].textContent);
+assert.ok(tier.dataset.tip, "the tier chip does not say what a tier is");
+assert.ok(rows[1].textContent.includes("$1 / $5 per M tokens, checked 2026-09-12"),
+  "the price, or the day it was read, is not shown: " + rows[1].textContent);
+assert.ok(!rows[2].querySelector("span.pick-tier") && !rows[2].textContent.includes("$"),
+  "a model with no tier or price was given one: " + rows[2].textContent);
+
+// The fan-out's selects have no room for chips, so they say the same in words.
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["one"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
+  agents: [{ id: "anthropic", name: "Claude API", default: "claude-sonnet-5", models: [
+    { id: "claude-sonnet-5", name: "Sonnet 5", note: "the everyday one", tier: "mid", price: { in: 2, out: 10, checked } },
+    { id: "claude-haiku-4-5", name: "Haiku 4.5", tier: "small" },
+    { id: "odd", name: "Unpriced" }] }] });
+const opts = h.$("overlay-body").querySelector("select.fan-agent-sel").querySelectorAll("option").map((o) => o.textContent);
+assert.ok(opts.includes("Sonnet 5 — the everyday one (mid, $2/$10)"), "got: " + JSON.stringify(opts));
+assert.ok(opts.includes("Haiku 4.5 (small)"), "got: " + JSON.stringify(opts));
+assert.ok(opts.includes("Unpriced"), "got: " + JSON.stringify(opts));
+`)
+}
+
 // The two fast paths must stay fast: the plus and the split binding start the
 // agent this project runs by default and say nothing about which that is, so
 // somebody who only ever runs Claude presses what they always pressed.
@@ -4002,6 +4042,165 @@ h.recv(preview([{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: 
 assert.ok(!trustRow().hidden, "an agent the server says asks was not offered trust");
 pick("claude\n");
 assert.ok(trustRow().hidden, "the id was trusted over what the server said");
+`)
+}
+
+// fanoutRouting opens the window and defines a fan-out preview with routing on:
+// three tasks, one routed to a smaller model, one left alone, and one routed
+// to a stronger model.
+const fanoutRouting = `
+h.hello();
+h.recv(fixture());
+const routedAgents = [{ id: "claude", name: "Claude Code", default: "", models: [
+  { id: "", name: "Default" }, { id: "opus", name: "Opus", tier: "top" },
+  { id: "sonnet", name: "Sonnet", tier: "mid" }, { id: "haiku", name: "Haiku", tier: "small" }] }];
+const routedPreview = (over) => Object.assign({ type: "fanoutPreview", paneId: "p1", isRepo: false, cwd: "C:/repo",
+  tasks: ["run the tests", "add a health endpoint", "fix the race"], agent: "claude", model: "sonnet",
+  agents: routedAgents, routing: "suggest",
+  routes: [{ model: "haiku", tier: "small", rule: "run the tests", reason: "rule 'run the tests' → small" }, null,
+           { model: "opus", tier: "top", rule: "hard work", reason: "rule 'hard work' → top", up: true }] }, over || {});
+const body = h.$("overlay-body");
+const sels = () => body.querySelectorAll("div.fan-row").map((r) => r.querySelector("select"));
+const tags = () => body.querySelectorAll("span.fan-routed");
+`
+
+// Routing pre-fills a fan-out's rows and marks them, and the dialog sends
+// exactly what it shows: a routed row goes over the wire as a row chosen by
+// hand does, and its rule only marks the pane it starts.
+func TestTheFanOutShowsWhatRoutingChoseAndStartsWhatItShows(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview());
+assert.deepStrictEqual(sels().map((s) => s.value), ["claude\nhaiku", "", "claude\nopus"]);
+assert.strictEqual(tags().length, 2, "the routed rows are not marked");
+assert.ok(tags()[0].dataset.tip.includes("run the tests"), "the tag does not say why: " + tags()[0].dataset.tip);
+assert.ok(tags()[1].textContent.includes("↗"), "a stronger model is not marked as one");
+assert.strictEqual(body.querySelector("span.fan-route-text").textContent,
+  "Routing chose a smaller model for 1 of 3 tasks and a stronger one for 1.");
+assert.ok(body.querySelector("span.fan-count").textContent.includes("2 routed"),
+  "the count does not say how many were routed: " + body.querySelector("span.fan-count").textContent);
+
+// Changing a routed row makes it the user's.
+const s = sels()[2];
+s.value = "claude\nsonnet";
+h.dispatch(s, new h.Ev("change", { target: s }));
+assert.strictEqual(tags().length, 1, "the tag stayed on a row somebody chose for");
+
+body.querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.deepStrictEqual(sent.taskAgents, ["claude", "", "claude"]);
+assert.deepStrictEqual(sent.taskModels, ["haiku", "", "sonnet"]);
+assert.deepStrictEqual(sent.taskRouted, ["run the tests", "", ""]);
+assert.deepStrictEqual(sent.routeOverrides, [{ rule: "hard work", agent: "claude", routed: "opus", chosen: "sonnet" }]);
+`)
+}
+
+// One button puts every routed row back on the run's model.
+func TestTheRunsModelCanBeTakenForEveryTask(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview());
+const clear = h.$("fan-route-clear");
+assert.ok(clear && !clear.hidden, "there is no way to take the run's model for every task");
+h.click(clear);
+assert.strictEqual(tags().length, 0, "rows are still marked routed");
+assert.deepStrictEqual(sels().map((s) => s.value), ["", "", ""]);
+assert.ok(h.$("fan-route-clear").hidden, "the button is offered with nothing left to undo");
+body.querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.strictEqual(sent.taskAgents, undefined, "rows on the run's model were sent as chosen by hand");
+assert.strictEqual(sent.taskRouted, undefined);
+assert.strictEqual(sent.routeOverrides.length, 2, "the log is not told the routed choices were set aside");
+`)
+}
+
+// With routing off the dialog is exactly what it was, and asks for nothing.
+func TestTheFanOutWithRoutingOffIsUnchanged(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview({ routing: undefined }));
+assert.ok(!body.querySelector("div.fan-route"), "a routing line was drawn with routing off");
+assert.strictEqual(tags().length, 0);
+assert.deepStrictEqual(sels().map((s) => s.value), ["", "", ""]);
+const box = body.querySelector("textarea.fan-tasks");
+box.value += "\nrename foo";
+box.oninput();
+await h.sleep(300);
+assert.ok(!h.commands().some((c) => c.cmd === "routeTasks"), "routes were asked for with routing off");
+`)
+}
+
+// An edited list is routed afresh once typing pauses, and so is a run moved to
+// another model; an answer about a run since changed is not taken.
+func TestAnEditedFanOutIsRoutedAfresh(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview());
+const box = body.querySelector("textarea.fan-tasks");
+box.value = "run the tests\nrename foo to bar";
+box.oninput();
+await h.sleep(300);
+const ask = h.commands().pop();
+assert.deepStrictEqual(ask, { cmd: "routeTasks", tasks: ["run the tests", "rename foo to bar"], agent: "claude", model: "sonnet" });
+const route = (rule) => ({ model: "haiku", tier: "small", rule, reason: "rule '" + rule + "' → small" });
+h.recv({ type: "routes", agent: "claude", model: "sonnet", tasks: ask.tasks, routes: [route("run the tests"), route("rename or move")] });
+assert.deepStrictEqual(sels().map((s) => s.value), ["claude\nhaiku", "claude\nhaiku"]);
+h.recv({ type: "routes", agent: "codex", model: "", tasks: ask.tasks, routes: [null, null] });
+assert.strictEqual(tags().length, 2, "an answer about another run was taken");
+
+const run = body.querySelector("div.fan-agent").querySelector("select");
+run.value = "claude\nopus";
+h.dispatch(run, new h.Ev("change", { target: run }));
+assert.strictEqual(tags().length, 0, "routes for the old model stayed on the rows");
+await h.sleep(300);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "routeTasks", tasks: ask.tasks, agent: "claude", model: "opus" });
+`)
+}
+
+// A pane started on a routed model says so in its header, and which way.
+func TestAPaneOnARoutedModelSaysSo(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const badge = () => h.$("workspace").querySelector("span.pane-agent");
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "haiku", routed: "run the tests", routedFrom: "sonnet", route: "down" }), p2: pane("p2") } }));
+assert.strictEqual(badge().textContent, "claude · haiku ↘");
+assert.ok(badge().dataset.tip.includes("from sonnet") && badge().dataset.tip.includes("run the tests"),
+  "the tooltip does not say why: " + badge().dataset.tip);
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "opus", routed: "hard work", routedFrom: "sonnet", route: "up" }), p2: pane("p2") } }));
+assert.strictEqual(badge().textContent, "claude · opus ↗");
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "opus" }), p2: pane("p2") } }));
+assert.strictEqual(badge().textContent, "claude · opus", "a model chosen by hand is marked routed");
+`)
+}
+
+// Settings › Agents › Routing: the mode for every project and for this one,
+// the floor of whichever policy this project is routed by, the rules to read,
+// and the history to clear.
+func TestRoutingIsSetInSettings(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const routing = (over) => Object.assign({ every: { mode: "off", floor: "" },
+  rules: [{ name: "run the tests", choice: "small", when: "the task matches /^run/" }], builtIn: true,
+  note: "Routing leaves Claude Code's Default alone.", config: "C:/state/agents.json" }, over || {});
+h.recv(fixture({ agents: catalog({ routing: routing() }) }));
+h.press("settings");
+h.click(h.$("settings-tab-agents"));
+assert.strictEqual(h.$("set-route-all").value, "off", "routing is not shown off");
+
+const pick = (id, value) => { const s = h.$(id); s.value = value; h.dispatch(s, new h.Ev("change")); return h.commands().pop(); };
+assert.deepStrictEqual(pick("set-route-all", "suggest"), { cmd: "setRouting", kind: "all", target: "mode", text: "suggest" });
+assert.deepStrictEqual(pick("set-route-project", "auto"), { cmd: "setRouting", target: "mode", text: "auto" });
+assert.deepStrictEqual(pick("set-route-floor", "mid"), { cmd: "setRouting", target: "floor", text: "mid", kind: "all" });
+assert.ok(h.$("set-route-rules").textContent.includes("run the tests"), "the rules are not listed");
+assert.ok(h.$("set-route-note").textContent.includes("Default"), "nothing says why routing would do nothing");
+h.click(h.$("set-route-clear-log"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "clearRoutingLog" });
+
+// A project with a policy of its own: that is the floor changed.
+h.recv(fixture({ agents: catalog({ routing: routing({ project: { mode: "suggest", floor: "mid" }, note: "" }) }) }));
+assert.strictEqual(h.$("set-route-project").value, "suggest");
+assert.strictEqual(h.$("set-route-floor").value, "mid", "the project's own floor is not shown");
+assert.deepStrictEqual(pick("set-route-floor", "top"), { cmd: "setRouting", target: "floor", text: "top" });
 `)
 }
 

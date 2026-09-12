@@ -23,6 +23,12 @@ type Catalog struct {
 	Defaults Defaults
 	// Projects are the per-project defaults, keyed as the user wrote them.
 	Projects map[string]Defaults
+	// Routing is the routing policy every project shares, and ProjectRouting
+	// each project's own, keyed as the user wrote them; RoutingFor says which
+	// applies where. Both are as agents.json gave them, less whatever in them
+	// could not be used, which Notice names.
+	Routing        RoutingPolicy
+	ProjectRouting map[string]RoutingPolicy
 	// Notice is empty unless the user's file could not be used in full. It is
 	// something for the interface to show, never a reason not to start: a
 	// mistyped agents.json leaves somebody with the built-in agents, not with
@@ -114,6 +120,7 @@ func Merge(f *File) *Catalog {
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
 			problems = append(problems, checkRunner(&merged)...)
 			problems = append(problems, checkTokens(&merged)...)
+			problems = append(problems, checkTiers(&merged)...)
 			c.Specs[i] = merged
 			continue
 		}
@@ -134,11 +141,13 @@ func Merge(f *File) *Catalog {
 		}
 		problems = append(problems, checkRunner(&fresh)...)
 		problems = append(problems, checkTokens(&fresh)...)
+		problems = append(problems, checkTiers(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
 		c.Specs = append(c.Specs, fresh)
 	}
 	c.Specs = normalizeAll(c.Specs)
 	problems = append(problems, c.missingDefaults()...)
+	problems = append(problems, c.parseAllRouting(f)...)
 	if len(problems) > 0 {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}

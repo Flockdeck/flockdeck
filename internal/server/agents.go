@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/pricing"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -140,12 +141,56 @@ type agentChoice struct {
 	Model string `json:"model,omitempty"`
 }
 
+// modelView is one model as the picker and the fan-out's selects draw it: the
+// catalog's entry for it, and what it costs where that is known and true of
+// what the user pays.
+type modelView struct {
+	agent.Model
+	Price *priceView `json:"price,omitempty"`
+}
+
+// priceView is a model's published price per million tokens, with the day it
+// was read, so a figure shown beside a model always says how old it is.
+type priceView struct {
+	In      float64 `json:"in"`
+	Out     float64 `json:"out"`
+	Checked string  `json:"checked"`
+}
+
+// modelViews is an agent's models as the window draws them.
+//
+// A price goes only on the models of an API agent talking to its vendor's own
+// endpoint. There the id is exactly what the vendor bills, and the key is the
+// user's. A command-line agent's model is often an alias the tool resolves for
+// itself, and it is as likely to run on a subscription as on a key; an endpoint
+// of the user's own -- a gateway, a proxy -- charges what it charges. A
+// per-token price beside either would say something untrue about what the
+// user pays.
+func modelViews(spec agent.Spec) []modelView {
+	if len(spec.Models) == 0 {
+		return nil
+	}
+	priced := spec.Runner == agent.RunnerAPI && spec.API.BaseURL == ""
+	today := time.Now()
+	out := make([]modelView, len(spec.Models))
+	for i, m := range spec.Models {
+		out[i] = modelView{Model: m}
+		if !priced {
+			continue
+		}
+		if r, ok := pricing.Lookup(m.ID, today); ok {
+			out[i].Price = &priceView{In: r.In, Out: r.Out, Checked: r.Checked}
+		}
+	}
+	return out
+}
+
 // catalogAgent is one agent as the picker draws it.
 type catalogAgent struct {
-	ID     string        `json:"id"`
-	Name   string        `json:"name"`
-	Runner string        `json:"runner,omitempty"`
-	Models []agent.Model `json:"models,omitempty"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Runner string      `json:"runner,omitempty"`
+	Models []modelView `json:"models,omitempty"`
 	// DefaultModel is the one taken when nobody chooses, so the picker can
 	// mark it rather than leaving the choice looking arbitrary.
 	DefaultModel string `json:"defaultModel"`
@@ -170,6 +215,8 @@ type agentCatalog struct {
 	// which overrides it. Project is left out when the project has none.
 	Default agentChoice  `json:"default"`
 	Project *agentChoice `json:"project,omitempty"`
+	// Routing is what Settings › Agents › Routing draws.
+	Routing *routingView `json:"routing,omitempty"`
 	// Err says why the user's agents.json was ignored. A damaged file is a
 	// line in the picker and nothing more: the built-ins carry on, because
 	// refusing to start over a preferences file would be absurd.
@@ -270,6 +317,7 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	out := agentCatalog{
 		Default: agentChoice{Agent: base.Agent, Model: base.Model},
 		Err:     c.Notice,
+		Routing: routingOf(c, root),
 	}
 	// A project is reported as having a choice of its own only where it
 	// actually differs. Marking the installation's default as this project's
@@ -282,7 +330,7 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 			ID:           sp.ID,
 			Name:         sp.Name,
 			Runner:       string(sp.Runner),
-			Models:       sp.Models,
+			Models:       modelViews(sp),
 			DefaultModel: sp.DefaultModel,
 			Available:    agent.Available(sp),
 			Install:      sp.Install,

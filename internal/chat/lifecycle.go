@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/pricing"
 	spending "github.com/jmwri/flockdeck/internal/spend"
 )
 
@@ -55,11 +56,6 @@ func newReporter(api, token, session, cwd string) *reporter {
 		usageEndpoint: usage, report: hooks.Report}
 }
 
-// pricesChecked is the date the rates in price.go were read from the vendor's
-// page. It goes with every figure priced from them, so the pane header can say
-// how old the price is rather than state it as fact.
-const pricesChecked = "2026-06-24"
-
 // usageTimeout bounds one usage report. It is sent between a call's answer and
 // whatever comes next, over loopback, so a second is far more than it takes
 // and little enough that a Flockdeck which has stopped answering costs a turn
@@ -85,8 +81,12 @@ func (r *reporter) usage(model string, u Usage) {
 			CacheRead: int64(u.CacheRead), CacheWrite5m: int64(u.CacheWrite),
 		},
 	}
-	if usd, ok := cost(model, u); ok {
-		rep.Cost = spending.Cost{USD: usd, Known: true, Source: "table", Checked: pricesChecked}
+	// The rate and the day it was read come from the one price table
+	// together, so the pane header says how old this very price is rather
+	// than a date kept beside it that could drift from it.
+	if rate, ok := pricing.Lookup(model, time.Now()); ok {
+		usd := rate.Cost(pricing.Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
+		rep.Cost = spending.Cost{USD: usd, Known: true, Source: "table", Checked: rate.Checked}
 	}
 	_ = r.report(r.usageEndpoint, r.token, rep, usageTimeout)
 }

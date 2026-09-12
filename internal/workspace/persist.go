@@ -114,6 +114,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			Task:  p.Task,
 			Agent: p.Agent,
 			Model: p.Model,
+			// Written only for a routed pane, like Root below.
+			Routed:     p.Routed,
+			RoutedFrom: p.RoutedFrom,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -471,6 +474,8 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Root:         n.Pane.Root,
 			Agent:        n.Pane.Agent,
 			Model:        n.Pane.Model,
+			Routed:       n.Pane.Routed,
+			RoutedFrom:   n.Pane.RoutedFrom,
 			Conversation: n.Pane.Conversation,
 		}
 		if p.Root == "" {

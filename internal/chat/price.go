@@ -3,65 +3,18 @@ package chat
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/pricing"
 )
-
-// rate is what a model costs per million tokens.
-type rate struct {
-	in  float64
-	out float64
-	// read is what input read from the prompt cache costs, where it is not the
-	// usual tenth of in. Writing to the cache costs a quarter more than in.
-	read float64
-}
-
-// rates are published prices, in dollars per million tokens, matched against
-// the start of a model id.
-//
-// It is short and it is meant to be: a made-up price is worse than no price at
-// all, so a model that is not in here is shown with its token counts and
-// nothing else. These are Anthropic's own first-party rates as published on
-// 2026-06-24; a model reached through a partner platform, and every other
-// vendor, is priced by whoever serves it and is not guessed at here. Extending
-// the table is a line each.
-var rates = map[string]rate{
-	"claude-fable-5-1":  {in: 10, out: 50, read: 0.25},
-	"claude-fable-5":    {in: 10, out: 50},
-	"claude-mythos-5":   {in: 10, out: 50},
-	"claude-opus-5":     {in: 5, out: 25},
-	"claude-opus-4-8":   {in: 5, out: 25},
-	"claude-opus-4-7":   {in: 5, out: 25},
-	"claude-opus-4-6":   {in: 5, out: 25},
-	"claude-sonnet-5":   {in: 2, out: 10},
-	"claude-sonnet-4-6": {in: 3, out: 15},
-	"claude-haiku-4-5":  {in: 1, out: 5},
-}
 
 // cost returns what a turn's tokens cost, and whether that is known at all.
 //
-// The longest matching prefix wins, so a dated variant of a model is priced as
-// the model it is a variant of, and "claude-opus-4-8" is not read as
-// "claude-opus-4".
+// The prices are internal/pricing's, the one table the application states a
+// price in, each with the day it was read and the page it was read from. A
+// model that is not in it is shown with its token counts and nothing else,
+// because a made-up price is worse than no price at all.
 func cost(model string, u Usage) (float64, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		return 0, false
-	}
-	best, found := rate{}, ""
-	for prefix, r := range rates {
-		if strings.HasPrefix(model, prefix) && len(prefix) > len(found) {
-			best, found = r, prefix
-		}
-	}
-	if found == "" {
-		return 0, false
-	}
-	read := best.read
-	if read == 0 {
-		read = best.in / 10
-	}
-	fresh := max(u.In-u.CacheRead-u.CacheWrite, 0)
-	return (float64(fresh)*best.in + float64(u.CacheRead)*read +
-		float64(u.CacheWrite)*best.in*1.25 + float64(u.Out)*best.out) / 1e6, true
+	return pricing.Cost(model, pricing.Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
 }
 
 // spend is what a conversation has cost so far.

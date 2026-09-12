@@ -31,6 +31,10 @@ const ConfigVersion = 1
 type Defaults struct {
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Routing is a project's own routing policy, kept exactly as it was
+	// written so that saving a default cannot lose any of it -- a key this
+	// build does not know included. Catalog.RoutingFor reads it.
+	Routing *json.RawMessage `json:"routing,omitempty"`
 }
 
 // File is agents.json as it is written on disk.
@@ -44,6 +48,9 @@ type File struct {
 	Defaults Defaults            `json:"defaults,omitempty"`
 	Projects map[string]Defaults `json:"projects,omitempty"`
 	Agents   []json.RawMessage   `json:"agents,omitempty"`
+	// Routing is the routing policy every project without one of its own is
+	// routed by, kept as written for the same reason a project's is.
+	Routing json.RawMessage `json:"routing,omitempty"`
 	// Extra is every other top-level key the file held. It is kept so that
 	// writing a default back from the picker cannot quietly delete something a
 	// later build, or the user, put there.
@@ -51,7 +58,7 @@ type File struct {
 }
 
 // knownFields are the keys File decodes itself; everything else is Extra.
-var knownFields = []string{"version", "defaults", "projects", "agents"}
+var knownFields = []string{"version", "defaults", "projects", "agents", "routing"}
 
 func (f *File) UnmarshalJSON(data []byte) error {
 	type plain File
@@ -265,17 +272,29 @@ func SetDefaults(dir, project string, d Defaults) error {
 		// something to show and leaves the file to be repaired by hand.
 		return err
 	}
+	// A routing policy is kept whatever default is saved beside it. The
+	// picker knows nothing of it and sends none, and a project's entry used to
+	// be written back as its agent and model alone -- which is how saving a
+	// default from an older build loses the project's policy.
 	if project == "" {
+		d.Routing = f.Defaults.Routing
 		f.Defaults = d
 	} else {
 		if f.Projects == nil {
 			f.Projects = map[string]Defaults{}
 		}
 		key := projectKey(project)
+		d.Routing = nil
 		// A project already recorded under another spelling of the same path
 		// is replaced rather than joined, so the two cannot disagree.
-		for existing := range f.Projects {
-			if projectKey(existing) == key && existing != project {
+		for existing, old := range f.Projects {
+			if projectKey(existing) != key {
+				continue
+			}
+			if old.Routing != nil {
+				d.Routing = old.Routing
+			}
+			if existing != project {
 				delete(f.Projects, existing)
 			}
 		}

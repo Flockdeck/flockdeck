@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/pricing"
 	spending "github.com/jmwri/flockdeck/internal/spend"
 )
 
@@ -59,8 +60,9 @@ func TestEachCallsUsageIsReported(t *testing.T) {
 		t.Errorf("first report = %+v, want pane-7's claude-opus-5 call with its tokens", r)
 	}
 	want, _ := cost("claude-opus-5", first)
-	if !r.Cost.Known || r.Cost.USD != want || r.Cost.Source != "table" || r.Cost.Checked != pricesChecked {
-		t.Errorf("first cost = %+v, want $%v from the table checked %s", r.Cost, want, pricesChecked)
+	rate, _ := pricing.Lookup("claude-opus-5", time.Now())
+	if !r.Cost.Known || r.Cost.USD != want || r.Cost.Source != "table" || r.Cost.Checked == "" || r.Cost.Checked != rate.Checked {
+		t.Errorf("first cost = %+v, want $%v from the price table, checked %s as its own entry says", r.Cost, want, rate.Checked)
 	}
 	if r.Cumulative {
 		t.Error("a call's usage was sent as a running total, so the application would not add it up")
