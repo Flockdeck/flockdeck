@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +196,42 @@ func TestChatPathFindsTheStoredChat(t *testing.T) {
 	}
 	if got := (Chat{}).Path(chatSpec, "22222222-2222-2222-2222-222222222222"); got != "" {
 		t.Errorf("Path for a chat that was never held = %q, want nothing", got)
+	}
+}
+
+// BenchmarkChatRows measures listing one project's chats from a folder shared
+// with every other project's, which is what opening the history overlay costs
+// an API agent's pane: two hundred chats of a quarter of a megabyte each, ten
+// of them this project's.
+func BenchmarkChatRows(b *testing.B) {
+	base := b.TempDir()
+	b.Setenv("APPDATA", base)
+	b.Setenv("XDG_CONFIG_HOME", base)
+	b.Setenv("HOME", base)
+	dir, err := chatsDir()
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	here := filepath.Join(base, "here")
+	answer := `{"type":"assistant","ts":2,"text":"` + strings.Repeat("output of a command ", 256<<10/20) + `"}`
+	for i := 0; i < 200; i++ {
+		cwd := filepath.Join(base, "elsewhere")
+		if i%20 == 0 {
+			cwd = here
+		}
+		chat := `{"type":"user","ts":1,"cwd":"` + jsonPath(cwd) + `","text":"a task"}` + "\n" + answer + "\n"
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%08d-0000-0000-0000-000000000000.jsonl", i)), []byte(chat), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rows, err := chatRows(here)
+		if err != nil || len(rows) != 10 {
+			b.Fatalf("listed %d chats (%v), want 10", len(rows), err)
+		}
 	}
 }
