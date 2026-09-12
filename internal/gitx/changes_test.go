@@ -546,8 +546,10 @@ func TestChangesReportsADirtySubmodule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
-	if !strings.Contains(diff, "Subproject commit") {
-		t.Errorf("submodule diff should name the commits it moved between:\n%s", diff)
+	// By subject, not as the two hashes git shows by default, which said
+	// nothing of what changed.
+	if !strings.Contains(diff, "Submodule mod") || !strings.Contains(diff, "> work inside the submodule") {
+		t.Errorf("submodule diff should name the commits it moved through:\n%s", diff)
 	}
 }
 

@@ -420,9 +420,11 @@ func Diff(dir, path string) (string, error) {
 		}
 	}
 	// A submodule whose only change is work inside it -- a new file there --
-	// has no diff here, and the panel explained the empty answer as a file
-	// that matches the last commit.
-	if strings.TrimSpace(out) == "" {
+	// has no diff of its own here: nothing at all, which the panel explained
+	// as a file that matches the last commit, or git's one line that it
+	// "contains untracked content". Asked only of an empty diff or a
+	// submodule's, so an ordinary file's click costs nothing more.
+	if t := strings.TrimSpace(out); t == "" || strings.HasPrefix(t, "Submodule ") {
 		if subs := submoduleWork(dir, path); len(subs) > 0 {
 			return fmt.Sprintf("%s is a submodule with work inside it that is not committed there yet. That work belongs "+
 				"to the submodule's own repository: commit it there, and this one can then record the submodule's new commit.\n", path), nil
@@ -503,7 +505,11 @@ func pathspec(path string) string { return ":(literal)" + path }
 // with the output of some other program. "diff.mnemonicPrefix" and
 // "diff.noprefix" rename or drop the "a/" and "b/" that an untracked file's
 // rendering writes by hand, leaving the two sources of diff text unalike.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/"}
+// "--submodule=log" shows a submodule that moved as the commits it moved
+// through, by subject -- "> fix the parser", "<" for one it went back past --
+// where the default was two forty-character hashes that said nothing of what
+// changed, and nothing of a bump being undone.
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
 
 // gitDiff runs a diff with those flags ahead of the caller's arguments, and
 // returns it cut down to what the panel is sent.
