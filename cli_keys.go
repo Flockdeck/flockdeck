@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
 
@@ -32,6 +33,7 @@ func runKeys(args []string) error {
 	// gain a line of instructions addressed to a person.
 	if stdinIsTerminal() {
 		k.prompt = os.Stderr
+		k.hide = hideInput
 	}
 	return keysCmd(args, k)
 }
@@ -45,6 +47,9 @@ type keysIO struct {
 	in     io.Reader
 	out    io.Writer
 	prompt io.Writer
+	// hide stops the terminal showing what is typed, returning what puts it
+	// back, or nil where it cannot. It is nil where there is no terminal.
+	hide func() func()
 }
 
 func keysCmd(args []string, kio keysIO) error {
@@ -124,14 +129,45 @@ func keysList(out io.Writer) error {
 
 // keysSet reads one key from standard input and stores it.
 func keysSet(agentID string, kio keysIO) error {
+	// A key pasted into a terminal that shows it is on the screen, in the
+	// scrollback, and in anything shared of either, so the terminal is asked
+	// not to show it. Where it cannot be, that is said plainly: pasting into a
+	// terminal that shows the paste is still better than an argument, which
+	// the shell keeps.
+	var restore func()
+	if kio.hide != nil {
+		restore = kio.hide()
+	}
+	if restore != nil {
+		// Ctrl+C at the prompt must not leave the terminal hiding everything
+		// typed into it afterwards.
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt)
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-sig:
+				restore()
+				os.Exit(130)
+			case <-done:
+			}
+		}()
+		defer func() {
+			signal.Stop(sig)
+			close(done)
+		}()
+	}
 	if kio.prompt != nil {
-		// Said plainly, because the terminal echoes what is typed and this
-		// package cannot turn that off without leaving the standard library.
-		// Pasting into a terminal that is showing the paste is still better
-		// than an argument, which the shell keeps.
-		fmt.Fprintf(kio.prompt, "Paste the key for %s and press Enter (it will be visible): ", agentID)
+		shown := "it will be visible"
+		if restore != nil {
+			shown = "it will not be shown"
+		}
+		fmt.Fprintf(kio.prompt, "Paste the key for %s and press Enter (%s): ", agentID, shown)
 	}
 	key, err := readKeyLine(kio.in)
+	if restore != nil {
+		restore()
+	}
 	if kio.prompt != nil {
 		fmt.Fprintln(kio.prompt)
 	}

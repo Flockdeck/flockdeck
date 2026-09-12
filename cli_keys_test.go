@@ -222,6 +222,39 @@ func TestAChatIsOfferedItsAgentsModels(t *testing.T) {
 	}
 }
 
+// A key typed at a terminal is hidden while it is read, the terminal is put
+// back afterwards, and the prompt says which of the two it is.
+func TestKeysSetHidesTheKeyAtATerminal(t *testing.T) {
+	isolateKeys(t)
+	hidden, restored := false, false
+	var prompt bytes.Buffer
+	err := keysCmd([]string{"set", "anthropic"}, keysIO{
+		in: strings.NewReader("sk-secret\n"), out: &bytes.Buffer{}, prompt: &prompt,
+		hide: func() func() {
+			hidden = true
+			return func() { restored = true }
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hidden || !restored {
+		t.Errorf("hidden %v, restored %v; want both", hidden, restored)
+	}
+	if !strings.Contains(prompt.String(), "will not be shown") {
+		t.Errorf("prompt = %q", prompt.String())
+	}
+
+	prompt.Reset()
+	keysCmd([]string{"set", "anthropic"}, keysIO{
+		in: strings.NewReader("sk-secret\n"), out: &bytes.Buffer{}, prompt: &prompt,
+		hide: func() func() { return nil },
+	})
+	if !strings.Contains(prompt.String(), "will be visible") {
+		t.Errorf("a terminal that could not hide the key was not said to show it: %q", prompt.String())
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
