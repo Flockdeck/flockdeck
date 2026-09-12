@@ -10,8 +10,8 @@ next time.
 
 ## Dragging a pane
 
-Drag a pane by its header. While the drag is in progress every other pane
-shows what would happen:
+Drag a pane by its header. The pane under the pointer shows what would happen
+if you let go there:
 
 - onto the **left, right, top or bottom** of another pane — it goes there,
   joining that row or column rather than nesting a new split inside it;
