@@ -227,12 +227,12 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 		// how the panel says it means it.
 		if !force {
 			if n := s.panesPerPath([]string{path})[path]; n > 0 {
-				subject := "pane is"
+				subject, them := "pane is", "it"
 				if n > 1 {
-					subject = "panes are"
+					subject, them = "panes are", "them"
 				}
-				c.notify(fmt.Sprintf("%d %s still working in %s — close them first, or force the removal",
-					n, subject, filepath.Base(path)), true)
+				c.notify(fmt.Sprintf("%d %s still working in %s — close %s first, or force the removal",
+					n, subject, filepath.Base(path), them), true)
 				return
 			}
 		}
