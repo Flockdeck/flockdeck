@@ -112,7 +112,7 @@ main() {
 	cp "$tmp/flockdeck" "$dir/.flockdeck.new" &&
 		chmod 755 "$dir/.flockdeck.new" &&
 		mv -f "$dir/.flockdeck.new" "$dir/flockdeck" ||
-		die "could not write $dir/flockdeck"
+		{ rm -f "$dir/.flockdeck.new"; die "could not write $dir/flockdeck"; }
 	say "installed $version to $dir/flockdeck"
 
 	case ":$PATH:" in
