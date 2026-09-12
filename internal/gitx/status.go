@@ -185,8 +185,12 @@ func isCommitID(s string) bool {
 //
 // porcelain v2 says so in an entry's third field, which for a submodule is
 // "S" and three flags: its commit changed, it has changes, it has new files.
+//
+// -z, so a name comes back as it is: without it git quotes and escapes any
+// name that is not plain ASCII, and a commit refused for work inside the
+// submodule "süb" said the work was inside "s\303\274b".
 func submoduleWork(dir string, paths ...string) []string {
-	args := []string{"status", "--porcelain=v2", "--ignore-submodules=none"}
+	args := []string{"status", "--porcelain=v2", "--ignore-submodules=none", "-z"}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		for _, p := range paths {
@@ -198,8 +202,13 @@ func submoduleWork(dir string, paths ...string) []string {
 		return nil
 	}
 	var names []string
-	for _, line := range strings.Split(out, "\n") {
-		f := strings.SplitN(strings.TrimRight(line, "\r"), " ", 9)
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		f := strings.SplitN(records[i], " ", 9)
+		if len(f) > 0 && f[0] == "2" {
+			i++ // a rename's old name follows as a record of its own
+			continue
+		}
 		if len(f) < 9 || f[0] != "1" || len(f[2]) != 4 {
 			continue
 		}
