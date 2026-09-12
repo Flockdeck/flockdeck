@@ -153,8 +153,10 @@ func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
 	if got := CurrentBranch(empty); got != "main" {
 		t.Errorf("branch of an empty repository = %q, want main", got)
 	}
-	if got := DefaultBase(empty); got != "main" {
-		t.Errorf("default base = %q, want main", got)
+	// It is not a base, though: "main" names no commit yet, and a worktree
+	// asked to start from it fails, where one given no base starts empty.
+	if got := DefaultBase(empty); got != "" {
+		t.Errorf("default base = %q, want none", got)
 	}
 
 	// A detached checkout has no branch at all.
@@ -612,5 +614,298 @@ func TestPruneRemovesStaleRecords(t *testing.T) {
 	// knows to say so rather than claiming it cleaned something up.
 	if pruned, err := Prune(repo); err != nil || pruned != 0 {
 		t.Errorf("second prune = %d, %v; want nothing removed", pruned, err)
+	}
+}
+
+// TestDeletedWorktreeIsReportedAsPrunable: a worktree whose directory was
+// deleted by hand came back with an empty status, which reads as clean.
+func TestDeletedWorktreeIsReportedAsPrunable(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "gone")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "gone", wt)
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	wts, err := ListDetailed(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range wts {
+		if gone := samePath(w.Path, wt); w.Prunable != gone {
+			t.Errorf("%s: prunable = %v, want %v", w.Path, w.Prunable, gone)
+		}
+	}
+}
+
+// TestRemoveOfALockedWorktreeSaysHowToUnlockIt: git told the panel to run
+// "remove -f -f", which no button does.
+func TestRemoveOfALockedWorktreeSaysHowToUnlockIt(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "kept")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "kept", wt)
+	gitRun(t, repo, "worktree", "lock", wt)
+	for _, force := range []bool{false, true} {
+		err := Remove(repo, wt, force)
+		if err == nil || !strings.Contains(err.Error(), "git worktree unlock") || strings.Contains(err.Error(), "-f -f") {
+			t.Errorf("force=%v: err = %v, want it to say how to unlock", force, err)
+		}
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("a locked worktree should be left where it is: %v", err)
+	}
+}
+
+// TestDefaultBaseOfAFreshRepositoryIsEmpty: the panel pre-fills the base with
+// this, and "main" before anything is committed to it names no commit, so
+// every new worktree in a fresh repository failed.
+func TestDefaultBaseOfAFreshRepositoryIsEmpty(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q", "--initial-branch=main")
+	base := DefaultBase(repo)
+	if base != "" {
+		t.Errorf("default base = %q before the first commit, want none", base)
+	}
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "topic", base)
+	if err != nil && strings.Contains(err.Error(), "invalid reference") {
+		t.Errorf("a worktree from the offered base failed: %v", err)
+	}
+	if got := DefaultBase(newRepo(t)); got != "main" {
+		t.Errorf("default base = %q in a repository with a commit, want its branch", got)
+	}
+}
+
+// TestAGoneUpstreamIsNoUpstream: a branch whose upstream was deleted on the
+// remote and pruned here was reported as tracking it, level, 0 and 0 -- over
+// a commit that had never been pushed.
+func TestAGoneUpstreamIsNoUpstream(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "checkout", "-q", "-b", "feature")
+	gitRun(t, repo, "push", "-q", "-u", "origin", "feature")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
+	gitRun(t, repo, "push", "-q", "origin", "--delete", "feature")
+	gitRun(t, repo, "fetch", "-q", "--prune")
+
+	if st := StatusOf(repo); st.Upstream != "" {
+		t.Errorf("status = %+v, want no upstream once it is gone", st)
+	}
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("UpstreamOf = %q, want none, agreeing with the status", got)
+	}
+}
+
+// TestABranchHeldByADeletedWorktreeSaysToPrune: git said only that the branch
+// was "already used by worktree at" a directory that was not there, after a
+// line of its own progress, and nothing about how to get past it.
+func TestABranchHeldByADeletedWorktreeSaysToPrune(t *testing.T) {
+	repo := newRepo(t)
+	gone := filepath.Join(t.TempDir(), "gone")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "feature", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "feature", "")
+	if err == nil || !strings.Contains(err.Error(), "Prune") || strings.Contains(err.Error(), "Preparing") {
+		t.Errorf("err = %v, want it to say Prune clears the stale record", err)
+	}
+	if _, err := Prune(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "feature", ""); err != nil {
+		t.Errorf("after pruning, the branch should check out again: %v", err)
+	}
+}
+
+// TestRemovingABusyWorktreeSaysWhatIsLeft: on Windows a file held open in the
+// worktree lets git drop its record and then fail to delete the folder, with
+// "Invalid argument"; pressing remove again answers only that it is not a
+// worktree.
+func TestRemovingABusyWorktreeSaysWhatIsLeft(t *testing.T) {
+	if filepath.Separator == '/' {
+		t.Skip("an open file stops a deletion only on Windows")
+	}
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "busy")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "busy", wt)
+	write(t, wt, "open.txt", "x\n")
+	f, err := os.Open(filepath.Join(wt, "open.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	err = Remove(repo, wt, true)
+	if err == nil || !strings.Contains(err.Error(), "could not be deleted") || !strings.Contains(err.Error(), wt) {
+		t.Errorf("err = %v, want it to say the folder is left and why", err)
+	}
+}
+
+// TestABranchNameGitRefusesSaysWhyAndOffersOne: git said only that the name
+// was "not a valid branch name", after a line of its own progress.
+func TestABranchNameGitRefusesSaysWhyAndOffersOne(t *testing.T) {
+	repo := newRepo(t)
+	for name, want := range map[string]string{
+		"my feature": `"my-feature" would do`,
+		"wip:today":  `"wip-today" would do`,
+		"topic.lock": `"topic" would do`,
+		"trailing/":  `"trailing" would do`,
+	} {
+		err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), name, "")
+		if err == nil || !strings.Contains(err.Error(), "cannot be a branch name") ||
+			!strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "Preparing") {
+			t.Errorf("%q: err = %v, want the reason and %s", name, err, want)
+		}
+	}
+	// A name git takes is untouched.
+	if err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "feature/ok-1", ""); err != nil {
+		t.Errorf("a valid name was refused: %v", err)
+	}
+}
+
+// TestAWorktreeMidRebaseIsLabelledByItsBranch: git's list says only that HEAD
+// is detached, and the panel called the worktree "detached@<sha>" while its
+// pane header called it by its branch.
+func TestAWorktreeMidRebaseIsLabelledByItsBranch(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-qm", "base")
+	wt := filepath.Join(t.TempDir(), "topic")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "topic", wt)
+	write(t, wt, "f.txt", "topic\n")
+	gitRun(t, wt, "commit", "-qam", "topic")
+	write(t, repo, "f.txt", "main\n")
+	gitRun(t, repo, "commit", "-qam", "main")
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = wt
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected the rebase to stop on a conflict: %s", out)
+	}
+	t.Cleanup(func() {
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = wt
+		_ = abort.Run()
+	})
+
+	wts, err := ListDetailed(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range wts {
+		if samePath(w.Path, wt) && w.Label() != "topic (rebasing)" {
+			t.Errorf("label = %q, want the branch being rebased", w.Label())
+		}
+	}
+}
+
+// TestRemovingAWorktreeThatChangedSinceSaysSo: the panel forces a removal
+// only when the row it drew showed changes, and git refused one made since
+// with "use --force", a flag the panel cannot pass.
+func TestRemovingAWorktreeThatChangedSinceSaysSo(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "busy")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "busy", wt)
+	write(t, wt, "README.md", "changed since the panel drew it\n")
+	write(t, wt, "new.txt", "new\n")
+	err := Remove(repo, wt, false)
+	if err == nil || !strings.Contains(err.Error(), "1 changed, 1 new") || strings.Contains(err.Error(), "--force") {
+		t.Errorf("err = %v, want what is there and how to go on", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("an unforced removal should leave the work where it is: %v", err)
+	}
+}
+
+// TestABranchStartedFromARemoteOneDoesNotTrackIt: started from origin/main,
+// the new branch tracked it, so its header named origin/main as its upstream
+// and Push was refused for the names not matching.
+func TestABranchStartedFromARemoteOneDoesNotTrackIt(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+
+	wt := filepath.Join(t.TempDir(), "fx")
+	if err := AddFrom(repo, wt, "feature-x", "origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := UpstreamOf(wt); got != "" {
+		t.Errorf("upstream = %q, want none until the branch is pushed", got)
+	}
+	gitRun(t, wt, "commit", "-q", "--allow-empty", "-m", "work")
+	if _, err := Push(wt); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if got := UpstreamOf(wt); got != "origin/feature-x" {
+		t.Errorf("upstream after the push = %q, want origin/feature-x", got)
+	}
+}
+
+// TestDefaultWorktreePathIgnoresATrailingSeparator: the parent of "C:\repo\"
+// is "C:\repo" to filepath.Dir, so a project opened with a trailing separator
+// had its worktrees suggested inside itself.
+func TestDefaultWorktreePathIgnoresATrailingSeparator(t *testing.T) {
+	repo := newRepo(t)
+	got := DefaultWorktreePath(repo+string(filepath.Separator), "feature")
+	if want := DefaultWorktreePath(repo, "feature"); got != want {
+		t.Errorf("suggested %q, want %q beside the repository", got, want)
+	}
+	if filepath.Dir(got) != filepath.Dir(repo) {
+		t.Errorf("suggested %q is not beside %q", got, repo)
+	}
+}
+
+// TestABranchAlreadyCheckedOutSaysWhere: git's answer led with its own
+// progress and said the branch was "already used by worktree at" a path,
+// without the way on.
+func TestABranchAlreadyCheckedOutSaysWhere(t *testing.T) {
+	repo := newRepo(t)
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "main", "")
+	if err == nil || !strings.Contains(err.Error(), "already checked out in") ||
+		!strings.Contains(err.Error(), "open an agent there") || strings.Contains(err.Error(), "Preparing") {
+		t.Errorf("err = %v, want where it is checked out and what to do", err)
+	}
+}
+
+// TestAWorktreeMidBisectIsNamedByItsBranch: a bisect detaches HEAD as a rebase
+// does, and the checkout read as "detached" in the pane header and
+// "detached@<sha>" in the panel.
+func TestAWorktreeMidBisectIsNamedByItsBranch(t *testing.T) {
+	repo := newRepo(t)
+	for _, body := range []string{"a\n", "b\n", "c\n"} {
+		write(t, repo, "n.txt", body)
+		gitRun(t, repo, "add", "-A")
+		gitRun(t, repo, "commit", "-qm", "step")
+	}
+	gitRun(t, repo, "bisect", "start", "HEAD", "HEAD~2")
+	t.Cleanup(func() {
+		reset := exec.Command("git", "bisect", "reset")
+		reset.Dir = repo
+		_ = reset.Run()
+	})
+
+	st := StatusOf(repo)
+	if !st.Detached || st.Branch != "main" || st.Operation != "bisecting" {
+		t.Errorf("status = %+v, want main, bisecting", st)
+	}
+	wts, err := ListDetailed(repo)
+	if err != nil || len(wts) == 0 {
+		t.Fatalf("ListDetailed = %+v, %v", wts, err)
+	}
+	if got := wts[0].Label(); got != "main (bisecting)" {
+		t.Errorf("label = %q, want main (bisecting)", got)
 	}
 }

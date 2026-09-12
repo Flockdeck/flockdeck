@@ -1,10 +1,15 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -70,7 +75,7 @@ func (f *File) UnmarshalJSON(data []byte) error {
 
 func (f File) MarshalJSON() ([]byte, error) {
 	type plain File
-	data, err := json.Marshal(plain(f))
+	data, err := marshalUnescaped(plain(f))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +93,19 @@ func (f File) MarshalJSON() ([]byte, error) {
 			m[name] = raw
 		}
 	}
-	return json.Marshal(m)
+	return marshalUnescaped(m)
+}
+
+// marshalUnescaped is json.Marshal without the HTML escaping, which an
+// encoder further out cannot undo once it has been done in here.
+func marshalUnescaped(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // ConfigPath returns where agents.json lives.
@@ -103,6 +120,20 @@ func ConfigPath() (string, error) {
 // ReadConfig reads agents.json from a directory. A file that is not there is
 // not an error -- it is the ordinary case, and means nothing but the built-ins.
 func ReadConfig(dir string) (*File, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return readConfig(dir)
+}
+
+// configMu is held across every read and write of agents.json in this
+// process. Two defaults saved at once each read the file, changed their own
+// entry and wrote it back, so one was lost; and Windows refuses to rename over
+// a file that the other save, or a picker reading the catalog, has open --
+// twenty saves at once lost nineteen and failed eleven with "Access is
+// denied".
+var configMu sync.Mutex
+
+func readConfig(dir string) (*File, error) {
 	data, err := os.ReadFile(filepath.Join(dir, ConfigName))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -110,11 +141,51 @@ func ReadConfig(dir string) (*File, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", ConfigName, err)
 	}
+	// Notepad and Windows PowerShell both write UTF-8 with a byte-order mark
+	// in front, which the decoder takes for a stray character: the whole file
+	// was set aside, and the picker then refused to save a default over it.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	// An empty file -- what `touch` or an editor's New File leaves -- holds
+	// nothing to lose, so it reads as no file at all. As a parse error it put a
+	// notice up and, since a file that cannot be read is not written over,
+	// stopped the picker saving any default into it.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return &File{Version: ConfigVersion}, nil
+	}
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", ConfigName, err)
+		return nil, fmt.Errorf("parse %s: %w", ConfigName, explainJSON(data, err))
 	}
 	return &f, nil
+}
+
+// explainJSON puts a parse error in the terms of the file somebody has open in
+// an editor. encoding/json gives a syntax error's place only as a byte offset,
+// and says of a file that is the wrong shape that it "cannot unmarshal array
+// into Go value of type agent.plain" -- a name from inside this package.
+func explainJSON(data []byte, err error) error {
+	var syn *json.SyntaxError
+	if errors.As(err, &syn) {
+		line, col := lineCol(data, syn.Offset)
+		return fmt.Errorf("line %d, column %d: %v", line, col, err)
+	}
+	if t := bytes.TrimSpace(data); len(t) > 0 && t[0] != '{' {
+		return errors.New(`the file should be one object, {"agents": [ ... ]}, not a list or a single value`)
+	}
+	var typ *json.UnmarshalTypeError
+	if errors.As(err, &typ) {
+		line, col := lineCol(data, typ.Offset)
+		return fmt.Errorf("line %d, column %d: %q cannot be %s", line, col, typ.Field, typ.Value)
+	}
+	return err
+}
+
+// lineCol turns the decoder's offset -- the count of bytes read when it
+// stopped, so the last of them is where it went wrong -- into the line and
+// column an editor shows that byte at.
+func lineCol(data []byte, offset int64) (line, col int) {
+	before := data[:max(0, min(int(offset), len(data))-1)]
+	return bytes.Count(before, []byte("\n")) + 1, len(before) - bytes.LastIndexByte(before, '\n')
 }
 
 // WriteConfig replaces agents.json in a directory.
@@ -124,14 +195,27 @@ func ReadConfig(dir string) (*File, error) {
 // and would do it at the moment Flockdeck was closing rather than somewhere they
 // could see it happen.
 func WriteConfig(dir string, f *File) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return writeConfig(dir, f)
+}
+
+func writeConfig(dir string, f *File) error {
 	if f.Version == 0 {
 		f.Version = ConfigVersion
 	}
-	data, err := json.MarshalIndent(f, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	// The file is the user's own, and what they wrote in it should come back
+	// as they wrote it. The default escapes "&", "<" and ">" in every string,
+	// so saving a default from the picker turned a baseURL's "&x=" into
+	// "&x=" and an install line's "&&" into "&&".
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(f); err != nil {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
-	data = append(data, '\n')
+	data := buf.Bytes()
 	path := filepath.Join(dir, ConfigName)
 	tmp, err := os.CreateTemp(dir, ConfigName+".tmp*")
 	if err != nil {
@@ -171,7 +255,9 @@ func WriteConfig(dir string, f *File) error {
 // for that project alone, which is the picker's "set as default for this
 // project".
 func SetDefaults(dir, project string, d Defaults) error {
-	f, err := ReadConfig(dir)
+	configMu.Lock()
+	defer configMu.Unlock()
+	f, err := readConfig(dir)
 	if err != nil {
 		// A file that cannot be read must not be written over: it is the only
 		// copy of whatever agents the user defined, and a defaults change is
@@ -199,5 +285,61 @@ func SetDefaults(dir, project string, d Defaults) error {
 			f.Projects[project] = d
 		}
 	}
-	return WriteConfig(dir, f)
+	return writeConfig(dir, f)
+}
+
+// SetBaseURL records the address of an API agent's endpoint in agents.json.
+//
+// It is the one thing the OpenAI-compatible entry needs before it can be used
+// -- a local model's address -- and it could be given only by editing the
+// file by hand. An entry for the agent is changed in place, keeping everything
+// else it says; one is added when there is none. An empty address takes the
+// one recorded away.
+func SetBaseURL(dir, id, baseURL string) error {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL != "" {
+		u, err := url.Parse(baseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("%q is not an address an endpoint can have: it begins http:// or https://, as in http://127.0.0.1:11434/v1", baseURL)
+		}
+	}
+	configMu.Lock()
+	defer configMu.Unlock()
+	f, err := readConfig(dir)
+	if err != nil {
+		// As with a default: a file that cannot be read is not written over.
+		return err
+	}
+	for i, raw := range f.Agents {
+		var entry map[string]json.RawMessage
+		var got string
+		if json.Unmarshal(raw, &entry) != nil || json.Unmarshal(entry["id"], &got) != nil || got != id {
+			continue
+		}
+		api := map[string]json.RawMessage{}
+		if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
+			return fmt.Errorf("agent %q in %s: its \"api\" is not an object, so the address was not written", id, ConfigName)
+		}
+		if baseURL == "" {
+			delete(api, "baseURL")
+		} else if api["baseURL"], err = marshalUnescaped(baseURL); err != nil {
+			return err
+		}
+		if entry["api"], err = marshalUnescaped(api); err != nil {
+			return err
+		}
+		if f.Agents[i], err = marshalUnescaped(entry); err != nil {
+			return err
+		}
+		return writeConfig(dir, f)
+	}
+	if baseURL == "" {
+		return nil
+	}
+	entry, err := marshalUnescaped(map[string]any{"id": id, "api": map[string]string{"baseURL": baseURL}})
+	if err != nil {
+		return err
+	}
+	f.Agents = append(f.Agents, entry)
+	return writeConfig(dir, f)
 }

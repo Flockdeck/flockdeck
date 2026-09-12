@@ -135,13 +135,13 @@ func TestBuildArgvDashDash(t *testing.T) {
 			want: []string{"x", "-not an option"},
 		},
 		{
-			// The guard looks only at the argument, not at what precedes it,
-			// so a task handed to a flag is guarded too -- and "-i -- -task"
-			// is not what any of these tools mean. That is why every catalog
-			// entry that passes the task as a flag's value sets NoDashDash.
-			name: "the guard does not know the task is a flag's value",
+			// A task after its flag in a group is that flag's value, and
+			// "-i -- -task" is not what any of these tools mean. The guard
+			// once looked only at the argument and put one there anyway,
+			// which a hand-written entry without NoDashDash then got.
+			name: "a task grouped after its flag is the flag's value",
 			spec: Spec{Exe: "x", Args: []Arg{Group("prompt", "-i", "{{prompt}}")}},
-			want: []string{"x", "-i", "--", "-not an option"},
+			want: []string{"x", "-i", "-not an option"},
 		},
 		{
 			name: "which is what NoDashDash is for",
@@ -169,9 +169,10 @@ func TestBuildArgvDashDash(t *testing.T) {
 // knows where its own executable is, so an API runner's argv starts at the
 // first flag and workspace puts `flockdeck chat` in front of it.
 func TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller(t *testing.T) {
-	spec := anthropicAPISpec()
+	spec := normalizeAll([]Spec{anthropicAPISpec()})[0]
 	got := BuildArgv(spec, false, Tokens{Session: "s", Model: "claude-sonnet-5", Prompt: "hello"})
-	want := []string{"--agent", "anthropic", "--model", "claude-sonnet-5", "--session", "s", "hello"}
+	want := []string{"--agent", "anthropic", "--wire", "anthropic", "--key-env", "ANTHROPIC_API_KEY",
+		"--model", "claude-sonnet-5", "--session", "s", "hello"}
 	if !slices.Equal(got, want) {
 		t.Errorf("argv\n got %q\nwant %q", got, want)
 	}
@@ -203,5 +204,56 @@ func TestTokensValue(t *testing.T) {
 	}
 	if got := tokens.Expand("{{pane}} in {{cwd}} running {{model}}"); got != "pane in dir running mod" {
 		t.Errorf("Expand = %q", got)
+	}
+}
+
+// TestExpandLeavesTokensInValuesAlone is about the opening task, which is the
+// user's own text and free to contain anything -- a Handlebars template
+// included. Its "{{pane}}" is what the user wrote, not a token.
+func TestExpandLeavesTokensInValuesAlone(t *testing.T) {
+	tokens := Tokens{Prompt: "fix {{pane}} and {{cwd}} in header.hbs", Pane: "p1", Cwd: "/work", Model: "{{session}}", Session: "s"}
+	if got, want := tokens.Expand("{{prompt}}"), "fix {{pane}} and {{cwd}} in header.hbs"; got != want {
+		t.Errorf("prompt expanded to %q, want %q", got, want)
+	}
+	if got, want := tokens.Expand("--model={{model}} {{pane}}"), "--model={{session}} p1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestTokensMayHaveSpaceInsideTheirBraces: "{{ model }}" went through as it
+// was written, handing the CLI a model called "{{ model }}" and never passing
+// on a task written "{{ prompt }}".
+func TestTokensMayHaveSpaceInsideTheirBraces(t *testing.T) {
+	spec := Spec{ID: "x", Exe: "x", Runner: RunnerCLI, Args: []Arg{
+		{If: "{{ model }}", Args: []Arg{{Value: "--model"}, {Value: "{{ model }}"}}},
+		{Value: "--dir={{\tcwd }}"},
+		{Value: "{{ prompt }}"},
+	}}
+	got := BuildArgv(spec, false, Tokens{Model: "opus", Cwd: "/work", Prompt: "-v is wrong"})
+	want := []string{"x", "--model", "opus", "--dir=/work", "--", "-v is wrong"}
+	if !slices.Equal(got, want) {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	// The task's own text is still left as it was written.
+	if got := (Tokens{Prompt: "fix {{ pane }}", Pane: "p1"}).Expand("{{ prompt }}"); got != "fix {{ pane }}" {
+		t.Errorf("prompt expanded to %q", got)
+	}
+}
+
+// TestNoDashDashBetweenAnOptionAndItsValue: a task grouped with the option it
+// is the value of took the guard between the two, so the option's value
+// became "--" and the task was left over.
+func TestNoDashDashBetweenAnOptionAndItsValue(t *testing.T) {
+	tokens := Tokens{Prompt: "-v is not what I meant"}
+	grouped := Spec{ID: "g", Exe: "g", Runner: RunnerCLI, Args: []Arg{Group("prompt", "--message", "{{prompt}}")}}
+	if got, want := BuildArgv(grouped, false, tokens), []string{"g", "--message", "-v is not what I meant"}; !slices.Equal(got, want) {
+		t.Errorf("grouped argv = %q, want %q", got, want)
+	}
+	// A task standing on its own, in a group or not, still gets it.
+	for _, args := range [][]Arg{{Lit("{{prompt}}")}, {Group("prompt", "{{prompt}}")}} {
+		s := Spec{ID: "p", Exe: "p", Runner: RunnerCLI, Args: args}
+		if got, want := BuildArgv(s, false, tokens), []string{"p", "--", "-v is not what I meant"}; !slices.Equal(got, want) {
+			t.Errorf("positional argv = %q, want %q", got, want)
+		}
 	}
 }

@@ -32,26 +32,24 @@ func Changes(dir string) ([]FileChange, error) { return changes(dir, maxCounted)
 // changes is Changes with the counting limit given, so a test can reach it
 // without writing a thousand files.
 func changes(dir string, limit int) ([]FileChange, error) {
-	// None of the three calls needs an answer from the others, and each one is
-	// a process: run concurrently they cost one wait rather than three, which
-	// is what the panel notices on a checkout with a lot of changes in it.
+	// Neither call needs an answer from the other, and each one is a process:
+	// run concurrently they cost one wait rather than two, which is what the
+	// panel notices on a checkout with a lot of changes in it.
 	//
-	// The numstats are cancellable because they are the expensive pair. git has
-	// to read and diff every changed file to produce them, which took 20s over
-	// a 10,000-file diff against 139ms for the status call that lists the same
-	// files. Once status has come back and said there are more files than
-	// anyone is going to read a "+12" beside, the two are killed where they
-	// stand rather than left to finish work that is about to be thrown away.
+	// The line counts are cancellable because they are the expensive call. git
+	// has to read and diff every changed file to produce them, which took 20s
+	// over a 10,000-file diff against 139ms for the status call that lists the
+	// same files. Once status has come back and said there are more files than
+	// anyone is going to read a "+12" beside, the count is killed where it
+	// stands rather than left to finish work that is about to be thrown away.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var (
-		staged, unstaged map[string]lineCount
-		wg               sync.WaitGroup
+		counts map[string]lineCount
+		wg     sync.WaitGroup
 	)
-	wg.Add(2)
-	// Line counts come from numstat, which status does not provide.
-	go func() { defer wg.Done(); staged = numstat(ctx, dir, true) }()
-	go func() { defer wg.Done(); unstaged = numstat(ctx, dir, false) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); counts = lineCounts(ctx, dir) }()
 	// -z is what makes the names trustworthy: without it git quotes anything
 	// with a space, a quote or a non-ASCII character and escapes the bytes, so
 	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
@@ -70,10 +68,10 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		return nil, err
 	}
 	if tooMany {
-		// A numstat small enough to have finished before the cancel reached it
+		// A count small enough to have finished before the cancel reached it
 		// is thrown away all the same, so being over the limit means one thing
 		// however that race came out.
-		staged, unstaged = nil, nil
+		counts = nil
 	}
 
 	var files []FileChange
@@ -85,8 +83,26 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		}
 		code := entry[:2]
 		path := entry[3:]
+		var from string
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the name it came from follows as its own record
+			if i < len(records) {
+				from = records[i]
+			}
+		}
+		if code == "AD" || code == "CD" {
+			// Staged as new -- or as a copy -- then deleted: the last commit
+			// never had it, and the working tree no longer does, so a commit
+			// does nothing with it. It was listed as a deletion of content
+			// that was never committed.
+			continue
+		}
+		if code == "RD" && from != "" {
+			// Renamed, then the new name deleted: what a commit does is delete
+			// the old one. It was listed under the new name, which the last
+			// commit never had, with an empty diff -- while the file actually
+			// going, the old name, had no row at all.
+			path = from
 		}
 
 		fc := FileChange{
@@ -97,12 +113,8 @@ func changes(dir string, limit int) ([]FileChange, error) {
 			Unstaged:  code[1] != ' ' && code[1] != '?',
 			Untracked: code == "??",
 		}
-		if n, ok := staged[path]; ok {
+		if n, ok := counts[path]; ok {
 			fc.Added, fc.Removed = n.added, n.removed
-		}
-		if n, ok := unstaged[path]; ok {
-			fc.Added += n.added
-			fc.Removed += n.removed
 		}
 		files = append(files, fc)
 	}
@@ -161,19 +173,45 @@ const maxCounted = 1000
 
 type lineCount struct{ added, removed int }
 
-// numstat reads per-file line counts for the staged or unstaged diff.
+// lineCounts reads how many lines each changed file adds and removes against
+// the last commit: the comparison the panel's diff shows, and the one the
+// commit button takes.
+//
+// It was the staged and the unstaged diff counted apart and added up, which
+// is a different sum. A line staged and then taken out again counted +1 -1
+// beside a file the commit would not touch, and a staged line edited again
+// was counted twice. Before the first commit there is no HEAD to compare with,
+// so there the two are still added up.
+func lineCounts(ctx context.Context, dir string) map[string]lineCount {
+	counts, err := numstat(ctx, dir, "HEAD")
+	if err == nil || ctx.Err() != nil {
+		return counts
+	}
+	staged, _ := numstat(ctx, dir, "--cached")
+	unstaged, _ := numstat(ctx, dir)
+	sum := map[string]lineCount{}
+	for _, part := range []map[string]lineCount{staged, unstaged} {
+		for path, n := range part {
+			s := sum[path]
+			sum[path] = lineCount{added: s.added + n.added, removed: s.removed + n.removed}
+		}
+	}
+	return sum
+}
+
+// numstat reads per-file line counts for one diff, named by against.
 //
 // The keys have to match the names Changes reports, so this reads -z as well:
 // otherwise a quoted name never matches, and a rename is keyed under
 // "old => new", which matches nothing at all and left it counted as 0/0.
-func numstat(ctx context.Context, dir string, cached bool) map[string]lineCount {
-	args := []string{"diff", "--numstat", "-z"}
-	if cached {
-		args = append(args, "--cached")
-	}
+func numstat(ctx context.Context, dir string, against ...string) (map[string]lineCount, error) {
+	// --find-renames pins what is paired to renames, whatever diff.renames
+	// says: with "copies" set there, a copied file was counted against the
+	// file it came from, 0/0, though the commit adds all of it.
+	args := append([]string{"diff", "--numstat", "-z", "--find-renames"}, against...)
 	out, err := runUntil(ctx, dir, args...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	counts := map[string]lineCount{}
 	records := strings.Split(out, "\x00")
@@ -197,7 +235,7 @@ func numstat(ctx context.Context, dir string, cached bool) map[string]lineCount 
 		}
 		counts[path] = lineCount{added: a, removed: r}
 	}
-	return counts
+	return counts, nil
 }
 
 // unmerged holds the porcelain codes git uses for a conflicted file. Several
@@ -220,7 +258,9 @@ func statusLabel(code string) string {
 		return "deleted"
 	case strings.ContainsAny(code, "R"):
 		return "renamed"
-	case strings.ContainsAny(code, "A"):
+	case strings.ContainsAny(code, "AC"):
+		// A copy -- reported only with status.renames set to "copies" -- is a
+		// new file, and was labelled "modified".
 		return "added"
 	case strings.ContainsAny(code, "U"):
 		return "conflict"
@@ -321,42 +361,24 @@ func Diff(dir, path string) (string, error) {
 		return "", &gitError{"not a path inside the working tree: " + path}
 	}
 	full := filepath.Join(dir, path)
+	// Two questions are asked of every click -- is this something git does
+	// not track, and what is its diff against the last commit -- and they are
+	// asked at once. Each is a process, and one after the other they were most
+	// of the wait: 282ms a click in BenchmarkDiff on Windows. The diff is
+	// thrown away for a new file, which costs that click nothing it did not
+	// already wait for.
+	//
 	// Lstat, so a symlink is seen as a symlink rather than as whatever it
-	// points at. Anything that is neither a regular file nor a symlink -- a
-	// named pipe, a device -- is left to git below rather than opened here,
-	// where reading it could block until something else writes to it.
-	if fi, err := os.Lstat(full); err == nil && !fi.IsDir() && untracked(dir, path) {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			// git stores a symlink as the path it points at and shows that
-			// as the file's one line. Following it would print the contents
-			// of whatever is on the other end, which is not what was added
-			// and need not even be inside the working tree.
-			target, err := os.Readlink(full)
-			if err != nil {
-				return "", err
-			}
-			return renderAsAddition(path, target, 0), nil
-		}
-		if fi.Mode().IsRegular() {
-			// Only as much as the panel will show is read: a new file can be
-			// a gigabyte of generated output.
-			data, size, err := readCapped(full, maxDiffBytes+1)
-			if err != nil {
-				return "", err
-			}
-			if looksBinary(data) {
-				// git says this rather than printing the bytes, and so should
-				// a panel that has to render them as text.
-				return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, size), nil
-			}
-			if size > int64(len(data)) {
-				// Do not end on half a line.
-				if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
-					data = data[:i+1]
-				}
-			}
-			return renderAsAddition(path, string(data), size-int64(len(data))), nil
-		}
+	// points at. A directory is only ever asked about with a slash on the end,
+	// which is how status names a repository sitting inside this one.
+	fi, lerr := os.Lstat(full)
+	var (
+		isNew bool
+		wg    sync.WaitGroup
+	)
+	if lerr == nil && (!fi.IsDir() || strings.HasSuffix(path, "/")) {
+		wg.Add(1)
+		go func() { defer wg.Done(); isNew = untracked(dir, path) }()
 	}
 
 	// HEAD covers staged and unstaged changes together, which is what someone
@@ -370,6 +392,12 @@ func Diff(dir, path string) (string, error) {
 	// worth reporting, since a missing HEAD is not what went wrong.
 	against := "HEAD"
 	out, err := gitDiff(dir, against, "--", pathspec(path))
+	wg.Wait()
+	if isNew {
+		if text, ok, nerr := newFileDiff(path, full, fi); ok || nerr != nil {
+			return text, nerr
+		}
+	}
 	if err != nil {
 		against = "--cached"
 		staged, stagedErr := gitDiff(dir, against, "--", pathspec(path))
@@ -391,13 +419,70 @@ func Diff(dir, path string) (string, error) {
 			}
 		}
 	}
-	if strings.TrimSpace(out) == "" {
-		out, err = gitDiff(dir, "--", pathspec(path))
-		if err != nil {
-			return "", err
+	// A submodule whose only change is work inside it -- a new file there --
+	// has no diff of its own here: nothing at all, which the panel explained
+	// as a file that matches the last commit, or git's one line that it
+	// "contains untracked content". Asked only of an empty diff or a
+	// submodule's, so an ordinary file's click costs nothing more.
+	if t := strings.TrimSpace(out); t == "" || strings.HasPrefix(t, "Submodule ") {
+		if subs := submoduleWork(dir, path); len(subs) > 0 {
+			return fmt.Sprintf("%s is a submodule with work inside it that is not committed there yet. That work belongs "+
+				"to the submodule's own repository: commit it there, and this one can then record the submodule's new commit.\n", path), nil
 		}
 	}
-	return truncateDiff(out), nil
+	// An empty answer is the answer. Asking again for the index against the
+	// working tree, as this once did, only ever found something when the
+	// working tree had gone back to the last commit and the index had not --
+	// and then showed an edit the commit would not contain: a line staged and
+	// then taken out again read as a line being deleted.
+	return out, nil
+}
+
+// newFileDiff shows something git does not track yet, and so has no diff for.
+// ok is false for what it leaves to git: anything that is neither a regular
+// file, a symlink nor a repository -- a named pipe, a device -- which reading
+// here could block on until something else writes to it.
+func newFileDiff(path, full string, fi os.FileInfo) (text string, ok bool, err error) {
+	switch {
+	case fi.IsDir():
+		// A repository inside the tree is listed as one entry because its
+		// files belong to it and not to this one. git has no diff to give for
+		// it, and the empty answer was shown as "this file matches the last
+		// commit". What a commit would do with it is worth knowing before
+		// pressing the button.
+		return fmt.Sprintf("--- /dev/null\n+++ b/%s\nA separate git repository, not tracked by this one. "+
+			"Committing records only which commit it is on, none of its files.\n", path), true, nil
+	case fi.Mode()&os.ModeSymlink != 0:
+		// git stores a symlink as the path it points at and shows that as the
+		// file's one line. Following it would print the contents of whatever
+		// is on the other end, which is not what was added and need not even
+		// be inside the working tree.
+		target, err := os.Readlink(full)
+		if err != nil {
+			return "", false, err
+		}
+		return renderAsAddition(path, target, 0), true, nil
+	case fi.Mode().IsRegular():
+		// Only as much as the panel will show is read: a new file can be a
+		// gigabyte of generated output.
+		data, size, err := readCapped(full, maxDiffBytes+1)
+		if err != nil {
+			return "", false, err
+		}
+		if looksBinary(data) {
+			// git says this rather than printing the bytes, and so should a
+			// panel that has to render them as text.
+			return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, size), true, nil
+		}
+		if size > int64(len(data)) {
+			// Do not end on half a line.
+			if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+				data = data[:i+1]
+			}
+		}
+		return renderAsAddition(path, string(data), size-int64(len(data))), true, nil
+	}
+	return "", false, nil
 }
 
 // pathspec wraps a file name so git reads it as the name of one file rather
@@ -420,16 +505,46 @@ func pathspec(path string) string { return ":(literal)" + path }
 // with the output of some other program. "diff.mnemonicPrefix" and
 // "diff.noprefix" rename or drop the "a/" and "b/" that an untracked file's
 // rendering writes by hand, leaving the two sources of diff text unalike.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/"}
+// "--submodule=log" shows a submodule that moved as the commits it moved
+// through, by subject -- "> fix the parser", "<" for one it went back past --
+// where the default was two forty-character hashes that said nothing of what
+// changed, and nothing of a bump being undone.
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
 
-// gitDiff runs a diff with those flags ahead of the caller's arguments.
+// gitDiff runs a diff with those flags ahead of the caller's arguments, and
+// returns it cut down to what the panel is sent.
+//
+// Only that much is kept as git writes it. A regenerated lockfile or bundle
+// can differ by tens of megabytes, and holding all of it to throw nearly all
+// of it away allocated 222MB for a 70MB diff, on every click of the file.
 func gitDiff(dir string, args ...string) (string, error) {
 	argv := make([]string, 0, len(diffFlags)+len(args)+1)
 	argv = append(argv, "diff")
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
-	return run(dir, argv...)
+	out := &headWriter{limit: maxDiffBytes + 1}
+	if _, err := runTo(context.Background(), commandTimeout, dir, nil, out, argv...); err != nil {
+		return "", err
+	}
+	return truncateDiff(out.String(), out.total), nil
 }
+
+// headWriter keeps the first limit bytes written to it and counts the rest.
+type headWriter struct {
+	head  []byte
+	limit int
+	total int
+}
+
+func (w *headWriter) Write(p []byte) (int, error) {
+	w.total += len(p)
+	if room := w.limit - len(w.head); room > 0 {
+		w.head = append(w.head, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func (w *headWriter) String() string { return string(w.head) }
 
 // isWholeFileAddition reports whether a diff says the file did not exist
 // before. The test is anchored to the start of a line: a diff body carries
@@ -464,6 +579,11 @@ func renameSource(dir, path string) string {
 		}
 		// The name it came from follows as its own record.
 		i++
+		// A copy is a new file; its source is still there with a row of its
+		// own. Paired with it, the copy's diff carried the source's edits too.
+		if entry[0] == 'C' {
+			continue
+		}
 		if i >= len(records) {
 			break
 		}
@@ -516,14 +636,26 @@ func renderAsAddition(path, content string, omitted int64) string {
 	var b strings.Builder
 	b.WriteString("--- /dev/null\n+++ b/" + path + "\n")
 	b.WriteString(fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines)))
-	var capped bool
+	var (
+		capped bool
+		shown  int // bytes of content written out so far
+	)
 	for i, line := range lines {
 		b.WriteString("+" + line + "\n")
+		shown += len(line) + 1
 		if !endsWithNewline && i == len(lines)-1 {
 			b.WriteString("\\ No newline at end of file\n")
 		}
 		if b.Len() > maxDiffBytes {
-			b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
+			if omitted > 0 {
+				// The lines left over are only those of the part that was
+				// read. Counting them said "68282 more lines" of a file with
+				// a quarter of a million still to go, so what is left is
+				// given in bytes, which are known for all of it.
+				b.WriteString(fmt.Sprintf("… truncated, %d more bytes\n", max(0, int64(len(content)-shown))+omitted))
+			} else {
+				b.WriteString(fmt.Sprintf("… truncated, %d more lines\n", len(lines)-i-1))
+			}
 			capped = true
 			break
 		}
@@ -537,8 +669,10 @@ func renderAsAddition(path, content string, omitted int64) string {
 // truncateDiff caps a diff at maxDiffBytes, on a line boundary: cutting at an
 // exact byte count leaves half a line, which the panel colours as though it
 // were a real one, and can slice a UTF-8 character in two.
-func truncateDiff(s string) string {
-	if len(s) <= maxDiffBytes {
+//
+// s is at least the start of the diff, and total is how long all of it was.
+func truncateDiff(s string, total int) string {
+	if total <= maxDiffBytes {
 		return s
 	}
 	cut := s[:maxDiffBytes]
@@ -547,110 +681,5 @@ func truncateDiff(s string) string {
 	} else {
 		cut += "\n"
 	}
-	return cut + fmt.Sprintf("… truncated, %d more bytes\n", len(s)-len(cut))
-}
-
-// CommitAll stages everything and commits it.
-func CommitAll(dir, message string) error {
-	if strings.TrimSpace(message) == "" {
-		return errEmptyMessage
-	}
-	if _, err := run(dir, "add", "--all"); err != nil {
-		return err
-	}
-	_, err := run(dir, "commit", "-m", message)
-	return err
-}
-
-// errEmptyMessage is returned rather than letting git open an editor, which
-// would hang with nowhere to type.
-var errEmptyMessage = &gitError{"a commit message is required"}
-
-type gitError struct{ msg string }
-
-func (e *gitError) Error() string { return e.msg }
-
-// Push sends the current branch to its remote, setting the upstream the first
-// time so a new worktree's branch does not need a separate command.
-func Push(dir string) (string, error) {
-	branch := CurrentBranch(dir)
-	if branch == "" {
-		return "", &gitError{"cannot push a detached HEAD"}
-	}
-	if UpstreamOf(dir) == "" {
-		remote, err := pushRemote(dir)
-		if err != nil {
-			return "", err
-		}
-		return runVerbose(dir, "push", "--set-upstream", remote, branch)
-	}
-	return runVerbose(dir, "push")
-}
-
-// UpstreamOf names the remote branch the checked-out branch tracks, or "" when
-// it tracks nothing.
-//
-// Push is the only thing that needs this, and asking StatusOf made git walk the
-// entire working tree to answer it -- 190ms on a checkout with 20,000 untracked
-// files, against 44ms here -- for a fact that has nothing to do with what is in
-// the working tree. It also meant a status that timed out on a large checkout
-// read as "no upstream", and Push would then set one: on a branch tracking
-// something other than origin, that quietly repoints it.
-func UpstreamOf(dir string) string {
-	out, err := run(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	if err != nil {
-		return "" // no upstream configured
-	}
-	return strings.TrimSpace(out)
-}
-
-// pushRemote picks where a branch with no upstream should go: "origin" by
-// convention, or the only remote when the repository names it something else.
-// More than one and no origin is a choice the user has to make themselves.
-func pushRemote(dir string) (string, error) {
-	remotes := Remotes(dir)
-	switch {
-	case len(remotes) == 0:
-		return "", &gitError{"this repository has no remote to push to"}
-	case len(remotes) == 1:
-		return remotes[0], nil
-	}
-	for _, r := range remotes {
-		if r == "origin" {
-			return r, nil
-		}
-	}
-	return "", &gitError{"no \"origin\" remote; push manually to one of: " + strings.Join(remotes, ", ")}
-}
-
-// Pull fast-forwards from the upstream. A merge that cannot fast-forward is
-// left for the user to resolve deliberately rather than started here.
-func Pull(dir string) (string, error) {
-	return runVerbose(dir, "pull", "--ff-only")
-}
-
-// Fetch updates the remote-tracking branches.
-func Fetch(dir string) (string, error) {
-	return runVerbose(dir, "fetch", "--prune")
-}
-
-// HasRemote reports whether the repository has anywhere to push to. A
-// substring test for "origin" used to be enough here, but it also matched a
-// remote merely named "my-origin" and missed a repository whose only remote is
-// called something else entirely.
-func HasRemote(dir string) bool { return len(Remotes(dir)) > 0 }
-
-// Remotes lists the configured remote names.
-func Remotes(dir string) []string {
-	out, err := run(dir, "remote")
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, line := range strings.Split(out, "\n") {
-		if name := strings.TrimSpace(line); name != "" {
-			names = append(names, name)
-		}
-	}
-	return names
+	return cut + fmt.Sprintf("… truncated, %d more bytes\n", total-len(cut))
 }

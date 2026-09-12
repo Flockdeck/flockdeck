@@ -1,12 +1,10 @@
 package gitx
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Status summarises a working tree: what is checked out, whether it has
@@ -21,6 +19,10 @@ type Status struct {
 	// Unborn marks a branch with no commits on it yet, where Head is empty
 	// because there is nothing to point at.
 	Unborn bool
+	// Operation names what a detached checkout is in the middle of --
+	// "rebasing" or "bisecting" -- when Branch was read from that operation's
+	// state rather than from HEAD, which names no branch while it runs.
+	Operation string
 	// Dirty counts tracked files with changes; Untracked counts new files.
 	Dirty     int
 	Untracked int
@@ -45,6 +47,7 @@ func StatusOf(dir string) Status {
 		return st
 	}
 
+	var counted bool // git said how far ahead and behind the upstream is
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "" {
@@ -78,39 +81,53 @@ func StatusOf(dir string) Status {
 			if len(fields) == 2 {
 				st.Ahead, _ = strconv.Atoi(strings.TrimPrefix(fields[0], "+"))
 				st.Behind, _ = strconv.Atoi(strings.TrimPrefix(fields[1], "-"))
+				counted = true
 			}
 		case strings.HasPrefix(line, "? "):
 			st.Untracked++
+		case strings.HasPrefix(line, "1 AD "), strings.HasPrefix(line, "2 CD "):
+			// Added -- or copied -- and then deleted, which leaves nothing to
+			// commit; the file list leaves it out, and the count agrees with it.
 		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "), strings.HasPrefix(line, "u "):
 			st.Dirty++
 		}
 	}
+	// An upstream git names but cannot count against is one that is gone --
+	// deleted on the remote and pruned here -- and read as 0 and 0 it was
+	// shown as "level with" a branch that no longer exists, over commits
+	// that were never pushed. It is no upstream, as UpstreamOf already said,
+	// and Push sets up another.
+	if !counted {
+		st.Upstream = ""
+	}
 	if st.Detached && st.Branch == "" {
-		st.Branch = rebasingBranch(dir)
+		st.Branch, st.Operation = operationBranch(dir)
 	}
 	return st
 }
 
-// rebasingBranch names the branch a rebase in progress will return to.
+// operationBranch names the branch a rebase or a bisect in progress will return
+// to, and which of the two it is.
 //
-// Replaying commits is done on a detached HEAD, so a checkout in the middle of
-// a rebase reports no branch at all: an agent that stopped on a conflict shows
-// in its pane header, and in the review panel, as "detached" -- which is true
-// of HEAD and useless to the person looking at it, who has not stopped
-// thinking of it as their branch. git keeps the name it will go back to in the
-// state directory, and reads it back for its own "rebasing topic".
+// Both are done on a detached HEAD, so a checkout in the middle of one reports
+// no branch at all: an agent that stopped on a conflict, or that is halving
+// its way to a bad commit, shows in its pane header and in the review panel as
+// "detached" -- which is true of HEAD and useless to the person looking at it,
+// who has not stopped thinking of it as their branch. git keeps the name it
+// will go back to in the state directory, and reads it back for its own
+// "rebasing topic" and "bisecting".
 //
 // This costs an extra call, so it is only made for a checkout that has already
 // said it is detached, which is rare and stays that way for as long as the
-// rebase does.
-func rebasingBranch(dir string) string {
+// operation does.
+func operationBranch(dir string) (branch, operation string) {
 	out, err := run(dir, "rev-parse", "--git-dir")
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	base := strings.TrimSpace(out)
 	if base == "" {
-		return ""
+		return "", ""
 	}
 	// rev-parse answers relative to the directory it was asked from.
 	if !filepath.IsAbs(base) {
@@ -124,10 +141,58 @@ func rebasingBranch(dir string) string {
 			continue
 		}
 		if ref := strings.TrimSpace(string(data)); ref != "" {
-			return strings.TrimPrefix(ref, "refs/heads/")
+			return strings.TrimPrefix(ref, "refs/heads/"), "rebasing"
 		}
 	}
-	return ""
+	// A bisect writes down where it started: a branch's name, or a commit
+	// id when it was started from a detached HEAD, which is no branch.
+	if data, err := os.ReadFile(filepath.Join(base, "BISECT_START")); err == nil {
+		if start := strings.TrimSpace(string(data)); start != "" && !isCommitID(start) {
+			return strings.TrimPrefix(start, "refs/heads/"), "bisecting"
+		}
+	}
+	return "", ""
+}
+
+// isCommitID reports whether s is a full commit id rather than a name.
+func isCommitID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
+}
+
+// submoduleWork names the submodules -- among paths, or all of them when none
+// are given -- with work inside them that is not committed there: files changed
+// or new in the submodule's own working tree, while it still points at the
+// commit this repository records. That work belongs to the submodule's
+// repository, and nothing done in this one can commit it.
+//
+// porcelain v2 says so in an entry's third field, which for a submodule is
+// "S" and three flags: its commit changed, it has changes, it has new files.
+func submoduleWork(dir string, paths ...string) []string {
+	args := []string{"status", "--porcelain=v2", "--ignore-submodules=none"}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		for _, p := range paths {
+			args = append(args, pathspec(p))
+		}
+	}
+	out, err := run(dir, args...)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.SplitN(strings.TrimRight(line, "\r"), " ", 9)
+		if len(f) < 9 || f[0] != "1" || len(f[2]) != 4 {
+			continue
+		}
+		if sub := f[2]; sub[0] == 'S' && sub[1] == '.' && (sub[2] == 'M' || sub[3] == 'U') {
+			names = append(names, f[8])
+		}
+	}
+	return names
 }
 
 // Branch is a local branch and where it stands against its upstream.
@@ -172,100 +237,4 @@ func Branches(dir string) ([]Branch, error) {
 		})
 	}
 	return branches, nil
-}
-
-// ListDetailed returns every worktree with its status filled in.
-//
-// Each worktree needs its own status call, so they are run concurrently: a
-// repository with several worktrees would otherwise make the panel wait for
-// them one after another.
-func ListDetailed(dir string) ([]Worktree, error) {
-	wts, err := List(dir)
-	if err != nil {
-		return nil, err
-	}
-	var wg sync.WaitGroup
-	for i := range wts {
-		if wts[i].Bare {
-			continue
-		}
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			wts[i].Status = StatusOf(wts[i].Path)
-		}(i)
-	}
-	wg.Wait()
-	return wts, nil
-}
-
-// Prune removes administrative records for worktrees whose directories have
-// been deleted behind git's back, and reports how many went.
-//
-// The count is what lets the panel say whether the button it just offered
-// did anything. git names each record it removes on stderr, one to a line,
-// so they are counted as lines rather than looked for by the word they start
-// with -- which is translated when git is speaking anything but English.
-func Prune(repoDir string) (int, error) {
-	_, said, err := runCapture(context.Background(), commandTimeout, repoDir,
-		"worktree", "prune", "--verbose")
-	if err != nil {
-		return 0, err
-	}
-	var pruned int
-	for _, line := range strings.Split(said, "\n") {
-		if strings.TrimSpace(line) != "" {
-			pruned++
-		}
-	}
-	return pruned, nil
-}
-
-// AddFrom creates a worktree at path.
-//
-// When branch names an existing local branch it is checked out; otherwise a new
-// branch is created, starting at base when one is given and at the current HEAD
-// when it is not.
-// The path and the starting point both arrive from the window, so they are put
-// after a "--": without it git reads anything beginning with a dash as one of
-// its own options. A base of "--force" was not refused, it was obeyed, and the
-// new worktree quietly started from HEAD with a force checkout instead of from
-// wherever the user had named.
-func AddFrom(repoDir, path, branch, base string) error {
-	args := []string{"worktree", "add"}
-	switch {
-	case branch == "":
-		args = append(args, "--detach", "--", path)
-		if base != "" {
-			args = append(args, base)
-		}
-	case branchExists(repoDir, branch):
-		args = append(args, "--", path, branch)
-	default:
-		args = append(args, "-b", branch, "--", path)
-		if base != "" {
-			args = append(args, base)
-		}
-	}
-	_, err := run(repoDir, args...)
-	return err
-}
-
-// DefaultBase returns a sensible starting point for a new branch: the current
-// branch of the main worktree.
-//
-// A rebase in progress there has to be stepped around. It detaches HEAD while
-// it replays commits, so there is no current branch to offer and "HEAD" means
-// whichever commit the replay happens to be sitting on -- a starting point
-// nobody means, and one that will not exist as anything once the rebase
-// finishes. The branch being rebased still points at where it was before the
-// rebase started, which is a real place to branch from.
-func DefaultBase(repoDir string) string {
-	if b := CurrentBranch(repoDir); b != "" {
-		return b
-	}
-	if b := rebasingBranch(repoDir); b != "" {
-		return b
-	}
-	return "HEAD"
 }

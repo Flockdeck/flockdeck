@@ -1,11 +1,12 @@
-// Package gitx wraps the few git commands the worktree manager needs.
-//
-// Worktrees are what let several agents work in parallel without fighting over
-// one checkout: each pane gets its own directory and branch.
+// Package gitx is Flockdeck's use of git: the status a pane header shows, the
+// review panel's file list, diffs and commit (changes.go, commit.go), push,
+// pull and fetch (remote.go), and the worktrees that let several agents work
+// in parallel without fighting over one checkout (worktree.go). Every command
+// goes through run.go, which gives it a deadline and shapes what it says when
+// it fails.
 package gitx
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,28 +16,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
-
-	"github.com/jmwri/flockdeck/internal/sysproc"
 )
-
-// commandTimeout bounds a git invocation that only reads the local repository,
-// so a hung command cannot freeze the UI thread.
-const commandTimeout = 20 * time.Second
-
-// networkTimeout bounds push, pull and fetch instead.
-//
-// Twenty seconds is nothing to a command that talks to a remote: a first push
-// of a branch with any history behind it, a fetch of a repository nobody has
-// cloned recently, or any of it over a link that is having a bad day. Killing
-// those part way through and reporting a hang is worse than waiting, and
-// nothing is waiting on them -- they run off the UI thread and tell the panel
-// when they are done. Asking for a password is already refused outright, so
-// the hang these guard against cannot happen here in the first place.
-//
-// It is a variable so a test can shorten it; nothing else assigns to it.
-var networkTimeout = 10 * time.Minute
 
 // Worktree is one entry from `git worktree list`.
 type Worktree struct {
@@ -48,6 +31,10 @@ type Worktree struct {
 	Locked   bool
 	// Main reports whether this is the repository's primary worktree.
 	Main bool
+	// Prunable reports that the worktree's directory is gone -- deleted by
+	// hand, or on a drive that is not there -- and only git's record of it is
+	// left. Its Status is empty, which is not the same thing as clean.
+	Prunable bool
 	// Status is filled in by ListDetailed.
 	Status Status
 }
@@ -57,119 +44,20 @@ func (w Worktree) Label() string {
 	if w.Branch != "" {
 		return w.Branch
 	}
+	// A rebase or a bisect detaches HEAD while it runs, and git's list says
+	// only that; the status ListDetailed fills in knows which branch it is.
+	// The panel called a worktree stopped on a conflict "detached@74a430f"
+	// while its pane header, reading the same status, called it by its branch.
+	if w.Status.Branch != "" {
+		if w.Status.Operation == "" {
+			return w.Status.Branch
+		}
+		return w.Status.Branch + " (" + w.Status.Operation + ")"
+	}
 	if w.Detached && len(w.Head) >= 7 {
 		return "detached@" + w.Head[:7]
 	}
 	return filepath.Base(w.Path)
-}
-
-// run executes git in dir and returns stdout.
-func run(dir string, args ...string) (string, error) {
-	out, _, err := runCapture(context.Background(), commandTimeout, dir, args...)
-	return out, err
-}
-
-// runUntil is run for a command whose answer stops being wanted part way
-// through, so that cancelling ctx kills the process rather than leaving it to
-// finish work nobody will read.
-func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
-	out, _, err := runCapture(ctx, commandTimeout, dir, args...)
-	return out, err
-}
-
-// runVerbose returns what git said on both streams, under the network deadline.
-//
-// push, pull and fetch write their progress and their summary to stderr, so a
-// caller that shows the user only stdout shows them nothing at all: stderr
-// comes first because that is the order the two were written in. They are also
-// the only commands here that talk to anything outside the machine, which is
-// why they are the ones given the longer deadline.
-func runVerbose(dir string, args ...string) (string, error) {
-	out, errText, err := runCapture(context.Background(), networkTimeout, dir, args...)
-	if err != nil {
-		return "", err
-	}
-	return cleanProgress(errText + out), nil
-}
-
-// cleanProgress collapses git's in-place progress lines -- "Writing objects:
-// 33%\rWriting objects: 100%, done." -- down to the state they finished in.
-func cleanProgress(s string) string {
-	var kept []string
-	for _, line := range strings.Split(s, "\n") {
-		if i := strings.LastIndex(line, "\r"); i >= 0 {
-			line = line[i+1:]
-		}
-		if strings.TrimSpace(line) != "" {
-			kept = append(kept, line)
-		}
-	}
-	return strings.Join(kept, "\n")
-}
-
-// runCapture executes git in dir and returns stdout and stderr separately.
-func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
-	// An empty Dir does not mean "no repository" to exec: it means the
-	// directory this process happens to be running in. Flockdeck is often started
-	// from inside a checkout of something, so a caller that lost track of
-	// which working tree it meant -- a review panel opened with no project
-	// open, a pane whose directory never got set -- would have been answered
-	// with a real status for an entirely unrelated repository, and shown it as
-	// though it were the project's.
-	if strings.TrimSpace(dir) == "" {
-		return "", "", fmt.Errorf("git %s: no working tree was named", strings.Join(args, " "))
-	}
-
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	// Flockdeck on Windows is a GUI program with no console of its own, so
-	// without this every one of these -- and the branch labels alone run one
-	// per checkout every fifteen seconds -- would open a terminal window.
-	sysproc.NoWindow(cmd)
-	// Nothing here has a terminal to answer on, so a command that would ask
-	// for a password has to fail instead of sitting until the timeout. Giving
-	// up the optional index lock also keeps the status polling of several
-	// panes from colliding with an agent's own commit.
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_OPTIONAL_LOCKS=0",
-	)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return "", "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
-		}
-		if parent.Err() != nil {
-			return "", "", parent.Err()
-		}
-		// Some git subcommands explain themselves on stdout rather than
-		// stderr -- "nothing to commit" is the one people hit -- so fall back
-		// to it before showing a bare "exit status 1".
-		msg := strings.TrimSpace(errb.String())
-		if msg == "" {
-			msg = strings.TrimSpace(out.String())
-		}
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(msg, 4))
-	}
-	return out.String(), errb.String(), nil
-}
-
-// firstLines keeps an error message short enough to sit in a toast: git can
-// answer with a dozen lines of advice, of which the first few carry the point.
-func firstLines(msg string, n int) string {
-	lines := strings.Split(msg, "\n")
-	if len(lines) <= n {
-		return msg
-	}
-	return strings.Join(lines[:n], "\n") + "\n…"
 }
 
 // Available reports whether git is installed.
@@ -264,6 +152,10 @@ func List(dir string) ([]Worktree, error) {
 			if cur != nil {
 				cur.Locked = true
 			}
+		case "prunable":
+			if cur != nil {
+				cur.Prunable = true
+			}
 		}
 	}
 	flush()
@@ -300,12 +192,20 @@ func Remove(repoDir, path string, force bool) error {
 	if strings.TrimSpace(path) == "" {
 		return &gitError{"which worktree? no path was given"}
 	}
-	known, err := isWorktree(repoDir, path)
+	wt, known, err := findWorktree(repoDir, path)
 	if err != nil {
 		return err
 	}
 	if !known {
 		return &gitError{path + " is not a worktree of this repository"}
+	}
+	// git refuses a locked worktree even when forced, and says to run
+	// "remove -f -f", which is nothing a person pressing a button can do.
+	// A lock is somebody saying on purpose that this one stays, so undoing
+	// it is left to them, with the command that does it.
+	if wt.Locked && !wt.Prunable {
+		return &gitError{fmt.Sprintf("%s is locked, so it is kept; unlock it first with: git worktree unlock %q",
+			wt.Label(), wt.Path)}
 	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		_, err := Prune(repoDir)
@@ -317,22 +217,48 @@ func Remove(repoDir, path string, force bool) error {
 	}
 	args = append(args, "--", path)
 	_, err = run(repoDir, args...)
+	if err != nil && !force {
+		// The panel forces a removal only when the row it drew showed work
+		// that would be lost, so a worktree that has changed since was
+		// refused with git's "use --force to delete it" -- a flag nobody
+		// pressing a button can pass. The status says what is there, in the
+		// panel's terms.
+		if st := StatusOf(path); st.HasChanges() {
+			return &gitError{fmt.Sprintf("%s has uncommitted work now (%d changed, %d new); "+
+				"refresh the list and remove it again to discard it, or commit it first",
+				filepath.Base(path), st.Dirty, st.Untracked)}
+		}
+	}
+	if err != nil {
+		// On Windows a file held open -- an editor, a shell sitting in the
+		// folder -- lets git drop its record of the worktree and then fail to
+		// delete the folder, with nothing better to say than "Invalid
+		// argument". The folder is left behind, no longer a worktree, and
+		// pressing remove again only answers that it is not one.
+		if _, still, lerr := findWorktree(repoDir, path); lerr == nil && !still {
+			if _, serr := os.Lstat(path); serr == nil {
+				return &gitError{fmt.Sprintf("%s is no longer a worktree, but its folder could not be deleted: "+
+					"something still has a file open in it. Close whatever is using %s, then delete the folder.",
+					filepath.Base(path), path)}
+			}
+		}
+	}
 	return err
 }
 
-// isWorktree reports whether path is one of the repository's registered
-// worktrees.
-func isWorktree(repoDir, path string) (bool, error) {
+// findWorktree returns the repository's record of the worktree at path, and
+// whether it has one.
+func findWorktree(repoDir, path string) (Worktree, bool, error) {
 	wts, err := List(repoDir)
 	if err != nil {
-		return false, err
+		return Worktree{}, false, err
 	}
 	for _, wt := range wts {
 		if samePath(wt.Path, path) {
-			return true, nil
+			return wt, true, nil
 		}
 	}
-	return false, nil
+	return Worktree{}, false, nil
 }
 
 // samePath compares two paths as the file system would.
@@ -353,6 +279,11 @@ func samePath(a, b string) bool { return foldPath(a) == foldPath(b) }
 // checkout in their file manager leaves behind, and it fails differently --
 // "a missing but already registered worktree" -- for a path that looks free.
 func DefaultWorktreePath(repoRoot, branch string) string {
+	// Cleaned first: the parent of "C:\repo\" is "C:\repo" to filepath.Dir, so
+	// a project opened with a trailing separator -- which is what a shell's
+	// tab completion leaves -- had every new worktree suggested inside the
+	// repository, as a directory its own status then listed as untracked.
+	repoRoot = filepath.Clean(repoRoot)
 	parent := filepath.Dir(repoRoot)
 	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
 
@@ -417,4 +348,182 @@ func worktreeSegment(branch string) string {
 		return "worktree"
 	}
 	return name
+}
+
+// ListDetailed returns every worktree with its status filled in.
+//
+// Each worktree needs its own status call, so they are run concurrently: a
+// repository with several worktrees would otherwise make the panel wait for
+// them one after another.
+func ListDetailed(dir string) ([]Worktree, error) {
+	wts, err := List(dir)
+	if err != nil {
+		return nil, err
+	}
+	var wg sync.WaitGroup
+	for i := range wts {
+		// A worktree whose directory is gone has no status to read; asking
+		// only spends a process on an error.
+		if wts[i].Bare || wts[i].Prunable {
+			continue
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			wts[i].Status = StatusOf(wts[i].Path)
+		}(i)
+	}
+	wg.Wait()
+	return wts, nil
+}
+
+// Prune removes administrative records for worktrees whose directories have
+// been deleted behind git's back, and reports how many went.
+//
+// The count is what lets the panel say whether the button it just offered
+// did anything. git names each record it removes on stderr, one to a line,
+// so they are counted as lines rather than looked for by the word they start
+// with -- which is translated when git is speaking anything but English.
+func Prune(repoDir string) (int, error) {
+	_, said, err := runCapture(context.Background(), commandTimeout, repoDir,
+		"worktree", "prune", "--verbose")
+	if err != nil {
+		return 0, err
+	}
+	var pruned int
+	for _, line := range strings.Split(said, "\n") {
+		if strings.TrimSpace(line) != "" {
+			pruned++
+		}
+	}
+	return pruned, nil
+}
+
+// AddFrom creates a worktree at path.
+//
+// When branch names an existing local branch it is checked out; otherwise a new
+// branch is created, starting at base when one is given and at the current HEAD
+// when it is not.
+// The path and the starting point both arrive from the window, so they are put
+// after a "--": without it git reads anything beginning with a dash as one of
+// its own options. A base of "--force" was not refused, it was obeyed, and the
+// new worktree quietly started from HEAD with a force checkout instead of from
+// wherever the user had named.
+func AddFrom(repoDir, path, branch, base string) error {
+	args := []string{"worktree", "add"}
+	switch {
+	case branch == "":
+		args = append(args, "--detach", "--", path)
+		if base != "" {
+			args = append(args, base)
+		}
+	case branchExists(repoDir, branch):
+		args = append(args, "--", path, branch)
+	default:
+		// git's word on a name it will not take is only that it is "not a
+		// valid branch name", after a line of its own progress, which leaves
+		// the person who typed "my feature" to guess what is wrong with it.
+		if _, err := run(repoDir, "check-ref-format", "--branch", branch); err != nil {
+			msg := fmt.Sprintf("%q cannot be a branch name: git allows no spaces, \"..\", \":\", \"~\", \"^\", \"?\", \"*\", \"[\" "+
+				"or backslash in one, and none ending in \"/\" or \".lock\"", branch)
+			if s := branchSuggestion(branch); s != "" && s != branch {
+				if _, serr := run(repoDir, "check-ref-format", "--branch", s); serr == nil {
+					msg += fmt.Sprintf("; %q would do", s)
+				}
+			}
+			return &gitError{msg}
+		}
+		// --no-track, because a branch started from a remote one -- a base of
+		// "origin/main" -- would otherwise track it: the header said the new
+		// branch was "tracking origin/main", and Push, finding an upstream,
+		// pushed plainly and was refused for the names not matching. With
+		// none, the first push sets up one of its own name, as it does for a
+		// branch started anywhere else.
+		args = append(args, "-b", branch, "--no-track", "--", path)
+		if base != "" {
+			args = append(args, base)
+		}
+	}
+	_, err := run(repoDir, args...)
+	if err != nil && branch != "" {
+		// A branch still recorded as checked out in a worktree whose directory
+		// has gone cannot be checked out again until that record is cleared,
+		// and git says only that it is "already used by worktree at" a path
+		// that is not there -- after a line of its own progress.
+		if wts, lerr := List(repoDir); lerr == nil {
+			for _, wt := range wts {
+				if wt.Branch != branch {
+					continue
+				}
+				if wt.Prunable {
+					return &gitError{fmt.Sprintf("%s is still recorded as checked out in %s, which no longer exists; "+
+						"Prune in the Worktrees panel clears that record, and then it can be created again", branch, wt.Path)}
+				}
+				// Somebody who typed the branch they are already on -- the
+				// main checkout's, as often as not -- was told only that it
+				// was "already used by worktree at" a path.
+				return &gitError{fmt.Sprintf("%s is already checked out in %s; open an agent there from the list, "+
+					"or give the new worktree a branch of its own", branch, wt.Path)}
+			}
+		}
+	}
+	return err
+}
+
+// branchSuggestion turns a name git refused into one it would take, for the
+// message that says so: runs of what a branch cannot hold become one dash,
+// and what it cannot end with is taken off.
+func branchSuggestion(name string) string {
+	var b strings.Builder
+	var dash bool
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == 0x5c || strings.ContainsRune("~^:?*[", r) {
+			if !dash {
+				b.WriteRune('-')
+				dash = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		dash = false
+	}
+	s := b.String()
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", ".")
+	}
+	s = strings.ReplaceAll(s, "@{", "@-")
+	for {
+		trimmed := strings.TrimSuffix(strings.Trim(s, "-/."), ".lock")
+		if trimmed == s {
+			return s
+		}
+		s = trimmed
+	}
+}
+
+// DefaultBase returns a sensible starting point for a new branch: the current
+// branch of the main worktree.
+//
+// A rebase in progress there has to be stepped around. It detaches HEAD while
+// it replays commits, so there is no current branch to offer and "HEAD" means
+// whichever commit the replay happens to be sitting on -- a starting point
+// nobody means, and one that will not exist as anything once the rebase
+// finishes. The branch being rebased still points at where it was before the
+// rebase started, which is a real place to branch from.
+//
+// A branch nobody has committed to yet is not one either: it names no commit,
+// and the panel's pre-filled base made every new worktree in a fresh
+// repository fail with "invalid reference: main". Offering nothing leaves git
+// to start the new branch empty, as it does when no base is given.
+func DefaultBase(repoDir string) string {
+	if b := CurrentBranch(repoDir); b != "" {
+		if !branchExists(repoDir, b) {
+			return ""
+		}
+		return b
+	}
+	if b, _ := operationBranch(repoDir); b != "" {
+		return b
+	}
+	return "HEAD"
 }

@@ -6,7 +6,10 @@
 // second agent is a table entry rather than another branch.
 package agent
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Runner is how a Spec is started.
 type Runner string
@@ -146,7 +149,7 @@ type Tokens struct {
 
 // Value returns the token named by an `if`, or by "{{name}}".
 func (t Tokens) Value(name string) string {
-	switch strings.Trim(name, "{} ") {
+	switch strings.TrimSpace(strings.Trim(name, "{}")) {
 	case "session":
 		return t.Session
 	case "model":
@@ -163,12 +166,41 @@ func (t Tokens) Value(name string) string {
 	return ""
 }
 
-// Expand replaces every {{token}} in s with its value.
-func (t Tokens) Expand(s string) string {
-	for _, name := range []string{"session", "model", "settings", "prompt", "cwd", "pane"} {
-		s = strings.ReplaceAll(s, "{{"+name+"}}", t.Value(name))
+// knownToken reports whether name is one of the tokens Value answers for.
+func knownToken(name string) bool {
+	switch name {
+	case "session", "model", "settings", "prompt", "cwd", "pane":
+		return true
 	}
-	return s
+	return false
+}
+
+// Expand replaces every {{token}} in s with its value.
+//
+// It is one pass, so a value is never read for tokens of its own. Replacing
+// them one name after another did exactly that to the opening task, which
+// comes before "cwd" and "pane": a task about a Handlebars template reached
+// the agent with its "{{pane}}" swapped for the pane's id.
+//
+// Space inside the braces is allowed, as Value already allowed it in an `if`:
+// "{{ model }}" is how anyone used to a template language writes it, and it
+// went through untouched -- the CLI was handed a model called "{{ model }}",
+// and a task written "{{ prompt }}" never reached the agent at all.
+func (t Tokens) Expand(s string) string {
+	return tokenPattern.ReplaceAllStringFunc(s, func(tok string) string {
+		return t.Value(tok)
+	})
+}
+
+// tokenPattern matches one token, space inside its braces or not.
+var tokenPattern = regexp.MustCompile(`\{\{\s*(session|model|settings|prompt|cwd|pane)\s*\}\}`)
+
+// onlyToken names the token s consists of, or "" when it is anything else.
+func onlyToken(s string) string {
+	if m := tokenPattern.FindStringSubmatch(s); m != nil && m[0] == s {
+		return m[1]
+	}
+	return ""
 }
 
 // BuildArgv turns a Spec into the argv for one pane. The first element is the
@@ -190,16 +222,18 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 	if s.Runner != RunnerAPI && s.Exe != "" {
 		out = append(out, s.Exe)
 	}
-	return appendArgs(out, args, s, t)
+	return appendArgs(out, args, s, t, false)
 }
 
-func appendArgs(out []string, args []Arg, s Spec, t Tokens) []string {
-	for _, a := range args {
+// appendArgs expands args onto out. grouped says they are one group's, where
+// everything after the first is a value for the option before it.
+func appendArgs(out []string, args []Arg, s Spec, t Tokens, grouped bool) []string {
+	for i, a := range args {
 		if a.If != "" && t.Value(a.If) == "" {
 			continue
 		}
 		if len(a.Args) > 0 {
-			out = appendArgs(out, a.Args, s, t)
+			out = appendArgs(out, a.Args, s, t, true)
 			continue
 		}
 		if a.Value == "" {
@@ -209,7 +243,12 @@ func appendArgs(out []string, args []Arg, s Spec, t Tokens) []string {
 		if v == "" {
 			continue
 		}
-		if a.Value == "{{prompt}}" && !s.NoDashDash && strings.HasPrefix(v, "-") {
+		// The guard is for a task standing on its own. One that follows its
+		// option in a group -- "--message", "{{prompt}}" -- is that option's
+		// value, and a "--" between the two became the value instead, with
+		// the task left over as an argument the program did not expect.
+		positional := !grouped || i == 0
+		if positional && onlyToken(a.Value) == "prompt" && !s.NoDashDash && strings.HasPrefix(v, "-") {
 			out = append(out, "--")
 		}
 		out = append(out, v)

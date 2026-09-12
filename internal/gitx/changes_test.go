@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -545,8 +546,10 @@ func TestChangesReportsADirtySubmodule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
-	if !strings.Contains(diff, "Subproject commit") {
-		t.Errorf("submodule diff should name the commits it moved between:\n%s", diff)
+	// By subject, not as the two hashes git shows by default, which said
+	// nothing of what changed.
+	if !strings.Contains(diff, "Submodule mod") || !strings.Contains(diff, "> work inside the submodule") {
+		t.Errorf("submodule diff should name the commits it moved through:\n%s", diff)
 	}
 }
 
@@ -751,7 +754,7 @@ func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
 	line := "+" + strings.Repeat("é", 300) + "\n"
 	whole := strings.Repeat(line, (maxDiffBytes/len(line))+10)
 
-	got := truncateDiff(whole)
+	got := truncateDiff(whole, len(whole))
 	body, marker, found := strings.Cut(got, "… truncated")
 	if !found {
 		t.Fatal("a diff over the cap should say it was truncated")
@@ -770,7 +773,7 @@ func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
 
 	// Anything within the cap is passed through untouched.
 	small := "--- a\n+++ b\n+one\n"
-	if truncateDiff(small) != small {
+	if truncateDiff(small, len(small)) != small {
 		t.Error("a small diff should not be altered")
 	}
 }
@@ -956,6 +959,8 @@ func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
 		t.Skipf("bare init failed: %v: %s", err, out)
 	}
 	gitRun(t, repo, "remote", "add", "origin", origin)
+	// With an upstream, so that pull gets as far as asking the remote.
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
 
 	if networkTimeout <= commandTimeout {
 		t.Errorf("network deadline %s is no longer than the local one %s",
@@ -991,6 +996,24 @@ func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
 	}
 }
 
+// TestCommitGetsTheLongerDeadline is about the hooks a commit runs, which lint
+// or test as often as not and were killed at the twenty seconds meant for
+// reading the repository.
+func TestCommitGetsTheLongerDeadline(t *testing.T) {
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "added.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restore := networkTimeout
+	t.Cleanup(func() { networkTimeout = restore })
+	networkTimeout = time.Nanosecond
+
+	err := CommitAll(repo, "slow hooks")
+	if err == nil || !strings.Contains(err.Error(), "gave up after 1ns") {
+		t.Errorf("commit did not run under the longer deadline: %v", err)
+	}
+}
+
 // TestHasRemoteWithoutOrigin covers a repository that cannot be pushed.
 func TestHasRemoteWithoutOrigin(t *testing.T) {
 	repo := newRepo(t)
@@ -1015,18 +1038,18 @@ func TestRemotesMatchWholeNames(t *testing.T) {
 	if !HasRemote(repo) {
 		t.Error("a repository with one remote can be pushed, whatever it is called")
 	}
-	if got, err := pushRemote(repo); err != nil || got != "my-origin" {
+	if got, err := pushRemote(repo, "main"); err != nil || got != "my-origin" {
 		t.Errorf("pushRemote = %q, %v; want the sole remote", got, err)
 	}
 
 	// Once there is a choice and no origin, the user has to make it.
 	gitRun(t, repo, "remote", "add", "other", "https://example.invalid/y.git")
-	if _, err := pushRemote(repo); err == nil {
+	if _, err := pushRemote(repo, "main"); err == nil {
 		t.Error("two remotes and no origin should not be guessed at")
 	}
 
 	gitRun(t, repo, "remote", "add", "origin", "https://example.invalid/z.git")
-	if got, err := pushRemote(repo); err != nil || got != "origin" {
+	if got, err := pushRemote(repo, "main"); err != nil || got != "origin" {
 		t.Errorf("pushRemote = %q, %v; want origin once it exists", got, err)
 	}
 }
@@ -1042,4 +1065,592 @@ func gitRun(t testing.TB, dir string, args ...string) string {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 	return string(out)
+}
+
+// TestTruncatedUntrackedFileCountsWhatWasNeverRead is about the note a large
+// new file's diff ends on. The lines left over were counted in the part that
+// was read, so a file with a quarter of a million lines still to go was said
+// to have a few tens of thousands.
+func TestTruncatedUntrackedFileCountsWhatWasNeverRead(t *testing.T) {
+	repo := newRepo(t)
+	const size = 800_000
+	if err := os.WriteFile(filepath.Join(repo, "short-lines.txt"), []byte(strings.Repeat("x\n", size/2)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := Diff(repo, "short-lines.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	tail := diff[strings.LastIndex(strings.TrimSuffix(diff, "\n"), "\n")+1:]
+	if _, err := fmt.Sscanf(tail, "… truncated, %d more bytes", &left); err != nil {
+		t.Fatalf("diff ends %q, want what is left given in bytes", tail)
+	}
+	shown := strings.Count(diff, "\n+x")
+	if want := size - 2*shown; left != want {
+		t.Errorf("%d more bytes, want %d", left, want)
+	}
+}
+
+// TestDiffOfANestedRepositorySaysWhatItIs covers a clone left inside the tree,
+// which status lists as one directory. Its diff came back empty, and the
+// panel explained an empty diff as a file that matches the last commit.
+func TestDiffOfANestedRepositorySaysWhatItIs(t *testing.T) {
+	repo := newRepo(t)
+	nested := filepath.Join(repo, "vendor", "lib")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, nested, "init", "-q")
+	if err := os.WriteFile(filepath.Join(nested, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Changes(repo)
+	if err != nil || len(files) != 1 || files[0].Path != "vendor/lib/" {
+		t.Fatalf("changes = %+v, %v; want the nested repository as one entry", files, err)
+	}
+	diff, err := Diff(repo, files[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "separate git repository") {
+		t.Errorf("diff = %q, want it to say what the entry is", diff)
+	}
+}
+
+// TestRemoteFailuresSayWhatToDoNext covers the three ways the panel's push and
+// pull commonly fail. Each arrived as git's advice cut down to the lines that
+// did not say what to do about it.
+func TestRemoteFailuresSayWhatToDoNext(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+
+	if _, err := Pull(mine); err == nil || !strings.Contains(err.Error(), "push it first") {
+		t.Errorf("pull with no upstream: %v", err)
+	}
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+
+	// Someone else pushes, and this checkout commits without pulling.
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+	gitRun(t, mine, "commit", "-q", "--allow-empty", "-m", "mine")
+
+	if _, err := Push(mine); err == nil || !strings.Contains(err.Error(), "Pull them in, then push again") {
+		t.Errorf("rejected push: %v", err)
+	}
+	if _, err := Pull(mine); err == nil || !strings.Contains(err.Error(), "merge or rebase") {
+		t.Errorf("pull of diverged branches: %v", err)
+	}
+}
+
+// TestAddedThenDeletedIsNotAChange: a file staged as new and then deleted is
+// in neither the last commit nor the working tree, and was listed as the
+// deletion of content that had never been committed.
+func TestAddedThenDeletedIsNotAChange(t *testing.T) {
+	repo := newRepo(t)
+	gone := filepath.Join(repo, "brief.txt")
+	if err := os.WriteFile(gone, []byte("draft\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "brief.txt")
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if files, err := Changes(repo); err != nil || len(files) != 0 {
+		t.Errorf("changes = %+v, %v; want none", files, err)
+	}
+	if st := StatusOf(repo); st.HasChanges() {
+		t.Errorf("status = %+v; want nothing to commit, as the file list says", st)
+	}
+}
+
+// TestCommitRefusesAMergeWithMarkersInIt: "add --all" is what tells git a
+// conflict is resolved, so the commit button committed a merge with the
+// conflict markers still in the file.
+func TestCommitRefusesAMergeWithMarkersInIt(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "checkout", "-q", "-b", "other")
+	write(t, repo, "README.md", "theirs\n")
+	gitRun(t, repo, "commit", "-qam", "theirs")
+	gitRun(t, repo, "checkout", "-q", "main")
+	write(t, repo, "README.md", "ours\n")
+	gitRun(t, repo, "commit", "-qam", "ours")
+	if _, _, err := runCapture(context.Background(), commandTimeout, repo, "merge", "other"); err == nil {
+		t.Fatal("the merge should have stopped on a conflict")
+	}
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	err := CommitAll(repo, "from the panel")
+	if err == nil || !strings.Contains(err.Error(), "README.md") {
+		t.Fatalf("err = %v, want the conflicted file named", err)
+	}
+	if got := gitRun(t, repo, "rev-parse", "HEAD"); got != head {
+		t.Fatal("a commit was made with the markers in it")
+	}
+
+	// Sorted out by hand and not added: committing is how the panel adds it.
+	write(t, repo, "README.md", "both\n")
+	if err := CommitAll(repo, "merged"); err != nil {
+		t.Fatalf("a resolved merge should commit: %v", err)
+	}
+}
+
+// TestLineCountsAreAgainstTheLastCommit: the counts were the staged and the
+// unstaged diff added up, which is not what the diff beside them shows or
+// what a commit takes.
+func TestLineCountsAreAgainstTheLastCommit(t *testing.T) {
+	repo := newRepo(t)
+	count := func() (int, int) {
+		t.Helper()
+		files, err := Changes(repo)
+		if err != nil || len(files) != 1 {
+			t.Fatalf("changes = %+v, %v; want README.md alone", files, err)
+		}
+		return files[0].Added, files[0].Removed
+	}
+
+	// Staged, then taken out again: the file is as the last commit has it.
+	write(t, repo, "README.md", "hello\nstaged\n")
+	gitRun(t, repo, "add", "README.md")
+	write(t, repo, "README.md", "hello\n")
+	if a, r := count(); a != 0 || r != 0 {
+		t.Errorf("staged and taken out again = +%d -%d, want +0 -0", a, r)
+	}
+
+	// Staged, then the same line edited: one line added, not two.
+	write(t, repo, "README.md", "hello\nedited\n")
+	if a, r := count(); a != 1 || r != 0 {
+		t.Errorf("staged and edited again = +%d -%d, want +1 -0", a, r)
+	}
+
+	// Before the first commit the two are still counted.
+	fresh := t.TempDir()
+	gitRun(t, fresh, "init", "-q")
+	write(t, fresh, "a.txt", "one\n")
+	gitRun(t, fresh, "add", "a.txt")
+	write(t, fresh, "a.txt", "one\ntwo\n")
+	files, err := Changes(fresh)
+	if err != nil || len(files) != 1 || files[0].Added == 0 {
+		t.Errorf("counts before the first commit = %+v, %v; want them counted", files, err)
+	}
+}
+
+// TestDiffOfAFileBackAsItWasCommittedIsEmpty: with the working tree back to
+// the last commit and the index not, the diff asked again for the index
+// against the working tree, and showed an edit the commit would not contain.
+func TestDiffOfAFileBackAsItWasCommittedIsEmpty(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "README.md", "hello\nstaged\n")
+	gitRun(t, repo, "add", "README.md")
+	write(t, repo, "README.md", "hello\n")
+	diff, err := Diff(repo, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(diff) != "" {
+		t.Errorf("diff = %q, want nothing: the file is as the last commit has it", diff)
+	}
+}
+
+// TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle: the push said
+// "pull them in", and the pull -- with no upstream, since only a push that
+// succeeds sets one -- said "push it first".
+func TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	theirs := newRepo(t)
+	gitRun(t, theirs, "remote", "add", "origin", origin)
+	gitRun(t, theirs, "push", "-q", "origin", "main")
+	gitRun(t, theirs, "checkout", "-q", "-b", "feature")
+	gitRun(t, theirs, "commit", "-q", "--allow-empty", "-m", "their feature")
+	gitRun(t, theirs, "push", "-q", "origin", "feature")
+
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+	gitRun(t, mine, "checkout", "-q", "-b", "feature")
+	gitRun(t, mine, "commit", "-q", "--allow-empty", "-m", "my feature")
+	_, err := Push(mine)
+	if err == nil || !strings.Contains(err.Error(), "already has a branch called feature") ||
+		!strings.Contains(err.Error(), "git pull origin feature") {
+		t.Errorf("first push to a taken name: %v", err)
+	}
+}
+
+// TestPushBeforeTheFirstCommitSaysSo: git's answer was "src refspec main does
+// not match any", which says nothing to someone who has not committed yet.
+func TestPushBeforeTheFirstCommitSaysSo(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	origin := t.TempDir()
+	gitRun(t, origin, "init", "-q", "--bare", "--initial-branch=main")
+	fresh := t.TempDir()
+	gitRun(t, fresh, "init", "-q", "--initial-branch=main")
+	gitRun(t, fresh, "remote", "add", "origin", origin)
+	_, err := Push(fresh)
+	if err == nil || !strings.Contains(err.Error(), "commit something first") || strings.Contains(err.Error(), "refspec") {
+		t.Errorf("push before the first commit: %v", err)
+	}
+}
+
+// TestPushWithNoRemoteToChooseSaysHow: the panel can neither add a remote nor
+// pick one, and "push manually" left the reader to work out how.
+func TestPushWithNoRemoteToChooseSaysHow(t *testing.T) {
+	repo := newRepo(t)
+	if _, err := Push(repo); err == nil || !strings.Contains(err.Error(), "git remote add origin") {
+		t.Errorf("push with no remote: %v", err)
+	}
+	gitRun(t, repo, "remote", "add", "fork", t.TempDir())
+	gitRun(t, repo, "remote", "add", "upstream", t.TempDir())
+	if _, err := Push(repo); err == nil || !strings.Contains(err.Error(), "git push -u fork main") {
+		t.Errorf("push with two remotes and no origin: %v", err)
+	}
+}
+
+// TestACopiedFileIsShownAsTheNewFileItIs: with copy detection turned on in
+// the user's config, a copy was labelled "modified", counted 0/0 against its
+// source, and its diff carried the source's own edits.
+func TestACopiedFileIsShownAsTheNewFileItIs(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "status.renames", "copies")
+	gitRun(t, repo, "config", "diff.renames", "copies")
+	write(t, repo, "README.md", "one\ntwo\nthree\nfour\n")
+	gitRun(t, repo, "commit", "-qam", "longer")
+	write(t, repo, "COPY.md", "one\ntwo\nthree\nfour\n")
+	write(t, repo, "README.md", "one\ntwo\nthree\nfour\nfive\n")
+	gitRun(t, repo, "add", "-A")
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f.Path == "COPY.md" && (f.Label != "added" || f.Added != 4) {
+			t.Errorf("copy = %+v, want added with its 4 lines", f)
+		}
+	}
+	diff, err := Diff(repo, "COPY.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(diff, "README.md") {
+		t.Errorf("the copy's diff carried its source's edits:\n%s", diff)
+	}
+}
+
+// TestCommitWaitsOutAnotherGitsLock: an agent's own git command holding the
+// index made the panel's Commit fail at once, with the line saying what to do
+// cut from the toast.
+func TestCommitWaitsOutAnotherGitsLock(t *testing.T) {
+	restore := lockWait
+	t.Cleanup(func() { lockWait = restore })
+
+	repo := newRepo(t)
+	lock := filepath.Join(repo, ".git", "index.lock")
+
+	// Let go of shortly: the commit goes through.
+	write(t, repo, "a.txt", "a\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockWait = 5 * time.Second
+	go func() { time.Sleep(300 * time.Millisecond); os.Remove(lock) }()
+	if err := CommitAll(repo, "after the other one"); err != nil {
+		t.Fatalf("a lock let go of should be waited out: %v", err)
+	}
+
+	// Never let go of: say so, and name the file.
+	write(t, repo, "b.txt", "b\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(lock) })
+	lockWait = 200 * time.Millisecond
+	err := CommitAll(repo, "still locked")
+	if err == nil || !strings.Contains(err.Error(), "another git command") || !strings.Contains(err.Error(), "index.lock") {
+		t.Errorf("err = %v, want it to say another git command holds the lock", err)
+	}
+}
+
+// TestPullWaitsOutAnotherGitsLock: bringing a branch up to date writes the
+// index, and a pull that met an agent's own git holding it failed with git's
+// fetch lines and a cut-off explanation of the lock.
+func TestPullWaitsOutAnotherGitsLock(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+
+	restore := lockWait
+	t.Cleanup(func() { lockWait = restore })
+	lockWait = 10 * time.Second
+	lock := filepath.Join(mine, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(time.Second); os.Remove(lock) }()
+	if _, err := Pull(mine); err != nil {
+		t.Fatalf("a lock let go of should be waited out: %v", err)
+	}
+	if st := StatusOf(mine); st.Behind != 0 {
+		t.Errorf("behind = %d after the pull, want 0", st.Behind)
+	}
+}
+
+// TestPushToAnUpstreamOfAnotherNameSaysHow: a branch tracking a remote branch
+// of another name is refused by the default push.default, and git's account
+// of it was cut off before the line saying what to do.
+func TestPushToAnUpstreamOfAnotherNameSaysHow(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "push.default", "simple")
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature-x")
+	gitRun(t, repo, "branch", "--set-upstream-to", "origin/main")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+
+	_, err := Push(repo)
+	if err == nil || !strings.Contains(err.Error(), "tracks origin/main") || !strings.Contains(err.Error(), "git push -u origin feature-x") {
+		t.Errorf("err = %v, want it to name the upstream and the way out", err)
+	}
+}
+
+// TestRenamedThenDeletedIsListedAsTheFileThatGoes: listed under the new name,
+// which the last commit never had, with an empty diff -- while the file a
+// commit actually deletes, the old name, had no row.
+func TestRenamedThenDeletedIsListedAsTheFileThatGoes(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "mv", "README.md", "GUIDE.md")
+	if err := os.Remove(filepath.Join(repo, "GUIDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Changes(repo)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("changes = %+v, %v; want one entry", files, err)
+	}
+	if f := files[0]; f.Path != "README.md" || f.Label != "deleted" || f.Removed != 1 {
+		t.Errorf("entry = %+v, want README.md deleted, one line removed", f)
+	}
+	diff, err := Diff(repo, files[0].Path)
+	if err != nil || !strings.Contains(diff, "-hello") {
+		t.Errorf("diff = %q, %v; want the deletion", diff, err)
+	}
+}
+
+// TestPushOfABranchTrackingALocalOneSaysSo: git's way out for a branch that
+// tracks a local branch was "git push . HEAD:main", into the repository
+// itself, cut off in the toast besides.
+func TestPushOfABranchTrackingALocalOneSaysSo(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "push.default", "simple")
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature", "--track", "main")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+
+	_, err := Push(repo)
+	if err == nil || !strings.Contains(err.Error(), "tracks the local branch main") ||
+		!strings.Contains(err.Error(), "git push -u origin feature") || strings.Contains(err.Error(), "git push .") {
+		t.Errorf("err = %v, want it to say the upstream is local and give the way out", err)
+	}
+}
+
+// TestFetchOnABranchTrackingALocalOneReachesTheRemote: the branch's remote is
+// the repository itself, and a bare fetch brought down nothing while its
+// output read like a fetch.
+func TestFetchOnABranchTrackingALocalOneReachesTheRemote(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature", "--track", "main")
+
+	before := gitRun(t, repo, "rev-parse", "origin/main")
+	if _, err := Fetch(repo); err != nil {
+		t.Fatal(err)
+	}
+	if gitRun(t, repo, "rev-parse", "origin/main") == before {
+		t.Error("origin/main did not move: the fetch never reached the remote")
+	}
+}
+
+// TestWorkInsideASubmoduleIsExplained: the submodule was listed as changed,
+// its diff was empty -- read as "matches the last commit" -- and Commit
+// failed with git's advice about commands the panel cannot run.
+func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
+	inner := newRepo(t)
+	outer := newRepo(t)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "sub")
+	gitRun(t, outer, "commit", "-qm", "add sub")
+	write(t, filepath.Join(outer, "sub"), "scratch.txt", "left by an agent\n")
+
+	diff, err := Diff(outer, "sub")
+	if err != nil || !strings.Contains(diff, "submodule with work inside it") {
+		t.Errorf("diff = %q, %v; want it to say where the work is", diff, err)
+	}
+	err = CommitAll(outer, "from the panel")
+	if err == nil || !strings.Contains(err.Error(), "inside sub, a submodule") || strings.Contains(err.Error(), "git add") {
+		t.Errorf("commit err = %v, want it to say the work is inside the submodule", err)
+	}
+	// A clean tree still gets git's own "nothing to commit".
+	clean := newRepo(t)
+	if err := CommitAll(clean, "nothing"); err == nil || !strings.Contains(err.Error(), "nothing to commit") {
+		t.Errorf("clean tree: %v", err)
+	}
+}
+
+// TestPushDoesNotPublishAnUnpushedSubmoduleCommit: the push went through and
+// recorded a submodule commit its remote did not have, which nobody fetching
+// the result could then get.
+func TestPushDoesNotPublishAnUnpushedSubmoduleCommit(t *testing.T) {
+	bare := func() string {
+		dir := t.TempDir()
+		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("bare init failed: %v: %s", err, out)
+		}
+		return dir
+	}
+	subOrigin, outerOrigin := bare(), bare()
+	inner := newRepo(t)
+	gitRun(t, inner, "remote", "add", "origin", subOrigin)
+	gitRun(t, inner, "push", "-q", "-u", "origin", "main")
+	outer := newRepo(t)
+	gitRun(t, outer, "remote", "add", "origin", outerOrigin)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub")
+	gitRun(t, outer, "commit", "-qm", "add sub")
+	gitRun(t, outer, "push", "-q", "-u", "origin", "main")
+
+	sub := filepath.Join(outer, "sub")
+	gitRun(t, sub, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "not pushed")
+	if err := CommitAll(outer, "record sub"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(outer); err == nil || !strings.Contains(err.Error(), "Push the submodule first") {
+		t.Errorf("push = %v, want it refused until the submodule's commit is on its remote", err)
+	}
+	gitRun(t, sub, "push", "-q", "origin", "HEAD:main")
+	if _, err := Push(outer); err != nil {
+		t.Errorf("with the submodule pushed, the push should go through: %v", err)
+	}
+}
+
+// TestPullThenCommitKeepsATeammatesSubmoduleBump: the pull moved the commit
+// recorded for the submodule and left its checkout where it was, so the
+// submodule showed as changed and the next commit -- for something else --
+// recorded the old one, undoing the bump.
+func TestPullThenCommitKeepsATeammatesSubmoduleBump(t *testing.T) {
+	bare := func() string {
+		dir := t.TempDir()
+		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("bare init failed: %v: %s", err, out)
+		}
+		return dir
+	}
+	subOrigin, outerOrigin := bare(), bare()
+	inner := newRepo(t)
+	gitRun(t, inner, "remote", "add", "origin", subOrigin)
+	gitRun(t, inner, "push", "-q", "-u", "origin", "main")
+
+	mine := newRepo(t)
+	gitRun(t, mine, "config", "protocol.file.allow", "always")
+	gitRun(t, mine, "remote", "add", "origin", outerOrigin)
+	gitRun(t, mine, "-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub")
+	gitRun(t, mine, "commit", "-qm", "add sub")
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+
+	theirs := t.TempDir()
+	cmd := exec.Command("git", "-c", "protocol.file.allow=always", "clone", "-q", "--recurse-submodules", outerOrigin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	tsub := filepath.Join(theirs, "sub")
+	gitRun(t, tsub, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "their bump")
+	gitRun(t, tsub, "push", "-q", "origin", "HEAD:main")
+	bump := strings.TrimSpace(gitRun(t, tsub, "rev-parse", "HEAD"))
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-qam", "bump sub")
+	gitRun(t, theirs, "push", "-q")
+
+	if _, err := Pull(mine); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if files, _ := Changes(mine); len(files) != 0 {
+		t.Errorf("after the pull, changes = %+v; want none, the submodule checked out at what was pulled", files)
+	}
+	write(t, mine, "notes.txt", "my own change\n")
+	if err := CommitAll(mine, "my change"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(gitRun(t, mine, "rev-parse", "HEAD:sub")); got != bump {
+		t.Errorf("the commit recorded submodule %s, want the teammate's bump %s", got, bump)
+	}
+}
+
+// TestALongCommitMessageIsCommitted: on the command line a message past about
+// 32,000 characters was more than Windows would start git with, and the
+// commit failed after everything had been staged.
+func TestALongCommitMessageIsCommitted(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "a.txt", "a\n")
+	msg := "a long message\n\n" + strings.Repeat("a line of a detailed changelog an agent wrote\n", 900)
+	if err := CommitAll(repo, msg); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if got := gitRun(t, repo, "log", "-1", "--format=%B"); strings.TrimSpace(got) != strings.TrimSpace(msg) {
+		t.Errorf("committed message is %d bytes, want the %d written", len(got), len(msg))
+	}
 }

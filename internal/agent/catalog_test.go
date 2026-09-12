@@ -425,3 +425,274 @@ func TestStripEnvIsTheUnion(t *testing.T) {
 		seen[name] = true
 	}
 }
+
+// TestOverlaidListsDoNotInheritBuiltinElements is about the lists of structs
+// in an entry written over a built-in. Decoding a JSON array reuses the
+// slice's elements, so each new element used to keep every field of the
+// built-in one it landed on that it did not set itself.
+func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "models": [{"id": "opus"}], "args": [{"value": "--foo"}, {"value": "{{prompt}}"}]}`),
+		json.RawMessage(`{"id": "codex", "models": []}`),
+	}})
+	claude, _ := c.Find("claude")
+	if want := []Model{{ID: "opus"}}; !slices.Equal(claude.Models, want) {
+		t.Errorf("models = %+v, want %+v", claude.Models, want)
+	}
+	if got, want := BuildArgv(claude, false, Tokens{Session: "s", Prompt: "go"}), []string{"claude", "--foo", "go"}; !slices.Equal(got, want) {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	// What the entry left alone is still the built-in's.
+	if got := BuildArgv(claude, true, Tokens{Session: "s"}); !slices.Equal(got, []string{"claude", "--resume", "s"}) {
+		t.Errorf("resume argv = %q, want the built-in's", got)
+	}
+	// An empty list is a deliberate one.
+	if codex, _ := c.Find("codex"); len(codex.Models) != 0 {
+		t.Errorf("an entry that empties the models should get none, got %+v", codex.Models)
+	}
+}
+
+// TestDefaultNamingADeletedAgentFallsBack: every new pane asks for the default,
+// so one naming an agent since deleted from agents.json stopped them all from
+// starting.
+func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "ollama", Model: "llama3"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "gone", Model: "x"}},
+	})
+	for _, project := range []string{"", "/work/app"} {
+		if got := c.DefaultsFor(project); got != (Defaults{Agent: DefaultAgentID}) {
+			t.Errorf("DefaultsFor(%q) = %+v, want Claude with no model", project, got)
+		}
+	}
+}
+
+// TestUnknownAgentFieldsAreNamed: a key in the wrong place used to do nothing
+// and say nothing, which left an endpoint greyed out with no clue why.
+func TestUnknownAgentFieldsAreNamed(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "openai-compatible", "baseURL": "http://gw/v1", "modles": []}`),
+		json.RawMessage(`{"id": "claude", "defaultModel": "sonnet", "api": {"baseURL": "http://x"}}`),
+	}})
+	for _, want := range []string{`"baseURL" belongs inside "api"`, `"modles" is not something an agent has`} {
+		if !strings.Contains(c.Notice, want) {
+			t.Errorf("notice %q should say %s", c.Notice, want)
+		}
+	}
+	if strings.Contains(c.Notice, "defaultModel") || strings.Contains(c.Notice, `"api" is`) {
+		t.Errorf("a field an agent has was reported: %q", c.Notice)
+	}
+	// The entry is still used: a key this build does not know may be one a
+	// later build wrote.
+	if claude, _ := c.Find("claude"); claude.DefaultModel != "sonnet" {
+		t.Errorf("the rest of the entry should still apply, got default model %q", claude.DefaultModel)
+	}
+}
+
+// TestRunnerIsSettledIntoOneThereIs: "API" in capitals matched neither runner
+// and started a pane whose command line began "--agent", with no program.
+func TestRunnerIsSettledIntoOneThereIs(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "caps", "runner": "API", "api": {"baseURL": "http://localhost:1/v1"}}`),
+		json.RawMessage(`{"id": "odd", "runner": "shell", "exe": "odd-agent"}`),
+	}})
+	if s, _ := c.Find("caps"); s.Runner != RunnerAPI {
+		t.Errorf("runner = %q, want api", s.Runner)
+	}
+	odd, _ := c.Find("odd")
+	if odd.Runner != RunnerCLI || BuildArgv(odd, false, Tokens{})[0] != "odd-agent" {
+		t.Errorf("an unknown runner should be decided as a missing one is, got %q", odd.Runner)
+	}
+	if !strings.Contains(c.Notice, `runner "shell"`) || strings.Contains(c.Notice, `"caps"`) {
+		t.Errorf("notice = %q, want only the unknown runner named", c.Notice)
+	}
+}
+
+// TestADefaultNamingNoAgentIsReported: such a default opens Claude instead,
+// and without a word that looked like the choice had not taken.
+func TestADefaultNamingNoAgentIsReported(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "Codex"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "gemni"}, "/work/ok": {Agent: "codex"}},
+	})
+	for _, want := range []string{`"Codex"`, `"gemni" for /work/app`} {
+		if !strings.Contains(c.Notice, want) {
+			t.Errorf("notice %q should name %s", c.Notice, want)
+		}
+	}
+	if strings.Contains(c.Notice, "/work/ok") {
+		t.Errorf("a default naming a real agent was reported: %q", c.Notice)
+	}
+}
+
+// TestUnknownTokensAreNamed: a token with no value takes its group with it,
+// and a misspelt one never has a value, so `"if": "modle"` dropped the
+// --model flag in silence.
+func TestUnknownTokensAreNamed(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "x", "args": [{"if": "modle", "args": [{"value": "--model"}, {"value": "{{ modle }}"}]}, {"value": "{{prompt}}"}]}`),
+	}})
+	if !strings.Contains(c.Notice, `"modle" is not a token`) {
+		t.Errorf("notice = %q, want the misspelt token named", c.Notice)
+	}
+	if strings.Count(c.Notice, "modle") != 1 {
+		t.Errorf("notice = %q, want the token named once", c.Notice)
+	}
+	if strings.Contains(c.Notice, "prompt\" is not") {
+		t.Errorf("a real token was reported: %q", c.Notice)
+	}
+	// The built-ins use only real tokens.
+	if c := Merge(nil); c.Notice != "" {
+		t.Errorf("built-ins alone gave notice %q", c.Notice)
+	}
+}
+
+// TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst: an API has no model it is
+// already set to, and the help page's own example lists models without a
+// default, so its panes were started asking for none.
+func TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "name": "Local llama", "runner": "api", "api": {"wire": "openai", "baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}, {"id": "llama3"}]}`),
+		json.RawMessage(`{"id": "mycli", "exe": "mycli", "models": [{"id": "big"}]}`),
+	}})
+	if s, _ := c.Find("local"); s.DefaultModel != "qwen3-coder" {
+		t.Errorf("default model = %q, want the first listed", s.DefaultModel)
+	}
+	// A command-line agent's empty default means whatever it is set to.
+	if s, _ := c.Find("mycli"); s.DefaultModel != "" {
+		t.Errorf("a CLI agent's default model = %q, want it left to the CLI", s.DefaultModel)
+	}
+}
+
+// TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt: a model of empty id
+// is how an entry asks for whatever the endpoint defaults to.
+func TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "gw", "api": {"baseURL": "https://gw.example/v1"}, "models": [{"id": "", "name": "Default"}, {"id": "big"}]}`),
+	}})
+	if s, _ := c.Find("gw"); s.DefaultModel != "" {
+		t.Errorf("default model = %q, want the endpoint's own choice kept", s.DefaultModel)
+	}
+}
+
+// TestExeIsExpandedLikeAShellWould: a program path copied from a shell was
+// looked up on PATH as written, so "~/bin/mycli" was never found.
+func TestExeIsExpandedLikeAShellWould(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	t.Setenv("FLOCKDECK_TEST_TOOLS", filepath.Join("C:", "tools"))
+	for exe, want := range map[string]string{
+		"~/bin/mycli":                     home + "/bin/mycli",
+		"%FLOCKDECK_TEST_TOOLS%/mycli":    filepath.Join("C:", "tools") + "/mycli",
+		"$FLOCKDECK_TEST_TOOLS/mycli":     filepath.Join("C:", "tools") + "/mycli",
+		"${FLOCKDECK_TEST_TOOLS}/mycli":   filepath.Join("C:", "tools") + "/mycli",
+		"100%/mycli":                      "100%/mycli",
+		"$FLOCKDECK_TEST_UNSET_VAR/mycli": "${FLOCKDECK_TEST_UNSET_VAR}/mycli",
+		"mycli":                           "mycli",
+	} {
+		if got := expandExe(exe); got != want {
+			t.Errorf("expandExe(%q) = %q, want %q", exe, got, want)
+		}
+	}
+	c := Merge(&File{Agents: []json.RawMessage{json.RawMessage(`{"id": "mine", "exe": "~/bin/mycli"}`)}})
+	if s, _ := c.Find("mine"); s.Exe != home+"/bin/mycli" {
+		t.Errorf("exe = %q, want it expanded", s.Exe)
+	}
+}
+
+// TestEnvValuesAreExpanded: an entry's environment replaces the inherited
+// variable as written, so "PATH=$HOME/bin:$PATH" left the pane with a PATH of
+// those very characters.
+func TestEnvValuesAreExpanded(t *testing.T) {
+	t.Setenv("FLOCKDECK_TEST_BASE", "/opt/base")
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "mine", "exe": "mine", "env": ["TOOLS=$FLOCKDECK_TEST_BASE/bin:%FLOCKDECK_TEST_BASE%/lib", "$KEEP=as written", "NOVAR=100%"]}`),
+	}})
+	s, _ := c.Find("mine")
+	want := []string{"TOOLS=/opt/base/bin:/opt/base/lib", "$KEEP=as written", "NOVAR=100%"}
+	if !slices.Equal(s.Env, want) {
+		t.Errorf("env = %q, want %q", s.Env, want)
+	}
+}
+
+// TestAnAPIAgentTellsTheChatClientItsEndpoint: the chat client reads nothing
+// from the catalog, so an OpenAI, Gemini or local-model pane took its
+// defaults -- the Anthropic wire, at Anthropic's address -- and sent its
+// request and its stored key there.
+func TestAnAPIAgentTellsTheChatClientItsEndpoint(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}]}`),
+		json.RawMessage(`{"id": "anthropic", "api": {"baseURL": "https://proxy.example/v1"}}`),
+	}})
+	has := func(argv []string, flag, value string) bool {
+		for i := 0; i+1 < len(argv); i++ {
+			if argv[i] == flag && argv[i+1] == value {
+				return true
+			}
+		}
+		return false
+	}
+	for _, tc := range []struct {
+		id          string
+		flag, value string
+	}{
+		{"openai", "--wire", "openai"},
+		{"openai", "--key-env", "OPENAI_API_KEY"},
+		{"google", "--wire", "gemini"},
+		{"google", "--key-env", "GEMINI_API_KEY,GOOGLE_API_KEY"},
+		{"local", "--wire", "openai"},
+		{"local", "--base-url", "http://127.0.0.1:11434/v1"},
+		{"anthropic", "--base-url", "https://proxy.example/v1"},
+	} {
+		s, ok := c.Find(tc.id)
+		if !ok {
+			t.Fatalf("%s: not in the catalog", tc.id)
+		}
+		for _, resume := range []bool{false, true} {
+			argv := BuildArgv(s, resume, Tokens{Session: "s", Model: "m", Prompt: "hi"})
+			if !has(argv, tc.flag, tc.value) {
+				t.Errorf("%s (resume %v): argv %q lacks %s %s", tc.id, resume, argv, tc.flag, tc.value)
+			}
+		}
+	}
+}
+
+// TestBaseURLVariablesAreExpanded: a local model's address kept in a variable
+// went to the chat client, and to the check for whether it needs a key, as
+// the characters "$OLLAMA_HOST".
+func TestBaseURLVariablesAreExpanded(t *testing.T) {
+	t.Setenv("FLOCKDECK_TEST_OLLAMA", "127.0.0.1:11434")
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://$FLOCKDECK_TEST_OLLAMA/v1"}}`),
+	}})
+	s, _ := c.Find("local")
+	if s.API.BaseURL != "http://127.0.0.1:11434/v1" {
+		t.Errorf("baseURL = %q, want the variable read", s.API.BaseURL)
+	}
+	if !NeedsNoKey(s) {
+		t.Error("an endpoint on this machine needs no key, however its address was written")
+	}
+	if argv := BuildArgv(s, false, Tokens{}); !slices.Contains(argv, "http://127.0.0.1:11434/v1") {
+		t.Errorf("argv %q does not carry the address", argv)
+	}
+}
+
+// TestAnIdDifferingOnlyInCaseIsPointedOut: "Claude" was taken, in silence, as
+// a new agent beside the built-in it was surely meant to change.
+func TestAnIdDifferingOnlyInCaseIsPointedOut(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "Claude", "defaultModel": "opus"}`),
+		json.RawMessage(`{"id": "mine", "exe": "mine"}`),
+	}})
+	if !strings.Contains(c.Notice, `"Claude" is a new agent, not "claude"`) {
+		t.Errorf("notice = %q, want the built-in it probably meant named", c.Notice)
+	}
+	if strings.Contains(c.Notice, `"mine"`) {
+		t.Errorf("an agent of its own was reported: %q", c.Notice)
+	}
+	if s, _ := c.Find("claude"); s.DefaultModel != "" {
+		t.Error("ids are still matched exactly")
+	}
+}

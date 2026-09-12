@@ -35,6 +35,12 @@ type Catalog struct {
 // It never fails. Where the state directory itself cannot be found there is
 // nowhere for an agents.json to be, and the built-ins are the whole answer.
 func Load() *Catalog {
+	// A catalog read again may say something new about any agent -- a program
+	// installed a moment ago, an entry pointed at another one -- so what was
+	// probed under the old one is forgotten. Reading it again is what the
+	// picker's opening does, which is the moment Refresh was written for and
+	// which never called it: an agent just installed stayed greyed out.
+	Refresh()
 	path, err := ConfigPath()
 	if err != nil {
 		return &Catalog{Specs: normalizeAll(Builtins())}
@@ -83,8 +89,17 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %d has no id", n+1))
 			continue
 		}
+		problems = append(problems, unknownFields(head.ID, raw)...)
 		if i, known := index[head.ID]; known {
-			merged := c.Specs[i]
+			builtin := c.Specs[i]
+			merged := builtin
+			// Decoding an array into a slice reuses the slice's elements, and a
+			// struct element keeps every field the new one leaves out: a user's
+			// `"models": [{"id": "opus"}]` came out named "Default", and an
+			// `"args"` entry of a plain value inherited the built-in group it
+			// landed on and vanished inside it. So the lists of structs start
+			// empty, and get the built-in's back only where the entry named none.
+			merged.Args, merged.ResumeArgs, merged.Models = nil, nil, nil
 			if err := json.Unmarshal(raw, &merged); err != nil {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it
@@ -92,6 +107,13 @@ func Merge(f *File) *Catalog {
 				problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
 				continue
 			}
+			// An empty array decodes as an empty slice rather than nil, so an
+			// entry that deliberately clears a list still clears it.
+			merged.Args = orBuiltin(merged.Args, builtin.Args)
+			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
+			merged.Models = orBuiltin(merged.Models, builtin.Models)
+			problems = append(problems, checkRunner(&merged)...)
+			problems = append(problems, checkTokens(&merged)...)
 			c.Specs[i] = merged
 			continue
 		}
@@ -100,14 +122,35 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
 			continue
 		}
+		// Ids are matched exactly, as they are everywhere else -- a layout
+		// records them -- so "Claude" is a new agent, not the built-in. On
+		// Windows its program is found as the same claude.exe, and the picker
+		// showed two Claudes while the entry changed neither.
+		for known := range index {
+			if strings.EqualFold(known, head.ID) {
+				problems = append(problems, fmt.Sprintf("agent %q is a new agent, not %q: ids are matched exactly", head.ID, known))
+				break
+			}
+		}
+		problems = append(problems, checkRunner(&fresh)...)
+		problems = append(problems, checkTokens(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
 		c.Specs = append(c.Specs, fresh)
 	}
 	c.Specs = normalizeAll(c.Specs)
+	problems = append(problems, c.missingDefaults()...)
 	if len(problems) > 0 {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}
 	return c
+}
+
+// orBuiltin is the list an entry set, or the built-in's where it set none.
+func orBuiltin[T any](set, builtin []T) []T {
+	if set == nil {
+		return builtin
+	}
+	return set
 }
 
 // normalizeAll fills in what an entry can be trusted to have meant, so that the
@@ -122,6 +165,15 @@ func normalizeAll(specs []Spec) []Spec {
 func normalize(s *Spec) {
 	if s.Name == "" {
 		s.Name = s.ID
+	}
+	// An entry's environment replaces the inherited variable of the same
+	// name as it is written, so "PATH=$HOME/bin:$PATH" gave the pane a PATH
+	// of those very characters and nothing in it would run. The variables in
+	// a value are read as a shell would read them; the name is left alone.
+	for i, kv := range s.Env {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			s.Env[i] = name + "=" + expandVars(value)
+		}
 	}
 	if s.Runner == "" {
 		// An entry that describes an endpoint means to talk to it; anything
@@ -139,24 +191,39 @@ func normalize(s *Spec) {
 			// pane with no program in it at all.
 			s.Exe = s.ID
 		}
+		s.Exe = expandExe(s.Exe)
 		return
 	}
 	// An API entry is `flockdeck chat` whatever else it says, so an entry that
 	// gives only an endpoint -- which is all the example in the design gives --
 	// still starts the chat client properly and still reports its lifecycle.
-	if len(s.Args) == 0 {
-		s.Args = chatArgs(s.ID, false)
-	}
-	if len(s.ResumeArgs) == 0 {
-		s.ResumeArgs = chatArgs(s.ID, true)
-	}
 	if s.API.Wire == "" {
 		// An endpoint with no wire named is an OpenAI-compatible one: that is
 		// what nearly every local server and gateway speaks.
 		s.API.Wire = "openai"
 	}
+	// A local model's address is commonly kept in a variable -- OLLAMA_HOST --
+	// and "http://$OLLAMA_HOST/v1" went to the chat client, and to the check
+	// for whether it needs a key, as those very characters.
+	s.API.BaseURL = expandVars(s.API.BaseURL)
+	// Built from the entry as it now stands, wire and all, since the chat
+	// client learns its endpoint from these and from nothing else.
+	if len(s.Args) == 0 {
+		s.Args = chatArgs(s.ID, s.API, false)
+	}
+	if len(s.ResumeArgs) == 0 {
+		s.ResumeArgs = chatArgs(s.ID, s.API, true)
+	}
 	if s.Caps == (Caps{}) {
 		s.Caps = chatCaps()
+	}
+	// An entry that lists its models and names no default -- the help page's
+	// own example does exactly that -- started its panes asking for none,
+	// which most endpoints refuse. The first model it lists is the one taken.
+	// An entry that wants the endpoint's own choice says so the way Claude's
+	// list does, with a model of empty id first, and keeps it.
+	if s.DefaultModel == "" && len(s.Models) > 0 {
+		s.DefaultModel = s.Models[0].ID
 	}
 }
 
@@ -208,6 +275,14 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 	}
 	if d.Agent == "" {
 		d.Agent = DefaultAgentID
+	}
+	// A default naming an agent the catalog no longer has -- an entry since
+	// deleted from agents.json -- is a pane that cannot start, and it is
+	// every new pane rather than one: each asks for the default and was told
+	// "no agent named ... is configured". Claude opens instead, and the model
+	// chosen for the other agent does not come with it.
+	if _, ok := c.Find(d.Agent); !ok && len(c.Specs) > 0 {
+		d = Defaults{Agent: DefaultAgentID}
 	}
 	return d
 }
