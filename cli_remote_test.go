@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -705,6 +706,27 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 	}
 	t.Setenv(remote.RelayEnv, "http://relay.example")
 	check(false, "status")
+	t.Setenv(remote.RelayEnv, "")
+
+	// A name as long as Windows gives a machine by default, a running
+	// instance that could not be told, whose reason is a whole error, and a
+	// relay gone by the time the machine is taken off it by force.
+	told := func(args ...string) {
+		t.Helper()
+		var out bytes.Buffer
+		_ = remoteCmd(args, remoteIO{out: &out, running: func() bool { return true }, reload: func() (bool, error) {
+			return true, errors.New(`reload remote access: Post "http://127.0.0.1:52110/remote/reload?t=…": dial tcp 127.0.0.1:52110: connectex: No connection could be made because the target machine actively refused it.`)
+		}})
+		for _, l := range strings.Split(out.String(), "\n") {
+			if n := len([]rune(l)); n > 80 {
+				t.Errorf("remote %v printed a line %d wide: %q", args, n, l)
+			}
+		}
+	}
+	f2 := newFakeRelayAPI(t)
+	told("enable", "-relay", f2.URL, "-name", "DESKTOP-4F2K9LQ")
+	f2.Close()
+	told("disable", "-force")
 }
 
 // The general usage is read in a terminal, which is often 80 columns wide, as

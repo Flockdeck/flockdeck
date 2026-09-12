@@ -304,7 +304,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 	if replaced {
 		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
 	}
-	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("remote access enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
 	if f.join != "" {
 		// Joining puts this machine in another's account rather than a new
 		// one, which is the whole point of the code, and worth confirming.
@@ -564,15 +564,28 @@ func pairedSummary(ds []remote.Device, width int) string {
 // a line is left whole on one of its own.
 func labelled(label, value string) string {
 	const col = len("machine: ")
+	return breakAt(fmt.Sprintf("%-*s", col, label), col, value)
+}
+
+// fitted is a sentence the command line prints whose words are not all its
+// own, a name or an error, broken at spaces to fit 80 columns.
+func fitted(text string) string {
+	return breakAt("", 0, text)
+}
+
+// breakAt writes prefix and then text's words, starting a new line, indented
+// by indent, before any word that would take a line past 80 columns. A word
+// longer than a line is left whole on one of its own.
+func breakAt(prefix string, indent int, text string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-*s", col, label)
-	at := col
-	for i, word := range strings.Fields(value) {
+	b.WriteString(prefix)
+	at := len([]rune(prefix))
+	for i, word := range strings.Fields(text) {
 		w := len([]rune(word))
 		if i > 0 {
 			if at+1+w > 80 {
-				b.WriteString("\n" + strings.Repeat(" ", col))
-				at = col
+				b.WriteString("\n" + strings.Repeat(" ", indent))
+				at = indent
 			} else {
 				b.WriteByte(' ')
 				at++
@@ -794,7 +807,7 @@ func remoteDisable(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "remote access is not enabled")
 		return nil
 	case untold != nil:
-		fmt.Fprintf(rio.out, "could not tell the relay (%v); forgetting the enrolment here anyway\n", untold)
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("could not tell the relay (%v); forgetting the enrolment here anyway", untold)))
 	}
 	fmt.Fprintln(rio.out, "remote access disabled")
 	// The account goes with its last machine, and its devices with it, which
@@ -820,7 +833,7 @@ func reportReload(rio remoteIO, idle string) {
 	ran, err := rio.reload()
 	switch {
 	case err != nil:
-		fmt.Fprintf(rio.out, "the running flockdeck could not be told (%v); restart it to pick this up\n", err)
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("the running flockdeck could not be told (%v); restart it to pick this up", err)))
 	case ran:
 		fmt.Fprintln(rio.out, "the running flockdeck has picked this up")
 	case idle != "":
