@@ -51,10 +51,29 @@ type worktreesMsg struct {
 // Git is slow enough that none of this belongs on the goroutine that owns the
 // workspace; only the project root and the pane count are read from there.
 func (s *Server) listWorktrees(c *controlClient) {
-	root := s.activeRoot()
+	asked := worktreeListings.asked(c)
+	s.sendWorktrees(c, s.activeRoot(), asked)
+}
+
+// worktreeListings is the worktree listings each window has asked for.
+//
+// A repository's listing is a git command per worktree, and a large one takes
+// a while, so two can finish out of order: open the panel, switch project, and
+// the first project's listing lands on top of the second's. The panel draws
+// whichever came last, so it showed the other project's worktrees under this
+// one -- and a row's Agent or Shell then started work in that project.
+var worktreeListings = newNewestAnswer()
+
+// readWorktrees gathers a repository's listing. It is a variable so a test can
+// hold one back.
+var readWorktrees = collectWorktrees
+
+// sendWorktrees lists root's worktrees for a window, unless the window has
+// asked for another listing since the request numbered asked.
+func (s *Server) sendWorktrees(c *controlClient, root string, asked uint64) {
 	go func() {
 		defer s.survive("listing worktrees")
-		msg := collectWorktrees(root)
+		msg := readWorktrees(root)
 		if msg.Error == "" {
 			paths := make([]string, 0, len(msg.Items))
 			for _, it := range msg.Items {
@@ -65,6 +84,9 @@ func (s *Server) listWorktrees(c *controlClient) {
 			for i := range msg.Items {
 				msg.Items[i].Panes = counts[msg.Items[i].Path]
 			}
+		}
+		if !worktreeListings.answer(c, asked) {
+			return
 		}
 		c.sendJSON(msg)
 	}()
@@ -223,6 +245,9 @@ func samePath(a, b string) bool {
 // addWorktree creates a worktree and reports the outcome.
 func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	root := s.activeRoot()
+	// The listing this ends on counts from when it was asked for, so a panel
+	// opened on another project meanwhile is not drawn over.
+	asked := worktreeListings.asked(c)
 	go func() {
 		defer s.survive("creating a worktree")
 		branch = strings.TrimSpace(branch)
@@ -238,12 +263,13 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 			return
 		}
 		c.notify("created "+filepath.Base(path), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }
 
 func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	root := s.activeRoot()
+	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.survive("removing a worktree")
 		// Removing a worktree deletes its directory. An agent working in it
@@ -272,12 +298,13 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 			return
 		}
 		c.notify("removed "+filepath.Base(path), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }
 
 func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
+	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.survive("pruning worktrees")
 		pruned, err := gitx.Prune(root)
@@ -286,6 +313,6 @@ func (s *Server) pruneWorktrees(c *controlClient) {
 			return
 		}
 		c.notify(prunedSummary(pruned), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }
