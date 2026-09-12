@@ -63,7 +63,8 @@ missing=
 for name in DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
 	[ -n "$(printenv "$name" || true)" ] || missing="$missing $name"
 done
-if [ -n "$purge" ] && [ -z "${DO_API_TOKEN:-}" ]; then
+# A pre-release moves nothing, so it has nothing to purge.
+if [ -n "$purge" ] && [ -z "$pre" ] && [ -z "${DO_API_TOKEN:-}" ]; then
 	missing="$missing DO_API_TOKEN"
 fi
 [ -z "$missing" ] || die "not set:$missing"
@@ -71,11 +72,13 @@ for tool in aws curl; do
 	command -v "$tool" >/dev/null 2>&1 || die "publishing needs $tool, which is not installed"
 done
 
+# sha256 hashes a file read from its standard input, since sha256sum escapes
+# a name with a backslash in it, as a Windows path has, and marks the hash.
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then
-		sha256sum "$1" | cut -d' ' -f1
+		sha256sum <"$1" | cut -d' ' -f1
 	else
-		shasum -a 256 "$1" | cut -d' ' -f1
+		shasum -a 256 <"$1" | cut -d' ' -f1
 	fi
 }
 
@@ -173,6 +176,7 @@ purge() {
 		say "not purging the CDN (FLOCKDECK_PURGE=off)"
 		return
 	fi
+	[ -n "${DO_API_TOKEN:-}" ] || die "not set: DO_API_TOKEN, which purging $1 from the CDN needs"
 	base=${DO_API_URL:-https://api.digitalocean.com}
 	id=${DO_CDN_ENDPOINT_ID:-}
 	if [ -z "$id" ]; then
