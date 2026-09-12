@@ -64,11 +64,17 @@ repositories until you remove them.
   to the latest.
 - `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
-- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` — keys for the API
-  agents, used before anything in `keys.json`.
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
+  `GOOGLE_API_KEY`) — keys for the API agents, used before anything in
+  `keys.json`. `FLOCKDECK_API_KEY` is tried after them, for any API agent.
 - `CLAUDE_CONFIG_DIR` — where Claude Code keeps its own files; Flockdeck follows
   it to find conversations and folder trust.
 - `NO_COLOR` — the built-in chat client draws without colour.
+- `FLOCKDECK_COLUMNS`, then `COLUMNS` — how wide the built-in chat client wraps
+  its answers; 80 when neither is set.
+- `SHELL` — the shell a shell pane runs, as a login shell; `/bin/sh` if it is
+  unset. On Windows a shell pane runs `pwsh` if it is installed, then the shell
+  `COMSPEC` names, then Windows PowerShell.
 
 The variables Flockdeck sets in each pane, and the flags that shape one run —
 `-agent`, `-new`, `-shell` — are on [The command line](#cli).
