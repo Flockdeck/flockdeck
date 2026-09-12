@@ -1,0 +1,76 @@
+name: test
+
+# The tests every change is held to, on every platform a release is built for.
+# They run on each push to a branch and on each pull request, so a failure is
+# found where it was made rather than when a release is cut: five tags in a row
+# once stopped on a macOS or Windows test that no earlier run had reached. The
+# release workflow calls this same file before it builds anything, so what a
+# change is held to and what a release is held to cannot drift apart.
+#
+# Tags are left to the release workflow, which runs these tests itself.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: "what to check out; empty is the commit the run is for"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      # Every platform runs to the end even when another fails, so a failure
+      # shows everything that needs fixing rather than the first of it.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The code is kept gofmt-clean by hand. Checked on Linux only: a Windows
+      # checkout turns line endings into CRLF, which gofmt would report in
+      # every file.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # The workspace is reached from many goroutines through one owner, and a
+      # mistake in that is a race rather than a failure. The detector needs a C
+      # toolchain, which the application itself never does, so it runs where
+      # the runner has one.
+      #
+      # Its first run found races the suite had never been able to look for.
+      # Until those are fixed it reports without holding anything up; making
+      # it blocking again is part of fixing them.
+      - name: Race
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./...

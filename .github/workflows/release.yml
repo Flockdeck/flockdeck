@@ -23,51 +23,19 @@ jobs:
   # built for. Much of what differs between them — how a running program is
   # replaced, how a file another process holds is waited out, how a failure
   # to start is shown — is only exercised by the tests on the platform itself,
-  # and a Linux runner alone never ran the Windows code at all.
+  # and a Linux runner alone never ran the Windows code at all. The tests are
+  # the ones every push and pull request runs, called from test.yml, so a
+  # release is held to exactly what a change is.
   test:
-    strategy:
-      # Every platform runs to the end even when another fails, so a failed
-      # release shows everything that needs fixing rather than the first of it.
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # The code is kept gofmt-clean by hand, and nothing held a release to
-      # it. Checked on Linux only: a Windows checkout turns line endings into
-      # CRLF, which gofmt would report in every file.
-      - name: Format
-        if: runner.os == 'Linux'
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::these files are not gofmt-clean:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref }}
 
   release:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           # The version is derived from the tag rather than from git describe,
@@ -75,7 +43,7 @@ jobs:
           # same checkout.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
