@@ -74,7 +74,8 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name, _ = os.Hostname()
+		host, _ := os.Hostname()
+		name = hostName(host)
 	}
 	reg, err := Register(ctx, relay, version, RegisterRequest{
 		Name: name, Join: strings.TrimSpace(req.Join), Invite: strings.TrimSpace(req.Invite),
@@ -90,6 +91,16 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 		return nil, false, err
 	}
 	return cfg, replaced, nil
+}
+
+// hostName is what a machine is called on devices when nobody says: its host
+// name, without the ".local" a Mac adds for its own network, which is not
+// part of what anybody calls it.
+func hostName(host string) string {
+	if n := len(host) - len(".local"); n > 0 && strings.EqualFold(host[n:], ".local") {
+		return host[:n]
+	}
+	return host
 }
 
 // Disable takes this machine off its relay and forgets the enrolment, and

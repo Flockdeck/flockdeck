@@ -809,6 +809,22 @@ func TestManagerEnablesOnceAtATime(t *testing.T) {
 	}
 }
 
+// A machine nobody names is called by its host name, without the ".local" a
+// Mac adds for its own network, which is not part of what anybody calls it.
+func TestHostName(t *testing.T) {
+	for host, want := range map[string]string{
+		"Jims-MacBook-Pro.local": "Jims-MacBook-Pro",
+		"Jims-MacBook-Pro.LOCAL": "Jims-MacBook-Pro",
+		"DESKTOP-4F2K9LQ":        "DESKTOP-4F2K9LQ",
+		"build.local.example":    "build.local.example",
+		"workstation":            "workstation",
+	} {
+		if got := hostName(host); got != want {
+			t.Errorf("hostName(%q) = %q, want %q", host, got, want)
+		}
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {
