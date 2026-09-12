@@ -34,13 +34,16 @@ anywhere by Flockdeck.
 
 The app makes these network connections of its own.
 
-- **Update checks.** It asks GitHub, where Flockdeck's releases are
+- **Update checks.** It asks dl.flockdeck.ai, where Flockdeck's releases are
   published, whether a newer version exists. This happens when it starts and
   then every six hours. When a new version exists, it downloads it from
-  GitHub. Nothing identifying is sent with the check, but GitHub sees your IP
-  address, as it would for any download; see [GitHub's privacy
+  there. If dl.flockdeck.ai can't be reached, it asks GitHub instead, which
+  mirrors every release. Nothing identifying is sent either way, but whichever
+  it reaches sees your IP address, as it would for any download; see
+  [GitHub's privacy
   statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
-  You can turn update checks off in Settings or with `FLOCKDECK_UPDATE=off`.
+  dl.flockdeck.ai keeps no access logs. You can turn update checks off in
+  Settings or with `FLOCKDECK_UPDATE=off`.
 - **The relay**, only after you turn on remote access. See below.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
@@ -158,8 +161,10 @@ standard access logs, as described above.
 ## Who else is involved
 
 The relay and this website are hosted by DigitalOcean, in its London region.
-DigitalOcean provides the servers, the database and DNS. Releases and update
-downloads are served by GitHub. TLS certificates come from Let's Encrypt,
+DigitalOcean provides the servers, the database and DNS, and serves releases
+and update downloads from dl.flockdeck.ai through its content delivery
+network, which answers from locations around the world. GitHub mirrors every
+release. TLS certificates come from Let's Encrypt,
 which receives no personal data about you. These providers process data on
 our behalf or as independent services, under their own terms.
 
