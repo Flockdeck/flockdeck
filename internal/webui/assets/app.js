@@ -3952,6 +3952,9 @@
   // --------------------------------------------------------------- fan out
 
   let fanout = null;
+  /** The most agents one fan-out starts: the server's workspace.MaxTasks,
+   *  which a test keeps this level with. */
+  const FANOUT_MAX = 12;
 
   /** openFanout turns what one agent proposed into a set of agents that do it.
    *
@@ -4148,9 +4151,14 @@
     const updateCount = () => {
       const lines = taskLines();
       tr.hidden = !trustApplies(lines.length ? lines : [""]);
-      count.textContent = tally(lines);
+      // The server stops at its cap and says so only afterwards, so a list
+      // longer than that promised agents that were never going to start.
+      const starts = Math.min(lines.length, FANOUT_MAX);
+      count.textContent = lines.length > FANOUT_MAX
+        ? lines.length + " tasks - only the first " + FANOUT_MAX + " start; run the rest as a second fan-out"
+        : tally(lines);
       start.disabled = lines.length === 0;
-      start.textContent = lines.length === 1 ? "Start 1 agent" : "Start " + lines.length + " agents";
+      start.textContent = starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
     };
 
     const renderRows = () => {

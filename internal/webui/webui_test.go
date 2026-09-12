@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // readAsset returns one of the embedded front-end files.
@@ -3300,6 +3302,31 @@ h.click(h.$("new-tab-pick"));
 h.click(h.$("overlay-help"));
 await h.sleep(30);
 assert.strictEqual(h.$("help-content").dataset.slug, "agents", "the picker's ? opened another page");
+`)
+}
+
+// The fan-out dialog says how many agents will start, and the server stops at
+// a cap it announces only afterwards. The dialog's number and the server's are
+// the same number, written in two places, so this holds them level.
+func TestTheFanOutCapIsTheServers(t *testing.T) {
+	m := regexp.MustCompile(`const FANOUT_MAX = (\d+);`).FindStringSubmatch(readAsset(t, "app.js"))
+	if m == nil || m[1] != strconv.Itoa(workspace.MaxTasks) {
+		t.Fatalf("app.js caps a fan-out at %v, the server at %d", m, workspace.MaxTasks)
+	}
+}
+
+// A fan-out of fifteen tasks offered to "Start 15 agents", and twelve started.
+func TestTheFanOutDoesNotPromiseMoreThanItStarts(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+const tasks = Array.from({ length: 15 }, (_, i) => "task " + (i + 1));
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks, isRepo: false, cwd: "C:/repo" });
+const start = h.$("overlay-body").querySelector("button.primary");
+assert.strictEqual(start.textContent, "Start 12 agents", "the button promised agents that will not start");
+assert.ok(/only the first 12 start/.test(h.$("overlay-body").querySelector("span.fan-count").textContent),
+  "nothing said the rest will not start");
 `)
 }
 
