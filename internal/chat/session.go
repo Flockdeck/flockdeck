@@ -521,6 +521,16 @@ func (s *session) sayWhyItStopped(err error) {
 		// again throws it away and is cut off at the same length.
 		s.out.line(ansiRed, err.Error())
 		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
+	case unreachable(err):
+		s.out.line(ansiRed, "could not reach the endpoint: "+err.Error())
+		change := "`flockdeck keys endpoint " + keyAgent(s.opts) + " <url>` changes the address"
+		if isLoopback(s.opts.BaseURL) {
+			// A server on this machine that is not answering is almost always
+			// one that has not been started.
+			s.out.line(ansiDim, "(nothing is answering at "+s.opts.BaseURL+"; is the model server running? "+change+"; /retry asks again)")
+		} else {
+			s.out.line(ansiDim, "(check the connection, or the address: "+change+"; /retry asks again)")
+		}
 	case contextFull(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")

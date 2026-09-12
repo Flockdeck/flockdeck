@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -137,6 +138,19 @@ func busy(err error) (*apiError, bool) {
 		return e, true
 	}
 	return nil, false
+}
+
+// unreachable reports whether err is the endpoint not being reached at all --
+// nothing listening at the address, a host that does not exist -- rather than
+// answering. Asking again changes nothing until the server is started or the
+// address is put right.
+func unreachable(err error) bool {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return true
+	}
+	var dns *net.DNSError
+	return errors.As(err, &dns)
 }
 
 // contextFull reports whether err says the conversation is longer than the
