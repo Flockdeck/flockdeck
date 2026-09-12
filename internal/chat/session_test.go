@@ -361,7 +361,7 @@ func TestCtrlCEndsTheTurnAndNotTheClient(t *testing.T) {
 		Agent: "anthropic", Task: "take your time", Signals: signals,
 	}, "/exit\n", wire)
 
-	if !strings.Contains(out, "(interrupted)") {
+	if !strings.Contains(out, "(interrupted") {
 		t.Errorf("the interruption was not shown:\n%s", out)
 	}
 	if !strings.Contains(out, "thinking about it") {

@@ -1,13 +1,14 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
 // command runs a slash command, and returns true when the client should leave.
-func (s *session) command(line string) bool {
+func (s *session) command(ctx context.Context, line string) bool {
 	name, rest, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
 	rest = strings.TrimSpace(rest)
 	switch strings.ToLower(name) {
@@ -19,6 +20,7 @@ func (s *session) command(line string) bool {
 			"/model        the models to choose from; /model 2 or /model <id> switches",
 			"/output [n]   all of the last tool's output, or of the nth last",
 			"/history [n]  the conversation so far, or its last n entries",
+			"/retry        carry on a turn that failed or was interrupted",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
@@ -34,6 +36,8 @@ func (s *session) command(line string) bool {
 		s.showOutput(rest)
 	case "history":
 		s.history(rest)
+	case "retry":
+		s.retry(ctx)
 	case "clear":
 		s.messages = nil
 		// The transcript is marked rather than truncated: what was said was
@@ -51,6 +55,26 @@ func (s *session) command(line string) bool {
 		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
 	}
 	return false
+}
+
+// retry is /retry: it carries on a turn that ended without an answer -- a
+// dropped connection, an overloaded API, Ctrl+C -- from where it stopped,
+// rather than the prompt being typed or pasted again and so asked twice. A
+// turn cut short among its tool calls carries on from their answers.
+func (s *session) retry(ctx context.Context) {
+	last := len(s.messages) - 1
+	if last < 0 || (s.messages[last].Role == RoleAssistant && len(s.messages[last].Calls) == 0) {
+		s.out.line(ansiDim, "there is nothing to retry: the last turn was answered")
+		return
+	}
+	prompt := ""
+	for i := last; i >= 0; i-- {
+		if s.messages[i].Role == RoleUser {
+			prompt = s.messages[i].Text
+			break
+		}
+	}
+	s.carryOn(ctx, prompt)
 }
 
 // chooseModel is /model. With nothing after it, it lists the models there are

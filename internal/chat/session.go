@@ -256,7 +256,7 @@ func (s *session) run(ctx context.Context) error {
 			continue
 		}
 		if strings.HasPrefix(prompt, "/") {
-			if leave := s.command(prompt); leave {
+			if leave := s.command(ctx, prompt); leave {
 				s.reporter.sessionEnd()
 				return nil
 			}
@@ -335,10 +335,16 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 // turn runs one exchange: the user's prompt, the model's answer, and any tools
 // it asks for along the way.
 func (s *session) turn(ctx context.Context, prompt string) {
-	s.reporter.userPrompt(prompt)
 	s.messages = append(s.messages, Message{Role: RoleUser, Text: prompt})
 	s.record(Entry{Type: string(RoleUser), Text: prompt})
+	s.carryOn(ctx, prompt)
+}
 
+// carryOn asks the model to go on from where the conversation stands, which is
+// a prompt the user has just added, or -- for /retry -- one that was never
+// answered.
+func (s *session) carryOn(ctx context.Context, prompt string) {
+	s.reporter.userPrompt(prompt)
 	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.interrupted.Store(false)
@@ -389,13 +395,14 @@ func (s *session) turn(ctx context.Context, prompt string) {
 		if err != nil {
 			switch {
 			case s.interrupted.Load() || errors.Is(err, context.Canceled):
-				s.out.line(ansiDim, "(interrupted)")
+				s.out.line(ansiDim, "(interrupted; /retry carries on)")
 			case refusedKey(err):
 				agent := firstNonEmpty(s.opts.Agent, "<agent>")
 				s.out.line(ansiRed, "the API refused the key: "+err.Error())
-				s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then send the prompt again")
+				s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
 			default:
 				s.out.line(ansiRed, "the model could not answer: "+err.Error())
+				s.out.line(ansiDim, "(/retry asks again)")
 			}
 			break
 		}
