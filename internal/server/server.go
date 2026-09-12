@@ -227,6 +227,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.pushLoop()
 	go s.gitLoop()
 	go s.usageLoop()
+	go s.saveLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()
@@ -415,6 +416,36 @@ func (s *Server) usageLoop() {
 			if s.ClientCount() > 0 {
 				s.Wake()
 			}
+		}
+	}
+}
+
+// layoutSaveInterval is how often every open project's layout is written while
+// the app runs. A variable so a test need not wait it out.
+var layoutSaveInterval = 30 * time.Second
+
+// saveLoop writes every open project's layout on a timer.
+//
+// Layouts were written only as the app stopped, as a project closed, and as a
+// window detached or reloaded. A run that was killed, crashed or lost its
+// machine to a power cut came back as the layout it had started with: every
+// tab opened, pane split and agent spawned since was gone, which is exactly
+// the work a restore is there to bring back. A layout that has not changed is
+// not rewritten (store.writeAtomic compares first), so a quiet workspace costs
+// an encoding and a comparison per project.
+//
+// Which projects are open is left to the save at the end, as it always was.
+// A -new run puts back the list it skipped only once that save has been
+// made, and a list written here in between would be all a crash left of it.
+func (s *Server) saveLoop() {
+	tick := time.NewTicker(layoutSaveInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-tick.C:
+			s.do(func() { _ = s.ws.SaveLayouts() })
 		}
 	}
 }

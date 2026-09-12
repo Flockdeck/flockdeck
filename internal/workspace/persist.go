@@ -23,13 +23,24 @@ import (
 // layout" is no help at all when several projects are open.
 func (w *Workspace) SaveAll() error {
 	var errs []error
+	if err := w.SaveLayouts(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := w.SaveSession(); err != nil {
+		errs = append(errs, fmt.Errorf("open projects: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// SaveLayouts writes the layout of every open project and leaves the list of
+// which ones are open alone. It is what is saved while the app runs; SaveAll,
+// which records that list as well, is what is saved as it stops.
+func (w *Workspace) SaveLayouts() error {
+	var errs []error
 	for _, root := range w.openRoots {
 		if err := w.SaveProject(root); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", root, err))
 		}
-	}
-	if err := w.SaveSession(); err != nil {
-		errs = append(errs, fmt.Errorf("open projects: %w", err))
 	}
 	return errors.Join(errs...)
 }
