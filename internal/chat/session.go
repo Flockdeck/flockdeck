@@ -574,7 +574,12 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 			s.answer(c, fmt.Sprintf("there is no tool called %q in this pane", c.Name))
 			continue
 		}
-		if question := tool.Approval(c.Args); question != "" && !s.approved(tool, c) {
+		question := tool.Approval(c.Args)
+		if key, ok := s.approved(tool, c); question != "" && ok {
+			// Not asked, and said so: a command running without a question
+			// should say whose earlier yes it is running on.
+			s.out.line(ansiDim, "  allowed for the rest of the session: `"+key+"`")
+		} else if question != "" {
 			ok, asked, instead := s.ask(ctx, tool, c, question)
 			if !asked {
 				// The user never answered: the turn was interrupted, or the
@@ -655,14 +660,15 @@ func (s *session) decline(calls []ToolCall, why string) {
 	}
 }
 
-// approved reports whether the user has already agreed to this family of calls.
-func (s *session) approved(t Tool, c ToolCall) bool {
+// approved reports whether the user has already agreed to this family of
+// calls, and names the family.
+func (s *session) approved(t Tool, c ToolCall) (string, bool) {
 	if a, ok := t.(AlwaysApprover); ok {
 		if key := a.AlwaysKey(c.Args); key != "" {
-			return s.always[t.Name()+"\x00"+key]
+			return key, s.always[t.Name()+"\x00"+key]
 		}
 	}
-	return false
+	return "", false
 }
 
 // ask puts a tool's question to the user, and returns whether they agreed,
