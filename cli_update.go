@@ -339,6 +339,8 @@ func updateFlagSet(f *updateFlags) *flag.FlagSet {
 		fmt.Fprintf(out, "published SHA-256 and puts it in place. A running instance keeps\n")
 		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
 		fs.PrintDefaults()
+		fmt.Fprintf(out, "\nA running Flockdeck also downloads new releases in the background and\n")
+		fmt.Fprintf(out, "offers them in the top bar. Set %s=off to stop it doing that.\n", updateEnv)
 	}
 	return fs
 }
