@@ -627,7 +627,10 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 			width = max(width, len(d.ID))
 		}
 		for _, d := range r.Devices {
-			fmt.Fprintf(out, "  %-*s  %s — last seen %s\n", width, d.ID, orUnnamed(d.Name), ago(d.LastSeen, now))
+			// A name may be 64 characters of several words; a row too long
+			// for the line carries on under the name, past the id.
+			id := fmt.Sprintf("  %-*s  ", width, d.ID)
+			fmt.Fprintln(out, breakAt(id, len(id), orUnnamed(d.Name)+" — last seen "+ago(d.LastSeen, now)))
 		}
 	}
 	if len(r.Hosts) > 0 {
@@ -646,7 +649,9 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 			if h.Self {
 				self = " (this one)"
 			}
-			fmt.Fprintf(out, "  %s%s — %s\n", orUnnamed(h.Name), self, state)
+			// Carried on two columns in from the name, so that the rest of a
+			// long row is not taken for the next machine.
+			fmt.Fprintln(out, breakAt("  ", 4, orUnnamed(h.Name)+self+" — "+state))
 		}
 	}
 }

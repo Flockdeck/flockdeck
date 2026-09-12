@@ -727,6 +727,21 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 	told("enable", "-relay", f2.URL, "-name", "DESKTOP-4F2K9LQ")
 	f2.Close()
 	told("disable", "-force")
+
+	// Names as long as the relay keeps, 64 characters, of several words: a
+	// device's, and machines', this one offline.
+	long := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"devices":[{"id":"meqf4vmfersvxg4q","name":"the tablet in the kitchen that everybody in the house uses"}],`+
+			`"hosts":[{"id":"h1","name":"the workstation under the desk in the study upstairs at home","online":false,"self":true},`+
+			`{"id":"h2","name":"the old laptop that lives in the drawer of the hall table now","online":false}]}`)
+	}))
+	defer long.Close()
+	if err := (&remote.Config{Relay: long.URL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, running := range []bool{false, true} {
+		check(running, "devices")
+	}
 }
 
 // The general usage is read in a terminal, which is often 80 columns wide, as
