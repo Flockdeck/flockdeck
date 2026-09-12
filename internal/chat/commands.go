@@ -229,16 +229,25 @@ func (s *session) showOutput(arg string) {
 		}
 		n = v
 	}
+	// The transcript rather than the conversation in memory: a resumed one
+	// holds its tools' output as part of what the user said, and /output found
+	// none of the outputs /history had just listed.
+	entries, err := ReadEntries(s.log.Path())
+	if err != nil {
+		s.out.line(ansiRed, "could not read the transcript: "+err.Error())
+		return
+	}
+	entries = sinceClear(entries)
 	seen := 0
-	for i := len(s.messages) - 1; i >= 0; i-- {
-		m := s.messages[i]
-		if m.Role != RoleTool {
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.Type != string(RoleTool) {
 			continue
 		}
 		if seen++; seen == n {
 			// As it came from the tool, not reflowed: it is code and logs.
-			s.out.line(ansiBlue, "· "+describeCall(m.Call, s.opts.Width))
-			s.out.line("", strings.TrimRight(m.Text, "\n"))
+			s.out.line(ansiBlue, "· "+clipTo(firstNonEmpty(e.Call, e.Tool, "tool"), s.opts.Width-4))
+			s.out.line("", strings.TrimRight(e.Text, "\n"))
 			return
 		}
 	}
