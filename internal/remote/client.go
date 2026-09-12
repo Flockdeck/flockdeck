@@ -152,6 +152,31 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 	return &out, nil
 }
 
+// Probe asks the relay at relay whether it is there, without a token. Moving
+// a machine is leaving one relay and then enrolling with another, and a
+// mistyped or unreachable address is best found out before the first step,
+// while the machine still has a relay to be on.
+func Probe(ctx context.Context, relay string) error {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, relay+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := relayHTTP.Do(req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("no answer within %s", requestTimeout)
+		}
+		return transportError(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("it answered %s, which is not what a Flockdeck relay answers", resp.Status)
+	}
+	return nil
+}
+
 // Pair asks for a one-time pairing code of the given kind.
 func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 	var out Pairing

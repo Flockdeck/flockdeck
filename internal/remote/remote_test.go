@@ -899,6 +899,33 @@ func TestRosterTimesAreByThisMachinesClock(t *testing.T) {
 	}
 }
 
+// Probe finds out whether a relay is at an address before a machine moves to
+// it: one that is, one that is something else, and nothing at all.
+func TestProbe(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = io.WriteString(w, "ok\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer up.Close()
+	if err := Probe(context.Background(), up.URL); err != nil {
+		t.Errorf("Probe of a relay = %v, want nil", err)
+	}
+	other := httptest.NewServer(http.NotFoundHandler())
+	defer other.Close()
+	if err := Probe(context.Background(), other.URL); err == nil || !strings.Contains(err.Error(), "not what a Flockdeck relay answers") {
+		t.Errorf("Probe of something else = %v, want it said not to be a relay", err)
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	goneURL := gone.URL
+	gone.Close()
+	if err := Probe(context.Background(), goneURL); err == nil || !strings.Contains(err.Error(), "nothing is answering there") {
+		t.Errorf("Probe of nothing = %v, want it said that nothing answers", err)
+	}
+}
+
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	quick(t)
 	srv := httptest.NewTLSServer(http.NotFoundHandler())

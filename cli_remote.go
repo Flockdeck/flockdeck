@@ -325,6 +325,13 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// Asking for another relay is moving this machine, which is two steps,
 		// and the refusal names both rather than only the first.
 		if want, _ := remote.RelayURL(f.relay); want != "" && !remote.SameRelay(want, already.Relay) {
+			// The first step leaves this machine without a relay until the
+			// second is done, and costs its devices if it is the account's
+			// only machine, so a relay that is not there is found out before
+			// anybody is told to take it.
+			if perr := remote.Probe(context.Background(), want); perr != nil {
+				return fmt.Errorf("%v; %s could not be reached (%v), so check that address before moving this machine there: moving takes disabling remote access here first", err, want, perr)
+			}
 			// Leaving a relay that could not be asked, which is most often why
 			// somebody moves, takes -force: plain disable would stop at the same.
 			disable := "flockdeck remote disable"

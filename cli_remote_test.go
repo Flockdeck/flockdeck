@@ -47,6 +47,11 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		devices = `[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:00:00Z"}]`
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/healthz" {
+		// As a relay answers anybody asking whether it is there.
+		_, _ = io.WriteString(w, "ok\n")
+		return
+	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/hosts" {
 		var req remote.RegisterRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
@@ -261,9 +266,11 @@ func TestRemoteLifecycle(t *testing.T) {
 		!strings.Contains(err.Error(), "to join that account instead") || strings.Contains(err.Error(), "nothing to do") {
 		t.Errorf("enabling with a join code over an enrolment = %v, want it to say how to join", err)
 	}
-	// Naming another relay is asking to move there, and the refusal says how.
-	if _, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example"); err == nil ||
-		!strings.Contains(err.Error(), "to move this machine to https://other.example, run `flockdeck remote disable`, then `flockdeck remote enable -relay https://other.example`") {
+	// Naming another relay, one that is there, is asking to move to it, and
+	// the refusal says how.
+	other := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", other.URL); err == nil ||
+		!strings.Contains(err.Error(), "to move this machine to "+other.URL+", run `flockdeck remote disable`, then `flockdeck remote enable -relay "+other.URL+"`") {
 		t.Errorf("enabling with another relay = %v, want it to say how to move", err)
 	}
 
@@ -925,6 +932,24 @@ func TestRemoteJoinAFullAccount(t *testing.T) {
 	}
 }
 
+// Moving to a relay that cannot be reached is found out before the machine
+// leaves the relay it is on, which is the first step of moving, and nothing
+// is said of taking it.
+func TestRemoteMoveToAnUnreachableRelay(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	goneURL := gone.URL
+	gone.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", goneURL)
+	if err == nil || !strings.Contains(err.Error(), goneURL+" could not be reached") || strings.Contains(err.Error(), "run `flockdeck remote disable") {
+		t.Errorf("moving to a relay that cannot be reached = %v, want it found out before any disabling", err)
+	}
+}
+
 // Moving off a relay that can no longer be reached takes disable -force, and
 // the refusal says so, not the plain disable, which would stop there too.
 func TestRemoteMoveFromAGoneRelay(t *testing.T) {
@@ -934,8 +959,9 @@ func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example")
-	if want := "run `flockdeck remote disable -force`, then `flockdeck remote enable -relay https://other.example`"; err == nil || !strings.Contains(err.Error(), want) {
+	other := newFakeRelayAPI(t)
+	_, _, err := runRemoteCmd(t, "enable", "-relay", other.URL)
+	if want := "run `flockdeck remote disable -force`, then `flockdeck remote enable -relay " + other.URL + "`"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("moving off a relay that is gone = %v, want it to say %q", err, want)
 	}
 	// Enabling again, with the relay out of reach, is most often a network
