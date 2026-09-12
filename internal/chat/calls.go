@@ -227,18 +227,27 @@ func describeCall(c ToolCall, width int) string {
 // summarise is what a tool's output is drawn as. The output itself goes to the
 // model; what the user needs is enough to see that the right thing happened.
 func summarise(out string, width int) string {
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	first := clipTo(strings.TrimSpace(lines[0]), width-12)
-	if len(lines) > 1 {
-		if last := strings.TrimSpace(lines[len(lines)-1]); isResultLine(last) {
-			first = clipTo(last, width-12)
-		}
-		return fmt.Sprintf("%s (%d lines; /output shows them)", first, len(lines))
+	lines := strings.Count(strings.TrimRight(out, "\n"), "\n") + 1
+	lead := clipTo(leadLine(out), width-12)
+	if lines > 1 {
+		return fmt.Sprintf("%s (%d lines; /output shows them)", lead, lines)
 	}
-	if first == "" {
+	if lead == "" {
 		return "(no output)"
 	}
-	return first
+	return lead
+}
+
+// leadLine is the one line a tool's output is known by: its result, which the
+// tools put last, where it has one, and otherwise its first line. It is the
+// same line whether the output is drawn as the call runs or read back later
+// from the history.
+func leadLine(out string) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); len(lines) > 1 && isResultLine(last) {
+		return last
+	}
+	return strings.TrimSpace(lines[0])
 }
 
 // isResultLine reports whether the last line of a tool's output is its result,

@@ -373,7 +373,7 @@ func (s *session) drawEntries(entries []Entry) {
 			s.out.text(e.Text)
 			s.out.endMessage()
 		case string(RoleTool):
-			summary := clipTo(firstLine(e.Text, 400), s.opts.Width-16)
+			summary := clipTo(leadLine(e.Text), s.opts.Width-16)
 			if n := strings.Count(strings.TrimRight(e.Text, "\n"), "\n") + 1; n > 1 {
 				summary += fmt.Sprintf(" (%d lines)", n)
 			}
