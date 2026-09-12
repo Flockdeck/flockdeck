@@ -165,6 +165,12 @@ type Session struct {
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
+	// written is how many bytes the pane has printed, and modes what they
+	// have done to the terminal's modes, both as of the last chunk in history.
+	// They are copied off the reader's scanner here, under mu, so that
+	// Subscribe can read them.
+	written int64
+	modes   termModes
 	subs    map[int]*subscriber
 	nextSub int
 
@@ -309,6 +315,8 @@ func (s *Session) publish(chunk []byte) {
 
 	s.mu.Lock()
 	s.history.write(chunk)
+	s.written += int64(len(chunk))
+	s.modes = s.bell.modes
 	s.lastOutput = time.Now()
 	// A pane nothing is reporting for is read from what it prints, in three
 	// ways that know progressively more. An agent's own patterns are the
@@ -512,6 +520,11 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	replay = s.history.replay()
+	// Whatever the output switched before the replay begins has to be switched
+	// again ahead of it, or the window rebuilding its screen does not know.
+	if restore := s.modes.restore(s.written - int64(len(replay))); len(restore) > 0 {
+		replay = append(restore, replay...)
+	}
 	if s.status == StatusExited {
 		close(ch)
 		return -1, replay, ch

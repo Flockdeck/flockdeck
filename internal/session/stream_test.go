@@ -81,6 +81,7 @@ func TestBellScannerIgnoresOSCTerminator(t *testing.T) {
 		// start of one: losing that leaves the scanner inside the sequence,
 		// and the next real bell is swallowed as the byte that ends it.
 		{"an escape before the ST terminator", "\x1b]0;t\x1b\x1b" + `\` + "ding\x07", true},
+		{"a bell inside a control sequence still rings", "\x1b[1\x07m", true},
 		{"no bell at all", "just text", false},
 	}
 	for _, c := range cases {
@@ -318,6 +319,61 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	t.Cleanup(func() { fresh.Unsubscribe(id2) })
 	if !strings.Contains(string(replay2), "the first line") {
 		t.Errorf("replay dropped the start of a buffer that never wrapped: %q", replay2)
+	}
+}
+
+// TestReplayPutsBackModesItNoLongerHolds covers a pane that switched a mode
+// long ago -- an agent's mouse reporting when it started, vim's alternate
+// screen when it opened -- and has since said more than the history holds.
+// The switch is no longer in the replay, so a window reloading the pane had
+// the mode off.
+func TestReplayPutsBackModesItNoLongerHolds(t *testing.T) {
+	pane := func() *Session {
+		return &Session{history: newRing(64), subs: map[int]*subscriber{}, idleAfter: time.Minute}
+	}
+	replay := func(s *Session) string {
+		id, replay, _ := s.Subscribe()
+		s.Unsubscribe(id)
+		return string(replay)
+	}
+	lines := func(s *Session, n int) {
+		for i := 0; i < n; i++ {
+			s.publish([]byte("a line of output\n"))
+		}
+	}
+
+	s := pane()
+	// Split across reads, the way a PTY delivers it.
+	s.publish([]byte("\x1b[?1049h\x1b[?20"))
+	s.publish([]byte("04h\x1b[?25l\x1b[?1000;1006h"))
+	lines(s, 10)
+	want := "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h\x1b[?2004h"
+	if got := replay(s); !strings.HasPrefix(got, want) {
+		t.Errorf("replay = %q, want it to open with %q", got, want)
+	}
+
+	// A mode switched back to its default needs nothing putting back.
+	s.publish([]byte("\x1b[?2004l\x1b[?1049l"))
+	lines(s, 10)
+	got := replay(s)
+	if !strings.HasPrefix(got, "\x1b[?25l\x1b[?1000h\x1b[?1006h") || strings.Contains(got, "2004") || strings.Contains(got, "1049") {
+		t.Errorf("replay = %q, want only the modes still switched", got)
+	}
+
+	// A switch the history still holds is replayed as it happened, not twice.
+	s = pane()
+	lines(s, 4)
+	s.publish([]byte("\x1b[?2004htail\n"))
+	if got := replay(s); strings.Count(got, "\x1b[?2004h") != 1 {
+		t.Errorf("replay = %q, want the switch it holds exactly once", got)
+	}
+
+	// A full reset puts every mode back as it started.
+	s = pane()
+	s.publish([]byte("\x1b[?2004h\x1bc"))
+	lines(s, 10)
+	if got := replay(s); strings.Contains(got, "\x1b[?") {
+		t.Errorf("replay = %q, want nothing put back after a reset", got)
 	}
 }
 

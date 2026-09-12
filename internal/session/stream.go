@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -104,10 +105,101 @@ func (r *ring) tail(n int) (b []byte, truncated bool) {
 // change would look like a request for attention. This tracks whether the
 // stream is inside a string sequence and ignores the BEL that ends one.
 //
+// It also keeps track of the terminal modes the stream has switched, which is
+// the same walk over the same bytes: see termModes.
+//
 // It is only ever driven from the single PTY reader goroutine, so it needs no
 // locking of its own.
 type bellScanner struct {
 	state scanState
+	// pos is how many bytes were scanned before the current chunk, and escAt
+	// where the escape that began the current sequence was.
+	pos, escAt int64
+	// private records that the control sequence being read is a DEC private
+	// one, CSI ?, and params holds its numbers.
+	private bool
+	param   int
+	params  [4]int
+	nparams int
+	modes   termModes
+}
+
+// push ends a control sequence parameter.
+func (b *bellScanner) push() {
+	if b.nparams < len(b.params) {
+		b.params[b.nparams] = b.param
+		b.nparams++
+	}
+	b.param = 0
+}
+
+// trackedModes are the terminal modes a replay has to put back, alternate
+// screens first so that what follows is drawn on the screen it was drawn on.
+// All but the cursor start switched off.
+var trackedModes = [...]struct {
+	mode        int
+	onByDefault bool
+}{
+	// The alternate screens.
+	{1049, false}, {1047, false}, {47, false},
+	// Application cursor keys, and whether the cursor is shown.
+	{1, false}, {25, true},
+	// Mouse reporting, and the encodings it is reported in.
+	{1000, false}, {1002, false}, {1003, false},
+	{1005, false}, {1006, false}, {1015, false},
+	// Focus reports and bracketed paste.
+	{1004, false}, {2004, false},
+}
+
+// termModes is what a pane's output has done to the terminal's modes: which of
+// trackedModes it has left other than their default, and where in the output
+// each was last switched.
+//
+// A mode is switched once and holds until it is switched back, which for an
+// agent's mouse reporting, vim's alternate screen or a shell's bracketed paste
+// is usually the moment the program started. Once that has scrolled out of the
+// history the replay no longer says so, and a window reloading an agent that
+// has been running for an hour gets a terminal with all of them off: the wheel
+// scrolls the window instead of the agent, a full-screen program draws over
+// the scrollback, and a paste arrives as if it were typed.
+type termModes struct {
+	changed uint16
+	at      [len(trackedModes)]int64
+}
+
+// set records a mode switched on or off by the sequence beginning at offset at.
+func (m *termModes) set(mode int, on bool, at int64) {
+	for i, t := range trackedModes {
+		if t.mode == mode {
+			if on != t.onByDefault {
+				m.changed |= 1 << i
+			} else {
+				m.changed &^= 1 << i
+			}
+			m.at[i] = at
+			return
+		}
+	}
+}
+
+// restore returns the sequences that put back what the output left changed,
+// for a replay beginning at offset from. A mode last switched at or after that
+// is switched again by the replay itself.
+func (m termModes) restore(from int64) []byte {
+	var out []byte
+	for i, t := range trackedModes {
+		if m.changed&(1<<i) == 0 || m.at[i] >= from {
+			continue
+		}
+		out = append(out, "\x1b[?"...)
+		out = strconv.AppendInt(out, int64(t.mode), 10)
+		if t.onByDefault {
+			out = append(out, 'l')
+		} else {
+			out = append(out, 'h')
+		}
+	}
+	return out
 }
 
 type scanState int
@@ -131,12 +223,13 @@ const (
 // three shapes of output in view so the next attempt starts from the numbers.
 func (b *bellScanner) scan(p []byte) bool {
 	rang := false
-	for _, c := range p {
+	for i, c := range p {
 		switch b.state {
 		case scanNormal:
 			switch c {
 			case 0x1b:
 				b.state = scanEsc
+				b.escAt = b.pos + int64(i)
 			case 0x07:
 				rang = true
 			}
@@ -148,13 +241,54 @@ func (b *bellScanner) scan(p []byte) bool {
 			// attention.
 			case ']', 'P', '^', '_':
 				b.state = scanOSC
+			case '[':
+				b.state = scanCSI
+				b.private, b.param, b.nparams = false, 0, 0
+			case 'c':
+				// A full reset puts every mode back as it started.
+				b.modes = termModes{}
+				b.state = scanNormal
 			case 0x1b:
 				// A second escape restarts the sequence rather than being the
 				// body of the first.
+				b.escAt = b.pos + int64(i)
 			default:
-				// Any other escape sequence (CSI included) is terminated by a
-				// byte that cannot be BEL, so tracking it adds nothing.
+				// Any other escape sequence is terminated by a byte that
+				// cannot be BEL, so tracking it adds nothing.
 				b.state = scanNormal
+			}
+		case scanCSI:
+			// A control sequence is read for the modes it switches, which only
+			// a private one can. The others -- colours and cursor moves, which
+			// is nearly all of them -- are only watched for their end, and
+			// the checks are in the order that keeps them cheap.
+			switch {
+			case c >= 0x40 && c <= 0x7e:
+				if b.private && (c == 'h' || c == 'l') {
+					b.push()
+					for _, mode := range b.params[:b.nparams] {
+						b.modes.set(mode, c == 'h', b.escAt)
+					}
+				}
+				b.state = scanNormal
+			case c < 0x20:
+				switch c {
+				case 0x07:
+					// A control character inside a sequence is acted on
+					// where it stands, the bell included.
+					rang = true
+				case 0x1b:
+					b.state = scanEsc
+					b.escAt = b.pos + int64(i)
+				case 0x18, 0x1a:
+					b.state = scanNormal // CAN and SUB abandon the sequence
+				}
+			case !b.private:
+				b.private = c == '?' && b.nparams == 0 && b.param == 0
+			case c >= '0' && c <= '9':
+				b.param = min(b.param*10+int(c-'0'), 1<<20)
+			case c == ';':
+				b.push()
 			}
 		case scanOSC:
 			switch c {
@@ -177,6 +311,7 @@ func (b *bellScanner) scan(p []byte) bool {
 			}
 		}
 	}
+	b.pos += int64(len(p))
 	return rang
 }
 
