@@ -3253,6 +3253,43 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 15 }, "Ctrl 
 `)
 }
 
+// The fan-out's trust row is about Claude Code's folder-trust question, in
+// Claude's words, and was drawn whichever agents had been chosen. It shows
+// only while one that asks the question is among them: the server says which
+// do, and until it does, that is Claude.
+func TestTheFanOutOffersTrustOnlyForAgentsThatAsk(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const preview = (agents, agent) => ({ type: "fanoutPreview", paneId: "p1", tasks: ["one task"], isRepo: true,
+  trusted: true, project: "repo", cwd: "C:/repo", agent, agents });
+const trustRow = () => h.$("overlay-body").querySelectorAll("label.fan-opt").find((l) => l.textContent.includes("Trust"));
+const runSel = () => h.$("overlay-body").querySelector("select.fan-agent-sel");
+const pick = (value) => { const s = runSel(); s.value = value; h.dispatch(s, new h.Ev("change", { target: s })); };
+const agents = [
+  { id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
+  { id: "codex", name: "Codex", models: [{ id: "gpt-5" }] },
+];
+
+h.press("fanout");
+h.recv(preview(agents, "codex"));
+assert.ok(trustRow().hidden, "the trust row is offered for an agent that asks no such question");
+pick("claude\n");
+assert.ok(!trustRow().hidden, "the trust row is not offered when Claude is chosen");
+h.$("overlay-body").querySelector("button.primary").onclick();
+assert.strictEqual(h.commands().pop().trust, true);
+
+// Where the server says which agents ask, that is what counts.
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv(preview([{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }], askTrust: false },
+                { id: "other", name: "Other", models: [{ id: "m" }], askTrust: true }], "other"));
+assert.ok(!trustRow().hidden, "an agent the server says asks was not offered trust");
+pick("claude\n");
+assert.ok(trustRow().hidden, "the id was trusted over what the server said");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

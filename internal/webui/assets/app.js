@@ -4129,8 +4129,23 @@
       return plural + " — " + parts.join(", ");
     };
 
+    /** Whether any agent this fan-out would start asks the folder-trust
+     *  question the trust row is about. Only Claude Code does, and the row
+     *  was drawn - in Claude's words - whichever agents had been chosen. The
+     *  server says which agents ask it; until it does, the answer is Claude. */
+    const asksTrust = (id) => {
+      const a = catalog.find((x) => x.id === id);
+      return catalog.some((x) => "askTrust" in x) ? !!(a && a.askTrust) : id === "claude";
+    };
+    const trustApplies = (lines) => {
+      const runID = choosable ? pickParts(runSel.value)[0] : (m.agent || (catalog[0] && catalog[0].id) || "claude");
+      if (asksTrust(runID) && lines.some((t) => !pickParts(overrides.get(t))[0])) return true;
+      return lines.some((t) => asksTrust(pickParts(overrides.get(t))[0]));
+    };
+
     const updateCount = () => {
       const lines = taskLines();
+      tr.hidden = !trustApplies(lines.length ? lines : [""]);
       count.textContent = tally(lines);
       start.disabled = lines.length === 0;
       start.textContent = lines.length === 1 ? "Start 1 agent" : "Start " + lines.length + " agents";
@@ -4165,7 +4180,7 @@
         tasks,
         worktrees: wtBox.checked && !wtBox.disabled,
         split: spBox.checked,
-        trust: trBox.checked && !trBox.disabled,
+        trust: trBox.checked && !trBox.disabled && !tr.hidden,
       };
       // The agent fields are left off altogether where there was nothing to
       // choose, so a fan-out that made no decision about agents goes over the
