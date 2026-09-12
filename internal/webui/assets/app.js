@@ -1891,6 +1891,9 @@
       clearTimeout(p.retryTimer);
       clearTimeout(p.fitTimer);
       panes.delete(id); // stop the close handler from reconnecting
+      // The find bar searches the pane it was opened for, and with that pane
+      // gone it stayed open, still naming it, while Enter and F3 did nothing.
+      if (searchPane === id && !$("searchbar").hidden) closeSearch();
       try { p.ws && p.ws.close(); } catch {}
       p.resize.disconnect();
       p.term.dispose();

@@ -4654,6 +4654,30 @@ assert.ok(h.terms[0].focused, "dismissing the hint left the keyboard on nothing"
 `)
 }
 
+// The find bar searches the pane it was opened for. Closing that pane left
+// the bar open, still naming it, while Enter and F3 quietly did nothing.
+func TestTheFindBarGoesWithThePaneItSearches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const both = { tabs: [{ id: "t1", title: "pair", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "builder" }) } };
+h.recv(fixture(both));
+h.press("findInTerminal");
+assert.strictEqual(h.$("search-label").textContent, "Find in reviewer");
+h.recv(fixture({ tabs: [{ id: "t1", title: "pair", focus: "p2", root: leaf("n2", "p2") }],
+  panes: { p2: pane("p2", { name: "builder" }) } }));
+assert.ok(h.$("searchbar").hidden, "the find bar stayed open for a pane that is gone");
+
+// Closing the other pane leaves it alone.
+h.recv(fixture(both));
+h.press("findInTerminal");
+h.recv(fixture({ tabs: [{ id: "t1", title: "pair", focus: "p1", root: leaf("n1", "p1") }],
+  panes: { p1: pane("p1", { name: "reviewer" }) } }));
+assert.ok(!h.$("searchbar").hidden, "closing another pane closed the find bar");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
