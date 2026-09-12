@@ -291,20 +291,31 @@ func (w *Workspace) tabOf(paneID string) *Tab {
 	return nil
 }
 
+// foldsCase says whether file names on this system ignore case, which is what
+// decides whether two spellings of a path can name one directory. Windows and
+// macOS ignore it by default, which is what the store assumes when it keys a
+// project's layout; Linux does not, and there /code/Api and /code/api are two
+// projects. It is a variable so that a test can ask about the other kind.
+var foldsCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
 // sameDir compares two directory paths for the purposes of telling a pane
-// apart from its project root. Case is ignored, since Windows paths reach us
-// from both the command line and git.
+// apart from its project root, and one open project from another.
+//
+// Case is ignored only where the filesystem ignores it. Ignoring it everywhere
+// made two projects on Linux whose names differ only in case one project:
+// opening the second showed the first, and its own layout, which the store
+// keeps apart, was never read.
 func sameDir(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return pathKey(a) == pathKey(b)
 }
 
 // pathKey is a directory as a map key: cleaned, and case-folded where the
 // filesystem folds case, so that two spellings of one directory are one entry.
-// Only Windows is folded, where the spellings really do arrive — from the
-// command line, from git, from a picker — and where they name one directory.
+// The spellings really do arrive — from the command line, from git, from a
+// picker — and where case is folded they name one directory.
 func pathKey(dir string) string {
 	d := filepath.Clean(dir)
-	if runtime.GOOS == "windows" {
+	if foldsCase {
 		d = strings.ToLower(d)
 	}
 	return d
@@ -314,11 +325,11 @@ func pathKey(dir string) string {
 //
 // Case is folded for the same reason sameDir folds it: the two paths arrive
 // from different places — one from a project as it was opened, the other from
-// git or from a directory picker — and on Windows they can name the same
-// directory in different case.
+// git or from a directory picker — and where case is folded they can name the
+// same directory in different case.
 func underDir(dir, base string) bool {
 	d, b := filepath.Clean(dir), filepath.Clean(base)
-	if runtime.GOOS == "windows" {
+	if foldsCase {
 		// Folded before the comparison, not after: filepath.Rel compares the
 		// two case sensitively, so folding its answer would be too late.
 		d, b = strings.ToLower(d), strings.ToLower(b)
