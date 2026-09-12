@@ -4491,6 +4491,24 @@ assert.ok(!after.defaultPrevented, "F3 was taken with the find bar closed");
 `)
 }
 
+// Renaming a tab to nothing did nothing and said nothing: the empty answer
+// was dropped before the server, which says a tab needs a name, could say so.
+func TestAnEmptiedTabNameIsAnswered(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+const renames = () => h.commands().filter((c) => c.cmd === "renameTab");
+h.win._prompt = "";
+paletteRun("rename this tab");
+assert.deepStrictEqual(renames().pop(), { cmd: "renameTab", id: "t1", text: "" },
+  "an emptied name went nowhere, so nothing said why the tab kept its old one");
+h.win._prompt = null;
+const before = renames().length;
+paletteRun("rename this tab");
+assert.strictEqual(renames().length, before, "Cancel renamed the tab");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

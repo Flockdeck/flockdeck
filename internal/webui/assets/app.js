@@ -1056,7 +1056,11 @@
     const tab = (state ? state.tabs : []).find((t) => t.id === id);
     if (!tab) return;
     const name = window.prompt("Rename tab", tab.title || "");
-    if (name) send({ cmd: "renameTab", id, text: name });
+    // Every answer but Cancel goes, and the server says what it made of it.
+    // An emptied name was dropped here, so OK on it did nothing and said
+    // nothing - while one of spaces reached the server and was told a tab
+    // needs a name.
+    if (name !== null && name !== undefined) send({ cmd: "renameTab", id, text: name });
   }
 
   /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
