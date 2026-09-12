@@ -601,3 +601,18 @@ func TestExeIsExpandedLikeAShellWould(t *testing.T) {
 		t.Errorf("exe = %q, want it expanded", s.Exe)
 	}
 }
+
+// TestEnvValuesAreExpanded: an entry's environment replaces the inherited
+// variable as written, so "PATH=$HOME/bin:$PATH" left the pane with a PATH of
+// those very characters.
+func TestEnvValuesAreExpanded(t *testing.T) {
+	t.Setenv("FLOCKDECK_TEST_BASE", "/opt/base")
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "mine", "exe": "mine", "env": ["TOOLS=$FLOCKDECK_TEST_BASE/bin:%FLOCKDECK_TEST_BASE%/lib", "$KEEP=as written", "NOVAR=100%"]}`),
+	}})
+	s, _ := c.Find("mine")
+	want := []string{"TOOLS=/opt/base/bin:/opt/base/lib", "$KEEP=as written", "NOVAR=100%"}
+	if !slices.Equal(s.Env, want) {
+		t.Errorf("env = %q, want %q", s.Env, want)
+	}
+}

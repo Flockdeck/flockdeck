@@ -289,6 +289,15 @@ func normalize(s *Spec) {
 	if s.Name == "" {
 		s.Name = s.ID
 	}
+	// An entry's environment replaces the inherited variable of the same
+	// name as it is written, so "PATH=$HOME/bin:$PATH" gave the pane a PATH
+	// of those very characters and nothing in it would run. The variables in
+	// a value are read as a shell would read them; the name is left alone.
+	for i, kv := range s.Env {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			s.Env[i] = name + "=" + expandVars(value)
+		}
+	}
 	if s.Runner == "" {
 		// An entry that describes an endpoint means to talk to it; anything
 		// else is a program to run.
@@ -347,13 +356,20 @@ func expandExe(exe string) string {
 			exe = home + exe[1:]
 		}
 	}
-	exe = percentVar.ReplaceAllStringFunc(exe, func(m string) string {
+	return expandVars(exe)
+}
+
+// expandVars replaces "$NAME", "${NAME}" and "%NAME%" with the variable, where
+// it is set, in Flockdeck's own environment -- which is the one a pane
+// inherits, so "$PATH" means what the pane would have had.
+func expandVars(s string) string {
+	s = percentVar.ReplaceAllStringFunc(s, func(m string) string {
 		if v, ok := os.LookupEnv(strings.Trim(m, "%")); ok {
 			return v
 		}
 		return m
 	})
-	return os.Expand(exe, func(name string) string {
+	return os.Expand(s, func(name string) string {
 		if v, ok := os.LookupEnv(name); ok {
 			return v
 		}
