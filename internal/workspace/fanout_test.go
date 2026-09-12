@@ -234,6 +234,17 @@ func TestExtractTasksKeepsTheStepOnTheAgentsOwnLine(t *testing.T) {
 		},
 		// The glyphs an agent spins through while it works are not a list.
 		"a spinner": {"✻ Perambulating the router package… (esc to interrupt)\n", nil},
+		// Only steps that line up under the first one make it one of them: a
+		// numbered bullet beside a plain one is a list of two, and detail
+		// under the first step does not stop the rest lining up after it.
+		"a numbered bullet beside a plain one": {
+			"• 1. Split the router into its own package\n• Add a timeout to the control socket\n",
+			three[:2],
+		},
+		"detail under the first step": {
+			"⏺ 1. Split the router into its own package\n     - move the handlers first\n" + rest,
+			three,
+		},
 	} {
 		if got := ExtractTasks(tc.screen); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)

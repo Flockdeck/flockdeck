@@ -108,6 +108,9 @@ func ExtractTasks(text string) []string {
 // item is one list entry, how far it was indented, and which line it came from.
 type item struct {
 	indent int
+	// textAt is where the entry's text starts, for one on the line an agent
+	// marks as the start of what it says; for every other entry it is indent.
+	textAt int
 	line   int
 	text   string
 }
@@ -154,8 +157,7 @@ func listItems(text string) ([]item, []int) {
 			open = -1
 			continue
 		}
-		if entry, at, ok := openingEntry(body, indent); ok {
-			indent = at
+		if entry, textAt, ok := openingEntry(body, indent); ok {
 			// A heading or lead-in written as a list entry with the steps nested
 			// under it — "- Next steps:" over indented bullets, or Codex's bullet
 			// in front of "Plan:" or "Here's the plan:" — announces the plan as
@@ -174,7 +176,7 @@ func listItems(text string) ([]item, []int) {
 				}
 				cues = append(cues[:at], append([]int{heading}, cues[at:]...)...)
 			}
-			items = append(items, item{indent: indent, line: n, text: entry})
+			items = append(items, item{indent: indent, textAt: textAt, line: n, text: entry})
 			open = len(items) - 1
 			continue
 		}
@@ -196,6 +198,24 @@ func listItems(text string) ([]item, []int) {
 			}
 		}
 		open = -1
+	}
+	// A step on the agent's own line is one of the steps under it only when
+	// they line up with its text. Moving it there regardless made a numbered
+	// bullet beside a plain one the other's detail; detail indented under it
+	// deeper still does not stop the rest lining up after.
+	for i := range items {
+		if items[i].textAt <= items[i].indent {
+			continue
+		}
+		for _, later := range items[i+1:] {
+			if later.indent <= items[i].indent {
+				break
+			}
+			if later.indent == items[i].textAt {
+				items[i].indent = items[i].textAt
+				break
+			}
+		}
 	}
 	return items, cues
 }
