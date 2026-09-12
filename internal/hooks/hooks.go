@@ -31,6 +31,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jmwri/flockdeck/internal/spend"
 )
 
 // Event is a lifecycle notification from one pane.
@@ -112,6 +114,7 @@ type Server struct {
 	mu        sync.RWMutex
 	onSpawn   func(SpawnRequest) (SpawnResult, error)
 	onContext func(sessionID string) string
+	onUsage   func(spend.Report)
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -155,6 +158,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hook", s.handle)
 	mux.HandleFunc("/spawn", s.handleSpawn)
+	mux.HandleFunc("/usage", s.handleUsage)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
