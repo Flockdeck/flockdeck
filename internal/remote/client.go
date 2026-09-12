@@ -140,6 +140,28 @@ type Host struct {
 type Roster struct {
 	Devices []Device `json:"devices"`
 	Hosts   []Host   `json:"hosts"`
+	// Plan is the account's plan, from a relay that asks for a subscription;
+	// any other relay sends none.
+	Plan *Plan `json:"plan,omitempty"`
+}
+
+// Plan is an account's plan as its relay reports it. Flockdeck shows it and
+// decides nothing by it: whether remote access works is the relay's to say,
+// and it says so by refusing the tunnel.
+type Plan struct {
+	// Plan is trial, subscribed, or lapsed once either has run out.
+	Plan string `json:"plan"`
+	// Name is what the relay calls it.
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+	// Ends is when the trial or subscription runs out, or ran out.
+	Ends time.Time `json:"ends,omitzero"`
+	// Was is, for a lapsed account, the plan that ran out.
+	Was string `json:"was,omitempty"`
+	// DeleteAt is when a lapsed account is deleted unless it subscribes.
+	DeleteAt time.Time `json:"deleteAt,omitzero"`
+	// Message is, for a lapsed account, the relay's own words about it.
+	Message string `json:"message,omitempty"`
 }
 
 // Pairing kinds.
@@ -234,6 +256,9 @@ func (c *Client) Devices(ctx context.Context) (*Roster, error) {
 		}
 		for i := range out.Hosts {
 			out.Hosts[i].LastSeen = byHere(out.Hosts[i].LastSeen, shift)
+		}
+		if p := out.Plan; p != nil {
+			p.Ends, p.DeleteAt = byHere(p.Ends, shift), byHere(p.DeleteAt, shift)
 		}
 	}
 	return &out, nil

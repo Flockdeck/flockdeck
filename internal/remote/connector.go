@@ -28,6 +28,10 @@ const (
 	// started with -solo; fighting it for the slot would have the two of them
 	// knock each other off the relay every few seconds for as long as both run.
 	CloseReplaced websocket.StatusCode = 4002
+	// CloseLapsed: the account's trial or subscription on the relay has run
+	// out. Unlike the other two it is not the end: the relay lets this host
+	// back in once the account is paid for, so it is tried again, slowly.
+	CloseLapsed websocket.StatusCode = 4003
 )
 
 // State is where the connection to the relay stands.
@@ -40,6 +44,10 @@ const (
 	StateRevoked    State = "revoked"
 	StateReplaced   State = "replaced"
 	StateError      State = "error"
+	// StateLapsed is the relay refusing remote access because the account's
+	// trial or subscription has run out. Detail is the relay's own sentence:
+	// Flockdeck decides nothing by a plan, and only shows what the relay says.
+	StateLapsed State = "lapsed"
 )
 
 // Status is what the window is told about the tunnel. The command line asks
@@ -72,6 +80,11 @@ var (
 	// uses the same two.
 	keepAlive        = 15 * time.Second
 	keepAliveTimeout = 45 * time.Second
+	// lapsedRetry is how long a relay that refused this host for its
+	// account's plan is left before it is asked again. The account may be
+	// paid for from a phone at any time, and nothing tells this machine when,
+	// so it asks now and then rather than giving up; Try again asks at once.
+	lapsedRetry = 10 * time.Minute
 )
 
 // smuxConfig is the multiplexer's configuration, which has to agree with the
@@ -230,6 +243,27 @@ func (c *Connector) run(ctx context.Context) {
 			c.set(StateReplaced, errReplaced.Error(), time.Time{})
 			return
 		}
+		if msg, ok := lapsedMessage(err); ok {
+			// Nothing is wrong with the connection, so the backoff starts
+			// afresh once the relay lets this host in again.
+			wait = backoffMin
+			select {
+			case <-c.retry:
+			default:
+			}
+			c.set(StateLapsed, msg, time.Now().Add(lapsedRetry))
+			timer := time.NewTimer(lapsedRetry)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				c.set(StateOff, "", time.Time{})
+				return
+			case <-timer.C:
+			case <-c.retry:
+				timer.Stop()
+			}
+			continue
+		}
 		// A tunnel that held for a good while and then dropped is a new
 		// problem, not the next failure of an old one, and is retried
 		// promptly. Until that retry has failed too it is not shown as
@@ -259,6 +293,21 @@ func (c *Connector) run(ctx context.Context) {
 		}
 		wait = min(wait*2, backoffMax)
 	}
+}
+
+// lapsedMessage reports whether err is the relay refusing this host because
+// its account's trial or subscription has run out -- 402 Payment Required
+// when it dials, or CloseLapsed on a tunnel already open -- and what the relay
+// said about it.
+func lapsedMessage(err error) (string, bool) {
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusPaymentRequired {
+		return "", false
+	}
+	if api.Message == "" {
+		return "The relay has stopped remote access for this account until it is paid for. Subscribe from Devices on a paired phone or browser.", true
+	}
+	return api.Message, true
 }
 
 // revokedDetail says what a revoked host means, and what to do about it.
@@ -439,6 +488,10 @@ func why(err error) error {
 		return &APIError{Status: http.StatusUnauthorized, Message: ce.Reason}
 	case CloseReplaced:
 		return errReplaced
+	case CloseLapsed:
+		var ce websocket.CloseError
+		errors.As(err, &ce)
+		return &APIError{Status: http.StatusPaymentRequired, Message: ce.Reason}
 	}
 	// The window shows this, so a close the relay gave a reason for says the
 	// reason, and not the library's account of receiving it.
