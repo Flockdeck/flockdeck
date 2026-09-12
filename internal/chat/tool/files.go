@@ -131,11 +131,7 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 		return "", fmt.Errorf("%s has %d lines; offset %d is past the end", t.root.Rel(abs), lines, offset)
 	}
 	if remaining := lines - shown; remaining > 0 {
-		noun := "lines"
-		if remaining == 1 {
-			noun = "line"
-		}
-		fmt.Fprintf(&b, "\n[%d more %s; read again with offset %d]\n", remaining, noun, shown+1)
+		fmt.Fprintf(&b, "\n[%d more %s; read again with offset %d]\n", remaining, plural(remaining, "line", "lines"), shown+1)
 	}
 	return b.String(), nil
 }
@@ -214,91 +210,6 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 	return fmt.Sprintf("Create %s (%s, %s)%s?\n%s", rel, newSize, linesOf(a.Content), also, excerpt(a.Content, 1))
 }
 
-// firstMissingDir is the outermost directory on the way to dir that does not
-// exist yet, or "" when dir is there already.
-func firstMissingDir(dir string) string {
-	missing := ""
-	for {
-		if _, err := os.Stat(dir); err == nil {
-			return missing
-		}
-		missing = dir
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return missing
-		}
-		dir = parent
-	}
-}
-
-// excerptLines is how much of a write the question shows.
-const excerptLines = 6
-
-// excerpt is up to excerptLines lines of s from line from on.
-func excerpt(s string, from int) string {
-	lines := textLines(s)
-	if from < 1 || from > len(lines) {
-		return ""
-	}
-	return marked(lines[from-1:], "│")
-}
-
-// textLines splits s into lines without inventing an empty last one for the
-// newline that ends it.
-func textLines(s string) []string {
-	return strings.Split(strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
-}
-
-// marked draws up to excerptLines of lines, each on a line of its own behind
-// mark and cut to a width a pane shows, with a count of the rest.
-func marked(lines []string, mark string) string {
-	var b strings.Builder
-	shown := lines
-	if len(shown) > excerptLines {
-		shown = shown[:excerptLines]
-	}
-	for _, l := range shown {
-		r := []rune(l)
-		if len(r) > 100 {
-			r = append(r[:100], '…')
-		}
-		fmt.Fprintf(&b, "  %s %s\n", mark, string(r))
-	}
-	if rest := len(lines) - len(shown); rest > 0 {
-		fmt.Fprintf(&b, "  %s … %d more %s", mark, rest, plural(rest, "line", "lines"))
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-// firstChange is the line at which b first differs from a, or 0 when the two
-// are the same.
-func firstChange(a, b string) int {
-	if a == b {
-		return 0
-	}
-	al := strings.Split(strings.ReplaceAll(a, "\r\n", "\n"), "\n")
-	bl := strings.Split(strings.ReplaceAll(b, "\r\n", "\n"), "\n")
-	for i := range bl {
-		if i >= len(al) || al[i] != bl[i] {
-			return i + 1
-		}
-	}
-	// b is a's opening lines and no more: what changed is that the rest went.
-	return len(bl)
-}
-
-func linesOf(s string) string {
-	n := countLines(s)
-	return fmt.Sprintf("%d %s", n, plural(n, "line", "lines"))
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
 // Prefix is the standing permission on offer for a write, which is every edit.
 func (t *writeFile) Prefix(json.RawMessage) string { return editFamily }
 
@@ -328,6 +239,23 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 		return "", t.root.explain(err)
 	}
 	return fmt.Sprintf("Wrote %s (%d lines, %s).", t.root.Rel(abs), countLines(a.Content), humanBytes(int64(len(a.Content)))), nil
+}
+
+// firstMissingDir is the outermost directory on the way to dir that does not
+// exist yet, or "" when dir is there already.
+func firstMissingDir(dir string) string {
+	missing := ""
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			return missing
+		}
+		missing = dir
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return missing
+		}
+		dir = parent
+	}
 }
 
 // editFile replaces one exact stretch of text with another.
@@ -418,44 +346,6 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	return abs, updated, count, nil
 }
 
-// looseMatch is the line at which want appears in file once differences of
-// spacing are set aside, or 0 where it does not. Lines are compared with their
-// runs of spaces and tabs made one space; the first line of want may be the
-// end of a line in the file and its last line the start of one, as they are
-// when an edit begins or ends part-way through a line.
-func looseMatch(file, want string) int {
-	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
-	wl, fl := textLines(want), textLines(file)
-	for i := 0; i+len(wl) <= len(fl); i++ {
-		ok := true
-		for j, w := range wl {
-			line, w := norm(fl[i+j]), norm(w)
-			switch {
-			case len(wl) == 1:
-				ok = strings.Contains(line, w)
-			case j == 0:
-				ok = strings.HasSuffix(line, w)
-			case j == len(wl)-1:
-				ok = strings.HasPrefix(line, w)
-			default:
-				ok = line == w
-			}
-			if !ok {
-				break
-			}
-		}
-		if ok {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-// withCRLF writes every line ending in s as a carriage return and a newline.
-func withCRLF(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n")
-}
-
 func (t *editFile) Approval(args json.RawMessage) string {
 	var a editArgs
 	if err := decode(args, &a); err != nil {
@@ -465,10 +355,6 @@ func (t *editFile) Approval(args json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
-	where := "1 occurrence"
-	if count != 1 {
-		where = fmt.Sprintf("%d occurrences", count)
-	}
 	// The two texts are shown as the lines they are, marked the way a diff
 	// marks them: joined into one line, an edit of more than one line could
 	// not be read closely enough to agree to.
@@ -476,8 +362,8 @@ func (t *editFile) Approval(args json.RawMessage) string {
 	if a.NewString == "" {
 		added = "  + (nothing: the text is removed)"
 	}
-	return fmt.Sprintf("Edit %s, replacing %s?\n%s\n%s",
-		t.root.Rel(abs), where, marked(textLines(a.OldString), "-"), added)
+	return fmt.Sprintf("Edit %s, replacing %d %s?\n%s\n%s", t.root.Rel(abs), count,
+		plural(count, "occurrence", "occurrences"), marked(textLines(a.OldString), "-"), added)
 }
 
 // Prefix is the standing permission on offer for an edit, which is every edit.
@@ -501,73 +387,5 @@ func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if err := os.WriteFile(abs, []byte(updated), info.Mode().Perm()); err != nil {
 		return "", t.root.explain(err)
 	}
-	noun := "occurrence"
-	if count != 1 {
-		noun = "occurrences"
-	}
-	return fmt.Sprintf("Edited %s, replacing %d %s.", t.root.Rel(abs), count, noun), nil
-}
-
-// looksBinary reports whether data is something a model should be shown as
-// text. A NUL byte near the start is the cheap, and in practice reliable,
-// signal: no source file has one and almost every binary format does.
-func looksBinary(data []byte) bool {
-	head := data
-	if len(head) > 8<<10 {
-		head = head[:8<<10]
-	}
-	return bytes.IndexByte(head, 0) >= 0
-}
-
-// nextLine reads one line without its ending, keeping at most max bytes of it
-// and reporting how many were dropped. A file's last line may have no newline,
-// in which case it comes back with io.EOF.
-//
-// A line has a ceiling of its own because one line of a minified bundle can be
-// megabytes long, and handing it over whole would spend the context window on
-// one read however few lines were asked for.
-func nextLine(r *bufio.Reader, max int) (string, int, error) {
-	var kept []byte
-	dropped := 0
-	for {
-		chunk, err := r.ReadSlice('\n')
-		if err != bufio.ErrBufferFull {
-			// The line's own ending is not text: it is neither kept nor
-			// counted among what the reader did not see.
-			chunk = bytes.TrimRight(chunk, "\r\n")
-		}
-		if room := max - len(kept); len(chunk) > room {
-			kept, dropped = append(kept, chunk[:room]...), dropped+len(chunk)-room
-		} else {
-			kept = append(kept, chunk...)
-		}
-		if err == bufio.ErrBufferFull {
-			continue
-		}
-		if dropped == 0 {
-			// A CRLF split across two reads leaves its carriage return here.
-			kept = bytes.TrimRight(kept, "\r")
-		}
-		// Cutting by byte count can land in the middle of a rune.
-		return strings.ToValidUTF8(string(kept), ""), dropped, err
-	}
-}
-
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	return strings.Count(strings.TrimSuffix(s, "\n"), "\n") + 1
-}
-
-// humanBytes is a size as it should be read aloud, not as it is stored.
-func humanBytes(n int64) string {
-	switch {
-	case n < 1024:
-		return fmt.Sprintf("%d B", n)
-	case n < 1024*1024:
-		return fmt.Sprintf("%.1f kB", float64(n)/1024)
-	default:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
-	}
+	return fmt.Sprintf("Edited %s, replacing %d %s.", t.root.Rel(abs), count, plural(count, "occurrence", "occurrences")), nil
 }
