@@ -6,14 +6,15 @@ without a window at all.
 
 ## On the next run
 
-Layouts are saved per project — when the window closes or reloads, when you
-detach, restart or quit, and when a project is closed, rather than as you work,
-so if Flockdeck is killed or crashes the changes since then are lost. Tabs,
-splits, proportions and working
+Layouts are saved per project. Tabs, splits, proportions and working
 directories come back, **every project you had open is reopened**, each pane
 starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
+
+A layout is written when the window closes or reloads, when you detach,
+restart or quit, and when a project is closed — not as you work, so if
+Flockdeck is killed or crashes, the changes since then are lost.
 
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity
