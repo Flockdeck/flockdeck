@@ -586,19 +586,21 @@ func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 	if spec.Exe == "" {
 		return spec, fmt.Errorf("%s cannot be started on this machine", spec.Name)
 	}
-	// Word for word what a Claude pane has always said when the CLI is
-	// missing, because for anyone who only ever runs Claude nothing about
-	// this has changed. Callers build a sentence around it, so it carries no
-	// advice of its own.
-	return spec, fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+	// Word for word what the pane that would have failed says, how to install
+	// the agent included: a refused spawn goes back to the agent that asked
+	// for it, and a fan-out's notice to the user, and either is where somebody
+	// learns the agent is missing.
+	return spec, missingCLI(spec)
 }
 
-// missingCLI is what a pane shows in place of its terminal when the CLI its
-// agent runs is not installed: what is wrong, and where the catalog knows it,
-// how to put it right — worded as the session package words the same failure.
+// missingCLI is what somebody is told when the CLI an agent runs is not
+// installed — in the pane that could not start, and in the refusal of a spawn
+// or a fan-out that would have needed it: what is wrong, and where the catalog
+// knows it, how to put it right, worded as the session package words the same
+// failure.
 //
-// The pane is where somebody finds out, and "not found on PATH" alone left
-// them to go and look up what the picker beside it already says.
+// Being told only "not found on PATH" left them to go and look up what the
+// picker beside them already says.
 func missingCLI(spec agent.Spec) error {
 	if spec.Install == "" {
 		return fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)

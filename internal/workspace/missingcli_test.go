@@ -42,4 +42,11 @@ func TestAPaneWhoseCLIIsMissingSaysHowToGetIt(t *testing.T) {
 			t.Errorf("pane error = %q, want it to say %q", p.Err, want)
 		}
 	}
+
+	// A spawn or a fan-out refused for want of the agent says the same: it is
+	// where an agent asking for a helper, or the user, learns it is missing.
+	_, err = ws.AgentSpec("ghost")
+	if err == nil || !strings.Contains(err.Error(), "npm install -g flockdeck-no-such-cli") {
+		t.Errorf("refusal = %v, want it to say how to install the agent", err)
+	}
 }
