@@ -103,7 +103,15 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	if w.key != "" {
 		h.Set("Authorization", "Bearer "+w.key)
 	}
-	rc, err := post(ctx, endpoint(w.base, "https://api.openai.com", "v1", "/chat/completions"), h, body)
+	url := endpoint(w.base, "https://api.openai.com", "v1", "/chat/completions")
+	rc, err := post(ctx, url, h, body)
+	if refusedStreamOptions(err) {
+		// An endpoint that refuses the request over stream_options -- older
+		// Azure deployments do -- would refuse every request, and what it
+		// costs to leave out is only the token count.
+		body.StreamOptions = nil
+		rc, err = post(ctx, url, h, body)
+	}
 	if err != nil {
 		return err
 	}
@@ -195,6 +203,14 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	}
 	emit(Event{Kind: EventUsage, Usage: usage})
 	return nil
+}
+
+// refusedStreamOptions reports whether err is an endpoint refusing a request
+// because of the stream_options field.
+func refusedStreamOptions(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && e.Code == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(e.Msg), "stream_options")
 }
 
 // openaiMessages translates a conversation into Chat Completions entries. The
