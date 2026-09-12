@@ -537,7 +537,8 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s decides where the "+
 		"prompt bar sends: while it is on, %s delivers one composed message to every pane in the "+
 		"broadcast set — by default the agents on the current tab, adjusted with the `⇉` button "+
-		"in each pane header — and while it is off, to the focused pane alone. What the user "+
+		"in each pane header — and while it is off, to the focused pane and any panes added "+
+		"to the set by hand. What the user "+
 		"types into a pane's own terminal only ever reaches that pane.\n\n",
 		how("toggleBroadcast"), how("promptAll"))
 

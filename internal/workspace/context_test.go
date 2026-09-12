@@ -244,13 +244,14 @@ func TestRenderSaysWhenSiblingsWereOmitted(t *testing.T) {
 // TestTheBriefingSaysWhatBroadcastDoes covers what every agent is told about
 // broadcast, and so what it tells a user who asks. It said broadcast mirrors
 // what the user types, which it has never done: it decides where the prompt
-// bar's one message goes, and typing into a pane reaches that pane alone.
+// bar's one message goes, and typing into a pane reaches that pane alone. With
+// it off the message still reaches the panes picked by hand, which stay picked.
 func TestTheBriefingSaysWhatBroadcastDoes(t *testing.T) {
 	text := PaneContext{PaneName: "one", Cwd: "/repo"}.Render()
 	if strings.Contains(text, "mirrors what the user types") {
 		t.Errorf("the briefing says broadcast mirrors typing:\n%s", text)
 	}
-	for _, want := range []string{"prompt bar", "focused pane alone"} {
+	for _, want := range []string{"prompt bar", "added to the set by hand"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q about broadcast:\n%s", want, text)
 		}

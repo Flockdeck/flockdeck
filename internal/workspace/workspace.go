@@ -145,8 +145,8 @@ type Workspace struct {
 
 	// Broadcast, when enabled, sends what is written in the prompt bar to every
 	// pane in the broadcast set as well as the focused one; with it off the
-	// prompt bar reaches the focused pane alone. Typing into a pane's own
-	// terminal is never copied anywhere.
+	// prompt bar reaches the focused pane and any panes picked by hand, which
+	// stay picked. Typing into a pane's own terminal is never copied anywhere.
 	Broadcast    bool
 	BroadcastSet map[string]bool
 	// broadcastAuto marks a set that was filled in by default rather than
