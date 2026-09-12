@@ -362,6 +362,8 @@ textarea:focus-visible {
 }
 .pane-actions button:hover { background: #333a45; color: var(--fg); }
 .pane-actions button.on { background: var(--cast); color: #1f0d02; }
+/* Zoomed: the accent rather than broadcast's orange, which means something else. */
+.pane-actions button.zoomed { background: var(--accent); color: #06101f; }
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; }

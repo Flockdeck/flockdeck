@@ -2772,6 +2772,27 @@ func TestANoticeDoesNotCoverTheBarBeingTypedInto(t *testing.T) {
 	}
 }
 
+// A zoomed pane looked exactly like the only pane in its tab: the others
+// seemed to have closed, and nothing said where they had gone or how to get
+// them back. The zoom button says it is on, and how many panes it is hiding.
+func TestAZoomedPaneSaysWhatItIsHiding(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tabs = (zoom) => [{ id: "t1", title: "one", focus: "p1", zoom: zoom, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }];
+const panes = { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") };
+h.recv(fixture({ tabs: tabs(true), panes }));
+const zoom = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⤢");
+assert.ok(zoom.classList.contains("zoomed"), "the zoom button does not show that the pane is zoomed");
+assert.strictEqual(zoom.getAttribute("aria-pressed"), "true");
+assert.ok(/2 other panes are hidden/.test(zoom.dataset.tip), "nothing says what the zoom is hiding: " + zoom.dataset.tip);
+
+h.recv(fixture({ tabs: tabs(false), panes }));
+assert.ok(!zoom.classList.contains("zoomed"), "the zoom button stayed on after the zoom was released");
+assert.strictEqual(zoom.getAttribute("aria-pressed"), "false");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -1348,11 +1348,12 @@
     };
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
+    const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
       castBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
-      btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id })),
+      zoomBtn,
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions);
@@ -1405,7 +1406,7 @@
     }
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -1528,6 +1529,14 @@
    */
   function updatePaneChrome(s) {
     const tab = activeTabOf(s);
+    // The zoomed pane of each tab, and how many panes the zoom is hiding.
+    const zoomed = new Map();
+    for (const t of s.tabs) {
+      if (!t.zoom || !t.focus) continue;
+      const ids = new Set();
+      collectPanes(t.root, ids);
+      zoomed.set(t.focus, ids.size - 1);
+    }
     for (const [id, p] of panes) {
       const v = s.panes[id];
       if (!v) continue;
@@ -1574,6 +1583,9 @@
       const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
       if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
 
+      const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
+      if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
+
       p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
       renderPaneOverlay(p, v);
     }
@@ -1598,6 +1610,21 @@
     // fan out that lit up for a pane in the set and the toggle never did.
     p.castBtn.classList.toggle("on", !!v.broadcast);
     p.castBtn.setAttribute("aria-pressed", String(!!v.broadcast));
+  }
+
+  /** renderPaneZoom says that a pane is zoomed, and what that is hiding. A
+   *  zoomed pane looked exactly like the only pane in its tab, so the others
+   *  seemed to have been closed, with nothing on screen saying where they had
+   *  gone or that the button beside the close button brings them back.
+   *  `hidden` is how many there are, and undefined when it is not zoomed. */
+  function renderPaneZoom(p, hidden) {
+    const on = hidden !== undefined;
+    p.zoomBtn.classList.toggle("zoomed", on);
+    p.zoomBtn.setAttribute("aria-pressed", String(on));
+    describe(p.zoomBtn, on
+      ? "Zoomed: " + (hidden === 1 ? "1 other pane is" : hidden + " other panes are") +
+        " hidden, still running. Press to bring them back."
+      : TIPS.zoom);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
