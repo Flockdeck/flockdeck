@@ -280,7 +280,7 @@ func (p *printer) flushWord() {
 	if text == "" {
 		return
 	}
-	n := utf8.RuneCountInString(text)
+	n := displayWidth(text)
 	if p.started && p.col+1+n > p.width {
 		p.newline()
 	}
@@ -410,7 +410,7 @@ func (p *printer) line(st, s string) {
 		p.col, p.started = 0, false
 	}
 	if first, rest, more := strings.Cut(s, "\n"); (st == ansiDim || st == ansiRed || st == ansiBold) &&
-		utf8.RuneCountInString(first) > p.width {
+		displayWidth(first) > p.width {
 		for _, part := range wrapNotice(first, p.width) {
 			p.put(p.style(st, part))
 			p.put("\n")
@@ -440,7 +440,7 @@ func wrapNotice(s string, width int) []string {
 		switch {
 		case cur == "":
 			cur = pad + w
-		case utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width:
+		case displayWidth(cur)+1+displayWidth(w) > width:
 			lines = append(lines, cur)
 			cur = pad + w
 		default:

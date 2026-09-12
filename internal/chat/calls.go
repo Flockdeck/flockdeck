@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // runCalls runs the tools the model asked for, in the order it asked. It
@@ -170,7 +169,7 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 	// several side by side -- the terminal would break that line mid-word,
 	// in the one place the user is reading to choose, so each answer gets a
 	// line of its own instead.
-	if all := "  " + strings.Join(answers, "   "); utf8.RuneCountInString(all) <= s.opts.Width {
+	if all := "  " + strings.Join(answers, "   "); displayWidth(all) <= s.opts.Width {
 		s.out.line(ansiDim, all)
 	} else {
 		for _, a := range answers {
@@ -289,9 +288,20 @@ func clipTo(s string, n int) string {
 	if n < 8 {
 		n = 8
 	}
-	runes := []rune(s)
-	if len(runes) <= n {
+	if displayWidth(s) <= n {
 		return s
 	}
-	return string(runes[:n-1]) + "…"
+	// Cut by the columns the characters take, so that a line of Chinese is
+	// cut to the width of the pane rather than to twice it.
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := runeWidth(r)
+		if used+w > n-1 {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String() + "…"
 }
