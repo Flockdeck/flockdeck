@@ -470,6 +470,13 @@ func Apply(dir, exePath string) error {
 	if err != nil {
 		return err
 	}
+	// Run as the twin, as `flockdeck-chat update` is, the program to replace
+	// is the one beside it. Taken as the program itself, the twin's file got
+	// the twin and then the program over it: a GUI program where the panes
+	// need the console one, and the program itself left as it was.
+	if chatName != "" && strings.EqualFold(filepath.Base(exePath), chatName) {
+		exePath = filepath.Join(filepath.Dir(exePath), binaryName)
+	}
 
 	var undoChat func() error
 	if p.Chat != "" {

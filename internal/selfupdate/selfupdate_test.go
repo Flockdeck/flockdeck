@@ -444,6 +444,45 @@ func TestApplyPutsTheChatTwinInPlaceToo(t *testing.T) {
 	}
 }
 
+// `flockdeck-chat update`, run from the twin, has to put each file in its own
+// place: the program's over the program, the twin's over the twin. Taking the
+// twin for the program left a GUI program where the panes need the console
+// one, and the program as it was.
+func TestApplyFromTheTwinPutsEachInItsPlace(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir, install := t.TempDir(), t.TempDir()
+	exe, twin := filepath.Join(install, binaryName), filepath.Join(install, chatName)
+	write(exe, "the old program")
+	write(twin, "the old chat client")
+	staging := filepath.Join(dir, "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(staging, binaryName), "the new program")
+	write(filepath.Join(staging, chatName), "the new chat client")
+	if err := save(dir, &Pending{Version: "v9.9.9", Binary: filepath.Join(staging, binaryName), Chat: filepath.Join(staging, chatName)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Apply(dir, twin); err != nil {
+		t.Fatalf("Apply from the twin: %v", err)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "the new program" {
+		t.Errorf("program = %q, want the new program", got)
+	}
+	if got, _ := os.ReadFile(twin); string(got) != "the new chat client" {
+		t.Errorf("twin = %q, want the new chat client", got)
+	}
+}
+
 // The program and its twin go in together or not at all: a program that
 // cannot be put in place takes the twin that went in before it back out, and
 // the update stays staged for the next attempt.
