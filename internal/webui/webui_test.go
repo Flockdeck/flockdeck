@@ -3918,6 +3918,33 @@ assert.deepStrictEqual(h.searchers[0].forward.slice(-1), ["panic"], "Enter did n
 `)
 }
 
+// Starting an agent in a worktree just created is what nearly everybody does
+// next, and the keyboard was left on Create with the new row's Agent button to
+// be found among the others. When the list comes back with the new worktree,
+// the keyboard is on its Agent button.
+func TestANewWorktreeIsReadyForAnAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+h.recv(list([{ label: "main", path: "C:/repo", main: true }]));
+const branch = h.$("wt-branch");
+branch.value = "fix-auth";
+branch.focus();
+h.key({ key: "Enter" });
+h.recv(list([{ label: "main", path: "C:/repo", main: true },
+             { label: "fix-auth", path: "C:/repo-fix-auth", dirty: 0, untracked: 0 }]));
+await h.sleep(10);
+const row = h.$("overlay-body").querySelectorAll("div.wt-row")[1];
+const agent = row.querySelector("button");
+assert.strictEqual(agent.textContent, "Agent");
+assert.ok(h.doc.activeElement === agent, "the keyboard was not left on the new worktree's Agent button");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path: "C:/repo-fix-auth", text: "fix-auth" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

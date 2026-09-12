@@ -2110,6 +2110,11 @@
    *  was removed, or Refresh was pressed, went with the redraw. It is kept for
    *  as long as the dialog is open and no longer. */
   let wtDraft = { branch: "", base: "" };
+  /** The branch just asked for with the form, until the list comes back with
+   *  it. Starting an agent in a new worktree is what nearly everybody does
+   *  next, and the keyboard was left on Create with the new row's Agent
+   *  button to be found among the others; it lands there instead. */
+  let wtCreated = "";
 
   /** openWorktrees opens the dialog and asks for what goes in it. It opens at
    *  once rather than when the answer arrives, because the same answer comes
@@ -2269,6 +2274,7 @@
     const go = el("button", "chip primary", "Create");
     const submit = () => {
       if (!branch.value.trim()) return;
+      wtCreated = branch.value.trim();
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
       wtDraft.branch = "";
@@ -2319,6 +2325,20 @@
     prune.onclick = () => send({ cmd: "worktreePrune" });
     tools.append(refresh, prune, el("span", "wt-root", m.root || ""));
     body.append(tools);
+
+    if (wtCreated) {
+      const made = (m.items || []).findIndex((wt) => wt.label === wtCreated);
+      if (made >= 0) {
+        wtCreated = "";
+        // After the redraw's own keyboard handling, which put it back on
+        // Create: the row for the new worktree is where it is wanted.
+        setTimeout(() => {
+          const row = list.querySelectorAll("div.wt-row")[made];
+          const agent = row && row.querySelector("button");
+          if (agent && dialog === "worktrees") agent.focus();
+        }, 0);
+      }
+    }
   }
 
   // -------------------------------------------------------------- projects
