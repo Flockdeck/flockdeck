@@ -185,6 +185,29 @@ func TestOpenProjectRejectsFiles(t *testing.T) {
 	}
 }
 
+// TestBrowseReadsTildeAsHome covers a path typed or pasted into the folder
+// browser the way a shell writes it. "~/code" named a directory called "~"
+// inside wherever flockdeck was started, and the picker answered with an error.
+func TestBrowseReadsTildeAsHome(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.Mkdir(filepath.Join(home, "code"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var br browseMsg
+	sendCmd(t, conn, command{Cmd: "browse", Path: "~/code"})
+	readUntil(t, conn, "browse", &br)
+	if br.Error != "" || br.Path != filepath.Join(home, "code") {
+		t.Fatalf("browsing ~/code went to %q (%s), want %q", br.Path, br.Error, filepath.Join(home, "code"))
+	}
+}
+
 // TestPaneFromATwinProjectIsNamedApart covers a tab holding agents from two
 // projects whose folders are called the same thing: two checkouts of one
 // service, say. The header names a borrowed pane's project so the two can be

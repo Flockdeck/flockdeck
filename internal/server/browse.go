@@ -55,7 +55,7 @@ func (s *Server) browse(c *controlClient, path string) {
 				path = "."
 			}
 		}
-		abs, err := filepath.Abs(path)
+		abs, err := filepath.Abs(expandHome(path))
 		if err != nil {
 			msg.Error = err.Error()
 			c.sendJSON(msg)
@@ -115,6 +115,21 @@ func (s *Server) browse(c *controlClient, path string) {
 		})
 		c.sendJSON(msg)
 	}()
+}
+
+// expandHome reads a leading ~ as the home directory. That is how a path is
+// written in every shell the person typing it uses, and what the folder
+// browser's box is handed when one is pasted in; taken as it stands, it named
+// a directory called "~" inside wherever flockdeck happened to be started.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 // isRepoDir reports whether dir is the top of a git repository. Checking for
