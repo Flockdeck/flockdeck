@@ -110,7 +110,7 @@ func Merge(f *File) *Catalog {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it
 				// was, and every other agent in the file is still merged.
-				problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
+				problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, explainValue(err)))
 				continue
 			}
 			// An empty array decodes as an empty slice rather than nil, so an
@@ -126,7 +126,7 @@ func Merge(f *File) *Catalog {
 		}
 		var fresh Spec
 		if err := json.Unmarshal(raw, &fresh); err != nil {
-			problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
+			problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, explainValue(err)))
 			continue
 		}
 		// Ids are matched exactly, as they are everywhere else -- a layout

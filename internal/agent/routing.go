@@ -78,7 +78,7 @@ type RuleMatch struct {
 func parseRouting(raw json.RawMessage, where string) (RoutingPolicy, []string) {
 	var p RoutingPolicy
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return RoutingPolicy{Mode: RoutingOff}, []string{fmt.Sprintf("%s could not be read (%v), so routing is off there", where, err)}
+		return RoutingPolicy{Mode: RoutingOff}, []string{fmt.Sprintf("%s could not be read (%v), so routing is off there", where, explainValue(err))}
 	}
 	return p, checkRouting(&p, where)
 }

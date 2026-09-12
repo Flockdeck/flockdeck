@@ -187,6 +187,19 @@ func explainJSON(data []byte, err error) error {
 	return err
 }
 
+// explainValue puts a value of the wrong kind, inside an entry or a routing
+// policy, in the terms of the file: `"models" cannot be string` rather than the
+// decoder's "cannot unmarshal string into Go struct field Spec.models of type
+// []agent.Model", which names types from inside this package. Anything else
+// is left as it is.
+func explainValue(err error) error {
+	var typ *json.UnmarshalTypeError
+	if errors.As(err, &typ) && typ.Field != "" {
+		return fmt.Errorf("%q cannot be %s", typ.Field, typ.Value)
+	}
+	return err
+}
+
 // lineCol turns the decoder's offset -- the count of bytes read when it
 // stopped, so the last of them is where it went wrong -- into the line and
 // column an editor shows that byte at.
