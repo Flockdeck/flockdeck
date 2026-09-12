@@ -122,6 +122,11 @@ main() {
 		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
 	fi
 	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
+	# A slash on the end names the same directory, and compared as typed it
+	# did not: /usr/local/bin/ was "not on your PATH" while it was, and the
+	# flockdeck just put there was "not this one". A HOME ending in one did
+	# the same to the default.
+	while [ "$dir" != / ] && [ "${dir%/}" != "$dir" ]; do dir=${dir%/}; done
 
 	# A mirror given by hand is the only place files are fetched from.
 	if [ -n "${FLOCKDECK_DOWNLOAD:-}" ]; then
