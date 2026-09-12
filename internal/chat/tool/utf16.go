@@ -2,7 +2,6 @@ package tool
 
 import (
 	"bufio"
-	"io"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -79,15 +78,21 @@ func (u *utf16Reader) Read(p []byte) (int, error) {
 }
 
 // unit reads one UTF-16 code unit. An odd byte left at the end is dropped.
+//
+// It reads the two bytes one at a time from the buffered reader, which costs
+// nothing. Read into an array through io.ReadFull, the array escaped to the
+// heap: one allocation for every character of the file, four million of them
+// for an 8 MB log.
 func (u *utf16Reader) unit() (uint16, error) {
-	var b [2]byte
-	if _, err := io.ReadFull(u.r, b[:]); err != nil {
-		if err == io.ErrUnexpectedEOF {
-			return 0, io.EOF
-		}
+	b0, err := u.r.ReadByte()
+	if err != nil {
 		return 0, err
 	}
-	return u.decode(b[:]), nil
+	b1, err := u.r.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return u.decode(b0, b1), nil
 }
 
 // peekUnit is the next code unit, without reading past it.
@@ -96,13 +101,13 @@ func (u *utf16Reader) peekUnit() (uint16, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return u.decode(b), true
+	return u.decode(b[0], b[1]), true
 }
 
 // decode is two bytes as one code unit, in the file's own byte order.
-func (u *utf16Reader) decode(b []byte) uint16 {
+func (u *utf16Reader) decode(b0, b1 byte) uint16 {
 	if u.be {
-		return uint16(b[0])<<8 | uint16(b[1])
+		return uint16(b0)<<8 | uint16(b1)
 	}
-	return uint16(b[1])<<8 | uint16(b[0])
+	return uint16(b1)<<8 | uint16(b0)
 }
