@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +43,44 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe")
+}
+
+// Every module a release links has to be named in THIRD-PARTY-NOTICES.md,
+// since each licence asks for its notice to travel with the binary. What is
+// linked differs by platform — the PTY layer brings modules of its own on Linux
+// and macOS — so every platform a release is built for is asked, not only the
+// one the test runs on.
+func TestNoticesNameEveryLinkedModule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("asks the go command about every release platform")
+	}
+	t.Chdir(filepath.Join("..", ".."))
+	notices, err := os.ReadFile("THIRD-PARTY-NOTICES.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := exec.Command("go", "list", "-m").Output()
+	if err != nil {
+		t.Fatalf("go list -m: %v", err)
+	}
+	for _, p := range platforms {
+		cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{.Path}}{{end}}", ".")
+		cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go list for %s/%s: %v", p.OS, p.Arch, err)
+		}
+		seen := map[string]bool{}
+		for _, m := range strings.Fields(string(out)) {
+			if m == strings.TrimSpace(string(self)) || seen[m] {
+				continue
+			}
+			seen[m] = true
+			if !strings.Contains(string(notices), m) {
+				t.Errorf("%s/%s links %s, which THIRD-PARTY-NOTICES.md does not name", p.OS, p.Arch, m)
+			}
+		}
+	}
 }
 
 // Archives left by an earlier run of another version must not end up beside
