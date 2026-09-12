@@ -83,6 +83,9 @@ func releaseConsole() {
 // terminal go as start-up ends, after which closing it does not end the run.
 func detachFromTerminal() (done bool, code int) { return false, 0 }
 
+// letTerminalGo is never needed here: Windows sends no SIGHUP.
+func letTerminalGo() {}
+
 func openConsole(name string) (syscall.Handle, error) {
 	p, err := syscall.UTF16PtrFromString(name)
 	if err != nil {

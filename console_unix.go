@@ -103,13 +103,26 @@ func detachFromTerminal() (done bool, code int) {
 
 // releaseConsole lets the terminal go once start-up is over. Only the copy
 // -detach started has one to let go of: what it prints goes to the program
-// that started it, which gives the prompt back when both are closed. They
-// are pointed at /dev/null rather than closed, so that nothing opened later
-// is handed their numbers and written to by mistake.
+// that started it, which gives the prompt back when both are closed.
 func releaseConsole() {
-	if !detached {
-		return
+	if detached {
+		outputsToNull()
 	}
+}
+
+// letTerminalGo is what a run detached from the window does when the
+// terminal it was started from closes. It carries on, since detaching
+// promised its agents would, and what it prints from then on goes nowhere,
+// rather than to a terminal that has gone or a pipe whose end could end it.
+func letTerminalGo() {
+	signal.Ignore(syscall.SIGPIPE)
+	outputsToNull()
+}
+
+// outputsToNull points standard output and error at /dev/null. They are
+// pointed rather than closed, so that nothing opened later is handed their
+// numbers and written to by mistake.
+func outputsToNull() {
 	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
 		return

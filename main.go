@@ -610,7 +610,7 @@ func run(opts options) error {
 		})
 	}
 
-	watchSignals(stop, forceQuit)
+	watchSignals(stop, forceQuit, srv.Detached)
 	// Closed once the layout and open projects are saved, which is what a
 	// session ending on Windows waits for before it lets the process go.
 	saved := make(chan struct{})
@@ -912,14 +912,26 @@ func interrupts(sigs <-chan os.Signal, stop, force func()) {
 //
 // SIGTERM is what a logout, a shutdown, `kill` or a service manager sends,
 // and what Windows makes of the console being closed. SIGHUP is what Linux
-// and macOS send when the terminal a run was started from is closed.
+// and macOS send when the terminal a run was started from is closed — except
+// to a run that has been detached, which promised its agents would carry on:
+// it lets the terminal go instead and keeps running.
 //
 // Two deep, so a second signal arriving while the first is still being acted
 // on is not dropped on the floor.
-func watchSignals(stop, force func()) {
+func watchSignals(stop, force func(), isDetached func() bool) {
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	go interrupts(sigs, stop, force)
+	asks := make(chan os.Signal, 2)
+	go func() {
+		for sig := range sigs {
+			if sig == syscall.SIGHUP && isDetached() {
+				letTerminalGo()
+				continue
+			}
+			asks <- sig
+		}
+	}()
+	go interrupts(asks, stop, force)
 }
 
 // forceQuit ends the process without waiting for the orderly shutdown to
