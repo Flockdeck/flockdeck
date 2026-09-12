@@ -1041,6 +1041,25 @@ func TestManagerEnablesOnceAtATime(t *testing.T) {
 }
 
 // A machine nobody names is called by its host name, without the ".local" a
+// The name saved is the one the relay keeps, and so the one every device
+// lists: without control characters, and no longer than the relay's limit.
+func TestEnableSavesTheNameTheRelayKeeps(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	long := strings.Repeat("é", maxName) + "-and-more"
+	cfg, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: " desk\tone\x07 "})
+	if err != nil || cfg.Name != "deskone" {
+		t.Errorf("Enable saved the name %q (%v), want %q", cfg.Name, err, "deskone")
+	}
+	if err := Clear(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: long})
+	if want := strings.Repeat("é", maxName); err != nil || cfg.Name != want {
+		t.Errorf("Enable saved a long name as %q (%v), want it cut to %d characters", cfg.Name, err, maxName)
+	}
+}
+
 // Mac adds for its own network, which is not part of what anybody calls it.
 func TestHostName(t *testing.T) {
 	for host, want := range map[string]string{

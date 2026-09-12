@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 )
 
 // Enrolling this machine and taking it off again, for the command line and the
@@ -101,10 +102,10 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 		replaced = true
 	}
 
-	name := strings.TrimSpace(req.Name)
+	name := cleanName(req.Name)
 	if name == "" {
 		host, _ := os.Hostname()
-		name = hostName(host)
+		name = cleanName(hostName(host))
 	}
 	reg, err := Register(ctx, relay, version, RegisterRequest{
 		Name: name, Join: strings.TrimSpace(req.Join), Invite: strings.TrimSpace(req.Invite),
@@ -130,6 +131,29 @@ func hostName(host string) string {
 		return host[:n]
 	}
 	return host
+}
+
+// maxName is the longest name the relay keeps, in characters.
+const maxName = 64
+
+// cleanName is a name as the relay will keep it: trimmed, without control
+// characters, and cut to maxName characters, as flockdeck-relay's own
+// cleanName does. Made so here, the name saved, which status and the window
+// show, is the one every device lists.
+func cleanName(name string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(name) {
+		if unicode.IsControl(r) || r == unicode.ReplacementChar {
+			continue
+		}
+		if n == maxName {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // Disable takes this machine off its relay and forgets the enrolment, and
