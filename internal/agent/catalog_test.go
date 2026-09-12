@@ -589,7 +589,7 @@ func TestExeIsExpandedLikeAShellWould(t *testing.T) {
 		"$FLOCKDECK_TEST_TOOLS/mycli":     filepath.Join("C:", "tools") + "/mycli",
 		"${FLOCKDECK_TEST_TOOLS}/mycli":   filepath.Join("C:", "tools") + "/mycli",
 		"100%/mycli":                      "100%/mycli",
-		"$FLOCKDECK_TEST_UNSET_VAR/mycli": "${FLOCKDECK_TEST_UNSET_VAR}/mycli",
+		"$FLOCKDECK_TEST_UNSET_VAR/mycli": "$FLOCKDECK_TEST_UNSET_VAR/mycli",
 		"mycli":                           "mycli",
 	} {
 		if got := expandExe(exe); got != want {
