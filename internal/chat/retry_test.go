@@ -34,3 +34,28 @@ func TestRetryCarriesOnAFailedTurn(t *testing.T) {
 		t.Errorf("a retry after an answered turn did not say there is nothing to do:\n%s", out)
 	}
 }
+
+// An answer cut short -- by Ctrl+C, or a connection dropped part-way -- has
+// words drawn before it stopped. /retry still carries the turn on, and asks
+// again without the half-answer in place.
+func TestRetryCarriesOnAnAnswerCutShort(t *testing.T) {
+	wire := &scriptedWire{turns: []turnFunc{
+		func(_ context.Context, _ Request, emit func(Event)) error {
+			emit(Event{Kind: EventText, Text: "word0 word1 word2 "})
+			return errors.New("connection reset by peer")
+		},
+		says("the whole answer"),
+	}}
+	out := run(t, Options{Agent: "anthropic", Task: "tell me slowly"}, "/retry\n/exit\n", wire)
+
+	if strings.Contains(out, "nothing to retry") || !strings.Contains(out, "the whole answer") {
+		t.Errorf("/retry did not carry on the answer cut short:\n%s", out)
+	}
+	reqs := wire.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("made %d requests, want 2", len(reqs))
+	}
+	if last := reqs[1].Messages[len(reqs[1].Messages)-1]; last.Role != RoleUser {
+		t.Errorf("the retry ended on %+v, want the prompt with no half-answer after it", last)
+	}
+}

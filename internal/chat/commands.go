@@ -73,12 +73,19 @@ func (s *session) command(ctx context.Context, line string) bool {
 // turn cut short among its tool calls carries on from their answers.
 func (s *session) retry(ctx context.Context) {
 	last := len(s.messages) - 1
-	if last < 0 || (s.messages[last].Role == RoleAssistant && len(s.messages[last].Calls) == 0) {
+	if last < 0 || !s.unfinished {
 		s.out.line(ansiDim, "there is nothing to retry: the last turn was answered")
 		return
 	}
+	// What was drawn of an answer cut short -- the words before Ctrl+C --
+	// goes: the model is asked again, not asked to go on from half a
+	// sentence, which the current models refuse outright. The transcript
+	// keeps it, as it keeps everything that was said.
+	if m := s.messages[last]; m.Role == RoleAssistant && len(m.Calls) == 0 {
+		s.messages = s.messages[:last]
+	}
 	prompt := ""
-	for i := last; i >= 0; i-- {
+	for i := len(s.messages) - 1; i >= 0; i-- {
 		if s.messages[i].Role == RoleUser {
 			prompt = s.messages[i].Text
 			break

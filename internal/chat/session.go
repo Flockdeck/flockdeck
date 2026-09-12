@@ -224,6 +224,9 @@ type session struct {
 	// listed are the models the endpoint said it offers, for an agent whose
 	// catalog entry lists none.
 	listed []ModelChoice
+	// unfinished is set when the last turn ended without its answer --
+	// interrupted, failed, cut short -- which is what /retry carries on.
+	unfinished bool
 }
 
 // systemPrompt is what the model is told about where it is before anything
@@ -361,6 +364,7 @@ func (s *session) turn(ctx context.Context, prompt string) {
 // answered.
 func (s *session) carryOn(ctx context.Context, prompt string) {
 	s.reporter.userPrompt(prompt)
+	s.unfinished = false
 	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.interrupted.Store(false)
@@ -413,6 +417,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 		}
 		if err != nil {
 			s.sayWhyItStopped(err)
+			s.unfinished = true
 			break
 		}
 		if len(calls) == 0 {
