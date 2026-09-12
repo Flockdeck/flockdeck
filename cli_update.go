@@ -71,6 +71,9 @@ func runUpdate(args []string) error {
 		if rel.URL != "" {
 			fmt.Println(rel.URL)
 		}
+		// -check stops here on purpose, and the one thing somebody reading
+		// this wants next is how to go on.
+		fmt.Println("Run `flockdeck update` to download it and put it in place.")
 		return nil
 	}
 
