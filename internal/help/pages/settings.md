@@ -69,6 +69,10 @@ repositories until you remove them.
 
 ## In the environment
 
+These are read when Flockdeck starts, so set one where it will be seen then —
+`setx NAME value` on Windows, or an `export` line in your shell's profile
+elsewhere — and start Flockdeck again.
+
 - `FLOCKDECK_UPDATE` — `off` stops updating in the background: no checks for
   new releases, and nothing already downloaded is put in place. That is what
   keeps an older version you installed on purpose from updating itself to the
