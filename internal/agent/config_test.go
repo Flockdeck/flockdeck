@@ -309,3 +309,72 @@ func TestSetBaseURLGivesAnEndpointItsAddress(t *testing.T) {
 		t.Errorf("spec = %+v; want the address taken away and the rest kept", s)
 	}
 }
+
+// TestABadAddressSaysWhatToType covers the error the picker shows under the
+// address field. What gets typed is nearly always what a model server prints
+// on starting, without its scheme, and the answer should be the address to
+// type rather than a description of what an address is.
+func TestABadAddressSaysWhatToType(t *testing.T) {
+	for _, tt := range []struct {
+		in, want string
+	}{
+		{"localhost:11434", "type http://localhost:11434"},
+		{"127.0.0.1:1234/v1", "type http://127.0.0.1:1234/v1"},
+		{"ftp://127.0.0.1/v1", "starting http:// or https://"},
+		{"http://", "starting http:// or https://"},
+		{"not an address", "starting http:// or https://"},
+	} {
+		err := CheckBaseURL(tt.in)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("CheckBaseURL(%q) = %v, want it to say %q", tt.in, err, tt.want)
+		}
+	}
+	for _, ok := range []string{"", "http://127.0.0.1:11434/v1", "https://gw.example/v1?a=1&b=2"} {
+		if err := CheckBaseURL(ok); err != nil {
+			t.Errorf("CheckBaseURL(%q) = %v, want it accepted", ok, err)
+		}
+	}
+	// The address is shown back in the picker and goes on a pane's command
+	// line, so one with a password in it is refused -- without repeating it.
+	err := CheckBaseURL("https://me:hunter2@gw.example/v1")
+	if err == nil || strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "API keys") {
+		t.Errorf("an address with a password in it: %v", err)
+	}
+}
+
+// TestSetBaseURLChangesTheEntryThatCounts: entries are merged in order, so
+// with two for one agent it is the last one's address that is used. Writing
+// into the first saved without error and changed nothing.
+func TestSetBaseURLChangesTheEntryThatCounts(t *testing.T) {
+	dir := t.TempDir()
+	src := `{"agents": [{"id": "local", "name": "Local llama", "api": {"baseURL": "http://first/v1"}}, {"id": "local", "api": {"baseURL": "http://second/v1"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetBaseURL(dir, "local", "http://127.0.0.1:1234/v1"); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := LoadFrom(dir).Find("local"); s.API.BaseURL != "http://127.0.0.1:1234/v1" || s.Name != "Local llama" {
+		t.Errorf("spec = %+v; want the new address in use and the rest kept", s)
+	}
+}
+
+// TestWhichAgentsTakeAnAddress: the OpenAI-compatible entry before it has an
+// address, and any API agent with one, are offered the field; a vendor's own
+// agent talking to its vendor, and a CLI, are not.
+func TestWhichAgentsTakeAnAddress(t *testing.T) {
+	c := LoadFrom(t.TempDir())
+	for id, want := range map[string]bool{OpenAICompatibleID: true, "anthropic": false, "claude": false} {
+		s, ok := c.Find(id)
+		if !ok {
+			t.Fatalf("no built-in %q", id)
+		}
+		if got := TakesAddress(s); got != want {
+			t.Errorf("TakesAddress(%s) = %v, want %v", id, got, want)
+		}
+	}
+	proxied := Spec{ID: "anthropic", Runner: RunnerAPI, API: APISpec{Wire: "anthropic", BaseURL: "https://proxy.example/v1"}}
+	if !TakesAddress(proxied) {
+		t.Error("an API agent given an address is not offered it to change")
+	}
+}

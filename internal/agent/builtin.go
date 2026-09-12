@@ -278,11 +278,12 @@ func googleAPISpec() Spec {
 // the line below, which says exactly what to do about it.
 func openAICompatibleSpec() Spec {
 	return Spec{
-		ID: "openai-compatible", Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
+		ID: OpenAICompatibleID, Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
 		API:  APISpec{Wire: "openai"},
 		Caps: chatCaps(),
-		// The shape is spelled out: "add a baseURL" was taken at its word, and
-		// one written beside the id rather than inside "api" is not read.
-		Install: `give it an address in agents.json: {"id": "openai-compatible", "api": {"baseURL": "http://…/v1"}}`,
+		// The picker is named first because it is where this line is read, and
+		// it takes the address there and then. The command is for `flockdeck
+		// agents`, which prints the same line in a terminal.
+		Install: "give it an address: pick it here and type one, such as http://127.0.0.1:11434/v1, or run `flockdeck keys endpoint openai-compatible <address>`",
 	}
 }
