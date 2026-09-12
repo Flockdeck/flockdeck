@@ -1,7 +1,10 @@
 package hooks
 
 import (
+	"context"
 	"errors"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -336,16 +339,23 @@ func TestSpawnSaysWhatAFailureMeans(t *testing.T) {
 		t.Errorf("a spawn that timed out said %v; it should say the helper may still be starting", err)
 	}
 
-	// The real deadline again: a refusal arrives as fast as the machine sends
-	// it, and on a macOS runner that was not always inside 50ms, which made a
-	// closed application read as a slow one.
-	spawnTimeout = old
-	gone, _ := newServer(t)
-	api := gone.BaseURL()
-	_ = gone.Close()
-	_, err = Spawn(api, "token", "pane-1", SpawnRequest{Task: "x"})
-	if err == nil || !strings.Contains(err.Error(), "not answering") {
-		t.Errorf("a spawn to a closed application said %v; it should say Flockdeck is not answering", err)
+	// An application that has closed is given as what the client reports of
+	// it rather than reached for real: whether a closed port refuses at once,
+	// resets or hangs until the deadline depends on the machine, and a macOS
+	// runner did each of those in turn.
+	api := "http://127.0.0.1:1"
+	for _, c := range []struct {
+		what string
+		err  error
+		want string
+	}{
+		{"refused", &url.Error{Op: "Post", URL: api, Err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}}, "not answering"},
+		{"dropped", &url.Error{Op: "Post", URL: api, Err: &net.OpError{Op: "read", Net: "tcp", Err: errors.New("wsarecv: an existing connection was forcibly closed")}}, "not answering"},
+		{"slow", &url.Error{Op: "Post", URL: api, Err: context.DeadlineExceeded}, "may still be starting"},
+	} {
+		if got := spawnFailure(c.err, api); !strings.Contains(got.Error(), c.want) {
+			t.Errorf("a spawn that was %s said %q; want it to say %q", c.what, got, c.want)
+		}
 	}
 }
 

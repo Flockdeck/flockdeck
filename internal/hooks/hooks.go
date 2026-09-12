@@ -390,6 +390,27 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 // answer. It is a variable so a test does not have to wait that long.
 var spawnTimeout = 60 * time.Second
 
+// spawnFailure says what a spawn that got no answer means, for the agent that
+// asked, which acts on what it reads.
+//
+// "context deadline exceeded" reads as a failure, and an agent told that asks
+// again -- while the application, which only answers once the worktree is
+// made and the pane is started, may be doing exactly what it was asked. A
+// refused connection is the application having gone, which no retry will fix,
+// and one dropped before any answer is the same thing seen a step later: the
+// application closing as the request reached it, which Linux reports as a
+// reset and Windows as a failed read.
+func spawnFailure(err error, api string) error {
+	var op *net.OpError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
+	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "read"):
+		return fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
+	}
+	return err
+}
+
 // Spawn is the client half, used by the `spawn` subcommand inside a pane.
 func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	req.Token = token
@@ -408,23 +429,7 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		// What comes back is read by the agent that asked, which acts on it.
-		// "context deadline exceeded" reads as a failure, and an agent told
-		// that asks again -- while the application, which only answers once
-		// the worktree is made and the pane is started, may be doing exactly
-		// what it was asked. A refused connection is the application having
-		// gone, which no retry will fix.
-		var dial *net.OpError
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			return none, fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
-		// A connection dropped before any answer is the same thing seen a
-		// step later -- the application closing as the request reached it --
-		// which Linux reports as a reset and Windows as a failed read.
-		case errors.As(err, &dial) && (dial.Op == "dial" || dial.Op == "read"):
-			return none, fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
-		}
-		return none, err
+		return none, spawnFailure(err, api)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
