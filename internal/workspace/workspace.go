@@ -1272,6 +1272,24 @@ func (w *Workspace) projectForOr(cwd, fallback string) string {
 	return best
 }
 
+// helperProject is the project a helper an agent spawned belongs to. Its
+// directory always comes from the agent that asked for it — that agent's own,
+// or a worktree cut from its checkout — so the agent's project is the answer
+// unless the directory is inside a project more particular than that one.
+//
+// The innermost open project containing the directory is not enough on its
+// own. A project open on a directory above the others — the home folder, which
+// is where a launch from the Start menu opens — contains every worktree beside
+// its repository, and claimed each helper put in one: counted in its badge,
+// stopped when it closed, briefed as its agent.
+func (w *Workspace) helperProject(cwd, parent string) string {
+	project := w.projectForOr(cwd, parent)
+	if parent != "" && underDir(parent, project) {
+		return parent
+	}
+	return project
+}
+
 // Choice is what a new pane should run: a shell, or an agent and one of its
 // models. An empty Agent means the default one, and an empty Model whatever
 // that agent is already set to, so a caller with nothing to say passes the

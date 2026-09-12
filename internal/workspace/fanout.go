@@ -765,7 +765,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// helper that could not start in it.
 	agentID, model := o.Agent, o.Model
 	if o.Kind != session.KindShell {
-		agentID, model = w.resolveChoice(w.projectForOr(cwd, home), o.Agent, o.Model)
+		agentID, model = w.resolveChoice(w.helperProject(cwd, home), o.Agent, o.Model)
 		if _, err := w.AgentSpec(agentID); err != nil {
 			return "", err
 		}
@@ -792,7 +792,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Kind:    o.Kind,
 		Cwd:     cwd,
 		Name:    filepath.Base(cwd),
-		Root:    w.projectForOr(cwd, home),
+		Root:    w.helperProject(cwd, home),
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
