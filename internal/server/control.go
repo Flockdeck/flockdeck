@@ -657,6 +657,9 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		// about. Forgetting it costs one extra broadcast per window opened.
 		s.lastState = nil
 	})
+	// After the hello is handed over, so this window is still sent its key
+	// table first.
+	s.viewersChanged(c)
 
 	defer func() {
 		s.mu.Lock()
@@ -664,6 +667,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		cancel()
 		_ = conn.CloseNow()
+		s.viewersChanged(c)
 		// Only the windows on this machine count towards the last one going:
 		// see LocalClientCount for why a remote window neither keeps the
 		// application alive nor ends it.
@@ -682,6 +686,16 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.guard("handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
+	}
+}
+
+// viewersChanged has the windows told that one reached through the relay has
+// come or gone. The desk shows how many there are -- somebody may be typing --
+// and a phone arriving or leaving changes nothing else a snapshot carries, so
+// with the agents quiet the count waited for the next unrelated change.
+func (s *Server) viewersChanged(c *controlClient) {
+	if c.remote {
+		s.Wake()
 	}
 }
 
