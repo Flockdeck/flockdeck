@@ -1437,19 +1437,35 @@
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
 
-    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id));
+    // A reconnect says how much of the pane's output this terminal already
+    // holds, so it is sent only what it missed and keeps its scrollback and
+    // the place the person had scrolled to. p.stream is what the server last
+    // said about the stream; before it has said anything, this holds nothing.
+    const held = p.stream ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
+    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + held);
     ws.binaryType = "arraybuffer";
     p.ws = ws;
 
     ws.onopen = () => {
       p.retries = 0;
       p.cols = p.rows = 0; // force the size to be re-reported
-      // The stream restarts from the session's replay buffer, so clear
-      // whatever this terminal was showing rather than interleaving the two.
-      p.term.reset();
       scheduleFit(p);
     };
-    ws.onmessage = (ev) => p.term.write(new Uint8Array(ev.data));
+    ws.onmessage = (ev) => {
+      // Text opens a run of the pane's output: where the bytes that follow
+      // begin, and whether they carry on from what this terminal shows or it
+      // has to start again -- the first time, after a restart, or when what it
+      // missed is more than the server still holds.
+      if (typeof ev.data === "string") {
+        let h;
+        try { h = JSON.parse(ev.data); } catch { return; }
+        if (!h.resumed) p.term.reset();
+        p.stream = { epoch: h.epoch, offset: h.offset };
+        return;
+      }
+      if (p.stream) p.stream.offset += ev.data.byteLength;
+      p.term.write(new Uint8Array(ev.data));
+    };
     ws.onclose = () => {
       if (p.ws !== ws) return;
       p.ws = null;

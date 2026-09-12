@@ -73,6 +73,25 @@ func (r *ring) replay() []byte {
 	return out
 }
 
+// since returns what was written after the first off bytes of the total ever
+// written, and reports whether the buffer still holds all of it. It does not
+// when off has scrolled out of the buffer, or names a place the output never
+// reached; the viewer then has to start again from a replay.
+func (r *ring) since(total, off int64) ([]byte, bool) {
+	held := int64(r.pos)
+	if r.full {
+		held = int64(len(r.buf))
+	}
+	if off < total-held || off > total {
+		return nil, false
+	}
+	if off == total {
+		return nil, true
+	}
+	b, _ := r.tail(int(total - off))
+	return b, true
+}
+
 // tail returns the last n bytes written, oldest first, and reports whether
 // anything older than them was left behind. n of zero or less means all of it.
 //

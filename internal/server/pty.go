@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,6 +99,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// A window that says what it already holds -- which run of the pane, and
+	// how much of its output -- is sent only what it is missing, and keeps the
+	// screen and scrollback it has. It asks by sending from=, and is answered
+	// with a streamHeader ahead of each run's bytes. A window that does not ask
+	// is served exactly as windows always were.
+	q := r.URL.Query()
+	resume := q.Has("from")
+	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	epoch, _ := strconv.ParseInt(q.Get("epoch"), 10, 64)
+
 	// Keystrokes and resizes have to reach whichever session the pane is
 	// running now, which is no longer the one this connection started on once
 	// the pane has been restarted.
@@ -110,7 +121,28 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		if sess != nil {
-			subID, replay, out := sess.Subscribe()
+			var (
+				subID  int
+				replay []byte
+				out    <-chan []byte
+			)
+			if resume {
+				var start int64
+				var resumed bool
+				subID, replay, start, resumed, out = sess.SubscribeFrom(epoch, from)
+				// Only the run the window was watching can be carried on from.
+				// One that replaces it after a restart starts from nothing.
+				from = -1
+				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed}
+				if err := writeHeader(ctx, conn, h); err != nil {
+					if subID >= 0 {
+						sess.Unsubscribe(subID)
+					}
+					return
+				}
+			} else {
+				subID, replay, out = sess.Subscribe()
+			}
 			ended := streamOutput(ctx, conn, replay, out)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
@@ -540,6 +572,29 @@ func (v *viewerSizes) smallest(pane string) (cols, rows int) {
 		}
 	}
 	return cols, rows
+}
+
+// streamHeader opens each run's stream for a window that asked to resume: which
+// run of the pane the bytes after it belong to, where in that run's output they
+// begin, and whether they carry on from what the window already holds or it
+// has to start its terminal afresh. The window counts the bytes it is sent from
+// Offset, and that count is what it sends back as from= when it reconnects.
+type streamHeader struct {
+	Epoch   int64 `json:"epoch"`
+	Offset  int64 `json:"offset"`
+	Resumed bool  `json:"resumed"`
+}
+
+// writeHeader sends a streamHeader, as the only text frame a terminal socket
+// ever carries.
+func writeHeader(ctx context.Context, conn *websocket.Conn, h streamHeader) error {
+	data, err := json.Marshal(h)
+	if err != nil {
+		return err
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return conn.Write(writeCtx, websocket.MessageText, data)
 }
 
 func writeChunk(ctx context.Context, conn *websocket.Conn, data []byte) error {

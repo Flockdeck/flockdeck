@@ -507,25 +507,57 @@ func (s *Session) changed() {
 //
 // Unsubscribe must be called with the returned id when the viewer goes away.
 func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
+	id, replay, _, _, out = s.SubscribeFrom(0, -1)
+	return id, replay, out
+}
+
+// SubscribeFrom is Subscribe for a viewer that already holds the start of this
+// session's output: the first off bytes of the run named by epoch. While the
+// rest is still held, replay is only what the viewer is missing and resumed is
+// true, so it can carry on with the screen and the scrollback it has. Otherwise
+// replay is the usual one, for a terminal started afresh. The viewer counts
+// the bytes of replay and of everything after it on from start, and that count
+// is the off it gives when it next subscribes.
+func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start int64, resumed bool, out <-chan []byte) {
 	ch := make(chan []byte, subscriberQueue)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	replay = s.history.replay()
-	// Whatever the output switched before the replay begins has to be switched
-	// again ahead of it, or the window rebuilding its screen does not know.
-	if restore := s.modes.restore(s.written - int64(len(replay))); len(restore) > 0 {
-		replay = append(restore, replay...)
+	if epoch == s.Epoch() && off >= 0 {
+		replay, resumed = s.history.since(s.written, off)
+	}
+	if resumed {
+		// Nothing is put back ahead of a resume. The viewer already has every
+		// mode switched before where it stopped, and switching the alternate
+		// screen on again would clear the one it is showing.
+		start = off
+	} else {
+		replay = s.history.replay()
+		start = s.written - int64(len(replay))
+		// Whatever the output switched before the replay begins has to be
+		// switched again ahead of it, or the window rebuilding its screen does
+		// not know. The viewer counts those bytes like the rest, so where it
+		// counts from moves back by as many.
+		if restore := s.modes.restore(start); len(restore) > 0 {
+			replay = append(restore, replay...)
+			start -= int64(len(restore))
+		}
 	}
 	if s.status == StatusExited {
 		close(ch)
-		return -1, replay, ch
+		return -1, replay, start, resumed, ch
 	}
 	s.nextSub++
 	id = s.nextSub
 	s.subs[id] = &subscriber{ch: ch}
-	return id, replay, ch
+	return id, replay, start, resumed, ch
 }
+
+// Epoch names this run of the pane's process. A restarted pane is a new
+// session with output of its own, so a place in the last one's means nothing
+// in it. When it started is what tells the two apart, and unlike a counter it
+// still does across Flockdeck itself being restarted.
+func (s *Session) Epoch() int64 { return s.startedAt.UnixMicro() }
 
 // Unsubscribe removes a viewer.
 func (s *Session) Unsubscribe(id int) {

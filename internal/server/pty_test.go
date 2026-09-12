@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -316,6 +317,99 @@ func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string
 		if strings.Contains(seen.String(), marker) {
 			return seen.String()
 		}
+	}
+}
+
+// readResumable types line into a terminal socket until marker comes back,
+// counting the output the way the window does: from the offset in the last
+// header, a byte at a time. It returns the output that arrived.
+func readResumable(t *testing.T, conn *websocket.Conn, line, marker string, h *streamHeader, held *int64) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			if err := conn.Write(ctx, websocket.MessageBinary, []byte(line)); err != nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}()
+
+	var seen strings.Builder
+	for !strings.Contains(seen.String(), marker) {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read pty waiting for %q: %v\nsaw:\n%s", marker, err, seen.String())
+		}
+		if typ == websocket.MessageText {
+			if err := json.Unmarshal(data, h); err != nil {
+				t.Fatalf("a text frame that is not a header: %q", data)
+			}
+			*held = h.Offset
+			continue
+		}
+		*held += int64(len(data))
+		seen.Write(data)
+	}
+	return seen.String()
+}
+
+// TestTerminalResumesWhereItWasCutOff covers a window whose terminal socket
+// drops and comes back -- a laptop waking, the relay blinking, or the server
+// hanging up on a window that fell behind. It used to reset the terminal and
+// be sent the last half megabyte again, losing everything older and where the
+// person had scrolled to. Saying what it holds, it is sent only what it
+// missed, and keeps the rest.
+func TestTerminalResumesWhereItWasCutOff(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+	dial := func(query string) *websocket.Conn {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		conn, _, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+paneID+query, nil)
+		if err != nil {
+			t.Fatalf("dial pty: %v", err)
+		}
+		conn.SetReadLimit(16 << 20)
+		t.Cleanup(func() { conn.CloseNow() })
+		return conn
+	}
+
+	var h streamHeader
+	var held int64
+	first := dial("&from=-1")
+	readResumable(t, first, "echo resume_one\r", "resume_one", &h, &held)
+	if h.Resumed {
+		t.Fatal("a window holding nothing was told it was resuming")
+	}
+	first.CloseNow()
+
+	second := dial(fmt.Sprintf("&from=%d&epoch=%d", held, h.Epoch))
+	was := held
+	got := readResumable(t, second, "echo resume_two\r", "resume_two", &h, &held)
+	if !h.Resumed || h.Offset != was {
+		t.Fatalf("reconnecting holding %d bytes got %+v, want a resume from exactly there", was, h)
+	}
+	if strings.Contains(got, "echo resume_one") {
+		t.Errorf("a resume was sent output the window already held:\n%s", got)
+	}
+
+	// A window that does not say what it holds is served as windows always
+	// were: bytes, and never a header it would not know what to do with.
+	legacy := dialPTY(t, srv, paneID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if typ, _, err := legacy.Read(ctx); err != nil || typ != websocket.MessageBinary {
+		t.Fatalf("a window that did not ask to resume got a %v frame (%v)", typ, err)
 	}
 }
 
