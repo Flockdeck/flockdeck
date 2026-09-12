@@ -19,8 +19,15 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   access, as described below.
 - **The relay is optional.** It is used only if you turn on remote access. It
   keeps what it needs to connect your devices to your desktops: names, random
-  identifiers, timestamps and each paired browser's user-agent string. It
-  keeps no email address, password, real name or IP address.
+  identifiers, timestamps, each paired browser's user-agent string, and your
+  account's plan. It keeps no email address, password, real name or IP
+  address.
+- **If you pay for remote access,** a separate billing service keeps the
+  email address and country you give Paddle's checkout, your plan and a
+  record of each payment, for as long as UK tax records must be kept. No
+  email address is kept for anyone who does not pay, and the relay keeps
+  none even for those who do. Paddle, which takes the payment, keeps its own
+  records under its own policy.
 - **This website** sets no cookies, runs no analytics, and loads nothing from
   anyone else.
 - **Nobody's data is sold,** and nothing is used for advertising.
@@ -79,9 +86,13 @@ on.
 For each account:
 
 - a random account identifier;
-- the date it was created.
+- the date it was created;
+- its plan (a free trial, a subscription, or lapsed once either has run
+  out), and the date the trial or the time paid for runs until.
 
-The account is not linked to an email address, a name or a password.
+The account is not linked to an email address, a name or a password, even
+when you pay: the relay learns only your plan and its date from the billing
+service, as [Paying for remote access](#paying-for-remote-access) describes.
 
 For each desktop you connect:
 
@@ -138,6 +149,10 @@ in memory.
 - **A desktop** is kept until you turn remote access off on it or remove it
   from another of your devices. When the last desktop in an account is
   removed, the account and all its devices go with it.
+- **An account whose free trial has ended, or whose subscription has
+  lapsed,** can no longer be used for remote access. It is kept as it was for
+  90 days, so that subscribing restores it; after that, the account, its
+  desktops, its devices and its codes are deleted.
 - **Pairing codes** expire after ten minutes.
 
 To delete everything the relay holds about you, turn remote access off on each
@@ -151,7 +166,59 @@ in. It is strictly necessary for remote access to work, lasts up to 30 days,
 and is removed when you sign out. The relay's web client also remembers three
 display preferences in your browser's local storage: notifications, zoom and
 fit to screen. Neither is used for tracking, and neither is shared with
-anyone.
+anyone. The billing service sets no cookies; Paddle's checkout and customer
+portal are on Paddle's own site, under Paddle's policy.
+
+## Paying for remote access
+
+Remote access through the shared relay comes with a free trial, and after it
+is a subscription. Nothing below applies until you subscribe: an account on
+its free trial is known only to the relay, as described above.
+
+### Who takes the payment
+
+The subscription is sold by **Paddle**, as the merchant of record: you buy it
+from Paddle, which takes the payment, charges and pays the sales tax, sends
+your receipts and handles refunds. Paddle collects what its checkout asks for,
+such as your email address, your country and your payment details, and is a
+separate controller of that data under [its own privacy
+policy](https://www.paddle.com/legal/privacy). We never see or keep your
+payment card details.
+
+To connect a payment to your relay account, the checkout is opened with your
+relay account's random identifier attached, and Paddle holds it with the
+subscription.
+
+### What the billing service keeps
+
+A small billing service, separate from the relay, keeps for each paying
+account:
+
+- the relay account identifier the subscription pays for;
+- Paddle's identifiers for you and your subscription;
+- the email address and billing country you gave Paddle;
+- the plan: its price, its status, and the dates it started, renews and is
+  paid until, and any cancellation you have asked for;
+- a record of each payment and refund: its amount, tax, fee, currency,
+  country and invoice number.
+
+It keeps nothing about your desktops, your devices or what you do with them.
+It tells the relay only your account's plan and the date it runs until.
+
+Your email address is used for receipts and notices about your subscription,
+and to recover a subscription if you lose every paired device: on request,
+the subscription is moved to a new account. It is not a way to sign in, it is
+not used for marketing, and it is never shared except with Paddle, which
+already has it.
+
+### How long it is kept
+
+UK law asks a sole trader to keep business records for at least five years
+after the 31 January Self Assessment deadline for the tax year they fall in.
+So each payment and refund is kept until then, and deleted after it. Your
+subscription and your email address are kept while the subscription runs,
+and afterwards as long as a record of one of your payments is kept. After
+that, nothing about you remains in the billing service.
 
 ## This website
 
@@ -164,6 +231,11 @@ standard access logs, as described above.
 - **To provide remote access,** which you asked for: the account, desktop and
   device records, and the sign-in cookie. The basis is performance of a
   contract (the relay's [terms](terms.html)).
+- **To provide a subscription you have bought:** your plan, the identifiers
+  that connect it to your relay account, and your email address for receipts,
+  notices and recovery. The basis is performance of a contract.
+- **To keep tax records:** the record of each payment and refund, for as long
+  as the law requires. The basis is legal obligation.
 - **To keep the relay secure and working:** rate limiting, logs and access
   logs. The basis is our legitimate interest in running a secure and reliable
   service.
@@ -177,6 +249,11 @@ network, which answers from locations around the world. GitHub mirrors every
 release. TLS certificates come from Let's Encrypt,
 which receives no personal data about you. These providers process data on
 our behalf or as independent services, under their own terms.
+
+The billing service is hosted by DigitalOcean too, in the same region as the
+relay. Paddle sells the subscription as the merchant of record and is a
+separate controller of what its checkout collects, as [Who takes the
+payment](#who-takes-the-payment) describes.
 
 DigitalOcean and GitHub are United States companies. Where your data is
 handled outside the UK, it is protected by the safeguards UK law requires,
@@ -196,8 +273,10 @@ Under UK data protection law you have the right to:
 
 Most of this you can do yourself, by renaming or removing desktops and devices
 in Flockdeck. For anything else, email **privacy@flockdeck.ai**. Because
-accounts carry no email address, we may ask you to prove a desktop or device
-is yours, for example from the desktop itself.
+relay accounts carry no email address, we may ask you to prove a desktop or
+device is yours, for example from the desktop itself. Records of payments
+cannot be deleted before the law allows, but everything else about a
+subscription can be. For what Paddle holds, ask Paddle.
 
 If you're unhappy with how your data is handled, you can complain to the
 Information Commissioner's Office at [ico.org.uk](https://ico.org.uk). We'd
