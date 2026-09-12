@@ -2652,6 +2652,30 @@ assert.deepStrictEqual(sent[sent.length - 1], { cmd: "newTab", kind: "agent", ag
 `)
 }
 
+// How many lines a terminal keeps was a number in the source. It is asked for
+// from the palette, kept with the other preferences, and follows a change made
+// in another window.
+func TestTheScrollbackCanBeChosen(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ scrollback: 50000 });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.scrollback, 50000, "the scrollback chosen on an earlier run was not used");
+
+h.win._prompt = "25,000";
+paletteRun("scrollback");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 25000 });
+assert.strictEqual(h.terms[0].options.scrollback, 25000, "the terminals did not take the new scrollback");
+
+h.win._prompt = "12";
+paletteRun("scrollback");
+assert.ok(!h.commands().some((c) => c.cmd === "scrollback" && c.size === 12), "a scrollback of 12 lines was accepted");
+assert.ok(h.$("notice").textContent.includes("1,000"), "nothing said what a scrollback may be");
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], scrollback: 90000 } });
+assert.strictEqual(h.terms[1].options.scrollback, 90000, "a scrollback chosen in another window was not followed");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

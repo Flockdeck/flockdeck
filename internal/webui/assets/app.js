@@ -242,7 +242,7 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyFontSize(prefs.fontSize); renderHints(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); }
       else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
       else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
@@ -1378,7 +1378,7 @@
       fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace',
       fontSize: fontSize,
       lineHeight: 1.15,
-      scrollback: 10000,
+      scrollback: scrollback,
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -2378,6 +2378,42 @@
     notice("Font size " + fontSize + "px", false);
   }
 
+  /** applyPrefs puts into effect the preferences that change how the
+   *  terminals behave. They arrive before the first pane is drawn, and again
+   *  whenever another window changes one. */
+  function applyPrefs() {
+    applyFontSize(prefs.fontSize);
+    applyScrollback(prefs.scrollback);
+  }
+
+  /** How many lines a terminal keeps once they have scrolled off the top,
+   *  where nobody has chosen, and what has been chosen. */
+  const SCROLLBACK = 10000;
+  let scrollback = SCROLLBACK;
+
+  function applyScrollback(lines) {
+    scrollback = lines || SCROLLBACK;
+    for (const p of panes.values()) {
+      if (p.term.options.scrollback !== scrollback) p.term.options.scrollback = scrollback;
+    }
+  }
+
+  /** askScrollback asks how much each terminal should keep. The number was
+   *  fixed in the source: too few lines for a long agent session to be read
+   *  back through, and more than a dozen panes need where memory is short. */
+  function askScrollback() {
+    const answer = window.prompt("How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)", String(scrollback));
+    if (answer === null || answer === undefined) return;
+    const n = Number(String(answer).replace(/[,\s_]/g, ""));
+    if (!Number.isInteger(n) || n < 1000 || n > 200000) {
+      notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
+      return;
+    }
+    applyScrollback(n);
+    send({ cmd: "scrollback", size: n });
+    notice("Each terminal now keeps " + n.toLocaleString("en") + " lines", false);
+  }
+
   /** applyFontSize draws every terminal at a size without announcing it,
    *  which is how a size chosen on an earlier run, or in another window,
    *  arrives. Zero, for a person who has never chosen one, is the default. */
@@ -2552,6 +2588,7 @@
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
+    scrollback: () => askScrollback(),
     remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
@@ -2564,7 +2601,7 @@
   function applyHello(msg) {
     keyTable = msg.keys || [];
     prefs = msg.prefs || prefs;
-    applyFontSize(prefs.fontSize);
+    applyPrefs();
     bindings = new Map();
     keyTable.forEach((k) => {
       const s = signatureOf(k.keys);
@@ -2691,7 +2728,8 @@
     // entry for it, and without this there was no way to open it at all.
     [["newAgentTabChoose", "New agent tab (choose agent)…"],
      ["splitRightChoose", "Split right (choose agent)…"],
-     ["apiKeys", "API keys…"]].forEach(([id, label]) => {
+     ["apiKeys", "API keys…"],
+     ["scrollback", "Terminal scrollback…"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
     });

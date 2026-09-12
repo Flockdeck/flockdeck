@@ -109,6 +109,20 @@ func (s *Server) setNotifications(off bool) {
 	})
 }
 
+// setScrollback records how many lines each terminal keeps, within what a
+// window will accept.
+func (s *Server) setScrollback(lines int) {
+	if lines < 1000 || lines > 200000 {
+		return
+	}
+	s.do(func() {
+		if s.prefs.Scrollback != lines {
+			s.prefs.Scrollback = lines
+			s.savePrefs()
+		}
+	})
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

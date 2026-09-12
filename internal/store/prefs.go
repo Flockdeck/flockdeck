@@ -25,6 +25,9 @@ type Prefs struct {
 	// NotificationsOff stops the desktop notification raised when an agent
 	// stops to wait while the window is behind something else.
 	NotificationsOff bool `json:"notificationsOff,omitempty"`
+	// Scrollback is how many lines each terminal keeps once they have
+	// scrolled off the top. Zero is the default.
+	Scrollback int `json:"scrollback,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

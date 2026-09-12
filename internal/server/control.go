@@ -207,7 +207,8 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
-	// Size is the terminal font size, for fontSize.
+	// Size is the terminal font size for fontSize, and a number of lines for
+	// scrollback.
 	Size int `json:"size"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
@@ -790,6 +791,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "notifications":
 		s.setNotifications(cmd.Kind == "off")
+		return
+	case "scrollback":
+		s.setScrollback(cmd.Size)
 		return
 	case "forgetRecent":
 		if err := store.ForgetRecent(cmd.Root); err != nil {
