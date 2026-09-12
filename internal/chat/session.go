@@ -624,6 +624,7 @@ func (s *session) command(line string) bool {
 		s.out.line(ansiBold, "commands")
 		for _, l := range []string{
 			"/model        the models to choose from; /model 2 or /model <id> switches",
+			"/output [n]   all of the last tool's output, or of the nth last",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
@@ -635,6 +636,8 @@ func (s *session) command(line string) bool {
 		}
 	case "model":
 		s.chooseModel(rest)
+	case "output":
+		s.showOutput(rest)
 	case "clear":
 		s.messages = nil
 		// The transcript is marked rather than truncated: what was said was
@@ -693,6 +696,40 @@ func (s *session) chooseModel(arg string) {
 	s.out.line(ansiDim, "answering with "+arg+" from here on")
 }
 
+// showOutput is /output: the whole of what a tool returned, of which the pane
+// showed one line as the call ran. The one line is right while the work goes
+// by; when something went wrong, the rest is what the user scrolls back for,
+// and it was never on the screen to scroll back to.
+func (s *session) showOutput(arg string) {
+	n := 1
+	if arg != "" {
+		v, err := strconv.Atoi(arg)
+		if err != nil || v < 1 {
+			s.out.line(ansiDim, "/output takes a number: 1 is the last tool's output, 2 the one before")
+			return
+		}
+		n = v
+	}
+	seen := 0
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		m := s.messages[i]
+		if m.Role != RoleTool {
+			continue
+		}
+		if seen++; seen == n {
+			// As it came from the tool, not reflowed: it is code and logs.
+			s.out.line(ansiBlue, "· "+describeCall(m.Call, s.opts.Width))
+			s.out.line("", strings.TrimRight(m.Text, "\n"))
+			return
+		}
+	}
+	if seen == 0 {
+		s.out.line(ansiDim, "no tool has run in this conversation yet")
+		return
+	}
+	s.out.line(ansiDim, fmt.Sprintf("there have been %d tool outputs so far", seen))
+}
+
 // compose puts the pane's briefing after the system prompt, fenced so the model
 // can tell the two apart.
 func compose(prompt, brief string) string {
@@ -718,7 +755,7 @@ func summarise(out string, width int) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	first := clipTo(strings.TrimSpace(lines[0]), width-12)
 	if len(lines) > 1 {
-		return fmt.Sprintf("%s (%d lines)", first, len(lines))
+		return fmt.Sprintf("%s (%d lines; /output shows them)", first, len(lines))
 	}
 	if first == "" {
 		return "(no output)"
