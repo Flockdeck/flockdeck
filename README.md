@@ -338,7 +338,9 @@ deliberately. It lists agents as **installed** and **not installed**,
 each expanding to its models with the default marked, and offers *set as
 default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
-should still learn that Flockdeck would run it. The pane header then names what it
+should still learn that Flockdeck would run it. An OpenAI-compatible endpoint
+is given its address there too: pick it, type where the model server answers,
+and one on this machine, which needs no key, is offered at once. The pane header then names what it
 got beside the branch, in the same dim weight — `claude · sonnet`,
 `codex · gpt-5`.
 

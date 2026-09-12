@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +154,12 @@ type catalogAgent struct {
 	// who has not installed Codex should still learn that Flockdeck would run it.
 	Available bool   `json:"available"`
 	Install   string `json:"install,omitempty"`
+	// Addressable is whether the picker offers a field for the agent's
+	// address (agent.TakesAddress), and Address what that address is now.
+	// Any name or password written into it by hand is masked: the picker
+	// shows it, and through remote access the relay would carry it.
+	Addressable bool   `json:"addressable,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // agentCatalog is the whole catalog as one snapshot carries it: what there is,
@@ -278,9 +286,107 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 			DefaultModel: sp.DefaultModel,
 			Available:    agent.Available(sp),
 			Install:      sp.Install,
+			Addressable:  agent.TakesAddress(sp),
+			Address:      maskAddress(sp.API.BaseURL),
 		})
 	}
 	return out
+}
+
+// maskAddress hides the password in an address written into agents.json by
+// hand. The picker refuses to save one, but it cannot stop one being typed
+// into the file.
+func maskAddress(address string) string {
+	if u, err := url.Parse(address); err == nil && u.User != nil {
+		return u.Redacted()
+	}
+	return address
+}
+
+// agentAddressMsg answers an address typed into the picker: the address as it
+// was sent, and why it was refused where it was. The picker shows the refusal
+// under the field, beside what was typed, so it can be corrected there.
+type agentAddressMsg struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Address string `json:"address"`
+	Error   string `json:"error,omitempty"`
+}
+
+// setAgentAddress records the address an API agent talks to, typed into the
+// picker. It was the one setting the OpenAI-compatible entry needs before it
+// can be used, and it could be given only by editing agents.json.
+//
+// The catalog is asked afresh once it is saved. An address on this machine
+// needs no key, so a local model server is offered the moment its address is,
+// rather than when the cached answer happens to run out.
+func (s *Server) setAgentAddress(c *controlClient, id, address string) {
+	address = strings.TrimSpace(address)
+	reply := func(problem string) {
+		c.sendJSON(agentAddressMsg{Type: "agentAddress", ID: id, Address: address, Error: problem})
+	}
+	spec, ok := ask(s, func() agent.Spec {
+		sp, _ := s.ws.Catalog().Find(id)
+		return sp
+	})
+	if !ok {
+		return
+	}
+	builtin := false
+	for _, b := range agent.Builtins() {
+		builtin = builtin || b.ID == id
+	}
+	switch {
+	case spec.ID == "":
+		reply(fmt.Sprintf("there is no agent called %q", id))
+		return
+	case !agent.TakesAddress(spec):
+		// The picker offers the field to none of these, but anything else
+		// speaking to this socket could ask.
+		reply(spec.Name + " talks to its vendor's own endpoint; its address is changed with `flockdeck keys endpoint " + id + " <address>`")
+		return
+	case address == "" && !builtin:
+		// An agent of the user's own is the address it was given; without one
+		// it would be talking to whichever vendor its wire names.
+		reply(spec.Name + " is an agent of your own and has no other address to fall back on; type the one it should use, as in http://127.0.0.1:11434/v1")
+		return
+	}
+	go func() {
+		defer s.survive("saving an agent's address")
+		path, err := agent.ConfigPath()
+		if err == nil {
+			err = agent.SetBaseURL(filepath.Dir(path), id, address)
+		}
+		if err != nil {
+			reply(err.Error())
+			return
+		}
+		reply("")
+		c.notify(addressNotice(spec, address), false)
+		s.refreshAgents()
+	}()
+}
+
+// addressNotice says what an address just saved means for the agent: whether
+// it can be used now, or still needs a key, and that a pane already running
+// goes on talking to wherever it started with.
+func addressNotice(spec agent.Spec, address string) string {
+	name := spec.Name
+	if address == "" {
+		if spec.ID == agent.OpenAICompatibleID {
+			return name + " has no address now, and is not offered until it is given one"
+		}
+		return name + " talks to its vendor's own endpoint again; panes already running keep the old address until they are restarted"
+	}
+	spec.API.BaseURL = address
+	text := name + " now talks to " + maskAddress(address)
+	switch {
+	case agent.NeedsNoKey(spec):
+		text += ", which is on this machine and needs no key"
+	case !agent.KeyProbe(spec):
+		text += ", and needs a key before it can be used: set one under API keys…"
+	}
+	return text + "; panes already running keep the old address until they are restarted"
 }
 
 // defaultWrites keeps two defaults saved at once -- from two windows -- from

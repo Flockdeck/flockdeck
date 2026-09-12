@@ -123,6 +123,96 @@ func TestAgentDefaultIsCheckedAndClearable(t *testing.T) {
 	}
 }
 
+// TestAnAddressFromThePickerOffersALocalModelAtOnce covers the address field
+// on the OpenAI-compatible entry. Its address could only be given by editing
+// agents.json; now the picker sends it, a mistyped one is answered with what
+// to type, and one on this machine -- which needs no key -- makes the agent
+// available straight away rather than when the cached answer runs out.
+func TestAnAddressFromThePickerOffersALocalModelAtOnce(t *testing.T) {
+	srv, _ := newTestServer(t)
+	agent.Refresh() // an earlier test's answer is not this machine's
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+
+	find := func(s stateMsg) catalogAgent {
+		for _, it := range s.Agents.Items {
+			if it.ID == agent.OpenAICompatibleID {
+				return it
+			}
+		}
+		return catalogAgent{}
+	}
+	answer := func() agentAddressMsg {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for {
+			select {
+			case data, ok := <-r.msgs:
+				if !ok {
+					t.Fatal("the control socket closed")
+				}
+				var msg agentAddressMsg
+				if json.Unmarshal(data, &msg) == nil && msg.Type == "agentAddress" {
+					return msg
+				}
+			case <-deadline:
+				t.Fatal("the address was never answered")
+			}
+		}
+	}
+
+	st, ok := r.stateWithin(10*time.Second, nil)
+	if !ok {
+		t.Fatal("no snapshot arrived")
+	}
+	if a := find(st); !a.Addressable || a.Available || a.Address != "" {
+		t.Fatalf("before an address is given the entry reads %+v, want it offered an address and unavailable", a)
+	}
+
+	// What a model server prints on starting, without its scheme.
+	sendCmd(t, conn, command{Cmd: "setAgentAddress", ID: agent.OpenAICompatibleID, Text: "localhost:11434"})
+	if msg := answer(); !strings.Contains(msg.Error, "type http://localhost:11434") {
+		t.Errorf("an address with no scheme was answered %+v, want it told what to type", msg)
+	}
+	if c := agent.Load(); func() bool { s, _ := c.Find(agent.OpenAICompatibleID); return s.API.BaseURL != "" }() {
+		t.Error("a refused address was written to agents.json")
+	}
+
+	// A CLI has no address to change, whatever sends the command.
+	sendCmd(t, conn, command{Cmd: "setAgentAddress", ID: "claude", Text: "http://127.0.0.1:1/v1"})
+	if msg := answer(); msg.Error == "" {
+		t.Errorf("an address for a CLI agent was accepted: %+v", msg)
+	}
+
+	const local = "http://127.0.0.1:11434/v1"
+	sendCmd(t, conn, command{Cmd: "setAgentAddress", ID: agent.OpenAICompatibleID, Text: " " + local + " "})
+	if msg := answer(); msg.Error != "" || msg.Address != local {
+		t.Fatalf("a good address was answered %+v", msg)
+	}
+	if _, ok := r.stateWithin(3*time.Second, func(s stateMsg) bool {
+		a := find(s)
+		return a.Available && a.Address == local
+	}); !ok {
+		t.Fatal("the endpoint was not offered within three seconds of a loopback address being saved")
+	}
+}
+
+// A password written into an address by hand is not sent to the window, which
+// shows the address in the picker's field.
+func TestTheCatalogMasksAPasswordInAnAddress(t *testing.T) {
+	writeAgents(t, `{"agents": [{"id": "gw", "api": {"baseURL": "https://me:hunter2@gw.example/v1"}}]}`)
+	for _, a := range buildCatalog(agent.Load(), "").Items {
+		if a.ID != "gw" {
+			continue
+		}
+		if !a.Addressable || strings.Contains(a.Address, "hunter2") || !strings.Contains(a.Address, "gw.example") {
+			t.Errorf("the gateway reads %+v, want its address offered with the password masked", a)
+		}
+		return
+	}
+	t.Fatal("the gateway was not offered")
+}
+
 // stateDir points this test's state at a directory of its own, the way the
 // store's own tests do. The catalog reads agents.json out of it, and writing a
 // default into the real one would edit whatever the person running the tests

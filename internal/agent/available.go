@@ -144,6 +144,20 @@ func NeedsNoKey(s Spec) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// OpenAICompatibleID is the built-in entry for an OpenAI-compatible endpoint,
+// which ships with no address and is no use until it is given one.
+const OpenAICompatibleID = "openai-compatible"
+
+// TakesAddress reports whether the picker offers to change an agent's
+// address: the OpenAI-compatible entry, whose address is the one thing it
+// needs, and any other API agent that has been given one -- a local model of
+// the user's own, or a vendor's agent pointed at a gateway. An API agent still
+// talking to its vendor is left alone, since there is nothing to change there
+// that anybody asked to.
+func TakesAddress(s Spec) bool {
+	return s.Runner == RunnerAPI && (s.ID == OpenAICompatibleID || s.API.BaseURL != "")
+}
+
 // keyIsSet is the default KeyProbe: the environment names the spec lists, then
 // the key store. It reads nothing out -- the answer is set or not set, which is
 // all availability, and all the interface, is ever told.

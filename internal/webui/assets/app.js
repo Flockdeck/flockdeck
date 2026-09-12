@@ -286,6 +286,7 @@
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
+      else if (msg.type === "agentAddress") addressAnswered(msg);
       else if (msg.type === "remoteDevices") { remoteRoster = msg; if (dialog === "remote") keepFocus(renderRemote); }
       else if (msg.type === "remotePair") { remotePairing = msg; if (dialog === "remote") keepFocus(renderRemote); }
       else if (msg.type === "remoteOutcome") {
@@ -4410,7 +4411,10 @@
   let pickRows = [];
 
   function chooseAgent(title, onPick) {
-    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "" };
+    // address is the address being typed for one agent, while it is: which
+    // agent, what has been typed, why the last try was refused, and whether
+    // one is out to be saved.
+    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "", address: null };
     // A fresh picker starts on its first row, not on the row the last one
     // left picked out, which renderAgentPicker would otherwise carry over.
     pickRows = [];
@@ -4441,7 +4445,8 @@
     const q = (picker.query || "").trim().toLowerCase();
     const words = q ? q.split(/\s+/) : [];
     const matches = (a) => {
-      const hay = (a.id + " " + a.name + " " + (a.models || []).map((m) => m.id + " " + (m.name || "")).join(" ")).toLowerCase();
+      const hay = (a.id + " " + a.name + " " + (a.address || "") + " " +
+        (a.models || []).map((m) => m.id + " " + (m.name || "")).join(" ")).toLowerCase();
       return words.every((w) => hay.includes(w));
     };
     const items = (catalog.items || []).filter(matches);
@@ -4453,6 +4458,9 @@
       group.forEach((a) => {
         out.push({ type: "agent", agent: a });
         if (!picker.open.has(a.id)) return;
+        // The address comes first: it is what the models below it are asked
+        // for at, and for an endpoint with none it is all there is.
+        if (a.addressable) out.push({ type: "address", agent: a });
         (a.models || []).forEach((m) => out.push({ type: "model", agent: a, model: m }));
       });
     });
@@ -4563,7 +4571,9 @@
         list.append(el("div", "pick-head", item.title));
         return;
       }
-      const row = item.type === "agent" ? pickerAgentRow(item.agent) : pickerModelRow(item.agent, item.model);
+      const row = item.type === "agent" ? pickerAgentRow(item.agent)
+        : item.type === "address" ? pickerAddressRow(item.agent)
+        : pickerModelRow(item.agent, item.model);
       row.id = "pick-row-" + pickRows.length;
       row.setAttribute("role", "option");
       const at = pickRows.length;
@@ -4572,6 +4582,9 @@
       row.item = item;
       pickRows.push(row);
       list.append(row);
+      if (item.type === "address" && picker.address && picker.address.id === item.agent.id) {
+        list.append(addressForm(item.agent));
+      }
     });
     if (keep) {
       const at = pickRows.findIndex((r) => r.item.type === keep.type && r.item.agent.id === keep.agent.id &&
@@ -4588,14 +4601,144 @@
     row.append(glyph(open ? "▾" : "▸"));
     row.append(el("span", "pick-name", a.name || a.id));
     if (markedAgent(a)) row.append(el("span", "pick-mark", "default"));
-    if (!a.available) {
+    if (!a.available && a.addressable) {
+      // An endpoint is not something to install. What it lacks is an
+      // address, which this dialog takes, or a key for the one it has.
+      row.append(el("span", "pick-note", a.address
+        ? "needs a key for " + a.address + " - set one under API keys…"
+        : "needs an address - press Enter to give it one"));
+    } else if (!a.available) {
       const why = el("span", "pick-note", a.install || "not installed");
       row.append(describe(why, TIPS.notInstalled));
+    } else if (a.addressable && a.address) {
+      row.append(el("span", "pick-note", a.address));
     } else if (a.models && a.models.length) {
       row.append(el("span", "pick-note", a.models.length + " models"));
     }
     row.setAttribute("aria-expanded", String(open));
     return row;
+  }
+
+  /** opensOnto says whether an agent's row opens onto rows of its own: its
+   *  models, and the address of an endpoint. */
+  function opensOnto(a) {
+    return (a.models || []).length > 0 || !!a.addressable;
+  }
+
+  /** pickerAddressRow is where an endpoint's address is changed. It is a row
+   *  like the models beside it, so it is reached with the same arrows, and
+   *  Enter on it opens the field. */
+  function pickerAddressRow(a) {
+    const row = el("div", "pick-row model address");
+    row.append(el("span", "pick-name", a.address ? "Address: " + a.address : "Give it an address…"));
+    row.append(el("span", "pick-note", a.address ? "Enter to change it" : "Enter to type one"));
+    return row;
+  }
+
+  /** editAddress opens the field for an agent's address, holding what it has
+   *  now, and gives it the keyboard. */
+  function editAddress(a) {
+    picker.open.add(a.id);
+    picker.address = { id: a.id, value: a.address || "", error: "", busy: false };
+    drawPickerList();
+    const at = pickRows.findIndex((r) => r.item.type === "address" && r.item.agent.id === a.id);
+    if (at >= 0) { picker.index = at; markPickerRow(); }
+    const field = $("agent-address");
+    if (field) field.focus();
+  }
+
+  /** closeAddress puts the field away and the keyboard back on the filter,
+   *  with the highlight where it was. */
+  function closeAddress() {
+    if (!picker) return;
+    picker.address = null;
+    drawPickerList();
+    const field = $("agent-filter");
+    if (field) field.focus();
+  }
+
+  /** addressForm is the field an address is typed into. What was typed lives
+   *  in picker.address rather than only in the input, so a catalog arriving
+   *  while it is being typed redraws the list without losing it. */
+  function addressForm(a) {
+    const d = picker.address;
+    const wrap = el("div", "pick-address");
+    const form = el("div", "wt-form");
+    const field = el("input");
+    field.id = "agent-address";
+    field.type = "text";
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = "http://127.0.0.1:11434/v1";
+    field.value = d.value;
+    field.setAttribute("aria-label", "Address of " + (a.name || a.id));
+    field.oninput = () => { d.value = field.value; };
+
+    const save = () => {
+      d.value = field.value;
+      const value = field.value.trim();
+      // Nothing changed is nothing to write. It also keeps a password masked
+      // on the way here, or a variable the file names the address by, from
+      // being written back over the real thing.
+      if (value === (a.address || "")) { closeAddress(); return; }
+      d.error = "";
+      d.busy = true;
+      send({ cmd: "setAgentAddress", id: a.id, text: value });
+      drawPickerList();
+      const again = $("agent-address");
+      if (again) again.focus();
+    };
+    // Escape is the window's key handler's, which puts this field away rather
+    // than closing the picker; it sees the key before this field does.
+    field.onkeydown = (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); save(); }
+    };
+
+    const ok = el("button", "chip primary", d.busy ? "Saving…" : "Save");
+    ok.disabled = d.busy;
+    ok.onclick = save;
+    const no = el("button", "chip", "Cancel");
+    no.onclick = closeAddress;
+    form.append(field, ok, no);
+    wrap.append(form);
+    wrap.append(el("div", "wt-hint",
+      "Where the model server answers, starting http:// or https:// - Ollama is " +
+      "http://127.0.0.1:11434/v1 and LM Studio http://127.0.0.1:1234/v1. One on this " +
+      "machine needs no key. Saved empty, the address is taken away."));
+    if (d.error) {
+      const why = el("div", "pick-error", d.error);
+      why.id = "agent-address-error";
+      why.setAttribute("role", "alert");
+      field.setAttribute("aria-invalid", "true");
+      field.setAttribute("aria-describedby", why.id);
+      wrap.append(why);
+    }
+    return wrap;
+  }
+
+  /** addressAnswered takes the server's answer to an address: a refusal goes
+   *  under the field, beside what was typed, so it can be put right there; a
+   *  saved address puts the field away and the highlight on the agent, so
+   *  Enter starts it. The catalog that follows says whether it can be. */
+  function addressAnswered(msg) {
+    const d = picker && picker.address;
+    if (dialog !== "agentPicker" || !d || d.id !== msg.id) {
+      // The picker was closed or moved on before the answer came. A refusal
+      // is still said, where it will be seen; a save is said by its notice.
+      if (msg.error) notice(msg.error, true);
+      return;
+    }
+    d.busy = false;
+    if (msg.error) {
+      d.error = msg.error;
+      drawPickerList();
+      const field = $("agent-address");
+      if (field) field.focus();
+      return;
+    }
+    closeAddress();
+    const at = pickRows.findIndex((r) => r.item.type === "agent" && r.item.agent.id === msg.id);
+    if (at >= 0) { picker.index = at; markPickerRow(); }
   }
 
   function pickerModelRow(a, m) {
@@ -4637,11 +4780,21 @@
     if (!row) return;
     const item = row.item;
     const a = item.agent;
+    if (item.type === "address") { editAddress(a); return; }
+    if (!a.available && a.addressable) {
+      // An endpoint missing only its address is given one here, where the
+      // question came up, rather than being sent off to edit a file.
+      if (!a.address) { editAddress(a); return; }
+      picker.open.add(a.id);
+      drawPickerList();
+      notice(a.name + " needs a key for " + a.address + ": set one under API keys… in the command palette, or give it another address.", true);
+      return;
+    }
     if (!a.available) {
       notice(a.name + " is not installed. " + (a.install || ""), true);
       return;
     }
-    if (item.type === "agent" && (a.models || []).length && !picker.open.has(a.id)) {
+    if (item.type === "agent" && opensOnto(a) && !picker.open.has(a.id)) {
       picker.open.add(a.id);
       drawPickerList();
       return;
@@ -4673,7 +4826,7 @@
     // through, and taking them from someone correcting a typo in the filter
     // would be worse than making them press Enter to open a row.
     if (!picker.query && item) {
-      if (e.key === "ArrowRight" && item.type === "agent" && (item.agent.models || []).length) {
+      if (e.key === "ArrowRight" && item.type === "agent" && opensOnto(item.agent)) {
         e.preventDefault();
         picker.open.add(item.agent.id);
         drawPickerList();
@@ -5521,6 +5674,14 @@
         e.preventDefault();
         f.value = "";
         f.dispatchEvent(new Event("input"));
+        return;
+      }
+      // An agent's address being typed in the picker is put away, and the
+      // picker kept: closing it took a half-typed address with it, and left
+      // no way to tell whether anything had been saved.
+      if (f && f.id === "agent-address") {
+        e.preventDefault();
+        closeAddress();
         return;
       }
       closeOverlay();

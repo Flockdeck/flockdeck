@@ -927,6 +927,10 @@ kbd {
   padding-top: 10px; border-top: 1px solid var(--line);
 }
 .pick-default { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; color: var(--fg-dim); }
+/* An endpoint's address is typed under the row that asked for it, indented
+ * like the models it sits among, so it reads as belonging to that agent. */
+.pick-address { padding: 4px 10px 8px 30px; }
+.pick-error { color: var(--exited); font-size: 12px; margin-top: 6px; }
 
 /* ------------------------------------------------------------------ notice */
 

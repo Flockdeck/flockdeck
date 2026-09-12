@@ -35,9 +35,9 @@ where to get it. For an API agent, no key was found: nothing in the
 environment variables it looks at, and nothing in Flockdeck's own store. `flockdeck
 keys set <agent>` reads one from stdin, and [Agents and models](#agents) covers the
 rest. The OpenAI-compatible endpoint ships with no address, because none would
-be right for everybody: give it a `baseURL` in `agents.json`. It shows as
-available once it has a key, or once that address is on this machine and needs
-none. Unavailable agents are shown rather than hidden on purpose, so that an
+be right for everybody: pick it, and the picker asks for one. It shows as
+available once it has a key, or at once when that address is on this machine
+and needs none. Unavailable agents are shown rather than hidden on purpose, so that an
 agent you have not installed is a decision rather than an absence.
 
 ## A pane is dead, with a Restart button

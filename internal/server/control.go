@@ -871,6 +871,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "setAgentDefault":
 		s.applyAgentDefault(c, cmd)
 		return
+	case "setAgentAddress":
+		s.setAgentAddress(c, cmd.ID, cmd.Text)
+		return
 	case "revealPane":
 		s.revealPane(c, cmd.Root, cmd.Node, cmd.ID)
 		return

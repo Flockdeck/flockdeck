@@ -295,13 +295,15 @@ func SetDefaults(dir, project string, d Defaults) error {
 // file by hand. An entry for the agent is changed in place, keeping everything
 // else it says; one is added when there is none. An empty address takes the
 // one recorded away.
+//
+// Where the agent has more than one entry the last is the one changed, because
+// entries are merged in order and the last one's address is the one used: an
+// address written into an earlier entry was saved without error and changed
+// nothing.
 func SetBaseURL(dir, id, baseURL string) error {
 	baseURL = strings.TrimSpace(baseURL)
-	if baseURL != "" {
-		u, err := url.Parse(baseURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("%q is not an address an endpoint can have: it begins http:// or https://, as in http://127.0.0.1:11434/v1", baseURL)
-		}
+	if err := CheckBaseURL(baseURL); err != nil {
+		return err
 	}
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -310,11 +312,18 @@ func SetBaseURL(dir, id, baseURL string) error {
 		// As with a default: a file that cannot be read is not written over.
 		return err
 	}
+	at := -1
 	for i, raw := range f.Agents {
 		var entry map[string]json.RawMessage
 		var got string
-		if json.Unmarshal(raw, &entry) != nil || json.Unmarshal(entry["id"], &got) != nil || got != id {
-			continue
+		if json.Unmarshal(raw, &entry) == nil && json.Unmarshal(entry["id"], &got) == nil && got == id {
+			at = i
+		}
+	}
+	if at >= 0 {
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(f.Agents[at], &entry); err != nil {
+			return err
 		}
 		api := map[string]json.RawMessage{}
 		if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
@@ -328,7 +337,7 @@ func SetBaseURL(dir, id, baseURL string) error {
 		if entry["api"], err = marshalUnescaped(api); err != nil {
 			return err
 		}
-		if f.Agents[i], err = marshalUnescaped(entry); err != nil {
+		if f.Agents[at], err = marshalUnescaped(entry); err != nil {
 			return err
 		}
 		return writeConfig(dir, f)
@@ -342,4 +351,35 @@ func SetBaseURL(dir, id, baseURL string) error {
 	}
 	f.Agents = append(f.Agents, entry)
 	return writeConfig(dir, f)
+}
+
+// CheckBaseURL says whether an address is one an endpoint can have, and when
+// it is not, what to type instead. An empty address is fine: it means the
+// vendor's own.
+//
+// The picker shows this to whoever typed the address, so it says what to type
+// rather than what was wrong with it. What people type is nearly always the
+// address their model server printed, without its http:// -- "localhost:11434"
+// -- and that is answered with the address it should have been.
+func CheckBaseURL(baseURL string) error {
+	if baseURL == "" {
+		return nil
+	}
+	u, err := url.Parse(baseURL)
+	if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+		if u.User != nil {
+			// Said without repeating the address, which has a secret in it, and
+			// refused because the address is shown back in the picker and sent
+			// on every pane's command line, where a key is not.
+			return errors.New("the address has a name or password in it; give it without one, and set the key under API keys… instead")
+		}
+		return nil
+	}
+	const example = "type the whole address, starting http:// or https://, as in http://127.0.0.1:11434/v1"
+	if !strings.Contains(baseURL, "://") {
+		if v, err := url.Parse("http://" + baseURL); err == nil && v.Host != "" && !strings.ContainsAny(baseURL, " \t") {
+			return fmt.Errorf("%q has no http:// in front: type http://%s", baseURL, baseURL)
+		}
+	}
+	return fmt.Errorf("%q is not an address an endpoint can have: %s", baseURL, example)
 }
