@@ -149,7 +149,8 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	if truncated {
 		fmt.Fprintf(&b, "[stopped at %d matches; narrow the pattern]\n", limit)
 	} else if !a.FilesOnly {
-		fmt.Fprintf(&b, "\n%d matches in %d files.\n", len(out), files)
+		fmt.Fprintf(&b, "\n%d %s in %d %s.\n", len(out), plural(len(out), "match", "matches"),
+			files, plural(files, "file", "files"))
 	}
 	return b.String(), nil
 }

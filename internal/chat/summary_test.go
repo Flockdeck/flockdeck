@@ -22,6 +22,7 @@ func TestACommandIsSummarisedByItsResult(t *testing.T) {
 func TestASearchIsSummarisedByWhatItFound(t *testing.T) {
 	for out, want := range map[string]string{
 		"a.go:1: x\nb.go:2: y\n\n2 matches in 2 files.\n":             "2 matches in 2 files.",
+		"a.go:1: x\n\n1 match in 1 file.\n":                           "1 match in 1 file.",
 		"a.go\nb.go\n[stopped at 1000 matches; narrow the pattern]\n": "[stopped at 1000 matches",
 	} {
 		if got := summarise(out, 80); !strings.HasPrefix(got, want) {

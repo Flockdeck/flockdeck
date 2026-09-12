@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -240,9 +241,12 @@ func summarise(out string, width int) string {
 // search's first match -- says nothing of how it went.
 func isResultLine(s string) bool {
 	return strings.HasPrefix(s, "[exit status") || strings.HasPrefix(s, "[killed after") ||
-		strings.HasPrefix(s, "[stopped at") ||
-		strings.Contains(s, " matches in ") && strings.HasSuffix(s, " files.")
+		strings.HasPrefix(s, "[stopped at") || searchTally.MatchString(s)
 }
+
+// searchTally is the line grep ends with: "2 matches in 2 files.", or "1
+// match in 1 file.".
+var searchTally = regexp.MustCompile(`^\d+ match(es)? in \d+ files?\.$`)
 
 // clipTo cuts s to n columns, on a rune boundary, marking that it was cut.
 func clipTo(s string, n int) string {
