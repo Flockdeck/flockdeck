@@ -869,7 +869,7 @@ Two programs under `cmd/` make what is published rather than the application:
   scripts it serves, from `cmd/sitegen/assets`:
   `go run ./cmd/sitegen -out ../flockdeck-site`.
 
-Two development aids live under `cmd/` and are not part of the product:
+Four development aids live under `cmd/` and are not part of the product:
 
 - `cmd/hooktest` starts one real agent pane, sends it a prompt and prints every
   status transition, verifying the hook pipeline end to end. Build the binary
