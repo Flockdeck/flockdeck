@@ -324,6 +324,9 @@ h2 {
   background: var(--sunken); border: 1px solid var(--edge-soft);
   border-radius: 6px; padding: 8px 11px;
 }
+/* A status glyph and its word wrap as one, so a narrow box never strands a
+   dot at the end of one line and its label at the start of the next. */
+.relay-tally > span { white-space: nowrap; }
 .relay-link { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .relay-link .arrow { font-size: 24px; line-height: 1; color: var(--accent); }
 .relay-link .t { font-family: var(--mono); font-size: 11px; color: var(--idle); white-space: nowrap; }
