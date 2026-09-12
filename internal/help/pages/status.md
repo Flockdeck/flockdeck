@@ -15,9 +15,8 @@ Every pane header carries a status dot.
 | Grey | **Idle** — it finished its turn and is ready for a new prompt |
 | Red | **Exited** — the process is gone |
 
-While a tool is running the pane header names it, so "Reading", "Bash" or
-"Edit" tells you what the agent is actually doing rather than only that it is
-busy.
+While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
+tells you what the agent is actually doing rather than only that it is busy.
 
 ## Where else it shows
 

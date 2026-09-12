@@ -23,7 +23,7 @@ keys` keeps it.
 ┌ flockdeck ──────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
-│ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
+│ ● api ⎇ main ●3  Read     │ ▲ api ⎇ fix-auth ↑2          │
 │   claude · sonnet         │   codex · gpt-5              │
 │  (live agent terminal)    │  (live agent terminal)       │
 ├───────────────────────────┴──────────────────────────────┤
