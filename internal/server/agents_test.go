@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -35,6 +36,32 @@ func TestDefaultForEveryProjectFromTheWindow(t *testing.T) {
 	if f.Defaults != (agent.Defaults{Agent: "claude", Model: "opus"}) || len(f.Projects) != 0 {
 		t.Errorf("agents.json holds %+v for every project and %+v per project, want claude · opus for every project and nothing else",
 			f.Defaults, f.Projects)
+	}
+}
+
+// TestCatalogIsNotReprobedWhileNobodyAsks covers the cost of keeping the
+// agent catalog in every snapshot. Working it out searches PATH for every
+// agent that is not installed, a third of a second on an ordinary Windows
+// machine, and it was done again in the background every five seconds while a
+// window was open. The picker asks afresh itself when it opens.
+func TestCatalogIsNotReprobedWhileNobodyAsks(t *testing.T) {
+	srv, _ := newTestServer(t)
+	nextState(t, dialControl(t, srv), nil)
+	at := func() time.Time {
+		t.Helper()
+		v, _ := ask(srv, func() time.Time { return srv.agentsAt })
+		return v
+	}
+	first := at()
+	if first.IsZero() {
+		t.Fatal("the first snapshot carried no catalog")
+	}
+	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
+		srv.Wake()
+		time.Sleep(50 * time.Millisecond)
+	}
+	if later := at(); !later.Equal(first) {
+		t.Errorf("the catalog was worked out again %v after the first time, with nobody opening the picker", later.Sub(first))
 	}
 }
 

@@ -159,10 +159,18 @@ type agentCatalog struct {
 	Err string `json:"err,omitempty"`
 }
 
-// agentProbeInterval is how long an availability probe is believed for. An
-// agent installed while Flockdeck is running is rare enough that a few seconds'
-// lag is no worse than the install itself.
-const agentProbeInterval = 5 * time.Second
+// agentProbeInterval is how long the catalog a snapshot carries is believed
+// for before it is worked out again in the background.
+//
+// It used to be five seconds, the same as the machine's own answers are kept
+// for, so every background probe found them just expired and searched PATH
+// afresh for every agent -- a third of a second, on a Windows machine with an
+// ordinary PATH, every five seconds for as long as a window was open. The
+// only thing that reads the answer is the picker, and the picker asks the
+// machine again itself the moment it opens, which is when an agent installed
+// a moment ago has to show up. So this only keeps a catalog nobody is
+// looking at from going stale for ever.
+const agentProbeInterval = time.Minute
 
 // catalog returns the catalog for the active project, arranging for a fresh
 // probe when the last answer has gone stale. It must run on the workspace
