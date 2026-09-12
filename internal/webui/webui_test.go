@@ -3342,6 +3342,28 @@ assert.strictEqual(h.$("help-search").getAttribute("aria-label"), "Search the he
 `)
 }
 
+// Every dialog has a ? in its header for the page that explains it, except
+// the update and API key dialogs, which had none although both are covered:
+// updating on the command line page, keys on the page about agents.
+func TestTheUpdateAndKeyDialogsHaveTheirHelp(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-update"));
+assert.ok(h.$("overlay-help"), "the update dialog has no ?");
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "cli");
+
+h.key({ key: "Escape" });
+paletteRun("api keys");
+assert.ok(h.$("overlay-help"), "the API key dialog has no ?");
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "agents");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

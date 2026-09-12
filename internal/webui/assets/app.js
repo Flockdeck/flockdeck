@@ -301,7 +301,9 @@
     // Named like every other dialog, so that the one it replaced — whose answer
     // may still be on its way — no longer thinks the panel is its own.
     dialog = "update";
-    openOverlay("Update to " + u.version);
+    // The ? every other dialog has: the page on the command line covers
+    // updating, and how to stop the checks.
+    openOverlay("Update to " + u.version, "cli");
     const body = $("overlay-body");
     body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
     if (u.notes) body.append(el("pre", "update-notes", u.notes));
@@ -3837,7 +3839,7 @@
     dialog = "keys";
     apiKeys = null;
     keyEditing = null;
-    openOverlay("API keys");
+    openOverlay("API keys", "agents"); // where keys are explained
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
     send({ cmd: "keys" });
