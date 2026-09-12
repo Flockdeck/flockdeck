@@ -39,14 +39,33 @@ type prefsMsg struct {
 	Prefs store.Prefs `json:"prefs"`
 }
 
-// savePrefs persists the preferences and tells every window. It runs on the
-// workspace goroutine.
-func (s *Server) savePrefs() {
-	if err := store.SavePrefs(s.prefs); err != nil {
-		// Preferences are a convenience; failing to record one must not
-		// interrupt what the person was actually doing.
-		return
-	}
+// updatePrefs applies one change to the preferences and, where it changed
+// anything, saves them and tells every window.
+//
+// The change is made to what is on disk, not to the copy read at start-up.
+// Written back whole, that copy undid whatever else had changed the file
+// since: with two instances running (-solo) whichever saved last put back the
+// other's old settings, and a start-up read that failed left defaults in
+// memory which the first save then wrote over every setting there was.
+func (s *Server) updatePrefs(change func(*store.Prefs) bool) {
+	s.do(func() {
+		p := store.LoadPrefs()
+		if !change(&p) {
+			return
+		}
+		if err := store.SavePrefs(p); err != nil {
+			// Preferences are a convenience; failing to record one must not
+			// interrupt what the person was actually doing.
+			return
+		}
+		s.prefs = p
+		s.broadcastPrefs()
+	})
+}
+
+// broadcastPrefs tells every window what the preferences now are. It runs on
+// the workspace goroutine.
+func (s *Server) broadcastPrefs() {
 	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs})
 	if err != nil {
 		return
@@ -65,22 +84,18 @@ func (s *Server) savePrefs() {
 // markHelpSeen records that the help has been opened, so the first-run welcome
 // does not come back.
 func (s *Server) markHelpSeen() {
-	s.do(func() {
-		if s.prefs.HelpSeen {
-			return
+	s.updatePrefs(func(p *store.Prefs) bool {
+		if p.HelpSeen {
+			return false
 		}
-		s.prefs.HelpSeen = true
-		s.savePrefs()
+		p.HelpSeen = true
+		return true
 	})
 }
 
 // dismissTip records that an inline hint has been sent away for good.
 func (s *Server) dismissTip(id string) {
-	s.do(func() {
-		if s.prefs.Dismiss(id) {
-			s.savePrefs()
-		}
-	})
+	s.updatePrefs(func(p *store.Prefs) bool { return p.Dismiss(id) })
 }
 
 // setFontSize records the size the terminals are drawn at. The window used to
@@ -89,24 +104,23 @@ func (s *Server) setFontSize(size int) {
 	if size < 8 || size > 28 {
 		return
 	}
-	s.do(func() {
-		if s.prefs.FontSize != size {
-			s.prefs.FontSize = size
-			s.savePrefs()
-		}
-	})
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.FontSize, size) })
+}
+
+// setPref sets one preference and reports whether that changed it.
+func setPref[T comparable](field *T, v T) bool {
+	if *field == v {
+		return false
+	}
+	*field = v
+	return true
 }
 
 // setNotifications records whether the window raises desktop notifications.
 // The browser's own answer cannot stand in for this: it belongs to the page's
 // origin, which changes with the port on every run.
 func (s *Server) setNotifications(off bool) {
-	s.do(func() {
-		if s.prefs.NotificationsOff != off {
-			s.prefs.NotificationsOff = off
-			s.savePrefs()
-		}
-	})
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.NotificationsOff, off) })
 }
 
 // setScrollback records how many lines each terminal keeps, within what a
@@ -115,23 +129,13 @@ func (s *Server) setScrollback(lines int) {
 	if lines < 1000 || lines > 200000 {
 		return
 	}
-	s.do(func() {
-		if s.prefs.Scrollback != lines {
-			s.prefs.Scrollback = lines
-			s.savePrefs()
-		}
-	})
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.Scrollback, lines) })
 }
 
 // setUpdates records whether the application checks for new releases, which
 // could otherwise only be turned off with an environment variable.
 func (s *Server) setUpdates(off bool) {
-	s.do(func() {
-		if s.prefs.UpdatesOff != off {
-			s.prefs.UpdatesOff = off
-			s.savePrefs()
-		}
-	})
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.UpdatesOff, off) })
 }
 
 // handleHelp serves the rendered help pages to an authorised window.
