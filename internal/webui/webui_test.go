@@ -2082,6 +2082,108 @@ assert.deepStrictEqual(heads, ["Installed"], "the newly installed agent is still
 `)
 }
 
+// The OpenAI-compatible endpoint is no use until it has an address, and that
+// could only be given by editing agents.json. The picker asks for it where the
+// endpoint is picked, keeps what was typed when it is refused, shows the
+// refusal beside it, and starts the endpoint once the address is in.
+func TestAnEndpointIsGivenItsAddressInThePicker(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+// The harness finds an element by id after it has left the document, which a
+// browser does not, so whether the field is still there is asked this way.
+const live = (id) => { const n = h.$(id); return n && n.isConnected ? n : null; };
+const endpoint = { id: "openai-compatible", name: "OpenAI-compatible endpoint", runner: "api",
+  available: false, defaultModel: "", models: [], addressable: true, install: "give it an address" };
+const base = catalog().items;
+h.recv(fixture({ agents: catalog({ items: base.concat([endpoint]) }) }));
+h.click(h.$("new-tab-pick"));
+
+const rows = () => h.$("agent-list").querySelectorAll("div.pick-row");
+assert.ok(rows()[2].textContent.includes("needs an address"), "got: " + rows()[2].textContent);
+
+// Enter on it asks for the address rather than saying it is not installed.
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+h.key({ key: "Enter" });
+const field = h.$("agent-address");
+assert.ok(field, "Enter on an endpoint with no address did not offer a field for one");
+assert.ok(h.doc.activeElement === field, "the address field did not take the keyboard");
+assert.ok(!h.$("overlay").hidden, "the picker closed");
+
+// What a model server prints, without its scheme.
+field.value = "localhost:11434";
+field.oninput();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentAddress", id: "openai-compatible", text: "localhost:11434" });
+h.recv({ type: "agentAddress", id: "openai-compatible", address: "localhost:11434",
+  error: '"localhost:11434" has no http:// in front: type http://localhost:11434' });
+const why = h.$("agent-address-error");
+assert.ok(why && why.textContent.includes("type http://localhost:11434"), "the refusal is not shown under the field");
+assert.strictEqual(why.getAttribute("role"), "alert", "the refusal is not announced");
+assert.strictEqual(h.$("agent-address").value, "localhost:11434", "what was typed went with the refusal");
+assert.ok(h.doc.activeElement === h.$("agent-address"), "the refusal took the keyboard off the field");
+
+// A catalog arriving while it is put right does not take it away.
+h.recv(fixture({ agents: catalog({ items: base.concat([Object.assign({}, endpoint, { install: "moved" })]) }) }));
+assert.strictEqual(h.$("agent-address").value, "localhost:11434", "a catalog push lost what was typed");
+assert.ok(h.doc.activeElement === h.$("agent-address"), "a catalog push took the keyboard off the field");
+
+h.$("agent-address").value = "http://127.0.0.1:11434/v1";
+h.$("agent-address").oninput();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "setAgentAddress", id: "openai-compatible", text: "http://127.0.0.1:11434/v1" });
+h.recv({ type: "agentAddress", id: "openai-compatible", address: "http://127.0.0.1:11434/v1" });
+assert.ok(!live("agent-address"), "the field stayed after the address was saved");
+assert.ok(h.doc.activeElement === h.$("agent-filter"), "the keyboard did not go back to the filter");
+
+// On loopback it needs no key, so the catalog that follows offers it, and
+// Enter starts it.
+h.recv(fixture({ agents: catalog({ items: base.concat([Object.assign({}, endpoint,
+  { available: true, address: "http://127.0.0.1:11434/v1" })]) }) }));
+assert.deepStrictEqual(h.$("overlay-body").querySelectorAll("div.pick-head").map((n) => n.textContent),
+  ["Installed", "Not installed"]);
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "newTab", kind: "agent", agent: "openai-compatible", model: "" });
+`)
+}
+
+// An API agent that has an address shows it, and it is changed from the row
+// the arrows reach it by. Escape puts the field away rather than closing the
+// picker, and an address left as it was is not written back.
+func TestAnAgentsAddressIsChangedFromItsRow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const live = (id) => { const n = h.$(id); return n && n.isConnected ? n : null; };
+const local = { id: "local", name: "Local llama", runner: "api", available: true, defaultModel: "qwen",
+  addressable: true, address: "http://127.0.0.1:11434/v1", models: [{ id: "qwen", name: "qwen" }] };
+h.recv(fixture({ agents: catalog({ items: [local] }) }));
+h.click(h.$("new-tab-pick"));
+const rows = () => h.$("agent-list").querySelectorAll("div.pick-row");
+assert.ok(rows()[0].textContent.includes("http://127.0.0.1:11434/v1"), "the address is not shown: " + rows()[0].textContent);
+
+h.key({ key: "ArrowRight" });
+assert.strictEqual(rows().length, 3, "the agent did not open onto its address and its model");
+assert.ok(rows()[1].textContent.includes("Address: http://127.0.0.1:11434/v1"), "got: " + rows()[1].textContent);
+
+h.key({ key: "ArrowDown" });
+h.key({ key: "Enter" });
+assert.strictEqual(h.$("agent-address").value, "http://127.0.0.1:11434/v1", "the field does not start from the address");
+h.key({ key: "Escape" });
+assert.ok(!live("agent-address"), "Escape did not put the field away");
+assert.ok(!h.$("overlay").hidden, "Escape closed the picker along with the field");
+assert.ok(h.doc.activeElement === h.$("agent-filter"), "the keyboard did not go back to the filter");
+
+const before = h.commands().length;
+h.key({ key: "Enter" });
+assert.ok(live("agent-address"), "Enter on the address row did not open the field");
+h.key({ key: "Enter" });
+assert.strictEqual(h.commands().length, before, "an unchanged address was sent to be saved");
+assert.ok(!live("agent-address"), "the field stayed open");
+`)
+}
+
 // paletteRun is the prelude for a case that opens something from the palette:
 // open it, type the words, press Enter.
 const paletteRun = `
