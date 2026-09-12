@@ -705,20 +705,21 @@
     if (o && o.action === "enable" && o.error) box.append(el("p", "remote-error", o.error));
     if (o && o.warning) box.append(el("p", "remote-error", o.warning));
     box.append(el("p", "fan-hint", "The same from a terminal: flockdeck remote enable."));
-    box.append(selfHostedNote());
+    box.append(enterpriseNote());
     return box;
   }
 
-  /** What the self-hosted relay will be, in the words the remote dialog and
-   *  the settings' plan both use. It is for companies, under licence, and it
-   *  is not here yet: nothing here should suggest that anybody can run a
-   *  relay today, or promise a price or a date, which are not settled. */
-  const SELF_HOSTED_WHAT = "run the relay on your own infrastructure, under licence";
-  const SHARED_RELAY_FREE = "The shared relay stays free.";
+  /** What Enterprise will be, in the words the remote dialog and the
+   *  settings' plan both use. It is for companies, and it is not here yet:
+   *  nothing here should suggest that anybody can run a relay today, or
+   *  promise a price or a date, which are not settled. Nor does anything
+   *  here promise what the shared relay will cost: that is not settled
+   *  either, so the plan says what it covers today and no more. */
+  const ENTERPRISE_WHAT = "run the relay on your own infrastructure, with SSO and support";
 
-  /** selfHostedNote announces the self-hosted relay, which is not here yet. */
-  function selfHostedNote() {
-    return el("p", "fan-hint", "Coming soon, for companies: " + SELF_HOSTED_WHAT + ". " + SHARED_RELAY_FREE);
+  /** enterpriseNote announces Enterprise, which is not here yet. */
+  function enterpriseNote() {
+    return el("p", "fan-hint", "Coming soon, for companies: " + ENTERPRISE_WHAT + ".");
   }
 
   /** remoteMachineSection is this machine's own place on the relay: trying
@@ -779,7 +780,7 @@
       again.append(retry, forget);
       box.append(again);
     }
-    box.append(selfHostedNote());
+    box.append(enterpriseNote());
     return box;
   }
 
@@ -5415,7 +5416,7 @@
     { id: "agents", label: "Agents", words: "default agent model project" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
-    { id: "plan", label: "Account & plan", words: "account plan free self-hosted relay company companies licence license support paid" },
+    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
   ];
   /** The section on show, kept from one opening to the next. */
   let settingsSection = "general";
@@ -5426,10 +5427,10 @@
   let fontDraft = null;
   let fontError = "";
 
-  /** The site's section on the self-hosted relay, where what it costs and
-   *  when it comes will be said once it is settled. v0.2.9 linked
-   *  #private-relays, which the site keeps landing on the same card. */
-  const SELF_HOSTED_URL = "https://flockdeck.ai/#self-hosted";
+  /** The site's section on Enterprise, where what it costs and when it
+   *  comes will be said once it is settled. v0.2.9 linked #private-relays,
+   *  which the site keeps landing on the same card. */
+  const ENTERPRISE_URL = "https://flockdeck.ai/#enterprise";
 
   /** The site's privacy policy, terms and licences, which the account's
    *  section links at its foot: each an id, what it reads as, and where. */
@@ -5848,14 +5849,13 @@
     };
     pane.append(card("Free", "Current plan", false,
       "Every part of the desktop app, and remote access to your panes through the shared relay."));
-    const soon = card("Self-hosted relay", "Coming soon", true,
-      "For companies: " + SELF_HOSTED_WHAT + ", with support. " + SHARED_RELAY_FREE);
+    const soon = card("Enterprise", "Coming soon", true, "For companies: " + ENTERPRISE_WHAT + ".");
     const link = el("a", "plan-link");
     link.id = "set-plan-link";
-    link.setAttribute("href", SELF_HOSTED_URL);
+    link.setAttribute("href", ENTERPRISE_URL);
     link.target = "_blank";
     link.rel = "noreferrer noopener";
-    link.append(document.createTextNode("Read about self-hosting"), iconEl("ext", 13));
+    link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
     // Whose it is and under what licence, and the pages that say what the
