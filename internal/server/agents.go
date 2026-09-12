@@ -211,6 +211,10 @@ func (s *Server) refreshAgents() {
 		if s.agentsAt.IsZero() {
 			return
 		}
+		// What the machine was last asked is trusted for a few seconds, which
+		// is the wait this exists to skip: the agent installed a moment ago,
+		// or the key just saved, would otherwise go on reading as missing.
+		agent.Refresh()
 		s.probeAgents(s.ws.ActiveRoot())
 	})
 }

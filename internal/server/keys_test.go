@@ -2,9 +2,46 @@ package server
 
 import (
 	"testing"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
+
+// TestSavedKeyOffersTheAgentAtOnce covers the picker after a key is saved. An
+// API agent can be started exactly when it has a key, and the picker greys out
+// the ones that cannot -- so saving one has to be what un-greys it, not the
+// cache of the last answer running out a few seconds later.
+func TestSavedKeyOffersTheAgentAtOnce(t *testing.T) {
+	srv, ws := newTestServer(t)
+	spec, ok := ws.Catalog().Find("anthropic")
+	if !ok {
+		t.Skip("no built-in anthropic agent")
+	}
+	for _, v := range creds.Env(spec) {
+		t.Setenv(v, "")
+	}
+	agent.Refresh() // an earlier test's answer is not this machine's
+
+	conn := dialControl(t, srv)
+	r := readControl(conn)
+	available := func(s stateMsg) bool {
+		for _, it := range s.Agents.Items {
+			if it.ID == spec.ID {
+				return it.Available
+			}
+		}
+		return false
+	}
+	if st, ok := r.stateWithin(10*time.Second, nil); !ok || available(st) {
+		t.Fatalf("before a key is set the agent reads available=%v (got state: %v)", available(st), ok)
+	}
+
+	sendCmd(t, conn, command{Cmd: "keySet", ID: spec.ID, Text: "sk-test-not-a-real-key"})
+	if _, ok := r.stateWithin(3*time.Second, available); !ok {
+		t.Fatal("the agent was not offered within three seconds of its key being saved")
+	}
+}
 
 // TestKeysDialogIsAnswered covers the API keys dialog, which asked a server
 // that had no answer for it and sat on "Loading…" for good -- leaving the
