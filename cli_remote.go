@@ -291,6 +291,22 @@ func remoteEnable(args []string, rio remoteIO) error {
 	cfg, replaced, err := remote.Enable(context.Background(), version, remote.EnableRequest{
 		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
 	})
+	if err != nil {
+		return enableAdvice(f, err)
+	}
+	if replaced {
+		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
+	}
+	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
+	reportReload(rio, "flockdeck will connect to the relay when it next starts")
+	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or from Remote access… in the window.")
+	return nil
+}
+
+// enableAdvice words a refusal to enable for the command line: what
+// remote.Enable said, then the command or flag here that does what it asks.
+// The window shares Enable's words and offers its own ways instead.
+func enableAdvice(f remoteEnableFlags, err error) error {
 	var already *remote.AlreadyEnabledError
 	var refused *remote.APIError
 	if errors.As(err, &already) && f.relay != "" {
@@ -321,12 +337,12 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// when trying again is the answer. -force is for a relay that is gone
 		// for good, and it costs a listing there that nothing can take off.
 		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run `flockdeck remote disable -force` to start again, which leaves this machine listed on it", err)
-	case f.invite == "" && err != nil && strings.Contains(err.Error(), "needs an invite code"):
+	case f.invite == "" && strings.Contains(err.Error(), "needs an invite code"):
 		// The relay's words name an invite code but not the flag that takes
 		// one. They are matched rather than its 403, which a relay closed to
 		// new accounts also answers, and for which an invite does not help.
 		return fmt.Errorf("%v; pass it with -invite CODE", err)
-	case err != nil && strings.Contains(err.Error(), "not accepting new accounts"):
+	case strings.Contains(err.Error(), "not accepting new accounts"):
 		// A relay closed to new accounts still takes machines into the ones
 		// it has, which is the way in that is left. Its words are matched for
 		// the reason the invite's are.
@@ -335,16 +351,8 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// An account with all the machines it may have. The relay says to
 		// unregister one, which is not a word this command line uses.
 		return fmt.Errorf("%v; running `flockdeck remote disable` on one of that account's machines does that", err)
-	case err != nil:
-		return err
 	}
-	if replaced {
-		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
-	}
-	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
-	reportReload(rio, "flockdeck will connect to the relay when it next starts")
-	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or from Remote access… in the window.")
-	return nil
+	return err
 }
 
 // relayRefusal adds what to do to the relay refusing this machine, which on
