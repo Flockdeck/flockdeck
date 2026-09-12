@@ -51,11 +51,11 @@ func expand(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err = expandInlineKeys(out)
+	out, err = expandInlineKeysWith(out, kbd)
 	if err != nil {
 		return "", err
 	}
-	return expandActions(out)
+	return expandActionsWith(out, kbd)
 }
 
 // expandKeyTables replaces `{{keys}}` with every section and `{{keys:Name}}`
@@ -94,14 +94,10 @@ func expandKeyTables(src string) (string, error) {
 	}
 }
 
-// expandInlineKeys replaces `[[key:id]]` with the binding for that action.
-func expandInlineKeys(src string) (string, error) {
-	return expandInlineKeysWith(src, kbd)
-}
-
-// expandInlineKeysWith does the same with the binding wrapped however the
-// destination wants it: <kbd> for the rendered page, the bare keys for the
-// contents summary, which the interface shows as text.
+// expandInlineKeysWith replaces `[[key:id]]` with the binding for that
+// action, wrapped however the destination wants it: <kbd> for the rendered
+// page, the bare keys for the contents summary, which the interface shows as
+// text.
 func expandInlineKeysWith(src string, wrap func(string) string) (string, error) {
 	return expandPlaceholders(src, "[[key:", func(id string) (string, error) {
 		k, ok := Lookup(id)
@@ -113,11 +109,6 @@ func expandInlineKeysWith(src string, wrap func(string) string) (string, error) 
 		}
 		return wrap(k.Keys), nil
 	})
-}
-
-// expandActions replaces `[[action:id]]` with the way to reach that action.
-func expandActions(src string) (string, error) {
-	return expandActionsWith(src, kbd)
 }
 
 // expandActionsWith replaces `[[action:id]]` with the action's binding when it
