@@ -23,9 +23,9 @@ func generate(t *testing.T) (dir, page string) {
 }
 
 var (
-	idAttr  = regexp.MustCompile(`\sid="([^"]+)"`)
-	imgTag  = regexp.MustCompile(`<img\s[^>]*>`)
-	refAttr = regexp.MustCompile(`\s(?:aria-controls="|aria-labelledby="|href="#)([^"]+)"`)
+	idAttr     = regexp.MustCompile(`\sid="([^"]+)"`)
+	imgTag     = regexp.MustCompile(`<img\s[^>]*>`)
+	refAttr    = regexp.MustCompile(`\s(?:aria-controls="|aria-labelledby="|href="#)([^"]+)"`)
 	srcAttr    = regexp.MustCompile(`\s(?:src|href)="([^"#:]+)"`)
 	srcsetAttr = regexp.MustCompile(`\ssrcset="([^"]+)"`)
 )
