@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -132,6 +133,17 @@ func keyNames(o Options) []string {
 	}
 	return names
 }
+
+// keyLike matches what a vendor's refusal quotes of a key: OpenAI's "Incorrect
+// API key provided: sk-proj-abc1****wxyz" gives its first and last characters,
+// and an Anthropic or Gemini key has a shape as recognisable.
+var keyLike = regexp.MustCompile(`\b(sk-[A-Za-z0-9_*.\-]{4,}|AIza[0-9A-Za-z_*\-]{8,})`)
+
+// redactKeys is a vendor's message with anything shaped like a key taken out.
+// The message is worth showing -- "invalid x-api-key", where to find a key --
+// and the part of a key in it is not: the rule everywhere here is that no part
+// of a key is printed.
+func redactKeys(s string) string { return keyLike.ReplaceAllString(s, "[a key]") }
 
 // endpointOf is the address the chat talks to, as /status names it.
 func endpointOf(o Options) string {
