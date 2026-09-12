@@ -3211,6 +3211,29 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "commit wh
 `)
 }
 
+// A key that runs one of the window's actions went on to the terminal as well:
+// xterm reads keydown on its own textarea without asking whether it was
+// prevented. In headless Chrome against a real pane, Ctrl+Shift+Left moved the
+// pane and sent ESC[1;6D to the program in it, and Alt+1 sent ESC 1.
+func TestABoundKeyDoesNotAlsoReachTheTerminal(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[0].host.append(term);
+const reached = [];
+term.addEventListener("keydown", (e) => reached.push(e.key));
+term.focus();
+h.press("movePaneLeft");
+h.key({ key: "1", code: "Digit1", altKey: true });
+h.press("fontUp");
+assert.deepStrictEqual(reached, [], "a key that ran an action reached the terminal too: " + reached.join(", "));
+h.key({ key: "x" });
+assert.deepStrictEqual(reached, ["x"], "an ordinary key no longer reaches the terminal");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

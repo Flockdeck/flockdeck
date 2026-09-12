@@ -4526,6 +4526,19 @@
 
   // -------------------------------------------------------------- shortcuts
 
+  /** claimKey keeps a key that has run one of the window's actions from going
+   *  any further. Preventing its default is not enough: xterm reads the
+   *  keydown on its own textarea without asking whether anything prevented
+   *  it, so - pressed in headless Chrome against a real pane - Ctrl+Shift+Left
+   *  moved the pane and also sent ESC[1;6D to the program in it, and Alt+1
+   *  switched tab and sent ESC 1, a numeric argument to a shell. This listener
+   *  runs first, on the window, so stopping the key here keeps it from the
+   *  terminal altogether. */
+  function claimKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   window.addEventListener("keydown", (e) => {
     // A key pressed while an input method is composing belongs to it. Enter
     // there confirms the characters being composed, and taking it as Enter
@@ -4551,7 +4564,7 @@
     // being composed can be made readable without abandoning it.
     const sizing = actionFor(e);
     if (sizing === "fontUp" || sizing === "fontDown" || sizing === "fontReset") {
-      e.preventDefault();
+      claimKey(e);
       runAction(sizing);
       return;
     }
@@ -4568,7 +4581,7 @@
     // Every other binding is dispatched from the action table, so what the
     // help says a key does is what the key does.
     const id = actionFor(e);
-    if (id && !editsText(e)) { e.preventDefault(); runAction(id); return; }
+    if (id && !editsText(e)) { claimKey(e); runAction(id); return; }
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.
@@ -4579,7 +4592,7 @@
     const row = /^Digit([1-9])$/.exec(e.code || "");
     const n = row ? row[1] : (/^[1-9]$/.test(e.key || "") ? e.key : "");
     if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
-      e.preventDefault();
+      claimKey(e);
       runAction("selectTab", n);
     }
   }, true);
