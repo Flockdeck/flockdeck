@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -122,4 +123,43 @@ func TestImagesHaveTextAndSize(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The installers are what a visitor pipes straight into a shell, so a syntax
+// slip in either reaches every machine that runs the one-liner. dash is the
+// strict POSIX shell `curl … | sh` gets on Debian and Ubuntu; PowerShell's own
+// parser reads install.ps1 without running it. Either half is skipped where
+// its shell is absent.
+func TestInstallScriptsParse(t *testing.T) {
+	dir, _ := generate(t)
+
+	t.Run("install.sh", func(t *testing.T) {
+		sh, err := exec.LookPath("dash")
+		if err != nil {
+			if sh, err = exec.LookPath("sh"); err != nil {
+				t.Skip("no sh to parse it with")
+			}
+		}
+		out, err := exec.Command(sh, "-n", filepath.Join(dir, "install.sh")).CombinedOutput()
+		if err != nil {
+			t.Errorf("%s -n install.sh: %v\n%s", filepath.Base(sh), err, out)
+		}
+	})
+
+	t.Run("install.ps1", func(t *testing.T) {
+		ps, err := exec.LookPath("pwsh")
+		if err != nil {
+			if ps, err = exec.LookPath("powershell"); err != nil {
+				t.Skip("no PowerShell to parse it with")
+			}
+		}
+		path := strings.ReplaceAll(filepath.Join(dir, "install.ps1"), "'", "''")
+		script := "$errs = $null; " +
+			"[void][System.Management.Automation.Language.Parser]::ParseFile('" + path + "', [ref]$null, [ref]$errs); " +
+			"if ($errs) { $errs | ForEach-Object { $_.ToString() }; exit 1 }"
+		out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+		if err != nil {
+			t.Errorf("parsing install.ps1: %v\n%s", err, out)
+		}
+	})
 }
