@@ -2200,6 +2200,15 @@
    *  terminals on its own and took the keyboard from the pane being typed
    *  into. The other dialogs already opened this way; their answers are now
    *  drawn only into the dialog they belong to. */
+  /** rootLabel is the line at the foot of a dialog naming the folder it is
+   *  about. It is cut short with an ellipsis, paths differ at the end the
+   *  ellipsis takes, and it had no bubble: which checkout a dialog was for
+   *  could not be read. */
+  function rootLabel(path) {
+    const n = el("span", "wt-root", path);
+    return path ? describe(n, path) : n;
+  }
+
   function openWorktrees() {
     dialog = "worktrees";
     worktrees = null;
@@ -2408,7 +2417,7 @@
     const prune = el("button", "chip", "Prune");
     prune.title = "Drop records for worktrees whose folders are gone";
     prune.onclick = () => send({ cmd: "worktreePrune" });
-    tools.append(refresh, prune, el("span", "wt-root", m.root || ""));
+    tools.append(refresh, prune, rootLabel(m.root || ""));
     body.append(tools);
 
     if (wtCreated) {
@@ -3571,7 +3580,7 @@
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "conversations" });
-    tools.append(refresh, el("span", "wt-root", m.cwd || ""));
+    tools.append(refresh, rootLabel(m.cwd || ""));
     body.append(tools);
   }
 
@@ -3816,7 +3825,7 @@
     }
 
     const tools = el("div", "wt-tools");
-    tools.append(el("span", "wt-root", m.cwd || ""));
+    tools.append(rootLabel(m.cwd || ""));
     body.append(tools);
   }
 
@@ -4708,7 +4717,7 @@
     updateCount();
 
     const tools = el("div", "wt-tools");
-    tools.append(el("span", "wt-root", m.cwd || ""));
+    tools.append(rootLabel(m.cwd || ""));
     body.append(tools);
     box.focus();
   }

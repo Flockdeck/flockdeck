@@ -4444,6 +4444,26 @@ assert.ok(!detail.dataset.tip, "a bubble is left on a detail that is no longer t
 `)
 }
 
+// The folder a dialog is about is set at its foot and cut short from the
+// end, where paths differ, and it had no bubble: which checkout the dialog
+// was for could not be read.
+func TestTheFolderADialogIsAboutCanBeReadInFull(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const root = "C:/code/checkouts/flockdeck-review-second-copy";
+h.click(h.$("btn-worktrees"));
+h.recv({
+  type: "worktrees", root, defaultBase: "main",
+  items: [{ label: "main", path: root, main: true, dirty: 0, untracked: 0, head: "abc1234" }],
+  branches: [{ name: "main", checkedIn: true }],
+});
+const line = h.$("overlay-body").querySelector(".wt-root");
+assert.ok(line, "the worktrees dialog does not say which folder it is about");
+assert.strictEqual(line.dataset.tip, root, "the folder cut short at the foot of the dialog has no bubble with the whole of it");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
