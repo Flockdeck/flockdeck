@@ -202,6 +202,16 @@ func underPath(cwd, base string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// samePath reports whether two cleaned paths name the same directory, by the
+// rule underPath follows: on Linux a directory spelled in other case is
+// another directory, and two projects can sit side by side as App and app.
+func samePath(a, b string) bool {
+	if foldPathCase {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 // addWorktree creates a worktree and reports the outcome.
 func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	root := s.activeRoot()

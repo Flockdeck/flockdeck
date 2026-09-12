@@ -330,7 +330,7 @@ func (s *Server) snapshot() stateMsg {
 			// The common case is a pane of the tab's own project, where the
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
-				!strings.EqualFold(filepath.Clean(paneRoot), tabRoot) {
+				!samePath(filepath.Clean(paneRoot), tabRoot) {
 				pv.Project = projectLabel(names, paneRoot)
 			}
 			if p.Err != nil {
