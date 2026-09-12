@@ -21,7 +21,7 @@ PLATFORMS := \
 	darwin/amd64 \
 	darwin/arm64
 
-.PHONY: all build install test vet fmt check clean dist package $(PLATFORMS)
+.PHONY: all build install test race vet fmt check clean dist package $(PLATFORMS)
 
 all: check build
 
