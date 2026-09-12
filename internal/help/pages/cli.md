@@ -120,7 +120,7 @@ The subcommand still works; it is the background updating that goes.
 | Variable | Effect |
 | --- | --- |
 | `FLOCKDECK_BROWSER` | Force which browser provides the window |
-| `FLOCKDECK_UPDATE` | `off` stops the window checking for releases on its own |
+| `FLOCKDECK_UPDATE` | `off` stops updating in the background: no checks, and nothing already downloaded is put in place |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
