@@ -54,14 +54,16 @@ set).
 
 ## In the environment
 
-| Variable | Effect |
-| --- | --- |
-| `FLOCKDECK_UPDATE` | `off` stops the background check for new releases — which is what keeps an older version you installed on purpose from updating itself to the latest |
-| `FLOCKDECK_BROWSER` | Which browser provides the window, by name or path |
-| `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | Keys for the API agents, used before anything in `keys.json` |
-| `CLAUDE_CONFIG_DIR` | Where Claude Code keeps its own files; Flockdeck follows it to find conversations and folder trust |
-| `NO_COLOR` | The built-in chat client draws without colour |
+- `FLOCKDECK_UPDATE` — `off` stops the background check for new releases, which
+  is what keeps an older version you installed on purpose from updating itself
+  to the latest.
+- `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
+- `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` — keys for the API
+  agents, used before anything in `keys.json`.
+- `CLAUDE_CONFIG_DIR` — where Claude Code keeps its own files; Flockdeck follows
+  it to find conversations and folder trust.
+- `NO_COLOR` — the built-in chat client draws without colour.
 
 The variables Flockdeck sets in each pane, and the flags that shape one run —
 `-agent`, `-new`, `-shell` — are on [The command line](#cli).
