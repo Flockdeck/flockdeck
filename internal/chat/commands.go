@@ -111,7 +111,14 @@ func (s *session) chooseModel(ctx context.Context, arg string) {
 			s.out.line(ansiDim, "switch with /model <id>")
 			return
 		}
+		hidden := 0
 		for i, m := range s.choices() {
+			// A gateway lists hundreds, which would scroll away the prompt and
+			// the model answering; the rest are a number or a name away.
+			if i >= maxListedModels && m.ID != s.model {
+				hidden++
+				continue
+			}
 			mark := " "
 			if m.ID == s.model {
 				mark = "*"
@@ -124,6 +131,9 @@ func (s *session) chooseModel(ctx context.Context, arg string) {
 				label += " — " + m.Note
 			}
 			s.out.line(ansiDim, fmt.Sprintf("  %s %d  %s", mark, i+1, label))
+		}
+		if hidden > 0 {
+			s.out.line(ansiDim, fmt.Sprintf("  (and %d more; /model <part of a name> lists the ones that match)", hidden))
 		}
 		s.out.line(ansiDim, "switch with /model <number>, or /model <id> for any other")
 		return
@@ -174,16 +184,25 @@ func (s *session) matchModel(arg string) (string, bool) {
 		return found[0].ID, true
 	}
 	s.out.line(ansiDim, "more than one model goes by "+arg+":")
+	listed := 0
 	for i, m := range s.choices() {
 		for _, f := range found {
-			if f.ID == m.ID {
+			if f.ID == m.ID && listed < maxListedModels {
 				s.out.line(ansiDim, fmt.Sprintf("    %d  %s  %s", i+1, m.ID, m.Name))
+				listed++
 			}
 		}
+	}
+	if more := len(found) - listed; more > 0 {
+		s.out.line(ansiDim, fmt.Sprintf("    (and %d more; more of the name narrows it)", more))
 	}
 	s.out.line(ansiDim, "switch with /model <number>")
 	return "", false
 }
+
+// maxListedModels is as many models as /model lists at once: a screenful,
+// where an endpoint can offer hundreds.
+const maxListedModels = 40
 
 // choices are the models /model offers: the catalog's, or failing those, the
 // ones the endpoint said it has.
