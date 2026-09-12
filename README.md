@@ -822,7 +822,10 @@ Two programs under `cmd/` make what is published rather than the application:
 Two development aids live under `cmd/` and are not part of the product:
 
 - `cmd/hooktest` starts one real agent pane, sends it a prompt and prints every
-  status transition, verifying the hook pipeline end to end.
+  status transition, verifying the hook pipeline end to end. Build the binary
+  first and point it there — `go run ./cmd/hooktest -hookbin ./flockdeck.exe`.
+  The prompt is a real one, so it spends a short turn through your own Claude
+  Code login.
 - `cmd/ctl` drives a running instance over its control socket, `cmd/statedump`
   prints what it reports about its panes, and `cmd/treedump` prints the tab and
   split structure. Together they are how the UI is exercised and inspected
