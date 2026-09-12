@@ -88,8 +88,8 @@ same loopback address.
 
 Remote access, once you turn it on, is a connection this machine makes out to
 the relay. A request arriving through it is let in without the token, because
-the relay has already checked that the device asking is paired — **Remote
-access** has the rest.
+the relay has already checked that the device asking is paired — [Remote
+access](#remote) has the rest.
 
 ## Desktop notifications never appear
 
