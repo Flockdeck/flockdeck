@@ -53,7 +53,8 @@ The shared relay is provided free and **as is**. We aim to keep it running,
 but it may go down, be changed or be withdrawn, sometimes without notice. We
 make no promise that it will be available, uninterrupted or error-free.
 
-Private relays, a paid plan, are coming. They will have terms of their own.
+A licence for companies to run the relay on their own infrastructure is
+coming. It will have terms of its own.
 Using the free shared relay never commits you to paying for anything.
 
 ## Liability

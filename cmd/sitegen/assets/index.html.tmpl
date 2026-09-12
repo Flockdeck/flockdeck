@@ -277,20 +277,24 @@
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
   <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
      turn it on. Turn it off and your desktop is removed from the relay.</p>
-  <!-- Announced, not shipped: it says what is coming and that it will be paid,
-       and nothing about price or date, which are not settled. The app's own
-       Settings say the same beside it, which is where somebody using it will
-       meet the plan. -->
+  <!-- Announced, not shipped: it says what is coming, that it is for companies
+       and under licence, and nothing about price or date, which are not
+       settled. Nobody can run a relay today, individuals are not offered one,
+       and the relay is not open source, so nothing here may suggest otherwise.
+       The app's own Settings say the same beside it, which is where somebody
+       using it will meet the plan. v0.2.9's Settings link #private-relays, so
+       that id stays, on the card's first line, and lands on the whole card. -->
   <div class="pair plan">
-    <div class="card soon" id="private-relays">
-      <span class="g">coming soon · paid plan</span>
-      <h3>Private relays</h3>
-      <p>A relay run for you alone, so your agents' traffic goes through a server
-         that carries nobody else's. It will be a paid plan. The shared relay
-         stays free.</p>
+    <div class="card soon" id="self-hosted">
+      <span class="g" id="private-relays">coming soon · for companies</span>
+      <h3>Self-hosted relay</h3>
+      <p>For companies whose rules don't allow a third party to decrypt their
+         developers' terminal traffic: run the relay on your own
+         infrastructure, under licence, with support. The shared relay stays
+         free.</p>
     </div>
     <figure class="figure">
-      <img src="settings.png" srcset="settings-1584.png 1584w, settings.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section, with General, Terminal, Agents, API keys and Remote access listed beside it. Free is marked as the current plan, covering every part of the desktop app and remote access through the shared relay. Private relays, run for you alone as a paid plan while the shared relay stays free, are marked coming soon, with a link to read about them. Under them, a line links the privacy policy, terms and licences.">
+      <img src="settings.png" srcset="settings-1584.png 1584w, settings.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section, with General, Terminal, Agents, API keys and Remote access listed beside it. Free is marked as the current plan, covering every part of the desktop app and remote access through the shared relay. A self-hosted relay, for companies to run on their own infrastructure under licence and with support while the shared relay stays free, is marked coming soon, with a link to read about self-hosting. Under them, a line links the privacy policy, terms and licences.">
       <figcaption class="caption">Settings say which plan you're on, and what is coming.</figcaption>
     </figure>
   </div>
@@ -388,9 +392,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>Is there a paid version?</summary>
-      <p>Not yet. <a href="#private-relays">Private relays</a>, a relay run for
-         you alone, are coming as a paid plan. Flockdeck itself and the shared
-         relay stay free.</p>
+      <p>Not yet. A <a href="#self-hosted">licence for companies</a> to run the
+         relay on their own infrastructure, with support, is coming. The app
+         stays free and open source, and the shared relay stays free.</p>
     </details>
     <details>
       <summary>Which agents does it work with?</summary>

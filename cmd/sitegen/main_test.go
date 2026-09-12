@@ -415,7 +415,10 @@ func TestEveryComponentHasItsLicenceText(t *testing.T) {
 // Only the desktop app is open source. The phone client and the relay are a
 // proprietary service, so the licences page says so of each and sends
 // neither's own licence to the desktop app's MIT licence, and no page offers
-// their source or a relay of your own.
+// their source or a relay of your own. The self-hosted relay is announced, but
+// only as coming, for companies, under licence: "run the relay on your own
+// infrastructure" is that announcement, which is why these phrases stop short
+// of "your own" alone.
 func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
 	_, pages := generate(t)
 	page := pages["licences.html"]
@@ -452,6 +455,46 @@ func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
 			if strings.Contains(p, claim) {
 				t.Errorf("%s still has %s", name, claim)
 			}
+		}
+	}
+}
+
+// Private relays, a relay Flockdeck would run for one paying account, were
+// dropped for a licence for companies to run the relay themselves. The site
+// announces that as coming, for companies, and still lands v0.2.9's Settings
+// link, which goes to #private-relays, on its card. No page announces private
+// relays any more.
+func TestTheSelfHostedRelayIsAnnouncedForCompanies(t *testing.T) {
+	_, pages := generate(t)
+	page := pages["index.html"]
+	from := strings.Index(page, `id="self-hosted"`)
+	if from < 0 {
+		t.Fatal("the landing page has no #self-hosted card")
+	}
+	end := strings.Index(page[from:], "</div>")
+	if end < 0 {
+		t.Fatal("the #self-hosted card is not closed")
+	}
+	// The template wraps its text, so a sentence is looked for with its line
+	// breaks put back to spaces.
+	card := strings.Join(strings.Fields(page[from:from+end]), " ")
+	for _, want := range []string{
+		`id="private-relays"`, "coming soon", "for companies", "Self-hosted relay",
+		"run the relay on your own", "under licence", "with support", "The shared relay stays free.",
+	} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the #self-hosted card does not have %q", want)
+		}
+	}
+	if !strings.Contains(page, `<a href="#self-hosted">`) {
+		t.Error("the FAQ does not lead to the #self-hosted card")
+	}
+	if !strings.Contains(pages["terms.html"], "A licence for companies to run the relay on their own infrastructure") {
+		t.Error("the terms do not say a licence for companies is coming")
+	}
+	for name, p := range pages {
+		if strings.Contains(strings.ToLower(p), "private relay") {
+			t.Errorf("%s still announces private relays", name)
 		}
 	}
 }
