@@ -3,18 +3,18 @@
 Once it is running you rarely need the command line: projects are opened and
 switched from inside the window. These are what is left.
 
-```sh
-flockdeck                 # open the current directory
-flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # start without the saved layout, and replace it on exit
-flockdeck -shell          # first pane is a shell, not an agent
-flockdeck -agent codex    # every new pane this run is that agent
-flockdeck -detach         # run with no window; attach to it later
-flockdeck -quit           # stop a running instance and its agents
-flockdeck -no-window      # just serve; print the URL and open it yourself
-flockdeck -solo           # start a separate instance instead of attaching
-flockdeck -version        # print the version
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck` | Open the current directory |
+| `flockdeck -C ~/code/api` | Open that directory, in the running instance if there is one |
+| `flockdeck -new` | Start without the saved layout, and replace it on exit |
+| `flockdeck -shell` | Make the first pane a shell, not an agent |
+| `flockdeck -agent codex` | Make every new pane this run that agent |
+| `flockdeck -detach` | Run with no window; attach to it later |
+| `flockdeck -quit` | Stop a running instance and its agents |
+| `flockdeck -no-window` | Just serve; print the URL and open it yourself |
+| `flockdeck -solo` | Start a separate instance instead of attaching |
+| `flockdeck -version` | Print the version |
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
@@ -49,11 +49,11 @@ An API agent — one Flockdeck talks to directly rather than through a CLI of it
 own — needs a key. It is looked for in that agent's own environment variables
 first, and then in `keys.json` in the state directory.
 
-```sh
-flockdeck keys set openai    # reads the key from stdin, so it misses shell history
-flockdeck keys list          # which agents have one, not what it is
-flockdeck keys clear openai  # forget the one Flockdeck stored
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys list` | Which agents have one, not what it is |
+| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
 
 Nothing here ever prints a key back, and neither does the interface.
 
@@ -61,15 +61,15 @@ Nothing here ever prints a key back, and neither does the interface.
 
 Reach this machine's agents from another device, through a relay.
 
-```sh
-flockdeck remote enable      # enrol this machine: -relay, -name, -join, -invite
-flockdeck remote pair        # a one-time link and QR code that pairs a device
-flockdeck remote pair -desktop  # a code that enrols another machine into the account
-flockdeck remote status      # is it on, and is it connected
-flockdeck remote devices     # what is paired, with the ids revoke takes
-flockdeck remote revoke <id> # unpair a device
-flockdeck remote disable     # remove this machine from the relay (-force if it cannot be reached)
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote enable` | Enrol this machine; takes `-relay`, `-name`, `-join`, `-invite` |
+| `flockdeck remote pair` | A one-time link and QR code that pairs a device |
+| `flockdeck remote pair -desktop` | A code that enrols another machine into the account |
+| `flockdeck remote status` | Whether it is on, and whether it is connected |
+| `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
+| `flockdeck remote revoke <id>` | Unpair a device |
+| `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
 
 A running instance is told when `enable` or `disable` changes anything, and
 connects or disconnects on the spot. [Remote access](#remote) has the rest.
@@ -91,10 +91,10 @@ lists the flags that set it up by hand — `-wire`, `-base-url`, `-model`,
 
 ## update
 
-```sh
-flockdeck update          # fetch the latest release and put it in place
-flockdeck update -check   # say whether there is one, and stop
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck update` | Fetches the latest release and puts it in place |
+| `flockdeck update -check` | Says whether there is one, and stops |
 
 Releases are published on GitHub as one archive per platform, with a
 `checksums.txt` beside them. The download is checked against its published

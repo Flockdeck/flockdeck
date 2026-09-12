@@ -74,11 +74,11 @@ agent needs a key, which is looked for in that agent's own environment
 variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — and then
 in Flockdeck's own store.
 
-```sh
-flockdeck keys set openai    # reads the key from stdin, so it misses shell history
-flockdeck keys list          # which agents have one, not what it is
-flockdeck keys clear openai  # forget the one Flockdeck stored
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys list` | Which agents have one, not what it is |
+| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
 
 Or set them from the window: [[action:apiKeys]], in the command palette, lists
 every API agent with **set** or **not set** beside it — and, for one that is

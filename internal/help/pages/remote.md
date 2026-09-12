@@ -29,10 +29,10 @@ token, so a remote window cannot reach them.
 Enrolling a machine is done from a terminal, because it is the step that
 decides where the traffic goes:
 
-```sh
-flockdeck remote enable      # enrol this machine with the relay
-flockdeck remote pair        # a one-time link and QR code for a device
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote enable` | Enrols this machine with the relay |
+| `flockdeck remote pair` | A one-time link and QR code for a device |
 
 The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
@@ -77,8 +77,8 @@ The dialog lists every paired device with an **Unpair** button; unpairing ends
 that device's session at once, including any window it has open. From a
 terminal:
 
-```sh
-flockdeck remote devices       # what is paired, and each device's id
-flockdeck remote revoke <id>   # unpair one
-flockdeck remote disable       # remove this machine from the relay
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote devices` | What is paired, and each device's id |
+| `flockdeck remote revoke <id>` | Unpairs one |
+| `flockdeck remote disable` | Removes this machine from the relay |
