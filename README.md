@@ -137,7 +137,7 @@ all three work. It opens its own window; there is no terminal to keep around.
 ```sh
 flockdeck                 # open the current directory
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # ignore the saved layout
+flockdeck -new            # start without the saved layout, and replace it on exit
 flockdeck -shell          # first pane is a shell, not an agent
 flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
