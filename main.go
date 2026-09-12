@@ -128,7 +128,9 @@ func main() {
 	fs.Visit(func(f *flag.Flag) { c.dirGiven = c.dirGiven || f.Name == "C" })
 
 	if c.version {
-		fmt.Println("flockdeck", version)
+		// The platform is part of the answer: it is what a bug report needs
+		// alongside the version, and what says which archive to download.
+		fmt.Printf("flockdeck %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
