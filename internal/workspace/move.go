@@ -156,7 +156,7 @@ func (w *Workspace) TilePanes() error {
 	if t.Tree.Count() < 2 {
 		return fmt.Errorf("there is nothing to tile: this tab has one pane")
 	}
-	t.Tree = layout.Grid(t.Tree.Panes())
+	t.Tree = layout.Tile(t.Tree, nominalRect)
 	t.Zoom = false
 	return nil
 }

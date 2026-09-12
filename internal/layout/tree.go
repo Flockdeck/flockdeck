@@ -681,6 +681,41 @@ func Grid(panes []string) *Node {
 	return root
 }
 
+// Tile rebuilds a tree as an even grid of the same panes, measured against box.
+//
+// The panes fill the grid in tree order, as Grid fills it — unless every pane
+// already sits in a cell of its own in that grid, when each keeps its cell. A
+// tab already laid out in rows of columns then has its proportions evened and
+// nothing moved. Filling it in tree order instead swapped two panes of a grid
+// built a column at a time, since a column comes out of the tree whole, before
+// the pane beside its top; tiling is the way back to a tidy tab, and one that
+// was tidy already should not come back rearranged.
+func Tile(root *Node, box Rect) *Node {
+	grid := Grid(root.Panes())
+	root.Compute(box)
+	grid.Compute(box)
+	cells := grid.Leaves()
+	placed := make([]string, len(cells))
+	for _, l := range root.Leaves() {
+		x, y := l.rect.X+l.rect.W/2, l.rect.Y+l.rect.H/2
+		at := -1
+		for i, c := range cells {
+			if c.rect.Contains(x, y) {
+				at = i
+				break
+			}
+		}
+		if at < 0 || placed[at] != "" {
+			return grid
+		}
+		placed[at] = l.Pane
+	}
+	for i, c := range cells {
+		c.Pane = placed[i]
+	}
+	return grid
+}
+
 // gridRows chooses how many rows a grid of n panes is drawn in.
 //
 // The square root, rounded down, so the grid is as square as it can be while

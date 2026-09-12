@@ -1467,6 +1467,43 @@ func TestGridIgnoresRepeatsAndBlanks(t *testing.T) {
 	}
 }
 
+// TestTileLeavesAGridWhereItIs covers tiling a tab that is already rows of
+// columns. Built a column at a time, its tree lists the left column whole
+// before the pane beside its top, and filling the grid in that order swapped
+// two panes of a layout that needed nothing done to it — even after a divider
+// had been dragged, which is the tab someone reaches for tiling to fix.
+func TestTileLeavesAGridWhereItIs(t *testing.T) {
+	box := Rect{W: 1000, H: 1000}
+	for _, dragged := range []bool{false, true} {
+		root := NewLeaf("a")
+		root.Split("a", "c", Horizontal)
+		root.Split("a", "b", Vertical)
+		root.Split("c", "d", Vertical)
+		if dragged && !root.Children[0].SetChildWeights([]float64{3, 2}) {
+			t.Fatal("the drag was refused")
+		}
+		root.Compute(box)
+		quadrant := func(n *Node, pane string) (int, int) {
+			r := n.Find(pane).Rect()
+			return (2*r.X + r.W) / 1000, (2*r.Y + r.H) / 1000
+		}
+		want := map[string][2]int{}
+		for _, p := range root.Panes() {
+			x, y := quadrant(root, p)
+			want[p] = [2]int{x, y}
+		}
+
+		tiled := Tile(root, box)
+		tiled.Compute(box)
+		for _, p := range []string{"a", "b", "c", "d"} {
+			if x, y := quadrant(tiled, p); [2]int{x, y} != want[p] {
+				t.Errorf("dragged=%v: %s moved from quadrant %v to %v", dragged, p, want[p], [2]int{x, y})
+			}
+		}
+		checkInvariants(t, tiled, "tiled")
+	}
+}
+
 // facing returns the direction that undoes d.
 func facing(d Direction) Direction {
 	switch d {
