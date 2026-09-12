@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -107,6 +108,25 @@ func (m *Manager) Client() (*Client, error) {
 		return nil, ErrNotEnabled
 	}
 	return NewClient(cfg, m.version), nil
+}
+
+// Enable enrols this machine with a relay and brings the tunnel up to it:
+// what `flockdeck remote enable` does, for the window.
+func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool, err error) {
+	if _, replaced, err = Enable(ctx, m.version, req); err != nil {
+		return false, err
+	}
+	return replaced, m.Reload()
+}
+
+// Disable takes this machine off its relay and closes the tunnel: what
+// `flockdeck remote disable` does, for the window. untold is why the relay
+// could not be told, when force had the enrolment forgotten regardless.
+func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err error) {
+	if _, untold, err = Disable(ctx, m.version, force); err != nil {
+		return nil, err
+	}
+	return untold, m.Reload()
 }
 
 // Close closes the tunnel, and every remote window with it.

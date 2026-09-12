@@ -627,6 +627,87 @@ func TestManagerReload(t *testing.T) {
 	}
 }
 
+// Enabling and disabling, which the command line and the window both do
+// through these.
+func TestEnableAndDisable(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	ctx := context.Background()
+
+	cfg, replaced, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: " desk "})
+	if err != nil || replaced || cfg.HostID != "h1" || cfg.Name != "desk" || cfg.Relay != f.URL {
+		t.Fatalf("Enable = %+v, %v, %v", cfg, replaced, err)
+	}
+	if saved, err := Load(); err != nil || saved == nil || *saved != *cfg {
+		t.Errorf("Enable saved %+v, %v; want %+v", saved, err, cfg)
+	}
+	var already *AlreadyEnabledError
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "again"}); !errors.As(err, &already) || already.Err != nil {
+		t.Errorf("enabling over a live enrolment = %v, want it refused", err)
+	}
+
+	// An enrolment the relay has forgotten is replaced, and the caller told.
+	f.token = "fdh_forgotten"
+	_, replaced, err = Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"})
+	f.token = "fdh_test"
+	if err != nil || !replaced {
+		t.Errorf("enabling over a forgotten enrolment = %v, replaced %v", err, replaced)
+	}
+
+	if had, untold, err := Disable(ctx, "v", false); !had || untold != nil || err != nil {
+		t.Errorf("Disable = %v, %v, %v", had, untold, err)
+	}
+	if c, _ := Load(); c != nil {
+		t.Error("Disable left the enrolment behind")
+	}
+	if had, _, err := Disable(ctx, "v", false); had || err != nil {
+		t.Errorf("Disable with nothing enrolled = %v, %v", had, err)
+	}
+
+	// A relay that cannot be told keeps the enrolment, unless forced.
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	var untoldErr *RelayUntoldError
+	if _, _, err := Disable(ctx, "v", false); !errors.As(err, &untoldErr) {
+		t.Errorf("Disable with the relay gone = %v, want a RelayUntoldError", err)
+	}
+	if c, _ := Load(); c == nil {
+		t.Fatal("a Disable that could not tell the relay forgot the enrolment")
+	}
+	if had, untold, err := Disable(ctx, "v", true); !had || untold == nil || err != nil {
+		t.Errorf("forced Disable = %v, %v, %v; want it done, saying why the relay was not told", had, untold, err)
+	}
+	if c, _ := Load(); c != nil {
+		t.Error("a forced Disable left the enrolment behind")
+	}
+}
+
+// The window enables and disables through the manager, which brings the
+// tunnel up and down to match.
+func TestManagerEnablesAndDisables(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	if _, err := m.Client(); err != nil {
+		t.Errorf("Client after Enable = %v", err)
+	}
+	if _, err := m.Disable(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Status(); ok {
+		t.Error("the tunnel outlived disabling")
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {

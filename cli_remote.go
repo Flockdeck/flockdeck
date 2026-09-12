@@ -163,51 +163,22 @@ func remoteEnable(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteEnableFlagSet(&f), args); err != nil {
 		return err
 	}
-	relayURL, err := remote.RelayURL(f.relay)
-	if err != nil {
-		return err
-	}
-
-	ctx := context.Background()
-	existing, err := remote.Load()
-	if err != nil {
-		return err
-	}
-	if existing != nil {
-		// Enrolling a second time would leave the first host on the relay
-		// with nobody holding its token, listed on every device as a machine
-		// that is never online. The one time it is right is when the relay
-		// has already forgotten the first.
-		_, err := remote.NewClient(existing, version).Devices(ctx)
-		switch {
-		case err == nil:
-			return fmt.Errorf("remote access is already enabled, with %s; run `flockdeck remote disable` first to enrol this machine again", existing.Relay)
-		case !remote.IsRevoked(err):
-			return fmt.Errorf("remote access is already enabled with %s, which could not be asked whether it still is (%v); run `flockdeck remote disable -force` to start again", existing.Relay, err)
-		}
-		fmt.Fprintln(rio.out, "the relay no longer knows this machine, so it is being enrolled again")
-	}
-
-	hostName := strings.TrimSpace(f.name)
-	if hostName == "" {
-		hostName, _ = os.Hostname()
-	}
-	reg, err := remote.Register(ctx, relayURL, version, remote.RegisterRequest{
-		Name: hostName, Join: strings.TrimSpace(f.join), Invite: strings.TrimSpace(f.invite),
+	cfg, replaced, err := remote.Enable(context.Background(), version, remote.EnableRequest{
+		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
 	})
-	if err != nil {
+	var already *remote.AlreadyEnabledError
+	switch {
+	case errors.As(err, &already) && already.Err == nil:
+		return fmt.Errorf("%v; run `flockdeck remote disable` first to enrol this machine again", err)
+	case errors.As(err, &already):
+		return fmt.Errorf("%v; run `flockdeck remote disable -force` to start again", err)
+	case err != nil:
 		return err
 	}
-	cfg := &remote.Config{
-		Relay: relayURL, HostID: reg.HostID, AccountID: reg.AccountID, Token: reg.Token, Name: hostName,
+	if replaced {
+		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
 	}
-	if err := cfg.Save(); err != nil {
-		// The relay now has a host that nothing here can speak for. Take it
-		// back off rather than leave it listed on every device for good.
-		_ = remote.NewClient(cfg, version).Unregister(ctx)
-		return err
-	}
-	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", hostName, relayURL)
+	fmt.Fprintf(rio.out, "remote access enabled: this machine is %q on %s\n", cfg.Name, cfg.Relay)
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
 	fmt.Fprintln(rio.out, "Pair a device with: flockdeck remote pair")
 	return nil
@@ -379,29 +350,23 @@ func remoteDisable(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteDisableFlagSet(&f), args); err != nil {
 		return err
 	}
-	cfg, err := remote.Load()
-	if err != nil {
-		if !f.force {
-			return fmt.Errorf("%w (-force removes it anyway)", err)
-		}
-		cfg = nil
+	// An enrolment that cannot be read stops Disable too, but only here is
+	// there a -force to point at.
+	if _, err := remote.Load(); err != nil && !f.force {
+		return fmt.Errorf("%w (-force removes it anyway)", err)
 	}
-	if cfg != nil {
-		err := remote.NewClient(cfg, version).Unregister(context.Background())
-		switch {
-		case err == nil, remote.IsRevoked(err):
-			// Gone either way: removed now, or already.
-		case !f.force:
-			return fmt.Errorf("could not tell the relay (%v); run again with -force to forget the enrolment here anyway — the relay will list this machine until it is removed from a paired device", err)
-		default:
-			fmt.Fprintf(rio.out, "could not tell the relay (%v); forgetting the enrolment here anyway\n", err)
-		}
-	} else if !f.force {
+	had, untold, err := remote.Disable(context.Background(), version, f.force)
+	var relayUntold *remote.RelayUntoldError
+	switch {
+	case errors.As(err, &relayUntold):
+		return fmt.Errorf("%v; run again with -force to forget the enrolment here anyway — the relay will list this machine until it is removed from a paired device", err)
+	case err != nil:
+		return err
+	case !had && !f.force:
 		fmt.Fprintln(rio.out, "remote access is not enabled")
 		return nil
-	}
-	if err := remote.Clear(); err != nil {
-		return err
+	case untold != nil:
+		fmt.Fprintf(rio.out, "could not tell the relay (%v); forgetting the enrolment here anyway\n", untold)
 	}
 	fmt.Fprintln(rio.out, "remote access disabled")
 	reportReload(rio, "")

@@ -212,7 +212,7 @@ func TestRemoteEnableReplacesARevokedEnrolment(t *testing.T) {
 		}
 	}
 	out, _, err = runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "again")
-	if err != nil || !strings.Contains(out, "no longer knows") {
+	if err != nil || !strings.Contains(out, "no longer knew") {
 		t.Fatalf("enable over a revoked enrolment = %q, %v", out, err)
 	}
 	if cfg, _ := remote.Load(); cfg == nil || cfg.HostID != "h-again" {
