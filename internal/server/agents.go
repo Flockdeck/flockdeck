@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -282,6 +283,12 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	return out
 }
 
+// defaultWrites keeps two defaults saved at once -- from two windows -- from
+// each reading agents.json, changing its own entry, and writing back a copy
+// without the other's, after both windows were told theirs was saved. The keys
+// dialog guards its file the same way (keyWrites).
+var defaultWrites sync.Mutex
+
 // setAgentDefault records a choice in the user's agents.json: for one project
 // where root names one, and for every project otherwise.
 func setAgentDefault(root string, choice agentChoice) error {
@@ -289,6 +296,8 @@ func setAgentDefault(root string, choice agentChoice) error {
 	if err != nil {
 		return err
 	}
+	defaultWrites.Lock()
+	defer defaultWrites.Unlock()
 	return agent.SetDefaults(filepath.Dir(path), root, agent.Defaults{
 		Agent: choice.Agent,
 		Model: choice.Model,
