@@ -3379,6 +3379,25 @@ assert.ok(/prompt bar/.test(tip), "the tooltip does not say it is the prompt bar
 `)
 }
 
+// Choosing a page in the help's contents rebuilt the list, which destroyed the
+// item the choice was made on and dropped the keyboard out of the dialog.
+func TestChoosingAHelpPageKeepsTheKeyboardInTheContents(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const items = () => h.$("overlay-body").querySelectorAll("button.help-item");
+const second = items()[1];
+const title = second.querySelector(".help-item-title").textContent;
+second.focus();
+h.key({ key: "Enter" });
+const now = h.doc.activeElement;
+assert.ok(items().includes(now), "choosing a page dropped the keyboard out of the contents");
+assert.strictEqual(now.querySelector(".help-item-title").textContent, title, "the keyboard landed on another page");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

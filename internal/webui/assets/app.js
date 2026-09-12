@@ -4425,6 +4425,10 @@
   function renderHelpList() {
     const list = $("overlay-body").querySelector(".help-list");
     if (!list) return;
+    // Choosing a page rebuilds the list, which destroyed the item the choice
+    // was made on and dropped the keyboard out of the dialog: reading the
+    // help from the keyboard meant tabbing back to the list after every page.
+    const hadKeyboard = list.contains(document.activeElement);
     list.textContent = "";
     const hits = helpMatches();
     if (!hits.length) {
@@ -4445,6 +4449,7 @@
     // the box and out of sight; the page it named was shown, and nothing said
     // where in the list it was.
     if (sel) sel.scrollIntoView({ block: "nearest" });
+    if (sel && hadKeyboard) sel.focus();
   }
 
   function renderHelpContent() {
