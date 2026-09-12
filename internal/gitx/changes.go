@@ -523,7 +523,7 @@ func gitDiff(dir string, args ...string) (string, error) {
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
 	out := &headWriter{limit: maxDiffBytes + 1}
-	if _, err := runTo(context.Background(), commandTimeout, dir, out, argv...); err != nil {
+	if _, err := runTo(context.Background(), commandTimeout, dir, nil, out, argv...); err != nil {
 		return "", err
 	}
 	return truncateDiff(out.String(), out.total), nil

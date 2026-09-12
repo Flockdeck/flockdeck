@@ -3,7 +3,6 @@ package gitx
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,10 +32,12 @@ func CommitAll(dir, message string) error {
 		}
 		return &gitError{"still in conflict: " + names + " — resolve the <<<<<<< markers first, then commit"}
 	}
-	if err := writingIndex(dir, "add", "--all"); err != nil {
+	if err := writingIndex(dir, "", "add", "--all"); err != nil {
 		return err
 	}
-	err := writingIndex(dir, "commit", "-m", message)
+	// The message goes in on stdin: on the command line a long one was more
+	// than Windows would start a program with.
+	err := writingIndex(dir, message, "commit", "-F", "-")
 	if err != nil {
 		// Nothing staged, while the file list showed a submodule as changed:
 		// the work is inside it, in a repository of its own, and git's
@@ -65,8 +66,8 @@ var lockWait = 3 * time.Second
 // last line -- the one saying what to do -- was cut from the toast. Their git
 // commands are brief, so the lock is waited for and the command tried once
 // more; a lock that stays is one to say so about, in the reader's terms.
-func writingIndex(dir string, args ...string) error {
-	_, _, err := runCapture(context.Background(), networkTimeout, dir, args...)
+func writingIndex(dir, input string, args ...string) error {
+	_, _, err := runWithInput(networkTimeout, dir, input, args...)
 	if err == nil {
 		return nil
 	}
@@ -76,7 +77,7 @@ func writingIndex(dir string, args ...string) error {
 	case held:
 		return indexHeld(lock)
 	}
-	_, _, err = runCapture(context.Background(), networkTimeout, dir, args...)
+	_, _, err = runWithInput(networkTimeout, dir, input, args...)
 	return err
 }
 

@@ -1639,3 +1639,18 @@ func TestPullThenCommitKeepsATeammatesSubmoduleBump(t *testing.T) {
 		t.Errorf("the commit recorded submodule %s, want the teammate's bump %s", got, bump)
 	}
 }
+
+// TestALongCommitMessageIsCommitted: on the command line a message past about
+// 32,000 characters was more than Windows would start git with, and the
+// commit failed after everything had been staged.
+func TestALongCommitMessageIsCommitted(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "a.txt", "a\n")
+	msg := "a long message\n\n" + strings.Repeat("a line of a detailed changelog an agent wrote\n", 900)
+	if err := CommitAll(repo, msg); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if got := gitRun(t, repo, "log", "-1", "--format=%B"); strings.TrimSpace(got) != strings.TrimSpace(msg) {
+		t.Errorf("committed message is %d bytes, want the %d written", len(got), len(msg))
+	}
+}

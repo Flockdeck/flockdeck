@@ -106,7 +106,21 @@ func cleanProgress(s string) string {
 // runCapture executes git in dir and returns stdout and stderr separately.
 func runCapture(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, error) {
 	var out bytes.Buffer
-	errText, err := runTo(parent, timeout, dir, &out, args...)
+	errText, err := runTo(parent, timeout, dir, nil, &out, args...)
+	if err != nil {
+		return "", "", err
+	}
+	return out.String(), errText, nil
+}
+
+// runWithInput is runCapture with input given to git on stdin, for what is too
+// long to go on its command line: Windows allows one of about 32,000
+// characters, and a commit message an agent wrote past that failed to start
+// git at all -- "The filename or extension is too long" -- after everything
+// had already been staged.
+func runWithInput(timeout time.Duration, dir, input string, args ...string) (string, string, error) {
+	var out bytes.Buffer
+	errText, err := runTo(context.Background(), timeout, dir, strings.NewReader(input), &out, args...)
 	if err != nil {
 		return "", "", err
 	}
@@ -122,7 +136,7 @@ type output interface {
 
 // runTo is runCapture with stdout going to out, for a caller that means to
 // keep only part of it; stderr is returned.
-func runTo(parent context.Context, timeout time.Duration, dir string, out output, args ...string) (string, error) {
+func runTo(parent context.Context, timeout time.Duration, dir string, in io.Reader, out output, args ...string) (string, error) {
 	// An empty Dir does not mean "no repository" to exec: it means the
 	// directory this process happens to be running in. Flockdeck is often started
 	// from inside a checkout of something, so a caller that lost track of
@@ -152,6 +166,7 @@ func runTo(parent context.Context, timeout time.Duration, dir string, out output
 		"GIT_OPTIONAL_LOCKS=0",
 	)
 	var errb bytes.Buffer
+	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = &errb
 	// The deadline kills git and nothing git started. A hook, an ssh or a
