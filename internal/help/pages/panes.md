@@ -11,7 +11,7 @@ and a tab can hold one or several, split however you like.
 | [[key:newShellTab]] | A tab with a plain shell — no agent, no hooks |
 | [[key:splitRight]] | An agent beside the focused pane |
 | [[key:splitDown]] | An agent below the focused pane |
-| [[action:splitRightShell]] | A shell beside the focused pane |
+| [[action:splitRightShell]] | A shell beside the focused pane, from the command palette |
 
 Each of those takes the project's default agent, which keeps making a pane one
 keystroke. To choose a different agent or a different model, click the `▾`
