@@ -106,6 +106,12 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	if err != nil || runsAnything(argv) {
 		return ""
 	}
+	// An option in the second place names no subcommand, so the two words
+	// cover every one there is: "always" for `git -c` is standing permission
+	// for `git -c core.pager=<anything> log`, which runs <anything>.
+	if len(argv) > 1 && strings.HasPrefix(argv[1], "-") {
+		return ""
+	}
 	return commandPrefix(argv)
 }
 

@@ -29,6 +29,10 @@ func TestNoStandingPermissionIsOfferedForAShell(t *testing.T) {
 		{"deno eval 1", ""},
 		{"bash build.sh", "bash build.sh"},
 		{"node server.js", "node server.js"},
+		// An option in the second place names no subcommand.
+		{`git -c core.pager="rm -rf build" log`, ""},
+		{"make -C sub clean", ""},
+		{"git log --oneline", "git log"},
 	} {
 		if got := tl.Prefix(rawArgs(t, map[string]any{"command": c.command})); got != c.want {
 			t.Errorf("Prefix(%q) = %q, want %q", c.command, got, c.want)
