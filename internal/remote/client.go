@@ -247,9 +247,10 @@ func decodeError(status int, data []byte) error {
 // transportError says why a relay could not be reached. It drops the
 // "Get \"https://…\":" prefix net/http puts on every transport error, since
 // the caller has already said which relay it was, and the same URL twice in
-// one line is the part people stop reading at. A certificate this machine
-// does not trust, which retrying will not mend, is said in words first, with
-// the verifier's reason after it.
+// one line is the part people stop reading at. Two failures are said in
+// words rather than the library's: a certificate this machine does not
+// trust, which retrying will not mend, with the verifier's reason after it;
+// and a name that cannot be looked up, which is how no network looks.
 func transportError(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
