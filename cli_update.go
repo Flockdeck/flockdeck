@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -99,8 +100,13 @@ func runUpdate(args []string) error {
 	if err := selfupdate.Apply(dir, exe); err != nil {
 		// The download is sound and still staged; only putting it in place
 		// failed, which is usually a program installed somewhere the user
-		// cannot write. Saying which is far more use than the raw error.
-		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to — try again from an administrator shell,\nor move the program somewhere you own", err, exe)
+		// cannot write. Saying which is far more use than the raw error, and
+		// saying it in the words of the platform it happened on.
+		how := "with sudo"
+		if runtime.GOOS == "windows" {
+			how = "from an administrator shell"
+		}
+		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to — try again %s,\nor move the program somewhere you own", err, exe, how)
 	}
 
 	fmt.Printf("Updated to %s. It will be in use from the next start.\n", staged.Version)
