@@ -50,6 +50,16 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 				s.decline(calls[i+1:], "not run: the user did not answer an earlier question")
 				return true
 			}
+			if instead == stopTurn {
+				// Typed at the question, the turn ends here as Ctrl+C would end
+				// it, rather than "stop" going to the model as what to do
+				// instead while it carried on working.
+				s.out.line(ansiDim, "  (stopped; /retry carries on)")
+				s.answer(c, "the user stopped the turn here, so this was not run")
+				s.decline(calls[i+1:], "not run: the user stopped the turn")
+				s.unfinished = true
+				return true
+			}
 			// A no is said back, a reply in words above all: "yes please" is
 			// not one of the letters, and somebody who typed it would otherwise
 			// go on believing the call ran.
@@ -191,10 +201,16 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 			return true, true, ""
 		case "n", "no", "":
 			return false, true, ""
+		case "stop", "cancel", "abort":
+			return false, true, stopTurn
 		}
 		return false, true, reply
 	}
 }
+
+// stopTurn is what ask reports for a reply that ends the whole turn -- "stop",
+// "cancel" -- in place of what to do instead. Nothing typed can be it.
+const stopTurn = "\x00stop"
 
 // describeCall is the one line a tool call is drawn as: its name and what it
 // acts on -- the command, the path, the pattern and where it is looked for --

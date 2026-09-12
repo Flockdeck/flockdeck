@@ -28,6 +28,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 			"",
 			"A line ending in a backslash is continued on the next one.",
 			"Ctrl+C stops the answer being written, not the client.",
+			"At a tool's question, y runs it, Enter declines it, stop ends the turn.",
 		} {
 			s.out.line(ansiDim, "  "+l)
 		}
