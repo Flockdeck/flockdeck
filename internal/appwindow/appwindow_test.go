@@ -44,6 +44,48 @@ func TestFitWindow(t *testing.T) {
 // A Mac browser installed without an administrator's rights lives in the
 // user's own Applications folder, and has to be found there too — after the
 // system's copy, so the machine-wide install still wins.
+// The browser keeps the window's size and place as it closes but does not open
+// the next one there, and the size given at every launch put a window the
+// user had resized or moved back at the default every time. What it kept is
+// given back.
+func TestPlacementArgsGiveBackWhatTheBrowserKept(t *testing.T) {
+	const page = "http://127.0.0.1:53063/?t=abc"
+	profile := t.TempDir()
+	check := func(what string, got []string, want ...string) {
+		t.Helper()
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("%s: %q, want %q", what, got, want)
+		}
+	}
+	check("a first window", placementArgs(profile, page, 1920, 1032), "--window-size=1440,900")
+
+	keep := func(bounds string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(profile, "Default"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		prefs := `{"browser":{"app_window_placement":{"127":{"0":{"0":{"1_/":` + bounds + `}}}}}}`
+		if err := os.WriteFile(filepath.Join(profile, "Default", "Preferences"), []byte(prefs), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keep(`{"left":200,"top":150,"right":1200,"bottom":850,"maximized":false}`)
+	check("a window resized and moved", placementArgs(profile, page, 1920, 1032),
+		"--window-size=1000,700", "--window-position=200,150")
+	// Each run is on a port of its own, and it is the same window.
+	check("the same window on another port", placementArgs(profile, "http://127.0.0.1:61000/?t=def", 1920, 1032),
+		"--window-size=1000,700", "--window-position=200,150")
+	check("on a screen of unknown size", placementArgs(profile, page, 0, 0), "--window-size=1000,700")
+	// Kept on a bigger screen than this one, it would open past the edges.
+	check("on a smaller screen", placementArgs(profile, page, 800, 600), "--window-size=720,540")
+
+	// What is kept for a maximised window is the size and place it had
+	// before, and Edge ignores --start-maximized for an app window.
+	keep(`{"left":100,"top":80,"right":1300,"bottom":880,"maximized":true}`)
+	check("a window left maximised", placementArgs(profile, page, 1920, 1032),
+		"--window-size=1200,800", "--window-position=100,80")
+}
+
 func TestDarwinCandidatesLookInTheUsersApplications(t *testing.T) {
 	got := darwinCandidates("/Users/sam")
 	sys := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"

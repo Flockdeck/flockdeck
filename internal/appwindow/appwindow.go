@@ -7,8 +7,10 @@
 package appwindow
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,18 +143,94 @@ func fitWindow(w, h int) (int, int) {
 	return min(defaultWidth, w*9/10), min(defaultHeight, h*9/10)
 }
 
-// startAppMode launches a chromeless window pointed at url.
-func startAppMode(path, url, profileDir string) (*Window, error) {
-	w, h := fitWindow(workArea())
+// windowArgs are the browser arguments that open pageURL as an app window on
+// profileDir, on a screen whose work area is workW by workH, or of unknown
+// size when either is zero.
+func windowArgs(pageURL, profileDir string, workW, workH int) []string {
 	args := []string{
-		"--app=" + url,
+		"--app=" + pageURL,
 		"--user-data-dir=" + profileDir,
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--disable-features=Translate,MediaRouter",
-		fmt.Sprintf("--window-size=%d,%d", w, h),
 	}
-	cmd := exec.Command(path, args...)
+	return append(args, placementArgs(profileDir, pageURL, workW, workH)...)
+}
+
+// placementArgs say how big the window opens, and where.
+//
+// The browser keeps an app window's size and place as it closes, but does not
+// open the next one there: Edge opens it at a default of its own, and the
+// size given at every launch put a window the user had resized or moved back
+// at the default every time. So what it kept is read here and given back:
+// the size where the screen has room for it, and the place where the whole
+// window lies on the screen. A first window, or one kept on a screen with more
+// room than this one, gets fitWindow's size. A window left maximised comes
+// back at the size and place it had before, which is what is kept for it;
+// Edge ignores --start-maximized for an app window.
+func placementArgs(profileDir, pageURL string, workW, workH int) []string {
+	p, ok := savedPlacement(profileDir, pageURL)
+	if !ok || (workW > 0 && workH > 0 && (p.w > workW || p.h > workH)) {
+		w, h := fitWindow(workW, workH)
+		return []string{fmt.Sprintf("--window-size=%d,%d", w, h)}
+	}
+	args := []string{fmt.Sprintf("--window-size=%d,%d", p.w, p.h)}
+	if workW > 0 && workH > 0 && p.x >= 0 && p.y >= 0 && p.x+p.w <= workW && p.y+p.h <= workH {
+		args = append(args, fmt.Sprintf("--window-position=%d,%d", p.x, p.y))
+	}
+	return args
+}
+
+// placement is a window's size and place as the browser kept them.
+type placement struct{ x, y, w, h int }
+
+// savedPlacement reads what the browser kept of the window at pageURL from an
+// earlier run on profileDir.
+//
+// Chromium keeps an app window's bounds under a name made of the URL's host
+// and path, leaving out the port, so they carry over from run to run although
+// each run is on a port of its own. Its preference names are split at dots:
+// 127.0.0.1_/ is kept as 127 > 0 > 0 > 1_/.
+func savedPlacement(profileDir, pageURL string) (placement, bool) {
+	u, err := url.Parse(pageURL)
+	if err != nil || u.Hostname() == "" {
+		return placement{}, false
+	}
+	data, err := os.ReadFile(filepath.Join(profileDir, "Default", "Preferences"))
+	if err != nil {
+		return placement{}, false
+	}
+	var node any
+	if json.Unmarshal(data, &node) != nil {
+		return placement{}, false
+	}
+	page := u.EscapedPath()
+	if page == "" {
+		page = "/"
+	}
+	keys := append([]string{"browser", "app_window_placement"}, strings.Split(u.Hostname()+"_"+page, ".")...)
+	for _, key := range keys {
+		m, ok := node.(map[string]any)
+		if !ok {
+			return placement{}, false
+		}
+		if node, ok = m[key]; !ok {
+			return placement{}, false
+		}
+	}
+	bounds, ok := node.(map[string]any)
+	if !ok {
+		return placement{}, false
+	}
+	num := func(k string) int { v, _ := bounds[k].(float64); return int(v) }
+	p := placement{x: num("left"), y: num("top"), w: num("right") - num("left"), h: num("bottom") - num("top")}
+	return p, p.w > 0 && p.h > 0
+}
+
+// startAppMode launches a chromeless window pointed at url.
+func startAppMode(path, url, profileDir string) (*Window, error) {
+	w, h := workArea()
+	cmd := exec.Command(path, windowArgs(url, profileDir, w, h)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", path, err)
