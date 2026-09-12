@@ -4749,6 +4749,10 @@
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
       const doCommit = (btn, push) => {
+        // The buttons wait while anything is out, and the message box, which
+        // commits on Ctrl+Enter, did not: pressed twice it sent the same
+        // commit again while the first was still running.
+        if (changesBusy) return;
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");

@@ -36,3 +36,32 @@ assert.ok(h.doc.activeElement === h.$("overlay-panel"), "the dialog did not get 
 assert.ok(!h.terms.some((t) => t.focused), "a terminal behind the dialog took the keyboard");
 `)
 }
+
+// The commit buttons wait while a commit is out, and Ctrl+Enter in the
+// message did not: pressed twice, or held a moment too long, it sent the
+// same commit twice, the second while the first was still running.
+func TestCtrlEnterDoesNotCommitTwice(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", upstream: "origin/main", hasRemote: true,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] };
+h.recv(tree);
+const box = h.$("commit-message");
+box.value = "webui: something";
+box.oninput();
+box.focus();
+h.key({ key: "Enter", ctrlKey: true });
+h.key({ key: "Enter", ctrlKey: true });
+const commits = () => h.commands().filter((c) => c.cmd === "commit").length;
+assert.strictEqual(commits(), 1, "a second Ctrl+Enter sent the commit again while the first was out");
+
+// Once the answer is back, the box commits again.
+h.recv({ type: "notice", text: "The commit was refused", error: true });
+h.recv(tree);
+h.$("commit-message").focus();
+h.key({ key: "Enter", ctrlKey: true });
+assert.strictEqual(commits(), 2, "the box stayed dead after the answer came back");
+`)
+}
