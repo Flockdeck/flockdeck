@@ -69,6 +69,23 @@ func (s *session) clear() {
 	// Said in full, because "cleared" alone leaves somebody wondering
 	// whether what was said is gone.
 	s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")
+	// Standing permission belongs to the pane, not the conversation, and
+	// outlives it; somebody starting a new task after /clear would otherwise
+	// take it that they had started clean.
+	if allowed := s.allowed(); allowed != "" {
+		s.out.line(ansiDim, "(still allowed without asking: "+allowed+"; /forget withdraws them)")
+	}
+}
+
+// allowed is what "always" has been answered to in this session, named the way
+// the question named it, or "" for nothing.
+func (s *session) allowed() string {
+	var keys []string
+	for key := range s.always {
+		keys = append(keys, "`"+key+"`")
+	}
+	slices.Sort(keys)
+	return strings.Join(keys, ", ")
 }
 
 // status is /status: what has been spent, the settings behind the pane, and
@@ -89,13 +106,8 @@ func (s *session) status() {
 	}
 	// What "always" has been answered to is standing permission nothing else
 	// on the screen shows, for as long as the pane runs.
-	if len(s.always) > 0 {
-		var allowed []string
-		for key := range s.always {
-			allowed = append(allowed, "`"+key+"`")
-		}
-		slices.Sort(allowed)
-		s.out.line(ansiDim, "allowed without asking: "+strings.Join(allowed, ", ")+"; /forget withdraws them")
+	if allowed := s.allowed(); allowed != "" {
+		s.out.line(ansiDim, "allowed without asking: "+allowed+"; /forget withdraws them")
 	}
 	s.out.line(ansiDim, "session "+s.opts.Session)
 	s.out.line(ansiDim, "transcript "+s.log.Path())
