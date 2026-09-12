@@ -8,6 +8,9 @@ switching tabs, the font size, and <kbd>F1</kbd> for this help.
 Actions marked *Command palette* have no binding of their own: press
 [[key:palette]] and search for them by name.
 
+On macOS the bindings are the same, with <kbd>Ctrl</kbd> rather than
+<kbd>Cmd</kbd>.
+
 {{keys}}
 
 Panes are focused by clicking, resized by dragging the divider between them,
@@ -19,8 +22,9 @@ then the arrow keys move it and <kbd>Home</kbd> shares the room equally.
 
 ## Inside a dialog
 
-- <kbd>Esc</kbd> closes any dialog, the command palette, the find bar and the
-  prompt bar. <kbd>Tab</kbd> stays inside an open dialog.
+- <kbd>Esc</kbd> closes any dialog, the command palette and the prompt bar, and
+  the find bar while you are typing in it. <kbd>Tab</kbd> stays inside an open
+  dialog.
 - In the command palette, the agent picker and the help's contents,
   <kbd>↑</kbd> and <kbd>↓</kbd> move through the list and <kbd>Enter</kbd>
   takes the one selected.
