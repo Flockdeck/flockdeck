@@ -702,6 +702,9 @@ textarea:focus-visible {
   display: flex; align-items: center; gap: 12px; padding: 9px 8px;
   border-bottom: 1px solid var(--line); cursor: pointer;
 }
+/* The filter above the list hides the rows it leaves out, and the display
+ * the row sets would otherwise keep them on screen. */
+.conv-row[hidden] { display: none; }
 .conv-row:last-child { border-bottom: 0; }
 .conv-row:hover { background: #22262e; }
 .conv-row.open { opacity: .6; cursor: default; }

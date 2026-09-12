@@ -2642,7 +2642,9 @@
     row.dataset.label = (label || row.textContent || "").toLowerCase();
     row.onkeydown = (ev) => {
       if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(ev); return; }
-      const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button");
+      // Not the rows a filter has hidden, which the arrows would walk into
+      // and leave the keyboard on out of sight.
+      const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button" && !n.hidden);
       const at = rows.indexOf(row);
       let to = rowStep(ev.key, at, rows.length);
       if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at, row.parentElement);
@@ -3543,9 +3545,13 @@
 
   let history = null;
   let detaching = false;
+  /** What the conversations are narrowed to, kept across the redraws a
+   *  refresh brings and dropped when the dialog is opened again. */
+  let historyQuery = "";
 
   function openHistory() {
     dialog = "history";
+    historyQuery = "";
     openOverlay("Conversations", "history");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Reading transcripts…"));
@@ -3567,9 +3573,35 @@
       return;
     }
 
+    // Summaries often begin alike, so typing the start of one - all the list
+    // itself answers - does not tell them apart. The field narrows the list
+    // to the conversations holding every word typed, hiding rows rather than
+    // drawing them again, so the field keeps its caret.
+    const holds = (hay) => historyQuery.trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+    const field = el("input", "pick-filter");
+    field.id = "history-filter";
+    field.type = "text";
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = "Type to narrow the list…";
+    field.setAttribute("aria-label", "Find a conversation");
+    field.value = historyQuery;
+    field.oninput = () => {
+      historyQuery = field.value;
+      for (const row of wrap.querySelectorAll("div.conv-row")) row.hidden = !holds(row.dataset.hay);
+    };
+    field.onkeydown = (ev) => {
+      if (ev.key !== "ArrowDown") return;
+      const first = [...wrap.querySelectorAll("div.conv-row")].find((r) => !r.hidden && r.getAttribute("role") === "button");
+      if (first) { ev.preventDefault(); first.focus(); }
+    };
+    body.append(field);
+
     const wrap = section("Resume a conversation");
     m.items.forEach((c) => {
       const row = el("div", "conv-row" + (c.open ? " open" : ""));
+      row.dataset.hay = (c.summary + " " + c.id).toLowerCase();
+      row.hidden = !holds(row.dataset.hay);
       const main = el("div", "conv-main");
       // Cut short at the row's width, and summaries often begin alike -
       // agents given the same brief open with the same words - so the part
@@ -5155,7 +5187,7 @@
       // read or the dialog itself with it, when all that was wanted was to
       // start the search again.
       const f = e.target;
-      if (f && (f.id === "help-search" || f.id === "agent-filter") && f.value) {
+      if (f && (f.id === "help-search" || f.id === "agent-filter" || f.id === "history-filter") && f.value) {
         e.preventDefault();
         f.value = "";
         f.dispatchEvent(new Event("input"));

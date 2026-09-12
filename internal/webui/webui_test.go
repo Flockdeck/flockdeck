@@ -4571,6 +4571,65 @@ assert.ok(on === body.querySelectorAll("button.proj-go")[1],
 `)
 }
 
+// The filter hides the conversations it leaves out, and the harness has no
+// style sheet: in a browser the row's own display kept them on screen.
+func TestHiddenConversationsLeaveTheScreen(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`\.conv-row\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
+		t.Error("app.css gives .conv-row a display and nothing puts a hidden one back to none, so the filter hides nothing on screen")
+	}
+}
+
+// A long history could be searched only by the start of a summary, and
+// summaries often begin alike. A field narrows the list to the conversations
+// holding every word typed.
+func TestTheConversationsCanBeNarrowedByTyping(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-history"));
+const conv = (id, summary) => ({ id, summary, ago: "1h", messages: 3, open: false });
+h.recv({ type: "conversations", cwd: "C:/repo", items: [
+  conv("aaaa1111", "Fix the login bug in auth"),
+  conv("bbbb2222", "Fix the login page layout"),
+  conv("cccc3333", "Write docs for the auth relay"),
+] });
+const field = h.$("history-filter");
+assert.ok(field, "the conversations cannot be narrowed");
+const rows = () => h.$("overlay-body").querySelectorAll("div.conv-row");
+const shown = () => rows().filter((r) => !r.hidden).map((r) => r.querySelector(".conv-summary").textContent);
+
+field.value = "fix login";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login bug in auth", "Fix the login page layout"]);
+field.value = "layout";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login page layout"]);
+
+// Down from the field goes to the first conversation left.
+field.focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows()[1], "Down from the field did not go to the conversation left");
+
+// The arrows pass over the rows hidden: "auth" leaves the first and the
+// third, and Down from the first goes to the third.
+field.value = "auth";
+field.oninput();
+assert.deepStrictEqual(shown(), ["Fix the login bug in auth", "Write docs for the auth relay"]);
+rows()[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows()[2], "Down went to a hidden conversation");
+
+// Escape empties the field first and leaves the dialog open.
+field.value = "layout";
+field.oninput();
+field.focus();
+h.key({ key: "Escape" });
+assert.strictEqual(field.value, "", "Escape did not empty the field");
+assert.ok(!h.$("overlay").hidden, "Escape closed the dialog instead of emptying the field");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
