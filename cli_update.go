@@ -59,7 +59,7 @@ func runUpdate(args []string) error {
 
 	rel, err := selfupdate.Check(ctx, version)
 	if err != nil {
-		return explainUnreachable(err)
+		return explainUnreachable(err, "look for a newer release")
 	}
 	if rel == nil {
 		fmt.Printf("flockdeck %s is the latest release.\n", version)
@@ -90,7 +90,7 @@ func runUpdate(args []string) error {
 			if errors.Is(err, selfupdate.ErrNoAsset) {
 				return fmt.Errorf("%w — nothing was built for this platform", err)
 			}
-			return err
+			return explainUnreachable(err, "download the release")
 		}
 	}
 
@@ -121,16 +121,17 @@ func runUpdate(args []string) error {
 }
 
 // explainUnreachable says in words what a failure to reach GitHub at all
-// means. Left alone it was Go's own error — `Get "https://api.github.com/…":
-// dial tcp: lookup api.github.com: no such host` — naming a URL and a system
-// call rather than the problem and what to do about it. An answer GitHub did
-// give, such as a rate limit, already says what it is and is passed on.
-func explainUnreachable(err error) error {
+// means, while doing what the words in doing describe. Left alone it was Go's
+// own error — `Get "https://api.github.com/…": dial tcp: lookup
+// api.github.com: no such host` — naming a URL and a system call rather than
+// the problem and what to do about it. An answer GitHub did give, such as a
+// rate limit, already says what it is and is passed on.
+func explainUnreachable(err error, doing string) error {
 	var unreachable *url.Error
 	if !errors.As(err, &unreachable) {
 		return err
 	}
-	return fmt.Errorf("could not reach GitHub to look for a newer release; check the connection and try again (%v)", unreachable.Err)
+	return fmt.Errorf("could not reach GitHub to %s; check the connection and try again (%v)", doing, unreachable.Err)
 }
 
 // parseUpdate reads the command line of `flockdeck update` into the flag set's
