@@ -122,6 +122,26 @@ func Merge(f *File) *Catalog {
 		c.Specs = append(c.Specs, fresh)
 	}
 	c.Specs = normalizeAll(c.Specs)
+	// A default naming no agent here opens Claude instead (DefaultsFor), and
+	// without a word that looks like the choice simply did not take: a
+	// hand-typed "Codex" or a misspelt project entry said nothing at all.
+	if d := c.Defaults.Agent; d != "" {
+		if _, ok := c.Find(d); !ok {
+			problems = append(problems, fmt.Sprintf("the default agent %q is not one of the agents here", d))
+		}
+	}
+	projects := make([]string, 0, len(c.Projects))
+	for p := range c.Projects {
+		projects = append(projects, p)
+	}
+	sort.Strings(projects)
+	for _, p := range projects {
+		if d := c.Projects[p].Agent; d != "" {
+			if _, ok := c.Find(d); !ok {
+				problems = append(problems, fmt.Sprintf("the default agent %q for %s is not one of the agents here", d, p))
+			}
+		}
+	}
 	if len(problems) > 0 {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}

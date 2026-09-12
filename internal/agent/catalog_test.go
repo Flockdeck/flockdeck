@@ -507,3 +507,20 @@ func TestRunnerIsSettledIntoOneThereIs(t *testing.T) {
 		t.Errorf("notice = %q, want only the unknown runner named", c.Notice)
 	}
 }
+
+// TestADefaultNamingNoAgentIsReported: such a default opens Claude instead,
+// and without a word that looked like the choice had not taken.
+func TestADefaultNamingNoAgentIsReported(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "Codex"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "gemni"}, "/work/ok": {Agent: "codex"}},
+	})
+	for _, want := range []string{`"Codex"`, `"gemni" for /work/app`} {
+		if !strings.Contains(c.Notice, want) {
+			t.Errorf("notice %q should name %s", c.Notice, want)
+		}
+	}
+	if strings.Contains(c.Notice, "/work/ok") {
+		t.Errorf("a default naming a real agent was reported: %q", c.Notice)
+	}
+}
