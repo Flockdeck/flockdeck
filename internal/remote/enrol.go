@@ -42,7 +42,8 @@ func (e *AlreadyEnabledError) Unwrap() error { return e.Err }
 
 // RelayUntoldError is taking this machine off a relay that could not be told,
 // without being asked to forget the enrolment regardless. Forgetting it here
-// would leave the machine listed on the relay until a paired device removes it.
+// would leave the machine listed on the relay, offline, for good: nothing but
+// this machine can take it off.
 type RelayUntoldError struct{ Err error }
 
 func (e *RelayUntoldError) Error() string {
