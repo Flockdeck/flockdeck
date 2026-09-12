@@ -170,10 +170,8 @@ func CheckRelay(raw string) (string, error) {
 	// One of the relay's own codes or credentials typed where its address
 	// goes would, taken below for a host name, be sent to the DNS resolver to
 	// look up, in the clear, so it is refused as what it is and not repeated.
-	for _, prefix := range []string{"fdh_", "fdd_", "fdp_", "fdi_"} {
-		if strings.HasPrefix(strings.TrimSpace(raw), prefix) {
-			return "", errors.New("that is one of the relay's codes or credentials, not its address; a relay address looks like " + DefaultRelay)
-		}
+	if isRelayCode(raw) {
+		return "", errors.New("that is one of the relay's codes or credentials, not its address; a relay address looks like " + DefaultRelay)
 	}
 	// An address typed without a scheme, as addresses mostly are, is taken
 	// to be HTTPS: that is the only one a relay off this machine may use.
@@ -224,6 +222,20 @@ func CheckRelay(raw string) (string, error) {
 		return s, nil
 	}
 	return DefaultRelay, nil
+}
+
+// isRelayCode reports whether s is one of the relay's own codes or
+// credentials, which say what they are in their prefixes: fdh_ a machine's
+// credential, fdd_ a browser's session, fdp_ a pairing or join code, and
+// fdi_ an invitation.
+func isRelayCode(s string) bool {
+	s = strings.TrimSpace(s)
+	for _, prefix := range []string{"fdh_", "fdd_", "fdp_", "fdi_"} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isLoopback(host string) bool {

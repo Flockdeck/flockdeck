@@ -910,6 +910,7 @@ func TestEnableTellsSwappedCodesApart(t *testing.T) {
 		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdp_0123456789abcdefghijkl"}, "that is a join code, not an invitation"},
 		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdh_0123456789abcdefghijkl"}, "that is a credential"},
 		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdd_0123456789abcdefghijkl"}, "that is a credential"},
+		{EnableRequest{Relay: f.URL, Name: "fdp_0123456789abcdefghijkl"}, "not a name"},
 	} {
 		if _, _, err := Enable(context.Background(), "v", tc.req); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("Enable(%+v) = %v, want %q", tc.req, err, tc.want)
