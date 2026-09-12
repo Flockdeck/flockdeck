@@ -393,6 +393,12 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	count = strings.Count(old, from)
 	switch {
 	case count == 0:
+		// The commonest way an edit misses is spacing: a tab written as
+		// spaces, a line re-indented. Told only that the text is not there, a
+		// model guesses; told where it nearly is, it reads those lines again.
+		if at := looseMatch(old, from); at > 0 {
+			return "", "", 0, fmt.Errorf("old_string does not appear in %s as written, but does at line %d with different spacing or indentation; read those lines again and copy them exactly", t.root.Rel(abs), at)
+		}
 		return "", "", 0, fmt.Errorf("old_string does not appear in %s", t.root.Rel(abs))
 	case count > 1 && !a.ReplaceAll:
 		return "", "", 0, fmt.Errorf("old_string appears %d times in %s; include more surrounding text so it is unique, or set replace_all", count, t.root.Rel(abs))
@@ -404,6 +410,39 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 		count = 1
 	}
 	return abs, updated, count, nil
+}
+
+// looseMatch is the line at which want appears in file once differences of
+// spacing are set aside, or 0 where it does not. Lines are compared with their
+// runs of spaces and tabs made one space; the first line of want may be the
+// end of a line in the file and its last line the start of one, as they are
+// when an edit begins or ends part-way through a line.
+func looseMatch(file, want string) int {
+	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	wl, fl := textLines(want), textLines(file)
+	for i := 0; i+len(wl) <= len(fl); i++ {
+		ok := true
+		for j, w := range wl {
+			line, w := norm(fl[i+j]), norm(w)
+			switch {
+			case len(wl) == 1:
+				ok = strings.Contains(line, w)
+			case j == 0:
+				ok = strings.HasSuffix(line, w)
+			case j == len(wl)-1:
+				ok = strings.HasPrefix(line, w)
+			default:
+				ok = line == w
+			}
+			if !ok {
+				break
+			}
+		}
+		if ok {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // withCRLF writes every line ending in s as a carriage return and a newline.
