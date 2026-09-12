@@ -30,7 +30,8 @@ kept, and come back when you open them.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>
+flockdeck spawn [--worktree <branch>] [--split] [--shell]
+                [--agent <id>] [--model <model>] <task>
 ```
 
 `--agent` and `--model` choose which agent the helper is; without them it is

@@ -101,12 +101,21 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
 {
   "version": 1,
   "defaults": { "agent": "claude", "model": "" },
-  "projects": { "C:\\code\\api": { "agent": "codex", "model": "gpt-5" } },
+  "projects": {
+    "C:\\code\\api": { "agent": "codex", "model": "gpt-5" }
+  },
   "agents": [
     { "id": "claude", "defaultModel": "sonnet" },
-    { "id": "local", "name": "Local llama", "runner": "api",
-      "api": { "wire": "openai", "baseURL": "http://127.0.0.1:11434/v1" },
-      "models": [{ "id": "qwen3-coder" }] }
+    {
+      "id": "local",
+      "name": "Local llama",
+      "runner": "api",
+      "api": {
+        "wire": "openai",
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": [{ "id": "qwen3-coder" }]
+    }
   ]
 }
 ```
