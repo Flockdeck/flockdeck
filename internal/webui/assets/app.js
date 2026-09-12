@@ -569,6 +569,7 @@
     followAgents(s);
     followProjects(s);
     followWorktrees(s);
+    followChanges(s);
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
@@ -3445,6 +3446,36 @@
   let changes = null;
   let selectedFile = null;
   let diffText = "";
+
+  /* The review is read once and the agents go on writing: a review left open
+   * listed the files as they had been minutes before, until Refresh was
+   * pressed. The pane headers are told each checkout's counts on every push,
+   * so the review compares them for its own checkout and reads the tree again
+   * when they move - but not while a fetch, pull, push or commit is under
+   * way, whose buttons are disabled until its own answer comes back: drawing
+   * the dialog again then would give them back, and a second push could be
+   * sent while the first was still running. */
+  let changesBusy = false;
+  let changesCounts = "";
+
+  /** countsIn is what the pushes say about one checkout: the changed, new,
+   *  ahead and behind counts of every pane working in it. */
+  function countsIn(s, cwd) {
+    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = norm(cwd);
+    return Object.values((s && s.panes) || {})
+      .filter((v) => { const c = norm(v.cwd); return c === root || c.startsWith(root + "/"); })
+      .map((v) => [v.dirty || 0, v.untracked || 0, v.ahead || 0, v.behind || 0].join(","))
+      .sort().join("|");
+  }
+
+  function followChanges(s) {
+    if (dialog !== "changes" || !changes || !changes.cwd || changesBusy) return;
+    const now = countsIn(s, changes.cwd);
+    if (now === changesCounts) return;
+    changesCounts = now;
+    send({ cmd: "changes", path: changes.cwd });
+  }
   /** The two parts of the dialog that change on their own: the file rows, so
    *  the chosen one can be marked, and the panel the diff is drawn in. Picking
    *  a file and the diff coming back leave the rest of the page alone — above
@@ -3472,6 +3503,10 @@
     changeView = null;
     if (msg) {
       changes = msg;
+      // Whatever was under way has answered, and this is the tree the counts
+      // are now measured against.
+      changesBusy = false;
+      changesCounts = countsIn(state, msg.cwd);
       // Keep the selection if that file is still in the list.
       if (selectedFile && !(msg.files || []).some((f) => f.path === selectedFile)) {
         selectedFile = null;
@@ -3530,6 +3565,7 @@
     const running = (btn, saying) => {
       btn.textContent = saying;
       for (const b of body.querySelectorAll("button")) b.disabled = true;
+      changesBusy = true;
     };
 
     if (m.hasRemote) {

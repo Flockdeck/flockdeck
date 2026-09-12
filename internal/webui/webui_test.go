@@ -4050,6 +4050,39 @@ assert.strictEqual(asked(), before + 1, "closing a pane left the worktree counts
 `)
 }
 
+// The review was read once while the agents went on writing, so a review left
+// open listed files as they had been minutes before. It reads the tree again
+// when the pushes say its checkout's counts moved - but not while a push is
+// under way, when a redraw would give back the buttons disabled until it
+// answers.
+func TestTheReviewFollowsTheWorkingTree(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const panesWith = (dirty) => ({ p1: pane("p1", { cwd: "C:/repo", dirty }), p2: pane("p2", { cwd: "C:/other" }) });
+h.recv(fixture({ panes: panesWith(1) }));
+h.click(h.$("btn-changes"));
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", ahead: 1,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] };
+h.recv(tree);
+const asked = () => h.commands().filter((c) => c.cmd === "changes").length;
+const before = asked();
+
+h.recv(fixture({ panes: panesWith(1), working: 1 }));
+assert.strictEqual(asked(), before, "the tree was read again although its counts had not moved");
+
+h.recv(fixture({ panes: panesWith(3) }));
+assert.strictEqual(asked(), before + 1, "an agent writing more files left the review as it was");
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo" });
+h.recv(tree);
+
+// While a push is under way its buttons stay disabled: no redraw is asked for.
+h.click(h.$("rev-push"));
+const during = asked();
+h.recv(fixture({ panes: panesWith(5) }));
+assert.strictEqual(asked(), during, "the review was read again in the middle of a push");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
