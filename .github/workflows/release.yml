@@ -41,6 +41,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The code is kept gofmt-clean by hand, and nothing held a release to
+      # it. Checked on Linux only: a Windows checkout turns line endings into
+      # CRLF, which gofmt would report in every file.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
 
