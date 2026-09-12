@@ -201,11 +201,16 @@ func npmScript(shim string) (node string, prefix []string, ok bool) {
 //
 // /d skips any AutoRun command, /v:off keeps "!" literal, and /s has cmd.exe
 // strip exactly the outer pair of quotes and nothing else.
+//
+// The batch file's own path is read by cmd.exe too, and a "%" in a folder's
+// name is expanded there like anywhere else -- under "C:\Tools\%PATH%\" the
+// file is looked for inside the value of PATH -- so it is broken the same
+// way as in the arguments.
 func batchCommandLine(script string, args []string) string {
 	var w batchWriter
 	w.b.WriteString(`cmd.exe /d /s /v:off /c "`)
 	w.quote()
-	w.b.WriteString(script)
+	w.b.WriteString(strings.ReplaceAll(script, "%", `%%cd:~,%`))
 	w.quote()
 	for _, a := range args {
 		w.b.WriteByte(' ')

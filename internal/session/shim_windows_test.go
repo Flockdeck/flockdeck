@@ -95,6 +95,19 @@ func TestAgentsUnderAPathWithSpaces(t *testing.T) {
 	}
 }
 
+// TestABatchFileUnderAFolderWithAPercentSign covers the batch file's own path,
+// which cmd.exe reads as well as its arguments: a "%" in a folder's name is
+// expanded there like any other, and the file is looked for somewhere else.
+func TestABatchFileUnderAFolderWithAPercentSign(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "50%off", "%PATH%")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := printedArgsIn(t, dir, "the task"); !slices.Equal(got, []string{"the task"}) {
+		t.Errorf("a batch agent under %s was given %q", dir, got)
+	}
+}
+
 // npmAgent writes an agent laid out the way npm installs one, with opts in
 // the shim between node and the script, and a script that writes out. It
 // returns the shim.
