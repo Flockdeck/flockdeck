@@ -90,11 +90,25 @@ jobs:
           Get-Content "$env:RUNNER_TEMP\go-test.log"
           exit $status
 
+      # The workspace is reached from many goroutines through one owner, and a
+      # mistake in that is a race rather than a failure. The detector needs a C
+      # toolchain, which the application itself never does, so it runs where
+      # the runner has one.
+      - name: Race
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"
+
       # A job's log can only be read signed in to GitHub, and its annotations
       # can be read by anyone, from the web or the API. So a failure is also
-      # given as one: every failing test and panic, with what it printed. A
-      # test that panics on purpose logs "flockdeck: panic ..." and passes, so
-      # only go test's own "--- FAIL" and "panic:" lines are taken.
+      # given as one: every failing test, panic and data race, with what it
+      # printed. A test that panics on purpose logs "flockdeck: panic ..." and
+      # passes, so only go test's own lines are taken. It comes last, so that
+      # it sees the race detector's failures as well as the tests'.
       - name: Name the failures
         if: failure()
         shell: bash
@@ -108,16 +122,3 @@ jobs:
           [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
           body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
           echo "::error title=go test failed on ${{ runner.os }}::$body"
-
-      # The workspace is reached from many goroutines through one owner, and a
-      # mistake in that is a race rather than a failure. The detector needs a C
-      # toolchain, which the application itself never does, so it runs where
-      # the runner has one.
-      - name: Race
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          CGO_ENABLED: "1"
-        run: |
-          set -o pipefail
-          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"
