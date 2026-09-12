@@ -230,6 +230,20 @@ func (s *session) replay() {
 	}
 	s.drawEntries(shown)
 	s.out.blankLine()
+	// An agent with no model named has the user choose one with /model, and
+	// a pane restarted without it would have them choose again every time.
+	// The model the conversation last answered with is recorded, and is taken
+	// up again -- only where nothing names one, so that a model the pane was
+	// started with still wins.
+	if s.model == "" {
+		for i := len(entries) - 1; i >= 0; i-- {
+			if e := entries[i]; e.Type == string(RoleAssistant) && e.Model != "" {
+				s.model = e.Model
+				s.out.line(ansiDim, "(answering with "+e.Model+", as this conversation last did; /model changes it)")
+				break
+			}
+		}
+	}
 }
 
 // history is /history: the conversation since it was last started over, drawn

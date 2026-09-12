@@ -248,15 +248,15 @@ func (s *session) run(ctx context.Context) error {
 
 	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for what it can do",
 		firstNonEmpty(s.opts.Agent, s.wire.Name()), firstNonEmpty(s.model, "the endpoint's own model")))
+
+	if s.opts.Resume {
+		s.replay()
+	}
 	if s.model == "" {
 		// Most endpoints want a model named, a local model server above all,
 		// and the first sign of it would otherwise be the first answer
 		// failing with "model is required".
 		s.out.line(ansiDim, "no model is named for this agent; /model shows the ones to choose from")
-	}
-
-	if s.opts.Resume {
-		s.replay()
 	}
 
 	queued := strings.TrimSpace(s.opts.Task)
