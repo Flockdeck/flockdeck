@@ -69,9 +69,10 @@ repositories until you remove them.
 
 ## In the environment
 
-- `FLOCKDECK_UPDATE` — `off` stops the background check for new releases, which
-  is what keeps an older version you installed on purpose from updating itself
-  to the latest.
+- `FLOCKDECK_UPDATE` — `off` stops updating in the background: no checks for
+  new releases, and nothing already downloaded is put in place. That is what
+  keeps an older version you installed on purpose from updating itself to the
+  latest.
 - `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
