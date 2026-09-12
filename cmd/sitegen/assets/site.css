@@ -186,7 +186,8 @@ a:hover { color: var(--accent-strong); }
 .deck-tally { margin-left: auto; display: flex; gap: 12px; font-family: var(--mono); font-size: 12px; }
 .deck-tally span { display: inline-flex; align-items: center; gap: 5px; }
 
-/* The status glyphs are the ones the pane header uses: ● working, ▲ waiting. */
+/* The status glyphs are the application's: ● in a state's colour, and ▲ where
+   an agent is waiting, as the app marks a tab and its tally. */
 .dot { font-size: 10px; line-height: 1; color: var(--idle); }
 .dot.working { color: var(--working); }
 .dot.waiting { color: var(--waiting); }
@@ -205,7 +206,7 @@ a:hover { color: var(--accent-strong); }
 .pane-head .branch { margin-left: auto; color: var(--idle); }
 
 /* A pane blocked on the user is the one thing the interface raises its voice
-   about, so it is the one thing here that moves on its own. */
+   about, so it is the one thing here drawn in amber. */
 .pane.is-waiting { box-shadow: inset 0 0 0 1px var(--waiting); }
 .pane.is-waiting .pane-head { color: var(--waiting); background: rgba(226,179,65,.07); }
 .pane.is-waiting .pane-head .name { color: var(--waiting); }
