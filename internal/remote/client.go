@@ -160,6 +160,12 @@ func (c *Client) Devices(ctx context.Context) (*Roster, error) {
 // Revoke unpairs a device. Its session ends at once, including any window it
 // has open.
 func (c *Client) Revoke(ctx context.Context, deviceID string) error {
+	// A device's id is not a secret. One of the relay's codes or credentials
+	// typed in its place, a browser's session say, would travel in the
+	// request's path, which a relay may log, to be answered "no such device".
+	if isRelayCode(deviceID) {
+		return errors.New("that is one of the relay's codes or credentials, not a device's id; `flockdeck remote devices` lists the ids")
+	}
 	return c.call(ctx, http.MethodDelete, "/api/v1/host/devices/"+url.PathEscape(deviceID), nil, nil)
 }
 

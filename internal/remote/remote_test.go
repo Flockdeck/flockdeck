@@ -715,6 +715,23 @@ func TestSameRelay(t *testing.T) {
 	}
 }
 
+// A device's id is not a secret; a credential typed in its place is refused
+// before it travels in the request's path.
+func TestRevokeRefusesACredential(t *testing.T) {
+	f := newFakeRelay(t)
+	c := NewClient(&Config{Relay: f.URL, Token: f.token}, "v")
+	if err := c.Revoke(context.Background(), "fdd_0123456789abcdefghijkl"); err == nil || !strings.Contains(err.Error(), "not a device's id") {
+		t.Errorf("Revoke of a credential = %v, want it refused", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if strings.HasPrefix(call, "DELETE /api/v1/host/devices/") {
+			t.Errorf("the credential was sent to the relay: %s", call)
+		}
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()
