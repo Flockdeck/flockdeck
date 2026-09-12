@@ -997,6 +997,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// Only a pane with a process running takes the text. With the
+			// focused one stopped and nothing else in the broadcast it went
+			// nowhere, while the prompt bar closed as though it had been sent.
+			if len(ws.BroadcastTargets()) == 0 {
+				c.notify("nothing in this tab is running to send that to — restart the pane and send it again", true)
+				return
+			}
 			ws.SendPrompt(cmd.Text, true)
 		case "save":
 			_ = ws.SaveAll()
