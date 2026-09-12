@@ -794,6 +794,14 @@ its slug to `order` in `internal/help/help.go`. To change a shortcut, edit
 go test ./internal/help -run TestREADMEShortcuts -update
 ```
 
+Two programs under `cmd/` make what is published rather than the application:
+
+- `cmd/release` cross-builds every platform and writes the archives and
+  `checksums.txt` a release is made of; `make package` runs it.
+- `cmd/sitegen` writes the landing page at flockdeck.ai, and the install
+  scripts it serves, from `cmd/sitegen/assets`:
+  `go run ./cmd/sitegen -out ../flockdeck-site`.
+
 Two development aids live under `cmd/` and are not part of the product:
 
 - `cmd/hooktest` starts one real agent pane, sends it a prompt and prints every
