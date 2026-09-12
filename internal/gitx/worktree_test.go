@@ -221,6 +221,42 @@ func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
 	}
 }
 
+// A rebase started from a detached HEAD has no branch to go back to, and git
+// writes the words "detached HEAD" where the branch's ref would be. They were
+// read as a branch called "detached HEAD": in the pane header, and as the base
+// the worktree panel offered, which git refuses as no reference at all.
+func TestADetachedRebaseIsNoBranch(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "base")
+	gitRun(t, repo, "checkout", "-b", "topic")
+	write(t, repo, "f.txt", "topic\n")
+	gitRun(t, repo, "commit", "-am", "topic")
+	gitRun(t, repo, "checkout", "main")
+	write(t, repo, "f.txt", "main\n")
+	gitRun(t, repo, "commit", "-am", "main")
+	gitRun(t, repo, "checkout", "--detach", "topic")
+
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected the rebase to stop on a conflict: %s", out)
+	}
+	t.Cleanup(func() {
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = repo
+		_ = abort.Run()
+	})
+
+	if st := StatusOf(repo); !st.Detached || st.Branch != "" {
+		t.Errorf("status = %+v; want detached, with no branch", st)
+	}
+	if got := DefaultBase(repo); got == "detached HEAD" {
+		t.Errorf("default base = %q, which is no reference", got)
+	}
+}
+
 // TestNoDirectoryIsNotThisProcessesDirectory covers a caller that has lost
 // track of which working tree it meant.
 //

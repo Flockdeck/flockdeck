@@ -155,7 +155,11 @@ func operationBranch(ctx context.Context, dir string) (branch, operation string)
 		if err != nil {
 			continue
 		}
-		if ref := strings.TrimSpace(string(data)); ref != "" {
+		// Only a branch's own ref: a rebase started from a detached HEAD
+		// writes the words "detached HEAD" here, which were shown as the
+		// branch's name and offered as the base for a new worktree -- one
+		// git then refused as no reference at all.
+		if ref := strings.TrimSpace(string(data)); strings.HasPrefix(ref, "refs/heads/") {
 			return strings.TrimPrefix(ref, "refs/heads/"), "rebasing"
 		}
 	}
