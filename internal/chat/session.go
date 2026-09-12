@@ -470,6 +470,8 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 			calls = append(calls, ev.Call)
 		case EventReasoning:
 			thoughts = append(thoughts, ev.Thinking)
+		case EventNotice:
+			s.out.line(ansiDim, "("+ev.Text+")")
 		case EventUsage:
 			usage = ev.Usage
 		}

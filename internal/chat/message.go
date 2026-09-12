@@ -149,6 +149,9 @@ const (
 	// EventReasoning is a completed block of reasoning, to go back with the
 	// answer in the next request.
 	EventReasoning
+	// EventNotice is something the user should know about how the answer is
+	// being got -- not part of it, and never recorded.
+	EventNotice
 )
 
 // Event is one thing that happened while a turn streamed.

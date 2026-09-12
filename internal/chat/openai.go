@@ -15,6 +15,9 @@ import (
 type openaiWire struct {
 	base string
 	key  string
+	// noTools is set once the endpoint has refused tools, so that they are
+	// not offered to it again.
+	noTools bool
 }
 
 func (w *openaiWire) Name() string { return "openai" }
@@ -90,6 +93,9 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		StreamOptions: &openaiStreamOptions{IncludeUsage: true},
 	}
 	for _, t := range req.Tools {
+		if w.noTools {
+			break
+		}
 		d := t.Describe()
 		var ot openaiTool
 		ot.Type = "function"
@@ -110,6 +116,15 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		// Azure deployments do -- would refuse every request, and what it
 		// costs to leave out is only the token count.
 		body.StreamOptions = nil
+		rc, err = post(ctx, url, h, body)
+	}
+	if refusedTools(err) && len(body.Tools) > 0 {
+		// A local model served without tool support refuses every request
+		// that offers tools, which would leave the pane unable to talk to it
+		// at all. It is talked to without them, and told so once.
+		w.noTools = true
+		body.Tools = nil
+		emit(Event{Kind: EventNotice, Text: "this model does not take tools, so it is answering without them"})
 		rc, err = post(ctx, url, h, body)
 	}
 	if err != nil {
@@ -211,6 +226,17 @@ func refusedStreamOptions(err error) bool {
 	var e *apiError
 	return errors.As(err, &e) && e.Code == http.StatusBadRequest &&
 		strings.Contains(strings.ToLower(e.Msg), "stream_options")
+}
+
+// refusedTools reports whether err is an endpoint refusing a request because the
+// model behind it cannot use tools, as Ollama says of a model without them.
+func refusedTools(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) || e.Code != http.StatusBadRequest {
+		return false
+	}
+	msg := strings.ToLower(e.Msg)
+	return strings.Contains(msg, "does not support tools") || strings.Contains(msg, "tools are not supported")
 }
 
 // openaiMessages translates a conversation into Chat Completions entries. The
