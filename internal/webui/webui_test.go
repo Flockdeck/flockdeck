@@ -4316,6 +4316,29 @@ assert.ok(term.focused, "the keyboard is not back in the terminal");
 `)
 }
 
+// The palette's settings said nothing of what each was set to: finding out
+// the scrollback or the font meant opening the question that changes it.
+func TestThePaletteSaysWhatEachSettingIsNow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+const hint = (label) => {
+  input.value = label.toLowerCase();
+  input.oninput();
+  const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label") && r.querySelector(".pal-label").textContent === label);
+  assert.ok(row, label + " is not in the palette");
+  const span = row.querySelector(".pal-hint");
+  return span ? span.textContent : "";
+};
+assert.ok(/Ctrl\+=/.test(hint("Increase font size")), "the font size command lost its key");
+assert.ok(/13px/.test(hint("Increase font size")), "the font size command does not say the size: " + hint("Increase font size"));
+assert.ok(/\d lines/.test(hint("Terminal scrollback…")), "the scrollback command does not say how many lines: " + hint("Terminal scrollback…"));
+assert.ok(/default/.test(hint("Terminal font…")), "the font command does not say which font: " + hint("Terminal font…"));
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

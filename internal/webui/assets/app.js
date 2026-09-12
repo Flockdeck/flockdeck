@@ -3206,9 +3206,17 @@
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
     const also = (id) => SETTINGS.has(id) ? SETTING : "";
+    // What a setting is now, beside the command that changes it: choosing a
+    // scrollback or a font meant opening the question to find out.
+    const lines = String(scrollback).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const value = {
+      fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
+      scrollback: lines + " lines", fontFamily: prefs.fontFamily || "the default font",
+    };
+    const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => ({ label: k.label, hint: k.keys, also: also(k.id), run: () => runAction(k.id) }));
+      .map((k) => ({ label: k.label, hint: now(k.id, k.keys), also: also(k.id), run: () => runAction(k.id) }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
@@ -3226,7 +3234,7 @@
      ["focusNextPane", "Focus the next pane"],
      ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
-      cmds.push({ label: label, also: also(id), run: () => runAction(id) });
+      cmds.push({ label: label, hint: now(id), also: also(id), run: () => runAction(id) });
     });
     // A setting kept as "off": the entry turns it back on while it is off and
     // off while it is on, and says which it did.
