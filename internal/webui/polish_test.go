@@ -410,3 +410,34 @@ assert.ok(/waiting/.test(tab.getAttribute("aria-label")), "the name does not say
 assert.ok(/renamed/.test(close.getAttribute("aria-label")), "the close button kept the old name");
 `)
 }
+
+// A dialog redrawn after a press puts the keyboard back on the control it was
+// on. Where the press disabled that control - the font stepper reaching its
+// limit, Show them again with no hint left to show - the keyboard was put
+// back on a disabled button, which a browser does not allow, and dropped
+// onto nothing. It goes to the nearest control that can take it.
+func TestTheKeyboardLeavesAControlTheRedrawDisabled(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 27, dismissedTips: ["palette"] });
+h.recv(fixture());
+h.press("settings");
+const settled = (what) => {
+  const at = h.doc.activeElement;
+  assert.ok(at && at.isConnected, "the keyboard was left on a control the redraw threw away: " + what);
+  assert.ok(!at.disabled, "the keyboard was left on a disabled control: " + what + " (" + at.id + ")");
+  assert.ok(h.$("overlay-body").contains(at), "the keyboard left the dialog: " + what);
+  return at;
+};
+
+h.$("set-tips").focus();
+h.key({ key: "Enter" });
+assert.ok(h.$("set-tips").disabled, "Show them again is still offered with nothing to show");
+settled("Show them again");
+
+h.click(h.$("settings-tab-terminal"));
+h.$("set-font-up").focus();
+h.key({ key: "Enter" });
+assert.ok(h.$("set-font-up").disabled, "Larger is still offered at the largest size");
+assert.strictEqual(settled("the stepper at its limit").id, "set-font-down", "the keyboard did not go to the other half of the stepper");
+`)
+}

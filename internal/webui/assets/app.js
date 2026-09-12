@@ -3013,8 +3013,17 @@
     body.scrollTop = top;
     if (pane && pane.isConnected) pane.scrollTop = paneTop;
     if (!key) return;
-    for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
+    const all = [...body.querySelectorAll("button, input, textarea, select, [tabindex]")];
+    for (const node of all) {
       if (identify(node) !== key) continue;
+      // A control the redraw disabled - the font stepper at its limit, a
+      // button whose work is done - cannot hold the keyboard: the browser
+      // drops it onto nothing. It goes to the nearest control that can.
+      if (node.disabled) {
+        const near = nearestEnabled(all, node, body);
+        if (near) near.focus();
+        return;
+      }
       node.focus();
       if (at != null && node.setSelectionRange) {
         try { node.setSelectionRange(at, at); } catch { /* not that kind of field */ }
@@ -3027,6 +3036,20 @@
     // The place is a selector, or a function finding it in the body.
     const next = typeof fallback === "function" ? fallback(body) : fallback && body.querySelector(fallback);
     if (next) next.focus();
+  }
+
+  /** nearestEnabled is the control to hand the keyboard to in place of one
+   *  that has been disabled: one beside it in the same group, else the next
+   *  one along, else the one before. */
+  function nearestEnabled(all, node, root) {
+    const usable = (n) => {
+      if (n === node || n.disabled || n.getAttribute("tabindex") === "-1") return false;
+      for (let p = n; p && p !== root; p = p.parentElement) if (p.hidden) return false;
+      return true;
+    };
+    const at = all.indexOf(node);
+    return all.find((n) => n.parentElement === node.parentElement && usable(n)) ||
+      all.slice(at + 1).find(usable) || all.slice(0, at).reverse().find(usable) || null;
   }
 
   /** identify is what makes a control the same control across a redraw. An id
