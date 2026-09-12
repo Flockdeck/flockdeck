@@ -9,9 +9,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
+
+// storeMu is held across every read of the store and every read-and-write of
+// it in this process. Each save reads the store, changes one key and writes
+// the whole of it back, so two at once -- two keys saved from the window, or a
+// save while a pane starts -- each wrote back a store without the other's key,
+// and Windows refuses to rename over a file another save has open: twenty
+// keys set at once kept one, and eleven of the saves failed "Access is
+// denied".
+var storeMu sync.Mutex
 
 // keysFile is the name of the store under the state directory. Its shape is
 // flat — agent id to key — because that is all it has to be, and a file a user
@@ -75,6 +85,8 @@ func stored(agentID string) string {
 	if agentID == "" {
 		return ""
 	}
+	storeMu.Lock()
+	defer storeMu.Unlock()
 	keys, err := load()
 	if err != nil {
 		return ""
@@ -90,6 +102,8 @@ func Has(agentID string) bool { return stored(agentID) != "" }
 // agents.json leaves its key behind, and a key nobody can see is a key nobody
 // can clear.
 func Names() ([]string, error) {
+	storeMu.Lock()
+	defer storeMu.Unlock()
 	keys, err := load()
 	if err != nil {
 		return nil, err
@@ -118,6 +132,8 @@ func Set(agentID, key string) error {
 	if key == "" {
 		return errors.New("the key is empty")
 	}
+	storeMu.Lock()
+	defer storeMu.Unlock()
 	keys, err := load()
 	if err != nil {
 		return err
@@ -128,6 +144,8 @@ func Set(agentID, key string) error {
 
 // Clear removes an agent's key and reports whether there was one to remove.
 func Clear(agentID string) (bool, error) {
+	storeMu.Lock()
+	defer storeMu.Unlock()
 	keys, err := load()
 	if err != nil {
 		return false, err
