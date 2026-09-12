@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -88,8 +89,16 @@ func claudeProjectKey(dir string) string {
 	return key
 }
 
-// IsTrusted reports whether Claude Code has been told this directory is
-// trusted.
+// IsTrusted reports whether Claude Code would treat this directory as trusted,
+// asking the question the way Claude Code itself does. That is not only the
+// directory's own answer: Claude Code first looks under the project the
+// directory belongs to -- the repository root, or for a linked worktree the
+// root of the repository it was made from -- and then walks up from the
+// directory to its repository root, or to the top of the disk outside a
+// repository, accepting an answer given for any folder on the way. Asking only
+// about the exact directory reported a subfolder of a trusted repository, and
+// every worktree of one, as untrusted, and fan-out then refused to carry over
+// an answer the user had in fact given.
 func IsTrusted(dir string) bool {
 	cfg, err := readClaudeConfig()
 	if err != nil {
@@ -99,16 +108,103 @@ func IsTrusted(dir string) bool {
 	if projects == nil {
 		return false
 	}
-	for _, key := range trustKeys(dir) {
-		entry, _ := projects[key].(map[string]any)
-		if entry == nil {
-			continue
+	accepted := func(dir string) bool {
+		for _, key := range trustKeys(dir) {
+			entry, _ := projects[key].(map[string]any)
+			if ok, _ := entry["hasTrustDialogAccepted"].(bool); ok {
+				return true
+			}
 		}
-		if ok, _ := entry["hasTrustDialogAccepted"].(bool); ok {
+		return false
+	}
+
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	root := repoRoot(dir)
+	if root != "" && accepted(canonicalRoot(root)) {
+		return true
+	}
+	for {
+		if accepted(dir) {
 			return true
 		}
+		parent := filepath.Dir(dir)
+		if dir == root || parent == dir {
+			return false
+		}
+		dir = parent
 	}
-	return false
+}
+
+// repoRoot is the nearest folder at or above dir holding a .git entry --
+// a directory in a repository, a file in a linked worktree -- or "" outside
+// any repository.
+func repoRoot(dir string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// canonicalRoot is the project a repository root belongs to in Claude Code's
+// eyes. For a linked worktree that is the repository the worktree was made
+// from, which Claude Code finds by following the worktree's .git file to its
+// administrative folder and checking that the folder points back at it; any
+// step that does not hold leaves the worktree as its own project, as it does
+// there.
+func canonicalRoot(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, ".git"))
+	if err != nil {
+		return root // a directory: an ordinary repository
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, "gitdir:") {
+		return root
+	}
+	resolve := func(base, p string) string {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(base, p)
+		}
+		return filepath.Clean(p)
+	}
+	admin := resolve(root, strings.TrimSpace(strings.TrimPrefix(line, "gitdir:")))
+	common, err := os.ReadFile(filepath.Join(admin, "commondir"))
+	if err != nil {
+		return root
+	}
+	commonDir := resolve(admin, strings.TrimSpace(string(common)))
+	if filepath.Dir(admin) != filepath.Join(commonDir, "worktrees") {
+		return root
+	}
+	back, err := os.ReadFile(filepath.Join(admin, "gitdir"))
+	if err != nil || !samePath(resolve(admin, strings.TrimSpace(string(back))), filepath.Join(root, ".git")) {
+		return root
+	}
+	if filepath.Base(commonDir) != ".git" {
+		// A bare repository: it is the project unless it has a .git of its own.
+		if _, err := os.Stat(filepath.Join(commonDir, ".git")); err == nil {
+			return root
+		}
+		return commonDir
+	}
+	return filepath.Dir(commonDir)
+}
+
+// samePath compares two cleaned paths the way the file system does, which on
+// Windows ignores case.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // InheritTrust records that a directory is trusted, given that another already

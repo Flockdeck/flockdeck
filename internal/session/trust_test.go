@@ -214,6 +214,83 @@ func TestInheritTrustIsIdempotent(t *testing.T) {
 	}
 }
 
+// mkdirs creates each directory, with its parents.
+func mkdirs(t *testing.T, dirs ...string) {
+	t.Helper()
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTrustReachesDownToASubfolder covers a pane opened below the repository
+// root. Claude Code accepts the answer given for any folder between the
+// working directory and its repository root, so the subfolder of a trusted
+// repository is trusted -- but not past the root, and not from a folder that
+// merely contains the repository.
+func TestTrustReachesDownToASubfolder(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	deep := filepath.Join(repo, "services", "api")
+	other := filepath.Join(dir, "outer", "inner-repo")
+	otherSub := filepath.Join(other, "pkg")
+	loose := filepath.Join(dir, "outer", "loose", "sub")
+	mkdirs(t, filepath.Join(repo, ".git"), deep, filepath.Join(other, ".git"), otherSub, loose)
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{
+			claudeProjectKey(repo):                        map[string]any{"hasTrustDialogAccepted": true},
+			claudeProjectKey(filepath.Join(dir, "outer")): map[string]any{"hasTrustDialogAccepted": true},
+		},
+	})
+
+	if !IsTrusted(deep) {
+		t.Error("a folder inside a trusted repository should be trusted")
+	}
+	if IsTrusted(otherSub) {
+		t.Error("trust given to a folder above a repository must not reach into it")
+	}
+	if !IsTrusted(loose) {
+		t.Error("outside any repository, trust given to a parent folder should count")
+	}
+}
+
+// TestAWorktreeHasItsRepositorysTrust covers a pane in a linked worktree:
+// Claude Code treats one as part of the repository it was made from, so the
+// repository's answer is the worktree's.
+func TestAWorktreeHasItsRepositorysTrust(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	admin := filepath.Join(repo, ".git", "worktrees", "wt")
+	wt := filepath.Join(dir, "wt")
+	stray := filepath.Join(dir, "stray")
+	mkdirs(t, admin, filepath.Join(wt, "sub"), stray)
+	// The layout `git worktree add` leaves behind.
+	writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+admin+"\n")
+	writeFile(t, filepath.Join(admin, "commondir"), "../..\n")
+	writeFile(t, filepath.Join(admin, "gitdir"), filepath.Join(wt, ".git")+"\n")
+	// A .git file claiming the same administrative folder, which does not
+	// point back at it: Claude Code does not count it as the repository's.
+	writeFile(t, filepath.Join(stray, ".git"), "gitdir: "+admin+"\n")
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{claudeProjectKey(repo): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+
+	if !IsTrusted(wt) || !IsTrusted(filepath.Join(wt, "sub")) {
+		t.Error("a worktree of a trusted repository should be trusted")
+	}
+	if IsTrusted(stray) {
+		t.Error("a .git file that the repository does not point back at must not borrow its trust")
+	}
+}
+
 // TestIsTrustedWithoutAConfiguration covers a machine where Claude has not run.
 func TestIsTrustedWithoutAConfiguration(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "missing"))
