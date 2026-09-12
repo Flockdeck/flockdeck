@@ -276,6 +276,11 @@ func samePath(a, b string) bool { return foldPath(a) == foldPath(b) }
 // checkout in their file manager leaves behind, and it fails differently --
 // "a missing but already registered worktree" -- for a path that looks free.
 func DefaultWorktreePath(repoRoot, branch string) string {
+	// Cleaned first: the parent of "C:\repo\" is "C:\repo" to filepath.Dir, so
+	// a project opened with a trailing separator -- which is what a shell's
+	// tab completion leaves -- had every new worktree suggested inside the
+	// repository, as a directory its own status then listed as untracked.
+	repoRoot = filepath.Clean(repoRoot)
 	parent := filepath.Dir(repoRoot)
 	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
 

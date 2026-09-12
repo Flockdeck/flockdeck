@@ -853,3 +853,17 @@ func TestABranchStartedFromARemoteOneDoesNotTrackIt(t *testing.T) {
 		t.Errorf("upstream after the push = %q, want origin/feature-x", got)
 	}
 }
+
+// TestDefaultWorktreePathIgnoresATrailingSeparator: the parent of "C:\repo\"
+// is "C:\repo" to filepath.Dir, so a project opened with a trailing separator
+// had its worktrees suggested inside itself.
+func TestDefaultWorktreePathIgnoresATrailingSeparator(t *testing.T) {
+	repo := newRepo(t)
+	got := DefaultWorktreePath(repo+string(filepath.Separator), "feature")
+	if want := DefaultWorktreePath(repo, "feature"); got != want {
+		t.Errorf("suggested %q, want %q beside the repository", got, want)
+	}
+	if filepath.Dir(got) != filepath.Dir(repo) {
+		t.Errorf("suggested %q is not beside %q", got, repo)
+	}
+}
