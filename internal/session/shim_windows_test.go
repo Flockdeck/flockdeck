@@ -72,15 +72,43 @@ func TestAnNpmShimKeepsItsNodeOptions(t *testing.T) {
 	}
 }
 
+// TestAgentsUnderAPathWithSpaces covers the most ordinary Windows profile,
+// one with a space in it, where npm puts every agent it installs:
+// C:\Users\John Smith\AppData\Roaming\npm\codex.cmd. Both ways a batch file
+// is started build paths from the folder it is in.
+func TestAgentsUnderAPathWithSpaces(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "John Smith", "AppData", "Roaming", "npm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var argv []string
+	if err := json.Unmarshal([]byte(agentSays(t, npmAgentIn(t, dir, "", "ARGV:' + JSON.stringify(process.argv.slice(2)) + ':END"), `fix "it" & go`, "ARGV")), &argv); err != nil {
+		t.Fatalf("unreadable argv: %v", err)
+	}
+	if !slices.Equal(argv, []string{`fix "it" & go`}) {
+		t.Errorf("an npm agent under a spaced path was given %q", argv)
+	}
+
+	if got := printedArgsIn(t, dir, `a & b`, `100%`); !slices.Equal(got, []string{`a & b`, `100%`}) {
+		t.Errorf("a batch agent under a spaced path was given %q", got)
+	}
+}
+
 // npmAgent writes an agent laid out the way npm installs one, with opts in
 // the shim between node and the script, and a script that writes out. It
 // returns the shim.
 func npmAgent(t *testing.T, opts, out string) string {
 	t.Helper()
+	return npmAgentIn(t, t.TempDir(), opts, out)
+}
+
+// npmAgentIn is npmAgent in a folder of the caller's choosing.
+func npmAgentIn(t *testing.T, dir, opts, out string) string {
+	t.Helper()
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed")
 	}
-	dir := t.TempDir()
 	script := filepath.Join(dir, "node_modules", "agent", "bin", "agent.js")
 	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -151,7 +179,13 @@ func TestOnlyAnNpmShimIsStartedAsNode(t *testing.T) {
 // returns the arguments the program behind it parsed.
 func printedArgs(t *testing.T, args ...string) []string {
 	t.Helper()
-	dir := t.TempDir()
+	return printedArgsIn(t, t.TempDir(), args...)
+}
+
+// printedArgsIn is printedArgs with the batch file in a folder of the caller's
+// choosing.
+func printedArgsIn(t *testing.T, dir string, args ...string) []string {
+	t.Helper()
 	shim := filepath.Join(dir, "agent.cmd")
 	body := "@\"" + os.Args[0] + "\" \"-test.run=^TestHelperPrintArgs$\" -- %*\r\n"
 	if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
