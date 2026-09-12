@@ -62,6 +62,27 @@ func TestEmitDeliversEvent(t *testing.T) {
 	}
 }
 
+// TestEmitCarriesTheAgentsOwnConversationID covers /clear. Claude Code carries
+// on under a new conversation id and reports the SessionStart that follows
+// under it, while the pane keeps the id it was started with -- which now names
+// the conversation before the clear. Passing Claude's id on is the only way the
+// application can learn that the conversation to resume has changed.
+func TestEmitCarriesTheAgentsOwnConversationID(t *testing.T) {
+	srv, r := newServer(t)
+
+	stdin := strings.NewReader(`{"session_id":"after-the-clear","source":"clear"}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-1", SessionStart); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.SessionID != "pane-1" {
+		t.Errorf("session = %q, want the pane's own id", got.SessionID)
+	}
+	if got.Conversation != "after-the-clear" || got.Source != "clear" {
+		t.Errorf("conversation = %q, source = %q; want Claude's new id and \"clear\"", got.Conversation, got.Source)
+	}
+}
+
 // TestEmitWithoutStdin covers events that carry no payload.
 func TestEmitWithoutStdin(t *testing.T) {
 	srv, r := newServer(t)

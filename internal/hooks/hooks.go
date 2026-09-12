@@ -45,6 +45,12 @@ type Event struct {
 	// Source is how a SessionStart came about: "startup", "resume", "clear",
 	// "compact" or "fork".
 	Source string `json:"source,omitempty"`
+	// Conversation is the agent's own id for the conversation, where it says.
+	// It is SessionID until the user runs /clear: Claude Code then carries on
+	// under a new id, in a new transcript, and reports that SessionStart
+	// (source "clear") under it -- while the pane is still known by the id it
+	// was started with, which from then on names the conversation before.
+	Conversation string `json:"conversation,omitempty"`
 }
 
 // payload is what the hook subprocess posts to the server.
@@ -241,6 +247,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 		if json.NewDecoder(io.LimitReader(stdin, maxHookPayload)).Decode(&cp) == nil {
 			p.Tool = cp.ToolName
 			p.Cwd = cp.Cwd
+			p.Conversation = cp.SessionID
 			p.Prompt = clip(cp.Prompt, maxPromptBytes)
 			p.Source = cp.Source
 			if p.Source == "" {
