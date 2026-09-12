@@ -4846,6 +4846,27 @@ assert.strictEqual(sel(), "Aardvark", "a fresh picker started on the row the las
 `)
 }
 
+// Enter in the new-worktree form's base field, the one filled in last, with
+// no branch named did nothing and said nothing.
+func TestAWorktreeWithNoBranchSaysWhatIsMissing(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, dirty: 0, untracked: 0, head: "abc1234" }],
+  branches: [{ name: "main", checkedIn: true }] });
+const branch = h.$("wt-branch");
+const base = branch.parentElement.querySelectorAll("input")[1];
+base.value = "main";
+base.focus();
+h.key({ key: "Enter" });
+assert.ok(!h.commands().some((c) => c.cmd === "worktreeAdd"), "a worktree was asked for with no branch");
+assert.ok(/branch/i.test(h.$("notice").textContent) && !h.$("notice").hidden, "nothing said the branch was missing");
+assert.ok(h.doc.activeElement === branch, "the keyboard was not put where the branch goes");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

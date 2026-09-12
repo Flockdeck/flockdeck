@@ -2421,7 +2421,13 @@
 
     const go = el("button", "chip primary", "Create");
     const submit = () => {
-      if (!branch.value.trim()) return;
+      // Enter in the base field, filled in last, with no branch named did
+      // nothing and said nothing - and the branch is what the worktree is for.
+      if (!branch.value.trim()) {
+        notice("Name the branch for the new worktree first", true);
+        branch.focus();
+        return;
+      }
       wtCreated = branch.value.trim();
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
