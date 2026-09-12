@@ -1470,18 +1470,6 @@ func (w *Workspace) RestartPane() {
 	w.wake()
 }
 
-// FocusDir moves focus to the adjacent pane in a direction.
-func (w *Workspace) FocusDir(dir layout.Direction) {
-	t := w.CurrentTab()
-	if t == nil || t.Zoom {
-		return
-	}
-	computeTab(t)
-	if next := t.Tree.Neighbor(t.Focus, dir); next != "" {
-		t.Focus = next
-	}
-}
-
 // FocusPane focuses a pane by id if it is in the active tab.
 func (w *Workspace) FocusPane(id string) {
 	t := w.CurrentTab()
@@ -1490,21 +1478,6 @@ func (w *Workspace) FocusPane(id string) {
 	}
 	if t.Tree.Find(id) != nil {
 		t.Focus = id
-	}
-}
-
-// CyclePane moves focus to the next pane in tree order.
-func (w *Workspace) CyclePane() {
-	t := w.CurrentTab()
-	if t == nil {
-		return
-	}
-	panes := t.Tree.Panes()
-	for i, id := range panes {
-		if id == t.Focus {
-			t.Focus = panes[(i+1)%len(panes)]
-			return
-		}
 	}
 }
 
@@ -1765,14 +1738,6 @@ func (w *Workspace) Close() {
 	if w.hookSrv != nil {
 		_ = w.hookSrv.Close()
 	}
-}
-
-// Conversations lists the stored Claude conversations for the active project.
-func (w *Workspace) Conversations(cwd string) ([]session.Conversation, error) {
-	if cwd == "" {
-		cwd = w.activeRoot
-	}
-	return session.Conversations(cwd)
 }
 
 // OpenConversation opens a stored conversation in a new tab.
