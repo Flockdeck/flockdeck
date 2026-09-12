@@ -2614,14 +2614,21 @@
    *  the chat's own status line does: a turn of a few hundred tokens costs a
    *  fraction of a cent, and two places would show it as costing nothing. */
   function formatUSD(v) {
-    return "~$" + (v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : v.toFixed(4));
+    // The places are chosen by the figure as it will be written, so an
+    // amount a hair under a boundary is written like the one it rounds to:
+    // $0.9999 is "~$1.00" beside $1.01's "~$1.01", not "~$1.000".
+    if (Math.round(v * 100) >= 100) return "~$" + v.toFixed(2);
+    if (Math.round(v * 1000) >= 10) return "~$" + v.toFixed(3);
+    return "~$" + v.toFixed(4);
   }
 
-  /** formatTokens writes a count the way somebody glancing at it reads it. */
+  /** formatTokens writes a count the way somebody glancing at it reads it.
+   *  Cut rather than rounded at every size, as the thousands already were,
+   *  so 9,999 is "9.9k" beside 10,001's "10k" rather than "10.0k". */
   function formatTokens(n) {
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e6) return (Math.floor(n / 1e5) / 10).toFixed(1) + "M";
     if (n >= 1e4) return Math.floor(n / 1000) + "k";
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    if (n >= 1e3) return (Math.floor(n / 100) / 10).toFixed(1) + "k";
     return String(n);
   }
 
@@ -2632,7 +2639,12 @@
     const units = ["B", "KB", "MB", "GB", "TB"];
     let i = 0;
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
+    // Rounded before it is written, and the unit settled on what rounding
+    // gives: 1023.8 KB is 1.0 MB rather than "1024 KB", and 99.97 MB is
+    // 100 MB rather than a fourth figure.
+    let r = n >= 100 || i === 0 ? Math.round(n) : Math.round(n * 10) / 10;
+    if (r >= 1024 && i < units.length - 1) { r = Math.round((n / 1024) * 10) / 10; i++; }
+    return (r >= 100 || i === 0 ? String(Math.round(r)) : r.toFixed(1)) + " " + units[i];
   }
 
   /** renderPaneOverlay covers the terminal when the pane has no live process. */

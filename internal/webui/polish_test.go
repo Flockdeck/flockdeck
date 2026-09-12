@@ -139,3 +139,31 @@ h.recv({ type: "agents", items: [{ paneId: "p1", tabId: "t1", root: "C:/repo", t
 check("the agents");
 `)
 }
+
+// The header's figures are rounded to a few places, and a figure a hair under
+// a boundary came out on the wrong side of it: 1023.8 KB as "1024 KB" rather
+// than "1.0 MB", 99.97 MB with a fourth figure, 9,999 tokens as "10.0k" beside
+// 10,001 as "10k", and $0.9999 as "~$1.000" beside $1.01 as "~$1.01".
+func TestTheHeadersFiguresRoundAcrossTheirBoundaries(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const head = () => h.$("workspace").querySelectorAll(".pane-header")[0];
+const usage = (rss) => {
+  h.recv(fixture({ panes: { p1: pane("p1", { procs: 1, cpu: 0, rss }), p2: pane("p2") } }));
+  return head().querySelector(".pane-usage").textContent;
+};
+assert.strictEqual(usage(1048575), "0% 1.0 MB");
+assert.strictEqual(usage(Math.round(99.97 * 1048576)), "0% 100 MB");
+assert.strictEqual(usage(Math.round(5.25 * 1048576)), "0% 5.3 MB");
+const spend = (sp) => {
+  h.recv(fixture({ panes: { p1: pane("p1", { agent: "ollama", spend: sp }), p2: pane("p2") } }));
+  return head().querySelector(".pane-spend").textContent;
+};
+assert.strictEqual(spend({ tokens: 9999 }), "9.9k tok");
+assert.strictEqual(spend({ tokens: 1999999 }), "1.9M tok");
+assert.strictEqual(spend({ tokens: 84210 }), "84k tok");
+assert.strictEqual(spend({ usd: 0.9999, source: "table", tokens: 10 }), "~$1.00");
+assert.strictEqual(spend({ usd: 0.009999, source: "table", tokens: 10 }), "~$0.010");
+assert.strictEqual(spend({ usd: 0.0421, source: "table", tokens: 10 }), "~$0.042");
+`)
+}
