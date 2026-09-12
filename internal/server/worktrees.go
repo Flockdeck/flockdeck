@@ -60,7 +60,8 @@ func (s *Server) listWorktrees(c *controlClient) {
 			for _, it := range msg.Items {
 				paths = append(paths, it.Path)
 			}
-			counts := s.panesPerPath(paths)
+			// Drawn as none when the workspace could not say.
+			counts, _ := s.panesPerPath(paths)
 			for i := range msg.Items {
 				msg.Items[i].Panes = counts[msg.Items[i].Path]
 			}
@@ -128,35 +129,41 @@ func collectWorktrees(root string) worktreesMsg {
 	return msg
 }
 
-// panesPerPath counts open panes working inside each of the given directories.
-func (s *Server) panesPerPath(paths []string) map[string]int {
-	counts, _ := ask(s, func() map[string]int {
-		counts := map[string]int{}
-		for _, t := range s.ws.Tabs {
-			for _, id := range t.Tree.Panes() {
-				p := s.ws.Pane(id)
-				if p == nil {
-					continue
-				}
-				// A worktree kept inside the repository it came from -- a
-				// .worktrees directory, say -- is under the main checkout as
-				// well as itself, so a pane in it matches both paths. The
-				// deepest match is the checkout it is really working in;
-				// taking the first would credit its panes to the parent and
-				// leave the worktree looking unattended.
-				best, bestLen := "", -1
-				for _, path := range paths {
-					if n := len(filepath.Clean(path)); n > bestLen && underPath(p.Cwd, path) {
-						best, bestLen = path, n
-					}
-				}
-				if best != "" {
-					counts[best]++
+// panesPerPath counts open panes working inside each of the given directories,
+// and reports whether the workspace answered at all. A count nobody could take
+// is not a count of none: the worktree panel may draw it as none, but removing
+// a worktree must not go on as though no agent were working there.
+func (s *Server) panesPerPath(paths []string) (map[string]int, bool) {
+	return ask(s, func() map[string]int { return panesIn(s, paths) })
+}
+
+// panesIn is panesPerPath's count, taken on the workspace goroutine. It is a
+// variable so a test can have the count fail.
+var panesIn = func(s *Server, paths []string) map[string]int {
+	counts := map[string]int{}
+	for _, t := range s.ws.Tabs {
+		for _, id := range t.Tree.Panes() {
+			p := s.ws.Pane(id)
+			if p == nil {
+				continue
+			}
+			// A worktree kept inside the repository it came from -- a
+			// .worktrees directory, say -- is under the main checkout as well
+			// as itself, so a pane in it matches both paths. The deepest match
+			// is the checkout it is really working in; taking the first would
+			// credit its panes to the parent and leave the worktree looking
+			// unattended.
+			best, bestLen := "", -1
+			for _, path := range paths {
+				if n := len(filepath.Clean(path)); n > bestLen && underPath(p.Cwd, path) {
+					best, bestLen = path, n
 				}
 			}
+			if best != "" {
+				counts[best]++
+			}
 		}
-		return counts
-	})
+	}
 	return counts
 }
 
@@ -246,7 +253,12 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 		// with panes in it is not removed, force or no force: force is how the
 		// panel says to throw away uncommitted work, which is the question git
 		// asks, and an agent still running there is not that.
-		if n := s.panesPerPath([]string{path})[path]; n > 0 {
+		counts, ok := s.panesPerPath([]string{path})
+		if !ok {
+			c.notify(fmt.Sprintf("could not tell whether an agent is working in %s, so it was not removed", filepath.Base(path)), true)
+			return
+		}
+		if n := counts[path]; n > 0 {
 			subject, them := "pane is", "it"
 			if n > 1 {
 				subject, them = "panes are", "them"

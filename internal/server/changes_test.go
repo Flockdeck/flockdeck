@@ -275,7 +275,7 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 	}
 	ws.NewTab(session.KindShell, inner, "feature")
 
-	counts := srv.panesPerPath([]string{repo, inner})
+	counts, _ := srv.panesPerPath([]string{repo, inner})
 	if counts[inner] != 1 {
 		t.Errorf("inner worktree has %d panes, want 1", counts[inner])
 	}
