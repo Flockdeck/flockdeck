@@ -3720,6 +3720,30 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text:
 `)
 }
 
+// Opening a folder is how anybody new starts, and the folder list answered
+// neither the arrows nor typing: two buttons a folder, so a directory of fifty
+// repositories was a hundred presses of Tab. The arrows move between folders
+// and typing the start of a name goes to it.
+func TestTheFolderListIsWalkedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: ["api", "docs", "web", "worker"].map((name) =>
+  ({ name, path: "C:/code/" + name })) });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === into()[1], "Down did not move to the next folder");
+h.key({ key: "w" });
+assert.ok(h.doc.activeElement === into()[2], "typing w did not go to web");
+h.key({ key: "o" });
+assert.ok(h.doc.activeElement === into()[3], "typing wo did not go on to worker");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/worker" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -2434,7 +2434,7 @@
       const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button");
       const at = rows.indexOf(row);
       let to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
-      if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at);
+      if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at, row.parentElement);
       if (to === undefined || to < 0 || !rows[to]) return;
       ev.preventDefault();
       rows[to].focus();
@@ -2452,9 +2452,8 @@
   /** The list the letters were typed in: a prefix belongs to one list, and
    *  one begun in another list a moment ago is not carried into this one. */
   let typedIn = null;
-  function typeAhead(key, rows, at) {
+  function typeAhead(key, rows, at, list) {
     const now = Date.now();
-    const list = rows[0] && rows[0].parentElement;
     typed = now - typedAt < 700 && typedIn === list ? typed + key.toLowerCase() : key.toLowerCase();
     typedAt = now;
     typedIn = list;
@@ -2536,12 +2535,31 @@
         into.append(el("span", "dir-name", e.name));
         if (e.isRepo) into.append(el("span", "dir-repo", "git"));
         into.onclick = () => send({ cmd: "browse", path: e.path });
+        into.dataset.label = e.name.toLowerCase();
         row.append(into);
         const openBtn = el("button", "chip", "Open");
         openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
         row.append(openBtn);
         list.append(row);
       });
+      // The folders answer the arrows and the start of a name, as the other
+      // lists do. Two buttons a folder, and nothing else, made a directory of
+      // fifty repositories a hundred presses of Tab to the one wanted - and
+      // opening a folder is how anybody new gets started. The arrows move
+      // between the folders themselves; Open stays one Tab from its folder.
+      list.onkeydown = (ev) => {
+        const rows = [...list.querySelectorAll("button.dir-into")];
+        const at = rows.indexOf(document.activeElement);
+        if (at < 0) return;
+        let to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
+        if (to === undefined && ev.key.length === 1 && ev.key !== " " && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+          to = typeAhead(ev.key, rows, at, list);
+        }
+        if (to === undefined || to < 0 || !rows[to]) return;
+        ev.preventDefault();
+        rows[to].focus();
+        rows[to].scrollIntoView({ block: "nearest" });
+      };
     }
     wrap.append(list);
     return wrap;
