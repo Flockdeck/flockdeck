@@ -6,17 +6,26 @@ them, how to change it, and where it is kept.
 
 ## In the window
 
-| Setting | How to change it | Kept |
-| --- | --- | --- |
-| The agent and model a pane runs | [[action:splitRightChoose]] or [[action:newAgentTabChoose]] | with the layout |
-| Which agent and model a project starts | **Set as default for this project**, at the foot of the picker; to go back to the default for every project, remove the project's entry under `projects` in `agents.json` | `agents.json` |
-| An API agent's key | [[action:apiKeys]], or `flockdeck keys set <agent>` | `keys.json` |
-| A tab's name | double-click the tab | with the layout |
-| Which panes the prompt bar reaches | [[key:toggleBroadcast]], and the `⇉` button in each pane header | until Flockdeck stops |
-| Terminal font size | [[key:fontUp]], [[key:fontDown]], [[key:fontReset]] | until Flockdeck is next started |
-| Paired devices | [[action:remote]] — **Pair a device**, **Unpair** | on the relay |
-| Desktop notifications | allow them when the window first asks | the browser, for that run only: each run has an address of its own, so the question comes back on the next start |
-| Hints under the tab bar | their close button, which sends one away for good | `prefs.json` |
+- **The agent and model a pane runs** — [[action:splitRightChoose]] or
+  [[action:newAgentTabChoose]]. Kept with the layout.
+- **Which agent and model a project starts** — **Set as default for this
+  project**, at the foot of the picker. To go back to the default for every
+  project, remove the project's entry under `projects` in `agents.json`. Kept
+  in `agents.json`.
+- **An API agent's key** — [[action:apiKeys]], or `flockdeck keys set <agent>`.
+  Kept in `keys.json`.
+- **A tab's name** — double-click the tab. Kept with the layout.
+- **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
+  button in each pane header. Kept until Flockdeck stops.
+- **Terminal font size** — [[key:fontUp]], [[key:fontDown]], [[key:fontReset]].
+  Kept until Flockdeck is next started.
+- **Paired devices** — [[action:remote]]: **Pair a device** and **Unpair**.
+  Kept on the relay.
+- **Desktop notifications** — allow them when the window first asks. The
+  browser keeps the answer for that run only: each run has an address of its
+  own, so the question comes back on the next start.
+- **Hints under the tab bar** — their close button sends one away for good.
+  Kept in `prefs.json`.
 
 ## In the state directory
 
@@ -25,16 +34,23 @@ Windows, `~/Library/Application Support/flockdeck` on macOS, and
 `~/.config/flockdeck` on Linux (or `$XDG_CONFIG_HOME/flockdeck` where that is
 set).
 
-| File | What it holds |
-| --- | --- |
-| `agents.json` | Your own agents, changes to the built-in ones, and the default agent and model — for every project under `defaults`, for one under `projects`. [Agents and models](#agents) describes it; it is read again each time the picker opens, so editing it needs no restart. |
-| `keys.json` | API keys set through Flockdeck. A key exported in the environment is used first. |
-| `remote.json` | This machine's enrolment with the relay. `flockdeck remote disable` removes it. |
-| `prefs.json` | Whether the help has been opened, and which hints were dismissed. Delete it while Flockdeck is not running to have the help open on the next start and every hint back. |
-| `layout-….json` | One per project: its tabs, splits and panes. `flockdeck -new` starts without it. |
-| `projects.json` | The recent projects the picker offers. |
-| `session.json` | Which projects are reopened on the next start. |
-| `error.log` | Why Flockdeck failed to start, when it had no terminal to say so in. |
+- `agents.json` — your own agents, changes to the built-in ones, and the
+  default agent and model: for every project under `defaults`, for one under
+  `projects`. [Agents and models](#agents) describes it. It is read again each
+  time the picker opens, so editing it needs no restart.
+- `keys.json` — API keys set through Flockdeck. A key exported in the
+  environment is used first.
+- `remote.json` — this machine's enrolment with the relay.
+  `flockdeck remote disable` removes it.
+- `prefs.json` — whether the help has been opened, and which hints were
+  dismissed. Delete it while Flockdeck is not running to have the help open on
+  the next start and every hint back.
+- `layout-….json` — one per project: its tabs, splits and panes.
+  `flockdeck -new` starts without it.
+- `projects.json` — the recent projects the picker offers.
+- `session.json` — which projects are reopened on the next start.
+- `error.log` — why Flockdeck failed to start, when it had no terminal to say
+  so in.
 
 ## In the environment
 
