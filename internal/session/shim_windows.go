@@ -4,9 +4,13 @@ package session
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/aymanbagabas/go-pty"
 )
@@ -20,15 +24,27 @@ import (
 // command at the first line break, so an agent without hooks, whose briefing
 // is put in front of its task, was started with "<flockdeck-context>" and
 // nothing else; and a quote in the task was taken as closing the argument, so
-// `a" & echo x & "b` ran `echo x` on its own. A batch file is therefore run
-// through cmd.exe with a command line written for cmd.exe, as Go's own os/exec
-// tells a caller to do.
+// `a" & echo x & "b` ran `echo x` on its own. It also refuses a command line
+// over 8191 characters, which a briefing and a task together pass.
+//
+// So an npm shim is not run at all: all it does is start node on a script
+// beside it, and node is started on that script directly, with nothing
+// reading the task but the agent. Any other batch file is run through
+// cmd.exe with a command line written for cmd.exe, as Go's own os/exec tells a
+// caller to do. Either way a command line too long to start with is shortened
+// by fit rather than keeping the agent from starting.
 func command(p pty.Pty, exe string, args []string) *pty.Cmd {
 	switch strings.ToLower(filepath.Ext(exe)) {
 	case ".cmd", ".bat":
 	default:
+		args = fit(args, maxCommandLine, func(a []string) int { return directLength(exe, a) })
 		return p.Command(exe, args...)
 	}
+	if node, script, ok := npmScript(exe); ok {
+		args = fit(args, maxCommandLine, func(a []string) int { return directLength(node, append([]string{script}, a...)) })
+		return p.Command(node, append([]string{script}, args...)...)
+	}
+	args = fit(args, maxBatchLine, func(a []string) int { return len(batchCommandLine(exe, a)) })
 	shell := os.Getenv("COMSPEC")
 	if shell == "" {
 		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
@@ -36,6 +52,138 @@ func command(p pty.Pty, exe string, args []string) *pty.Cmd {
 	cmd := p.Command(shell)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: batchCommandLine(exe, args)}
 	return cmd
+}
+
+const (
+	// maxBatchLine is the longest command line cmd.exe accepts.
+	maxBatchLine = 8191
+	// maxCommandLine is the longest CreateProcess accepts, 32767 characters,
+	// less room for the environment's own quoting going wrong in its favour.
+	maxCommandLine = 32000
+)
+
+// directLength is how long a command line is that starts exe with args, as a
+// program's arguments are quoted.
+func directLength(exe string, args []string) int {
+	n := len(syscall.EscapeArg(exe))
+	for _, a := range args {
+		n += 1 + len(syscall.EscapeArg(a))
+	}
+	return n
+}
+
+// fit shortens a command line longer than limit, as length measures it, so
+// that the agent starts with less rather than not at all.
+//
+// What gives way is the briefing an agent without hooks is handed in front of
+// its task: its sections go from the last back -- the key list and the
+// environment before the other agents and this pane -- with a note that it was
+// shortened, and then the briefing goes altogether. The task is kept whole for
+// as long as anything else is left to give, because it is the reason the pane
+// exists. Only a task too long on its own is cut, and says so.
+func fit(args []string, limit int, length func([]string) int) []string {
+	if length(args) <= limit {
+		return args
+	}
+	out := slices.Clone(args)
+	for i := range out {
+		for length(out) > limit {
+			shorter, ok := shortenBriefing(out[i])
+			if !ok {
+				break
+			}
+			out[i] = shorter
+		}
+		if length(out) <= limit {
+			return out
+		}
+	}
+	i := 0
+	for j := range out {
+		if len(out[j]) > len(out[i]) {
+			i = j
+		}
+	}
+	for length(out) > limit && out[i] != "" {
+		out[i] = cutTask(out[i], length(out)-limit)
+	}
+	return out
+}
+
+const (
+	contextOpen  = "<flockdeck-context>\n"
+	contextClose = "\n</flockdeck-context>"
+	// shortenedNote and cutNote tell the agent that what it was handed is not
+	// all there was.
+	shortenedNote = "\n\n(This briefing was shortened to fit the command line this agent is started with.)"
+	cutNote       = "\n\n[The rest of this task was cut to fit the command line this agent is started with.]"
+)
+
+// shortenBriefing takes one step off the briefing at the front of a prompt:
+// its last section, or once only its opening is left, the briefing itself. It
+// reports false when there is no briefing to shorten.
+//
+// The briefing is the workspace's, fenced in <flockdeck-context> with a "## "
+// heading per section. Should that ever change, nothing here breaks: the
+// prompt is simply read as having no briefing, and the task is cut instead.
+func shortenBriefing(prompt string) (string, bool) {
+	if !strings.HasPrefix(prompt, contextOpen) {
+		return prompt, false
+	}
+	end := strings.Index(prompt, contextClose)
+	if end < 0 {
+		return prompt, false
+	}
+	body, rest := prompt[len(contextOpen):end], prompt[end+len(contextClose):]
+	body = strings.TrimSuffix(body, shortenedNote)
+	if cut := strings.LastIndex(body, "\n## "); cut > 0 {
+		return contextOpen + strings.TrimRight(body[:cut], "\n") + shortenedNote + contextClose + rest, true
+	}
+	return strings.TrimLeft(rest, "\n"), true
+}
+
+// cutTask cuts at least over bytes, and the note saying so, off the end of a
+// task, on a character boundary.
+func cutTask(task string, over int) string {
+	task = strings.TrimSuffix(task, cutNote)
+	keep := len(task) - over - len(cutNote)
+	if keep <= 0 {
+		return ""
+	}
+	for keep > 0 && !utf8.RuneStart(task[keep]) {
+		keep--
+	}
+	return task[:keep] + cutNote
+}
+
+// npmShimScript finds the script an npm shim starts: every form npm has
+// written names it relative to the shim's own folder, "%dp0%\" or "%~dp0\".
+var npmShimScript = regexp.MustCompile(`"%(?:~dp0|dp0%)\\([^"%]+\.[cm]?js)"`)
+
+// npmScript reports the node and the script an npm shim would run, or false
+// for a batch file that is not one, or whose script or node cannot be found.
+// A node.exe beside the shim is the one it prefers, as the shim itself does.
+func npmScript(shim string) (node, script string, ok bool) {
+	data, err := os.ReadFile(shim)
+	if err != nil || len(data) > 64<<10 {
+		return "", "", false
+	}
+	m := npmShimScript.FindSubmatch(data)
+	if m == nil {
+		return "", "", false
+	}
+	dir := filepath.Dir(shim)
+	script = filepath.Join(dir, string(m[1]))
+	if fi, err := os.Stat(script); err != nil || fi.IsDir() {
+		return "", "", false
+	}
+	node = filepath.Join(dir, "node.exe")
+	if _, err := os.Stat(node); err != nil {
+		if node, err = exec.LookPath("node"); err != nil {
+			return "", "", false
+		}
+	}
+	return node, script, true
 }
 
 // batchCommandLine writes the command line that has cmd.exe run a batch file
