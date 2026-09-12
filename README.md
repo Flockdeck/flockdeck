@@ -384,8 +384,8 @@ A layout is rarely right first time: the agent you thought was a side errand
 turns out to be the one you are watching, and it is in the wrong corner. Panes
 are therefore movable, not just creatable.
 
-**Drag a pane by its header.** While a drag is in progress every other pane
-shows where the pane would land:
+**Drag a pane by its header.** The pane under the pointer shows where the
+dragged one would land if you let go there:
 
 - onto the **left, right, top or bottom** of another pane — it goes there,
   splitting that pane's space, joining an existing row or column rather than
