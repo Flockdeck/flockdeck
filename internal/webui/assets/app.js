@@ -2558,6 +2558,15 @@
    *  list. Where the choice has nothing to undo - which file's diff is shown -
    *  `follow` makes arriving at a row choose it, so a review is read by
    *  pressing Down rather than by Tab and Enter for every file. */
+  /** rowStep is where a key moves the keyboard in a list of rows, or
+   *  undefined. Page Down on a row scrolled the box and left the keyboard on
+   *  a row now out of sight, and the next arrow jumped the list back to it;
+   *  the pages move the keyboard as the palette's do. */
+  function rowStep(key, at, count) {
+    return { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: count - 1,
+      PageDown: Math.min(at + LIST_PAGE, count - 1), PageUp: Math.max(at - LIST_PAGE, 0) }[key];
+  }
+
   function rowAction(row, fn, follow, label) {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
@@ -2570,7 +2579,7 @@
       if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(ev); return; }
       const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button");
       const at = rows.indexOf(row);
-      let to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
+      let to = rowStep(ev.key, at, rows.length);
       if (to === undefined && ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey) to = typeAhead(ev.key, rows, at, row.parentElement);
       if (to === undefined || to < 0 || !rows[to]) return;
       ev.preventDefault();
@@ -2690,7 +2699,7 @@
         const rows = [...list.querySelectorAll("button.dir-into")];
         const at = rows.indexOf(document.activeElement);
         if (at < 0) return;
-        let to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
+        let to = rowStep(ev.key, at, rows.length);
         if (to === undefined && ev.key.length === 1 && ev.key !== " " && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
           to = typeAhead(ev.key, rows, at, list);
         }

@@ -3744,6 +3744,42 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/worke
 `)
 }
 
+// Page Down on a folder scrolled the list and left the keyboard on a folder
+// now out of sight, so the next arrow jumped the list back to where it was.
+func TestTheDialogListsPageWithTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: Array.from({ length: 20 }, (_, i) =>
+  ({ name: "repo" + String(i).padStart(2, "0"), path: "C:/code/repo" + i })) });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "PageDown" });
+const at = () => into().indexOf(h.doc.activeElement);
+assert.ok(at() > 1, "Page Down did not move the keyboard a page: at " + at());
+h.key({ key: "End" });
+h.key({ key: "PageDown" });
+assert.strictEqual(at(), 19, "Page Down at the end left the list");
+h.key({ key: "PageUp" });
+assert.ok(at() < 18, "Page Up did not move the keyboard a page: at " + at());
+h.key({ key: "Home" });
+h.key({ key: "PageUp" });
+assert.strictEqual(at(), 0, "Page Up at the top left the list");
+
+// The dialogs' other lists - the review's files here - page the same way.
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: Array.from({ length: 20 }, (_, i) =>
+  ({ path: "f" + String(i).padStart(2, "0") + ".go", label: "M", added: 1, removed: 0 })) });
+const files = h.$("overlay-body").querySelectorAll("div.rev-file");
+files[0].focus();
+const page = h.key({ key: "PageDown" });
+assert.ok(page.defaultPrevented, "Page Down scrolled the review instead");
+assert.ok(files.indexOf(h.doc.activeElement) > 1, "Page Down did not move through the review's files");
+`)
+}
+
 // The palette found a command only by words its name contains, so the
 // abbreviations most palettes take - "nat" for New agent tab, "rp" for
 // Restart pane - found nothing. They find the command now, after anything
