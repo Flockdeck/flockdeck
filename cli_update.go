@@ -77,13 +77,19 @@ func runUpdate(args []string) error {
 		return err
 	}
 
-	fmt.Println("Downloading…")
-	staged, err := selfupdate.Stage(ctx, rel, dir)
-	if err != nil {
-		if errors.Is(err, selfupdate.ErrNoAsset) {
-			return fmt.Errorf("%w — nothing was built for this platform", err)
+	// A running window may already have downloaded and checked this very
+	// release in the background, and fetching it again would only keep the
+	// user waiting for a file that is already here.
+	staged, ok := stagedUpdate(dir, version)
+	if !ok || staged.Version != rel.Version {
+		fmt.Println("Downloading…")
+		staged, err = selfupdate.Stage(ctx, rel, dir)
+		if err != nil {
+			if errors.Is(err, selfupdate.ErrNoAsset) {
+				return fmt.Errorf("%w — nothing was built for this platform", err)
+			}
+			return err
 		}
-		return err
 	}
 
 	exe, err := os.Executable()
