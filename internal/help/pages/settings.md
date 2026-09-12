@@ -32,6 +32,9 @@ set).
 | `remote.json` | This machine's enrolment with the relay. `flockdeck remote disable` removes it. |
 | `prefs.json` | Whether the help has been opened, and which hints were dismissed. Delete it while Flockdeck is not running to have the help open on the next start and every hint back. |
 | `layout-….json` | One per project: its tabs, splits and panes. `flockdeck -new` starts without it. |
+| `projects.json` | The recent projects the picker offers. |
+| `session.json` | Which projects are reopened on the next start. |
+| `error.log` | Why Flockdeck failed to start, when it had no terminal to say so in. |
 
 ## In the environment
 
