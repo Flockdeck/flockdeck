@@ -264,6 +264,25 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 }
 
+// TestAnInterruptedToolIsReportedAsSuch covers Esc pressed while a tool runs:
+// the tool fails, Claude Code goes back to its prompt, and no Stop follows. A
+// tool that failed on its own is part of a turn that goes on.
+func TestAnInterruptedToolIsReportedAsSuch(t *testing.T) {
+	srv, r := newServer(t)
+	for _, c := range []struct{ payload, want string }{
+		{`{"session_id":"s","tool_name":"Bash","is_interrupt":true}`, Interrupted},
+		{`{"session_id":"s","tool_name":"Bash","is_interrupt":false}`, "PostToolUseFailure"},
+		{`{"session_id":"s","tool_name":"Bash"}`, "PostToolUseFailure"},
+	} {
+		if _, err := Emit(strings.NewReader(c.payload), srv.Endpoint(), srv.Token(), "pane-i", "PostToolUseFailure"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if got := r.next(t); got.Event != c.want || got.Tool != "Bash" {
+			t.Errorf("%s: reported as %q (tool %q), want %q", c.payload, got.Event, got.Tool, c.want)
+		}
+	}
+}
+
 // TestFinishedNotificationsAreNotReported covers the Notifications that say
 // something is done rather than waiting: every Notification turns a pane
 // amber, and a login that succeeded, an MCP question just answered, a

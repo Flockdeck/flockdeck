@@ -71,7 +71,16 @@ type claudePayload struct {
 	How    string `json:"how"`
 	// NotificationType says what a Notification is about.
 	NotificationType string `json:"notification_type"`
+	// IsInterrupt says a PostToolUseFailure is the user stopping the tool.
+	IsInterrupt bool `json:"is_interrupt"`
 }
+
+// Interrupted is what a PostToolUseFailure is reported as when the tool failed
+// because the user stopped it. Claude Code 2.1.269, read from its executable,
+// says so in the payload's is_interrupt, and then goes back to its prompt
+// without a Stop: the turn is over, which the failure of a tool on its own is
+// not, so the two are told apart here, where the payload is read.
+const Interrupted = "Interrupted"
 
 // finishedNotifications are the kinds of Notification that report something
 // done rather than something waiting on the user: a login that succeeded, and
@@ -264,6 +273,9 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 			}
 			if event == "Notification" && finishedNotifications[cp.NotificationType] {
 				return "", nil
+			}
+			if event == "PostToolUseFailure" && cp.IsInterrupt {
+				p.Event.Event = Interrupted
 			}
 		}
 	}

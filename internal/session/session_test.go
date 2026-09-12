@@ -284,6 +284,7 @@ func TestStatusForEvent(t *testing.T) {
 		{"PostToolUseFailure", "Bash", StatusWorking, true},
 		{"PermissionDenied", "Bash", StatusWorking, true},
 		{"StopFailure", "", StatusIdle, true},
+		{"Interrupted", "Bash", StatusIdle, true},
 		{"SomethingElse", "", StatusIdle, false},
 	}
 	for _, c := range cases {

@@ -260,8 +260,10 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	case "PostToolUseFailure", "PermissionDenied":
 		// A tool failed, or was refused without asking; the turn goes on.
 		return StatusWorking, "", true
-	case "StopFailure":
-		// The turn ended on an error rather than with a Stop.
+	case "StopFailure", "Interrupted":
+		// The turn ended on an error rather than with a Stop, or the user
+		// stopped the tool it was running (hooks.Interrupted) and Claude Code
+		// went back to its prompt.
 		return StatusIdle, "", true
 	case "SessionEnd":
 		// The conversation has ended; the process has not, necessarily.
