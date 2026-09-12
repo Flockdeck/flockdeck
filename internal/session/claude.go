@@ -1,15 +1,21 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // LookClaude returns the path to the claude CLI, or an error explaining that
@@ -70,6 +76,85 @@ var hookEvents = []string{
 	"SessionEnd",
 }
 
+// laterHookEvents are the events that say what the ones above leave unsaid:
+// PermissionRequest as a permission dialog opens -- the Notification about it
+// comes only six seconds later, and never if it is answered first -- and the
+// turn or tool that ended on an error or a refusal, which fires none of the
+// events above, so the pane went on saying "working" until the next prompt.
+//
+// They are only subscribed to where the installed Claude Code is known to have
+// them. Claude Code 2.1.269, read from its executable, has all four, and skips
+// a hook event it does not know with a warning ("Unknown hook event ... was
+// ignored") instead of refusing the file. How an older one treats a name it
+// does not know was not established, and a settings file it refused would take
+// every hook of the pane with it.
+var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied"}
+
+// laterHooksSince is the first Claude Code known to have laterHookEvents.
+var laterHooksSince = [3]int{2, 1, 269}
+
+// claudeVersion is what `claude --version` says, asked once per run. It is a
+// variable so a test can say instead.
+var claudeVersion = sync.OnceValue(installedClaudeVersion)
+
+// installedClaudeVersion asks the installed Claude Code what version it is,
+// which takes it some tens of milliseconds, and gives up after three seconds.
+// Anything that goes wrong is an unknown version, which subscribes to what
+// every Claude Code has.
+func installedClaudeVersion() string {
+	exe, err := LookClaude()
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "--version")
+	sysproc.NoWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// hookEventsFor is the events to subscribe to for a Claude Code reporting a
+// version, as `claude --version` prints it: "2.1.269 (Claude Code)".
+func hookEventsFor(version string) []string {
+	if versionAtLeast(version, laterHooksSince) {
+		return append(slices.Clip(hookEvents), laterHookEvents...)
+	}
+	return hookEvents
+}
+
+// versionAtLeast reports whether a version, as `claude --version` prints it, is
+// at least min. One it cannot read is not.
+func versionAtLeast(version string, min [3]int) bool {
+	field, _, _ := strings.Cut(strings.TrimSpace(version), " ")
+	parts := strings.SplitN(field, ".", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		// A pre-release is numbered like the release: "2.1.269-beta.1".
+		digits := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' })
+		if digits < 0 {
+			digits = len(part)
+		}
+		n, err := strconv.Atoi(part[:digits])
+		if err != nil {
+			return false
+		}
+		got[i] = n
+	}
+	for i := range got {
+		if got[i] != min[i] {
+			return got[i] > min[i]
+		}
+	}
+	return true
+}
+
 // settingsFile is the shape of the JSON handed to `claude --settings`.
 type settingsFile struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
@@ -98,8 +183,9 @@ func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string,
 	}
 	path := filepath.Join(dir, sessionID+".settings.json")
 
-	hooks := make(map[string][]hookMatcher, len(hookEvents))
-	for _, ev := range hookEvents {
+	events := hookEventsFor(claudeVersion())
+	hooks := make(map[string][]hookMatcher, len(events))
+	for _, ev := range events {
 		cmd := fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
 			quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
 		hooks[ev] = []hookMatcher{{
@@ -165,6 +251,17 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 		// is asking permission for.
 		return StatusWaiting, tool, true
 	case "Stop":
+		return StatusIdle, "", true
+	case "PermissionRequest":
+		// A permission dialog is opening for the tool the PreToolUse before it
+		// named. Naming nothing here keeps that tool on the pane, and marks the
+		// wait as one Enter answers, as the Notification six seconds later does.
+		return StatusWaiting, "", true
+	case "PostToolUseFailure", "PermissionDenied":
+		// A tool failed, or was refused without asking; the turn goes on.
+		return StatusWorking, "", true
+	case "StopFailure":
+		// The turn ended on an error rather than with a Stop.
 		return StatusIdle, "", true
 	case "SessionEnd":
 		// The conversation has ended; the process has not, necessarily.

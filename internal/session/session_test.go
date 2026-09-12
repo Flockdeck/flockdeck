@@ -280,6 +280,10 @@ func TestStatusForEvent(t *testing.T) {
 		{"PreToolUse", "AskUserQuestion", StatusWaiting, true},
 		{"Notification", "", StatusWaiting, true},
 		{"Stop", "", StatusIdle, true},
+		{"PermissionRequest", "Bash", StatusWaiting, true},
+		{"PostToolUseFailure", "Bash", StatusWorking, true},
+		{"PermissionDenied", "Bash", StatusWorking, true},
+		{"StopFailure", "", StatusIdle, true},
 		{"SomethingElse", "", StatusIdle, false},
 	}
 	for _, c := range cases {
@@ -1107,6 +1111,20 @@ func TestEnterAnswersAPermissionPrompt(t *testing.T) {
 	press("\r")
 	if st, _ := s.Status(); st != StatusWaiting {
 		t.Errorf("status = %v after Enter at the prompt, want waiting until a hook says otherwise", st)
+	}
+
+	// A Claude Code that reports the dialog as it opens says so with
+	// PermissionRequest, six seconds before its nudge, and Enter answers it the
+	// same way.
+	report("UserPromptSubmit", "")
+	report("PreToolUse", "Edit")
+	report("PermissionRequest", "Edit")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "Edit" {
+		t.Fatalf("status = %v %q as the dialog opens, want waiting on Edit", st, detail)
+	}
+	press("\r")
+	if st, detail := s.Status(); st != StatusWorking || detail != "Edit" {
+		t.Errorf("status = %v %q after answering, want working on Edit", st, detail)
 	}
 }
 

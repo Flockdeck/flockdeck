@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -112,6 +113,62 @@ func TestHookSettingsRegisterSessionStart(t *testing.T) {
 	}
 }
 
+// TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem covers the events a
+// Claude Code older than the one read may not know. A settings file it refused
+// would take every hook of the pane with it, so they are only asked of one
+// known to have them, and what every Claude Code has is always asked.
+func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
+	for _, c := range []struct {
+		version string
+		later   bool
+	}{
+		{"2.1.269 (Claude Code)", true},
+		{"2.1.270 (Claude Code)", true},
+		{"2.2.0 (Claude Code)", true},
+		{"3.0.0", true},
+		{"2.1.269-beta.1 (Claude Code)", true},
+		{"2.1.268 (Claude Code)", false},
+		{"2.0.300 (Claude Code)", false},
+		{"1.0.128 (Claude Code)", false},
+		{"", false},
+		{"claude: command not found", false},
+	} {
+		events := hookEventsFor(c.version)
+		for _, ev := range laterHookEvents {
+			if slices.Contains(events, ev) != c.later {
+				t.Errorf("%q: subscribes to %s = %v, want %v", c.version, ev, !c.later, c.later)
+			}
+		}
+		for _, ev := range hookEvents {
+			if !slices.Contains(events, ev) {
+				t.Errorf("%q: %s is missing, and every Claude Code has it", c.version, ev)
+			}
+		}
+	}
+
+	// The settings file follows the version the installed Claude Code gives.
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	for version, want := range map[string]bool{"2.1.269 (Claude Code)": true, "2.0.0 (Claude Code)": false} {
+		claudeVersion = func() string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got.Hooks["PermissionRequest"]; ok != want {
+			t.Errorf("%s: PermissionRequest subscribed = %v, want %v", version, ok, want)
+		}
+	}
+}
+
 // TestHookCommandQuotingIsLiteral covers the paths the hook command is written
 // with. sh expands "$" and a backtick inside double quotes, so a binary under
 // such a directory ran something else on macOS and Linux.
@@ -172,7 +229,7 @@ func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
 // into it and hands new viewers a closed stream, and nothing arrives later to
 // put it right.
 func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
-	for _, ev := range hookEvents {
+	for _, ev := range append(slices.Clip(hookEvents), laterHookEvents...) {
 		st, detail, ok := StatusForEvent(ev, "Bash")
 		if !ok {
 			continue
