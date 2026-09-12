@@ -8,6 +8,15 @@ Started from a shortcut, Flockdeck has no terminal to print to, so a failure to
 start is also written to `error.log` in the state directory — [Settings](#settings) says
 where that is. Running `flockdeck` from a terminal shows the same message there.
 
+## macOS or Windows will not open a Flockdeck I downloaded
+
+Release binaries are not signed. A copy you downloaded from the releases page
+in a browser carries the browser's download mark, so the first start may be
+stopped. On macOS, allow it under System Settings → Privacy & Security, or run
+`xattr -d com.apple.quarantine` on the binary. On Windows, choose More info →
+Run anyway, or run `Unblock-File` on the program in PowerShell. The install
+scripts download with curl and PowerShell, which leave no such mark.
+
 ## A pane says its CLI was not found on PATH
 
 The agent's command is not on your `PATH`, so the pane shows that message where
