@@ -727,22 +727,51 @@ func showWindow(opts options, srv *server.Server, stop func()) (*appwindow.Windo
 
 // landingRoot is the project a launch opens when none was named: cwd, the
 // directory it was started in, unless that is only where the program itself
-// lives.
+// lives or where the system starts a program it was told nothing about.
 //
 // From a terminal the working directory is where the user is standing, and
 // exactly right. A double-click, or a shortcut left as it was made, starts the
 // program in its own folder instead — Downloads, as often as not — and opening
 // that made every such start add the folder as a project, with a fresh agent
-// in it, beside the session the user actually had. The project they were last
-// in is the better answer there, when there is one to go back to.
+// in it, beside the session the user actually had. A scheduled or login start
+// is worse: Task Scheduler with no "Start in" runs it in System32, launchd in
+// /, and that became a project, with an agent working in it, which every
+// start after reopened. The project the user was last in is the better answer
+// in both cases, when there is one to go back to; failing that a system
+// directory gives way to the home directory, while the program's own folder,
+// where somebody did choose to put it, stays.
 func landingRoot(cwd, exe string, saved *store.Session) string {
-	if exe == "" || saved == nil || saved.Active == "" || !sameFolder(cwd, filepath.Dir(exe)) {
+	system := systemDir(cwd)
+	if !system && (exe == "" || !sameFolder(cwd, filepath.Dir(exe))) {
 		return cwd
 	}
-	if fi, err := os.Stat(saved.Active); err != nil || !fi.IsDir() {
-		return cwd
+	if saved != nil && saved.Active != "" {
+		if fi, err := os.Stat(saved.Active); err == nil && fi.IsDir() {
+			return saved.Active
+		}
 	}
-	return saved.Active
+	if system {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	return cwd
+}
+
+// systemDir reports whether dir is where the system starts a program that was
+// given no directory of its own: the Windows directory or anything below it,
+// or the root of the file system.
+func systemDir(dir string) bool {
+	dir = filepath.Clean(dir)
+	if runtime.GOOS != "windows" {
+		return dir == "/"
+	}
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		return false
+	}
+	root = filepath.Clean(root)
+	return sameFolder(dir, root) || strings.HasPrefix(strings.ToLower(dir), strings.ToLower(root)+`\`)
 }
 
 // expandHome reads a leading ~ as the home directory.

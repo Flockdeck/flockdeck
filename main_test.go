@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,30 @@ func TestLandingRoot(t *testing.T) {
 		if got := landingRoot(c.cwd, exe, c.saved); got != c.want {
 			t.Errorf("%s: landingRoot = %s, want %s", c.name, got, c.want)
 		}
+	}
+}
+
+// A scheduled or login start is run from a system directory — System32 under
+// Task Scheduler with no "Start in", / under launchd — which is nowhere anybody
+// works: it goes back to the last project, or failing that home.
+func TestLandingRootLeavesSystemDirectories(t *testing.T) {
+	home, project := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	sys := "/"
+	if runtime.GOOS == "windows" {
+		root := t.TempDir()
+		t.Setenv("SystemRoot", root)
+		sys = filepath.Join(root, "System32")
+	}
+	exe := filepath.Join(t.TempDir(), "flockdeck.exe")
+	saved := &store.Session{Open: []string{project}, Active: project}
+
+	if got := landingRoot(sys, exe, saved); got != project {
+		t.Errorf("started in %s with a project to go back to: landingRoot = %s, want %s", sys, got, project)
+	}
+	if got := landingRoot(sys, exe, nil); got != home {
+		t.Errorf("started in %s with nothing saved: landingRoot = %s, want the home directory %s", sys, got, home)
 	}
 }
 
