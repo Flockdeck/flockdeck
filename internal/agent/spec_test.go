@@ -169,9 +169,10 @@ func TestBuildArgvDashDash(t *testing.T) {
 // knows where its own executable is, so an API runner's argv starts at the
 // first flag and workspace puts `flockdeck chat` in front of it.
 func TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller(t *testing.T) {
-	spec := anthropicAPISpec()
+	spec := normalizeAll([]Spec{anthropicAPISpec()})[0]
 	got := BuildArgv(spec, false, Tokens{Session: "s", Model: "claude-sonnet-5", Prompt: "hello"})
-	want := []string{"--agent", "anthropic", "--model", "claude-sonnet-5", "--session", "s", "hello"}
+	want := []string{"--agent", "anthropic", "--wire", "anthropic", "--key-env", "ANTHROPIC_API_KEY",
+		"--model", "claude-sonnet-5", "--session", "s", "hello"}
 	if !slices.Equal(got, want) {
 		t.Errorf("argv\n got %q\nwant %q", got, want)
 	}

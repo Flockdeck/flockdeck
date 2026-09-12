@@ -320,16 +320,18 @@ func normalize(s *Spec) {
 	// An API entry is `flockdeck chat` whatever else it says, so an entry that
 	// gives only an endpoint -- which is all the example in the design gives --
 	// still starts the chat client properly and still reports its lifecycle.
-	if len(s.Args) == 0 {
-		s.Args = chatArgs(s.ID, false)
-	}
-	if len(s.ResumeArgs) == 0 {
-		s.ResumeArgs = chatArgs(s.ID, true)
-	}
 	if s.API.Wire == "" {
 		// An endpoint with no wire named is an OpenAI-compatible one: that is
 		// what nearly every local server and gateway speaks.
 		s.API.Wire = "openai"
+	}
+	// Built from the entry as it now stands, wire and all, since the chat
+	// client learns its endpoint from these and from nothing else.
+	if len(s.Args) == 0 {
+		s.Args = chatArgs(s.ID, s.API, false)
+	}
+	if len(s.ResumeArgs) == 0 {
+		s.ResumeArgs = chatArgs(s.ID, s.API, true)
 	}
 	if s.Caps == (Caps{}) {
 		s.Caps = chatCaps()

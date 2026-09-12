@@ -616,3 +616,45 @@ func TestEnvValuesAreExpanded(t *testing.T) {
 		t.Errorf("env = %q, want %q", s.Env, want)
 	}
 }
+
+// TestAnAPIAgentTellsTheChatClientItsEndpoint: the chat client reads nothing
+// from the catalog, so an OpenAI, Gemini or local-model pane took its
+// defaults -- the Anthropic wire, at Anthropic's address -- and sent its
+// request and its stored key there.
+func TestAnAPIAgentTellsTheChatClientItsEndpoint(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}]}`),
+		json.RawMessage(`{"id": "anthropic", "api": {"baseURL": "https://proxy.example/v1"}}`),
+	}})
+	has := func(argv []string, flag, value string) bool {
+		for i := 0; i+1 < len(argv); i++ {
+			if argv[i] == flag && argv[i+1] == value {
+				return true
+			}
+		}
+		return false
+	}
+	for _, tc := range []struct {
+		id          string
+		flag, value string
+	}{
+		{"openai", "--wire", "openai"},
+		{"openai", "--key-env", "OPENAI_API_KEY"},
+		{"google", "--wire", "gemini"},
+		{"google", "--key-env", "GEMINI_API_KEY,GOOGLE_API_KEY"},
+		{"local", "--wire", "openai"},
+		{"local", "--base-url", "http://127.0.0.1:11434/v1"},
+		{"anthropic", "--base-url", "https://proxy.example/v1"},
+	} {
+		s, ok := c.Find(tc.id)
+		if !ok {
+			t.Fatalf("%s: not in the catalog", tc.id)
+		}
+		for _, resume := range []bool{false, true} {
+			argv := BuildArgv(s, resume, Tokens{Session: "s", Model: "m", Prompt: "hi"})
+			if !has(argv, tc.flag, tc.value) {
+				t.Errorf("%s (resume %v): argv %q lacks %s %s", tc.id, resume, argv, tc.flag, tc.value)
+			}
+		}
+	}
+}

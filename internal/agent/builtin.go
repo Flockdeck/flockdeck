@@ -1,5 +1,7 @@
 package agent
 
+import "strings"
+
 // The built-in catalog: the agents Flockdeck knows about before the user has said
 // anything. Everything here can be corrected, extended or hidden by the user's
 // own agents.json, so nothing in this file has to be right forever -- but an
@@ -181,14 +183,30 @@ func chatCaps() Caps {
 //
 // The agent id is written in as a literal rather than a token because the
 // tokens are the pane's, not the catalog's, and an agent defined only in the
-// user's agents.json must still be able to say which entry the chat client
-// should read its endpoint from.
-func chatArgs(id string, resume bool) []Arg {
-	args := []Arg{
-		Lit("--agent"), Lit(id),
+// user's agents.json must still be able to say which entry it is.
+//
+// The endpoint goes on as literals too: the wire, the base URL and the names
+// a key may arrive in. The chat client reads nothing from the catalog, so
+// without them it took the defaults it falls back on -- the Anthropic wire at
+// Anthropic's address -- for every API agent: an OpenAI or Gemini pane, or a
+// local model, sent its request, and whichever key was stored under its id,
+// to api.anthropic.com. normalize builds these from the entry as merged, so
+// a baseURL written over a built-in reaches the command line.
+func chatArgs(id string, api APISpec, resume bool) []Arg {
+	args := []Arg{Lit("--agent"), Lit(id)}
+	if api.Wire != "" {
+		args = append(args, Lit("--wire"), Lit(api.Wire))
+	}
+	if api.BaseURL != "" {
+		args = append(args, Lit("--base-url"), Lit(api.BaseURL))
+	}
+	if len(api.KeyEnv) > 0 {
+		args = append(args, Lit("--key-env"), Lit(strings.Join(api.KeyEnv, ",")))
+	}
+	args = append(args,
 		Group("model", "--model", "{{model}}"),
 		Group("session", "--session", "{{session}}"),
-	}
+	)
 	if resume {
 		return append(args, Lit("--resume"))
 	}
@@ -200,8 +218,6 @@ func chatArgs(id string, resume bool) []Arg {
 func anthropicAPISpec() Spec {
 	return Spec{
 		ID: "anthropic", Name: "Claude API", Runner: RunnerAPI,
-		Args:       chatArgs("anthropic", false),
-		ResumeArgs: chatArgs("anthropic", true),
 		API: APISpec{
 			Wire:   "anthropic",
 			KeyEnv: []string{"ANTHROPIC_API_KEY"},
@@ -220,8 +236,6 @@ func anthropicAPISpec() Spec {
 func openAIAPISpec() Spec {
 	return Spec{
 		ID: "openai", Name: "OpenAI API", Runner: RunnerAPI,
-		Args:       chatArgs("openai", false),
-		ResumeArgs: chatArgs("openai", true),
 		API: APISpec{
 			Wire:   "openai",
 			KeyEnv: []string{"OPENAI_API_KEY"},
@@ -239,8 +253,6 @@ func openAIAPISpec() Spec {
 func googleAPISpec() Spec {
 	return Spec{
 		ID: "google", Name: "Gemini API", Runner: RunnerAPI,
-		Args:       chatArgs("google", false),
-		ResumeArgs: chatArgs("google", true),
 		API: APISpec{
 			Wire: "gemini",
 			// Google's own tools read either name, and somebody who has one
@@ -267,10 +279,8 @@ func googleAPISpec() Spec {
 func openAICompatibleSpec() Spec {
 	return Spec{
 		ID: "openai-compatible", Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
-		Args:       chatArgs("openai-compatible", false),
-		ResumeArgs: chatArgs("openai-compatible", true),
-		API:        APISpec{Wire: "openai"},
-		Caps:       chatCaps(),
+		API:  APISpec{Wire: "openai"},
+		Caps: chatCaps(),
 		// The shape is spelled out: "add a baseURL" was taken at its word, and
 		// one written beside the id rather than inside "api" is not read.
 		Install: `give it an address in agents.json: {"id": "openai-compatible", "api": {"baseURL": "http://…/v1"}}`,
