@@ -3540,6 +3540,25 @@ assert.strictEqual(filter.value, "");
 `)
 }
 
+// Double-clicking a pane's header did nothing, where double-clicking a title
+// bar makes the thing it belongs to fill its space; zooming took the small
+// glyph at the far end of the header. It zooms the pane now, but not when the
+// double-click lands on one of the header's own buttons.
+func TestDoubleClickingAPaneHeaderZoomsIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const header = h.$("workspace").querySelector("div.pane-header");
+h.dispatch(header, new h.Ev("dblclick", { target: header }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p1" }, "double-clicking the header did not zoom the pane");
+
+const restart = header.querySelectorAll("button").find((b) => b.textContent === "⟳");
+const before = h.commands().length;
+h.dispatch(restart, new h.Ev("dblclick", { target: restart }));
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "toggleZoom"), "a double-click on a header button zoomed the pane");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

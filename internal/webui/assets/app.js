@@ -53,7 +53,7 @@
     broadcast:   "Sends what you write in the prompt bar to every pane in the broadcast set, so one instruction reaches them all. Typing in a terminal still reaches only that terminal.",
     fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
-    zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back.",
+    zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
@@ -1395,6 +1395,14 @@
     dropZone.hidden = true;
     wrap.append(header, body, dropZone);
     makePaneDraggable(id, wrap, header, dropZone);
+    // Double-clicking the header zooms the pane, as double-clicking a title
+    // bar does a window: the button for it is a small glyph at the far end of
+    // the header, and the header itself did nothing. Not on the header's own
+    // buttons, which have their own business.
+    header.addEventListener("dblclick", (ev) => {
+      if (ev.target.closest && ev.target.closest("button")) return;
+      send({ cmd: "toggleZoom", id });
+    });
 
     const claimFocus = () => {
       if (state && currentTab() && currentTab().focus !== id) send({ cmd: "focusPane", id });
