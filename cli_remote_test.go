@@ -169,8 +169,13 @@ func TestRemoteLifecycle(t *testing.T) {
 		t.Errorf("status = %q, %v", out, err)
 	}
 
-	if _, _, err := runRemoteCmd(t, "revoke", "d1"); err != nil || !f.saw("DELETE /api/v1/host/devices/d1") {
+	out, _, err = runRemoteCmd(t, "revoke", "d1")
+	if err != nil || !f.saw("DELETE /api/v1/host/devices/d1") {
 		t.Errorf("revoke = %v; relay saw it: %v", err, f.saw("DELETE /api/v1/host/devices/d1"))
+	}
+	// The name is what says the right device went.
+	if !strings.Contains(out, "unpaired phone (d1)") {
+		t.Errorf("revoke does not name the device it unpaired: %q", out)
 	}
 
 	out, reloads, err = runRemoteCmd(t, "disable")

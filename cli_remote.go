@@ -371,11 +371,36 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	if err != nil {
 		return err
 	}
+	// The id is what revoke takes, but a name is what says the right device
+	// went, so it is looked up first.
+	name := ""
+	if r := rosterBriefly(cfg); r != nil {
+		for _, d := range r.Devices {
+			if d.ID == id {
+				name = strings.TrimSpace(d.Name)
+			}
+		}
+	}
 	if err := remote.NewClient(cfg, version).Revoke(context.Background(), id); err != nil {
 		return relayRefusal(err)
 	}
+	if name != "" {
+		id = name + " (" + id + ")"
+	}
 	fmt.Fprintf(rio.out, "unpaired %s; any window it had open has been closed\n", id)
 	return nil
+}
+
+// rosterBriefly is the account's roster, for a detail worth a few seconds
+// but not a wait: nil when the relay does not answer in time, or at all.
+func rosterBriefly(cfg *remote.Config) *remote.Roster {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r, err := remote.NewClient(cfg, version).Devices(ctx)
+	if err != nil {
+		return nil
+	}
+	return r
 }
 
 // devicesLost is how many paired devices taking cfg's machine off its relay
@@ -386,13 +411,10 @@ func devicesLost(cfg *remote.Config) int {
 	if cfg == nil {
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	r, err := remote.NewClient(cfg, version).Devices(ctx)
-	if err != nil || len(r.Hosts) != 1 {
-		return 0
+	if r := rosterBriefly(cfg); r != nil && len(r.Hosts) == 1 {
+		return len(r.Devices)
 	}
-	return len(r.Devices)
+	return 0
 }
 
 func remoteDisable(args []string, rio remoteIO) error {
