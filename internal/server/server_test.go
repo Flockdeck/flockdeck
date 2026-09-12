@@ -513,9 +513,10 @@ func TestCloseEndsControlConnections(t *testing.T) {
 	}
 }
 
-// TestRenameTabRejectsBlankAndClampsLongTitles covers what a window can
-// actually send: the rename prompt only checks that something was typed.
-func TestRenameTabRejectsBlankAndClampsLongTitles(t *testing.T) {
+// TestRenameTabIgnoresBlankAndClampsLongTitles covers what a window can
+// actually send. A blank name asks for the automatic title back, which a tab
+// that was never named by hand already has, so nothing changes.
+func TestRenameTabIgnoresBlankAndClampsLongTitles(t *testing.T) {
 	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	st := nextState(t, conn, nil)
@@ -536,6 +537,44 @@ func TestRenameTabRejectsBlankAndClampsLongTitles(t *testing.T) {
 	})
 	if n := len([]rune(st.Tabs[0].Title)); n > 41 {
 		t.Errorf("title kept %d runes, want it clamped", n)
+	}
+}
+
+// A tab named by hand could not be given its automatic title back: an emptied
+// name was refused with "a tab name is required". Now it is the way back, and
+// the state says which tabs are named, which is what offers it in the window.
+func TestAnEmptiedTabNameGivesBackTheAutomaticTitle(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	st := nextState(t, conn, nil)
+	id := st.Tabs[0].ID
+	if st.Tabs[0].Named {
+		t.Fatal("a tab nobody has renamed is marked as named by hand")
+	}
+
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "by hand"})
+	st = nextState(t, conn, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title == "by hand"
+	})
+	if !st.Tabs[0].Named {
+		t.Error("a tab renamed by hand is not marked as named, so nothing offers the way back")
+	}
+
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: "  "})
+	st = nextState(t, conn, func(s stateMsg) bool {
+		return len(s.Tabs) == 1 && s.Tabs[0].Title != "by hand"
+	})
+	if got := st.Tabs[0]; got.Title != "first" || got.Named {
+		t.Errorf("title = %q named = %v, want the title it had before it was named", got.Title, got.Named)
+	}
+
+	// Asking again, with nothing left to give up, is answered rather than
+	// ignored.
+	sendCmd(t, conn, command{Cmd: "renameTab", ID: id, Text: ""})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if note.Error || !strings.Contains(note.Text, "automatic title") {
+		t.Errorf("an emptied name on a tab that names itself was answered %+v", note)
 	}
 }
 
