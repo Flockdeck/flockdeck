@@ -335,6 +335,25 @@ func TestSummarisePromptStopsAtAWord(t *testing.T) {
 	}
 }
 
+// TestSummarisePromptDropsMarkdown covers a first prompt written in markdown or
+// opening on something pasted. A tab has room for a few words, and the marks
+// that only mean anything rendered — a heading, a fence, a quote, a bullet and
+// its box, bold — were spending them: "``` panic: runtime error:…".
+func TestSummarisePromptDropsMarkdown(t *testing.T) {
+	for prompt, want := range map[string]string{
+		"## Task\nRefactor the router so handlers live in router.go": "Task Refactor the router so…",
+		"```\npanic: runtime error: index out of range\n```\nwhy?":   "panic: runtime error: index…",
+		"> the build fails on windows\ncan you look?":                "the build fails on windows…",
+		"**Fix** the login bug on the settings page":                 "Fix the login bug on the…",
+		"- [ ] add a timeout to the control socket":                  "add a timeout to the…",
+		"* check the #123 regression":                                "check the #123 regression",
+	} {
+		if got := summarisePrompt(prompt); got != want {
+			t.Errorf("summarisePrompt(%q) = %q, want %q", prompt, got, want)
+		}
+	}
+}
+
 // TestOpenProjectSaysWhatWentWrong keeps the two failures apart: a path that
 // has been moved away and a path that is a file are fixed by different things.
 func TestOpenProjectSaysWhatWentWrong(t *testing.T) {

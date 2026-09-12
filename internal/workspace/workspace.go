@@ -764,10 +764,14 @@ func (w *Workspace) applyPendingTitles() {
 
 // summarisePrompt reduces a prompt to something that fits in a tab.
 func summarisePrompt(prompt string) string {
-	s := strings.Join(strings.Fields(prompt), " ")
+	raw := strings.TrimSpace(prompt)
 	// Slash commands and the synthetic messages Claude records are not what
 	// the tab should be called.
-	if s == "" || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "<") {
+	if raw == "" || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "<") {
+		return ""
+	}
+	s := strings.Join(strings.Fields(plainPrompt(raw)), " ")
+	if s == "" {
 		return ""
 	}
 	const limit = 28
@@ -786,6 +790,32 @@ func summarisePrompt(prompt string) string {
 		}
 	}
 	return strings.TrimSpace(string(r[:cut])) + "…"
+}
+
+// plainPrompt drops the markdown a prompt may be written in — heading and
+// quote marks, code fences, a bullet and its checkbox, bold — which only meant
+// anything rendered. A tab has room for a few words, and "``` panic: runtime"
+// or "## Task Refactor" spends them on punctuation.
+func plainPrompt(prompt string) string {
+	var words []string
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if isFence(line) {
+			continue
+		}
+		line = unheaded(line)
+		for strings.HasPrefix(line, ">") {
+			line = strings.TrimSpace(line[1:])
+		}
+		for _, bullet := range []string{"- ", "* ", "• "} {
+			if strings.HasPrefix(line, bullet) {
+				line = trimCheckbox(strings.TrimPrefix(line, bullet))
+				break
+			}
+		}
+		words = append(words, line)
+	}
+	return strings.NewReplacer("**", "", "__", "").Replace(strings.Join(words, " "))
 }
 
 // tabHolding builds a tab in project root holding a single pane, named the way
