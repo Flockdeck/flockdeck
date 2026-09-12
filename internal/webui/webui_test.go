@@ -4714,6 +4714,27 @@ assert.deepStrictEqual(ends(), [false, true], "a new tab running the strip past 
 `)
 }
 
+// A pane alone in its tab can be zoomed, and the zoom hides nothing; shown
+// as zoomed anyway, its bubble said "0 other panes are hidden" and offered
+// to bring them back.
+func TestALonePaneIsNotShownAsZoomed(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: true, root: leaf("n1", "p1") }],
+  panes: { p1: pane("p1") } }));
+const zoom = h.terms[0].host.parentElement.parentElement.querySelector("button.zoomed");
+assert.ok(!zoom, "a pane with nothing to hide is shown as zoomed: " + (zoom && zoom.dataset.tip));
+
+// Zoomed past another pane, it says so.
+h.recv(fixture({ tabs: [{ id: "t1", title: "two", focus: "p1", zoom: true,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2") } }));
+const on = h.doc.querySelectorAll("button.zoomed");
+assert.strictEqual(on.length, 1, "the zoomed pane is not shown as zoomed");
+assert.ok(/1 other pane is hidden/.test(on[0].dataset.tip), on[0].dataset.tip);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

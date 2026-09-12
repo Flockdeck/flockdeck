@@ -1699,7 +1699,10 @@
       if (!t.zoom || !t.focus) continue;
       const ids = new Set();
       collectPanes(t.root, ids);
-      zoomed.set(t.focus, ids.size - 1);
+      // A pane alone in its tab can be zoomed - by a stray double-click on
+      // its header - and hides nothing; shown as zoomed, its bubble said
+      // "0 other panes are hidden" and offered to bring them back.
+      if (ids.size > 1) zoomed.set(t.focus, ids.size - 1);
     }
     for (const [id, p] of panes) {
       const v = s.panes[id];
