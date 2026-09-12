@@ -156,6 +156,17 @@ make — is never replaced by a release. `FLOCKDECK_UPDATE=off` turns the
 background check off, and stops an update already downloaded being put in
 place when Flockdeck exits; the subcommand still works.
 
+### Uninstalling
+
+Turn remote access off first if it is on (`flockdeck remote disable`), so the
+relay forgets this machine. Then quit Flockdeck and delete it:
+`~/.local/bin/flockdeck`, or on Windows the `%LOCALAPPDATA%\Programs\flockdeck`
+folder, its Start menu shortcut and its entry in your PATH. Settings, layouts
+and keys are kept apart, in `%AppData%\flockdeck`,
+`~/Library/Application Support/flockdeck` or `~/.config/flockdeck`; delete that
+too. Worktrees Flockdeck made are ordinary git worktrees beside your
+repositories, and stay until you remove them.
+
 ## Running it
 
 Double-click the binary, launch it from a shortcut, or run it from a terminal —
