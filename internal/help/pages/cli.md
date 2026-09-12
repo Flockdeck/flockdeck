@@ -3,29 +3,35 @@
 Once it is running you rarely need the command line: projects are opened and
 switched from inside the window. These are what is left.
 
-```sh
-flockdeck                 # open the current directory
-flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # ignore the saved layout
-flockdeck -shell          # first pane is a shell, not an agent
-flockdeck -agent codex    # every new pane this run is that agent
-flockdeck -detach         # run with no window; attach to it later
-flockdeck -quit           # stop a running instance and its agents
-flockdeck -no-window      # just serve; print the URL and open it yourself
-flockdeck -solo           # start a separate instance instead of attaching
-flockdeck -version        # print the version
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck` | Open the current directory |
+| `flockdeck -C ~/code/api` | Open that directory, in the running instance if there is one |
+| `flockdeck -new` | Start without the saved layout, and replace it on exit |
+| `flockdeck -shell` | Make the first pane a shell, not an agent |
+| `flockdeck -agent codex` | Make every new pane this run that agent |
+| `flockdeck -detach` | Run with no window; attach to it later |
+| `flockdeck -quit` | Stop a running instance and its agents |
+| `flockdeck -no-window` | Just serve; print the URL and open it yourself |
+| `flockdeck -solo` | Start a separate instance instead of attaching |
+| `flockdeck -version` | Print the version |
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
 window onto it. `-solo` is the escape hatch when you genuinely want two.
+
+`-new` is not a way to glance at an empty window. When that run ends, its
+layout is saved over the one it skipped, and the list of other open projects is
+replaced too, so they are not reopened next time either — their own layouts are
+kept, and come back when you open them.
 
 ## spawn
 
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>
+flockdeck spawn [--worktree <branch>] [--split] [--shell]
+                [--agent <id>] [--model <model>] <task>
 ```
 
 `--agent` and `--model` choose which agent the helper is; without them it is
@@ -44,10 +50,11 @@ An API agent — one Flockdeck talks to directly rather than through a CLI of it
 own — needs a key. It is looked for in that agent's own environment variables
 first, and then in `keys.json` in the state directory.
 
-```sh
-flockdeck keys set openai    # reads the key from stdin, so it misses shell history
-flockdeck keys list          # which agents have one, not what it is
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys list` | Which agents have one, not what it is |
+| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
 
 Nothing here ever prints a key back, and neither does the interface.
 
@@ -55,18 +62,18 @@ Nothing here ever prints a key back, and neither does the interface.
 
 Reach this machine's agents from another device, through a relay.
 
-```sh
-flockdeck remote enable      # enrol this machine: -relay, -name, -join, -invite
-flockdeck remote pair        # a one-time link and QR code that pairs a device
-flockdeck remote pair -desktop  # a code that enrols another machine into the account
-flockdeck remote status      # is it on, and is it connected
-flockdeck remote devices     # what is paired, with the ids revoke takes
-flockdeck remote revoke <id> # unpair a device
-flockdeck remote disable     # remove this machine from the relay (-force if it cannot be reached)
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote enable` | Enrol this machine; takes `-relay`, `-name`, `-join`, `-invite` |
+| `flockdeck remote pair` | A one-time link and QR code that pairs a device |
+| `flockdeck remote pair -desktop` | A code that enrols another machine into the account |
+| `flockdeck remote status` | Whether it is on, and whether it is connected |
+| `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
+| `flockdeck remote revoke <id>` | Unpair a device |
+| `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
 
 A running instance is told when `enable` or `disable` changes anything, and
-connects or disconnects on the spot. **Remote access** has the rest.
+connects or disconnects on the spot. [Remote access](#remote) has the rest.
 
 ## chat
 
@@ -79,14 +86,20 @@ one that talks to a model API itself, with no wrapper CLI, no node and no
 Python. It is told which agent, which model and which session to be; the pane
 fills all three in, which is why you meet it as a pane rather than type it. Run
 outside a pane it still works, but there is nothing listening for the lifecycle
-events it reports, so nothing turns amber when it wants you.
+events it reports, so nothing turns amber when it wants you. It has flags of its
+own for setting it up by hand — which wire to speak, the base URL, the model,
+and which environment variable holds the key — and lists them when asked for
+help, for talking to an endpoint from a plain terminal. On
+Windows, run it as `flockdeck-chat chat`: `flockdeck.exe` is built without a
+console, so it has nowhere to draw the conversation, and `flockdeck-chat.exe`
+beside it is the same program built with one.
 
 ## update
 
-```sh
-flockdeck update          # fetch the latest release and put it in place
-flockdeck update -check   # say whether there is one, and stop
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck update` | Fetches the latest release and puts it in place |
+| `flockdeck update -check` | Says whether there is one, and stops |
 
 Releases are published on GitHub as one archive per platform, with a
 `checksums.txt` beside them. The download is checked against its published
@@ -98,17 +111,20 @@ is running from an image the operating system already holds, so the new version
 is simply what starts next time. The old file is moved aside and swept up by
 the following start.
 
-A build you made yourself is stamped `dev` rather than a version, and is never
-replaced by a release — there is no sense in which it is behind one.
+A build you made yourself — stamped `dev` by `go build` or `go install`, or by
+`git describe` when built with make — is never replaced by a release: there is
+no sense in which it is behind one.
 
-Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own. The
-subcommand still works; it is the background check that goes.
+Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own, and to stop
+an update it has already downloaded being put in place when Flockdeck exits.
+The subcommand still works; it is the background updating that goes.
 
 ## Environment
 
 | Variable | Effect |
 | --- | --- |
 | `FLOCKDECK_BROWSER` | Force which browser provides the window |
+| `FLOCKDECK_UPDATE` | `off` stops updating in the background: no checks, and nothing already downloaded is put in place |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
@@ -121,6 +137,9 @@ subcommand still works; it is the background check that goes.
 `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane —
 which has no lifecycle hooks of its own — has to go on.
 
-These were called `PERCH_*` before the program was renamed. Panes still
-carry both spellings and `spawn` still reads both, so a prompt or a script
-written against the old names keeps working; they will go in a later release.
+`FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
+`FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
+still carry both spellings of those five and `spawn` still reads both, so a
+prompt or a script written against the old names keeps working; they will go
+in a later release. `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` are newer and have
+only the one name.

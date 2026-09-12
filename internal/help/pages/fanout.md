@@ -5,16 +5,19 @@ list out of the pane's output and offers to start an agent for each item.
 
 Press [[key:fanout]], or use the `⑂` button in the pane header.
 
-The list is read out of the agent's own transcript where it wrote one — the
+For a Claude Code pane the list is read out of the agent's own transcript — the
 markdown it actually produced, rather than the wrapped and redrawn version of
-it on screen. A pane whose agent keeps no transcript Flockdeck can read, a shell
-among them, falls back to the screen and is more often wrong for it.
+it on screen. Any other pane, the built-in chat client and shells among them,
+falls back to the screen and is more often wrong for it.
 
 ## What the dialog does
 
 The extracted tasks appear in an editable box, one per line. **Nothing runs
 until you say so** — the list is a suggestion, not a decision. Edit it, delete
-the items you did not mean, add ones the agent missed.
+the items you did not mean, add ones the agent missed. <kbd>Enter</kbd> in the
+box starts a new line rather than the run: the **Start** button under it, which
+counts the agents, is what starts them, and <kbd>Esc</kbd> closes the dialog
+without starting any.
 
 These choices go with it:
 
@@ -24,9 +27,11 @@ These choices go with it:
   and the cheap one that is good enough for the six renames.
 - **Give each agent its own git worktree.** On by default in a repository.
   Each child gets a branch named after its task, so they work in parallel
-  without touching each other's files.
+  without touching each other's files. [Git worktrees](#worktrees) covers what
+  you can do with them afterwards.
 - **Put them in this tab, beside the agent that planned them.** Off, the
-  children get a new tab of their own, called **Fan out**. Either way they end
+  children get a new tab of their own, called **Fan out** — or named after the
+  task, when there is only one. Either way they end
   up in one tab together rather than a tab each: a dozen agents is a dozen tabs
   nobody can read, and a fan-out is precisely when you want to see them at once.
 - **Trust the new worktrees.** A fresh worktree is a directory the agent has
@@ -34,8 +39,11 @@ These choices go with it:
   one — would stop and ask whether the folder is trusted before doing any work,
   once per child. If the project you are fanning out from is already trusted,
   this carries that same answer over. It will not invent trust: the box is
-  disabled unless the source directory is genuinely trusted already, and it is
-  not offered at all for an agent that has nothing to ask.
+  disabled unless the source directory is genuinely trusted already. The
+  project's answer to Claude Code's second question, "Allow external CLAUDE.md
+  file imports?", comes across the same way: a yes stays a yes, a no stays a
+  no, and nothing is written if the project was never asked. The questions are
+  Claude Code's, so it does nothing for another agent.
 
 Each task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts rather than
@@ -49,10 +57,10 @@ starts. A row of twelve wraps every line a terminal prints and a stack of
 twelve leaves four lines showing, so neither is a tab you can actually watch.
 
 Rearrange them afterwards like any other pane: drag one onto another's edge,
-drag one out to the tab bar for a tab of its own, or drag a divider.
+drag one onto the `+` in the tab bar for a tab of its own, or drag a divider.
 
 Every child is a normal pane. Watch it, type into it, and review and commit
-its work from **Changes**.
+its work from [Changes](#changes).
 
 ## How many at once
 

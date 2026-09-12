@@ -12,6 +12,10 @@ starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
 
+A layout is written when the window closes or reloads, when you detach,
+restart or quit, and when a project is closed — not as you work, so if
+Flockdeck is killed or crashes, the changes since then are lost.
+
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity
 and conversation identity are the same thing, which is what makes restore
@@ -22,7 +26,7 @@ able to reattach one by id, and it has to have written a transcript to
 reattach. So a pane opened and never prompted starts a fresh conversation
 rather than dying on restore, and a pane running an agent that cannot resume
 comes back in the right place, in the right directory, with an empty
-conversation. **Agents and models** says which is which.
+conversation. [Agents and models](#agents) says which is which.
 
 A layout saved by a build that knew only about Claude is read without a
 murmur: its panes come back running Claude Code at whatever model the CLI is
@@ -41,6 +45,11 @@ flockdeck -quit     # stop everything
 
 Closing the window normally still quits, so nothing is left running by
 accident.
+
+`flockdeck -detach` gives the terminal back. On macOS and Linux, closing the
+terminal a Flockdeck was started from quits an attached run the orderly way,
+saving the layout first; a detached one, started with `-detach` or detached
+from the palette, carries on.
 
 ## Reloading the window
 

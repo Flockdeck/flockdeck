@@ -11,7 +11,9 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION         a release tag such as v0.1.1; the latest by default
+#   FLOCKDECK_VERSION         a release tag such as v0.1.1; the latest by default.
+#                             To stay on it, also set FLOCKDECK_UPDATE=off for
+#                             your user, or Flockdeck updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR     where flockdeck.exe goes
 #   FLOCKDECK_DOWNLOAD        where release files are fetched from, for a mirror
 #   FLOCKDECK_NO_MODIFY_PATH  set to 1 to leave PATH and the Start menu alone
@@ -51,6 +53,9 @@ function Install-Flockdeck {
         }
         if (-not $version) { throw "flockdeck: GitHub's answer did not name a release" }
     }
+    # Releases are tagged v1.2.3, and a version is as often written without
+    # the v; either finds the release rather than a download that is not there.
+    if ($version -notmatch '^v') { $version = "v$version" }
 
     $base = if ($env:FLOCKDECK_DOWNLOAD) { $env:FLOCKDECK_DOWNLOAD } else { "https://github.com/$repo/releases/download" }
     $dir = if ($env:FLOCKDECK_INSTALL_DIR) { $env:FLOCKDECK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\flockdeck' }
@@ -61,8 +66,15 @@ function Install-Flockdeck {
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         Write-Host "flockdeck: downloading $archive"
-        Invoke-WebRequest -UseBasicParsing "$base/$version/$archive" -OutFile (Join-Path $tmp $archive)
-        Invoke-WebRequest -UseBasicParsing "$base/$version/checksums.txt" -OutFile (Join-Path $tmp 'checksums.txt')
+        # A version that was never released is the usual failure here, and
+        # Invoke-WebRequest's own error does not say which file it wanted.
+        foreach ($name in $archive, 'checksums.txt') {
+            try {
+                Invoke-WebRequest -UseBasicParsing "$base/$version/$name" -OutFile (Join-Path $tmp $name)
+            } catch {
+                throw "flockdeck: could not download $base/$version/$name ($($_.Exception.Message))"
+            }
+        }
 
         $want = $null
         foreach ($line in Get-Content (Join-Path $tmp 'checksums.txt')) {
@@ -75,23 +87,53 @@ function Install-Flockdeck {
 
         $unpacked = Join-Path $tmp 'unpacked'
         Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $unpacked -Force
-        $exe = Join-Path $unpacked 'flockdeck.exe'
-        if (-not (Test-Path $exe)) { throw "flockdeck: $archive has no flockdeck.exe in it" }
+        if (-not (Test-Path (Join-Path $unpacked 'flockdeck.exe'))) { throw "flockdeck: $archive has no flockdeck.exe in it" }
 
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        # Windows will not overwrite an executable that is running, but it
-        # will rename one. This is what the application's own updater does:
-        # the old file goes to flockdeck.exe.old, and its next start removes it.
-        Copy-Item $exe "$dest.new" -Force
-        if (Test-Path $dest) {
-            if (Test-Path "$dest.old") { Remove-Item "$dest.old" -Force }
-            Move-Item $dest "$dest.old"
+        # flockdeck-chat.exe is the console twin an API agent's pane runs,
+        # because flockdeck.exe itself gets no console there. Releases before it
+        # have none, so it goes in when the archive has one and is not missed
+        # when it does not. The archive's checksum covers both.
+        foreach ($name in 'flockdeck.exe', 'flockdeck-chat.exe') {
+            $from = Join-Path $unpacked $name
+            if (-not (Test-Path $from)) { continue }
+            $to = Join-Path $dir $name
+            # Windows will not overwrite an executable that is running, but it
+            # will rename one. This is what the application's own updater does:
+            # the old file goes to <name>.old, and its next start removes it.
+            Copy-Item $from "$to.new" -Force
+            if (Test-Path $to) {
+                # The last .old can itself still be running, when the installer
+                # is run a second time before the app has been restarted.
+                # Windows will not delete a running program but will rename one,
+                # so what is in the way is set aside under a name of its own.
+                $old = "$to.old"
+                if (Test-Path $old) {
+                    try { Remove-Item $old -Force } catch { $old = "$to.$([Guid]::NewGuid().ToString('N')).old" }
+                }
+                Move-Item $to $old
+            }
+            Move-Item "$to.new" $to
         }
-        Move-Item "$dest.new" $dest
     } finally {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
     Write-Host "flockdeck: installed $version to $dest"
+    if ($env:FLOCKDECK_VERSION) {
+        Write-Host "flockdeck: to stay on $version, set FLOCKDECK_UPDATE=off for your user; otherwise Flockdeck updates itself to the latest"
+    }
+    # Starting it again while an older copy runs joins that copy instead.
+    Write-Host 'flockdeck: if Flockdeck is already running, quit it before starting this version'
+
+    # A copy found first on PATH -- a go install, say -- is the one that
+    # `flockdeck` runs, and adding this directory to the end of PATH will not
+    # change that.
+    $run = 'flockdeck'
+    $found = Get-Command flockdeck -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found -and $found.Source -ne $dest) {
+        Write-Host "flockdeck: note: the flockdeck your shell finds first is $($found.Source), not this one"
+        $run = "& '$dest'"
+    }
 
     if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') { return }
 
@@ -123,6 +165,7 @@ function Install-Flockdeck {
     } catch {
         Write-Host "flockdeck: could not add a Start menu shortcut: $_"
     }
+    Write-Host "flockdeck: start it from the Start menu, or run: $run"
 }
 
 Install-Flockdeck

@@ -10,8 +10,8 @@ next time.
 
 ## Dragging a pane
 
-Drag a pane by its header. While the drag is in progress every other pane
-shows what would happen:
+Drag a pane by its header. The pane under the pointer shows what would happen
+if you let go there:
 
 - onto the **left, right, top or bottom** of another pane — it goes there,
   joining that row or column rather than nesting a new split inside it;
@@ -49,7 +49,8 @@ starts its agents in.
 [[key:movePaneLeft]], [[key:movePaneRight]], [[key:movePaneUp]] and
 [[key:movePaneDown]] move the focused pane past its neighbour in that
 direction. The neighbour is chosen by what is on screen rather than by tree
-order, so the opposite arrow always puts it back.
+order, so the opposite arrow puts it back — except where two panes are equally
+near, when the upper or the left one is taken.
 
 The command palette carries the same moves, and [[action:movePaneToNewTab]]
 for the one dragging does by dropping a pane on `+`. It also has two that

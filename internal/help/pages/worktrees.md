@@ -22,10 +22,11 @@ For every worktree:
 | **Shell** | Open a plain shell there instead |
 | **Split** | Add an agent for it beside the pane you are looking at |
 | **Review** | See what changed there, commit and push |
-| **Remove** | Delete the worktree, with a confirmation that says what will be discarded when it has uncommitted work |
+| **Remove** | Delete the worktree — after asking, when it has uncommitted work that would be discarded. A clean one with panes still working in it is refused; close them first |
 
-**New worktree** creates one for a new branch off any base ref. It is created
-next to the repository; giving an existing branch name checks that branch out
+**New worktree** creates one for a new branch off any base ref —
+<kbd>Enter</kbd> in the branch box does the same. It is created next to the
+repository; giving an existing branch name checks that branch out
 instead of creating one. Branches that have no worktree are listed underneath
 as one-click buttons.
 

@@ -6,8 +6,12 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // The help pages are Markdown so they can be written as prose rather than as
@@ -16,8 +20,35 @@ import (
 // is what makes `[[key:…]]` able to expand to a real <kbd>.
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.Table, extension.Strikethrough),
+	goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(externalLinks{}, 100))),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
 )
+
+// externalLinks sends a link to the web somewhere other than the help's own
+// window. The help is shown inside the application window, and a plain link
+// followed there replaces the whole interface — every pane — with the page it
+// points at, with no address bar to come back by.
+type externalLinks struct{}
+
+func (externalLinks) Transform(doc *ast.Document, reader text.Reader, _ parser.Context) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		var dest string
+		switch l := n.(type) {
+		case *ast.Link:
+			dest = string(l.Destination)
+		case *ast.AutoLink:
+			dest = string(l.URL(reader.Source()))
+		}
+		if strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://") {
+			n.SetAttributeString("target", []byte("_blank"))
+			n.SetAttributeString("rel", []byte("noopener noreferrer"))
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // expand replaces the placeholders that keep a page's shortcuts tied to the
 // key table. Anything naming an action that does not exist is an error rather
@@ -27,11 +58,11 @@ func expand(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err = expandInlineKeys(out)
+	out, err = expandInlineKeysWith(out, kbd)
 	if err != nil {
 		return "", err
 	}
-	return expandActions(out)
+	return expandActionsWith(out, kbd)
 }
 
 // expandKeyTables replaces `{{keys}}` with every section and `{{keys:Name}}`
@@ -70,14 +101,10 @@ func expandKeyTables(src string) (string, error) {
 	}
 }
 
-// expandInlineKeys replaces `[[key:id]]` with the binding for that action.
-func expandInlineKeys(src string) (string, error) {
-	return expandInlineKeysWith(src, kbd)
-}
-
-// expandInlineKeysWith does the same with the binding wrapped however the
-// destination wants it: <kbd> for the rendered page, the bare keys for the
-// contents summary, which the interface shows as text.
+// expandInlineKeysWith replaces `[[key:id]]` with the binding for that
+// action, wrapped however the destination wants it: <kbd> for the rendered
+// page, the bare keys for the contents summary, which the interface shows as
+// text.
 func expandInlineKeysWith(src string, wrap func(string) string) (string, error) {
 	return expandPlaceholders(src, "[[key:", func(id string) (string, error) {
 		k, ok := Lookup(id)
@@ -89,11 +116,6 @@ func expandInlineKeysWith(src string, wrap func(string) string) (string, error) 
 		}
 		return wrap(k.Keys), nil
 	})
-}
-
-// expandActions replaces `[[action:id]]` with the way to reach that action.
-func expandActions(src string) (string, error) {
-	return expandActionsWith(src, kbd)
 }
 
 // expandActionsWith replaces `[[action:id]]` with the action's binding when it
@@ -148,9 +170,7 @@ func expandPlaceholders(src, open string, render func(id string) (string, error)
 // keyTable renders one group of actions as a Markdown table. Actions with no
 // binding are still listed: "in the palette" is where they are, and leaving
 // them out is how they came to be undocumented in the first place.
-func keyTable(rows []Key) string {
-	return keyTableWith(rows, func(keys string) string { return "<kbd>" + keys + "</kbd>" })
-}
+func keyTable(rows []Key) string { return keyTableWith(rows, kbd) }
 
 // keyTableWith renders the same table with the binding wrapped however the
 // destination wants it: <kbd> for the help pages, backticks for the README.

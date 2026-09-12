@@ -1,6 +1,7 @@
 package help
 
 import (
+	"encoding/json"
 	"io/fs"
 	"strings"
 	"testing"
@@ -195,6 +196,90 @@ func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
 		}
 		t.Errorf("%s (%q) says it is explained on the %s page, which never refers to it; "+
 			"add [[action:%s]] there, or clear its Page", k.ID, k.Label, k.Page, k.ID)
+	}
+}
+
+// The help is shown inside the application window, so a link out of it has to
+// open somewhere else rather than replace the interface.
+func TestExternalLinksOpenElsewhere(t *testing.T) {
+	for _, src := range []string{
+		"See [Claude Code](https://claude.com/claude-code).",
+		"See <https://claude.com/claude-code>.",
+	} {
+		got, err := toHTML(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `<a href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">`
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: got %s, want it to contain %s", src, got, want)
+		}
+	}
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		for _, l := range strings.Split(p.HTML, `<a href="http`)[1:] {
+			if tag, _, _ := strings.Cut(l, ">"); !strings.Contains(tag, `target="_blank"`) {
+				t.Errorf("%s: a link out of the help opens in the application window: <a href=\"http%s>", p.Slug, tag)
+			}
+		}
+	}
+}
+
+// Pages refer to each other as [Title](#slug), which the help viewer opens as
+// the page of that slug. A slug that names no page is a link that goes nowhere,
+// so it fails here rather than in front of a reader.
+func TestCrossReferencesNamePages(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, s := range order {
+		known[s] = true
+	}
+	links := 0
+	for _, p := range pages {
+		for _, l := range strings.Split(p.HTML, `<a href="#`)[1:] {
+			slug, _, _ := strings.Cut(l, `"`)
+			links++
+			if !known[slug] {
+				t.Errorf("%s: links to #%s, which is not a help page", p.Slug, slug)
+			}
+		}
+	}
+	if links == 0 {
+		t.Error("no page links to another; the cross-references have gone")
+	}
+}
+
+// A JSON example in a page is there to be copied into a real file, so one that
+// does not parse hands the reader a settings file the application rejects. A
+// Windows path written with single backslashes is the easy way to get there.
+func TestJSONExamplesParse(t *testing.T) {
+	for _, slug := range order {
+		src, err := fs.ReadFile(pagesFS, "pages/"+slug+".md")
+		if err != nil {
+			t.Fatalf("%s: %v", slug, err)
+		}
+		rest := strings.ReplaceAll(string(src), "\r\n", "\n")
+		for {
+			i := strings.Index(rest, "```json\n")
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len("```json\n"):]
+			end := strings.Index(rest, "```")
+			if end < 0 {
+				t.Fatalf("%s: unterminated json block", slug)
+			}
+			if !json.Valid([]byte(rest[:end])) {
+				t.Errorf("%s: a json example does not parse:\n%s", slug, rest[:end])
+			}
+			rest = rest[end+3:]
+		}
 	}
 }
 

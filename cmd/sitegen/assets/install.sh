@@ -10,7 +10,9 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION      a release tag such as v0.1.1; the latest by default
+#   FLOCKDECK_VERSION      a release tag such as v0.1.1; the latest by default.
+#                          To stay on it, also set FLOCKDECK_UPDATE=off where
+#                          Flockdeck runs, or it updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
 #   FLOCKDECK_DOWNLOAD     where release files are fetched from, for a mirror
 #
@@ -52,7 +54,9 @@ detect_os() {
 	case "$(uname -s)" in
 		Linux) echo linux ;;
 		Darwin) echo darwin ;;
-		*) die "$(uname -s) is not covered by this script; on Windows, in PowerShell: irm https://flockdeck.ai/install.ps1 | iex" ;;
+		# Git Bash, MSYS2 and Cygwin: Windows, which has its own installer.
+		MINGW* | MSYS* | CYGWIN*) die "on Windows, install from PowerShell instead: irm https://flockdeck.ai/install.ps1 | iex" ;;
+		*) die "no release is built for $(uname -s); with Go installed, go install github.com/$REPO@latest builds it from source" ;;
 	esac
 }
 
@@ -74,6 +78,11 @@ detect_arch() {
 main() {
 	os=$(detect_os)
 	arch=$(detect_arch "$os")
+	# Run from a service or under env -i there may be no HOME, and set -u
+	# would stop on it with nothing to say what to do instead.
+	if [ -z "${FLOCKDECK_INSTALL_DIR:-}" ] && [ -z "${HOME:-}" ]; then
+		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
+	fi
 	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
 	base=${FLOCKDECK_DOWNLOAD:-"https://github.com/$REPO/releases/download"}
 
@@ -88,6 +97,9 @@ main() {
 		version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
 		[ -n "$version" ] || die "GitHub's answer did not name a release"
 	fi
+	# Releases are tagged v1.2.3, and a version is as often written without
+	# the v; either finds the release rather than a download that is not there.
+	case "$version" in v*) ;; *) version="v$version" ;; esac
 
 	archive="flockdeck_${version}_${os}_${arch}.tar.gz"
 	say "downloading $archive"
@@ -109,14 +121,36 @@ main() {
 	cp "$tmp/flockdeck" "$dir/.flockdeck.new" &&
 		chmod 755 "$dir/.flockdeck.new" &&
 		mv -f "$dir/.flockdeck.new" "$dir/flockdeck" ||
-		die "could not write $dir/flockdeck"
+		{ rm -f "$dir/.flockdeck.new"; die "could not write $dir/flockdeck"; }
 	say "installed $version to $dir/flockdeck"
+	if [ -n "${FLOCKDECK_VERSION:-}" ]; then
+		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
+	fi
 
+	# A copy found first on PATH -- a go install, say -- is the one that runs,
+	# so it is not the one to be told to start.
+	found=$(command -v flockdeck 2>/dev/null || true)
+	shadowed=
+	if [ -n "$found" ] && [ "$found" != "$dir/flockdeck" ]; then
+		shadowed=1
+	fi
 	case ":$PATH:" in
-		*":$dir:"*) say "start it with: flockdeck" ;;
+		*":$dir:"*)
+			if [ -n "$shadowed" ]; then
+				say "start it with: $dir/flockdeck"
+			else
+				say "start it with: flockdeck"
+			fi ;;
 		*) say "$dir is not on your PATH; add this line to your shell's profile:"
-			printf '    export PATH="%s:$PATH"\n' "$dir" ;;
+			# Escaped for the double quotes it is printed in, so a directory with
+			# a quote, a dollar or a backslash in its name still pastes as itself.
+			printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')" ;;
 	esac
+	if [ -n "$shadowed" ]; then
+		say "note: the flockdeck your shell finds first is $found, not this one"
+	fi
+	# Starting it again while an older copy runs joins that copy instead.
+	say "if Flockdeck is already running, quit it before starting this version"
 }
 
 main "$@"

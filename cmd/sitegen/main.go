@@ -25,6 +25,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The install scripts are served from the site so the line a visitor copies is
@@ -82,7 +83,11 @@ func run(out, repo, module, url string) error {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
 
-	s := site{Repo: repo, Module: module, URL: url}
+	// The template appends "/install.sh" and the like to both addresses, and
+	// "@latest" to the module path, so a slash given at the end of any of them
+	// would print a doubled one into an install line, or a go install line go
+	// does not accept.
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/")}
 
 	page, err := render(s)
 	if err != nil {
@@ -98,39 +103,36 @@ func run(out, repo, module, url string) error {
 		"index.html":  page,
 		"site.css":    css,
 		"favicon.svg": icon,
-		// Pages runs what it is given through Jekyll unless it is told not to,
-		// and Jekyll hides every path beginning with an underscore. There is
-		// nothing here for it to do.
-		".nojekyll": nil,
 	}
-	// The scripts are run straight off the wire, and a checkout on Windows can
-	// hand them over with CRLF endings, which sh takes as part of every
-	// command. They are written out with LF whatever the working tree had.
 	for _, name := range []string{"install.sh", "install.ps1"} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			return err
 		}
+		files[name] = body
+	}
+	// Every text file is written with LF whatever the working tree had. A
+	// Windows checkout hands the assets over with CRLF, which sh takes as part
+	// of every command in install.sh; and the site should be the same bytes
+	// whichever machine generates it, or regenerating it from another checkout
+	// rewrites every line of the site's repository.
+	for name, body := range files {
 		files[name] = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 	}
-
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
-		}
-	}
-
+	// The screenshots are served beside the page, not from a folder of their own.
 	shots, err := assets.ReadDir("assets/shots")
 	if err != nil {
 		return err
 	}
 	for _, e := range shots {
-		data, err := assets.ReadFile("assets/shots/" + e.Name())
-		if err != nil {
+		if files[e.Name()], err = assets.ReadFile("assets/shots/" + e.Name()); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(out, e.Name()), data, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", e.Name(), err)
+	}
+
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(out, name), body, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}
 

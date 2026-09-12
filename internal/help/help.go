@@ -39,6 +39,7 @@ var order = []string{
 	"projects",
 	"persistence",
 	"remote",
+	"settings",
 	"shortcuts",
 	"cli",
 	"troubleshooting",
@@ -78,20 +79,11 @@ func Slugs() []string {
 	return out
 }
 
+// render renders every page in order. A slug with no file behind it fails in
+// renderPage, naming the page; TestOrderMatchesFiles catches it before then.
 func render() ([]Page, error) {
-	files, err := fileSlugs()
-	if err != nil {
-		return nil, err
-	}
-	known := map[string]bool{}
-	for _, s := range files {
-		known[s] = true
-	}
 	pages := make([]Page, 0, len(order))
 	for _, slug := range order {
-		if !known[slug] {
-			return nil, fmt.Errorf("help: page %q is listed in order but has no file", slug)
-		}
 		p, err := renderPage(slug)
 		if err != nil {
 			return nil, err

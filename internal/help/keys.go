@@ -47,8 +47,8 @@ var Keys = []Key{
 	{ID: "splitDown", Keys: "Ctrl+Shift+E", Label: "Split down (agent)", Section: "Panes", Page: "panes"},
 	// The plain splits and the plain new tab take the default agent and stay one
 	// keystroke; these two are the same thing with the picker in front of it, and
-	// they have no binding of their own because they are reached by holding the
-	// split button, by the caret beside New tab, and from the palette.
+	// they have no binding of their own because they are reached by the caret
+	// beside the + in the tab bar and from the palette.
 	{ID: "splitRightChoose", Label: "Split right (choose agent)…", Section: "Panes", Page: "agents"},
 	{ID: "splitRightShell", Label: "Split right (shell)", Section: "Panes", Page: "panes"},
 	{ID: "movePaneLeft", Keys: "Ctrl+Shift+←", Label: "Move pane left", Section: "Panes", Page: "rearranging"},
@@ -75,6 +75,7 @@ var Keys = []Key{
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
+	{ID: "apiKeys", Label: "API keys…", Section: "Agents", Page: "agents"},
 
 	// --- git ---------------------------------------------------------------
 	{ID: "worktrees", Keys: "Ctrl+Shift+G", Label: "Worktrees", Section: "Git", Page: "worktrees"},

@@ -23,7 +23,7 @@ keys` keeps it.
 ┌ flockdeck ──────────────────────────────────────── ─ □ × ┐
 │ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
 ├───────────────────────────┬──────────────────────────────┤
-│ ● api ⎇ main ●3  Reading  │ ▲ api ⎇ fix-auth ↑2          │
+│ ● api ⎇ main ●3  Read     │ ▲ api ⎇ fix-auth ↑2          │
 │   claude · sonnet         │   codex · gpt-5              │
 │  (live agent terminal)    │  (live agent terminal)       │
 ├───────────────────────────┴──────────────────────────────┤
@@ -41,8 +41,9 @@ keys` keeps it.
 - **Rearrange what is already running** — drag a pane to another edge, another
   tab or a tab of its own, or merge two tabs into one, without restarting the
   agent in any of them.
-- **Each agent knows where it is** — its own conversation, its own checkout, and
-  a briefing at session start on which pane it is and who else is working.
+- **Each agent knows where it is** — its own conversation, its own checkout, and,
+  for Claude Code and the API agents, a briefing at session start on which pane
+  it is and who else is working.
 - **One glance tells you who needs you** — per-pane status driven by the agent's
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
@@ -74,6 +75,37 @@ knows about either way, greying out the ones this machine has not got and
 saying where to get them.
 
 ```sh
+curl -fsSL https://flockdeck.ai/install.sh | sh   # macOS and Linux
+irm https://flockdeck.ai/install.ps1 | iex        # Windows, in PowerShell
+```
+
+Either one downloads the latest release for the machine, checks it against the
+release's checksums and puts it in a directory you own — `~/.local/bin`, or
+`%LOCALAPPDATA%\Programs\flockdeck` with a Start menu shortcut on Windows — so
+neither installing nor updating ever asks for admin rights. The scripts are in
+`cmd/sitegen/assets`, beside the page that serves them.
+
+Both read a few settings from the environment:
+
+- `FLOCKDECK_VERSION` — a release such as `v0.1.1` instead of the latest. To
+  stay on it, also set `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it
+  updates itself.
+- `FLOCKDECK_INSTALL_DIR` — another directory to install into.
+- `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from.
+- `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
+  alone.
+
+```sh
+curl -fsSL https://flockdeck.ai/install.sh | FLOCKDECK_INSTALL_DIR=~/bin sh
+```
+
+```powershell
+$env:FLOCKDECK_VERSION = 'v0.1.1'; irm https://flockdeck.ai/install.ps1 | iex
+```
+
+With Go:
+
+```sh
 go install github.com/jmwri/flockdeck@latest
 ```
 
@@ -84,10 +116,16 @@ make build      # a binary for this machine
 make dist       # binaries for all six supported platforms
 ```
 
+Where there is no `make`, as on many Windows machines, `go build .` builds the
+same program; on Windows add `-ldflags -H=windowsgui`, as the Makefile does,
+so that it opens without a console window behind it.
+
 The whole program builds with `CGO_ENABLED=0`, including the PTY layer and the
 front end, so `windows`, `linux` and `darwin` on both `amd64` and `arm64` all
 cross-compile from any one machine with nothing but the Go toolchain. There is
-one artifact: a single binary with no assets to install beside it.
+one artifact: a single binary with no assets to install beside it. The Windows
+release also carries `flockdeck-chat.exe`, the same program linked for the
+console, which is what an API agent's pane runs there.
 
 ### Staying up to date
 
@@ -99,9 +137,10 @@ cross-builds all six and publishes them.
 A running Flockdeck watches for releases and downloads anything newer in the
 background, checking it against its published SHA-256. Nothing is replaced
 while you are working. When a release is ready a chip appears in the top bar,
-and installing it is a restart you ask for: the layout is saved and reopened,
-though the agents running in panes are stopped, which is why it is never done
-for you.
+and installing it now is a restart you ask for: the layout is saved and
+reopened, though the agents running in panes are stopped, which is why it is
+never done for you. Otherwise it goes in as Flockdeck next quits, unless
+`FLOCKDECK_UPDATE=off`, so the start after that is the new version.
 
 From a terminal:
 
@@ -111,25 +150,47 @@ flockdeck update -check   # say whether there is one, and stop
 ```
 
 Replacing the binary leaves a running instance alone — it is already loaded —
-so the new version is what starts next time. A build you made yourself is
-stamped `dev` and is never replaced by a release. `FLOCKDECK_UPDATE=off` turns
-the background check off; the subcommand still works.
+so the new version is what starts next time. A build you made
+yourself — stamped `dev` by `go build`, or by `git describe` when built with
+make — is never replaced by a release. `FLOCKDECK_UPDATE=off` turns the
+background check off, and stops an update already downloaded being put in
+place when Flockdeck exits; the subcommand still works.
+
+### Uninstalling
+
+Turn remote access off first if it is on (`flockdeck remote disable`), so the
+relay forgets this machine. Then quit Flockdeck and delete it:
+`~/.local/bin/flockdeck`, or on Windows the `%LOCALAPPDATA%\Programs\flockdeck`
+folder, its Start menu shortcut and its entry in your PATH. Settings, layouts
+and keys are kept apart, in `%AppData%\flockdeck`,
+`~/Library/Application Support/flockdeck` or `~/.config/flockdeck`; delete that
+too. Worktrees Flockdeck made are ordinary git worktrees beside your
+repositories, and stay until you remove them.
 
 ## Running it
 
 Double-click the binary, launch it from a shortcut, or run it from a terminal —
-all three work. It opens its own window; there is no terminal to keep around.
+all three work. It opens its own window. On Windows there is no terminal to keep
+around. On macOS and Linux, a Flockdeck started from a terminal runs in it, and
+so does a binary double-clicked on macOS, which opens one. Closing that terminal
+quits an attached Flockdeck the orderly way, saving the layout and stopping the
+agents. A detached one carries on, whether it was started with
+`flockdeck -detach` (which gives the terminal back) or detached from the
+command palette.
 
 ```sh
 flockdeck                 # open the current directory
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # ignore the saved layout
+flockdeck -new            # start without the saved layout, and replace it on exit
 flockdeck -shell          # first pane is a shell, not an agent
+flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
 flockdeck -quit           # stop a running instance and its agents
 flockdeck -no-window      # just serve; print the URL and open it yourself
 flockdeck -solo           # start a separate instance instead of attaching
+flockdeck -version        # print the version
 
+flockdeck agents          # the agents it can run, and which are installed here
 flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
 
@@ -161,16 +222,18 @@ interface and displays in a **chromeless application window** — no tabs, no
 address bar. It looks and behaves like a native window while keeping the
 program a single dependency-free binary.
 
-That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
-Brave or Chromium, whichever is found first. On Windows this is always
+That window is provided by a Chromium-based browser in app mode: Chrome, Edge
+or Brave — and on Linux Chromium or Vivaldi as well — whichever is found first. On Windows this is always
 satisfied because Edge ships with the OS. If none is installed the page opens
 as an ordinary tab in your default browser instead, which works but looks less
 like an application. `FLOCKDECK_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run. Remote access, below, does not change that: it
-is a connection this machine makes outward, not one it accepts.
+generated fresh for each run. [Remote access](#remote-access), below, opens no port either: it
+is a connection this machine makes outward, not one it accepts, and what
+arrives through it is let in because the relay has already checked the device,
+not by the token.
 
 ## Keyboard shortcuts
 
@@ -222,6 +285,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
 | `Ctrl+Shift+A` | All agents across projects |
+| Command palette | API keys… |
 
 ### Git
 
@@ -253,9 +317,11 @@ which the command palette and the in-app help are also drawn from; run
 
 <!-- shortcuts:end -->
 
-Panes are focused by clicking, resized by dragging the divider between them,
-moved by dragging their header, and closed, restarted or zoomed from the
-buttons in their header.
+Panes are focused by clicking, resized by dragging the divider between them
+(or from the keyboard: `Tab` to it, then the arrow keys, and `Home` to share
+the room equally), moved by dragging their header, and closed, restarted or
+zoomed from the buttons in their header. In any dialog `Esc` closes it and the
+arrow keys and `Enter` work through its list.
 
 ## How each feature works
 
@@ -266,9 +332,9 @@ which model. Both are made per pane, defaulted per project, and remembered with
 the layout.
 
 The plain split and new-tab keystrokes take the project's default and stay one
-keystroke, because that is what you want almost every time. The picker — held
-split button, the caret beside **New tab**, or the command palette — is for
-choosing deliberately. It lists agents as **installed** and **not installed**,
+keystroke, because that is what you want almost every time. The picker — the
+caret beside the `+` in the tab bar, or the command palette — is for choosing
+deliberately. It lists agents as **installed** and **not installed**,
 each expanding to its models with the default marked, and offers *set as
 default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
@@ -286,9 +352,12 @@ There are two ways an agent gets run:
   Google, and any OpenAI-compatible endpoint, which is how a local Ollama, LM
   Studio or vLLM — or a gateway — becomes an agent. No wrapper CLI, no node, no
   Python; one binary. It streams, it renders code and tool calls, it carries the
-  model and the running cost on a status line, and it has the file and command
-  tools an agent needs, each confined to the pane's working directory and each
-  asking before it writes or runs anything. That ask is reported as a
+  model and its token counts on a status line (and the running cost for
+  Anthropic's models, the only prices it knows), and it has the file and command
+  tools an agent needs: the file tools confined to the pane's working
+  directory, commands started in it, and each asking before it writes or runs
+  anything, unless you have answered *always* to a command like it this
+  session. That ask is reported as a
   lifecycle event, so the pane turns amber and the user is told which pane
   wants them — which is the whole point of this application.
 
@@ -334,15 +403,17 @@ knows, not decorating the window.
 | green, pulsing | Working — producing output or running a tool |
 | amber | **Waiting on you** — a permission prompt or a question |
 | grey | Idle — finished its turn, ready for a new prompt |
+| faint grey | Starting — launched, and not heard from yet |
 | red | The process exited |
 
 For an agent that reports its own lifecycle, this is not screen scraping. A
 Claude Code pane is launched with a generated `--settings` file registering its
 lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop`, …),
 and an API pane's chat client reports the same event names itself, so nothing
-in the workspace has to learn a second protocol. Either way the event re-invokes
-this same binary in a hidden `hook` mode, which posts it to a loopback server
-the app runs, authenticated with a per-run token. Status therefore reflects
+in the workspace has to learn a second protocol. A Claude Code event re-invokes
+this same binary in a hidden `hook` mode, and the chat client sends its own;
+either way it is posted to a loopback server the app runs, authenticated with a
+per-run token. Status therefore reflects
 what the agent is actually doing rather than what its output happens to look
 like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 
@@ -351,11 +422,12 @@ apply.
 
 Not every coding agent has a lifecycle to register, and Flockdeck runs those too.
 For them the status is read from the terminal instead: the bell, a quiet timer,
-and per-agent patterns for the two lines that matter — the shape of a
-permission question, and the shape of a prompt waiting to be typed at. It is
-matched against the last few hundred bytes with the escape sequences stripped,
-never against the whole scrollback, and a reported event always beats a
-pattern. It is a guess where the other is a fact, and the help says which
+and — for an agent whose `agents.json` entry gives them — patterns for the two
+lines that matter, the shape of a permission question and the shape of a
+prompt waiting to be typed at. They are matched against the last few hundred
+bytes with the escape sequences stripped, never against the whole scrollback,
+and a reported event always beats a pattern. None of the built-in agents has
+patterns yet. It is a guess where the other is a fact, and the help says which
 agents are which so you know which you are looking at.
 
 ### Rearranging what is already running
@@ -364,8 +436,8 @@ A layout is rarely right first time: the agent you thought was a side errand
 turns out to be the one you are watching, and it is in the wrong corner. Panes
 are therefore movable, not just creatable.
 
-**Drag a pane by its header.** While a drag is in progress every other pane
-shows where the pane would land:
+**Drag a pane by its header.** The pane under the pointer shows where the
+dragged one would land if you let go there:
 
 - onto the **left, right, top or bottom** of another pane — it goes there,
   splitting that pane's space, joining an existing row or column rather than
@@ -416,7 +488,8 @@ does not know that its neighbour is editing the same repository on another
 branch, that the directory it was dropped into is a worktree rather than the
 project, or that the thing it was asked to do came from another agent's plan.
 
-So every agent pane is told, in its own words, when it starts:
+So Claude Code and the API agents are told, in their own words, when they
+start:
 
 - which pane it is, in which tab and which project;
 - the directory and branch it has, and whether that is a worktree of its own
@@ -447,11 +520,14 @@ overwritten. `SessionStart` fires again after a compaction and on resume, so a
 pane that has been running all day is still oriented after its context has been
 summarised away.
 
-An agent with no hook to answer gets the same briefing in front of its opening
-prompt instead, fenced in a `<flockdeck-context>` block so it can tell the two
-apart — and gets it alone if there is no opening task. That is once per launch
-rather than once per compaction, which is honest as long as the briefing says
-when it was taken, and it does.
+An agent with no hook to answer can have the same briefing put in front of its
+opening prompt instead, when its entry in `agents.json` sets
+`"caps": {"context": "prompt"}`. It is fenced in a `<flockdeck-context>` block
+so the agent can tell the two apart, and sent alone if there is no opening
+task. That is once per launch rather than once per compaction, which is honest
+as long as the briefing says when it was taken, and it does. None of the
+built-in CLI agents asks for it, so Codex, Gemini CLI, Aider, opencode and
+Cursor Agent start unbriefed.
 
 Panes also carry `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`,
 `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` in their environment. The first three are what
@@ -463,8 +539,8 @@ drops them.
 
 The isolation this describes is real rather than advisory. Each pane is a
 separate top-level session with its own session id, its own generated settings
-file, and an environment scrubbed of the markers a parent agent session would
-otherwise pass down. Those markers are stripped for every agent in the catalog
+file where the agent takes hooks, and an environment scrubbed of the markers a
+parent agent session would otherwise pass down. Those markers are stripped for every agent in the catalog
 rather than only the one in this pane, because Flockdeck may have been launched
 from inside any of them; nothing is shared between two panes.
 
@@ -501,13 +577,14 @@ what that agent last said, pulls the list items out of it, and offers them —
 editable, one per line — as a set of agents to start. Nothing runs until you say
 so; the extracted list is a suggestion, not a decision.
 
-What it reads is the agent's own transcript, not the pane's screen. The screen
-is a redrawn interface: bullets are wrapped to the pane's width and so cut
-mid-sentence, the status line begins with a glyph indistinguishable from a
-bullet, and the agent's thinking sits in the same column as its answer — all of
-of which arrives looking like a plan. The transcript is the markdown the agent
-actually wrote. A pane with no transcript Flockdeck can read — a shell, or an agent
-that keeps none — still falls back to the screen.
+For a Claude Code pane, what it reads is the agent's own transcript, not the
+pane's screen. The screen is a redrawn interface: bullets are wrapped to the
+pane's width and so cut mid-sentence, the status line begins with a glyph
+indistinguishable from a bullet, and the agent's thinking sits in the same
+column as its answer — all of which arrives looking like a plan. The
+transcript is the markdown the agent actually wrote. Every other pane — a
+shell, or any other agent, the built-in chat client included — still falls
+back to the screen.
 
 The list is narrowed to what reads as work. Nested bullets are detail about a
 job rather than jobs of their own; entries under a line that announces a plan
@@ -542,9 +619,12 @@ question of its own — Claude Code has one — would stop and ask whether the
 folder is trusted before doing any work, once per child. If the project you are
 fanning out from is already trusted, the dialog offers to carry that same
 answer over to the worktrees it creates. It is a checkbox, it says what it
-does, it is not offered for an agent that has nothing to ask, and it will not
-invent trust: inheriting is refused unless the source directory is genuinely
-trusted already.
+does, and it will not invent trust: inheriting is refused unless the source
+directory is genuinely trusted already. The project's answer to Claude Code's
+second question, "Allow external CLAUDE.md file imports?", comes across the
+same way: a yes stays a yes, a no stays a no, and nothing is written if the
+project was never asked. The questions are Claude Code's, so it does nothing
+for another agent.
 
 #### An agent starting its own helpers
 
@@ -587,7 +667,8 @@ directory has. Claude Code's implementation is the one that was already here —
 the folder is derived from the working directory, and since that mangling is
 Claude's business, a folder that does not match is found by reading which
 directory its transcripts record. The built-in chat client keeps JSONL of its
-own and reads it the same way. An agent that writes nothing Flockdeck can read
+own, which resuming one of its panes reads, but the list is Claude Code's alone
+for now. An agent that writes nothing Flockdeck can read
 contributes nothing to the list, and every caller copes with that rather than
 special-casing it. A conversation already open in a pane is shown as such
 rather than offered twice, because two panes on one transcript would fight.
@@ -634,16 +715,16 @@ background, so you can see the state of every agent's tree at a glance.
 
 ### Finding your way around
 
-`Ctrl+Shift+K` opens a command palette listing every action, including
-switching to any open project or tab by name. `Ctrl+Shift+F` searches the
-focused terminal. `Ctrl+=` and `Ctrl+-` change the terminal font size, which is
-remembered.
+`Ctrl+Shift+K` opens a command palette listing every action but the
+tab-switching keys, and switching to any open project or tab by name. `Ctrl+Shift+F` searches the
+focused terminal. `Ctrl+=` and `Ctrl+-` change the terminal font size for
+every pane, until the application is next started.
 
 ### Help
 
 `F1` opens the help: a page per feature, searchable across all of them, beside
-a contents list. Every dialog carries a `?` that opens the page explaining what
-is in it, and a dismissible hint appears under the tab bar for the gestures the
+a contents list. Almost every dialog carries a `?` that opens the page
+explaining what is in it, and a dismissible hint appears under the tab bar for the gestures the
 interface cannot advertise for itself — dragging a pane, what an amber dot
 means. The first run opens it once, unasked, and never again.
 
@@ -657,11 +738,12 @@ its test rather than misleading a reader.
 
 ### Broadcast input
 
-Broadcast mirrors your typing into every pane in the broadcast set — by default
-every agent in the current tab, adjustable with the `⇉` button in each pane
-header. The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it to
-all of them at once, which is what you want for "run the tests and fix what
-breaks" across several worktrees.
+The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it as one
+submitted message, which is what you want for "run the tests and fix what
+breaks" across several worktrees. Broadcast decides who receives it: with it
+off, the focused pane and any panes picked with the `⇉` button in their
+header; with it on, every pane in the broadcast set — by default every agent
+in the tab on screen. What you type into a pane still goes to that pane alone.
 
 ### Remote access
 
@@ -684,7 +766,10 @@ makes becomes a stream, and each stream is served in-process by the very
 handlers the local window uses. So the remote window is not a second interface
 kept level with the first: it is the first, every pane and every dialog, and
 the front end asks for everything relative to wherever it was served from so
-that it works under the relay's per-machine prefix unchanged.
+that it works under the relay's per-machine prefix unchanged. A pane open in
+two windows at once takes the size of whichever last typed into it or focused
+it, so glancing from a phone leaves the desk's terminal alone, and typing on the
+phone fits it to the phone until you type at the desk again.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** chip in the
@@ -721,8 +806,9 @@ agents running for later. A remote window closing never stops anything.
 - **The API agent is the same binary.** Talking to a model API directly is a
   subcommand run in the pane's own terminal, reporting the same lifecycle
   events over the same loopback endpoint as a CLI agent's hooks. Nothing in the
-  workspace learns a second protocol, and there is still one artifact to
-  install.
+  workspace learns a second protocol, and there is still one program to
+  install; on Windows it also ships as `flockdeck-chat.exe`, linked for the
+  console, because the window build gets none in a pane.
 - **Emulation happens in the browser.** xterm.js renders the terminal and
   encodes keystrokes for whatever modes the application has enabled, so raw
   bytes pass through Go untouched in both directions. Go never has to
@@ -778,10 +864,21 @@ its slug to `order` in `internal/help/help.go`. To change a shortcut, edit
 go test ./internal/help -run TestREADMEShortcuts -update
 ```
 
-Two development aids live under `cmd/` and are not part of the product:
+Two programs under `cmd/` make what is published rather than the application:
+
+- `cmd/release` cross-builds every platform and writes the archives and
+  `checksums.txt` a release is made of; `make package` runs it.
+- `cmd/sitegen` writes the landing page at flockdeck.ai, and the install
+  scripts it serves, from `cmd/sitegen/assets`:
+  `go run ./cmd/sitegen -out ../flockdeck-site`.
+
+Four development aids live under `cmd/` and are not part of the product:
 
 - `cmd/hooktest` starts one real agent pane, sends it a prompt and prints every
-  status transition, verifying the hook pipeline end to end.
+  status transition, verifying the hook pipeline end to end. Build the binary
+  first and point it there — `go run ./cmd/hooktest -hookbin ./flockdeck.exe`.
+  The prompt is a real one, so it spends a short turn through your own Claude
+  Code login.
 - `cmd/ctl` drives a running instance over its control socket, `cmd/statedump`
   prints what it reports about its panes, and `cmd/treedump` prints the tab and
   split structure. Together they are how the UI is exercised and inspected
@@ -789,13 +886,13 @@ Two development aids live under `cmd/` and are not part of the product:
   back.
 
 ```sh
-go build -o flockdeck.exe . && ./flockdeck.exe -no-window
+go build -o flockdeck.exe . && ./flockdeck.exe -solo -no-window
 go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","dir":"h","kind":"agent","agent":"claude"}'
 ```
 
 The front end is vendored, not fetched at build time. To update it, replace the
 files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
-`@xterm/addon-fit` and `@xterm/addon-webgl` packages.
+`@xterm/addon-fit`, `@xterm/addon-search` and `@xterm/addon-webgl` packages.
 
 ## Limitations
 
@@ -808,6 +905,10 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 - The window needs a browser engine present. Every supported platform ships one
   or has one in practice, but on a bare Linux install with no browser at all
   there is nothing to display the interface in.
+- Release binaries are not signed. The install scripts are unaffected, but a
+  copy downloaded from the releases page in a browser can be stopped by
+  Gatekeeper or SmartScreen the first time it runs; the in-app help's
+  troubleshooting page says how to let it through.
 
 ## Licence
 

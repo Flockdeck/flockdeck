@@ -23,7 +23,7 @@ another tab, or a tab of its own; nothing restarts, and the conversation,
 working directory and scrollback come with it.
 
 **[[key:palette]] opens the command palette**, which holds every action in the
-application, searchable. If you remember one shortcut, remember that one.
+application but switching tabs, searchable. If you remember one shortcut, remember that one.
 
 ## A first session
 
@@ -41,17 +41,19 @@ application, searchable. If you remember one shortcut, remember that one.
 ## When one agent is not enough
 
 Two agents editing the same files will fight. Give each its own checkout
-instead: worktrees creates them, and fan out turns one agent's plan into a set
-of agents that each take a task in a worktree of their own.
+instead: [[key:worktrees]] opens the worktrees, where you can create them, and
+[[key:fanout]] fans out — it turns one agent's plan into a set of agents that
+each take a task in a worktree of their own. [Git worktrees](#worktrees) and
+[Fan out](#fanout) cover both.
 
 ## Which agent, which model
 
 A pane's header names what is in it — `claude · sonnet`, `codex · gpt-5` —
-beside its branch. **Agents and models** explains the picker, what changes when
+beside its branch. [Agents and models](#agents) explains the picker, what changes when
 an agent cannot report its own status, and how to add one of your own.
 
 ## Finding the rest of it
 
 [[key:help]] brings this back from anywhere, and [[key:palette]] opens the
-command palette, which lists every action there is — including the ones with
-no shortcut of their own.
+command palette, which lists every action there is but switching tabs —
+including the ones with no shortcut of their own.

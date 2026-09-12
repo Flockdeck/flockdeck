@@ -13,11 +13,11 @@ Every pane header carries a status dot.
 | Green, pulsing | **Working** — producing output or running a tool |
 | Amber | **Waiting on you** — a permission prompt or a question |
 | Grey | **Idle** — it finished its turn and is ready for a new prompt |
+| Faint grey | **Starting** — launched, and not heard from yet |
 | Red | **Exited** — the process is gone |
 
-While a tool is running the pane header names it, so "Reading", "Bash" or
-"Edit" tells you what the agent is actually doing rather than only that it is
-busy.
+While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
+tells you what the agent is actually doing rather than only that it is busy.
 
 ## Where else it shows
 
@@ -38,8 +38,9 @@ For an agent that can report its own lifecycle, this is not screen scraping.
 Claude Code is launched with a generated `--settings` file registering its
 lifecycle hooks — `UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
 the rest — and an API agent, which is Flockdeck's own chat client, reports the same
-events itself. Either way the event re-invokes this same binary in a hidden
-mode, which reports it to the application over the loopback interface.
+events itself. For Claude Code each event re-invokes this same binary in a
+hidden mode; the chat client sends its own. Either way the report reaches the
+application over the loopback interface.
 
 Status therefore reflects what the agent is actually doing rather than what
 its output happens to look like. Those settings are additive: your own
@@ -50,11 +51,13 @@ settings, hooks and permissions still apply.
 Not every coding agent has a lifecycle to report, and Flockdeck runs those too. For
 their panes the status is read from the terminal instead: the bell an agent
 rings when it wants you, a quiet timer for when it has stopped producing
-output, and the lines it prints — the shape of a permission question, the shape
-of a prompt waiting to be typed at. Only the last few hundred bytes are looked
+output, and — where its entry in `agents.json` gives it `patterns` — the lines
+it prints: the shape of a permission question, the shape of a prompt waiting
+to be typed at. None of the built-in agents has patterns yet. Only the last
+few hundred bytes are looked
 at, with the escape sequences stripped, so a question two screens back does not
 keep a finished pane amber.
 
 That is a guess where the other is a fact, and it is worth knowing which you
-are looking at: **Agents and models** says which agents report and which are
+are looking at: [Agents and models](#agents) says which agents report and which are
 read. Where both exist, a reported event always wins.

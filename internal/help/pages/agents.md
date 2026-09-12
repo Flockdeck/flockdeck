@@ -9,8 +9,8 @@ picker is how you reach anything else.
 The plain [[key:newAgentTab]] and [[key:splitRight]] stay one keystroke and
 take the default agent, because that is what you want almost every time. To
 choose deliberately, use [[action:newAgentTabChoose]] or
-[[action:splitRightChoose]] — the same picker opens when you hold the split
-button in a pane header, or click the caret beside **New tab**.
+[[action:splitRightChoose]] from the command palette, or click the `▾` beside
+the `+` that opens a new tab.
 
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than
@@ -34,8 +34,10 @@ whose command is not on your `PATH` is the greyed kind.
 **API agents** talk to a model API directly. There is no wrapper CLI, no node
 and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
 a real terminal chat client — streamed answers, a status line carrying the
-model and the running cost, and tools for reading files, editing them and
-running commands, the last of which ask before they act. Anthropic, OpenAI and
+model, its token counts and, for Anthropic's models, the running cost, and tools for reading files, editing them and
+running commands; the ones that write a file or run a command ask before they
+act. A command can be let through for the rest of the session by answering
+*always*; a write is asked about every time. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 
@@ -48,15 +50,29 @@ cooperating, and they do not all cooperate in the same ways.
 | --- | --- |
 | reports its own lifecycle | its status dot says what it is really doing, rather than what its output looks like |
 | can resume by id | restoring a layout brings its conversation back, not only its pane |
-| writes a transcript | fan out reads its plan from what it wrote, and it is listed in past conversations |
-| has a trust question | a fan-out can answer it ahead of time for the worktrees it cuts |
+| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what past conversations lists |
+| has a trust question | a [fan-out](#fanout) can answer it ahead of time for the worktrees it cuts |
 | answers a start-up hook | its briefing survives a compaction, rather than being said once and summarised away |
 
 An agent that does none of it still works perfectly well: it is a terminal with
 a program in it, which is where every one of these features started. Where a
 capability is missing Flockdeck falls back rather than failing — status comes from
-the terminal bell, a quiet timer and the lines the agent prints; fan out reads
-the screen; resume is not attempted, and the pane starts fresh.
+the terminal bell and a quiet timer; fan out reads the screen; resume is not
+attempted, and the pane starts fresh.
+
+Of the built-in agents, Claude Code and the four API agents report their own
+lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
+Cursor Agent are read from their terminals, and are not briefed; an entry in
+`agents.json` can have the briefing put in front of its opening task instead,
+with `"caps": {"context": "prompt"}`. An entry in
+`agents.json` can give such an agent `"patterns"` — `"waiting"` and `"idle"`,
+each a list of phrases its output shows in that state — so that its status is
+read from what it prints as well. They are plain text, not expressions, and
+case does not matter; none of the built-ins has any yet.
+
+Aider is handed its opening task with `--message`, which Aider treats as a
+single message, so a pane started with a task (by a fan-out, say) may end when
+the task does.
 
 ## Keys, for the API agents
 
@@ -65,16 +81,21 @@ agent needs a key, which is looked for in that agent's own environment
 variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — and then
 in Flockdeck's own store.
 
-```sh
-flockdeck keys set openai    # reads the key from stdin, so it misses shell history
-flockdeck keys list          # which agents have one, not what it is
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys list` | Which agents have one, not what it is |
+| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
+
+Or set them from the window: [[action:apiKeys]], in the command palette, lists
+every API agent with **set** or **not set** beside it — and, for one that is
+not, the environment variables it would look in — and offers **Set…** and
+**Clear**.
 
 Keys are kept in `keys.json` in the state directory, readable only by you. A
 key reaches exactly one place: the environment of the chat process for the pane
 that needs it. It is never logged, never written into a saved layout and never
-shown — the interface says **set** or **not set**, offers *set…* and *clear*,
-and will not read one back to you. An endpoint that needs no key at all, such
+shown — the interface will not read one back to you. An endpoint that needs no key at all, such
 as a local server on loopback, counts as available without one.
 
 ## Adding your own: agents.json
@@ -87,12 +108,21 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
 {
   "version": 1,
   "defaults": { "agent": "claude", "model": "" },
-  "projects": { "C:\code\api": { "agent": "codex", "model": "gpt-5" } },
+  "projects": {
+    "C:\\code\\api": { "agent": "codex", "model": "gpt-5" }
+  },
   "agents": [
     { "id": "claude", "defaultModel": "sonnet" },
-    { "id": "local", "name": "Local llama", "runner": "api",
-      "api": { "wire": "openai", "baseURL": "http://127.0.0.1:11434/v1" },
-      "models": [{ "id": "qwen3-coder" }] }
+    {
+      "id": "local",
+      "name": "Local llama",
+      "runner": "api",
+      "api": {
+        "wire": "openai",
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": [{ "id": "qwen3-coder" }]
+    }
   ]
 }
 ```

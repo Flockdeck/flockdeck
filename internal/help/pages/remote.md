@@ -11,6 +11,11 @@ Each connection a paired browser makes is carried down it and answered by the
 same server the window on your desk uses, so the remote window is not a lesser
 copy: it is this window, with every pane, every dialog and every keystroke.
 
+A pane open in two windows at once, the one on your desk and a phone say, takes
+the size of whichever window last typed into it or focused it. Glancing at it
+from the phone leaves the desk's terminal as it was; typing on the phone fits it
+to the phone until you type at the desk again.
+
 Nothing on this machine listens for the network. The local server still binds
 to loopback only, and its token never leaves the machine — a request that came
 through the relay is let in because the relay has already checked that the
@@ -24,14 +29,16 @@ token, so a remote window cannot reach them.
 Enrolling a machine is done from a terminal, because it is the step that
 decides where the traffic goes:
 
-```sh
-flockdeck remote enable      # enrol this machine with the relay
-flockdeck remote pair        # a one-time link and QR code for a device
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote enable` | Enrols this machine with the relay |
+| `flockdeck remote pair` | A one-time link and QR code for a device |
 
 The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
-`flockdeck remote pair -desktop`, so one paired device can reach both.
+`flockdeck remote pair -desktop` on the first, given to
+`flockdeck remote enable -join <code>` on the second, so one paired device can
+reach both.
 
 ## Pairing a device
 
@@ -70,8 +77,8 @@ The dialog lists every paired device with an **Unpair** button; unpairing ends
 that device's session at once, including any window it has open. From a
 terminal:
 
-```sh
-flockdeck remote devices       # what is paired, and each device's id
-flockdeck remote revoke <id>   # unpair one
-flockdeck remote disable       # remove this machine from the relay
-```
+| Command | What it does |
+| --- | --- |
+| `flockdeck remote devices` | What is paired, and each device's id |
+| `flockdeck remote revoke <id>` | Unpairs one |
+| `flockdeck remote disable` | Removes this machine from the relay |

@@ -6,6 +6,7 @@
 <title>Flockdeck | Run all your coding agents at once</title>
 <meta name="description" content="Flockdeck runs Claude Code, Codex, Gemini and other coding agents side by side, and shows you which one needs your input. For Windows, macOS and Linux.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0F1418">
 <meta property="og:title" content="Flockdeck | Run all your coding agents at once">
 <meta property="og:description" content="Run all your coding agents side by side and see which one needs you.">
 <meta property="og:type" content="website">
@@ -32,14 +33,19 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<!-- The fonts are a refinement, not the page: loaded as print first and
+     switched on when they arrive, they no longer hold up the first paint
+     while a third-party stylesheet is fetched, and the system faces named in
+     site.css stand in until then. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700;800&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
 
 <header class="top">
   <span class="wordmark">{{ mark }}Flockdeck</span>
-  <nav>
+  <nav aria-label="Site">
     <a href="#what">Features</a>
     <a href="#remote">Remote</a>
     <a href="#install">Install</a>
@@ -51,7 +57,7 @@
 <main class="wrap">
 
 <section class="hero">
-  <p class="kicker"><span class="dot waiting">▲</span> Built for multi-agent coding</p>
+  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built for multi-agent coding</p>
   <h1>Run all your coding agents <em>at once</em>.</h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and more side by side
      in one desktop app, and shows you the moment an agent needs your input.</p>
@@ -61,7 +67,7 @@
   </p>
   <p class="cta-note">Free and open source · Windows, macOS and Linux</p>
   <ul class="works" aria-label="Works with">
-    <li class="works-label">Works with</li>
+    <li class="works-label" aria-hidden="true">Works with</li>
     <li>Claude Code</li>
     <li>Codex</li>
     <li>Gemini CLI</li>
@@ -76,40 +82,54 @@
 <!-- The hero is the application rather than a picture of it: the panes below
      run a scripted session, and the point of the whole thing — one agent going
      amber while the others carry on — happens in front of you. The markup is
-     the finished state, so with scripting off, or motion turned down, the page
-     still shows a deck with one pane waiting. -->
+     the finished state and the script plays each terminal's lines back out of
+     it, so with scripting off, or motion turned down, the page still shows a
+     deck with one pane waiting. data-at is how long each line waits after the
+     one before it. -->
 <section class="deck" id="deck" aria-label="A Flockdeck window with three agents running">
   <div class="deck-bar">
-    <span class="deck-tab on"><span class="dot working" data-tab="api">●</span> api</span>
-    <span class="deck-tab"><span class="dot working" data-tab="ui">●</span> ui</span>
-    <span class="deck-tab"><span class="dot idle" data-tab="docs">●</span> docs</span>
+    <span class="deck-tab on"><span aria-hidden="true" class="dot working" data-tab="api">●</span> api</span>
+    <span class="deck-tab"><span aria-hidden="true" class="dot waiting" data-tab="ui">▲</span> ui</span>
+    <span class="deck-tab"><span aria-hidden="true" class="dot idle" data-tab="docs">●</span> docs</span>
     <span class="deck-tally">
-      <span><span class="dot waiting">▲</span> <b data-tally="waiting">1</b> waiting</span>
-      <span><span class="dot working">●</span> <b data-tally="working">2</b> working</span>
+      <span><span aria-hidden="true" class="dot waiting">▲</span> <b data-tally="waiting">1</b> waiting</span>
+      <span><span aria-hidden="true" class="dot working">●</span> <b data-tally="working">1</b> working</span>
     </span>
   </div>
   <div class="deck-panes">
     <div class="pane" data-pane="api">
-      <div class="pane-head"><span class="dot working">●</span> <span class="name">api</span> <span class="branch">feat/api</span></div>
-      <pre class="term" data-term="api"></pre>
+      <div class="pane-head"><span aria-hidden="true" class="dot working">●</span> <span class="name">api</span> <span class="branch">feat/api</span></div>
+      <pre class="term" data-term="api" data-at="0 420 760 700 900"><span class="u">$</span> flockdeck — agent: claude-code
+<b>Reading</b> internal/api/router.go
+<b>Edit</b> internal/api/router.go <span class="dim">+38 −12</span>
+<b>Running</b> go test ./internal/api/
+<span class="ok">ok</span>  internal/api  <span class="dim">1.284s</span></pre>
     </div>
-    <div class="pane" data-pane="ui">
-      <div class="pane-head"><span class="dot working">●</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
-      <pre class="term" data-term="ui"></pre>
+    <div class="pane is-waiting" data-pane="ui">
+      <div class="pane-head"><span aria-hidden="true" class="dot waiting">▲</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
+      <pre class="term" data-term="ui" data-at="0 500 820 700 260 200"><span class="u">$</span> flockdeck — agent: codex
+<b>Reading</b> internal/webui/assets/app.js
+<b>Edit</b> internal/webui/assets/app.css <span class="dim">+21 −4</span>
+<span class="warn">▲ Permission needed</span>
+<span class="warn">Allow write to internal/webui/assets/?</span>
+<span class="dim">waiting for you…</span></pre>
     </div>
     <div class="pane wide" data-pane="docs">
-      <div class="pane-head"><span class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
-      <pre class="term" data-term="docs"></pre>
+      <div class="pane-head"><span aria-hidden="true" class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
+      <pre class="term" data-term="docs" data-at="0 560 900 700"><span class="u">$</span> flockdeck — agent: gemini
+<b>Reading</b> README.md
+<b>Edit</b> README.md <span class="dim">+64 −9</span>
+<span class="dim">finished its turn</span></pre>
     </div>
   </div>
 </section>
 <p class="deck-cap">Three agents on three branches. One needs you.</p>
 
-<div class="legend" aria-label="What the status glyphs mean">
-  <div><span class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
-  <div><span class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
-  <div><span class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
-  <div><span class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
+<div class="legend" role="group" aria-label="What the status glyphs mean">
+  <div><span aria-hidden="true" class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
+  <div><span aria-hidden="true" class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
+  <div><span aria-hidden="true" class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
+  <div><span aria-hidden="true" class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
 </div>
 
 <section class="band" id="why">
@@ -118,14 +138,14 @@
   <p>Agents finish at different times and stop for permission prompts. Before
      long you're flicking between terminals looking for the one that's stuck.
      Flockdeck shows you <strong>which agent needs you right now</strong>, and
-     keeps each one on its own branch so they never trip over each other.</p>
+     can give each one its own branch so they never trip over each other.</p>
 </section>
 
 <section class="band shot" id="app">
   <p class="eyebrow">In the app</p>
   <h2>Every agent in one window.</h2>
   <figure class="figure">
-    <img src="deck.png" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
+    <img src="deck.png" srcset="deck-1584.png 1584w, deck.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
     <figcaption class="caption">Four agents on four branches. The amber pane is asking for approval.</figcaption>
   </figure>
 </section>
@@ -142,7 +162,7 @@
          endpoint. Pick one per pane and Flockdeck remembers it for the project.</p>
     </div>
     <div class="card">
-      <span class="g">▲ waiting</span>
+      <span class="g"><span aria-hidden="true">▲</span> waiting</span>
       <h3>Know who needs you</h3>
       <p>Every pane shows whether its agent is working, waiting or done. Tabs and
          projects light up too, and you get a desktop notification when an agent
@@ -163,14 +183,15 @@
     <div class="card">
       <span class="g">context</span>
       <h3>Agents that know the team</h3>
-      <p>Each agent is told which pane it's in and what the others are working
-         on, so it can coordinate instead of colliding.</p>
+      <p>Claude Code and the built-in API client are told which pane they're in
+         and what the others are working on, so they can coordinate instead of
+         colliding.</p>
     </div>
     <div class="card">
       <span class="g">detach · reattach</span>
       <h3>Pick up where you left off</h3>
-      <p>Your layout, open projects and conversations come back when you reopen
-         Flockdeck. Detach, and your agents keep running after the window
+      <p>Your layout and open projects come back when you reopen Flockdeck, and
+         so do conversations with agents that can resume them. Detach, and your agents keep running after the window
          closes.</p>
     </div>
   </div>
@@ -192,32 +213,32 @@
     <div class="fan-arrow" aria-hidden="true">→</div>
     <div class="fan-out">
       <ul>
-        <li><span class="dot working">●</span> config-loader <span class="br">feat/config-loader</span></li>
-        <li><span class="dot working">●</span> retry-policy <span class="br">feat/retry-policy</span></li>
-        <li><span class="dot waiting">▲</span> wire-format <span class="br">docs/wire-format</span></li>
+        <li><span aria-hidden="true" class="dot working">●</span> config-loader <span class="br">feat/config-loader</span></li>
+        <li><span aria-hidden="true" class="dot working">●</span> retry-policy <span class="br">feat/retry-policy</span></li>
+        <li><span aria-hidden="true" class="dot waiting">▲</span> wire-format <span class="br">docs/wire-format</span></li>
       </ul>
     </div>
   </div>
   <figure class="figure">
-    <img src="fanout.png" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with a model picker for the whole run and for each task, and an option to give each agent its own git worktree.">
+    <img src="fanout.png" srcset="fanout-1584.png 1584w, fanout.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with a model picker for the whole run and for each task, and an option to give each agent its own git worktree.">
     <figcaption class="caption">Fan out picks up the plan straight from the agent's output.</figcaption>
   </figure>
 </section>
 
 <!-- Remote access, as the design in flockdeck-relay settles it: dialling out,
-     pairing, the same interface, and what the relay can see. The commands and
-     the relay's address are left out, since those are the parts still free to
-     change. -->
+     pairing, the same interface, and what the relay can see, then the two
+     commands that turn it on. The relay's address is left out, since it is
+     still free to change. -->
 <section class="band" id="remote">
   <p class="eyebrow">Remote access</p>
   <h2>Check in on your agents from anywhere.</h2>
   <p>Leave Flockdeck running at your desk and pick it up from your laptop,
      tablet or phone. See <strong>which agent is waiting</strong> and unblock it
      from wherever you are.</p>
-  <div class="relay" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
+  <div class="relay" role="group" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
     <div class="relay-node">
       <span class="g">phone · tablet · laptop</span>
-      <div class="relay-tally"><span class="dot waiting">▲</span> 1 waiting <span class="dot working">●</span> 2 working</div>
+      <div class="relay-tally"><span><span aria-hidden="true" class="dot waiting">▲</span> 1 waiting</span> <span><span aria-hidden="true" class="dot working">●</span> 2 working</span></div>
       <span class="t">any browser you've paired</span>
     </div>
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
@@ -229,7 +250,7 @@
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">outbound · TLS</span></div>
     <div class="relay-node">
       <span class="g">your desktop</span>
-      <div class="relay-tally"><span class="dot working">●</span> api <span class="dot waiting">▲</span> ui <span class="dot idle">●</span> docs</div>
+      <div class="relay-tally"><span><span aria-hidden="true" class="dot working">●</span> api</span> <span><span aria-hidden="true" class="dot waiting">▲</span> ui</span> <span><span aria-hidden="true" class="dot idle">●</span> docs</span></div>
       <span class="t">your agents keep running here</span>
     </div>
   </div>
@@ -271,11 +292,11 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <h2>Pick any agent. See every branch.</h2>
   <div class="pair">
     <figure class="figure">
-      <img src="agent-picker.png" width="1584" height="985" loading="lazy" alt="The agent picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up.">
+      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The agent picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up.">
       <figcaption class="caption">Pick an agent and model for each pane.</figcaption>
     </figure>
     <figure class="figure">
-      <img src="worktrees.png" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and three feature branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there.">
+      <img src="worktrees.png" srcset="worktrees-1584.png 1584w, worktrees.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and three feature branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there.">
       <figcaption class="caption">Every checkout, its branch and the agents in it.</figcaption>
     </figure>
   </div>
@@ -283,22 +304,19 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
 <section class="band" id="install">
   <p class="eyebrow">Install</p>
   <h2>Up and running in one line.</h2>
-  <ul class="platforms">
-    <li>windows · amd64 · arm64</li>
-    <li>macos · amd64 · arm64</li>
-    <li>linux · amd64 · arm64</li>
-  </ul>
+  <p>For Windows, macOS and Linux, on Intel and AMD (amd64) or ARM (arm64)
+     machines.</p>
   <!-- Both commands are in the markup. With scripting on, the tabs show the one
        for the visitor's own system; with it off, both are simply listed. -->
   <div class="os-tabs" role="tablist" aria-label="Your operating system" hidden>
-    <button type="button" role="tab" data-os="unix">macOS &amp; Linux</button>
-    <button type="button" role="tab" data-os="windows">Windows</button>
+    <button type="button" role="tab" id="os-tab-unix" aria-controls="os-unix" data-os="unix">macOS &amp; Linux</button>
+    <button type="button" role="tab" id="os-tab-windows" aria-controls="os-windows" data-os="windows">Windows</button>
   </div>
-  <div class="os" data-os="unix">
+  <div class="os" id="os-unix" data-os="unix">
     <p class="os-label">macOS and Linux:</p>
     <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
   </div>
-  <div class="os" data-os="windows">
+  <div class="os" id="os-windows" data-os="windows">
     <p class="os-label">Windows (PowerShell):</p>
     <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
   </div>
@@ -306,13 +324,18 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      and installs it to <code>~/.local/bin</code>. On Windows it goes to
      <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
      shortcut. No admin rights needed, now or when Flockdeck updates itself.
-     View the scripts: <a href="install.sh">install.sh</a> ·
+     To pick a release or a directory, set <code>FLOCKDECK_VERSION</code> or
+     <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
+     at the top. View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
   <p>Or build from source:</p>
   <pre><code>make build      <span class="c"># a binary for this machine</span>
 make package    <span class="c"># archives for all six platforms</span></code></pre>
+  <p>No <code>make</code>, as on many Windows machines? <code>go build .</code>
+     builds the same program. A build made any of these ways never updates
+     itself: update it the same way you installed it.</p>
   <p>Downloads are also on the <a href="{{ .Repo }}/releases">releases page</a>.
      Flockdeck checks for updates, verifies every download and asks before it
      restarts, so an update never interrupts your work.</p>
@@ -361,8 +384,23 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>How do updates work?</summary>
       <p>Flockdeck checks GitHub for new releases, verifies each download
-         against its published checksum and asks before it restarts. To turn
-         update checks off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
+         against its published checksum and asks before it restarts. If you
+         don't restart, the new version goes in the next time you quit. To turn
+         updates off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
+    </details>
+    <details>
+      <summary>How do I uninstall it?</summary>
+      <p>If you turned on remote access, run <code>flockdeck remote disable</code>
+         first so the relay forgets this machine. Then quit Flockdeck and delete
+         the binary: <code>~/.local/bin/flockdeck</code>, or on Windows the
+         <code>%LOCALAPPDATA%\Programs\flockdeck</code> folder and the Flockdeck
+         Start menu shortcut, and that folder's entry in your PATH. Your
+         settings, layouts and keys are kept apart from it, in
+         <code>%AppData%\flockdeck</code>,
+         <code>~/Library/Application Support/flockdeck</code> or
+         <code>~/.config/flockdeck</code>; delete that too. Worktrees Flockdeck
+         made are ordinary git worktrees beside your repositories, and stay
+         until you remove them.</p>
     </details>
     <details>
       <summary>Which platforms are supported?</summary>
@@ -378,7 +416,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
   <div class="wrap">
     <p>Flockdeck. Run all your coding agents at once.<br>
        <span class="foot-note">Free and open source under the MIT licence.</span></p>
-    <nav>
+    <nav aria-label="Footer">
       <a href="#install">Install</a>
       <a href="#remote">Remote access</a>
       <a href="#faq">FAQ</a>
@@ -401,31 +439,16 @@ make package    <span class="c"># archives for all six platforms</span></code></
 (function () {
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var SCRIPT = {
-    api: [
-      ["<span class='u'>$</span> flockdeck — agent: claude-code", 0],
-      ["<b>Reading</b> internal/api/router.go", 420],
-      ["<b>Edit</b> internal/api/router.go <span class='dim'>+38 −12</span>", 760],
-      ["<b>Running</b> go test ./internal/api/", 700],
-      ["<span class='ok'>ok</span>  internal/api  <span class='dim'>1.284s</span>", 900]
-    ],
-    ui: [
-      ["<span class='u'>$</span> flockdeck — agent: codex", 0],
-      ["<b>Reading</b> internal/webui/assets/app.js", 500],
-      ["<b>Edit</b> internal/webui/assets/app.css <span class='dim'>+21 −4</span>", 820],
-      ["<span class='warn'>▲ Permission needed</span>", 700],
-      ["<span class='warn'>Allow write to internal/webui/assets/?</span>", 260],
-      ["<span class='dim'>waiting for you…</span>", 200]
-    ],
-    docs: [
-      ["<span class='u'>$</span> flockdeck — agent: gemini", 0],
-      ["<b>Reading</b> README.md", 560],
-      ["<b>Edit</b> README.md <span class='dim'>+64 −9</span>", 900],
-      ["<span class='dim'>finished its turn</span>", 700]
-    ]
-  };
-
   function term(id) { return document.querySelector('[data-term="' + id + '"]'); }
+
+  // Each terminal's lines, read out of the markup with how long each waits.
+  var SCRIPT = {};
+  ["api", "ui", "docs"].forEach(function (id) {
+    var t = term(id);
+    if (!t) return;
+    var at = (t.getAttribute("data-at") || "").split(" ");
+    SCRIPT[id] = t.innerHTML.split("\n").map(function (l, i) { return [l, +at[i] || 0]; });
+  });
   function pane(id) { return document.querySelector('[data-pane="' + id + '"]'); }
   function tabDot(id) { return document.querySelector('[data-tab="' + id + '"]'); }
 
@@ -441,6 +464,15 @@ make package    <span class="c"># archives for all six platforms</span></code></
     p.classList.toggle("is-waiting", cls === "waiting");
     setDot(p.querySelector(".pane-head .dot"), cls, glyph);
     setDot(tabDot(id), cls, glyph);
+    tally();
+  }
+
+  // The counts are the panes' own dots, counted, so the two cannot disagree.
+  function tally() {
+    ["waiting", "working"].forEach(function (cls) {
+      var b = document.querySelector('[data-tally="' + cls + '"]');
+      if (b) b.textContent = document.querySelectorAll("#deck .pane-head .dot." + cls).length;
+    });
   }
 
   // The finished state, which is also what the page shows when it does not run.
@@ -461,7 +493,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
   function clear() { timers.forEach(clearTimeout); timers = []; }
 
   function play(id, whenDone) {
-    var lines = SCRIPT[id], t = term(id), at = 0, elapsed = 0;
+    var lines = SCRIPT[id], t = term(id), elapsed = 0;
     if (!t) return;
     t.innerHTML = "";
     lines.forEach(function (line, i) {
@@ -469,46 +501,44 @@ make package    <span class="c"># archives for all six platforms</span></code></
       after(elapsed, function () {
         t.innerHTML = lines.slice(0, i + 1).map(function (l) { return l[0]; }).join("\n") +
           (i === lines.length - 1 ? "" : '\n<span class="caret"></span>');
-        at = i;
         if (i === lines.length - 1 && whenDone) whenDone();
       });
     });
     return elapsed;
   }
 
-  function tally(waiting, working) {
-    var w = document.querySelector('[data-tally="waiting"]');
-    var k = document.querySelector('[data-tally="working"]');
-    if (w) w.textContent = waiting;
-    if (k) k.textContent = working;
-  }
-
   function run() {
     clear();
     ["api", "ui", "docs"].forEach(function (id) { setPaneState(id, "working", "●"); });
-    tally(0, 3);
 
     play("api");
-    play("docs", function () { setPaneState("docs", "idle", "●"); tally(0, 2); });
-    play("ui", function () { setPaneState("ui", "waiting", "▲"); tally(1, 2); });
+    play("docs", function () { setPaneState("docs", "idle", "●"); });
+    play("ui", function () { setPaneState("ui", "waiting", "▲"); });
 
     // Long enough to sit on the finished picture before going round again.
     after(9000, run);
   }
 
-  // Nothing animates until the deck has been seen, so a visitor who scrolls
-  // straight past has not missed it, and a background tab is not spending
-  // anything.
+  // Nothing animates while the deck is out of sight: not before it has been
+  // seen, so a visitor who scrolls straight past has not missed it, and not
+  // after it has been scrolled away or its tab put in the background, where a
+  // loop that goes round every nine seconds would otherwise go on for as long
+  // as the page is open.
   var deck = document.getElementById("deck");
   if (!deck || !("IntersectionObserver" in window)) { run(); return; }
 
-  var started = false;
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (e.isIntersecting && !started) { started = true; run(); }
-    });
-  }, { threshold: 0.25 });
-  io.observe(deck);
+  var inView = false, playing = false;
+  function update() {
+    var want = inView && !document.hidden;
+    if (want === playing) return;
+    playing = want;
+    if (want) { run(); } else { clear(); settle(); }
+  }
+  new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { inView = e.isIntersecting; });
+    update();
+  }, { threshold: 0.25 }).observe(deck);
+  document.addEventListener("visibilitychange", update);
   settle();
 })();
 </script>
@@ -519,15 +549,36 @@ make package    <span class="c"># archives for all six platforms</span></code></
 (() => {
   const tabs = document.querySelector(".os-tabs");
   const panels = document.querySelectorAll(".os");
+  const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   if (tabs && panels.length) {
-    const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
-    const show = (os) => {
+    const buttons = [...tabs.querySelectorAll("button")];
+    // Only the selected tab is in the Tab order; the arrow keys move between
+    // them, which is how a screen reader user expects a tab list to behave.
+    const show = (os, focus) => {
       panels.forEach((p) => { p.hidden = p.dataset.os !== os; });
-      tabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.os === os)));
+      buttons.forEach((b) => {
+        const on = b.dataset.os === os;
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+        if (on && focus) b.focus();
+      });
     };
+    // The panels are only tab panels once the tabs are showing; without this
+    // script they are two plain sections, each with its own label.
+    panels.forEach((p) => {
+      p.setAttribute("role", "tabpanel");
+      p.setAttribute("aria-labelledby", "os-tab-" + p.dataset.os);
+    });
     tabs.hidden = false;
     document.body.classList.add("has-os-tabs");
     tabs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.os); });
+    tabs.addEventListener("keydown", (e) => {
+      const at = buttons.indexOf(document.activeElement);
+      if (at < 0 || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+      e.preventDefault();
+      const next = buttons[(at + (e.key === "ArrowRight" ? 1 : buttons.length - 1)) % buttons.length];
+      show(next.dataset.os, true);
+    });
     show(/win/i.test(platform) ? "windows" : "unix");
   }
 
@@ -539,14 +590,21 @@ make package    <span class="c"># archives for all six platforms</span></code></
     btn.type = "button";
     btn.className = "copy";
     btn.textContent = "Copy";
+    // Comments are for reading, not for pasting into a shell.
+    const text = [...code.childNodes].filter((n) => !(n.classList && n.classList.contains("c"))).map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "");
+    // Five buttons all called "Copy" tell a screen reader user nothing about
+    // which command each one takes, so each is named after its first line.
+    const label = "Copy " + text.trim().split("\n")[0];
+    btn.setAttribute("aria-label", label);
     btn.addEventListener("click", async () => {
-      // Comments are for reading, not for pasting into a shell.
-      const text = [...code.childNodes].filter((n) => !(n.classList && n.classList.contains("c"))).map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "");
       try {
         await navigator.clipboard.writeText(text);
         btn.textContent = "Copied";
       } catch {
-        btn.textContent = "Press Ctrl+C";
+        // Telling somebody to press the copy keys is only any use with
+        // something selected for them to copy.
+        getSelection().selectAllChildren(code);
+        btn.textContent = /mac/i.test(platform) ? "Press ⌘C" : "Press Ctrl+C";
       }
       setTimeout(() => { btn.textContent = "Copy"; }, 1600);
     });
