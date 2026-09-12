@@ -609,7 +609,11 @@ func (s *Session) WriteString(text string) error {
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
 	s.mu.Lock()
-	if s.status == StatusExited {
+	// An exited pane stays exited, and an event that changes nothing is not
+	// reported: every report rebuilds and sends the whole workspace, and
+	// Claude repeats itself -- the same nudge about the same unanswered
+	// question, a tool it has already said it is running.
+	if s.status == StatusExited || (s.hooksSeen && s.status == st && s.detail == detail) {
 		s.mu.Unlock()
 		return
 	}

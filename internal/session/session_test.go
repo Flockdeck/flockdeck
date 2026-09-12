@@ -662,6 +662,27 @@ func BenchmarkPublish(b *testing.B) {
 	}
 }
 
+// TestARepeatedEventIsNotReported covers the lifecycle events that say what a
+// pane already said: Claude nudges about the same unanswered question, and
+// every report rebuilds and sends the whole workspace.
+func TestARepeatedEventIsNotReported(t *testing.T) {
+	s := claudePane()
+	var wakes int64
+	s.OnChange = func() { atomic.AddInt64(&wakes, 1) }
+
+	s.SetStatus(StatusWaiting, "")
+	s.SetStatus(StatusWaiting, "")
+	s.SetStatus(StatusWaiting, "")
+	if got := atomic.LoadInt64(&wakes); got != 1 {
+		t.Errorf("three identical events were reported %d times, want once", got)
+	}
+	s.SetStatus(StatusWorking, "Bash")
+	s.SetStatus(StatusWorking, "Edit")
+	if got := atomic.LoadInt64(&wakes); got != 3 {
+		t.Errorf("a change of status or tool was not reported: %d reports, want 3", got)
+	}
+}
+
 // TestConcurrentResizesLeaveThePaneTheSizeItReports covers two resizes in
 // flight at once, which is the ordinary case: the browser measures a pane on
 // every layout change, so one arrives on the terminal socket while another
