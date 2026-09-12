@@ -4133,6 +4133,35 @@ assert.ok(!h.commands().slice(before).some((c) => c.cmd === "worktreeRemove"), "
 `)
 }
 
+// A worktree whose folder was deleted outside git came back with an empty
+// status, and the panel drew it as clean, with an Agent, a Shell and a Review
+// that could only fail in a folder that is not there. It says the folder is
+// gone and offers the one thing left to do: prune git's record of it.
+func TestAWorktreeWhoseFolderIsGoneOffersOnlyPrune(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [
+  { label: "main", path: "C:/repo", main: true },
+  { label: "old-fix", path: "C:/repo-old-fix", prunable: true, dirty: 0, untracked: 0 },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.wt-row");
+const gone = rows[1];
+assert.ok(/folder gone/.test(gone.textContent), "the row does not say its folder is gone: " + gone.textContent);
+assert.ok(!gone.querySelector(".wt-clean"), "a worktree with no folder was called clean");
+const offered = gone.querySelectorAll("button").map((b) => b.textContent);
+assert.deepStrictEqual(offered, ["Prune"], "a worktree with no folder offers " + offered.join(", "));
+const kept = rows[0].querySelectorAll("button").map((b) => b.textContent);
+assert.deepStrictEqual(kept, ["Agent", "Shell", "Split", "Review"], "the main worktree lost its buttons");
+
+const before = h.commands().length;
+gone.querySelector("button").focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().slice(before), [{ cmd: "worktreePrune" }], "Enter on the row's Prune did not prune");
+`)
+}
+
 // A redraw finds the control the keyboard was on by what it is and what it
 // says, and by wording alone one row's Clear is the next row's. Clearing one
 // stored API key, which does not ask, left the keyboard on the next agent's

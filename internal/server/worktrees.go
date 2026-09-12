@@ -24,6 +24,12 @@ type worktreeView struct {
 	Untracked int    `json:"untracked"`
 	Ahead     int    `json:"ahead"`
 	Behind    int    `json:"behind"`
+	// Prunable is a worktree whose folder was deleted outside git, so only
+	// git's record of it is left. Its counts are zero because there was no
+	// status to read, not because it is clean, and there is nowhere to open
+	// an agent, a shell or a review in it; the panel offers to prune it
+	// instead.
+	Prunable bool `json:"prunable"`
 	// Panes is how many open panes are working in this worktree, so it is
 	// obvious which checkouts already have an agent on them.
 	Panes int `json:"panes"`
@@ -146,6 +152,7 @@ func collectWorktrees(root string) worktreesMsg {
 			Untracked: wt.Status.Untracked,
 			Ahead:     wt.Status.Ahead,
 			Behind:    wt.Status.Behind,
+			Prunable:  wt.Prunable,
 		})
 	}
 	return msg

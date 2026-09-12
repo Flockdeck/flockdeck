@@ -45,6 +45,7 @@
     untracked:   "New files git is not tracking yet - they are in no commit, and a push leaves them behind.",
     clean:       "Nothing to commit - this working tree matches its last commit.",
     gitLate:     "Git did not finish reading this checkout in time, so its changed files and ahead and behind counts are not shown: the last ones read may be out of date. It is asked again on the next refresh. A very large checkout, or one on a slow or network drive, can do this - running git status in a terminal there shows how long it takes.",
+    folderGone:  "This worktree's folder was deleted outside git, so there is nothing in it to open or review - only git's record of it is left. Prune clears that record.",
     branch:      "The branch this checkout has in its working tree.",
     project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
     splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
@@ -2487,6 +2488,7 @@
       if (wt.main) titleLine.append(el("span", "wt-flag", "main"));
       if (wt.locked) titleLine.append(el("span", "wt-flag", "locked"));
       if (wt.detached) titleLine.append(el("span", "wt-flag", "detached"));
+      if (wt.prunable) titleLine.append(describe(el("span", "wt-flag gone", "folder gone"), TIPS.folderGone));
       if (wt.panes) titleLine.append(el("span", "wt-flag agents", wt.panes + (wt.panes === 1 ? " agent" : " agents")));
       main.append(titleLine);
 
@@ -2508,7 +2510,10 @@
         n.setAttribute("aria-label", plural(wt.untracked, "new file") + " not tracked by git");
         meta.append(describe(n, TIPS.untracked));
       }
-      if (!wt.dirty && !wt.untracked) meta.append(describe(el("span", "wt-clean", "clean"), TIPS.clean));
+      // A worktree whose folder is gone had no status to read, so its counts
+      // are all nothing, and it was called clean.
+      if (wt.prunable) meta.append(describe(el("span", "wt-gone", "only git's record of it is left"), TIPS.folderGone));
+      else if (!wt.dirty && !wt.untracked) meta.append(describe(el("span", "wt-clean", "clean"), TIPS.clean));
       if (wt.ahead) {
         const n = el("span", "wt-ahead", "↑" + wt.ahead);
         n.setAttribute("role", "img");
@@ -2531,30 +2536,43 @@
       row.append(main);
 
       const actions = el("div", "wt-actions");
-      const agent = el("button", "chip primary", "Agent");
-      agent.title = "Open an agent tab in this worktree";
-      agent.onclick = () => { send({ cmd: "newTab", kind: "agent", path: wt.path, text: wt.label }); closeOverlay(); };
-      const shell = el("button", "chip", "Shell");
-      shell.onclick = () => { send({ cmd: "newTab", kind: "shell", path: wt.path, text: wt.label }); closeOverlay(); };
-      const split = el("button", "chip", "Split");
-      split.title = "Add an agent for this worktree beside the current pane";
-      split.onclick = () => {
-        send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", path: wt.path });
-        closeOverlay();
-      };
-      const review = el("button", "chip", "Review");
-      review.title = "See what changed here, commit and push";
-      review.onclick = () => openChanges(wt.path);
-      actions.append(agent, shell, split, review);
       // Named by the worktree they act on. A redraw finds the control the
       // keyboard was on by what it is, and by wording alone "Remove" in one
       // row is "Remove" in the next: removing a clean worktree - which does
       // not ask - left the keyboard on the next one's Remove, and a second
       // Enter removed that as well.
       const key = "wt-" + encodeURIComponent(wt.path) + "-";
-      agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
+      if (wt.prunable) {
+        // There is no folder for an agent, a shell or a review to start in,
+        // and each of them failed there with nothing better to say than that
+        // a path does not exist. What is left to do is the panel's own Prune,
+        // offered on the row where the stale record is seen. git's prune is
+        // not selective, which the bubble says.
+        const prune = el("button", "chip primary", "Prune");
+        prune.id = key + "prune";
+        prune.title = "Clear git's record of this worktree. Like Prune below, it clears every worktree whose folder is gone.";
+        prune.onclick = () => send({ cmd: "worktreePrune" });
+        actions.append(prune);
+      } else {
+        const agent = el("button", "chip primary", "Agent");
+        agent.title = "Open an agent tab in this worktree";
+        agent.onclick = () => { send({ cmd: "newTab", kind: "agent", path: wt.path, text: wt.label }); closeOverlay(); };
+        const shell = el("button", "chip", "Shell");
+        shell.onclick = () => { send({ cmd: "newTab", kind: "shell", path: wt.path, text: wt.label }); closeOverlay(); };
+        const split = el("button", "chip", "Split");
+        split.title = "Add an agent for this worktree beside the current pane";
+        split.onclick = () => {
+          send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", path: wt.path });
+          closeOverlay();
+        };
+        const review = el("button", "chip", "Review");
+        review.title = "See what changed here, commit and push";
+        review.onclick = () => openChanges(wt.path);
+        actions.append(agent, shell, split, review);
+        agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
+      }
 
-      if (!wt.main) {
+      if (!wt.main && !wt.prunable) {
         const rm = el("button", "chip danger", "Remove");
         rm.id = key + "remove";
         const unsafe = wt.dirty || wt.untracked;
