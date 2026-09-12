@@ -223,3 +223,20 @@ await h.sleep(1800);
 assert.ok(n.hidden, "the message stayed on after the pointer left it");
 `)
 }
+
+// Renaming a tab was a double-click, or the palette's entry for the tab on
+// screen. F2 on the tab the keyboard is on renames that one, as F2 renames a
+// file almost everywhere, and the tab's bubble says so.
+func TestF2RenamesTheTabTheKeyboardIsOn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tabs").children[1];
+tab.focus();
+const ev = h.key({ key: "F2" });
+assert.ok(ev.defaultPrevented, "F2 went on to the browser");
+assert.strictEqual(h.$("overlay-title").textContent, "Rename tab", "F2 did not open the rename dialog");
+assert.strictEqual(h.$("tab-name").value, "two", "the dialog is not for the tab the keyboard was on");
+assert.ok(/F2/.test(tab.dataset.tip), "nothing says F2 renames: " + tab.dataset.tip);
+`)
+}

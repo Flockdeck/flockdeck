@@ -1288,7 +1288,7 @@
         // A title is cut short at the tab's width, and the ones written from
         // an agent's task usually are. The bubble is the only place the rest
         // can be read, and the only thing saying how to change it.
-        describe(node.btn, title + " — double-click to rename");
+        describe(node.btn, title + " — double-click, or press F2, to rename");
       }
       const active = tab.id === s.activeTab;
       node.btn.classList.toggle("active", active);
@@ -1330,6 +1330,11 @@
    *  switch tab: switching means switching agent, and arrowing past four of
    *  them to reach the fifth should not visit all four on the way. */
   function tabStripKey(ev, id) {
+    // F2 renames the tab the keyboard is on, as it renames a file in nearly
+    // every file manager and editor. From the strip, renaming was otherwise a
+    // double-click or a trip through the palette, and the palette's entry is
+    // for the tab on screen rather than the one arrowed to.
+    if (ev.key === "F2") { ev.preventDefault(); ev.stopPropagation(); renameTab(id); return; }
     const tabs = state ? state.tabs : [];
     const at = tabs.findIndex((t) => t.id === id);
     if (at < 0 || !tabs.length) return;
