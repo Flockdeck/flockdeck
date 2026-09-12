@@ -19,7 +19,36 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is published that does not pass, on every platform a release is
+  # built for. Much of what differs between them — how a running program is
+  # replaced, how a file another process holds is waited out, how a failure
+  # to start is shown — is only exercised by the tests on the platform itself,
+  # and a Linux runner alone never ran the Windows code at all.
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,14 +86,6 @@ jobs:
             echo "::error::$TAG is not a version the updater can read; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
             exit 1
           fi
-
-      # Nothing is published that does not pass. A release is the one build
-      # people cannot easily go back from, so it is the last place to skip this.
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
 
       # Every platform is cross-compiled from this one runner, which works
       # because the application builds with cgo disabled. The same command is
