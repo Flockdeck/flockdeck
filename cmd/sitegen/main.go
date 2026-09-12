@@ -213,8 +213,6 @@ func run(out, repo, module, url string) error {
 	}
 	files["site.css"] = css
 	files["favicon.svg"] = icon
-	files["favicon.ico"] = iconICO
-	files["apple-touch-icon.png"] = touchIcon
 	for _, name := range []string{"install.sh", "install.ps1"} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
@@ -225,6 +223,11 @@ func run(out, repo, module, url string) error {
 	// The fonts are served from a folder of their own, with their licences
 	// beside them as the licence asks.
 	binary := map[string][]byte{}
+	// The raster icons are images, and go with the binary files: every text
+	// file is written with LF below, which takes every CR out of an image
+	// along with it. A PNG's signature holds one.
+	binary["favicon.ico"] = iconICO
+	binary["apple-touch-icon.png"] = touchIcon
 	fonts, err := assets.ReadDir("assets/fonts")
 	if err != nil {
 		return err

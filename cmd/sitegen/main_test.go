@@ -576,7 +576,7 @@ func TestLicenceCopiesAreTheOriginals(t *testing.T) {
 func TestTextFilesUseLF(t *testing.T) {
 	dir, _ := generate(t)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".woff2") {
+		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".woff2") {
 			return err
 		}
 		b, err := os.ReadFile(path)
@@ -774,12 +774,27 @@ func TestFaviconIsTheAppIcon(t *testing.T) {
 // for browsers that show one, favicon.ico for those that do not and for
 // whatever asks for /favicon.ico unprompted, and the home-screen icon, which
 // is a full 180-pixel square with nothing transparent for iOS to paint black.
+//
+// What is checked is what was written, not what was embedded. The site's
+// text files are all written with LF, and an image passed through that loses
+// every CR in it: a PNG's signature holds one, and favicon.ico held four. Both
+// were written broken before this looked at the files themselves.
 func TestEveryPageHasItsIcons(t *testing.T) {
 	dir, pages := generate(t)
+	written := map[string][]byte{}
 	for _, name := range []string{"favicon.svg", "favicon.ico", "apple-touch-icon.png"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
 			t.Errorf("the site has no %s: %v", name, err)
+			continue
 		}
+		written[name] = body
+	}
+	if !bytes.Equal(written["favicon.ico"], iconICO) {
+		t.Errorf("favicon.ico was written as %d bytes, not the %d it is", len(written["favicon.ico"]), len(iconICO))
+	}
+	if !bytes.Equal(written["apple-touch-icon.png"], touchIcon) {
+		t.Errorf("apple-touch-icon.png was written as %d bytes, not the %d it is", len(written["apple-touch-icon.png"]), len(touchIcon))
 	}
 	if len(pages) == 0 {
 		t.Fatal("the site has no pages")
@@ -795,9 +810,9 @@ func TestEveryPageHasItsIcons(t *testing.T) {
 			}
 		}
 	}
-	img, err := png.Decode(bytes.NewReader(touchIcon))
+	img, err := png.Decode(bytes.NewReader(written["apple-touch-icon.png"]))
 	if err != nil {
-		t.Fatalf("apple-touch-icon.png: %v", err)
+		t.Fatalf("apple-touch-icon.png as written: %v", err)
 	}
 	if b := img.Bounds(); b.Dx() != 180 || b.Dy() != 180 {
 		t.Errorf("apple-touch-icon.png is %dx%d, want 180x180", b.Dx(), b.Dy())
