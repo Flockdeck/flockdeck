@@ -146,6 +146,7 @@ flockdeck -no-window      # just serve; print the URL and open it yourself
 flockdeck -solo           # start a separate instance instead of attaching
 flockdeck -version        # print the version
 
+flockdeck agents          # the agents it can run, and which are installed here
 flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
 
