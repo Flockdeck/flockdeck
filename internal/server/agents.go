@@ -213,6 +213,7 @@ func (s *Server) probeAgents(root string) {
 	}
 	s.agentsProbing = true
 	go func() {
+		defer s.survive("asking which agents are installed")
 		// Read agents.json again on the way past. A probe happens when the
 		// picker opens and when the last answer has gone stale, which is
 		// exactly when an edit made by hand should start counting — and doing it

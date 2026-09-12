@@ -96,6 +96,7 @@ func treeRoot(dir string) (string, error) {
 func (s *Server) listChanges(c *controlClient, path string) {
 	dir := s.reviewDir(path)
 	go func() {
+		defer s.survive("reading what changed")
 		msg := collectChanges(dir)
 		c.sendJSON(msg)
 		if msg.Omitted > 0 {
@@ -191,6 +192,7 @@ func noRepoReason(dir string) string {
 func (s *Server) showDiff(c *controlClient, path, file string) {
 	dir := s.reviewDir(path)
 	go func() {
+		defer s.survive("showing a diff")
 		dir = repoRoot(dir)
 		msg := diffMsg{Type: "diff", Cwd: dir, File: file}
 		text, err := gitx.Diff(dir, file)
@@ -214,6 +216,7 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 func (s *Server) commitChanges(c *controlClient, path, message string, push bool) {
 	dir := s.reviewDir(path)
 	go func() {
+		defer s.survive("committing")
 		dir = repoRoot(dir)
 		if err := gitx.CommitAll(dir, message); err != nil {
 			c.notify(err.Error(), true)
@@ -242,6 +245,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 func (s *Server) runRemote(c *controlClient, action, path string) {
 	dir := s.reviewDir(path)
 	go func() {
+		defer s.survive("talking to the remote")
 		var (
 			out string
 			err error

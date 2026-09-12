@@ -91,6 +91,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 	}
 
 	go func() {
+		defer s.survive("listing conversations")
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
 		items, err := allConversations(transcript.Agents(), dir)
 		// One agent's store being unreadable is worth saying, but not at the

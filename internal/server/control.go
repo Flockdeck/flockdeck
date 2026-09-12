@@ -84,15 +84,23 @@ func (s *Server) runLoop() {
 // the console, where a crash would have put it, and the window is told, since
 // the person watching is otherwise left with a click that did nothing.
 func (s *Server) guard(doing string, fn func()) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
-		s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
-	}()
+	defer s.survive(doing)
 	fn()
+}
+
+// survive is guard for a goroutine's own body: deferred first thing in it, it
+// keeps a panic in the goroutine's work from ending the process. A reply to a
+// window is worked out on a goroutine of its own, reading transcripts, git's
+// output and files other programs write -- and a panic on a goroutine nothing
+// recovers takes every agent in every project down with it, over one reply to
+// one window.
+func (s *Server) survive(doing string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
+	s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
 }
 
 // notifyAll sends a one-off message to every connected window.

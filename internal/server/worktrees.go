@@ -53,6 +53,7 @@ type worktreesMsg struct {
 func (s *Server) listWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	go func() {
+		defer s.survive("listing worktrees")
 		msg := collectWorktrees(root)
 		if msg.Error == "" {
 			paths := make([]string, 0, len(msg.Items))
@@ -216,6 +217,7 @@ func samePath(a, b string) bool {
 func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	root := s.activeRoot()
 	go func() {
+		defer s.survive("creating a worktree")
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			c.notify("a branch name is required", true)
@@ -236,6 +238,7 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	root := s.activeRoot()
 	go func() {
+		defer s.survive("removing a worktree")
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
 		// explain why everything it does from then on fails, and whatever it
@@ -264,6 +267,7 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	go func() {
+		defer s.survive("pruning worktrees")
 		pruned, err := gitx.Prune(root)
 		if err != nil {
 			c.notify(err.Error(), true)
