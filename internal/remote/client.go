@@ -51,8 +51,10 @@ func (e *APIError) Error() string {
 }
 
 // Revoked reports whether the relay no longer accepts this host's token —
-// because the host was removed, from here or from a device, or the account
-// was. There is nothing to retry: the enrolment is spent.
+// because the host was taken off the relay by something holding that token,
+// from here or elsewhere, or the relay no longer has it. Nothing else can
+// remove a host: a device can remove only devices, and the relay's operator
+// only makes invites. There is nothing to retry: the enrolment is spent.
 //
 // Only a refusal in the relay's own words counts. A 403 is also what a proxy
 // or a firewall in front of the relay answers with, on a page of its own, and
