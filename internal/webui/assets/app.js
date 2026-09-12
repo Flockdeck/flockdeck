@@ -1378,6 +1378,9 @@
           shown: {} };
     panes.set(id, p);
 
+    // Focusing or tapping the terminal is using the pane in this window.
+    if (term.textarea) term.textarea.addEventListener("focus", () => sendFocus(p));
+    host.addEventListener("pointerdown", () => sendFocus(p));
     term.onData((data) => sendInput(p, data));
     term.onBinary((data) => {
       const bytes = new Uint8Array(data.length);
@@ -1429,6 +1432,13 @@
   function sendInput(p, data) {
     sendBytes(p, new TextEncoder().encode(data));
   }
+  /** sendFocus tells the server this window's terminal is the one being used,
+   *  so the pane is sized for it when more than one window is watching. The
+   *  keystrokes that follow would say so too; this is for the glance, and the
+   *  scroll, that comes before them. */
+  function sendFocus(p) {
+    if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ focus: true }));
+  }
   function sendBytes(p, bytes) {
     if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(bytes);
   }
@@ -1437,19 +1447,42 @@
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
 
-    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id));
+    // A reconnect says how much of the pane's output this terminal already
+    // holds, so it is sent only what it missed and keeps its scrollback and
+    // the place the person had scrolled to. p.stream is what the server last
+    // said about the stream; before it has said anything, this holds nothing.
+    // A stream that has delivered nothing yet is not resumed: its header's
+    // place counts the terminal modes put back ahead of the replay, and a
+    // terminal that never received them would carry on without them.
+    const held = p.stream && !p.stream.fresh ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
+    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + held);
     ws.binaryType = "arraybuffer";
     p.ws = ws;
 
     ws.onopen = () => {
       p.retries = 0;
       p.cols = p.rows = 0; // force the size to be re-reported
-      // The stream restarts from the session's replay buffer, so clear
-      // whatever this terminal was showing rather than interleaving the two.
-      p.term.reset();
       scheduleFit(p);
+      // A socket that reconnects is a new window as far as the server can
+      // tell, so the terminal that has the keyboard says again that it is the
+      // one in use.
+      if (document.hasFocus() && p.host.contains(document.activeElement)) sendFocus(p);
     };
-    ws.onmessage = (ev) => p.term.write(new Uint8Array(ev.data));
+    ws.onmessage = (ev) => {
+      // Text opens a run of the pane's output: where the bytes that follow
+      // begin, and whether they carry on from what this terminal shows or it
+      // has to start again -- the first time, after a restart, or when what it
+      // missed is more than the server still holds.
+      if (typeof ev.data === "string") {
+        let h;
+        try { h = JSON.parse(ev.data); } catch { return; }
+        if (!h.resumed) p.term.reset();
+        p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
+        return;
+      }
+      if (p.stream) { p.stream.offset += ev.data.byteLength; p.stream.fresh = false; }
+      p.term.write(new Uint8Array(ev.data));
+    };
     ws.onclose = () => {
       if (p.ws !== ws) return;
       p.ws = null;

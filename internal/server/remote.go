@@ -172,7 +172,7 @@ func RequestRemoteReload(baseURL, token string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return errors.New("reload remote access: " + resp.Status)
+		return refused("reload remote access", resp)
 	}
 	return nil
 }
@@ -244,6 +244,7 @@ type remotePairMsg struct {
 // it is done off the connection's own goroutine.
 func (s *Server) remoteDevices(c *controlClient) {
 	go func() {
+		defer s.survive("listing paired devices")
 		msg := remoteDevicesMsg{
 			Type: "remoteDevices", Devices: []remote.Device{}, Hosts: []remote.Host{},
 			Current: c.device,
@@ -283,6 +284,7 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 		kind = remote.KindDevice
 	}
 	go func() {
+		defer s.survive("pairing a device")
 		msg := remotePairMsg{Type: "remotePair", Kind: kind}
 		cl, err := s.remoteClient()
 		if err != nil {
@@ -315,6 +317,7 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 		return
 	}
 	go func() {
+		defer s.survive("unpairing a device")
 		cl, err := s.remoteClient()
 		if err != nil {
 			c.notify(err.Error(), true)

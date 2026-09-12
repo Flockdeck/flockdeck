@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -113,7 +114,7 @@ func TestTokenGatesEverything(t *testing.T) {
 				t.Fatalf("build request for %s: %v", path, err)
 			}
 			if creds.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: tokenCookie, Value: creds.cookie})
+				req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: creds.cookie})
 			}
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -146,6 +147,11 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
+	// A page on another local port is the same site, so its frame of this one
+	// would carry the cookie. Only the header keeps the window out of it.
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != "frame-ancestors 'self'" {
+		t.Errorf("index Content-Security-Policy = %q, want frame-ancestors 'self'", csp)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "flockdeck") {
 		t.Error("index does not look like the app page")
@@ -153,7 +159,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 
 	var cookie *http.Cookie
 	for _, c := range resp.Cookies() {
-		if c.Name == tokenCookie {
+		if c.Name == srv.cookieName() {
 			cookie = c
 		}
 	}
@@ -390,7 +396,7 @@ func TestStaleTokenInURLKeepsWorkingCookie(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	req, _ := http.NewRequest(http.MethodGet, srv.baseURL()+"/?t=stale-token-from-a-previous-run", nil)
-	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: srv.Token()})
+	req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: srv.Token()})
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET index: %v", err)
@@ -400,9 +406,79 @@ func TestStaleTokenInURLKeepsWorkingCookie(t *testing.T) {
 		t.Fatalf("index = %d, want 200", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == tokenCookie && c.Value != srv.Token() {
+		if c.Name == srv.cookieName() && c.Value != srv.Token() {
 			t.Fatalf("index replaced the working cookie with %q", c.Value)
 		}
+	}
+}
+
+// TestTwoInstancesKeepTheirOwnCookies covers a -solo instance beside the usual
+// one. Both windows live in the one browser profile, and a cookie takes no
+// notice of the port, so the second window to load used to replace the first
+// one's token -- and the first window was refused the next socket it opened.
+func TestTwoInstancesKeepTheirOwnCookies(t *testing.T) {
+	first, _ := newTestServer(t)
+	second, _ := newTestServer(t)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := &http.Client{Jar: jar}
+	get := func(url string) int {
+		t.Helper()
+		resp, err := browser.Get(url)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	get(first.URL())
+	get(second.URL())
+	for _, srv := range []*Server{first, second} {
+		if code := get(srv.baseURL() + "/assets/app.js"); code != http.StatusOK {
+			t.Errorf("a window of the instance on %s was refused its own asset: %d", srv.Addr(), code)
+		}
+	}
+}
+
+// TestControlSocketOnlyAnswersItsOwnPage covers who may drive the workspace.
+// A page on another local port has this server's cookie attached to any
+// socket it opens here, and a WebSocket is not subject to CORS, so the origin
+// is the only thing that tells the window's own page from somebody else's.
+func TestControlSocketOnlyAnswersItsOwnPage(t *testing.T) {
+	srv, _ := newTestServer(t)
+	dial := func(origin, host string) (*websocket.Conn, *http.Response, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		h.Set("Cookie", srv.cookieName()+"="+srv.Token())
+		return websocket.Dial(ctx, "ws://"+host+"/ws/control", &websocket.DialOptions{HTTPHeader: h})
+	}
+
+	for _, origin := range []string{"http://127.0.0.1:9999", "http://localhost:9999", "https://example.com"} {
+		conn, resp, err := dial(origin, srv.Addr())
+		if err == nil {
+			conn.CloseNow()
+			t.Errorf("a page served from %s was allowed to open the control socket", origin)
+			continue
+		}
+		if resp != nil && resp.StatusCode != http.StatusForbidden {
+			t.Errorf("dial from %s = %d, want 403", origin, resp.StatusCode)
+		}
+	}
+
+	// The window's own page, under either loopback name it can be opened by.
+	for _, host := range []string{srv.Addr(), "localhost:" + port(srv.Addr())} {
+		conn, _, err := dial("http://"+host, host)
+		if err != nil {
+			t.Errorf("the window's own page was refused at %s: %v", host, err)
+			continue
+		}
+		conn.CloseNow()
 	}
 }
 
@@ -584,6 +660,16 @@ func (r *controlReader) settle(t *testing.T) {
 // change anything the snapshot carries, and a window that is handed the state
 // it already holds parses it and re-renders the whole interface for nothing.
 func TestUnchangedStateIsNotResent(t *testing.T) {
+	// The process table is read every few seconds and the shell's figures move
+	// with it, which is a real change and rightly sent. Held still here, so that
+	// whether a reading lands inside the window below is not what decides the
+	// test.
+	was := usageOf
+	usageOf = func(*session.Session) session.Usage {
+		return session.Usage{CPUPercent: 3, RSSBytes: 50 << 20, Procs: 2, Known: true}
+	}
+	t.Cleanup(func() { usageOf = was })
+
 	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	r := readControl(conn)
@@ -605,6 +691,35 @@ func TestUnchangedStateIsNotResent(t *testing.T) {
 		return len(s.Tabs) == 2 && s.Tabs[1].Title == "second"
 	}); !ok {
 		t.Fatal("a real change was not broadcast")
+	}
+}
+
+// TestUsageIsSentAsShown covers the figures the process table gives, which are
+// different at every reading. Sent raw, each reading made a new snapshot for
+// every window even when the header then drew exactly what it drew before.
+func TestUsageIsSentAsShown(t *testing.T) {
+	for _, c := range []struct {
+		cpu     float64
+		rss     uint64
+		wantCPU float64
+		wantRSS uint64
+	}{
+		{0, 0, 0, 0},
+		{0.4, 900, 0, 900},
+		{12.6, 1536, 13, 1536},
+		{99.5, 12_345_678, 100, 12_373_196},    // 11.8 MB
+		{250.2, 130_000_000, 250, 130_023_424}, // 124 MB
+	} {
+		cpu, rss, _ := shownUsage(session.Usage{CPUPercent: c.cpu, RSSBytes: c.rss})
+		if cpu != c.wantCPU || rss != c.wantRSS {
+			t.Errorf("shownUsage(%v, %d) = %v, %d; want %v, %d", c.cpu, c.rss, cpu, rss, c.wantCPU, c.wantRSS)
+		}
+	}
+	// Two readings that the window would draw alike are sent alike.
+	_, a, _ := shownUsage(session.Usage{RSSBytes: 50 << 20})
+	_, b, _ := shownUsage(session.Usage{RSSBytes: 50<<20 + 4096})
+	if a != b {
+		t.Errorf("50 MB and 50 MB and a page were sent as %d and %d", a, b)
 	}
 }
 

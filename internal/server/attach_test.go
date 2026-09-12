@@ -1,12 +1,58 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// TestProbeCountsTheWindowsOnThisMachine covers a second launch deciding
+// whether it needs to open a window at all. Each launch used to open another,
+// so bringing back a window lost behind others added a duplicate every time.
+// A window through the relay is somebody elsewhere and is not counted.
+func TestProbeCountsTheWindowsOnThisMachine(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	remote, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer remote.CloseNow()
+	readRemoteMsg(t, remote, "state")
+
+	if h, err := Probe(srv.BaseURL(), srv.Token()); err != nil || h.Windows != 0 {
+		t.Fatalf("with only a relayed window open, probe = %+v, %v; want 0 windows", h, err)
+	}
+	nextState(t, dialControl(t, srv), nil)
+	if h, err := Probe(srv.BaseURL(), srv.Token()); err != nil || h.Windows != 1 {
+		t.Fatalf("with a window open on this machine, probe = %+v, %v; want 1 window", h, err)
+	}
+}
+
+// TestRequestOpenSaysWhyItFailed covers `flockdeck -C` handing the running
+// instance a project it will not open. The instance says why, and the launch
+// used to print "open project: 400 Bad Request" in place of it.
+func TestRequestOpenSaysWhyItFailed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	why := make(chan error, 1)
+	srv.do(func() { why <- ws.OpenProject(missing) })
+	want := <-why
+	if want == nil {
+		t.Fatal("the workspace opened a directory that is not there")
+	}
+
+	err := RequestOpen(srv.BaseURL(), srv.Token(), missing)
+	if err == nil || !strings.Contains(err.Error(), want.Error()) {
+		t.Fatalf("RequestOpen = %v, want it to say %q", err, want)
+	}
+}
 
 // TestProbeIdentifiesTheInstance covers what a second launch uses to decide
 // whether to attach.
@@ -163,7 +209,13 @@ func TestProbeFailsWhileTheWorkspaceIsStuck(t *testing.T) {
 	srv.do(func() { <-release })
 
 	start := time.Now()
-	if _, err := Probe(srv.BaseURL(), srv.Token()); err == nil {
+	_, err := Probe(srv.BaseURL(), srv.Token())
+	// The launch is told which failure this is by name, and has to be: taking
+	// a busy instance for a stale record starts a rival set of agents.
+	if err != nil && !errors.Is(err, ErrNotReady) {
+		t.Errorf("a busy instance was reported as %v, not as ErrNotReady", err)
+	}
+	if err == nil {
 		t.Fatal("expected the probe to fail while the workspace is stuck")
 	}
 	// The probe waits a busy instance out rather than writing it off, so the
@@ -272,7 +324,7 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 		srv.BaseURL() + "/open?path=" + queryEscape(t.TempDir()),
 	}
 	for _, url := range posts {
-		resp := sendWithCookie(t, http.MethodPost, url, srv.Token())
+		resp := sendWithCookie(t, http.MethodPost, url, srv)
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("POST %s with only the cookie = %d, want 403", url, resp.StatusCode)
 		}
@@ -283,7 +335,7 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 
 	// Reporting on the instance is not for a page either: the reply names the
 	// process and what it has open.
-	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv.Token())
+	resp := sendWithCookie(t, http.MethodGet, srv.BaseURL()+"/health", srv)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("GET /health with only the cookie = %d, want 403", resp.StatusCode)
 	}
@@ -297,13 +349,13 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 
 // sendWithCookie makes the request a page in a browser would: no token of its
 // own, and the cookie attached for it.
-func sendWithCookie(t *testing.T, method, url, token string) *http.Response {
+func sendWithCookie(t *testing.T, method, url string, srv *Server) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.AddCookie(&http.Cookie{Name: tokenCookie, Value: token})
+	req.AddCookie(&http.Cookie{Name: srv.cookieName(), Value: srv.Token()})
 	req.Header.Set("Origin", "http://127.0.0.1:9999")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

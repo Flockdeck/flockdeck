@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +163,39 @@ func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
 	}
 	if got := byID["22222222-0000-0000-0000-000000000000"].Agent; got != "anthropic" {
 		t.Errorf("the API agent's conversation is labelled %q; it should be listed and named", got)
+	}
+}
+
+// TestOneUnreadableStoreDoesNotHideTheRest covers a history panel where one
+// agent's store cannot be read. The panel draws an error in place of the whole
+// list, so an error sent with the listing hid every conversation the other
+// agents had. It goes beside the list, as a notice, instead.
+func TestOneUnreadableStoreDoesNotHideTheRest(t *testing.T) {
+	srv, ws := newTestServer(t)
+	root := ws.ActiveRoot()
+
+	// Claude's store has a conversation; the chat client's cannot be read.
+	was := allConversations
+	t.Cleanup(func() { allConversations = was })
+	allConversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
+		return []transcript.Conversation{{ID: "11111111-0000-0000-0000-000000000000", Agent: "claude", Summary: "a prompt"}},
+			errors.New("read chats: access is denied")
+	}
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.listConversations(c, root)
+	msg := listen(t, c, "conversations")
+	if msg.Error != "" || len(msg.Items) != 1 {
+		t.Fatalf("listing = %d items with error %q; want Claude's conversation and no error in its place", len(msg.Items), msg.Error)
+	}
+	select {
+	case raw := <-c.out:
+		var note noticeMsg
+		if err := json.Unmarshal(raw, &note); err != nil || note.Type != "notice" || !note.Error {
+			t.Fatalf("after the listing came %s; want an error notice saying what could not be read", raw)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the unreadable store was not mentioned at all")
 	}
 }
 

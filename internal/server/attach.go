@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,10 @@ type healthMsg struct {
 	// distinction that matters: a launch that cannot tell the two apart
 	// writes off a running instance and starts a rival set of agents.
 	Ready bool `json:"ready"`
+	// Windows is how many windows on this machine are open onto the instance,
+	// leaving out the ones reached through the relay. A launch that finds one
+	// open has a window to bring back rather than a reason to open another.
+	Windows int `json:"windows"`
 }
 
 // Version is reported by the health endpoint. main sets it at startup.
@@ -105,6 +110,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
 		App: "flockdeck", Version: Version, PID: pid(), Projects: projects, Ready: true,
+		Windows: s.LocalClientCount(),
 	})
 }
 
@@ -120,7 +126,7 @@ func (s *Server) notReady(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "flockdeck", Version: Version, PID: pid(),
+		App: "flockdeck", Version: Version, PID: pid(), Windows: s.LocalClientCount(),
 	})
 }
 
@@ -151,7 +157,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	case s.cmds <- func() {
 		err := s.ws.OpenProject(path)
 		if err == nil {
-			s.Wake()
+			s.wakeAsked()
 		}
 		errc <- err
 	}:
@@ -273,9 +279,14 @@ func (s *Server) requestRestart() {
 }
 
 // Detach makes the application keep running after its last window closes, so
-// the agents carry on and can be reattached to later.
+// the agents carry on and can be reattached to later. OnDetach is told once
+// each time the instance goes from attached to detached, on a goroutine of its
+// own: a window's Detach arrives on the workspace goroutine, and whatever the
+// hook does is not that goroutine's to wait for.
 func (s *Server) Detach() {
-	s.detached.Store(true)
+	if s.detached.CompareAndSwap(false, true) && s.OnDetach != nil {
+		go s.OnDetach()
+	}
 }
 
 // Detached reports whether the application should outlive its windows.
@@ -294,16 +305,21 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	deadline := time.Now().Add(busyGrace)
 	for {
 		h, err := probeOnce(baseURL, token)
-		if err == nil || !errors.Is(err, errNotReady) || !time.Now().Before(deadline) {
+		if err == nil || !errors.Is(err, ErrNotReady) || !time.Now().Before(deadline) {
 			return h, err
 		}
 		time.Sleep(busyRetry)
 	}
 }
 
-// errNotReady marks the one failure worth waiting out: flockdeck is listening on
+// ErrNotReady marks the one failure worth waiting out: flockdeck is listening on
 // that address, it just cannot answer for its workspace this moment.
-var errNotReady = errors.New("the instance is not ready")
+//
+// It is exported for the launch deciding what an error from Probe means. Every
+// other failure says nothing is there; this one says an instance is there and
+// busy, and taking it for a stale record would start a rival set of agents
+// beside the ones it is busy with.
+var ErrNotReady = errors.New("the instance is not ready")
 
 func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -325,7 +341,7 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
 		if decodeErr == nil && h.App == "flockdeck" {
-			return nil, fmt.Errorf("%w: %s", errNotReady, resp.Status)
+			return nil, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
 		}
 		return nil, fmt.Errorf("instance replied %s", resp.Status)
 	}
@@ -353,9 +369,21 @@ func RequestOpen(baseURL, token, path string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("open project: %s", resp.Status)
+		return refused("open project", resp)
 	}
 	return nil
+}
+
+// refused is the error for a request the instance turned down. The handlers
+// here say why in the reply, and it is the reason rather than the status that
+// the person at the command line can act on: "open project: 400 Bad Request"
+// sends them looking, where the workspace's own words would not.
+func refused(what string, resp *http.Response) error {
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if text := strings.TrimSpace(string(msg)); text != "" {
+		return fmt.Errorf("%s: %s", what, text)
+	}
+	return fmt.Errorf("%s: %s", what, resp.Status)
 }
 
 // RequestQuit asks a running instance to shut down, and waits for it to have
@@ -378,9 +406,9 @@ func RequestQuit(baseURL, token string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("quit: %s", resp.Status)
+		return refused("quit", resp)
 	}
 
 	deadline := time.Now().Add(quitGrace)
@@ -389,7 +417,7 @@ func RequestQuit(baseURL, token string) error {
 		// merely too busy to report on itself is still there -- and being busy
 		// is exactly what shutting down looks like from outside.
 		_, err := probeOnce(baseURL, token)
-		if err != nil && !errors.Is(err, errNotReady) {
+		if err != nil && !errors.Is(err, ErrNotReady) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {

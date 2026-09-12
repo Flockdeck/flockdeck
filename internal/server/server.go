@@ -6,16 +6,22 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,8 +32,22 @@ import (
 )
 
 // tokenCookie carries the session token once the window has loaded, so asset
-// and WebSocket requests do not have to repeat it in every URL.
+// and WebSocket requests do not have to repeat it in every URL. It is the stem
+// of the cookie's name rather than the whole of it: see cookieName.
 const tokenCookie = "flockdeck_token"
+
+// cookieName is the cookie this instance keeps its token in, named for the
+// port it listens on.
+//
+// A cookie belongs to a host and takes no notice of the port. Two instances on
+// 127.0.0.1 -- a -solo run beside the usual one, whose windows share the one
+// browser profile in the state directory -- therefore wrote the same cookie,
+// and the second window to load replaced the first one's token with its own.
+// The first window carried on only until it next opened a socket, for a new
+// pane or a reconnect, and was then turned away by its own instance.
+func (s *Server) cookieName() string {
+	return tokenCookie + "_" + strconv.Itoa(s.ln.Addr().(*net.TCPAddr).Port)
+}
 
 // stateInterval is the shortest gap between two state pushes made for the
 // agents' own account. They produce output continuously; the tab bar does not
@@ -108,6 +128,12 @@ type Server struct {
 	// downloaded version. It is separate from OnQuit because the shutdown has
 	// to know whether to start the program again once it has replaced it.
 	OnRestart func()
+	// OnDetach is called when the instance becomes detached -- from a window,
+	// or by -detach at start -- once each time it goes from attached to
+	// detached, and never on the workspace goroutine. It is how the application
+	// lets go of what tied it to the way it was started: on Windows, the console
+	// a -no-window run was launched from, whose closing would otherwise end it.
+	OnDetach func()
 
 	// update is the release waiting to be applied, if one has been downloaded.
 	// It is read on every snapshot and written by whatever is watching for
@@ -130,8 +156,16 @@ type UpdateView struct {
 }
 
 // SetUpdate records that a release has been staged and is ready to be applied
-// by a restart, so the next snapshot tells the windows about it.
-func (s *Server) SetUpdate(u *UpdateView) { s.update.Store(u) }
+// by a restart, and has the windows told.
+//
+// Nothing else would tell them. A snapshot goes out when something changes,
+// and a release is staged in the background, hours into a run, most likely
+// while the agents sit waiting and nobody is touching the window -- which is
+// then not told until something unrelated happens.
+func (s *Server) SetUpdate(u *UpdateView) {
+	s.update.Store(u)
+	s.Wake()
+}
 
 // Update returns the staged release, or nil when there is none.
 func (s *Server) Update() *UpdateView { return s.update.Load() }
@@ -178,6 +212,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.runLoop()
 	go s.pushLoop()
 	go s.gitLoop()
+	go s.usageLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 
@@ -225,7 +260,7 @@ func (s *Server) wakeAsked() {
 // and gets a broadcast of its own.
 //
 // Which interval applies depends on what caused the change. Holding the agents'
-// chatter to forty milliseconds is the whole point of having one; holding a
+// chatter to stateInterval is the whole point of having one; holding a
 // split or a tab switch to it is not, and with several agents talking the wait
 // would otherwise land on every one of them, since the chatter keeps the last
 // broadcast recent. So a change somebody asked for is answered on its own, much
@@ -333,6 +368,37 @@ func (s *Server) gitLoop() {
 	}
 }
 
+// usageRefresh is how often a snapshot is rebuilt while a window is open, so
+// that each pane's CPU and memory are read again. It matches how often the
+// session package reads the process table at most; a variable so a test need
+// not wait it out.
+var usageRefresh = 5 * time.Second
+
+// usageLoop has the snapshot rebuilt on a timer while a window is open.
+//
+// A pane's figures are read only as a snapshot is built, and a snapshot is
+// otherwise built only when something changes. An agent that had just stopped
+// was sent as idle with its fifteen-second CPU average still high, and nothing
+// built another: its header showed that share, marked hot, for as long as the
+// rest of the workspace stayed quiet. A rebuild whose rounded figures draw the
+// same as before is not sent (see shownUsage), so this costs a snapshot and a
+// comparison every few seconds, and sends only what a window would draw
+// differently.
+func (s *Server) usageLoop() {
+	tick := time.NewTicker(usageRefresh)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-tick.C:
+			if s.ClientCount() > 0 {
+				s.Wake()
+			}
+		}
+	}
+}
+
 // authorised reports whether a request carries the token, either as the query
 // parameter used on first load or as the cookie set from it — or came through
 // the relay, which is authorisation of another kind (see remote.go).
@@ -343,7 +409,7 @@ func (s *Server) authorised(r *http.Request) bool {
 	if t := r.URL.Query().Get("t"); t != "" && s.tokenMatches(t) {
 		return true
 	}
-	if c, err := r.Cookie(tokenCookie); err == nil {
+	if c, err := r.Cookie(s.cookieName()); err == nil {
 		return s.tokenMatches(c.Value)
 	}
 	return false
@@ -370,7 +436,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// working cookie with one that no longer opens anything.
 	if t := r.URL.Query().Get("t"); s.tokenMatches(t) {
 		http.SetCookie(w, &http.Cookie{
-			Name:     tokenCookie,
+			Name:     s.cookieName(),
 			Value:    t,
 			Path:     "/",
 			HttpOnly: true,
@@ -385,6 +451,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	// Nothing frames this page legitimately, locally or through the relay. A
+	// page on another local port could, though -- it counts as the same site,
+	// so the cookie goes with the request -- and then lay a decoy over the
+	// window to have the person click Quit or type into an agent for it. The
+	// sockets refuse such a page; this keeps it from borrowing the window.
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 	_, _ = w.Write(data)
 }
 
@@ -403,8 +475,80 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 		// time for the browser to revalidate against either, and fetching them
 		// again over loopback costs nothing.
 		w.Header().Set("Cache-Control", "no-store")
+		// Through the relay the window is often a phone on a metered link, and
+		// no-store means every page load fetches the front end again: a
+		// megabyte of script, most of it the terminal emulator. Script and
+		// styles compress to a fraction, so they are sent that way when the
+		// browser says it can take it. Over loopback it would buy nothing.
+		if fromRemote(r) && acceptsGzip(r) && compressible(r.URL.Path) {
+			name := r.URL.Path
+			if data, ok := gzipped(name, func() ([]byte, error) { return fs.ReadFile(fsys, name) }); ok {
+				if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+					w.Header().Set("Content-Type", ct)
+				}
+				w.Header().Set("Content-Encoding", "gzip")
+				w.Header().Set("Vary", "Accept-Encoding")
+				_, _ = w.Write(data)
+				return
+			}
+		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// compressible reports whether a file is text worth gzipping. An image is
+// compressed already.
+func compressible(name string) bool {
+	switch path.Ext(name) {
+	case ".js", ".css", ".html", ".json", ".svg":
+		return true
+	}
+	return false
+}
+
+// acceptsGzip reports whether a request says it can take a gzipped reply. A
+// coding given a quality of zero -- "gzip;q=0" -- is one the client refuses.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		for _, p := range strings.Split(params, ";") {
+			k, v, _ := strings.Cut(strings.TrimSpace(p), "=")
+			if q, err := strconv.ParseFloat(strings.TrimSpace(v), 64); strings.EqualFold(k, "q") && err == nil && q == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// gzippedAssets holds what has been compressed, by key. Everything given to it
+// is compiled in and never changes -- the assets, the help pages -- so each is
+// compressed once, on its first request through the relay, and the answer kept
+// for the life of the process.
+var gzippedAssets sync.Map
+
+// gzipped returns what load gives, gzipped, compressing it the first time key
+// is asked for. It reports false when there is nothing to load.
+func gzipped(key string, load func() ([]byte, error)) ([]byte, bool) {
+	if data, ok := gzippedAssets.Load(key); ok {
+		return data.([]byte), true
+	}
+	plain, err := load()
+	if err != nil {
+		return nil, false
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	_, _ = zw.Write(plain)
+	if zw.Close() != nil {
+		return nil, false
+	}
+	gzippedAssets.Store(key, buf.Bytes())
+	return buf.Bytes(), true
 }
 
 // Close shuts the server down.

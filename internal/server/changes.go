@@ -51,22 +51,13 @@ func (s *Server) reviewDir(path string) string {
 	if path != "" {
 		return path
 	}
-	done := make(chan string, 1)
-	s.do(func() {
+	dir, _ := ask(s, func() string {
 		if p := s.ws.FocusedPane(); p != nil && p.Cwd != "" {
-			done <- p.Cwd
-			return
+			return p.Cwd
 		}
-		done <- s.ws.ActiveRoot()
+		return s.ws.ActiveRoot()
 	})
-	select {
-	case dir := <-done:
-		return dir
-	case <-s.closed:
-		// do drops the request once the server is shutting down, so waiting
-		// on the reply here would strand the connection goroutine.
-		return ""
-	}
+	return dir
 }
 
 // repoRoot resolves the top of the working tree dir belongs to, falling back
@@ -101,11 +92,34 @@ func treeRoot(dir string) (string, error) {
 	return gitx.Root(dir)
 }
 
+// changeListings is the review panel's listings each window has asked for.
+//
+// Listing a checkout is several git processes, and a large one takes a while,
+// so two can finish out of order: review one worktree, then another, and the
+// first listing lands on top of the second. The panel draws whichever came
+// last, so it showed the first checkout's files under the one just asked
+// about -- and its Commit commits wherever the listing it drew came from.
+var changeListings = newNewestAnswer()
+
+// readChanges gathers a checkout's listing. It is a variable so a test can
+// hold one back.
+var readChanges = collectChanges
+
 // listChanges answers a request for what has changed in a working tree.
 func (s *Server) listChanges(c *controlClient, path string) {
-	dir := s.reviewDir(path)
+	asked := changeListings.asked(c)
+	s.sendChanges(c, s.reviewDir(path), asked)
+}
+
+// sendChanges lists a checkout for a window, unless the window has asked for
+// another listing since the request numbered asked.
+func (s *Server) sendChanges(c *controlClient, dir string, asked uint64) {
 	go func() {
-		msg := collectChanges(dir)
+		defer s.survive("reading what changed")
+		msg := readChanges(dir)
+		if !changeListings.answer(c, asked) {
+			return
+		}
 		c.sendJSON(msg)
 		if msg.Omitted > 0 {
 			// Said out loud, because a list that stops at two thousand rows
@@ -200,6 +214,7 @@ func noRepoReason(dir string) string {
 func (s *Server) showDiff(c *controlClient, path, file string) {
 	dir := s.reviewDir(path)
 	go func() {
+		defer s.survive("showing a diff")
 		dir = repoRoot(dir)
 		msg := diffMsg{Type: "diff", Cwd: dir, File: file}
 		text, err := gitx.Diff(dir, file)
@@ -222,11 +237,15 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 // pushing afterwards.
 func (s *Server) commitChanges(c *controlClient, path, message string, push bool) {
 	dir := s.reviewDir(path)
+	// The listing a commit ends on counts from when the commit was asked for,
+	// so a review opened while it ran is not drawn over when it finishes.
+	asked := changeListings.asked(c)
 	go func() {
+		defer s.survive("committing")
 		dir = repoRoot(dir)
 		if err := gitx.CommitAll(dir, message); err != nil {
 			c.notify(err.Error(), true)
-			s.listChanges(c, dir)
+			s.sendChanges(c, dir, asked)
 			return
 		}
 		c.notify("committed in "+shortName(dir), false)
@@ -237,7 +256,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 				c.notify(remoteSummary("push", out), false)
 			}
 		}
-		s.listChanges(c, dir)
+		s.sendChanges(c, dir, asked)
 		// The pane headers show the same counts, so refresh them too. Asking
 		// the git loop rather than sweeping here keeps one sweep running at a
 		// time: each one shells out to git for every open checkout, and a
@@ -250,7 +269,9 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 // runRemote performs a push, pull or fetch and reports the result.
 func (s *Server) runRemote(c *controlClient, action, path string) {
 	dir := s.reviewDir(path)
+	asked := changeListings.asked(c) // as a commit's: see commitChanges
 	go func() {
+		defer s.survive("talking to the remote")
 		var (
 			out string
 			err error
@@ -270,7 +291,7 @@ func (s *Server) runRemote(c *controlClient, action, path string) {
 		} else {
 			c.notify(remoteSummary(action, out), false)
 		}
-		s.listChanges(c, dir)
+		s.sendChanges(c, dir, asked)
 		s.RefreshGitNow()
 	}()
 }

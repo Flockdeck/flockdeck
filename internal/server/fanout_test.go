@@ -12,10 +12,93 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// TestDiscardingAWorktreeSaysWhenItCannot covers the clean-up after an agent
+// that could not start. A worktree it cannot remove stays behind looking like
+// one an agent is working in, so the failure has to reach the notice rather
+// than be dropped.
+func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
+	notARepo := t.TempDir()
+	job := &fanoutJob{task: "never started", cwd: t.TempDir()}
+	if err := discardWorktree(notARepo, t.TempDir(), job); err == nil {
+		t.Fatal("removing a worktree from somewhere that is not a repository reported nothing")
+	}
+	// Nothing was cut, so there is nothing to remove and nothing to say.
+	if err := discardWorktree("", notARepo, job); err != nil {
+		t.Errorf("a job with no worktree of its own reported %v", err)
+	}
+}
+
+// TestFanoutCatalogSaysWhichAgentsAskAboutTrust covers the fan-out dialog's
+// offer to carry folder trust over, which is only worth making for a run whose
+// agents ask whether a folder is trusted.
+func TestFanoutCatalogSaysWhichAgentsAskAboutTrust(t *testing.T) {
+	srv, ws := newTestServer(t)
+	specs, _ := ask(srv, func() []agent.Spec {
+		specs, _ := ws.Agents()
+		return specs
+	})
+	agents := srv.fanoutCatalog(specs)
+	asking := 0
+	for _, a := range agents {
+		spec, _ := ws.Catalog().Find(a.ID)
+		if a.AskTrust != spec.Caps.Trust {
+			t.Errorf("%s: askTrust = %v, want %v", a.ID, a.AskTrust, spec.Caps.Trust)
+		}
+		if a.AskTrust {
+			asking++
+		}
+	}
+	if asking == 0 {
+		t.Error("no agent in the catalog is said to ask about trust, though Claude Code does")
+	}
+}
+
+// TestTrustIsCarriedOnlyForAgentsThatAsk covers a fan-out split between agents.
+// Carrying folder trust over writes Claude Code's configuration, and a row run
+// by an agent with no such question has nothing to carry.
+func TestTrustIsCarriedOnlyForAgentsThatAsk(t *testing.T) {
+	asks := &fanoutJob{task: "refactor", agent: "claude"}
+	silent := &fanoutJob{task: "rename", agent: "codex"}
+	spec := func(id string) (agent.Spec, error) {
+		return agent.Spec{ID: id, Caps: agent.Caps{Trust: id == "claude"}}, nil
+	}
+	got := jobsAskingTrust([]*fanoutJob{asks, silent}, spec)
+	if len(got) != 1 || got[0] != asks {
+		t.Fatalf("trust would be carried for %+v, want only the claude row", got)
+	}
+}
+
+// TestRefusedSpawnCutsNoWorktree covers `flockdeck spawn --worktree` asking for
+// an agent this machine cannot start. The refusal used to come after git had
+// made the branch and its checkout, which were then left behind with nothing
+// in them -- indistinguishable, in the worktree panel, from work in progress.
+func TestRefusedSpawnCutsNoWorktree(t *testing.T) {
+	srv, ws, repo := newRepoServer(t)
+	parent := make(chan string, 1)
+	srv.do(func() { parent <- ws.CurrentTab().Focus })
+
+	hookSrv := ws.HookServer()
+	_, err := hooks.Spawn(hookSrv.BaseURL(), hookSrv.Token(), <-parent, hooks.SpawnRequest{
+		Task: "fix the parser", Branch: "fix-parser", Agent: "no-such-agent",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no-such-agent") {
+		t.Fatalf("spawn = %v, want a refusal naming the agent", err)
+	}
+
+	if wts, err := gitx.List(repo); err != nil || len(wts) != 1 {
+		t.Errorf("a refused spawn left the repository with worktrees %+v (%v)", wts, err)
+	}
+	if localBranches(repo)["fix-parser"] {
+		t.Error("a refused spawn left its branch behind")
+	}
+}
 
 // Writing out a working tree is the slowest thing a fan-out does, and a
 // fan-out is a dozen of them. Doing them one after another is a stretch of

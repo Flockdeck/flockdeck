@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +61,40 @@ func readAllFrames(t *testing.T, conn *websocket.Conn) (data []byte, frames int)
 		}
 		data = append(data, b...)
 		frames++
+	}
+}
+
+// TestReplayIsSentInBoundedFrames covers a window on a slow link. Each write
+// has a budget of its own, so a replay sent as one frame is the one write most
+// likely to run out of it -- and a window dropped part way through a replay
+// reconnects to be sent the whole of it again.
+func TestReplayIsSentInBoundedFrames(t *testing.T) {
+	replay := make([]byte, 512<<10)
+	for i := range replay {
+		replay[i] = byte('a' + i%26)
+	}
+	out := make(chan []byte)
+	close(out)
+	conn := streamPair(t, replay, out)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var got []byte
+	for {
+		_, b, err := conn.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+				t.Fatalf("read after %d bytes: %v", len(got), err)
+			}
+			break
+		}
+		if len(b) > replayFrame {
+			t.Errorf("a replay frame of %d bytes, want at most %d", len(b), replayFrame)
+		}
+		got = append(got, b...)
+	}
+	if !bytes.Equal(got, replay) {
+		t.Fatalf("got %d bytes, want %d, equal prefix %d", len(got), len(replay), commonPrefix(got, replay))
 	}
 }
 
@@ -285,6 +320,139 @@ func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string
 	}
 }
 
+// dialResumable opens a terminal socket the way the window does now, with
+// query saying what it already holds.
+func dialResumable(t *testing.T, srv *Server, paneID, query string) *websocket.Conn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+paneID+query, nil)
+	if err != nil {
+		t.Fatalf("dial pty: %v", err)
+	}
+	conn.SetReadLimit(16 << 20)
+	t.Cleanup(func() { conn.CloseNow() })
+	return conn
+}
+
+// TestTerminalResumeAfterARestartStartsAfresh covers a window cut off while
+// its pane was restarted. The place it holds is in the output of a process
+// that has gone, so it has to be told to start again, not be handed the new
+// process's bytes as though they followed on from the old one's.
+func TestTerminalResumeAfterARestartStartsAfresh(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	var h streamHeader
+	var held int64
+	first := dialResumable(t, srv, paneID, "&from=-1")
+	readResumable(t, first, "echo before_restart\r", "before_restart", &h, &held)
+	first.CloseNow()
+	old := h
+
+	before, _, _ := srv.paneSession(paneID)
+	sendCmd(t, ctl, command{Cmd: "restartPane", ID: paneID})
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if sess, _, _ := srv.paneSession(paneID); sess != nil && sess != before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane was never restarted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	second := dialResumable(t, srv, paneID, fmt.Sprintf("&from=%d&epoch=%d", held, old.Epoch))
+	readResumable(t, second, "echo after_restart\r", "after_restart", &h, &held)
+	if h.Resumed || h.Epoch == old.Epoch {
+		t.Fatalf("after a restart a window holding the old run's output got %+v, want a fresh start on a new run", h)
+	}
+}
+
+// readResumable types line into a terminal socket until marker comes back,
+// counting the output the way the window does: from the offset in the last
+// header, a byte at a time. It returns the output that arrived.
+func readResumable(t *testing.T, conn *websocket.Conn, line, marker string, h *streamHeader, held *int64) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			if err := conn.Write(ctx, websocket.MessageBinary, []byte(line)); err != nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}()
+
+	var seen strings.Builder
+	for !strings.Contains(seen.String(), marker) {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read pty waiting for %q: %v\nsaw:\n%s", marker, err, seen.String())
+		}
+		if typ == websocket.MessageText {
+			if err := json.Unmarshal(data, h); err != nil {
+				t.Fatalf("a text frame that is not a header: %q", data)
+			}
+			*held = h.Offset
+			continue
+		}
+		*held += int64(len(data))
+		seen.Write(data)
+	}
+	return seen.String()
+}
+
+// TestTerminalResumesWhereItWasCutOff covers a window whose terminal socket
+// drops and comes back -- a laptop waking, the relay blinking, or the server
+// hanging up on a window that fell behind. It used to reset the terminal and
+// be sent the last half megabyte again, losing everything older and where the
+// person had scrolled to. Saying what it holds, it is sent only what it
+// missed, and keeps the rest.
+func TestTerminalResumesWhereItWasCutOff(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	var h streamHeader
+	var held int64
+	first := dialResumable(t, srv, paneID, "&from=-1")
+	readResumable(t, first, "echo resume_one\r", "resume_one", &h, &held)
+	if h.Resumed {
+		t.Fatal("a window holding nothing was told it was resuming")
+	}
+	first.CloseNow()
+
+	second := dialResumable(t, srv, paneID, fmt.Sprintf("&from=%d&epoch=%d", held, h.Epoch))
+	was := held
+	got := readResumable(t, second, "echo resume_two\r", "resume_two", &h, &held)
+	if !h.Resumed || h.Offset != was {
+		t.Fatalf("reconnecting holding %d bytes got %+v, want a resume from exactly there", was, h)
+	}
+	if strings.Contains(got, "echo resume_one") {
+		t.Errorf("a resume was sent output the window already held:\n%s", got)
+	}
+
+	// A window that does not say what it holds is served as windows always
+	// were: bytes, and never a header it would not know what to do with.
+	legacy := dialPTY(t, srv, paneID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if typ, _, err := legacy.Read(ctx); err != nil || typ != websocket.MessageBinary {
+		t.Fatalf("a window that did not ask to resume got a %v frame (%v)", typ, err)
+	}
+}
+
 // TestTerminalSocketFollowsARestartedPane covers restarting an agent. The pane
 // keeps its id and its place on screen, so the terminal socket serving it has
 // no reason to be torn down; before this it was, and an exited pane was
@@ -406,57 +574,145 @@ func awaitSize(t *testing.T, srv *Server, paneID string, cols, rows int) {
 	t.Fatalf("pane settled at %dx%d, want %dx%d", gotC, gotR, cols, rows)
 }
 
-// TestPaneFitsEveryWindowWatchingIt covers two windows on one pane, which is
-// what attaching to a running instance produces. They measure their own
-// geometry, so they report different sizes; a pane bigger than the smaller of
-// them wraps every line there, and that window has no reason to report again.
-func TestPaneFitsEveryWindowWatchingIt(t *testing.T) {
+// sendFocus says a window's terminal has been focused, the way the window does.
+func sendFocus(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"focus":true}`)); err != nil {
+		t.Fatalf("focus: %v", err)
+	}
+}
+
+// TestPaneFollowsTheWindowInUse covers two windows on one pane -- the desk, and
+// a phone through the relay. The pane used to take the least of every window's
+// size, so the phone opened for a glance reflowed the desk's terminal to phone
+// width until it was closed. It follows the window being used instead.
+func TestPaneFollowsTheWindowInUse(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ctl := dialControl(t, srv)
 	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
 
-	first := dialPTY(t, srv, paneID)
-	sendResize(t, first, 100, 30)
-	awaitSize(t, srv, paneID, 100, 30)
+	desk := dialPTY(t, srv, paneID)
+	sendResize(t, desk, 160, 45)
+	awaitSize(t, srv, paneID, 160, 45)
+	sendFocus(t, desk)
 
-	// The second window is wider but shorter. Letting it win outright would
-	// leave the first one wrapping every line, so the pane takes the smaller
-	// of each dimension -- which both of them can draw.
-	second := dialPTY(t, srv, paneID)
-	sendResize(t, second, 200, 20)
-	awaitSize(t, srv, paneID, 100, 20)
+	// The phone reports its size, as every window does on opening, and that
+	// is all: the desk is the one in use, and keeps its width.
+	phone := dialPTY(t, srv, paneID)
+	sendResize(t, phone, 40, 20)
+	time.Sleep(300 * time.Millisecond)
+	awaitSize(t, srv, paneID, 160, 45)
 
-	// Once the first window has gone the pane is free to widen, and nothing
-	// else is going to tell it to: the remaining window's own geometry has not
-	// changed, so it has no reason to report again.
-	first.CloseNow()
-	awaitSize(t, srv, paneID, 200, 20)
+	// The phone's terminal answering a question from the program is not the
+	// phone being used: every window watching answers it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := phone.Write(ctx, websocket.MessageBinary, []byte("\x1b[?1;2c")); err != nil {
+		t.Fatalf("reply: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	awaitSize(t, srv, paneID, 160, 45)
+
+	// Typing on the phone is using it.
+	if err := phone.Write(ctx, websocket.MessageBinary, []byte(" ")); err != nil {
+		t.Fatalf("type: %v", err)
+	}
+	awaitSize(t, srv, paneID, 40, 20)
+
+	// Focusing the desk's terminal takes it back.
+	sendFocus(t, desk)
+	awaitSize(t, srv, paneID, 160, 45)
+
+	// And when the window in use goes, the pane follows the one used before it.
+	desk.CloseNow()
+	awaitSize(t, srv, paneID, 40, 20)
 }
 
-// TestViewerSizesForgetsTheLastWindow keeps the registry from holding a pane
-// after nobody is watching it, which would size the next window that opened
-// against a measurement from a window that is gone.
-func TestViewerSizesForgetsTheLastWindow(t *testing.T) {
-	v := &viewerSizes{panes: map[string]map[int64]termSize{}}
+// TestTerminalRepliesAreNotTyping covers what a window's terminal sends of its
+// own accord, which every window watching a pane sends alike.
+func TestTerminalRepliesAreNotTyping(t *testing.T) {
+	for _, reply := range []string{
+		"\x1b[?1;2c",       // device attributes
+		"\x1b[12;34R",      // cursor position
+		"\x1b[0n",          // status
+		"\x1b[I", "\x1b[O", // focus gained, lost
+		"\x1b[?2004;1$y",         // a mode's state
+		"\x1b]11;rgb:0f/11/14\a", // background colour
+	} {
+		if !isTerminalReply([]byte(reply)) {
+			t.Errorf("%q was taken for typing", reply)
+		}
+	}
+	for _, typed := range []string{
+		"a", " ", "\r", "\x7f", "\x1b", // keys, and Escape on its own
+		"\x1b[A", "\x1b[1;5C", "\x1bOP", "\x1b[15~", // arrows, F1, F5
+		"\x1b[<0;10;20M", "\x1b[<64;10;20M", // a click, a wheel turn
+		"\x1b[200~pasted\x1b[201~", // a paste
+	} {
+		if isTerminalReply([]byte(typed)) {
+			t.Errorf("%q was taken for a terminal's reply", typed)
+		}
+	}
+}
 
-	if cols, rows := v.smallest("pane"); cols != 0 || rows != 0 {
+// TestAWindowWithNoSizeTakesNothingOver covers the relay's phone client, which
+// reports a size only when asked to fit the pane to its screen. Using it has to
+// leave the pane as it is, rather than shrink it to the least of the other
+// windows or size it to nothing.
+func TestAWindowWithNoSizeTakesNothingOver(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]viewerState{}}
+	v.set("pane", 1, 160, 45)
+	v.set("pane", 2, 100, 30)
+	v.touch("pane", 1)
+	if v.touch("pane", 3) {
+		t.Error("using a window with no size asked for a refit")
+	}
+	if cols, rows := v.size("pane"); cols != 160 || rows != 45 {
+		t.Errorf("after a window with no size was used the pane is %dx%d, want it left at 160x45", cols, rows)
+	}
+}
+
+// TestViewerSizesFollowTheWindowInUse covers the bookkeeping behind it, and
+// keeps the registry from holding a pane after nobody is watching it, which
+// would size the next window that opened against a measurement from one that
+// is gone.
+func TestViewerSizesFollowTheWindowInUse(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]viewerState{}}
+
+	if cols, rows := v.size("pane"); cols != 0 || rows != 0 {
 		t.Errorf("an unwatched pane gave %dx%d, want nothing", cols, rows)
 	}
 
 	v.set("pane", 1, 120, 40)
 	v.set("pane", 2, 90, 60)
-	if cols, rows := v.smallest("pane"); cols != 90 || rows != 40 {
-		t.Errorf("two windows gave %dx%d, want the least of each, 90x40", cols, rows)
+	if cols, rows := v.size("pane"); cols != 90 || rows != 40 {
+		t.Errorf("two windows neither of them used gave %dx%d, want the least of each, 90x40", cols, rows)
 	}
 
-	if !v.drop("pane", 2) {
+	if !v.touch("pane", 2) {
+		t.Error("using the second window did not move the pane to it")
+	}
+	if v.touch("pane", 2) {
+		t.Error("using the same window again asked for a refit")
+	}
+	if cols, rows := v.size("pane"); cols != 90 || rows != 60 {
+		t.Errorf("with the second window in use, %dx%d, want its 90x60", cols, rows)
+	}
+	v.touch("pane", 1)
+	if cols, rows := v.size("pane"); cols != 120 || rows != 40 {
+		t.Errorf("with the first window in use, %dx%d, want its 120x40", cols, rows)
+	}
+
+	if !v.drop("pane", 1) {
 		t.Error("dropping one of two windows left nothing to resize for")
 	}
-	if cols, rows := v.smallest("pane"); cols != 120 || rows != 40 {
-		t.Errorf("after the second window left, %dx%d, want the first's 120x40", cols, rows)
+	if cols, rows := v.size("pane"); cols != 90 || rows != 60 {
+		t.Errorf("after the window in use left, %dx%d, want the one used before it, 90x60", cols, rows)
 	}
 
-	if v.drop("pane", 1) {
+	if v.drop("pane", 2) {
 		t.Error("dropping the only window asked for a resize; there is nobody to resize for")
 	}
 	if len(v.panes) != 0 {

@@ -35,6 +35,11 @@ func TestHelpIsServedToAuthorisedWindows(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("/help.json = %d, want 200", resp.StatusCode)
 	}
+	// Through the relay this address outlives the binary that answered it, so
+	// a cached copy would be the last version's pages.
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("/help.json Cache-Control = %q, want no-store", cc)
+	}
 
 	var body struct {
 		Pages []help.Page `json:"pages"`

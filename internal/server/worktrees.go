@@ -51,18 +51,42 @@ type worktreesMsg struct {
 // Git is slow enough that none of this belongs on the goroutine that owns the
 // workspace; only the project root and the pane count are read from there.
 func (s *Server) listWorktrees(c *controlClient) {
-	root := s.activeRoot()
+	asked := worktreeListings.asked(c)
+	s.sendWorktrees(c, s.activeRoot(), asked)
+}
+
+// worktreeListings is the worktree listings each window has asked for.
+//
+// A repository's listing is a git command per worktree, and a large one takes
+// a while, so two can finish out of order: open the panel, switch project, and
+// the first project's listing lands on top of the second's. The panel draws
+// whichever came last, so it showed the other project's worktrees under this
+// one -- and a row's Agent or Shell then started work in that project.
+var worktreeListings = newNewestAnswer()
+
+// readWorktrees gathers a repository's listing. It is a variable so a test can
+// hold one back.
+var readWorktrees = collectWorktrees
+
+// sendWorktrees lists root's worktrees for a window, unless the window has
+// asked for another listing since the request numbered asked.
+func (s *Server) sendWorktrees(c *controlClient, root string, asked uint64) {
 	go func() {
-		msg := collectWorktrees(root)
+		defer s.survive("listing worktrees")
+		msg := readWorktrees(root)
 		if msg.Error == "" {
 			paths := make([]string, 0, len(msg.Items))
 			for _, it := range msg.Items {
 				paths = append(paths, it.Path)
 			}
-			counts := s.panesPerPath(paths)
+			// Drawn as none when the workspace could not say.
+			counts, _ := s.panesPerPath(paths)
 			for i := range msg.Items {
 				msg.Items[i].Panes = counts[msg.Items[i].Path]
 			}
+		}
+		if !worktreeListings.answer(c, asked) {
+			return
 		}
 		c.sendJSON(msg)
 	}()
@@ -127,42 +151,42 @@ func collectWorktrees(root string) worktreesMsg {
 	return msg
 }
 
-// panesPerPath counts open panes working inside each of the given directories.
-func (s *Server) panesPerPath(paths []string) map[string]int {
-	done := make(chan map[string]int, 1)
-	s.do(func() {
-		counts := map[string]int{}
-		for _, t := range s.ws.Tabs {
-			for _, id := range t.Tree.Panes() {
-				p := s.ws.Pane(id)
-				if p == nil {
-					continue
-				}
-				// A worktree kept inside the repository it came from -- a
-				// .worktrees directory, say -- is under the main checkout as
-				// well as itself, so a pane in it matches both paths. The
-				// deepest match is the checkout it is really working in;
-				// taking the first would credit its panes to the parent and
-				// leave the worktree looking unattended.
-				best, bestLen := "", -1
-				for _, path := range paths {
-					if n := len(filepath.Clean(path)); n > bestLen && underPath(p.Cwd, path) {
-						best, bestLen = path, n
-					}
-				}
-				if best != "" {
-					counts[best]++
+// panesPerPath counts open panes working inside each of the given directories,
+// and reports whether the workspace answered at all. A count nobody could take
+// is not a count of none: the worktree panel may draw it as none, but removing
+// a worktree must not go on as though no agent were working there.
+func (s *Server) panesPerPath(paths []string) (map[string]int, bool) {
+	return ask(s, func() map[string]int { return panesIn(s, paths) })
+}
+
+// panesIn is panesPerPath's count, taken on the workspace goroutine. It is a
+// variable so a test can have the count fail.
+var panesIn = func(s *Server, paths []string) map[string]int {
+	counts := map[string]int{}
+	for _, t := range s.ws.Tabs {
+		for _, id := range t.Tree.Panes() {
+			p := s.ws.Pane(id)
+			if p == nil {
+				continue
+			}
+			// A worktree kept inside the repository it came from -- a
+			// .worktrees directory, say -- is under the main checkout as well
+			// as itself, so a pane in it matches both paths. The deepest match
+			// is the checkout it is really working in; taking the first would
+			// credit its panes to the parent and leave the worktree looking
+			// unattended.
+			best, bestLen := "", -1
+			for _, path := range paths {
+				if n := len(filepath.Clean(path)); n > bestLen && underPath(p.Cwd, path) {
+					best, bestLen = path, n
 				}
 			}
+			if best != "" {
+				counts[best]++
+			}
 		}
-		done <- counts
-	})
-	select {
-	case counts := <-done:
-		return counts
-	case <-s.closed:
-		return nil
 	}
+	return counts
 }
 
 // prunedSummary says what pressing prune actually did.
@@ -180,15 +204,22 @@ func prunedSummary(n int) string {
 	}
 }
 
+// foldPathCase is whether two paths differing only in case are the same
+// directory. They are on Windows and on a Mac as it comes, as the transcript
+// package also takes them to be; on Linux the other spelling is another
+// directory. It is a variable so a test can hold both answers to account on
+// any machine.
+var foldPathCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
 // underPath reports whether cwd is base or inside it.
 //
 // The two paths reach here from different places -- one from git, the other
-// from however the project was opened -- so on Windows they can name the same
-// directory in different case, which filepath.Rel treats as unrelated even
-// though the file system does not.
+// from however the project was opened -- so they can name the same directory
+// in different case, which filepath.Rel treats as unrelated even where the
+// file system does not.
 func underPath(cwd, base string) bool {
 	c, b := filepath.Clean(cwd), filepath.Clean(base)
-	if runtime.GOOS == "windows" {
+	if foldPathCase {
 		c, b = strings.ToLower(c), strings.ToLower(b)
 	}
 	rel, err := filepath.Rel(b, c)
@@ -201,10 +232,24 @@ func underPath(cwd, base string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// samePath reports whether two cleaned paths name the same directory, by the
+// rule underPath follows: on Linux a directory spelled in other case is
+// another directory, and two projects can sit side by side as App and app.
+func samePath(a, b string) bool {
+	if foldPathCase {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 // addWorktree creates a worktree and reports the outcome.
 func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	root := s.activeRoot()
+	// The listing this ends on counts from when it was asked for, so a panel
+	// opened on another project meanwhile is not drawn over.
+	asked := worktreeListings.asked(c)
 	go func() {
+		defer s.survive("creating a worktree")
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			c.notify("a branch name is required", true)
@@ -218,48 +263,56 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 			return
 		}
 		c.notify("created "+filepath.Base(path), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }
 
 func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	root := s.activeRoot()
+	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
+		defer s.survive("removing a worktree")
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
-		// explain why everything it does from then on fails, so this is worth
-		// saying before the fact rather than discovering afterwards. git makes
-		// the same kind of check for uncommitted work, and force is already
-		// how the panel says it means it.
-		if !force {
-			if n := s.panesPerPath([]string{path})[path]; n > 0 {
-				subject := "pane is"
-				if n > 1 {
-					subject = "panes are"
-				}
-				c.notify(fmt.Sprintf("%d %s still working in %s — close them first, or force the removal",
-					n, subject, filepath.Base(path)), true)
-				return
+		// explain why everything it does from then on fails, and whatever it
+		// had not yet committed would go with the directory. So a worktree
+		// with panes in it is not removed, force or no force: force is how the
+		// panel says to throw away uncommitted work, which is the question git
+		// asks, and an agent still running there is not that.
+		counts, ok := s.panesPerPath([]string{path})
+		if !ok {
+			c.notify(fmt.Sprintf("could not tell whether an agent is working in %s, so it was not removed", filepath.Base(path)), true)
+			return
+		}
+		if n := counts[path]; n > 0 {
+			subject, them := "pane is", "it"
+			if n > 1 {
+				subject, them = "panes are", "them"
 			}
+			c.notify(fmt.Sprintf("%d %s still working in %s — close %s first",
+				n, subject, filepath.Base(path), them), true)
+			return
 		}
 		if err := gitx.Remove(root, path, force); err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
 		c.notify("removed "+filepath.Base(path), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }
 
 func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
+	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
+		defer s.survive("pruning worktrees")
 		pruned, err := gitx.Prune(root)
 		if err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
 		c.notify(prunedSummary(pruned), false)
-		s.listWorktrees(c)
+		s.sendWorktrees(c, root, asked)
 	}()
 }

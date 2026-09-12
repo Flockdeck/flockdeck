@@ -255,7 +255,6 @@ func TestWorkspaceQueriesUnblockOnClose(t *testing.T) {
 		srv.reviewDir("")
 		srv.activeRoot()
 		srv.panesPerPath([]string{"."})
-		srv.paneByID("nope")
 	}()
 	select {
 	case <-done:
@@ -276,7 +275,7 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 	}
 	ws.NewTab(session.KindShell, inner, "feature")
 
-	counts := srv.panesPerPath([]string{repo, inner})
+	counts, _ := srv.panesPerPath([]string{repo, inner})
 	if counts[inner] != 1 {
 		t.Errorf("inner worktree has %d panes, want 1", counts[inner])
 	}
@@ -410,6 +409,38 @@ func TestRemovingAWorktreeWithOpenPanesIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(repo); err != nil {
 		t.Fatalf("the worktree was removed anyway: %v", err)
+	}
+}
+
+// TestForceDoesNotRemoveAWorktreeAnAgentIsIn covers the worktree panel's force.
+// It is how the panel says to throw away uncommitted work, and it used to skip
+// the check for panes as well -- deleting the directory under an agent still
+// running in it, with everything it had not written yet.
+func TestForceDoesNotRemoveAWorktreeAnAgentIsIn(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	wt := filepath.Join(t.TempDir(), "busy")
+	gitCmd(t, repo, "worktree", "add", "-b", "busy", wt)
+	sendCmd(t, conn, command{Cmd: "splitPane", Kind: "shell", Path: wt})
+	nextState(t, conn, func(s stateMsg) bool {
+		for _, p := range s.Panes {
+			if underPath(p.Cwd, wt) {
+				return true
+			}
+		}
+		return false
+	})
+
+	sendCmd(t, conn, command{Cmd: "worktreeRemove", Path: wt, Force: true})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "still working in") {
+		t.Fatalf("a forced removal of a worktree with a pane in it was answered %+v", note)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("the worktree was deleted under the pane working in it: %v", err)
 	}
 }
 

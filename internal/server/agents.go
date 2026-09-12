@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -42,6 +44,10 @@ func (s *Server) listAgents(c *controlClient) {
 		if t := s.ws.CurrentTab(); t != nil {
 			focused = t.Focus
 		}
+		names := map[string]string{}
+		for _, pr := range s.ws.Projects() {
+			names[pr.Root] = pr.Name
+		}
 
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
@@ -59,7 +65,7 @@ func (s *Server) listAgents(c *controlClient) {
 					// project the agent is actually working in. They differ
 					// for a pane borrowed onto another project's tab.
 					Root:    t.Root,
-					Project: filepath.Base(s.ws.RootOf(p.ID)),
+					Project: projectLabel(names, s.ws.RootOf(p.ID)),
 					Name:    p.Name,
 					Branch:  p.Branch,
 					Kind:    kindName(p.Kind),
@@ -90,8 +96,25 @@ func (s *Server) listAgents(c *controlClient) {
 
 // revealPane brings a pane into view wherever it lives, switching project and
 // tab as needed.
-func (s *Server) revealPane(root, tabID, paneID string) {
+//
+// The list it is picked from was read when the overview opened, and a pane in
+// it may have closed since. Every step below ignores a pane that is not there,
+// so the click did nothing at all and nothing said why; it is answered the way
+// a click on any other pane that has gone is.
+func (s *Server) revealPane(c *controlClient, root, tabID, paneID string) {
 	s.do(func() {
+		if s.ws.Pane(paneID) == nil {
+			c.notify(paneGone, true)
+			return
+		}
+		// The list says where the pane was when it was drawn -- the overview
+		// when it opened, a notification when it came -- and a pane can have
+		// changed tab since: moved into another, or given one of its own when
+		// the project it was borrowed into closed. Focusing a pane only works
+		// in its own tab, so where it is now is what is shown.
+		if id := s.ws.TabIDOf(paneID); id != "" {
+			tabID, root = id, s.ws.Tab(id).Root
+		}
 		if root != "" {
 			s.ws.SelectProject(root)
 		}
@@ -99,7 +122,7 @@ func (s *Server) revealPane(root, tabID, paneID string) {
 			s.ws.SelectTab(tabID)
 		}
 		s.ws.FocusPane(paneID)
-		s.Wake()
+		s.wakeAsked()
 	})
 }
 
@@ -145,10 +168,18 @@ type agentCatalog struct {
 	Err string `json:"err,omitempty"`
 }
 
-// agentProbeInterval is how long an availability probe is believed for. An
-// agent installed while Flockdeck is running is rare enough that a few seconds'
-// lag is no worse than the install itself.
-const agentProbeInterval = 5 * time.Second
+// agentProbeInterval is how long the catalog a snapshot carries is believed
+// for before it is worked out again in the background.
+//
+// It used to be five seconds, the same as the machine's own answers are kept
+// for, so every background probe found them just expired and searched PATH
+// afresh for every agent -- a third of a second, on a Windows machine with an
+// ordinary PATH, every five seconds for as long as a window was open. The
+// only thing that reads the answer is the picker, and the picker asks the
+// machine again itself the moment it opens, which is when an agent installed
+// a moment ago has to show up. So this only keeps a catalog nobody is
+// looking at from going stale for ever.
+const agentProbeInterval = time.Minute
 
 // catalog returns the catalog for the active project, arranging for a fresh
 // probe when the last answer has gone stale. It must run on the workspace
@@ -183,6 +214,7 @@ func (s *Server) probeAgents(root string) {
 	}
 	s.agentsProbing = true
 	go func() {
+		defer s.survive("asking which agents are installed")
 		// Read agents.json again on the way past. A probe happens when the
 		// picker opens and when the last answer has gone stale, which is
 		// exactly when an edit made by hand should start counting — and doing it
@@ -210,6 +242,10 @@ func (s *Server) refreshAgents() {
 		if s.agentsAt.IsZero() {
 			return
 		}
+		// What the machine was last asked is trusted for a few seconds, which
+		// is the wait this exists to skip: the agent installed a moment ago,
+		// or the key just saved, would otherwise go on reading as missing.
+		agent.Refresh()
 		s.probeAgents(s.ws.ActiveRoot())
 	})
 }
@@ -247,6 +283,12 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	return out
 }
 
+// defaultWrites keeps two defaults saved at once -- from two windows -- from
+// each reading agents.json, changing its own entry, and writing back a copy
+// without the other's, after both windows were told theirs was saved. The keys
+// dialog guards its file the same way (keyWrites).
+var defaultWrites sync.Mutex
+
 // setAgentDefault records a choice in the user's agents.json: for one project
 // where root names one, and for every project otherwise.
 func setAgentDefault(root string, choice agentChoice) error {
@@ -254,6 +296,8 @@ func setAgentDefault(root string, choice agentChoice) error {
 	if err != nil {
 		return err
 	}
+	defaultWrites.Lock()
+	defer defaultWrites.Unlock()
 	return agent.SetDefaults(filepath.Dir(path), root, agent.Defaults{
 		Agent: choice.Agent,
 		Model: choice.Model,
@@ -309,17 +353,46 @@ func (s *Server) splitPaneFor(cmd command) {
 // applyAgentDefault stores what the active project should run when nobody
 // chooses, and says so: the picker's tick box is otherwise the only sign that
 // anything happened at all.
+//
+// A target of "all" sets the default every project falls back on instead. The
+// picker offers only the project's own, which left that one reachable by
+// nothing but editing agents.json.
+//
+// No agent at all clears the default, which then falls back to the one above
+// it. An agent the catalog has never heard of is refused rather than written:
+// the picker only offers real ones, but anything else speaking to this socket
+// could make a typo the default, and every pane started afterwards would fail.
 func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
-	root := s.activeRoot()
-	if root == "" {
-		c.notify("there is no project open to set a default for", true)
+	type facts struct {
+		root  string
+		known bool
+	}
+	f, _ := ask(s, func() facts {
+		_, known := s.ws.Catalog().Find(cmd.Agent)
+		return facts{root: s.ws.ActiveRoot(), known: known || cmd.Agent == ""}
+	})
+	if !f.known {
+		c.notify(fmt.Sprintf("there is no agent called %q", cmd.Agent), true)
 		return
+	}
+	root, where := "", "every project"
+	if cmd.Target != "all" {
+		root = f.root
+		if root == "" {
+			c.notify("there is no project open to set a default for", true)
+			return
+		}
+		where = filepath.Base(root)
 	}
 	if err := setAgentDefault(root, agentChoice{Agent: cmd.Agent, Model: cmd.Model}); err != nil {
 		c.notify("could not save the default agent: "+err.Error(), true)
 		return
 	}
-	c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+filepath.Base(root), false)
+	if cmd.Agent == "" {
+		c.notify("cleared the default agent for "+where, false)
+	} else {
+		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+where, false)
+	}
 	s.refreshAgents()
 }
 

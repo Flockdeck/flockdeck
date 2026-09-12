@@ -33,6 +33,35 @@ func (s *Server) do(fn func()) {
 	}
 }
 
+// ask runs fn on the workspace goroutine and returns what it produced. ok is
+// false when no answer is coming: the server closed first -- do drops work once
+// it is shutting down -- or fn panicked. A caller left waiting for an answer
+// that never comes strands the connection or request it is serving, and many
+// ask from a window's own read loop, so that window would go on looking
+// connected while ignoring everything it was sent.
+func ask[T any](s *Server, fn func() T) (v T, ok bool) {
+	done := make(chan T, 1)
+	failed := make(chan struct{})
+	s.do(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				close(failed)
+				// guard reports it to every window, as it always has.
+				panic(r)
+			}
+		}()
+		done <- fn()
+	})
+	select {
+	case v = <-done:
+		return v, true
+	case <-failed:
+		return v, false
+	case <-s.closed:
+		return v, false
+	}
+}
+
 // runLoop owns the workspace.
 func (s *Server) runLoop() {
 	for {
@@ -55,15 +84,23 @@ func (s *Server) runLoop() {
 // the console, where a crash would have put it, and the window is told, since
 // the person watching is otherwise left with a click that did nothing.
 func (s *Server) guard(doing string, fn func()) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
-		s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
-	}()
+	defer s.survive(doing)
 	fn()
+}
+
+// survive is guard for a goroutine's own body: deferred first thing in it, it
+// keeps a panic in the goroutine's work from ending the process. A reply to a
+// window is worked out on a goroutine of its own, reading transcripts, git's
+// output and files other programs write -- and a panic on a goroutine nothing
+// recovers takes every agent in every project down with it, over one reply to
+// one window.
+func (s *Server) survive(doing string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
+	s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
 }
 
 // notifyAll sends a one-off message to every connected window.
@@ -72,15 +109,21 @@ func (s *Server) notifyAll(text string, isErr bool) {
 	if err != nil {
 		return
 	}
+	for _, c := range s.clientList() {
+		c.send(data)
+	}
+}
+
+// clientList is the windows connected at this moment, copied out so that
+// sending to them does not hold the lock a window connecting or leaving needs.
+func (s *Server) clientList() []*controlClient {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	clients := make([]*controlClient, 0, len(s.clients))
 	for c := range s.clients {
 		clients = append(clients, c)
 	}
-	s.mu.Unlock()
-	for _, c := range clients {
-		c.send(data)
-	}
+	return clients
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +295,9 @@ func (s *Server) snapshot() stateMsg {
 	// down instead of showing its empty state.
 	projects := ws.Projects()
 	msg.Projects = make([]projectView, 0, len(projects))
+	names := make(map[string]string, len(projects))
 	for _, p := range projects {
+		names[p.Root] = p.Name
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
@@ -307,8 +352,8 @@ func (s *Server) snapshot() stateMsg {
 			// The common case is a pane of the tab's own project, where the
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
-				!strings.EqualFold(filepath.Clean(paneRoot), tabRoot) {
-				pv.Project = filepath.Base(paneRoot)
+				!samePath(filepath.Clean(paneRoot), tabRoot) {
+				pv.Project = projectLabel(names, paneRoot)
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -316,8 +361,7 @@ func (s *Server) snapshot() stateMsg {
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
 				if sampleUsage {
-					u := p.Sess.Usage()
-					pv.CPU, pv.RSS, pv.Procs = u.CPUPercent, u.RSSBytes, u.Procs
+					pv.CPU, pv.RSS, pv.Procs = shownUsage(usageOf(p.Sess))
 				}
 			}
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
@@ -326,6 +370,47 @@ func (s *Server) snapshot() stateMsg {
 		}
 	}
 	return msg
+}
+
+// projectLabel names a project the way the project switcher does, given the
+// names the open projects go by, falling back to its folder's name.
+//
+// The switcher's names tell two checkouts called the same thing apart, and a
+// pane's own project is shown exactly where that matters: on a tab holding
+// agents from two projects, and in the list of every agent there is. Naming
+// both "app" there left nothing to tell them apart by.
+func projectLabel(names map[string]string, root string) string {
+	if n := names[root]; n != "" {
+		return n
+	}
+	return filepath.Base(root)
+}
+
+// usageOf reads what a pane's process tree is costing the machine. It is a
+// variable so a test can hold the figures still, which the real ones never are.
+var usageOf = (*session.Session).Usage
+
+// shownUsage rounds a pane's usage to the precision the window draws it at: a
+// whole percent of a processor, and memory to the three significant figures
+// the window's formatBytes writes it in.
+//
+// The process table is read afresh every few seconds, and the raw figures come
+// out different every time — the processor share is a smoothed average and the
+// memory a count of bytes — so sent as they stood they made every snapshot a
+// new one. Each of those was a broadcast to every window, and a parse and a
+// re-render there, of a header that then drew exactly what it drew before.
+func shownUsage(u session.Usage) (cpu float64, rss uint64, procs int) {
+	unit := uint64(1)
+	for unit < 1<<40 && u.RSSBytes >= unit*1024 {
+		unit *= 1024
+	}
+	v := float64(u.RSSBytes) / float64(unit)
+	if unit > 1 && v < 100 {
+		v = math.Round(v*10) / 10
+	} else {
+		v = math.Round(v)
+	}
+	return math.Round(u.CPUPercent), uint64(v * float64(unit)), u.Procs
 }
 
 // encodeNode turns a layout tree into what the window lays out, appending the
@@ -455,13 +540,7 @@ func (s *Server) broadcastState() {
 			return
 		}
 		s.lastState = data
-		s.mu.Lock()
-		clients := make([]*controlClient, 0, len(s.clients))
-		for c := range s.clients {
-			clients = append(clients, c)
-		}
-		s.mu.Unlock()
-		for _, c := range clients {
+		for _, c := range s.clientList() {
 			c.sendState(data)
 		}
 	})
@@ -531,15 +610,23 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Through the relay the page and this socket share the relay's address,
-	// so the origin is held to exactly that, as the terminal socket always
-	// is. The loopback allowance is for the local window and has no business
-	// admitting a page from somebody's own localhost on the far side of the
-	// relay.
-	opts := &websocket.AcceptOptions{OriginPatterns: []string{"127.0.0.1:*", "localhost:*"}}
+	// No origin patterns, for the reason the terminal socket has none: the
+	// page opening this must have come from this server's own address, or
+	// through the relay from the relay's. This socket used to admit any page
+	// on 127.0.0.1 or localhost, whatever its port -- and cookies take no
+	// notice of the port, so the user's own dev server, or anything that could
+	// be made to serve a page from one, had the token attached for it and
+	// could send any command a window can: prompt every agent, open a shell.
 	isRemote := fromRemote(r)
+	// A window through the relay is often a phone on a metered link, and what
+	// it is sent is mostly the same snapshot over and over with a word or two
+	// changed: about 5.6 KB for six panes, which deflates to 58 bytes once the
+	// last one is in the compressor's window. So it is compressed, if the
+	// browser offers to be. A window on this machine is sent the same over
+	// loopback, where compressing it buys nothing.
+	var opts *websocket.AcceptOptions
 	if isRemote {
-		opts = nil
+		opts = &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover}
 	}
 	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
@@ -592,23 +679,21 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		// about. Forgetting it costs one extra broadcast per window opened.
 		s.lastState = nil
 	})
+	// After the hello is handed over, so this window is still sent its key
+	// table first.
+	s.viewersChanged(c)
 
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, c)
-		// Only the windows on this machine count towards the last one going:
-		// see LocalClientCount for why a remote window neither keeps the
-		// application alive nor ends it.
-		remaining := 0
-		for other := range s.clients {
-			if !other.remote {
-				remaining++
-			}
-		}
 		s.mu.Unlock()
 		cancel()
 		_ = conn.CloseNow()
-		if !c.remote && remaining == 0 && s.OnLastClientGone != nil {
+		s.viewersChanged(c)
+		// Only the windows on this machine count towards the last one going:
+		// see LocalClientCount for why a remote window neither keeps the
+		// application alive nor ends it.
+		if !c.remote && s.LocalClientCount() == 0 && s.OnLastClientGone != nil {
 			s.OnLastClientGone()
 		}
 	}()
@@ -623,6 +708,16 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.guard("handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
+	}
+}
+
+// viewersChanged has the windows told that one reached through the relay has
+// come or gone. The desk shows how many there are -- somebody may be typing --
+// and a phone arriving or leaving changes nothing else a snapshot carries, so
+// with the agents quiet the count waited for the next unrelated change.
+func (s *Server) viewersChanged(c *controlClient) {
+	if c.remote {
+		s.Wake()
 	}
 }
 
@@ -732,6 +827,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "agents":
 		s.listAgents(c)
 		return
+	case "keys":
+		s.listKeys(c)
+		return
+	case "keySet":
+		s.setKey(c, cmd.ID, cmd.Text)
+		return
+	case "keyClear":
+		s.clearKey(c, cmd.ID)
+		return
 	case "refreshAgents":
 		s.refreshAgents()
 		return
@@ -739,7 +843,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.applyAgentDefault(c, cmd)
 		return
 	case "revealPane":
-		s.revealPane(cmd.Root, cmd.Node, cmd.ID)
+		s.revealPane(c, cmd.Root, cmd.Node, cmd.ID)
 		return
 	case "changes":
 		s.listChanges(c, cmd.Path)
@@ -784,7 +888,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.dismissTip(cmd.ID)
 		return
 	case "forgetRecent":
-		if err := store.ForgetRecent(cmd.Root); err != nil {
+		// On the workspace goroutine, where opening or switching to a project
+		// rewrites the same list (TouchRecent). Each is a read and a rewrite
+		// of the whole file, and side by side one could put back what the
+		// other had just taken out -- as could two windows forgetting at once.
+		if err, ok := ask(s, func() error { return store.ForgetRecent(cmd.Root) }); ok && err != nil {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
 			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
@@ -929,16 +1037,44 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// Only a pane with a process running takes the text. With the
+			// focused one stopped and nothing else in the broadcast it went
+			// nowhere, while the prompt bar closed as though it had been sent.
+			if len(ws.BroadcastTargets()) == 0 {
+				c.notify("nothing in this tab is running to send that to — restart the pane and send it again", true)
+				return
+			}
 			ws.SendPrompt(cmd.Text, true)
 		case "save":
 			_ = ws.SaveAll()
 		case "detach":
 			// Keep the agents running after the window goes; the window closes
 			// itself once it has been told the detach took effect.
+			//
+			// A window through the relay closing never stopped anything, so
+			// for one there is nothing to detach -- marking the instance would
+			// only stop the window on the desk quitting when its owner closes
+			// it. Nor is it told it has been detached: a page the browser did
+			// not open by script cannot close itself, and one left believing
+			// it is on its way out stops reconnecting when the relay blinks,
+			// looking live and answering nothing. It is told what is true
+			// instead.
+			if c.remote {
+				c.notify("closing a window reached through the relay never stops the agents, so there is nothing to detach", false)
+				return
+			}
 			s.Detach()
 			_ = ws.SaveAll()
 			c.sendJSON(map[string]any{"type": "detached"})
 		case "quit":
+			// Quitting stops every agent on this machine, and the instance
+			// cannot be started again from a remote window -- which is why the
+			// help promises that a remote window cannot quit it. /quit keeps
+			// that promise by wanting the token; this is the other way in.
+			if c.remote {
+				c.notify("a window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
+				return
+			}
 			_ = ws.SaveAll()
 			go s.requestQuit()
 		case "restart":
@@ -1004,31 +1140,11 @@ func tabTitle(s string) string {
 	return s
 }
 
-// paneByID looks a pane up on the workspace goroutine.
-func (s *Server) paneByID(id string) *workspace.Pane {
-	done := make(chan *workspace.Pane, 1)
-	s.do(func() { done <- s.ws.Pane(id) })
-	select {
-	case p := <-done:
-		return p
-	case <-s.closed:
-		return nil
-	case <-time.After(5 * time.Second):
-		return nil
-	}
-}
-
 // activeRoot reads the active project's root on the workspace goroutine.
 // ActiveRoot is a plain field read with no lock behind it, so the worktree and
 // review commands — which all run on a connection goroutine — cannot call it
 // directly without racing whichever command last switched project.
 func (s *Server) activeRoot() string {
-	done := make(chan string, 1)
-	s.do(func() { done <- s.ws.ActiveRoot() })
-	select {
-	case root := <-done:
-		return root
-	case <-s.closed:
-		return ""
-	}
+	root, _ := ask(s, s.ws.ActiveRoot)
+	return root
 }

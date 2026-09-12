@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,6 +47,7 @@ type recentView struct {
 // from this side.
 func (s *Server) browse(c *controlClient, path string) {
 	go func() {
+		defer s.survive("listing a folder")
 		msg := browseMsg{Type: "browse"}
 
 		if path == "" {
@@ -55,7 +57,7 @@ func (s *Server) browse(c *controlClient, path string) {
 				path = "."
 			}
 		}
-		abs, err := filepath.Abs(path)
+		abs, err := filepath.Abs(expandHome(path))
 		if err != nil {
 			msg.Error = err.Error()
 			c.sendJSON(msg)
@@ -79,6 +81,14 @@ func (s *Server) browse(c *controlClient, path string) {
 		}
 		msg.IsRepo = isRepoDir(abs)
 
+		// Every folder here is found first, and only the ones that will be
+		// offered are looked into: asking each whether it holds a .git is
+		// most of what a listing costs.
+		type found struct {
+			entry os.DirEntry
+			full  string
+		}
+		var dirs []found
 		for _, e := range entries {
 			name := e.Name()
 			full := filepath.Join(abs, name)
@@ -96,11 +106,23 @@ func (s *Server) browse(c *controlClient, path string) {
 					continue
 				}
 			}
+			dirs = append(dirs, found{e, full})
+		}
+		omitted := 0
+		if len(dirs) > maxBrowseEntries {
+			sort.Slice(dirs, func(i, j int) bool {
+				return strings.ToLower(dirs[i].entry.Name()) < strings.ToLower(dirs[j].entry.Name())
+			})
+			omitted = len(dirs) - maxBrowseEntries
+			dirs = dirs[:maxBrowseEntries]
+		}
+		for _, d := range dirs {
+			name := d.entry.Name()
 			msg.Entries = append(msg.Entries, dirEntry{
 				Name:   name,
-				Path:   full,
-				IsRepo: isRepoDir(full),
-				Hidden: strings.HasPrefix(name, "."),
+				Path:   d.full,
+				IsRepo: isRepoDir(d.full),
+				Hidden: strings.HasPrefix(name, ".") || hiddenOnDisk(d.entry),
 			})
 		}
 		sort.Slice(msg.Entries, func(i, j int) bool {
@@ -114,7 +136,38 @@ func (s *Server) browse(c *controlClient, path string) {
 			return strings.ToLower(msg.Entries[i].Name) < strings.ToLower(msg.Entries[j].Name)
 		})
 		c.sendJSON(msg)
+		if omitted > 0 {
+			// Said, because a list that stops looks like a folder that ends.
+			c.notify(fmt.Sprintf("showing the first %d of %d folders in %s — type a path to reach the others",
+				len(msg.Entries), len(msg.Entries)+omitted, filepath.Base(abs)), false)
+		}
 	}()
+}
+
+// maxBrowseEntries bounds how many folders one listing offers. It is a
+// variable so a test can reach it with a few dozen folders.
+//
+// A folder can hold tens of thousands of others -- node_modules, a package
+// cache, C:\Windows\WinSxS -- and every one was looked into for a .git and
+// sent: measured on Windows, twenty thousand took four seconds and 2.4 MB, and
+// then as many rows for the window to build, for a list nobody picks a project
+// from by scrolling. Past this many the first by name are offered, and the
+// path box reaches the rest.
+var maxBrowseEntries = 2000
+
+// expandHome reads a leading ~ as the home directory. That is how a path is
+// written in every shell the person typing it uses, and what the folder
+// browser's box is handed when one is pasted in; taken as it stands, it named
+// a directory called "~" inside wherever flockdeck happened to be started.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 // isRepoDir reports whether dir is the top of a git repository. Checking for
@@ -132,7 +185,15 @@ func places() []dirEntry {
 	var out []dirEntry
 	if home, err := os.UserHomeDir(); err == nil {
 		out = append(out, dirEntry{Name: "Home", Path: home})
-		for _, name := range []string{"Documents", "Projects", "code", "src", "repos", "dev"} {
+		// Where code usually lives, each offered only where it exists: a few
+		// names people give a folder of projects, and the places the tools that
+		// make one put it -- Visual Studio's source\repos, GitHub Desktop's
+		// Documents\GitHub, Xcode's Developer. Those sit a folder deeper than
+		// the rest, and the folder a newcomer's projects were in was not
+		// offered at all.
+		for _, name := range []string{"Documents", "Projects", "code", "src", "repos", "dev",
+			"source/repos", "Documents/GitHub", "Documents/repos", "Developer"} {
+			name = filepath.FromSlash(name)
 			p := filepath.Join(home, name)
 			if fi, err := os.Stat(p); err == nil && fi.IsDir() {
 				out = append(out, dirEntry{Name: name, Path: p})
@@ -152,37 +213,32 @@ func places() []dirEntry {
 	return out
 }
 
-// recents answers the picker's request for previously opened projects.
+// recents answers the picker's request for previously opened projects. Which
+// of them are open is the workspace's to say; the list itself is a file, read
+// here like every other file a reply needs rather than on the goroutine that
+// owns the workspace.
 func (s *Server) recents(c *controlClient) {
-	open := map[string]bool{}
-	type result struct {
-		list []store.Project
-		err  error
-	}
-	done := make(chan result, 1)
-	s.do(func() {
-		for _, p := range s.ws.Projects() {
-			open[p.Root] = true
-		}
-		list, err := store.Recents()
-		done <- result{list: list, err: err}
-	})
-
 	go func() {
-		var res result
-		select {
-		case res = <-done:
-		case <-s.closed:
+		defer s.survive("reading the recent projects")
+		open, ok := ask(s, func() map[string]bool {
+			open := map[string]bool{}
+			for _, p := range s.ws.Projects() {
+				open[p.Root] = true
+			}
+			return open
+		})
+		if !ok {
 			return
 		}
-		if res.err != nil {
+		list, err := store.Recents()
+		if err != nil {
 			// A picker with nothing in it looks exactly like never having
 			// opened a project before, so an unreadable list has to say so
 			// rather than pass for an empty one.
-			c.notify("could not read the recent projects: "+res.err.Error(), true)
+			c.notify("could not read the recent projects: "+err.Error(), true)
 		}
 		msg := recentsMsg{Type: "recents"}
-		for _, p := range res.list {
+		for _, p := range list {
 			fi, err := os.Stat(p.Root)
 			msg.Items = append(msg.Items, recentView{
 				Root:   p.Root,

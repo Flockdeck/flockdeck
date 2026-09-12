@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,11 +26,26 @@ type fakeRemote struct {
 	st      remote.Status
 	ok      bool
 	reloads atomic.Int32
+	// err is what Reload fails with, for a test of an enrolment that cannot
+	// be read.
+	err error
 }
 
 func (f *fakeRemote) Status() (remote.Status, bool)   { return f.st, f.ok }
 func (f *fakeRemote) Client() (*remote.Client, error) { return nil, remote.ErrNotEnabled }
-func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return nil }
+func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return f.err }
+
+// TestRemoteReloadSaysWhyItFailed covers `flockdeck remote enable` reaching an
+// instance that cannot reread the enrolment. It used to print "500 Internal
+// Server Error" and nothing else, when the instance had said why.
+func TestRemoteReloadSaysWhyItFailed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.SetRemote(&fakeRemote{err: errors.New("remote.json: unexpected end of JSON input")})
+	err := RequestRemoteReload(srv.BaseURL(), srv.Token())
+	if err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Fatalf("RequestRemoteReload = %v, want the instance's reason", err)
+	}
+}
 
 // remoteServer serves srv the way the tunnel does, on a listener of the test's
 // own, and returns its address.
@@ -54,7 +72,7 @@ func TestRemoteRequestsNeedNoToken(t *testing.T) {
 			t.Errorf("GET %s through the tunnel = %d, want 200", path, resp.StatusCode)
 		}
 		for _, c := range resp.Cookies() {
-			if c.Name == tokenCookie {
+			if strings.HasPrefix(c.Name, tokenCookie) {
 				t.Errorf("GET %s through the tunnel set the local token cookie", path)
 			}
 		}
@@ -125,6 +143,171 @@ func TestRemoteReloadFromTheLauncher(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("GET /remote/reload = %d, want 405", resp.StatusCode)
+	}
+}
+
+// TestRemoteWindowsAreSentCompressed covers a window through the relay, often
+// a phone on a metered link, which is sent the same few kilobytes of snapshot
+// again and again with a word or two changed. It is compressed when the
+// browser offers; a window on this machine gains nothing from that and is not.
+func TestRemoteWindowsAreSentCompressed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	dial := func(url, origin string) (*websocket.Conn, *http.Response) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		conn, resp, err := websocket.Dial(ctx, url,
+			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionContextTakeover})
+		if err != nil {
+			t.Fatalf("dial %s: %v", url, err)
+		}
+		conn.SetReadLimit(16 << 20)
+		t.Cleanup(func() { conn.CloseNow() })
+		return conn, resp
+	}
+
+	remoteConn, resp := dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/control", ts.URL)
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); !strings.Contains(ext, "permessage-deflate") {
+		t.Errorf("a window through the relay was not offered compression: %q", ext)
+	}
+	readRemoteMsg(t, remoteConn, "state")
+
+	_, resp = dial("ws://"+srv.Addr()+"/ws/control?t="+srv.Token(), "http://"+srv.Addr())
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
+		t.Errorf("a window on this machine was compressed: %q", ext)
+	}
+}
+
+// TestRemoteTerminalsAreSentCompressed covers the terminal sockets of a window
+// through the relay, one per pane, whose output deflates to about a third. A
+// window on this machine is sent it as it is.
+func TestRemoteTerminalsAreSentCompressed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	ts := remoteServer(t, srv)
+	pane, _ := ask(srv, func() string { return ws.CurrentTab().Focus })
+	dial := func(url, origin string) *http.Response {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", origin)
+		conn, resp, err := websocket.Dial(ctx, url,
+			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionNoContextTakeover})
+		if err != nil {
+			t.Fatalf("dial %s: %v", url, err)
+		}
+		t.Cleanup(func() { conn.CloseNow() })
+		return resp
+	}
+
+	resp := dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+pane, ts.URL)
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); !strings.Contains(ext, "permessage-deflate") {
+		t.Errorf("a terminal through the relay was not offered compression: %q", ext)
+	}
+	resp = dial("ws://"+srv.Addr()+"/ws/pty?t="+srv.Token()+"&id="+pane, "http://"+srv.Addr())
+	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
+		t.Errorf("a terminal on this machine was compressed: %q", ext)
+	}
+}
+
+// TestRemoteDetachLeavesTheDeskAlone covers Detach pressed on a phone. The
+// phone's window closing never stopped anything, so there is nothing for it to
+// detach -- and setting the instance detached would stop the window on the
+// desk from quitting when it is closed, without anyone at the desk knowing.
+func TestRemoteDetachLeavesTheDeskAlone(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+
+	remoteConn, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer remoteConn.CloseNow()
+	sendCmd(t, remoteConn, command{Cmd: "detach"})
+	// Told why rather than told it has been detached: a phone's tab cannot
+	// close itself, and one that believes it is closing stops reconnecting.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for {
+		_, data, err := remoteConn.Read(ctx)
+		if err != nil {
+			t.Fatalf("waiting for the answer to detach: %v", err)
+		}
+		var msg noticeMsg
+		if json.Unmarshal(data, &msg) != nil {
+			continue
+		}
+		if msg.Type == "detached" {
+			t.Fatal("a window through the relay was told it had been detached")
+		}
+		if msg.Type == "notice" {
+			if msg.Error {
+				t.Errorf("detach through the relay was answered with an error: %q", msg.Text)
+			}
+			break
+		}
+	}
+	if srv.Detached() {
+		t.Error("a window through the relay detached the instance on the desk")
+	}
+
+	local := dialControl(t, srv)
+	sendCmd(t, local, command{Cmd: "detach"})
+	readUntil(t, local, "detached", &struct{}{})
+	if !srv.Detached() {
+		t.Error("the window on the desk could not detach")
+	}
+}
+
+// TestRemoteAssetsAreSentCompressed covers the front end fetched through the
+// relay, which is fetched again on every page load: a megabyte of script, most
+// of it text that compresses to a fraction. A window on this machine is sent it
+// as it is.
+func TestRemoteAssetsAreSentCompressed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	// A client that leaves the body as it came, as a proxy in the middle does.
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	get := func(url string) (*http.Response, []byte) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp, body
+	}
+
+	resp, packed := get(ts.URL + "/assets/app.js")
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("app.js through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(packed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := io.ReadAll(zr)
+
+	resp, local := get(srv.baseURL() + "/assets/app.js?t=" + srv.Token())
+	if enc := resp.Header.Get("Content-Encoding"); enc != "" {
+		t.Errorf("app.js on this machine came as %q", enc)
+	}
+	if !bytes.Equal(plain, local) {
+		t.Fatalf("the compressed app.js is not the file: %d bytes against %d", len(plain), len(local))
+	}
+	if 2*len(packed) > len(plain) {
+		t.Errorf("app.js compressed to %d of %d bytes", len(packed), len(plain))
+	}
+
+	// The help pages, which the first window on a phone opens unasked.
+	if resp, _ := get(ts.URL + "/help.json"); resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Errorf("help.json through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
 	}
 }
 

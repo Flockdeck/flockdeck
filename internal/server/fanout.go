@@ -53,14 +53,26 @@ type fanoutAgentView struct {
 	// Codex should still learn that Flockdeck would run it.
 	Unavailable string `json:"unavailable,omitempty"`
 	Install     string `json:"install,omitempty"`
+	// AskTrust is whether this agent asks if a folder is trusted before it
+	// works in it. Carrying the project's answer over to the worktrees is
+	// only offered for a run whose agents ask; for the rest it would do
+	// nothing.
+	AskTrust bool `json:"askTrust,omitempty"`
 }
 
 // fanoutCatalog lists the agents the dialog can offer, and the id of the one
-// a run starts on. It reads the catalog and probes for each agent, so it runs
-// on the workspace goroutine like every other read of it -- both are cheap,
-// and it happens once, when the dialog is opened.
-func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
-	specs, def := s.ws.Agents()
+// a run starts on.
+//
+// It asks whether each agent can be started, which is a search of PATH for
+// every one that is not installed. The answers are kept for a few seconds and
+// are refreshed only while the window is being redrawn, so the dialog opened
+// after a quiet spell asks afresh -- eight searches took up to half a second
+// on a Windows machine with an ordinary PATH. It is therefore called off the
+// workspace goroutine, where every window's commands would otherwise wait
+// behind it. Only the probing is: which agents there are, and which one a run
+// starts on, are read on that goroutine and handed in, because the default
+// depends on the active project, a field nothing else may read.
+func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 	out := make([]fanoutAgentView, 0, len(specs))
 	for _, spec := range specs {
 		if spec.Hidden {
@@ -68,27 +80,30 @@ func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
 		}
 		view := fanoutAgentView{
 			ID: spec.ID, Name: spec.Name, Models: spec.Models,
-			Default: spec.DefaultModel, Install: spec.Install,
+			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
 		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
 			view.Unavailable = err.Error()
 		}
 		out = append(out, view)
 	}
-	return out, def
+	return out
 }
+
+// planTasks reads a pane's plan. It is a variable so a test can hold the
+// preview between the workspace's answer and the probing that follows it.
+var planTasks = func(src workspace.PlanSource) ([]string, bool) { return src.Tasks() }
 
 // previewFanout reads a pane's recent output and proposes tasks from it.
 func (s *Server) previewFanout(c *controlClient, paneID string) {
 	type info struct {
-		id     string
-		cwd    string
-		src    workspace.PlanSource
-		agents []fanoutAgentView
-		agent  string
+		id    string
+		cwd   string
+		src   workspace.PlanSource
+		specs []agent.Spec
+		def   string
 	}
-	done := make(chan info, 1)
-	s.do(func() {
+	in, ok := ask(s, func() info {
 		id := paneID
 		if id == "" {
 			if t := s.ws.CurrentTab(); t != nil {
@@ -99,23 +114,24 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		if p := s.ws.Pane(id); p != nil {
 			cwd = p.Cwd
 		}
-		agents, def := s.fanoutCatalog()
-		done <- info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), agents: agents, agent: def}
+		// The default agent is the active project's, and the active project
+		// is a field only this goroutine may read. Read from the preview's
+		// own goroutine, it raced every project switch -- and a switch landing
+		// in between offered the run to the other project's default.
+		specs, def := s.ws.Agents()
+		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), specs: specs, def: def}
 	})
-	// s.do drops the callback once the server is closing, so every reply from
-	// the workspace goroutine has to be waited for with a way out. Without one
-	// the receive never returns and takes its caller down with it.
-	var in info
-	select {
-	case in = <-done:
-	case <-s.closed:
+	if !ok {
 		return
 	}
 
 	go func() {
-		// Reading the transcript touches the disk, which is why it happens here
-		// rather than on the goroutine that owns the workspace.
-		tasks, fromReply := in.src.Tasks()
+		defer s.survive("reading the pane's plan")
+		// Reading the transcript touches the disk and asking about the agents
+		// searches PATH, which is why both happen here rather than on the
+		// goroutine that owns the workspace.
+		tasks, fromReply := planTasks(in.src)
+		agents, def := s.fanoutCatalog(in.specs), in.def
 		msg := fanoutPreviewMsg{
 			Type:      "fanoutPreview",
 			PaneID:    in.id,
@@ -125,8 +141,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			IsRepo:    isRepoDir(in.cwd) || gitRoot(in.cwd) != "",
 			Trusted:   session.IsTrusted(in.cwd),
 			Project:   filepath.Base(in.cwd),
-			Agents:    in.agents,
-			Agent:     in.agent,
+			Agents:    agents,
+			Agent:     def,
 		}
 		c.sendJSON(msg)
 	}()
@@ -191,6 +207,7 @@ func overrideAt(list []string, i int) string {
 // slow and the workspace goroutine also serves every window's state.
 func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 	go func() {
+		defer s.survive("fanning out")
 		if len(req.Tasks) == 0 {
 			c.notify(fanoutSummary(0, 0))
 			return
@@ -201,9 +218,12 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			parent string
 			cwd    string
 			tab    string
+			// def is the agent a row naming none runs. Resolving it reads the
+			// active project, which only this goroutine may, so it is read
+			// here with the rest; see specOrDefault.
+			def string
 		}
-		done := make(chan start, 1)
-		s.do(func() {
+		in, ok := ask(s, func() start {
 			id := req.Parent
 			if id == "" {
 				if t := s.ws.CurrentTab(); t != nil {
@@ -222,12 +242,10 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			if req.Split {
 				tab = s.ws.TabIDOf(id)
 			}
-			done <- start{parent: id, cwd: cwd, tab: tab}
+			_, def := s.ws.Agents()
+			return start{parent: id, cwd: cwd, tab: tab, def: def}
 		})
-		var in start
-		select {
-		case in = <-done:
-		case <-s.closed:
+		if !ok {
 			return
 		}
 		parent, baseCwd := in.parent, in.cwd
@@ -275,7 +293,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
 			if req.Trust {
-				inheritTrust(jobs, baseCwd, session.InheritTrust,
+				inheritTrust(jobsAskingTrust(jobs, s.specOrDefault(in.def)), baseCwd, session.InheritTrust,
 					func(text string) { c.notify(text, true) })
 			}
 		}
@@ -302,8 +320,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				failed++
 				continue
 			}
-			res := make(chan spawned, 1)
-			s.do(func() {
+			r, ok := ask(s, func() spawned {
 				id, err := s.ws.Spawn(parent, workspace.SpawnOptions{
 					Task:  j.task,
 					Cwd:   j.cwd,
@@ -314,21 +331,21 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 					Model: j.model,
 					Title: title,
 				})
-				res <- spawned{tab: s.ws.TabIDOf(id), err: err}
+				return spawned{tab: s.ws.TabIDOf(id), err: err}
 			})
-			var r spawned
-			select {
-			case r = <-res:
-			case <-s.closed:
+			if !ok {
 				return
 			}
 			if tab == "" {
 				tab = r.tab
 			}
 			if r.err != nil {
-				c.notify(fmt.Sprintf("%s: %v", short(j.task), r.err), true)
+				msg := fmt.Sprintf("%s: %v", short(j.task), r.err)
+				if err := discardWorktree(repo, baseCwd, j); err != nil {
+					msg += fmt.Sprintf(" (its worktree %s could not be removed: %v)", filepath.Base(j.cwd), err)
+				}
+				c.notify(msg, true)
 				failed++
-				discardWorktree(repo, baseCwd, j)
 				continue
 			}
 			started++
@@ -356,20 +373,16 @@ func (s *Server) runnable(c *controlClient, jobs []*fanoutJob) ([]*fanoutJob, in
 	for _, j := range jobs {
 		ids[j.agent] = true
 	}
-	out := make(chan map[string]error, 1)
-	s.do(func() {
+	bad, ok := ask(s, func() map[string]error {
 		bad := map[string]error{}
 		for id := range ids {
 			if _, err := s.ws.AgentSpec(id); err != nil {
 				bad[id] = err
 			}
 		}
-		out <- bad
+		return bad
 	})
-	var bad map[string]error
-	select {
-	case bad = <-out:
-	case <-s.closed:
+	if !ok {
 		return nil, 0, false
 	}
 	keep, notices, dropped := partitionRunnable(jobs, bad)
@@ -574,11 +587,16 @@ func makeWorktrees(jobs []*fanoutJob, prepare func(branch string) (string, error
 // ever run in it. That is also why the removal is forced — there is nothing in
 // it to lose, and a checkout can read as modified the instant it is made when
 // the repository and the platform disagree about line endings.
-func discardWorktree(repo, baseCwd string, j *fanoutJob) {
+//
+// Its failure is returned rather than dropped. A freshly written checkout can
+// be held for a moment on Windows by whatever scans new files, and one left
+// behind that way is exactly the stray worktree this exists to prevent -- so
+// it is said, beside the failure that caused it, rather than found later.
+func discardWorktree(repo, baseCwd string, j *fanoutJob) error {
 	if repo == "" || j.cwd == "" || j.cwd == baseCwd {
-		return
+		return nil
 	}
-	_ = gitx.Remove(repo, j.cwd, true)
+	return gitx.Remove(repo, j.cwd, true)
 }
 
 // fanoutTabTitle names the tab a fan-out's children share, or "" to let the
@@ -661,6 +679,8 @@ func agents(n int) string {
 // of any one worktree, so carrying on would bury the fan-out's own messages
 // under a dozen copies of the same complaint.
 func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to string) error, notify func(string)) {
+	trustWrites.Lock()
+	defer trustWrites.Unlock()
 	for _, j := range jobs {
 		if j.err != nil || j.cwd == "" || j.cwd == baseCwd {
 			continue
@@ -670,6 +690,47 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 			return
 		}
 	}
+}
+
+// trustWrites keeps two fan-outs' trust passes -- started from two windows at
+// once -- from each reading Claude Code's configuration, adding its own
+// worktrees and writing the whole file back without the other's. The session
+// package writes that file through one fixed temporary name, too, so two
+// passes side by side could also rename each other's half-written copy into
+// place, over a file that holds all of Claude Code's settings.
+var trustWrites sync.Mutex
+
+// specOrDefault looks up a fan-out row's agent away from the workspace
+// goroutine. A row on the run's default names no agent, and Workspace.AgentSpec
+// resolves an empty id from the active project -- a field only that goroutine
+// may read, written there on every project switch. So the default is read there
+// with the rest of the run's facts and filled in here, and the lookup only ever
+// sees a real id, which reads nothing of the workspace's own.
+func (s *Server) specOrDefault(def string) func(id string) (agent.Spec, error) {
+	return func(id string) (agent.Spec, error) {
+		if id == "" {
+			id = def
+		}
+		return s.ws.AgentSpec(id)
+	}
+}
+
+// jobsAskingTrust keeps the jobs whose agent asks whether a folder is trusted.
+//
+// Only those have an answer to carry over, and carrying it means writing into
+// Claude Code's own configuration, the one agent whose question Flockdeck knows
+// how to answer. A fan-out whose rows run Codex was having trust recorded in
+// Claude's file for the worktrees Codex would work in -- answering a question
+// nobody asked, in a file that is not Codex's. This is what InheritTrustFor
+// does for one spec, applied to a run whose rows may each be a different one.
+func jobsAskingTrust(jobs []*fanoutJob, spec func(id string) (agent.Spec, error)) []*fanoutJob {
+	var out []*fanoutJob
+	for _, j := range jobs {
+		if sp, err := spec(j.agent); err == nil && sp.Caps.Trust {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 // contextDeadline bounds how long a pane's SessionStart hook waits for its
@@ -724,24 +785,36 @@ func (s *Server) installSpawnHandler() {
 		return
 	}
 	hookSrv.SetSpawnHandler(func(req hooks.SpawnRequest) (hooks.SpawnResult, error) {
-		// Work out where the child should run before touching the workspace.
-		done := make(chan string, 1)
-		s.do(func() {
+		// Work out where the child should run before touching the workspace,
+		// and whether its agent can be started here at all. Spawn would say so
+		// itself, but only after the worktree below had been cut: refused
+		// then, the request left a new branch and a checkout with nothing in
+		// it, which looks exactly like one an agent is working in.
+		type start struct {
+			cwd string
+			err error
+		}
+		in, ok := ask(s, func() start {
 			cwd := s.ws.ActiveRoot()
 			if p := s.ws.Pane(req.Parent); p != nil {
 				cwd = p.Cwd
 			}
-			done <- cwd
+			var err error
+			if !req.Shell {
+				_, err = s.ws.AgentSpec(req.Agent)
+			}
+			return start{cwd, err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
 		// hanging in the pane forever.
-		var cwd string
-		select {
-		case cwd = <-done:
-		case <-s.closed:
+		if !ok {
 			return hooks.SpawnResult{}, errShuttingDown
 		}
+		if in.err != nil {
+			return hooks.SpawnResult{}, in.err
+		}
+		cwd := in.cwd
 
 		if req.Branch != "" {
 			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
@@ -760,8 +833,7 @@ func (s *Server) installSpawnHandler() {
 			id  string
 			err error
 		}
-		res := make(chan result, 1)
-		s.do(func() {
+		r, ok := ask(s, func() result {
 			id, err := s.ws.Spawn(req.Parent, workspace.SpawnOptions{
 				Task:  req.Task,
 				Cwd:   cwd,
@@ -770,12 +842,9 @@ func (s *Server) installSpawnHandler() {
 				Agent: req.Agent,
 				Model: req.Model,
 			})
-			res <- result{id, err}
+			return result{id, err}
 		})
-		var r result
-		select {
-		case r = <-res:
-		case <-s.closed:
+		if !ok {
 			return hooks.SpawnResult{}, errShuttingDown
 		}
 		if r.err != nil {

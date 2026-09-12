@@ -185,6 +185,103 @@ func TestOpenProjectRejectsFiles(t *testing.T) {
 	}
 }
 
+// TestPlacesOfferWhereCodeUsuallyLives covers the project picker's shortcuts,
+// which looked only directly under the home folder. The tools that make a
+// folder of projects put it a level deeper -- Visual Studio's source\repos,
+// GitHub Desktop's Documents\GitHub -- so the folder a newcomer's projects
+// were in was not offered.
+func TestPlacesOfferWhereCodeUsuallyLives(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	made := []string{filepath.Join("source", "repos"), filepath.Join("Documents", "GitHub")}
+	for _, dir := range made {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	offered := map[string]bool{}
+	for _, pl := range places() {
+		offered[pl.Path] = true
+	}
+	for _, dir := range made {
+		if !offered[filepath.Join(home, dir)] {
+			t.Errorf("%s was not offered", dir)
+		}
+	}
+	if offered[filepath.Join(home, "Developer")] {
+		t.Error("a folder that does not exist was offered")
+	}
+}
+
+// TestBrowseReadsTildeAsHome covers a path typed or pasted into the folder
+// browser the way a shell writes it. "~/code" named a directory called "~"
+// inside wherever flockdeck was started, and the picker answered with an error.
+func TestBrowseReadsTildeAsHome(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.Mkdir(filepath.Join(home, "code"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var br browseMsg
+	sendCmd(t, conn, command{Cmd: "browse", Path: "~/code"})
+	readUntil(t, conn, "browse", &br)
+	if br.Error != "" || br.Path != filepath.Join(home, "code") {
+		t.Fatalf("browsing ~/code went to %q (%s), want %q", br.Path, br.Error, filepath.Join(home, "code"))
+	}
+}
+
+// TestPaneFromATwinProjectIsNamedApart covers a tab holding agents from two
+// projects whose folders are called the same thing: two checkouts of one
+// service, say. The header names a borrowed pane's project so the two can be
+// told apart, and naming it by its folder called both of them "app".
+func TestPaneFromATwinProjectIsNamedApart(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	base := t.TempDir()
+	first, second := filepath.Join(base, "work", "app"), filepath.Join(base, "home", "app")
+	for _, dir := range []string{first, second} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sendCmd(t, conn, command{Cmd: "openProject", Path: first})
+	sendCmd(t, conn, command{Cmd: "openProject", Path: second})
+	nextState(t, conn, func(s stateMsg) bool { return len(s.Projects) == 3 })
+	sendCmd(t, conn, command{Cmd: "selectProject", Root: first})
+	nextState(t, conn, func(s stateMsg) bool { return s.Root == first })
+	sendCmd(t, conn, command{Cmd: "splitPane", Kind: "shell", Root: second})
+
+	st := nextState(t, conn, func(s stateMsg) bool {
+		for _, p := range s.Panes {
+			if p.Project != "" {
+				return true
+			}
+		}
+		return false
+	})
+	var want string
+	for _, p := range st.Projects {
+		if p.Root == second {
+			want = p.Name
+		}
+	}
+	for _, p := range st.Panes {
+		if p.Project != "" && (p.Project != want || p.Project == "app") {
+			t.Errorf("the borrowed pane is labelled %q; the switcher calls its project %q", p.Project, want)
+		}
+	}
+}
+
 // TestUnreadableRecentsAreReported covers a config directory that cannot be
 // read: an empty picker looks exactly like never having opened a project
 // before, so the failure has to reach the window.

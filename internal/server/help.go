@@ -25,12 +25,33 @@ type helloMsg struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	data, err := json.Marshal(helloMsg{Type: "hello", Keys: help.Keys, Prefs: s.prefs})
+	keys := help.Keys
+	if c.remote {
+		keys = remoteKeys
+	}
+	data, err := json.Marshal(helloMsg{Type: "hello", Keys: keys, Prefs: s.prefs})
 	if err != nil {
 		return
 	}
 	c.send(data)
 }
+
+// remoteKeys is the key table without what a window reached through the relay
+// cannot do. Detach and Quit are the desk's to choose -- a phone's window
+// closing never stopped anything, and nothing on the phone could start the
+// agents again -- and the server refuses both from there. Offered anyway, Quit
+// asked whether to stop every agent only for the answer to be no.
+var remoteKeys = func() []help.Key {
+	out := make([]help.Key, 0, len(help.Keys))
+	for _, k := range help.Keys {
+		switch k.ID {
+		case "detach", "quit":
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}()
 
 // prefsMsg tells every window that the preferences changed, so a second window
 // does not go on offering a hint that was dismissed in the first.
@@ -51,13 +72,7 @@ func (s *Server) savePrefs() {
 	if err != nil {
 		return
 	}
-	s.mu.Lock()
-	clients := make([]*controlClient, 0, len(s.clients))
-	for cl := range s.clients {
-		clients = append(clients, cl)
-	}
-	s.mu.Unlock()
-	for _, cl := range clients {
+	for _, cl := range s.clientList() {
 		cl.send(data)
 	}
 }
@@ -100,7 +115,22 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// The content is compiled in, so it cannot change while this process runs.
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// Compiled in, so it cannot change while this process runs -- but a cache
+	// outlives the process. Through the relay this address is the same from
+	// one run to the next, so a window opened within the hour after an upgrade
+	// was handed the last version's pages, naming keys and dialogs that had
+	// since changed. It is fetched once per page load, over loopback or a link
+	// that is carrying a whole terminal anyway.
+	w.Header().Set("Cache-Control", "no-store")
+	// A fifth of the size gzipped, for the reason the assets are: through the
+	// relay the window is often a phone, and the first one opens the help
+	// unasked.
+	if fromRemote(r) && acceptsGzip(r) {
+		if packed, ok := gzipped("/help.json", func() ([]byte, error) { return data, nil }); ok {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Vary", "Accept-Encoding")
+			data = packed
+		}
+	}
 	_, _ = w.Write(data)
 }

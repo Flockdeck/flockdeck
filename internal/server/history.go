@@ -32,79 +32,95 @@ type conversationsMsg struct {
 	Error string             `json:"error,omitempty"`
 }
 
-// listings remembers the newest conversation listing each window has asked
-// for.
+// newestAnswer lets only the newest of a window's requests of one kind answer
+// it. Work done off the workspace goroutine can finish in any order, and a
+// panel redraws itself from whichever reply arrived last -- so an older reply
+// landing after a newer one would leave the window looking at what it asked
+// about before.
+type newestAnswer struct {
+	sync.Mutex
+	seq map[*controlClient]uint64
+}
+
+func newNewestAnswer() *newestAnswer {
+	return &newestAnswer{seq: make(map[*controlClient]uint64)}
+}
+
+// asked records that a window has asked, and numbers the request.
+func (n *newestAnswer) asked(c *controlClient) uint64 {
+	n.Lock()
+	defer n.Unlock()
+	n.seq[c]++
+	return n.seq[c]
+}
+
+// answer reports whether a finished reply is still the one its window is
+// waiting for, and forgets the window when it is.
+func (n *newestAnswer) answer(c *controlClient, asked uint64) bool {
+	n.Lock()
+	defer n.Unlock()
+	if n.seq[c] != asked {
+		return false
+	}
+	delete(n.seq, c)
+	return true
+}
+
+// listings is the conversation listings each window has asked for.
 //
 // Reading a project's transcripts takes as long as the project is old, so two
 // answers can finish out of order: open the history of a project with years
-// behind it, close it, open a younger project's, and the first answer lands
-// on top of the second. The panel redraws itself from whichever message
-// arrived last, so the window would be left looking at another project's
-// conversations under this project's heading. Only the newest request a
-// window has made is allowed to answer it.
-var listings = struct {
-	sync.Mutex
-	seq map[*controlClient]uint64
-}{seq: make(map[*controlClient]uint64)}
+// behind it, close it, open a younger project's, and the first answer lands on
+// top of the second, leaving the window looking at another project's
+// conversations under this project's heading.
+var listings = newNewestAnswer()
 
-// askedForListing records that a window has asked, and numbers the request.
-func askedForListing(c *controlClient) uint64 {
-	listings.Lock()
-	defer listings.Unlock()
-	listings.seq[c]++
-	return listings.seq[c]
-}
+// askedForListing records that a window has asked for its conversations, and
+// numbers the request.
+func askedForListing(c *controlClient) uint64 { return listings.asked(c) }
 
 // answerListing reports whether a finished listing is still the one its
 // window is waiting for, and forgets the window when it is.
-func answerListing(c *controlClient, n uint64) bool {
-	listings.Lock()
-	defer listings.Unlock()
-	if listings.seq[c] != n {
-		return false
-	}
-	delete(listings.seq, c)
-	return true
-}
+func answerListing(c *controlClient, n uint64) bool { return listings.answer(c, n) }
+
+// allConversations reads every agent's stored conversations. It is a variable
+// so a test can have one agent's store fail beside another's that works, which
+// no file system arrangement does reliably everywhere.
+var allConversations = transcript.All
 
 // listConversations answers a window's request for the project's conversation
 // history. Reading transcripts touches the disk, so it happens away from the
 // goroutine that owns the workspace.
 func (s *Server) listConversations(c *controlClient, cwd string) {
 	asked := askedForListing(c)
-	done := make(chan string, 1)
-	s.do(func() {
+	dir, ok := ask(s, func() string {
 		if cwd == "" {
-			cwd = s.ws.ActiveRoot()
+			return s.ws.ActiveRoot()
 		}
-		done <- cwd
+		return cwd
 	})
-	// A request handed to a workspace that has already stopped is never run,
-	// so waiting on its answer waits for good. This runs on the goroutine
-	// that reads the window's socket, and that goroutine wedged is a window
-	// that cannot be closed and a shutdown that does not finish.
-	var dir string
-	select {
-	case dir = <-done:
-	case <-s.closed:
+	if !ok {
+		// Nothing will answer the request now, so it is forgotten rather than
+		// left in the listings for good.
 		answerListing(c, asked)
 		return
 	}
 
 	go func() {
+		defer s.survive("listing conversations")
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
-		items, err := transcript.All(transcript.Agents(), dir)
+		items, err := allConversations(transcript.Agents(), dir)
 		// One agent's store being unreadable is worth saying, but not at the
-		// price of what the others found: the panel draws the conversations
-		// there are and the notice explains what is missing from among them.
-		if err != nil {
+		// price of what the others found. Only a listing with nothing in it
+		// carries the error: the panel draws an error in place of the whole
+		// list, so one sent alongside conversations hid every one of them.
+		// With conversations to show it goes beside them, as a notice.
+		if err != nil && len(items) == 0 {
 			msg.Error = err.Error()
-			if len(items) == 0 {
-				if answerListing(c, asked) {
-					c.sendJSON(msg)
-				}
-				return
+			if answerListing(c, asked) {
+				c.sendJSON(msg)
 			}
+			return
 		}
 		open := s.openConversationIDs()
 		for _, conv := range items {
@@ -121,6 +137,9 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 		}
 		if answerListing(c, asked) {
 			c.sendJSON(msg)
+			if err != nil {
+				c.notify(err.Error(), true)
+			}
 		}
 	}()
 }
@@ -129,22 +148,16 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 // workspace that has stopped it reports none, which is what a list nobody
 // will see needs it to be.
 func (s *Server) openConversationIDs() map[string]bool {
-	done := make(chan map[string]bool, 1)
-	s.do(func() {
+	ids, _ := ask(s, func() map[string]bool {
 		ids := map[string]bool{}
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
 				ids[id] = true
 			}
 		}
-		done <- ids
-	})
-	select {
-	case ids := <-done:
 		return ids
-	case <-s.closed:
-		return nil
-	}
+	})
+	return ids
 }
 
 // resumeConversation opens a stored conversation in a new tab.
@@ -154,7 +167,7 @@ func (s *Server) resumeConversation(c *controlClient, id, cwd, title string) {
 			c.notify(err.Error(), true)
 			return
 		}
-		s.Wake()
+		s.wakeAsked()
 	})
 }
 

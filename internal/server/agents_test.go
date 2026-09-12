@@ -4,10 +4,124 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
+
+// TestDefaultForEveryProjectFromTheWindow covers the default every project
+// falls back on. agents.json holds it and every snapshot reports it, but the
+// window could only ever write the active project's own.
+func TestDefaultForEveryProjectFromTheWindow(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "claude", Model: "opus", Target: "all"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if note.Error {
+		t.Fatalf("setting the default for every project failed: %s", note.Text)
+	}
+
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := agent.ReadConfig(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Defaults != (agent.Defaults{Agent: "claude", Model: "opus"}) || len(f.Projects) != 0 {
+		t.Errorf("agents.json holds %+v for every project and %+v per project, want claude · opus for every project and nothing else",
+			f.Defaults, f.Projects)
+	}
+}
+
+// TestCatalogIsNotReprobedWhileNobodyAsks covers the cost of keeping the
+// agent catalog in every snapshot. Working it out searches PATH for every
+// agent that is not installed, a third of a second on an ordinary Windows
+// machine, and it was done again in the background every five seconds while a
+// window was open. The picker asks afresh itself when it opens.
+func TestCatalogIsNotReprobedWhileNobodyAsks(t *testing.T) {
+	srv, _ := newTestServer(t)
+	nextState(t, dialControl(t, srv), nil)
+	at := func() time.Time {
+		t.Helper()
+		v, _ := ask(srv, func() time.Time { return srv.agentsAt })
+		return v
+	}
+	first := at()
+	if first.IsZero() {
+		t.Fatal("the first snapshot carried no catalog")
+	}
+	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
+		srv.Wake()
+		time.Sleep(50 * time.Millisecond)
+	}
+	if later := at(); !later.Equal(first) {
+		t.Errorf("the catalog was worked out again %v after the first time, with nobody opening the picker", later.Sub(first))
+	}
+}
+
+// TestRevealingAGonePaneSaysSo covers the all-agents overview, whose list is
+// read when it opens: a pane in it may have closed since, and clicking it did
+// nothing and said nothing.
+func TestRevealingAGonePaneSaysSo(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	sendCmd(t, conn, command{Cmd: "revealPane", ID: "a-pane-that-has-gone"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || note.Text != paneGone {
+		t.Fatalf("revealing a pane that has gone was answered %+v, want %q", note, paneGone)
+	}
+}
+
+// TestAgentDefaultIsCheckedAndClearable covers the default agent as a setting
+// something other than the picker may write. A typo must not become the
+// default every pane then fails on, and clearing a project's default must say
+// that it did rather than that nothing is now the default.
+func TestAgentDefaultIsCheckedAndClearable(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() *agent.File {
+		t.Helper()
+		f, err := agent.ReadConfig(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	var note noticeMsg
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "codx", Target: "all"})
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "codx") {
+		t.Errorf("a default naming no agent was answered %+v, want a refusal naming it", note)
+	}
+	if f := read(); f.Defaults != (agent.Defaults{}) {
+		t.Errorf("a default naming no agent was written: %+v", f.Defaults)
+	}
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "claude", Model: "opus"})
+	readUntil(t, conn, "notice", &note)
+	sendCmd(t, conn, command{Cmd: "setAgentDefault"})
+	readUntil(t, conn, "notice", &note)
+	if note.Error || !strings.HasPrefix(note.Text, "cleared the default agent") {
+		t.Errorf("clearing the project's default was answered %+v", note)
+	}
+	if f := read(); len(f.Projects) != 0 {
+		t.Errorf("the project's default is still recorded: %+v", f.Projects)
+	}
+}
 
 // stateDir points this test's state at a directory of its own, the way the
 // store's own tests do. The catalog reads agents.json out of it, and writing a
