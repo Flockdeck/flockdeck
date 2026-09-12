@@ -201,9 +201,15 @@ type paneView struct {
 	Detail  string `json:"detail"`
 	// Agent and Model are what the pane is running, drawn in the header beside
 	// the branch. Both are left out for a shell, which is running neither.
-	Agent     string `json:"agent,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Err       string `json:"err,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Routed names the routing rule that chose the model, RoutedFrom the
+	// model the pane would otherwise have run, and Route whether that moved
+	// it "down" or "up". All are left out for a model chosen any other way.
+	Routed     string `json:"routed,omitempty"`
+	RoutedFrom string `json:"routedFrom,omitempty"`
+	Route      string `json:"route,omitempty"`
+	Err        string `json:"err,omitempty"`
 	Broadcast bool   `json:"broadcast"`
 	Cols      int    `json:"cols"`
 	Rows      int    `json:"rows"`
@@ -274,6 +280,11 @@ type command struct {
 	// reads.
 	TaskAgents []string `json:"taskAgents"`
 	TaskModels []string `json:"taskModels"`
+	// TaskRouted and RouteOverrides say which of a fan-out's rows start on the
+	// model routing chose, and which routed choices were changed before they
+	// started; see fanoutRequest.
+	TaskRouted     []string        `json:"taskRouted"`
+	RouteOverrides []routeOverride `json:"routeOverrides"`
 	// Relay, Name, Join and Invite are what the remote access dialog turns
 	// remote access on with, each the flag of the same name to `flockdeck
 	// remote enable`, and each may be empty. Name is also the new name
@@ -328,6 +339,8 @@ func (s *Server) snapshot() stateMsg {
 	// one reading of the process table every few seconds and shares it between
 	// every pane, so this does not get dearer as panes are opened.
 	sampleUsage := s.ClientCount() > 0
+	// Read once for every pane's routing mark rather than once per pane.
+	cat := ws.Catalog()
 
 	// Only the active project's tabs are rendered; the rest keep running.
 	tabs := ws.VisibleTabs()
@@ -368,6 +381,7 @@ func (s *Server) snapshot() stateMsg {
 				Broadcast: ws.InBroadcast(p.ID),
 			}
 			pv.Agent, pv.Model = paneAgent(p)
+			pv.Routed, pv.RoutedFrom, pv.Route = paneRoute(cat, p)
 			// The common case is a pane of the tab's own project, where the
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
@@ -849,10 +863,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			Model:      cmd.Model,
 			TaskAgents: cmd.TaskAgents,
 			TaskModels: cmd.TaskModels,
+			TaskRouted: cmd.TaskRouted,
+			Overrides:  cmd.RouteOverrides,
 			Worktrees:  cmd.Worktrees,
 			Split:      cmd.Split,
 			Trust:      cmd.Trust,
 		})
+		return
+	case "routeTasks":
+		s.routeTasks(c, cmd)
+		return
+	case "setRouting":
+		s.setRouting(c, cmd)
+		return
+	case "clearRoutingLog":
+		s.clearRoutingLog(c)
 		return
 	case "agents":
 		s.listAgents(c)

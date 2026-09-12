@@ -76,6 +76,13 @@ type Pane struct {
 	// opened with one keystroke still means.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Routed names the rule that chose Model, and RoutedFrom the model the
+	// pane would have run without it. Both are absent for a model chosen by
+	// hand or by default, which is every pane of a layout written before
+	// routing, and they come back with the pane so its header goes on saying
+	// the model was routed.
+	Routed     string `json:"routed,omitempty"`
+	RoutedFrom string `json:"routedFrom,omitempty"`
 	// Task is what a spawned pane was asked to do. It is kept so a restored
 	// agent can still be told why its pane exists.
 	Task string `json:"task,omitempty"`

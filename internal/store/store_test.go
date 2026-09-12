@@ -696,7 +696,8 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 					Dir:    "h",
 					Weight: 0.5,
 					Children: []*Node{
-						{Pane: &Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5"}, Weight: 0.7},
+						{Pane: &Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5",
+							Routed: "rename or move", RoutedFrom: "gpt-5.6-sol"}, Weight: 0.7},
 						{
 							Dir: "v",
 							Children: []*Node{
@@ -742,7 +743,8 @@ func TestStateSurvivesTheRoundTrip(t *testing.T) {
 	if left.Pane == nil {
 		t.Fatal("the left leaf lost its pane")
 	}
-	if *left.Pane != (Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5"}) {
+	if *left.Pane != (Pane{ID: "pane-1", Kind: "agent", Cwd: "/repo/a", Name: "worker", Task: "fix the parser", Agent: "codex", Model: "gpt-5",
+		Routed: "rename or move", RoutedFrom: "gpt-5.6-sol"}) {
 		t.Errorf("pane came back as %+v", *left.Pane)
 	}
 	if left.Weight != 0.7 {

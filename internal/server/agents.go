@@ -215,6 +215,8 @@ type agentCatalog struct {
 	// which overrides it. Project is left out when the project has none.
 	Default agentChoice  `json:"default"`
 	Project *agentChoice `json:"project,omitempty"`
+	// Routing is what Settings › Agents › Routing draws.
+	Routing *routingView `json:"routing,omitempty"`
 	// Err says why the user's agents.json was ignored. A damaged file is a
 	// line in the picker and nothing more: the built-ins carry on, because
 	// refusing to start over a preferences file would be absurd.
@@ -315,6 +317,7 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	out := agentCatalog{
 		Default: agentChoice{Agent: base.Agent, Model: base.Model},
 		Err:     c.Notice,
+		Routing: routingOf(c, root),
 	}
 	// A project is reported as having a choice of its own only where it
 	// actually differs. Marking the installation's default as this project's

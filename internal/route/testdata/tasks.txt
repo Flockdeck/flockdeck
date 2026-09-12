@@ -1,0 +1,24 @@
+# The built-in rules against tasks of the kind a fan-out proposes. Each line is
+# the tier the task should be routed to -- small, top, or "-" for left alone --
+# then a tab, then the task. A change to a built-in rule shows here, in review,
+# as the lines whose answer it changes.
+small	run the tests
+small	Run all unit tests and report what fails
+small	rerun the integration tests
+small	rename getUser to fetchUser
+small	move the helpers into util.go
+small	fix the typo in the README
+small	update the changelog for 0.2.10
+small	tidy the wording of the error when a key is missing
+top	refactor the session store into a package of its own
+top	fix the race in the hook server
+top	find the deadlock when two windows save at once
+top	add a migration for the users table
+top	review the relay's security headers
+top	add an index in db/migrations/0004_users.sql
+top	move the session lock to fix the race on restart
+-	add a health endpoint
+-	write tests for the parser
+-	add a --json flag to flockdeck agents
+-	make the picker remember the last model chosen
+-	rename every exported type in the package to follow the new naming scheme, updating every caller, the docs and the examples as you go, and keep the old names as deprecated aliases for a release

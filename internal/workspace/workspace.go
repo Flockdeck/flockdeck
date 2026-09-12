@@ -56,6 +56,11 @@ type Pane struct {
 	// its default model.
 	Agent string
 	Model string
+	// Routed names the routing rule that chose Model, and RoutedFrom the
+	// model the pane would otherwise have run. Both are empty for a model
+	// chosen by hand or by default.
+	Routed     string
+	RoutedFrom string
 	// Root is the open project this pane belongs to. It is usually the project
 	// of the tab the pane sits on, but need not be: a tab can show agents from
 	// more than one project side by side, and this is what says which one an

@@ -349,6 +349,7 @@
         if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
+      else if (msg.type === "routes") fanoutRoutes(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
         // The agents keep running; this window is no longer needed.
@@ -2294,7 +2295,10 @@
       // Keyed on the pair, because a pane can change model without changing
       // agent and the badge writes both.
       const agent = (v.agent || "") + "\u0000" + (v.model || "");
-      if (was.agent !== agent) { was.agent = agent; renderPaneAgent(p, v); }
+      // And on the routing mark, which a pane restarted on a model chosen by
+      // hand loses while keeping its agent and model.
+      const badge = agent + "|" + (v.routed || "") + "|" + (v.routedFrom || "") + "|" + (v.route || "");
+      if (was.agent !== badge) { was.agent = badge; renderPaneAgent(p, v); }
 
       const detail = v.detail || "";
       if (was.detail !== detail) {
@@ -2396,9 +2400,15 @@
   function renderPaneAgent(p, v) {
     p.agent.textContent = "";
     if (!v.agent) { delete p.agent.dataset.tip; return; }
-    p.agent.textContent = v.model ? v.agent + " · " + v.model : v.agent;
+    // A routed model says so, and which way it was moved: ↘ to a smaller
+    // model than the pane would have had, ↗ to a stronger one.
+    const arrow = v.route === "down" ? " ↘" : v.route === "up" ? " ↗" : "";
+    p.agent.textContent = (v.model ? v.agent + " · " + v.model : v.agent) + arrow;
+    const routed = v.routed
+      ? " Routed" + (v.route ? " " + v.route : "") + " from " + (v.routedFrom || "Default") + " by the rule '" + v.routed + "'."
+      : "";
     // Cut short like the branch, and named in its bubble for the same reason.
-    describe(p.agent, p.agent.textContent + " — " + TIPS.agent);
+    describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
   }
 
   /** renderPaneUsage shows what the pane is costing the machine: its share of a
@@ -5846,6 +5856,7 @@
     pane.append(settingRow(active ? "This project, " + active.name : "This project",
       own ? "This project's own choice, which wins over the one for every project."
         : "Starts what every project does until it is given an agent of its own.", mine));
+    settingsRouting(pane, active);
 
     const keys = el("button", "chip", "API keys…");
     keys.id = "set-agent-keys";
@@ -5855,6 +5866,76 @@
       if (tab) tab.focus();
     };
     pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.", keys));
+  }
+
+  /** settingsRouting is the Routing group of Settings › Agents: whether a
+   *  fan-out's rows come pre-set to a model chosen for the work, for every
+   *  project and for this one; the smallest tier that may be chosen; the
+   *  rules, to read; and the history kept of it. */
+  function settingsRouting(pane, active) {
+    const r = catalog.routing;
+    if (!r) return;
+    pane.append(el("div", "set-sub", "Routing"));
+    const MODES = [["off", "Off"], ["suggest", "Suggest"], ["auto", "Automatic"]];
+    const select = (id, options, value) => {
+      const sel = el("select", "set-select");
+      sel.id = id;
+      options.forEach(([v, label]) => sel.append(agentOption(label, v)));
+      sel.value = value;
+      return sel;
+    };
+
+    const every = select("set-route-all", MODES, (r.every && r.every.mode) || "off");
+    every.onchange = () => send({ cmd: "setRouting", kind: "all", target: "mode", text: every.value });
+    pane.append(settingRow("Every project",
+      "Pre-sets a fan-out's rows to a smaller model for mechanical work and a stronger one for hard work, " +
+      "marked, for you to change before anything starts. Off until you turn it on. Kept in agents.json.", every));
+
+    const own = r.project || null;
+    const mine = select("set-route-project", [["", "Same as every project"]].concat(MODES), own ? own.mode : "");
+    mine.disabled = !active;
+    mine.onchange = () => send({ cmd: "setRouting", target: "mode", text: mine.value });
+    pane.append(settingRow(active ? "This project, " + active.name : "This project",
+      own ? "This project's own policy, which replaces the one for every project."
+        : "Routed as every project is until it is given a policy of its own.", mine));
+
+    // The floor of whichever policy this project is routed by.
+    const policy = own || r.every || {};
+    const floor = select("set-route-floor", [["", "Small"], ["mid", "Mid"], ["top", "Top"]],
+      policy.floor === "small" ? "" : (policy.floor || ""));
+    floor.onchange = () => {
+      const req = { cmd: "setRouting", target: "floor", text: floor.value };
+      if (!own) req.kind = "all";
+      send(req);
+    };
+    pane.append(settingRow("Never go below",
+      "The smallest models routing may choose, " + (own ? "for this project." : "for every project.") +
+      " Mid keeps the smallest models off work that matters.", floor));
+    if (r.note) {
+      const note = el("p", "set-lede", r.note);
+      note.id = "set-route-note";
+      pane.append(note);
+    }
+
+    const list = el("div", "route-rules");
+    list.id = "set-route-rules";
+    (r.rules || []).forEach((rule) => {
+      const row = el("div", "route-rule");
+      row.append(el("span", "route-rule-name", rule.name), el("span", "pick-tier", rule.choice),
+        el("span", "route-rule-when", "when " + rule.when));
+      list.append(row);
+    });
+    if (!(r.rules || []).length) list.append(el("div", "set-desc", "No rules, so routing changes nothing."));
+    pane.append(settingRow("Rules",
+      (r.builtIn ? "The built-in rules. " : "") + "The first to match a task decides. They are edited in agents.json" +
+      (r.config ? ", at " + r.config : "") + ".", list));
+
+    const clear = el("button", "chip", "Clear routing history");
+    clear.id = "set-route-clear-log";
+    clear.onclick = () => send({ cmd: "clearRoutingLog" });
+    pane.append(settingRow("Routing history",
+      "What routing chose and whether you kept it, for your own numbers. It is kept on this machine, " +
+      "holds no task text, and is never sent anywhere.", clear));
   }
 
   function settingsPlan(pane) {
@@ -5898,6 +5979,9 @@
   // --------------------------------------------------------------- fan out
 
   let fanout = null;
+  /** fanoutRoutes takes the server's answer to routeTasks; the open dialog
+   *  puts its own in place, and with no dialog open it has nothing to do. */
+  let fanoutRoutes = () => {};
   /** The most agents one fan-out starts: the server's workspace.MaxTasks,
    *  which a test keeps this level with. */
   const FANOUT_MAX = 12;
@@ -5971,6 +6055,17 @@
     return name + (mo.note ? " — " + mo.note : "") + (extra.length ? " (" + extra.join(", ") + ")" : "");
   }
 
+  /** routeSummary is the fan-out's one line about routing: how many rows it
+   *  moved to a smaller model, and how many to a stronger one. */
+  function routeSummary(down, up, total) {
+    const of = (n) => n + " of " + total + (total === 1 ? " task" : " tasks");
+    const smaller = down === 1 ? "a smaller model" : "smaller models";
+    if (down && up) return "Routing chose " + smaller + " for " + of(down) + " and " + (up === 1 ? "a stronger one" : "stronger ones") + " for " + up + ".";
+    if (down) return "Routing chose " + smaller + " for " + of(down) + ".";
+    if (up) return "Routing chose " + (up === 1 ? "a stronger model" : "stronger models") + " for " + of(up) + ".";
+    return "";
+  }
+
   /** pickParts splits an agentSelect value back into its agent and its model. */
   function pickParts(value) {
     const i = (value || "").indexOf("\n");
@@ -6009,6 +6104,43 @@
       body.append(line);
     }
 
+    // What routing chose for each row, keyed by the task's text like the
+    // overrides below, so an edited line is routed afresh. A row somebody has
+    // chosen for keeps their choice. None of it is drawn while routing is off
+    // for the project, and the dialog is then what it always was.
+    const routing = choosable && !!m.routing;
+    const routed = new Map();
+    let routeNote = m.routeNote || "";
+    const takeRoutes = (tasks, routes) => {
+      routed.clear();
+      (tasks || []).forEach((t, i) => { if (routes && routes[i]) routed.set(t.trim(), routes[i]); });
+    };
+    if (routing) takeRoutes(m.tasks, m.routes);
+    /** The routed choices changed before starting, for the routing log. */
+    const overridden = [];
+    let routeText = null;
+    let routeClear = null;
+    if (routing) {
+      const line = el("div", "fan-route");
+      routeText = el("span", "fan-route-text");
+      // After the run's select in the tab order, since it is about that
+      // select: it puts every routed row back on the model chosen there.
+      routeClear = el("button", "chip", "Use the run's model for every task");
+      routeClear.id = "fan-route-clear";
+      routeClear.onclick = () => {
+        taskLines().forEach((t) => {
+          const r = activeRoute(t);
+          if (!r) return;
+          overridden.push({ rule: r.rule, agent: pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
+          overrides.set(t, "");
+        });
+        renderRows();
+        updateCount();
+      };
+      line.append(routeText, routeClear);
+      body.append(line);
+    }
+
     const box = el("textarea", "fan-tasks");
     box.value = (m.tasks || []).join("\n");
     box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter starts them.";
@@ -6024,6 +6156,17 @@
     const overrides = new Map();
     const rows = el("div", "fan-rows");
     if (choosable) body.append(rows);
+
+    /** The route a row starts on, where routing chose one and nobody has
+     *  chosen for the row since. */
+    const activeRoute = (task) => (routing && !overrides.has(task) && routed.get(task)) || null;
+    /** What a row's select holds: somebody's choice, else routing's, else
+     *  the run's. */
+    const effective = (task) => {
+      if (overrides.has(task)) return overrides.get(task);
+      const r = activeRoute(task);
+      return r ? pickParts(runSel.value)[0] + "\n" + r.model : "";
+    };
 
     const opts = el("div", "fan-opts");
     const wt = el("label", "fan-opt");
@@ -6071,6 +6214,11 @@
      *  divided on purpose is the easiest thing here to have got wrong, and the
      *  last moment to notice it is before any of them exist. */
     const tally = (lines) => {
+      const text = agentTally(lines);
+      const n = lines.filter((t) => activeRoute(t)).length;
+      return n ? text + " · " + n + " routed" : text;
+    };
+    const agentTally = (lines) => {
       const plural = lines.length === 1 ? "1 agent" : lines.length + " agents";
       if (!choosable) return plural;
       const runID = pickParts(runSel.value)[0];
@@ -6113,6 +6261,37 @@
         : tally(lines);
       start.disabled = lines.length === 0;
       start.textContent = starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
+      if (routing) {
+        const chosen = lines.map(activeRoute).filter(Boolean);
+        const up = chosen.filter((r) => r.up).length;
+        routeText.textContent = routeSummary(chosen.length - up, up, lines.length) ||
+          routeNote || "Routing has nothing to change in these tasks.";
+        routeClear.hidden = chosen.length === 0;
+      }
+    };
+
+    // The rules run on the server alone. The list is asked about again once
+    // typing pauses, and whenever the run's agent or model changes, since a
+    // route is a model of the agent the run is on.
+    let routeTimer = 0;
+    const askRoutes = () => {
+      if (!routing) return;
+      clearTimeout(routeTimer);
+      routeTimer = setTimeout(() => {
+        const [agent, model] = pickParts(runSel.value);
+        send({ cmd: "routeTasks", tasks: taskLines(), agent, model });
+      }, 250);
+    };
+    fanoutRoutes = (msg) => {
+      if (dialog !== "fanout" || !routing) return;
+      const [agent, model] = pickParts(runSel.value);
+      // An answer about a run since changed would pre-fill another agent's
+      // models; the answer to the question now being asked is on its way.
+      if (msg.agent !== agent || msg.model !== model) return;
+      takeRoutes(msg.tasks, msg.routes);
+      routeNote = msg.routeNote || "";
+      renderRows();
+      updateCount();
     };
 
     const renderRows = () => {
@@ -6123,13 +6302,29 @@
         const text = el("span", "fan-row-task", task);
         text.title = task;
         row.append(text);
-        const sel = agentSelect(catalog, overrides.get(task), "Same as the run");
+        const sel = agentSelect(catalog, effective(task), "Same as the run");
+        const r = activeRoute(task);
+        let tag = null;
+        if (r) {
+          tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
+            r.reason + ". Choose another model here to decide this row yourself.");
+        }
         sel.onchange = () => {
-          if (sel.value) overrides.set(task, sel.value);
+          // Changing a routed row makes it the user's: the tag goes, and
+          // routing leaves the row alone from here on, even on "Same as the
+          // run".
+          const was = activeRoute(task);
+          if (was) {
+            overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
+              chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
+          }
+          if (sel.value || was) overrides.set(task, sel.value);
           else overrides.delete(task);
+          if (tag) tag.remove();
           updateCount();
         };
         row.append(sel);
+        if (tag) row.append(tag);
         rows.append(row);
       });
     };
@@ -6153,16 +6348,23 @@
         const run = pickParts(runSel.value);
         req.agent = run[0];
         req.model = run[1];
-        const perTask = tasks.map((t) => pickParts(overrides.get(t))[0]);
+        // A routed row goes over the wire as any row chosen by hand does, so
+        // what was shown is what runs; the rule's name only marks its pane.
+        const perTask = tasks.map((t) => pickParts(effective(t))[0]);
         if (perTask.some(Boolean)) {
           req.taskAgents = perTask;
-          req.taskModels = tasks.map((t) => pickParts(overrides.get(t))[1]);
+          req.taskModels = tasks.map((t) => pickParts(effective(t))[1]);
+        }
+        if (routing) {
+          const rules = tasks.map((t) => (activeRoute(t) || {}).rule || "");
+          if (rules.some(Boolean)) req.taskRouted = rules;
+          if (overridden.length) req.routeOverrides = overridden;
         }
       }
       send(req);
       closeOverlay();
     };
-    box.oninput = () => { if (choosable) renderRows(); updateCount(); };
+    box.oninput = () => { if (choosable) renderRows(); updateCount(); askRoutes(); };
     // Enter is a new line here - the tasks go one to a line - so starting
     // them took the pointer, or Tab past every option to the button.
     box.onkeydown = (ev) => {
@@ -6171,7 +6373,11 @@
       start.onclick();
     };
     if (choosable) {
-      runSel.onchange = updateCount;
+      runSel.onchange = () => {
+        // The routes were models of the agent the run was on.
+        if (routing) { routed.clear(); renderRows(); askRoutes(); }
+        updateCount();
+      };
       renderRows();
     }
     go.append(start, count);

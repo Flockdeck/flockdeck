@@ -167,6 +167,78 @@ takes one out of the picker without removing it. A model's `"tier"` —
 is named in the notice and ignored.
 
 The file is read fresh every time the picker opens, so editing it by hand takes
-effect without a restart. A file that does not parse is a notice in the
+effect without a restart.
+
+## Routing
+
+A fan-out multiplies whatever its model costs, and many of its tasks are
+mechanical: run the tests, rename a symbol, fix a typo. Routing pre-sets each
+row of a [fan-out](#fanout) to a model suited to the work — a smaller one for
+mechanical work, a stronger one for hard work — and leaves every other row
+exactly as it was. It is **off** until you turn it on, in Settings › Agents ›
+Routing, for every project or for one.
+
+What it chooses is shown before anything starts. A routed row's model is
+pre-set in its select, with a **↘ routed** tag (↗ for a stronger model) whose
+tooltip says which rule chose it and, for an API agent, what the two models
+cost. Changing the select makes the row yours again, and **Use the run's
+model for every task**, beside the line saying how many rows were routed,
+does that for all of them. What was shown is what runs. A pane started on a
+routed model says so in its header — `claude · haiku ↘` — with the rule in
+its tooltip.
+
+Routing moves work between the models of the agent the run is on, never to
+another agent, and only between models whose tier it knows. Claude Code's
+**Default** is whatever the CLI is set to, which might be its smallest model
+or its largest, so routing leaves work on it alone: choose a model for the run
+in the fan-out, or make one your default, for routing to choose from it.
+
+**Suggest** and **Automatic** are the same for a fan-out, since the dialog asks
+before anything starts either way. **Never go below** keeps routing off the
+smaller tiers for a project where the work matters.
+
+The policy is kept in `agents.json` — and only there, never in a file inside a
+repository, so a repository you clone cannot change what your key spends:
+
+```json
+{
+  "routing": {
+    "mode": "suggest",
+    "floor": "",
+    "rules": [
+      { "name": "run the tests", "tier": "small",
+        "when": { "task": "^(re-?)?run (the |all )?(unit |integration )?tests?\\b" } },
+      { "name": "schema changes", "tier": "top",
+        "when": { "files": ["**/migrations/**", "**/*.sql"] } },
+      { "name": "design work", "model": "opus", "agent": "claude",
+        "when": { "task": "\\bdesign\\b" } }
+    ]
+  },
+  "projects": {
+    "C:\\code\\payments": { "routing": { "mode": "suggest", "floor": "mid" } }
+  }
+}
+```
+
+Rules are tried in order and the **first that matches decides**; a task no rule
+matches is left alone. Every condition in `when` must hold: `task` is a
+regular expression matched without regard to case; `minWords` and `maxWords`
+bound the task's length; `files` are globs matched against the paths the task
+names (`**` is any number of directories, and a glob with no `/` matches a
+file's name anywhere); `kind` is `fanout`, `spawn` or `turn`; `agent` is an
+agent's id. A rule asks for a `tier`, or for one agent's `model`. Leave
+`rules` out for the built-in ones, which Settings lists; `"rules": []` means
+none. A project's own policy replaces the one for every project whole. A rule
+that cannot be used — a pattern that is not one, a tier that is not one — is
+named in the notice and skipped, and the rest still apply.
+
+Saving a default from a Flockdeck older than 0.2.10 writes a project's entry
+back without its `routing`, so a project's policy is lost that way.
+
+**Nothing leaves the machine.** Routing decides from these rules alone and
+makes no request of any kind. What it chose, and whether you kept it, is kept
+in `routing.jsonl` in the state directory, for your own numbers: the rule's
+name and the models, never the task. Settings has **Clear routing history**,
+and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
 interface and nothing worse — the built-in agents carry on, because a typo in a
 settings file is not a reason to be unable to start work.

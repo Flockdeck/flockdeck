@@ -722,6 +722,11 @@ type SpawnOptions struct {
 	// CLI keeps whatever it was configured with.
 	Agent string
 	Model string
+	// Routed names the routing rule that chose Model, and RoutedFrom the
+	// model the child would otherwise have run. They are recorded on the pane
+	// so its header says the model was routed, and why.
+	Routed     string
+	RoutedFrom string
 }
 
 // Spawn starts a child agent, optionally in a worktree of its own.
@@ -799,6 +804,9 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model
+		if o.Routed != "" && model == o.Model {
+			p.Routed, p.RoutedFrom = o.Routed, o.RoutedFrom
+		}
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
