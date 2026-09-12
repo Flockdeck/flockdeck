@@ -165,6 +165,9 @@ type Workspace struct {
 	// lastTab remembers which tab each project was left on, so coming back to
 	// a project comes back to what you were doing in it.
 	lastTab map[string]string
+	// lastKeyMove is the keyboard move just made, so that the opposite arrow
+	// can undo it.
+	lastKeyMove keyMove
 
 	selfExe     string
 	spawnCmd    string
