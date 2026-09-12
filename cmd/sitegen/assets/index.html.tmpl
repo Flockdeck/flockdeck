@@ -382,6 +382,19 @@ make package    <span class="c"># archives for all six platforms</span></code></
          update checks off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
     </details>
     <details>
+      <summary>How do I uninstall it?</summary>
+      <p>If you turned on remote access, run <code>flockdeck remote disable</code>
+         first so the relay forgets this machine. Then quit Flockdeck and delete
+         the binary: <code>~/.local/bin/flockdeck</code>, or on Windows the
+         <code>%LOCALAPPDATA%\Programs\flockdeck</code> folder and the Flockdeck
+         Start menu shortcut, and that folder's entry in your PATH. Your
+         settings, layouts and keys are kept apart from it, in
+         <code>%AppData%\flockdeck</code>,
+         <code>~/Library/Application Support/flockdeck</code> or
+         <code>~/.config/flockdeck</code>; delete that too to leave nothing
+         behind.</p>
+    </details>
+    <details>
       <summary>Which platforms are supported?</summary>
       <p>Windows, macOS and Linux, on both Intel and AMD (amd64) and ARM
          (arm64) machines.</p>
