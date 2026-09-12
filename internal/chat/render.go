@@ -96,6 +96,9 @@ type printer struct {
 	code    bool            // inside a fenced code block
 	codeBuf strings.Builder // the code line being gathered
 	swallow bool            // dropping the rest of a line, which is a fence's language
+
+	lead int // spaces the current line began with, which is how a list nests
+	hang int // the column a wrapped line goes on from: under a list item's text
 }
 
 func newPrinter(w io.Writer, width int, colour bool) *printer {
@@ -137,6 +140,16 @@ func (p *printer) text(s string) {
 			// line of the code block.
 			p.swallow = false
 		case r == ' ' || r == '\t':
+			if !p.started && len(p.word) == 0 && !p.heading {
+				// Indentation at the start of a line is kept: it is how a
+				// list says that one item belongs under another.
+				if r == '\t' {
+					p.lead += 4
+				} else {
+					p.lead++
+				}
+				continue
+			}
 			p.flushWord()
 			if p.started {
 				p.space = true
@@ -207,10 +220,24 @@ func (p *printer) flushWord() {
 		case isFence(word):
 			p.code = true
 			p.codeBuf.Reset()
+			// The fence's line never ends through endLine -- its newline is
+			// swallowed with the language -- so its indentation is dropped
+			// here, rather than left to indent the prose after the block.
+			p.lead, p.hang = 0, 0
 			// The rest of the line names the language, which is nothing to
 			// draw.
 			p.swallow = true
 			return
+		}
+		// The first word of the line: its indentation goes in front of it,
+		// and a list marker sets where the item's wrapped lines go on from.
+		if p.lead > 0 {
+			p.put(strings.Repeat(" ", p.lead))
+			p.col = p.lead
+		}
+		p.hang = p.lead
+		if isListMarker(word) {
+			p.hang = p.lead + utf8.RuneCountInString(word) + 1
 		}
 	}
 
@@ -276,10 +303,16 @@ func (p *printer) inline(word string) (string, string) {
 }
 
 // newline breaks the line without ending the paragraph, which is what wrapping
-// is: the heading a continuation line belongs to is still the same heading.
+// is: the heading a continuation line belongs to is still the same heading, and
+// a list item's continuation lines go on under its text rather than under its
+// marker, which is what makes a list of long items readable as a list.
 func (p *printer) newline() {
 	p.put("\n")
 	p.col, p.started, p.space, p.blank = 0, false, false, false
+	if p.hang > 0 {
+		p.put(strings.Repeat(" ", p.hang))
+		p.col, p.started = p.hang, true
+	}
 }
 
 // endLine ends the current line. Two in a row leave one blank line between
@@ -287,6 +320,7 @@ func (p *printer) newline() {
 // reader's, and are collapsed.
 func (p *printer) endLine() {
 	p.flushWord()
+	p.lead, p.hang = 0, 0
 	if p.started {
 		p.put("\n")
 		p.col, p.started, p.space, p.blank = 0, false, false, false
@@ -318,6 +352,7 @@ func (p *printer) endMessage() {
 	p.col, p.started, p.space = 0, false, false
 	p.heading, p.bold, p.mono, p.swallow = false, false, false, false
 	p.blank = false
+	p.lead, p.hang = 0, 0
 	p.w.Flush()
 }
 
@@ -374,6 +409,25 @@ func isHeadingMarker(word string) bool {
 	}
 	for _, r := range word {
 		if r != '#' {
+			return false
+		}
+	}
+	return true
+}
+
+// isListMarker reports whether a word opens a list item: a bullet, or a number
+// followed by a full stop or a bracket.
+func isListMarker(word string) bool {
+	switch word {
+	case "-", "*", "+", "•":
+		return true
+	}
+	digits := strings.TrimRight(word, ".)")
+	if len(digits) == 0 || len(digits) != len(word)-1 {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
 			return false
 		}
 	}
