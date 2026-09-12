@@ -1467,6 +1467,21 @@
       /* Search is a convenience; the terminal works without it. */
     }
     term.open(host);
+    // Scrolled back to read what an agent wrote earlier, a pane went on
+    // showing the old lines with nothing to say newer ones had arrived below,
+    // and the only way back down was the wheel, however far that was.
+    const latest = el("button", "to-latest", "↓ Latest");
+    latest.hidden = true;
+    describe(latest, "Scroll to the newest output");
+    latest.onclick = (ev) => { ev.stopPropagation(); term.scrollToBottom(); latest.hidden = true; term.focus(); };
+    body.append(latest);
+    const scrolledBack = () => {
+      const b = term.buffer && term.buffer.active;
+      const back = !!b && b.viewportY < b.baseY;
+      if (latest.hidden === back) latest.hidden = !back;
+    };
+    if (term.onScroll) term.onScroll(scrolledBack);
+    if (term.onWriteParsed) term.onWriteParsed(scrolledBack);
     try {
       const webgl = new WebglAddon.WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());

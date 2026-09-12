@@ -4220,6 +4220,32 @@ for (const q of ["settings", "preferences", "options"]) {
 `)
 }
 
+// Scrolled back, a pane showed the old lines with nothing saying newer ones
+// had arrived, and the way back down was the wheel however far that was.
+func TestAScrolledBackPaneOffersTheWayBackDown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const term = h.terms[0];
+const latest = term.host.parentElement.querySelector(".to-latest");
+assert.ok(latest, "a pane has no way back to its newest output");
+const buf = term.buffer.active;
+buf.baseY = 100; buf.viewportY = 100;
+term._parsed();
+assert.ok(latest.hidden, "the way back down shows while the pane is at the bottom");
+buf.viewportY = 40;
+term._scroll(40);
+assert.ok(!latest.hidden, "a pane scrolled back does not offer the way back down");
+buf.baseY = 120;
+term._parsed();
+assert.ok(!latest.hidden, "new output hides the way back while the pane is still scrolled back");
+latest.onclick({ stopPropagation() {} });
+assert.strictEqual(buf.viewportY, buf.baseY, "the button does not go to the newest output");
+assert.ok(latest.hidden, "the button stays after going to the bottom");
+assert.ok(term.focused, "the keyboard is not back in the terminal");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -4606,10 +4632,14 @@ class FakeTerm {
     this.options = Object.assign({}, opts);
     this.cols = 80; this.rows = 24;
     this.written = []; this.disposed = false; this.focused = false;
+    this.buffer = { active: { viewportY: 0, baseY: 0 } };
     terms.push(this);
   }
   loadAddon() {}
   open(host) { this.host = host; }
+  onScroll(fn) { this._scroll = fn; }
+  onWriteParsed(fn) { this._parsed = fn; }
+  scrollToBottom() { this.buffer.active.viewportY = this.buffer.active.baseY; if (this._scroll) this._scroll(this.buffer.active.viewportY); }
   onData(fn) { this._data = fn; }
   onBinary(fn) { this._bin = fn; }
   write(d) { this.written.push(d); }

@@ -379,6 +379,15 @@ textarea:focus-visible {
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; }
+/* Shown only while the pane is scrolled back from its newest line. Clear of
+ * the terminal's scroll bar at the right edge. */
+.to-latest {
+  position: absolute; right: 18px; bottom: 10px; z-index: 3;
+  padding: 3px 10px; border-radius: 12px; font: inherit; font-size: 12px;
+  background: var(--bg-raised); color: var(--fg); border: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+.to-latest:hover, .to-latest:focus-visible { border-color: var(--accent); }
 
 .pane-error {
   position: absolute; inset: 0; padding: 12px;
