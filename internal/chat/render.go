@@ -66,7 +66,7 @@ func colourWanted() bool {
 	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
 	}
-	return isConsole(os.Stdout)
+	return isConsole(os.Stdout) && enableColour()
 }
 
 // printer draws a streamed answer: wrapped to the terminal, with headings, code

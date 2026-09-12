@@ -8,6 +8,9 @@ import (
 	"unsafe"
 )
 
+// enableColour has nothing to turn on: a terminal here draws escape sequences.
+func enableColour() bool { return true }
+
 // terminalWidth is how many columns the terminal standard output is drawn in
 // has, or 0 when it is not a terminal.
 func terminalWidth() int {
