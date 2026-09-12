@@ -815,8 +815,7 @@ agents running for later. A remote window closing never stops anything.
 
 Private relays are coming as a paid plan: a relay run for you alone, so your
 agents' traffic goes through a server that carries nobody else's. The shared
-relay stays free, and the relay is open source, so you can run your own now
-and name it with `-relay`.
+relay stays free.
 
 ## Design notes
 
@@ -938,7 +937,7 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+The desktop app is MIT — see [LICENSE](LICENSE).
 
 The front end is compiled into the binary and the Go dependencies are linked
 into it, so a release carries other people's code as well as this project's.

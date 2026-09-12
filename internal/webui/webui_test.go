@@ -3739,6 +3739,7 @@ h.click(h.$("settings-tab-remote"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" });
 h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
 assert.ok(pane.contains(h.$("remote-relay")) && pane.contains(h.$("remote-name")), "the relay and the machine's name are not asked for");
+assert.ok(!pane.textContent.includes("of your own"), "turning remote access on offers a relay of your own: " + pane.textContent);
 h.$("remote-relay").value = "relay.example";
 h.$("remote-name").value = "desk";
 h.click(h.$("remote-enable"));
@@ -3758,6 +3759,7 @@ const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
 assert.ok(text.includes("Private relays") && text.includes("Coming soon") && text.includes("as a paid plan"), "private relays are not announced");
 assert.ok(text.includes("The shared relay stays free"), "it does not say the shared relay stays free");
+assert.ok(!text.includes("of your own"), "the plan offers a relay of your own: " + text);
 assert.ok(!/[$£€]\s?\d/.test(text), "a price was invented: " + text);
 assert.ok(h.$("set-plan-link").getAttribute("href").endsWith("#private-relays"), "the link does not go to the site's private relays");
 `)

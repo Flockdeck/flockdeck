@@ -655,7 +655,7 @@
     const d = remoteDraft;
     const o = remoteOutcome;
     box.append(el("p", null, "This machine is not enrolled with a relay. Leave the relay empty for " +
-      "remote.flockdeck.ai, or name one of your own."));
+      "remote.flockdeck.ai, or name another."));
     const form = el("div", "wt-form");
     const fields = [];
     const field = (key, id, placeholder, label) => {
@@ -714,7 +714,7 @@
    *  paid, and no more: price and date are not settled, and nothing here
    *  should promise either. */
   const PRIVATE_RELAYS_WHAT = "run for you alone, as a paid plan";
-  const PRIVATE_RELAYS_FREE = "The shared relay stays free, and you can always name a relay of your own.";
+  const PRIVATE_RELAYS_FREE = "The shared relay stays free.";
 
   /** privateRelaysNote announces private relays, which are not here yet. */
   function privateRelaysNote() {
