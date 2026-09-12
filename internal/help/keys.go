@@ -75,6 +75,7 @@ var Keys = []Key{
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
+	{ID: "apiKeys", Label: "API keys…", Section: "Agents", Page: "agents"},
 
 	// --- git ---------------------------------------------------------------
 	{ID: "worktrees", Keys: "Ctrl+Shift+G", Label: "Worktrees", Section: "Git", Page: "worktrees"},

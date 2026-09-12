@@ -70,11 +70,15 @@ flockdeck keys set openai    # reads the key from stdin, so it misses shell hist
 flockdeck keys list          # which agents have one, not what it is
 ```
 
+Or set them from the window: [[action:apiKeys]], in the command palette, lists
+every API agent with **set** or **not set** beside it — and, for one that is
+not, the environment variables it would look in — and offers **Set…** and
+**Clear**.
+
 Keys are kept in `keys.json` in the state directory, readable only by you. A
 key reaches exactly one place: the environment of the chat process for the pane
 that needs it. It is never logged, never written into a saved layout and never
-shown — the interface says **set** or **not set**, offers *set…* and *clear*,
-and will not read one back to you. An endpoint that needs no key at all, such
+shown — the interface will not read one back to you. An endpoint that needs no key at all, such
 as a local server on loopback, counts as available without one.
 
 ## Adding your own: agents.json
