@@ -150,6 +150,12 @@ func (s *Server) resetTips() {
 	})
 }
 
+// setCursorSteady records whether the terminal cursors blink, which was fixed
+// in the source.
+func (s *Server) setCursorSteady(steady bool) {
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

@@ -801,6 +801,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "resetTips":
 		s.resetTips()
 		return
+	case "cursorBlink":
+		s.setCursorSteady(cmd.Kind == "off")
+		return
 	case "forgetRecent":
 		if err := store.ForgetRecent(cmd.Root); err != nil {
 			// The list is about to be sent again with the project still on

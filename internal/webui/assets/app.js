@@ -1416,7 +1416,7 @@
 
     const term = new Terminal({
       allowProposedApi: true,
-      cursorBlink: !reducedMotion(),
+      cursorBlink: cursorBlinks(),
       fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace',
       fontSize: fontSize,
       lineHeight: 1.15,
@@ -1480,12 +1480,18 @@
   function reducedMotion() {
     try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
   }
-  // The setting can change while the window is open, and the terminals
-  // already drawn follow it.
+
+  /** cursorBlinks is whether the terminal cursors should blink: not where the
+   *  system asks for reduced motion, and not where somebody has turned the
+   *  blinking off from the palette, which was otherwise fixed in the source. */
+  function cursorBlinks() { return !prefs.cursorSteady && !reducedMotion(); }
+  function applyCursorBlink() {
+    for (const p of panes.values()) p.term.options.cursorBlink = cursorBlinks();
+  }
+  // The system setting can change while the window is open, and the
+  // terminals already drawn follow it.
   try {
-    matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", () => {
-      for (const p of panes.values()) p.term.options.cursorBlink = !reducedMotion();
-    });
+    matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyCursorBlink);
   } catch { /* an engine without matchMedia keeps the blink */ }
 
   /** makeToolbar makes a row of buttons one stop on the way through the window,
@@ -2563,6 +2569,7 @@
   function applyPrefs() {
     applyFontSize(prefs.fontSize);
     applyScrollback(prefs.scrollback);
+    applyCursorBlink();
   }
 
   /** How many lines a terminal keeps once they have scrolled off the top,
@@ -2950,6 +2957,16 @@
       run: () => {
         send({ cmd: "notifications", kind: quiet ? "on" : "off" });
         notice(quiet ? "Desktop notifications are on" : "Desktop notifications are off", false);
+      },
+    });
+    // The cursor's blink was fixed in the source, and one blinking cursor
+    // among a tab of still terminals is a distraction some people want gone.
+    const steady = !!prefs.cursorSteady;
+    cmds.push({
+      label: steady ? "Make the terminal cursor blink" : "Stop the terminal cursor blinking",
+      run: () => {
+        send({ cmd: "cursorBlink", kind: steady ? "on" : "off" });
+        notice(steady ? "The terminal cursor blinks" : "The terminal cursor is steady", false);
       },
     });
     // A hint sent away stays away, which is the point, but there was no way

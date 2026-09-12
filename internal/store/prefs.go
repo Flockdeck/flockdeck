@@ -31,6 +31,8 @@ type Prefs struct {
 	// UpdatesOff stops the background check for a new release, as the
 	// FLOCKDECK_UPDATE=off environment variable does.
 	UpdatesOff bool `json:"updatesOff,omitempty"`
+	// CursorSteady stops the terminal cursors blinking.
+	CursorSteady bool `json:"cursorSteady,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

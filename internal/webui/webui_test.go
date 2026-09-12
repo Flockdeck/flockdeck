@@ -3593,6 +3593,23 @@ assert.strictEqual(h.terms[0].options.cursorBlink, false, "the cursor blinks alt
 `)
 }
 
+// Whether the terminal cursors blink was fixed in the source. It is chosen
+// from the palette, kept with the other preferences, and followed by every
+// terminal, including in another window.
+func TestTheCursorBlinkCanBeTurnedOff(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ cursorSteady: true });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "a steady cursor chosen on an earlier run blinks");
+paletteRun("cursor blink");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "on" });
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.strictEqual(h.terms[0].options.cursorBlink, true, "the terminals did not follow the choice");
+paletteRun("cursor blinking");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
