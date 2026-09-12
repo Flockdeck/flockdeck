@@ -346,8 +346,16 @@ func TestRestoreSessionSkipsMissingProjects(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 	ws.Close()
-	if err := os.RemoveAll(gone); err != nil {
-		t.Fatal(err)
+	// Closing kills each pane without waiting for it to go, and Windows will
+	// not delete a directory a process is still sitting in. Under the load of
+	// the whole suite the delete could lose that race, so it is given the few
+	// seconds a killed process can take.
+	deadline := time.Now().Add(10 * time.Second)
+	for err := os.RemoveAll(gone); err != nil; err = os.RemoveAll(gone) {
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	again := newTestWorkspace(t, first)
