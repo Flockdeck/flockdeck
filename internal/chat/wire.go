@@ -142,6 +142,23 @@ func contextFull(err error) bool {
 	return false
 }
 
+// modelUnknown reports whether err is the API saying it has no model by the
+// name it was asked for -- a mistyped /model, or a model since retired -- in
+// the words each vendor uses for it.
+func modelUnknown(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) || (e.Code != http.StatusNotFound && e.Code != http.StatusBadRequest) {
+		return false
+	}
+	msg := strings.ToLower(e.Msg)
+	// Anthropic's 404 is the field and the value alone: "model: claude-x".
+	if e.Code == http.StatusNotFound && strings.HasPrefix(msg, "model:") {
+		return true
+	}
+	return strings.Contains(msg, "model") &&
+		(strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "invalid model"))
+}
+
 // refusedKey reports whether err is the API refusing the key it was given.
 // Anthropic and OpenAI say so with a 401; Gemini with a 400 whose message says
 // the key is not valid. A 403 is not one: it is a key that was accepted and is
