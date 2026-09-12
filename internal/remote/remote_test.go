@@ -135,6 +135,12 @@ func TestRelayURL(t *testing.T) {
 	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
 		t.Errorf("CheckRelay kept the trailing slash: %q", got)
 	}
+	// A pairing link pasted as the relay is the wrong thing to hand, which the
+	// refusal says, and its one-time code is not repeated back.
+	if _, err := CheckRelay("https://remote.flockdeck.ai/pair#fdp_s3cretcode"); err == nil ||
+		!strings.Contains(err.Error(), "pairing link") || !strings.Contains(err.Error(), "-join") || strings.Contains(err.Error(), "s3cretcode") {
+		t.Errorf("CheckRelay of a pairing link = %v, want it named as one, pointing at -join, without its code", err)
+	}
 	// A password in the address would be saved and printed back wherever the
 	// relay is named, so it is refused, and the refusal does not repeat it.
 	if _, err := CheckRelay("https://someone:hunter2@relay.example"); err == nil || strings.Contains(err.Error(), "hunter2") {

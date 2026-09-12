@@ -186,6 +186,13 @@ func CheckRelay(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("%q is not a relay address; it should start https://", raw)
 	}
+	// A pairing link is the relay-looking thing most likely to be to hand, and
+	// the wrong one: it is opened on a device, and a machine joins an account
+	// with a code from `pair -desktop`. Being a one-time secret, it is not
+	// repeated back.
+	if strings.HasSuffix(u.Path, "/pair") && strings.HasPrefix(u.Fragment, "fdp_") {
+		return "", errors.New("that is a pairing link, to open on the phone or browser being paired; to add this machine to that account, run `flockdeck remote pair -desktop` on the other machine and `flockdeck remote enable -join CODE` here")
+	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("a relay address has no query or fragment: %q", raw)
 	}
