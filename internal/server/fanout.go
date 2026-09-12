@@ -56,9 +56,15 @@ type fanoutAgentView struct {
 }
 
 // fanoutCatalog lists the agents the dialog can offer, and the id of the one
-// a run starts on. It reads the catalog and probes for each agent, so it runs
-// on the workspace goroutine like every other read of it -- both are cheap,
-// and it happens once, when the dialog is opened.
+// a run starts on.
+//
+// It asks whether each agent can be started, which is a search of PATH for
+// every one that is not installed. The answers are kept for a few seconds and
+// are refreshed only while the window is being redrawn, so the dialog opened
+// after a quiet spell asks afresh -- eight searches took up to half a second
+// on a Windows machine with an ordinary PATH. It is therefore called off the
+// workspace goroutine, where every window's commands would otherwise wait
+// behind it; the catalog is safe to read from any goroutine.
 func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
 	specs, def := s.ws.Agents()
 	out := make([]fanoutAgentView, 0, len(specs))
@@ -81,11 +87,9 @@ func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
 // previewFanout reads a pane's recent output and proposes tasks from it.
 func (s *Server) previewFanout(c *controlClient, paneID string) {
 	type info struct {
-		id     string
-		cwd    string
-		src    workspace.PlanSource
-		agents []fanoutAgentView
-		agent  string
+		id  string
+		cwd string
+		src workspace.PlanSource
 	}
 	in, ok := ask(s, func() info {
 		id := paneID
@@ -98,17 +102,18 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		if p := s.ws.Pane(id); p != nil {
 			cwd = p.Cwd
 		}
-		agents, def := s.fanoutCatalog()
-		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), agents: agents, agent: def}
+		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id)}
 	})
 	if !ok {
 		return
 	}
 
 	go func() {
-		// Reading the transcript touches the disk, which is why it happens here
-		// rather than on the goroutine that owns the workspace.
+		// Reading the transcript touches the disk and asking about the agents
+		// searches PATH, which is why both happen here rather than on the
+		// goroutine that owns the workspace.
 		tasks, fromReply := in.src.Tasks()
+		agents, def := s.fanoutCatalog()
 		msg := fanoutPreviewMsg{
 			Type:      "fanoutPreview",
 			PaneID:    in.id,
@@ -118,8 +123,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			IsRepo:    isRepoDir(in.cwd) || gitRoot(in.cwd) != "",
 			Trusted:   session.IsTrusted(in.cwd),
 			Project:   filepath.Base(in.cwd),
-			Agents:    in.agents,
-			Agent:     in.agent,
+			Agents:    agents,
+			Agent:     def,
 		}
 		c.sendJSON(msg)
 	}()
