@@ -255,6 +255,10 @@ func (s *session) showOutput(arg string) {
 		s.out.line(ansiDim, "no tool has run in this conversation yet")
 		return
 	}
+	if seen == 1 {
+		s.out.line(ansiDim, "there has been 1 tool output so far")
+		return
+	}
 	s.out.line(ansiDim, fmt.Sprintf("there have been %d tool outputs so far", seen))
 }
 

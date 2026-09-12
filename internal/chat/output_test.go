@@ -23,7 +23,7 @@ func TestOutputShowsAllOfWhatAToolReturned(t *testing.T) {
 	if !strings.Contains(out, "thing_test.go:12: got 1, want 2") {
 		t.Errorf("/output did not show the whole output:\n%s", out)
 	}
-	for _, want := range []string{"1 tool outputs so far", "/output takes a number"} {
+	for _, want := range []string{"there has been 1 tool output so far", "/output takes a number"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
