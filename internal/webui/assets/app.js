@@ -2626,6 +2626,7 @@
       if (tab) send({ cmd: "selectTab", id: tab.id });
     },
     mergeAllTabs: () => send({ cmd: "mergeAllTabs", id: state ? state.activeTab : "", dir: "h" }),
+    renameTab: () => { if (state) renameTab(state.activeTab); },
 
     toggleBroadcast: () => send({ cmd: "toggleBroadcast" }),
     promptAll: () => openPrompt(),
@@ -2786,7 +2787,10 @@
     [["newAgentTabChoose", "New agent tab (choose agent)…"],
      ["splitRightChoose", "Split right (choose agent)…"],
      ["apiKeys", "API keys…"],
-     ["scrollback", "Terminal scrollback…"]].forEach(([id, label]) => {
+     ["scrollback", "Terminal scrollback…"],
+     // Renaming was a double-click on the tab and nothing else: nothing a
+     // keyboard could reach, and nothing that said it could be done.
+     ["renameTab", "Rename this tab…"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
     });

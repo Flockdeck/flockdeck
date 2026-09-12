@@ -2871,6 +2871,19 @@ assert.ok(h.doc.activeElement === into()[0], "going into a folder dropped the ke
 `)
 }
 
+// A tab was renamed by double-clicking it and in no other way, so it could not
+// be done from the keyboard and nothing listed it as something that could be
+// done at all.
+func TestATabCanBeRenamedFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+h.win._prompt = "api work";
+paletteRun("rename");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "renameTab", id: "t1", text: "api work" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
