@@ -103,6 +103,10 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, "not enabled") {
 		t.Fatalf("status before enabling = %q, %v", out, err)
 	}
+	// The relay enabling would use is the choice it makes, so it is shown first.
+	if !strings.Contains(out, "relay:   "+remote.DefaultRelay+", unless enable is given -relay") {
+		t.Errorf("status before enabling does not say which relay enable would use: %q", out)
+	}
 
 	out, reloads, err = runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk")
 	if err != nil {

@@ -249,6 +249,17 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	}
 	if cfg == nil {
 		fmt.Fprintln(rio.out, "remote access is not enabled; `flockdeck remote enable` turns it on")
+		// Which relay is the one choice enabling makes, so it is said before
+		// it is made, along with where it would come from.
+		relay, err := remote.RelayURL("")
+		switch {
+		case err != nil:
+			fmt.Fprintf(rio.out, "relay:   %v\n", err)
+		case strings.TrimSpace(os.Getenv(remote.RelayEnv)) != "":
+			fmt.Fprintf(rio.out, "relay:   %s, from %s\n", relay, remote.RelayEnv)
+		default:
+			fmt.Fprintf(rio.out, "relay:   %s, unless enable is given -relay or %s is set\n", relay, remote.RelayEnv)
+		}
 		return nil
 	}
 	fmt.Fprintf(rio.out, "relay:   %s\n", cfg.Relay)
