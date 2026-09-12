@@ -115,7 +115,7 @@ Commands:
                  -desktop prints a code for enrolling another machine instead
   status         say whether remote access is on, and connected
   devices        list the paired devices and enrolled machines
-  revoke <id>    unpair a device
+  revoke <id>    unpair a device, named by its id or its name
   disable [-force]  remove this machine from the relay
 
 Run flockdeck remote help <command> for more about one of them.
@@ -138,8 +138,8 @@ var remoteSynopses = map[string][2]string{
 		"Say whether remote access is on, whether this machine is connected to its\nrelay, and how many devices are paired."},
 	"devices": {"",
 		"List the paired devices, with the ids revoke takes, and the account's machines."},
-	"revoke": {" <device id>",
-		"Unpair a device, closing any window it has open. `flockdeck remote devices`\nlists the paired devices with their ids."},
+	"revoke": {" <device id or name>",
+		"Unpair a device, closing any window it has open. `flockdeck remote devices`\nlists the paired devices with their ids and names."},
 	"disable": {" [-force]",
 		"Take this machine off its relay. If it is the account's only machine, its\npaired devices are unpaired too."},
 }
@@ -467,20 +467,15 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		fs.Usage()
 		return errReported
 	}
-	id := fs.Arg(0)
 	cfg, err := enrolled()
 	if err != nil {
 		return err
 	}
-	// The id is what revoke takes, but a name is what says the right device
-	// went, so it is looked up first.
-	name := ""
-	if r := rosterBriefly(cfg); r != nil {
-		for _, d := range r.Devices {
-			if d.ID == id {
-				name = strings.TrimSpace(d.Name)
-			}
-		}
+	// The roster turns a name into the id the relay takes, and an id into the
+	// name that says the right device went.
+	id, name, err := pickDevice(rosterBriefly(cfg), fs.Arg(0))
+	if err != nil {
+		return err
 	}
 	if err := remote.NewClient(cfg, version).Revoke(context.Background(), id); err != nil {
 		return relayRefusal(err)
@@ -490,6 +485,38 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	}
 	fmt.Fprintf(rio.out, "unpaired %s; any window it had open has been closed\n", id)
 	return nil
+}
+
+// pickDevice is the device revoke means by arg, as its id and its name: the
+// device with that id, else the one with that name, which is what the devices
+// list leads with and what somebody holding the phone knows it by. Two devices
+// with the name are not guessed between. Without a roster, arg is taken for an
+// id, and the relay says whether it is one.
+func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
+	if r == nil {
+		return arg, "", nil
+	}
+	want := strings.TrimSpace(arg)
+	var named []remote.Device
+	for _, d := range r.Devices {
+		if d.ID == arg {
+			return d.ID, strings.TrimSpace(d.Name), nil
+		}
+		if want != "" && strings.EqualFold(strings.TrimSpace(d.Name), want) {
+			named = append(named, d)
+		}
+	}
+	switch len(named) {
+	case 0:
+		return arg, "", nil
+	case 1:
+		return named[0].ID, strings.TrimSpace(named[0].Name), nil
+	}
+	ids := make([]string, len(named))
+	for i, d := range named {
+		ids[i] = d.ID
+	}
+	return "", "", fmt.Errorf("%d devices are called %q; say which by its id: %s", len(named), want, strings.Join(ids, ", "))
 }
 
 // rosterBriefly is the account's roster, for a detail worth a few seconds

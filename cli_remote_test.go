@@ -94,6 +94,31 @@ func runRemoteCmd(t *testing.T, args ...string) (string, int, error) {
 	return out.String(), reloads, err
 }
 
+// revoke takes a device by its id or its name, and does not guess between two
+// devices with one name.
+func TestPickDevice(t *testing.T) {
+	r := &remote.Roster{Devices: []remote.Device{
+		{ID: "d1", Name: "phone"}, {ID: "d2", Name: " Laptop "}, {ID: "d3", Name: "tablet"}, {ID: "d4", Name: "Tablet"}, {ID: "d5"},
+	}}
+	for _, c := range []struct{ arg, id, name, err string }{
+		{arg: "d1", id: "d1", name: "phone"},
+		{arg: "laptop", id: "d2", name: "Laptop"},
+		{arg: "d5", id: "d5"},
+		{arg: "d9", id: "d9"},
+		{arg: "", id: ""},
+		{arg: "tablet", err: `2 devices are called "tablet"; say which by its id: d3, d4`},
+	} {
+		id, name, err := pickDevice(r, c.arg)
+		if id != c.id || name != c.name || (err == nil) != (c.err == "") || (err != nil && err.Error() != c.err) {
+			t.Errorf("pickDevice(%q) = %q, %q, %v; want %q, %q, %q", c.arg, id, name, err, c.id, c.name, c.err)
+		}
+	}
+	// Without a roster, it is an id for the relay to judge.
+	if id, name, err := pickDevice(nil, "phone"); id != "phone" || name != "" || err != nil {
+		t.Errorf("pickDevice without a roster = %q, %q, %v", id, name, err)
+	}
+}
+
 // The whole life of an enrolment, from the command line.
 func TestRemoteLifecycle(t *testing.T) {
 	isolateKeys(t)
@@ -193,6 +218,14 @@ func TestRemoteLifecycle(t *testing.T) {
 	// The name is what says the right device went.
 	if !strings.Contains(out, "unpaired phone (d1)") {
 		t.Errorf("revoke does not name the device it unpaired: %q", out)
+	}
+	// The name the list shows unpairs it too.
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
+	out, _, err = runRemoteCmd(t, "revoke", "Phone")
+	if err != nil || !f.saw("DELETE /api/v1/host/devices/d1") || !strings.Contains(out, "unpaired phone (d1)") {
+		t.Errorf("revoke by name = %q, %v; relay saw it: %v", out, err, f.saw("DELETE /api/v1/host/devices/d1"))
 	}
 
 	out, reloads, err = runRemoteCmd(t, "disable")
