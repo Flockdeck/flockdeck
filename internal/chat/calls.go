@@ -284,7 +284,11 @@ var searchTally = regexp.MustCompile(`^\d+ match(es)? in \d+ files?\.$`)
 
 // clipTo cuts s to n columns, on a rune boundary, marking that it was cut.
 func clipTo(s string, n int) string {
-	s = strings.TrimSpace(s)
+	// A tab is as wide as the terminal's next tab stop, which nothing here
+	// can measure: read_file's first line, "1\tpackage main", was drawn under
+	// the call with a gap of up to eight columns in it, and wider than the
+	// line had been measured to be.
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\t", " "))
 	if n < 8 {
 		n = 8
 	}
