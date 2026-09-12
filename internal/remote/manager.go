@@ -9,7 +9,7 @@ import (
 
 // ErrNotEnabled is what anything that needs an enrolment is told when there is
 // none.
-var ErrNotEnabled = errors.New("remote access is not enabled on this machine; run `flockdeck remote enable` in a terminal")
+var ErrNotEnabled = errors.New("remote access is not enabled on this machine; turn it on from Remote access… in the command palette, or with `flockdeck remote enable`")
 
 // Manager is remote access as a running instance has it: the enrolment on
 // disk, and the tunnel that goes with it.

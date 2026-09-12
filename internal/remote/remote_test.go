@@ -593,6 +593,10 @@ func TestManagerReload(t *testing.T) {
 	if _, err := m.Client(); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("Client with no enrolment = %v, want ErrNotEnabled", err)
 	}
+	// It is read in the window and in a terminal, and names the way from each.
+	if msg := ErrNotEnabled.Error(); !strings.Contains(msg, "Remote access… in the command palette") || !strings.Contains(msg, "flockdeck remote enable") {
+		t.Errorf("ErrNotEnabled = %q, want it to name both ways to turn remote access on", msg)
+	}
 
 	c := f.config()
 	cfg = &c
