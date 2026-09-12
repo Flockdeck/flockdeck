@@ -434,7 +434,9 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			quick(t)
 			f := newFakeRelay(t)
+			f.mu.Lock()
 			f.refuse, f.closeWith = tc.refuse, tc.closeWith
+			f.mu.Unlock()
 			c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
 			c.Start()
 			defer c.Stop()
@@ -455,7 +457,9 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 func TestTunnelShowsTheRelaysReason(t *testing.T) {
 	quick(t)
 	f := newFakeRelay(t)
+	f.mu.Lock()
 	f.closeWith = websocket.StatusPolicyViolation
+	f.mu.Unlock()
 	c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
 	c.Start()
 	defer c.Stop()
@@ -772,9 +776,14 @@ func TestEnableAndDisable(t *testing.T) {
 	}
 
 	// An enrolment the relay has forgotten is replaced, and the caller told.
-	f.token = "fdh_forgotten"
+	// The relay forgetting it is a token it does not know, saved here, so the
+	// fake relay's own fields are never written while it is serving.
+	forgotten := *cfg
+	forgotten.Token = "fdh_forgotten"
+	if err := forgotten.Save(); err != nil {
+		t.Fatal(err)
+	}
 	_, replaced, err = Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"})
-	f.token = "fdh_test"
 	if err != nil || !replaced {
 		t.Errorf("enabling over a forgotten enrolment = %v, replaced %v", err, replaced)
 	}
