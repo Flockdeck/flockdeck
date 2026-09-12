@@ -47,8 +47,8 @@ broadcast, restart, zoom, close. Double-click a tab to rename it.
 [[action:restartPane]], in the command palette and in the pane header, stops the
 process and starts it again in the same directory, with the same agent and
 model — resuming the same conversation where that agent can, because a pane and
-its conversation are one identity. Use it when an agent has wedged itself, not
-to clear the screen.
+its conversation are one identity. Use it when an agent is stuck or has wedged
+itself, not to clear the screen.
 
 A pane whose process exits covers its terminal with a **Restart** button
 rather than leaving a dead black rectangle.

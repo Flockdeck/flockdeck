@@ -52,6 +52,11 @@ set).
 - `error.log` — why Flockdeck failed to start, when it had no terminal to say
   so in.
 
+To uninstall Flockdeck, quit it and delete the `flockdeck` binary, then this
+directory; turn remote access off first if it is on, so the relay forgets the
+machine. Worktrees it made are ordinary git worktrees, and stay beside their
+repositories until you remove them.
+
 ## In the environment
 
 - `FLOCKDECK_UPDATE` — `off` stops the background check for new releases, which
