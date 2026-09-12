@@ -5113,6 +5113,10 @@
     if (!$("palette").hidden) { paletteKey(e); return; }
     // Anywhere in the bar, not only in its field: after a click on one of its
     // arrows the keyboard is on that button, and Escape did nothing there.
+    // F3 steps through the matches, as in nearly every Windows program, from
+    // the box or from the terminal being searched. Left to the browser it
+    // opened a find bar of its own, over the page's text.
+    if (!$("searchbar").hidden && e.key === "F3") { claimKey(e); runSearch(e.shiftKey); return; }
     if (!$("searchbar").hidden && $("searchbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
       if (e.key === "Enter" && document.activeElement === $("search-input")) { e.preventDefault(); runSearch(e.shiftKey); return; }

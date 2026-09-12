@@ -4464,6 +4464,33 @@ assert.strictEqual(line.dataset.tip, root, "the folder cut short at the foot of 
 `)
 }
 
+// F3 and Shift+F3 step through what was found in nearly every Windows
+// program; here they opened the browser's own find bar over the page.
+func TestF3StepsThroughTheTerminalsMatches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const [s] = h.searchers;
+h.$("search-input").value = "panic";
+const next = h.key({ key: "F3" });
+assert.deepStrictEqual(s.forward, ["panic"], "F3 did not go to the next match");
+assert.ok(next.defaultPrevented, "F3 was left to the browser, which opens a find bar of its own");
+
+// With the keyboard gone from the box, the bar still open.
+h.$("tabs").children[0].focus();
+h.key({ key: "F3", shiftKey: true });
+assert.deepStrictEqual(s.back, ["panic"], "Shift+F3 away from the box did not go to the previous match");
+
+// Closed, F3 is not the window's.
+h.$("search-input").focus();
+h.key({ key: "Escape" });
+const after = h.key({ key: "F3" });
+assert.deepStrictEqual(s.forward, ["panic"], "F3 searched with the find bar closed");
+assert.ok(!after.defaultPrevented, "F3 was taken with the find bar closed");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
