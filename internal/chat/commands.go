@@ -367,6 +367,14 @@ func (s *session) replay() {
 			}
 		}
 	}
+	// A pane closed while the model was answering -- the application
+	// restarted, the pane closed mid-turn -- comes back with a prompt that
+	// has no answer. It is said, and /retry asks it: it was the one thing
+	// /retry would otherwise have called answered.
+	if n := len(s.messages); n > 0 && s.messages[n-1].Role == RoleUser {
+		s.unfinished = true
+		s.out.line(ansiDim, "(the last prompt had no answer when the pane closed; /retry asks it again)")
+	}
 }
 
 // history is /history: the conversation since it was last started over, drawn
