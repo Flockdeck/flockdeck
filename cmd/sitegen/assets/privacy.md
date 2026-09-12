@@ -15,11 +15,12 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 - **The desktop app runs on your computer.** It has no accounts, no analytics,
   no telemetry and no crash reporting. Your code, your terminals and your API
-  keys stay on your machine.
+  keys stay on your machine, unless you use a built-in API agent or remote
+  access, as described below.
 - **The relay is optional.** It is used only if you turn on remote access. It
   keeps what it needs to connect your devices to your desktops: names, random
-  identifiers and timestamps. It keeps no email address, password, real name
-  or IP address.
+  identifiers, timestamps and each paired browser's user-agent string. It
+  keeps no email address, password, real name or IP address.
 - **This website** sets no cookies, runs no analytics, and loads nothing from
   anyone else.
 - **Nobody's data is sold,** and nothing is used for advertising.
@@ -41,6 +42,8 @@ The app makes these network connections of its own.
   statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
   You can turn update checks off in Settings or with `FLOCKDECK_UPDATE=off`.
 - **The relay**, only after you turn on remote access. See below.
+- **Your git remotes**, when you push, pull or fetch from the review panel.
+  These are the remotes your repository already has.
 - **Model providers**, only if you use a built-in API agent (Claude API,
   OpenAI API, Gemini API, or an endpoint you name). The app then sends your
   conversation to the provider you chose, using your own API key. That
@@ -97,8 +100,9 @@ what you type, and the state of your panes pass through it. Remote access is
 The relay does not record, inspect, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 
-When a paired device reaches your desktop, the relay passes your desktop
-three things: the device's IP address, its identifier and its name. That
+When a paired device reaches your desktop, the relay passes your desktop the
+device's IP address, its identifier and its name, along with the headers its
+browser sends with every request, such as its browser type and language. That
 lets your own Flockdeck tell your devices apart. Your desktop keeps them only
 in memory.
 
