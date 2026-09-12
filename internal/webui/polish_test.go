@@ -240,3 +240,44 @@ assert.strictEqual(h.$("tab-name").value, "two", "the dialog is not for the tab 
 assert.ok(/F2/.test(tab.dataset.tip), "nothing says F2 renames: " + tab.dataset.tip);
 `)
 }
+
+// A dialog redrawn from a push finds the control the keyboard was on by what
+// it says. A project row says how many agents are waiting there, a changed
+// file how many lines, a conversation how long ago it was - and the redraws
+// come because those moved - so the keyboard fell out of the dialog whenever
+// an agent changed what it was doing.
+func TestARowKeepsTheKeyboardWhenItsFiguresMove(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const two = (w) => fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/other", name: "other", active: false, tabs: 1, waiting: w, working: 0 }] });
+h.recv(two(0));
+h.click(h.$("project-btn"));
+const go = () => h.$("overlay-body").querySelectorAll("button.proj-go")[1];
+go().focus();
+h.recv(two(1));
+assert.ok(h.doc.activeElement === go(), "an agent starting to wait took the keyboard off the project row");
+
+h.key({ key: "Escape" });
+h.click(h.$("btn-changes"));
+const tree = (added) => ({ type: "changes", cwd: "C:/repo", branch: "main", files: [
+  { path: "a.go", label: "M", added: 1, removed: 0 }, { path: "b.go", label: "M", added, removed: 0 }] });
+h.recv(tree(1));
+const files = () => h.$("overlay-body").querySelectorAll("div.rev-file");
+files()[1].focus();
+h.recv(tree(5));
+assert.ok(h.doc.activeElement === files()[1], "an agent writing to the file took the keyboard off its row");
+
+h.key({ key: "Escape" });
+h.click(h.$("btn-history"));
+const convs = (ago) => ({ type: "conversations", cwd: "C:/repo", items: [
+  { id: "aaaa1111", summary: "one", ago, messages: 3, open: false },
+  { id: "bbbb2222", summary: "two", ago, messages: 3, open: false }] });
+h.recv(convs("1 minute ago"));
+const rows = () => h.$("overlay-body").querySelectorAll("div.conv-row");
+rows()[1].focus();
+h.recv(convs("2 minutes ago"));
+assert.ok(h.doc.activeElement === rows()[1], "a conversation growing older took the keyboard off its row");
+`)
+}

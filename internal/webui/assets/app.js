@@ -3002,7 +3002,11 @@
   /** identify is what makes a control the same control across a redraw. An id
    *  is that on its own; otherwise it is what the control is and what it says,
    *  which is how a person finds it again too. A control whose wording changes
-   *  while it is working needs the id. */
+   *  while it is working needs the id, and so does a row whose words carry a
+   *  figure that moves on its own - a project's waiting count, a file's
+   *  changed lines, how long ago a conversation was: the redraws come
+   *  because those moved, and found by its words the row lost the keyboard
+   *  each time. */
   function identify(node) {
     if (node.id) return "#" + node.id;
     // A control repeated on every row - Clear, Unpair, a project's close - is
@@ -3392,6 +3396,7 @@
       // Enter, and the icon buttons beside it could not have been nested
       // inside something that claimed to be a button itself.
       const go = el("button", "proj-go");
+      go.id = "open-" + encodeURIComponent(p.root);
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
       // Cut from the end with an ellipsis, and paths differ at the end.
@@ -4540,6 +4545,7 @@
     const wrap = section("Resume a conversation");
     m.items.forEach((c) => {
       const row = el("div", "conv-row" + (c.open ? " open" : ""));
+      row.id = "conv-" + encodeURIComponent(c.id);
       row.dataset.hay = (c.summary + " " + c.id).toLowerCase();
       row.hidden = !holds(row.dataset.hay);
       const main = el("div", "conv-main");
@@ -4756,6 +4762,7 @@
       const rows = new Map();
       files.forEach((f) => {
         const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
+        row.id = "rev-" + encodeURIComponent(f.path);
         row.append(el("span", "rev-kind", f.label));
         // Long paths are elided from the left, keeping the file name visible.
         const name = el("span", "rev-name", f.path);
