@@ -594,7 +594,10 @@ func showWindow(opts options, srv *server.Server, stop func()) (*appwindow.Windo
 		if opts.detach {
 			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
 		} else {
-			fmt.Println("Press Ctrl+C to stop.")
+			// Ctrl+C alone was the advice, but the Windows build is linked
+			// for the GUI subsystem and is not attached to the console it was
+			// started from, so the key never reaches it there.
+			fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
 		}
 		return nil, nil
 	}
