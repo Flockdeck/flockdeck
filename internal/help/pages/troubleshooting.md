@@ -100,7 +100,8 @@ and the question comes back with it. Notifications are only raised while the win
 ## An agent seems to think it is a child of another session
 
 It is not: each pane is a separate top-level session with its own session id,
-its own generated settings file, and an environment scrubbed of the markers a
+its own generated settings file where the agent takes hooks, and an environment
+scrubbed of the markers a
 parent agent session would otherwise pass down — every agent's markers, not
 only the ones belonging to whatever is in that pane, since Flockdeck may itself
 have been launched from inside one of them. If a pane is behaving as though it

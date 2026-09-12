@@ -487,8 +487,8 @@ drops them.
 
 The isolation this describes is real rather than advisory. Each pane is a
 separate top-level session with its own session id, its own generated settings
-file, and an environment scrubbed of the markers a parent agent session would
-otherwise pass down. Those markers are stripped for every agent in the catalog
+file where the agent takes hooks, and an environment scrubbed of the markers a
+parent agent session would otherwise pass down. Those markers are stripped for every agent in the catalog
 rather than only the one in this pane, because Flockdeck may have been launched
 from inside any of them; nothing is shared between two panes.
 
