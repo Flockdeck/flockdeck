@@ -309,6 +309,27 @@ func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {
 	}
 }
 
+// Each subcommand's -h says how it is written and what it is for, not only
+// flag's "Usage of remote status:", which for a command with no flags was
+// all it printed.
+func TestRemoteSubcommandHelp(t *testing.T) {
+	for _, name := range []string{"enable", "pair", "status", "devices", "revoke", "disable"} {
+		fs := remoteFlags(name)
+		var b bytes.Buffer
+		fs.SetOutput(&b)
+		fs.Usage()
+		lines := strings.Split(b.String(), "\n")
+		if !strings.HasPrefix(lines[0], "Usage: flockdeck remote "+name) || len(lines) < 3 || strings.TrimSpace(lines[2]) == "" {
+			t.Errorf("remote %s -h = %q, want its usage line and what it is for", name, b.String())
+		}
+		for _, l := range lines {
+			if n := len([]rune(l)); n > 80 {
+				t.Errorf("remote %s -h has a line %d wide: %q", name, n, l)
+			}
+		}
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {

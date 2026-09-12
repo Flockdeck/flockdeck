@@ -97,11 +97,40 @@ forward it: the relay is trusted, and it is not end-to-end encrypted.
 `, remote.DefaultRelay, remote.RelayEnv)
 }
 
+// remoteSynopses is how each subcommand is written and what it is for, which
+// its -h says before its flags.
+var remoteSynopses = map[string][2]string{
+	"enable": {" [-relay URL] [-name N] [-join CODE] [-invite CODE]",
+		"Enrol this machine with a relay, so its window can be opened from another\ndevice."},
+	"pair": {" [-desktop]",
+		"Print a one-time link, and a QR code of it, that pairs a device with this\nmachine."},
+	"status": {"",
+		"Say whether remote access is on, whether this machine is connected to its\nrelay, and how many devices are paired."},
+	"devices": {"",
+		"List the paired devices, with the ids revoke takes, and the account's machines."},
+	"revoke": {" <device id>",
+		"Unpair a device, closing any window it has open. `flockdeck remote devices`\nlists the paired devices with their ids."},
+	"disable": {" [-force]",
+		"Take this machine off its relay. If it is the account's only machine, its\npaired devices are unpaired too."},
+}
+
 // remoteFlags is a flag set for one of the subcommands, reporting to stderr
-// the way `spawn` does.
+// the way `spawn` does. Its -h says how the command is written and what it
+// is for, then its flags, where flag's own would say only "Usage of remote
+// status:".
 func remoteFlags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet("remote "+name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		syn := remoteSynopses[name]
+		fmt.Fprintf(fs.Output(), "Usage: flockdeck remote %s%s\n\n%s\n", name, syn[0], syn[1])
+		flags := false
+		fs.VisitAll(func(*flag.Flag) { flags = true })
+		if flags {
+			fmt.Fprintln(fs.Output())
+			fs.PrintDefaults()
+		}
+	}
 	return fs
 }
 
@@ -360,9 +389,6 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	// The id goes through a flag set like every other argument here, so that
 	// -h asks how revoke is used rather than going to the relay as a device.
 	fs := remoteFlags("revoke")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: flockdeck remote revoke <device id>\n\n`flockdeck remote devices` lists the paired devices with their ids.")
-	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return errHelpAsked
