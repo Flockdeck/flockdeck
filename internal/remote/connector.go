@@ -279,6 +279,14 @@ func (c *Connector) dial(ctx context.Context) (*websocket.Conn, error) {
 		Subprotocols: []string{Subprotocol},
 	})
 	if err == nil {
+		// A relay that does not know this build's tunnel still accepts the
+		// WebSocket, only without agreeing to the subprotocol, and what it
+		// makes of the multiplexer's frames after that is anybody's guess. So
+		// it is said here, in words, rather than as whatever fails first.
+		if conn.Subprotocol() != Subprotocol {
+			conn.CloseNow()
+			return nil, fmt.Errorf("it answered, but does not speak this version's tunnel (%s); the relay or this Flockdeck needs updating", Subprotocol)
+		}
 		return conn, nil
 	}
 	// A refusal is the relay's to explain, and a 401 or 403 in particular is

@@ -391,6 +391,33 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 	}
 }
 
+// A relay that accepts the WebSocket without agreeing to the tunnel's
+// subprotocol does not speak it, and is told apart from one that does.
+func TestRelayWithoutTheSubprotocolIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, "does not speak this version's tunnel ("+Subprotocol+")") {
+		t.Errorf("detail = %q, want it to say the relay does not speak the tunnel", d)
+	}
+}
+
 // serve stopping of its own accord, as the server's does while this Flockdeck
 // shuts down, is not the relay closing the connection and is not reported as
 // it.
