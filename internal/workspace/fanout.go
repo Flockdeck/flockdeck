@@ -664,16 +664,6 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		return "", fmt.Errorf("the task is %d characters, too long to start an agent with; save the detail to a file in the checkout and give the agent a task that points at it",
 			utf8.RuneCountInString(o.Task))
 	}
-	// Asked about the agent this pane will actually run rather than about
-	// Claude, because a fan-out may now hand half its tasks to one agent and
-	// half to another, and "the `claude` CLI was not found" is a nonsense
-	// answer to a task that was never going to run Claude.
-	if o.Kind != session.KindShell {
-		if _, err := w.AgentSpec(o.Agent); err != nil {
-			return "", err
-		}
-	}
-
 	parent := w.Pane(parentPaneID)
 	cwd := o.Cwd
 	if cwd == "" && parent != nil {
@@ -681,6 +671,28 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	}
 	if cwd == "" {
 		cwd = w.activeRoot
+	}
+	// A worktree sits beside its repository, under no open project, and a
+	// helper working in one belongs to the agent that asked for it rather
+	// than to whichever project happens to be on screen.
+	home := w.activeRoot
+	if parent != nil {
+		home = w.rootOf(parentPaneID)
+	}
+
+	// Asked about the agent this pane will actually run rather than about
+	// Claude, because a fan-out may now hand half its tasks to one agent and
+	// half to another, and "the `claude` CLI was not found" is a nonsense
+	// answer to a task that was never going to run Claude. One asked for no
+	// agent runs its own project's default, which need not be the default of
+	// the project on screen. It is asked before any worktree is made for a
+	// helper that could not start in it.
+	agentID, model := o.Agent, o.Model
+	if o.Kind != session.KindShell {
+		agentID, model = w.resolveChoice(w.projectForOr(cwd, home), o.Agent, o.Model)
+		if _, err := w.AgentSpec(agentID); err != nil {
+			return "", err
+		}
 	}
 
 	if o.Branch != "" {
@@ -699,13 +711,6 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		title = filepath.Base(cwd)
 	}
 
-	// A worktree sits beside its repository, under no open project, and a
-	// helper working in one belongs to the agent that asked for it rather
-	// than to whichever project happens to be on screen.
-	home := w.activeRoot
-	if parent != nil {
-		home = w.rootOf(parentPaneID)
-	}
 	p := &Pane{
 		ID:      uuid.NewString(),
 		Kind:    o.Kind,
@@ -717,7 +722,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Task:    o.Task,
 	}
 	if p.IsAgent() {
-		p.Agent, p.Model = w.resolveChoice(p.Root, o.Agent, o.Model)
+		p.Agent, p.Model = agentID, model
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
