@@ -140,6 +140,15 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	return b.String(), nil
 }
 
+// editFamily is the standing permission write_file and edit_file offer: every
+// change to a file in the pane's directory, for the rest of the session. It is
+// three words so that it can never be a run_command prefix, which is two.
+//
+// It is offered because a turn that writes five files otherwise asks five
+// questions, and somebody who has read the first two and decided has nothing
+// to gain from being asked the rest.
+const editFamily = "edits to files"
+
 // writeFile creates or replaces a file whole. It is the tool for a new file
 // and for a rewrite; changing part of an existing file is edit_file's job,
 // which is worth saying in the description because a model handed only this
@@ -284,6 +293,9 @@ func plural(n int, one, many string) string {
 	return many
 }
 
+// Prefix is the standing permission on offer for a write, which is every edit.
+func (t *writeFile) Prefix(json.RawMessage) string { return editFamily }
+
 func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error) {
 	var a writeArgs
 	if err := decode(args, &a); err != nil {
@@ -415,6 +427,9 @@ func (t *editFile) Approval(args json.RawMessage) string {
 	return fmt.Sprintf("Edit %s, replacing %s?\n%s\n%s",
 		t.root.Rel(abs), where, marked(textLines(a.OldString), "-"), added)
 }
+
+// Prefix is the standing permission on offer for an edit, which is every edit.
+func (t *editFile) Prefix(json.RawMessage) string { return editFamily }
 
 func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) {
 	var a editArgs

@@ -206,7 +206,8 @@ type session struct {
 	spent    spend
 	tools    map[string]Tool
 	// always remembers the families of calls the user has agreed to for the
-	// rest of the session.
+	// rest of the session. A family is named by the tools themselves and may
+	// span more than one of them: every write and every edit are one family.
 	always map[string]bool
 	// interrupted is set from the goroutine watching for interrupts and read
 	// back once the turn has ended, so nothing is drawn from two goroutines.
@@ -592,7 +593,7 @@ func (s *session) decline(calls []ToolCall, why string) {
 func (s *session) approved(t Tool, c ToolCall) (string, bool) {
 	if a, ok := t.(AlwaysApprover); ok {
 		if key := a.AlwaysKey(c.Args); key != "" {
-			return key, s.always[t.Name()+"\x00"+key]
+			return key, s.always[key]
 		}
 	}
 	return "", false
@@ -642,7 +643,7 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 			return true, true, ""
 		case "a", "always":
 			if canAlways {
-				s.always[t.Name()+"\x00"+always] = true
+				s.always[always] = true
 			}
 			// Where there is no "always" to give, the one call in front of
 			// them is the least of what was agreed to.
