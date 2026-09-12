@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"os"
@@ -46,33 +47,13 @@ func claudeReplies(sessionID string, maxTurns int) []string {
 	if path == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	sc, f, err := tailLines(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
-	// Reading only the tail lands mid-line, so the first line read back is a
-	// fragment and is dropped rather than parsed.
-	partial := false
-	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
-		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
-			partial = true
-		}
-	}
-
-	sc := newTranscriptScanner(f)
-	if partial {
-		sc.Scan()
-	}
-
-	var turns, said []string
-	endTurn := func() {
-		if len(said) > 0 {
-			turns = append(turns, strings.Join(said, "\n\n"))
-			said = nil
-		}
-	}
+	var t turns
 	for sc.Scan() {
 		var line replyLine
 		if json.Unmarshal(sc.Bytes(), &line) != nil {
@@ -85,22 +66,69 @@ func claudeReplies(sessionID string, maxTurns int) []string {
 		}
 		switch line.Type {
 		case "assistant":
-			if text := saidText(line.Message.Content); text != "" {
-				said = append(said, text)
-			}
+			t.say(saidText(line.Message.Content))
 		case "user":
 			// Tool results are recorded as user entries too, so only something
 			// a person typed ends the turn it answers.
 			if isPromptContent(line.Message.Content) {
-				endTurn()
+				t.end()
 			}
 		}
 	}
-	endTurn()
+	return t.newest(maxTurns)
+}
 
-	out := make([]string, 0, maxTurns)
-	for i := len(turns) - 1; i >= 0 && len(out) < maxTurns; i-- {
-		out = append(out, turns[i])
+// tailLines opens a transcript and returns a scanner over its last
+// replyTailBytes, which is where what an agent last said is. Reading only the
+// tail lands mid-line, so the first line read back is a fragment and is
+// dropped rather than parsed. The caller closes the file.
+func tailLines(path string) (*bufio.Scanner, *os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	partial := false
+	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
+		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
+			partial = true
+		}
+	}
+	sc := newTranscriptScanner(f)
+	if partial {
+		sc.Scan()
+	}
+	return sc, f, nil
+}
+
+// turns gathers what an agent said into turns. A turn is everything said in
+// answer to one prompt, so the tool calls in the middle of a long piece of
+// work do not cut it into pieces: a fan-out reads a plan out of this, and half
+// a plan is not one.
+type turns struct {
+	all, said []string
+}
+
+// say adds to the turn under way.
+func (t *turns) say(text string) {
+	if text != "" {
+		t.said = append(t.said, text)
+	}
+}
+
+// end closes the turn under way, if anything was said in it.
+func (t *turns) end() {
+	if len(t.said) > 0 {
+		t.all = append(t.all, strings.Join(t.said, "\n\n"))
+		t.said = nil
+	}
+}
+
+// newest returns at most n turns, most recent first.
+func (t *turns) newest(n int) []string {
+	t.end()
+	var out []string
+	for i := len(t.all) - 1; i >= 0 && len(out) < n; i-- {
+		out = append(out, t.all[i])
 	}
 	return out
 }
@@ -171,16 +199,22 @@ func isPromptContent(raw json.RawMessage) bool {
 // working directory, but that mangling is Claude's business and could change.
 // Session ids are UUIDs, so searching every project folder for the file is both
 // simpler and more robust than reproducing the naming.
+//
+// The folders are listed rather than globbed. A glob reads the whole path as a
+// pattern, so a home directory with a bracket in its name -- "C:\Users\[dev]",
+// or a CLAUDE_CONFIG_DIR pointed anywhere at all -- matched nothing, and every
+// restored pane started an empty conversation instead of resuming its own.
 func claudePath(sessionID string) string {
-	if sessionID == "" {
+	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) {
 		return ""
 	}
 	home := claudeHome()
 	if home == "" {
 		return ""
 	}
-	matches, err := filepath.Glob(filepath.Join(home, "projects", "*", sessionID+".jsonl"))
-	if err != nil || len(matches) == 0 {
+	projects := filepath.Join(home, "projects")
+	folders, err := os.ReadDir(projects)
+	if err != nil {
 		return ""
 	}
 	// Resuming a conversation from a different working directory files it
@@ -188,18 +222,22 @@ func claudePath(sessionID string) string {
 	// id can match in more than one place. The most recently written copy is
 	// the live one; taking whichever sorts first would read a transcript that
 	// stopped growing turns ago.
-	newest, newestMod := "", time.Time{}
-	for _, m := range matches {
+	//
+	// Unless it is empty. A session interrupted before it recorded anything
+	// leaves an empty file, and the newest copy being one of those is not the
+	// conversation ending: preferring it told a restored pane there was
+	// nothing to resume while an older copy held all of it.
+	newest, newestMod, newestEmpty := "", time.Time{}, true
+	for _, folder := range folders {
+		m := filepath.Join(projects, folder.Name(), sessionID+".jsonl")
 		fi, err := os.Stat(m)
-		if err != nil {
+		if err != nil || fi.IsDir() {
 			continue
 		}
-		if newest == "" || fi.ModTime().After(newestMod) {
-			newest, newestMod = m, fi.ModTime()
+		empty := fi.Size() == 0
+		if newest == "" || (newestEmpty && !empty) || (empty == newestEmpty && fi.ModTime().After(newestMod)) {
+			newest, newestMod, newestEmpty = m, fi.ModTime(), empty
 		}
-	}
-	if newest == "" {
-		return matches[0]
 	}
 	return newest
 }

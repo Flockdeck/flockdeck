@@ -81,6 +81,7 @@ func TestBellScannerIgnoresOSCTerminator(t *testing.T) {
 		// start of one: losing that leaves the scanner inside the sequence,
 		// and the next real bell is swallowed as the byte that ends it.
 		{"an escape before the ST terminator", "\x1b]0;t\x1b\x1b" + `\` + "ding\x07", true},
+		{"a bell inside a control sequence still rings", "\x1b[1\x07m", true},
 		{"no bell at all", "just text", false},
 	}
 	for _, c := range cases {
@@ -115,7 +116,14 @@ func TestStripANSIRecoversText(t *testing.T) {
 		// A terminal application moves the cursor instead of printing newlines,
 		// so those moves have to stand in as line breaks or separate lines run
 		// together.
-		{"cursor moves break lines", "a\x1b[2Ab\x1b[1;5Hc", "a\nb\nc"},
+		{"cursor moves break lines", "a\x1b[2Bb\x1b[1;5Hc", "a\nb\nc"},
+		// Moving up is a redraw of what it moves back over. Ink erases its
+		// last frame that way before drawing the next, and leaving the old
+		// frame in the text kept an answered question on the pane's last line
+		// but one.
+		{"moving up drops a frame being redrawn", "Do you want to proceed? (y/n)\r\n> \x1b[2K\x1b[1A\x1b[2K\x1b[GWrote main.go\r\n> ", "Wrote main.go\n> "},
+		{"moving up keeps what is above the redraw", "kept\nold 1\nold 2\x1b[1Anew 1\nnew 2", "kept\nnew 1\nnew 2"},
+		{"moving up stops at the first line", "only\x1b[5Afresh", "fresh"},
 		// A horizontal move does not break the line: it is how a full-screen
 		// program draws blanks, so it has to come back as the blanks it stood
 		// for. Losing them is how "the words" arrives as "thewords".
@@ -134,6 +142,14 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"a redrawn line keeps only its last state", "50%\r100%\ndone", "100%\ndone"},
 		{"repeated redraws", "a\rb\rc", "c"},
 		{"a redraw after a real line break", "first\nhalf\rwhole", "first\nwhole"},
+		// A carriage return moves the cursor and nothing else: the line stays
+		// on screen until something is written over it. A line that already
+		// ended "\r\n" reaches the screen as "\r\r\n" through a Unix terminal.
+		{"a line ended twice over is kept", "hello\r\r\nworld\r\r\n", "hello\nworld\n"},
+		{"a carriage return at the end keeps the line", "kept\r", "kept"},
+		{"erasing from the start of the line drops it", "stale\r\x1b[K\nfresh", "\nfresh"},
+		{"backspace at the start of the line goes nowhere", "ab\r\bc", "c"},
+		{"a column move after a carriage return keeps what is before it", "abcdef\r\x1b[3Gxy", "abxy"},
 		{"bell", "ding\x07dong", "dingdong"},
 		// A charset designator carries the set it selects in the byte after
 		// the escape; leaving that behind puts a stray letter in the prose.
@@ -147,6 +163,10 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"a column move keeps what is before it", "abcdef\x1b[3Gxy", "abxy"},
 		{"a column move past the end pads", "ab\x1b[5Gcd", "ab  cd"},
 		{"a column move after a line break stays on its line", "first\n50%\x1b[1G100%", "first\n100%"},
+		// Columns are cells, and the characters a spinner or a border is drawn
+		// with are three bytes wide.
+		{"a column move counts characters, not bytes", "⠋⠙⠹\x1b[2Gx", "⠋x"},
+		{"a column move pads past wide characters", "⠋\x1b[3Gx", "⠋ x"},
 		// Erasing the whole line is the rest of that idiom.
 		{"erasing the line drops it", "stale text\x1b[2K\x1b[1Gfresh", "fresh"},
 		{"erasing to the end of the line drops nothing", "kept\x1b[K", "kept"},
@@ -310,6 +330,75 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	}
 }
 
+// TestReplayPutsBackModesItNoLongerHolds covers a pane that switched a mode
+// long ago -- an agent's mouse reporting when it started, vim's alternate
+// screen when it opened -- and has since said more than the history holds.
+// The switch is no longer in the replay, so a window reloading the pane had
+// the mode off.
+func TestReplayPutsBackModesItNoLongerHolds(t *testing.T) {
+	pane := func() *Session {
+		return &Session{history: newRing(64), subs: map[int]*subscriber{}, idleAfter: time.Minute}
+	}
+	replay := func(s *Session) string {
+		id, replay, _ := s.Subscribe()
+		s.Unsubscribe(id)
+		return string(replay)
+	}
+	lines := func(s *Session, n int) {
+		for i := 0; i < n; i++ {
+			s.publish([]byte("a line of output\n"))
+		}
+	}
+
+	s := pane()
+	// Split across reads, the way a PTY delivers it.
+	s.publish([]byte("\x1b[?1049h\x1b[?20"))
+	s.publish([]byte("04h\x1b[?25l\x1b[?1000;1006h"))
+	lines(s, 10)
+	want := "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h\x1b[?2004h"
+	if got := replay(s); !strings.HasPrefix(got, want) {
+		t.Errorf("replay = %q, want it to open with %q", got, want)
+	}
+
+	// A mode switched back to its default needs nothing putting back.
+	s.publish([]byte("\x1b[?2004l\x1b[?1049l"))
+	lines(s, 10)
+	got := replay(s)
+	if !strings.HasPrefix(got, "\x1b[?25l\x1b[?1000h\x1b[?1006h") || strings.Contains(got, "2004") || strings.Contains(got, "1049") {
+		t.Errorf("replay = %q, want only the modes still switched", got)
+	}
+
+	// A switch the history still holds is replayed as it happened, not twice.
+	s = pane()
+	lines(s, 4)
+	s.publish([]byte("\x1b[?2004htail\n"))
+	if got := replay(s); strings.Count(got, "\x1b[?2004h") != 1 {
+		t.Errorf("replay = %q, want the switch it holds exactly once", got)
+	}
+
+	// A full reset puts every mode back as it started.
+	s = pane()
+	s.publish([]byte("\x1b[?2004h\x1bc"))
+	lines(s, 10)
+	if got := replay(s); strings.Contains(got, "\x1b[?") {
+		t.Errorf("replay = %q, want nothing put back after a reset", got)
+	}
+}
+
+// TestModesSwitchedTogetherAreAllKept covers a program switching several modes
+// in one sequence, which is how mouse reporting and its encodings are often
+// turned on together.
+func TestModesSwitchedTogetherAreAllKept(t *testing.T) {
+	var b bellScanner
+	b.scan([]byte("\x1b[?1000;1002;1003;1006;2004;1004h"))
+	got := string(b.modes.restore(1))
+	for _, want := range []string{"?1000h", "?1002h", "?1003h", "?1006h", "?2004h", "?1004h"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("restore = %q, missing %s", got, want)
+		}
+	}
+}
+
 // BenchmarkBellScan measures the scan every byte of every pane's output goes
 // through on the way from the process to the screen, over the three shapes
 // terminal output comes in.
@@ -394,7 +483,7 @@ func TestMatchPatternsReadsTheMostRecentLine(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, says := matchPatterns(tc.text, pats)
+			got, says := matchPatterns(tc.text, foldPatterns(pats))
 			if says != tc.says {
 				t.Fatalf("matched = %v, want %v", says, tc.says)
 			}

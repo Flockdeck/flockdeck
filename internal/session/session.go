@@ -1,9 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -49,6 +51,11 @@ const (
 	// report end of output when the process it is attached to goes away, so
 	// this is a grace period rather than something to wait on indefinitely.
 	drainGrace = 500 * time.Millisecond
+
+	// closeGrace bounds how long Close waits for a process it has killed to be
+	// gone. Killing only starts the end of a process on Windows, and until it
+	// is over the process still holds its working directory open.
+	closeGrace = 3 * time.Second
 	// quietBeforeIdle is how long a pane with no lifecycle hooks reporting for
 	// it must print nothing before it is called idle again. It has to bridge
 	// the pauses inside one piece of work -- a compiler between files, a test
@@ -87,6 +94,11 @@ type Config struct {
 	Env  []string
 	Cols int
 	Rows int
+	// OnChange is installed as the session's OnChange before the process is
+	// started. The reader starts with the process and can report a change
+	// straight away, so assigning the field once Start has returned is a
+	// write racing the reader's read of it.
+	OnChange func()
 }
 
 // Session is a single pane: a process attached to a PTY.
@@ -105,6 +117,8 @@ type Session struct {
 
 	// OnChange is invoked (often from a reader goroutine) whenever the session
 	// changes state. It must be cheap and must not call back into the session.
+	// It is set through Config.OnChange: the reader is already running by the
+	// time Start returns.
 	OnChange func()
 
 	mu          sync.RWMutex
@@ -126,6 +140,10 @@ type Session struct {
 	// bridge until the first event arrives, and for every other agent they are
 	// the whole story, for as long as it runs.
 	hooksSeen bool
+	// toolQuestion records that the pane is waiting on a question put in the
+	// middle of a tool call -- Claude's permission prompt -- which is the one
+	// wait no hook reports the end of. See Write.
+	toolQuestion bool
 	// patterns are what to read out of an agent's output in place of the
 	// lifecycle it does not report. They are taken off the Spec at launch
 	// because the status machinery below runs on every chunk a pane prints and
@@ -158,6 +176,12 @@ type Session struct {
 
 	// history holds recent output for replay; subs are the live viewers.
 	history *ring
+	// written is how many bytes the pane has printed, and modes what they
+	// have done to the terminal's modes, both as of the last chunk in history.
+	// They are copied off the reader's scanner here, under mu, so that
+	// Subscribe can read them.
+	written int64
+	modes   termModes
 	subs    map[int]*subscriber
 	nextSub int
 
@@ -169,6 +193,8 @@ type Session struct {
 
 	// pumped is closed once the PTY reader has seen the end of the output.
 	pumped chan struct{}
+	// reaped is closed once the process has exited and been waited for.
+	reaped chan struct{}
 
 	bell bellScanner
 }
@@ -211,20 +237,22 @@ func Start(cfg Config) (*Session, error) {
 		Kind:        cfg.Kind,
 		Cwd:         cfg.Cwd,
 		pty:         p,
+		OnChange:    cfg.OnChange,
 		name:        cfg.Name,
 		status:      StatusStarting,
 		statusSince: time.Now(),
 		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
-		patterns:    cfg.Spec.Patterns,
+		patterns:    foldPatterns(cfg.Spec.Patterns),
 		idleAfter:   quietBeforeIdle,
 		history:     newRing(replayBytes),
 		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
+		reaped:      make(chan struct{}),
 	}
 
-	cmd := p.Command(exe, cfg.Argv[1:]...)
+	cmd := command(p, exe, cfg.Argv[1:])
 	cmd.Dir = cfg.Cwd
 	cmd.Env = cfg.Env
 	if cmd.Env == nil {
@@ -301,6 +329,8 @@ func (s *Session) publish(chunk []byte) {
 
 	s.mu.Lock()
 	s.history.write(chunk)
+	s.written += int64(len(chunk))
+	s.modes = s.bell.modes
 	s.lastOutput = time.Now()
 	// A pane nothing is reporting for is read from what it prints, in three
 	// ways that know progressively more. An agent's own patterns are the
@@ -434,6 +464,7 @@ func (s *Session) settleIdle() {
 // wait reaps the process and records its exit status.
 func (s *Session) wait() {
 	err := s.cmd.Wait()
+	close(s.reaped)
 
 	// The process is gone, but what it printed on the way out -- a shell's
 	// goodbye, a crash message, the last frame Claude drew -- may still be
@@ -504,6 +535,11 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	replay = s.history.replay()
+	// Whatever the output switched before the replay begins has to be switched
+	// again ahead of it, or the window rebuilding its screen does not know.
+	if restore := s.modes.restore(s.written - int64(len(replay))); len(restore) > 0 {
+		replay = append(restore, replay...)
+	}
 	if s.status == StatusExited {
 		close(ch)
 		return -1, replay, ch
@@ -536,7 +572,15 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
-	s.sawInput = true
+	// A terminal reports some things on its own, to a program that asked for
+	// them -- focus coming and going, the mouse wheel turning -- and they
+	// arrive here exactly like typing does. Clicking into a pane, the window
+	// coming to the front, or scrolling back to read the question is not an
+	// answer to it.
+	typed := !terminalReport(p)
+	if typed {
+		s.sawInput = true
+	}
 	// Typing is the answer to whatever the pane was blocked on, and where the
 	// bell is what put it there, typing is the only thing that can take it
 	// back out: the bell rings again on the next question, not on this one
@@ -544,11 +588,21 @@ func (s *Session) Write(p []byte) (int, error) {
 	// "waiting" alone. Without this a pane whose lifecycle hooks are not
 	// reporting stays in the count of agents needing you from the first
 	// question it ever asks until it exits.
-	answered := !s.hooksSeen && s.status == StatusWaiting
+	//
+	// Where hooks report, a hook's wait outranks the keyboard, except for a
+	// question put in the middle of a tool call: Claude's permission prompt.
+	// Nothing reports its answer -- after approving, Claude says nothing until
+	// the tool has finished, however long it runs -- so the pane stayed amber,
+	// and in the count of agents needing you, through the whole of the command
+	// it had just been allowed to run. Enter is what settles it; the arrow keys
+	// only move between the choices.
+	answered := typed && s.status == StatusWaiting &&
+		(!s.hooksSeen || (s.toolQuestion && bytes.IndexByte(p, '\r') >= 0))
 	if answered {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
-		if !s.settling {
+		s.toolQuestion = false
+		if !s.hooksSeen && !s.settling {
 			s.settling = true
 			go s.settleIdle()
 		}
@@ -558,6 +612,43 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.changed()
 	}
 	return s.pty.Write(p)
+}
+
+// terminalReport reports whether input is nothing but reports a terminal makes
+// on its own account, none of which any key produces: focus in and out (CSI I,
+// CSI O), and the wheel turning or the pointer moving, in the SGR (CSI <) and
+// X10 (CSI M) mouse encodings. A click is not one of them: in a program drawn
+// for the mouse, clicking an option is how a question gets answered.
+func terminalReport(p []byte) bool {
+	// passive is a mouse report's button code saying the wheel or a movement.
+	passive := func(button int) bool { return button&(64|32) != 0 }
+	for len(p) > 0 {
+		if len(p) < 3 || p[0] != 0x1b || p[1] != '[' {
+			return false
+		}
+		switch p[2] {
+		case 'I', 'O':
+			p = p[3:]
+		case 'M':
+			if len(p) < 6 || !passive(int(p[3])-32) {
+				return false
+			}
+			p = p[6:]
+		case '<':
+			end := bytes.IndexAny(p[3:], "Mm")
+			if end < 0 {
+				return false
+			}
+			button, _, _ := bytes.Cut(p[3:3+end], []byte{';'})
+			if n, err := strconv.Atoi(string(button)); err != nil || !passive(n) {
+				return false
+			}
+			p = p[3+end+1:]
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // WriteString sends text to the process.
@@ -570,7 +661,27 @@ func (s *Session) WriteString(text string) error {
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
 	s.mu.Lock()
-	if s.status == StatusExited {
+	// A waiting status that names nothing is about whatever the pane was
+	// running when it arrived: Claude asks permission for a tool in a
+	// Notification that follows the PreToolUse naming it, and puts no name in
+	// it. Keeping the tool's is what lets the pane say what it is asking. A
+	// second nudge about a wait already showing is about the same wait, and
+	// keeps what the first said it was about -- a question from
+	// AskUserQuestion was otherwise renamed to nothing by the nudge about it.
+	question := false
+	if st == StatusWaiting && detail == "" {
+		switch s.status {
+		case StatusWorking:
+			detail, question = s.detail, s.detail != ""
+		case StatusWaiting:
+			detail, question = s.detail, s.toolQuestion
+		}
+	}
+	// An exited pane stays exited, and an event that changes nothing is not
+	// reported: every report rebuilds and sends the whole workspace, and
+	// Claude repeats itself -- the same nudge about the same unanswered
+	// question, a tool it has already said it is running.
+	if s.status == StatusExited || (s.hooksSeen && s.status == st && s.detail == detail) {
 		s.mu.Unlock()
 		return
 	}
@@ -579,6 +690,7 @@ func (s *Session) SetStatus(st Status, detail string) {
 	}
 	s.status = st
 	s.detail = detail
+	s.toolQuestion = question
 	s.hooksSeen = true
 	s.mu.Unlock()
 	s.changed()
@@ -681,9 +793,21 @@ func (s *Session) Size() (cols, rows int) {
 
 // Close terminates the process and releases the PTY. It is safe to call on a
 // pane that has already exited, which releases the PTY on its own.
+//
+// It returns once the process is gone, or after closeGrace. On Windows killing
+// a process only begins its end, and until that is over it holds its working
+// directory open: removing a pane's folder straight after closing the pane --
+// a worktree, a temporary checkout -- failed as "being used by another
+// process" in four runs out of ten.
 func (s *Session) Close() error {
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
+		if s.reaped != nil {
+			select {
+			case <-s.reaped:
+			case <-time.After(closeGrace):
+			}
+		}
 	}
 	return s.releasePTY()
 }

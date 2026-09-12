@@ -17,6 +17,10 @@ import (
 // its transcripts is Claude Code's arrangement, not Flockdeck's.
 var claudeSpec = agent.Spec{ID: "claude", Caps: agent.Caps{Transcript: true, Resume: true}}
 
+// chatSpec is enough of an API agent to choose the chat client's reader, which
+// is the same for every one of them: they all write to one folder.
+var chatSpec = agent.Spec{ID: "chat", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true, Resume: true}}
+
 // Conversation is a stored conversation that can be resumed.
 type Conversation = transcript.Conversation
 

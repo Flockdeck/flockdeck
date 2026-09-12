@@ -61,19 +61,32 @@ func TestEveryProcessHidesItsWindow(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			starts, hides := scan(fn.Body)
+		execName, sysprocName := importName(file, "os/exec"), importName(file, "github.com/jmwri/flockdeck/internal/sysproc")
+		check := func(name string, body ast.Node) {
+			starts, hides := scan(body, execName, sysprocName)
 			if !starts {
-				continue
+				return
 			}
-			key := rel + ":" + fn.Name.Name
+			key := rel + ":" + name
 			seen[key] = true
 			if _, ok := exempt[key]; !ok && !hides {
 				missing = append(missing, key)
+			}
+		}
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.FuncDecl:
+				if decl.Body != nil {
+					check(decl.Name.Name, decl.Body)
+				}
+			case *ast.GenDecl:
+				// A function can also be a value -- var run = func() {...} --
+				// and one of those starts processes just as well.
+				for _, spec := range decl.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok && len(vs.Names) > 0 {
+						check(vs.Names[0].Name, vs)
+					}
+				}
 			}
 		}
 		return nil
@@ -95,9 +108,72 @@ func TestEveryProcessHidesItsWindow(t *testing.T) {
 	}
 }
 
-// scan reports whether a function body starts a process through os/exec, and
-// whether it hides that process's window.
-func scan(body *ast.BlockStmt) (starts, hides bool) {
+// TestGuardSeesEveryWayToStartAProcess keeps the guard itself honest. It read
+// function declarations for calls spelled exec.Command, so a process started
+// from a function kept in a variable, or through os/exec imported under
+// another name, went past it as though it were not there.
+func TestGuardSeesEveryWayToStartAProcess(t *testing.T) {
+	const src = `package x
+
+import (
+	run "os/exec"
+	hide "github.com/jmwri/flockdeck/internal/sysproc"
+)
+
+var start = func() { _ = run.Command("git").Run() }
+
+var hidden = func() {
+	c := run.Command("git")
+	hide.NoWindow(c)
+}
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "x.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execName, sysprocName := importName(file, "os/exec"), importName(file, "github.com/jmwri/flockdeck/internal/sysproc")
+	got := map[string][2]bool{}
+	for _, decl := range file.Decls {
+		if gen, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range gen.Specs {
+				if vs, ok := spec.(*ast.ValueSpec); ok {
+					starts, hides := scan(vs, execName, sysprocName)
+					got[vs.Names[0].Name] = [2]bool{starts, hides}
+				}
+			}
+		}
+	}
+	if got["start"] != [2]bool{true, false} {
+		t.Errorf("start: starts, hides = %v, want a process started and not hidden", got["start"])
+	}
+	if got["hidden"] != [2]bool{true, true} {
+		t.Errorf("hidden: starts, hides = %v, want a process started and hidden", got["hidden"])
+	}
+}
+
+// importName returns the name a file refers to an imported package by, which
+// is its last path element unless the import renames it, or "" when the file
+// does not import it.
+func importName(file *ast.File, path string) string {
+	for _, imp := range file.Imports {
+		if strings.Trim(imp.Path.Value, `"`) != path {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+		return path[strings.LastIndex(path, "/")+1:]
+	}
+	return ""
+}
+
+// scan reports whether code starts a process through os/exec, and whether it
+// hides that process's window. execName and sysprocName are what the file
+// calls the two packages.
+func scan(body ast.Node, execName, sysprocName string) (starts, hides bool) {
+	if execName == "" {
+		return false, false
+	}
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -112,9 +188,9 @@ func scan(body *ast.BlockStmt) (starts, hides bool) {
 			return true
 		}
 		switch {
-		case pkg.Name == "exec" && (sel.Sel.Name == "Command" || sel.Sel.Name == "CommandContext"):
+		case pkg.Name == execName && (sel.Sel.Name == "Command" || sel.Sel.Name == "CommandContext"):
 			starts = true
-		case pkg.Name == "sysproc" && sel.Sel.Name == "NoWindow":
+		case pkg.Name == sysprocName && sel.Sel.Name == "NoWindow":
 			hides = true
 		}
 		return true

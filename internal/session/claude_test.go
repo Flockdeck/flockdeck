@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestConversationExists guards the check that decides between --resume and a
@@ -89,26 +91,196 @@ func TestClaudeArgsResumeVsFresh(t *testing.T) {
 // to the event whose reply tells a pane's agent where it is running. It fires
 // again on a compaction, which is what keeps that description from being
 // summarised away.
+//
+// A Claude Code known to start a hook as a program and its arguments is given
+// it that way, with no shell to quote for; an older one, a command line.
 func TestHookSettingsRegisterSessionStart(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WriteHookSettings(dir, "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	wantArgs := []string{"hook", "--endpoint", "http://127.0.0.1:1/hook", "--token", "tok", "--session", "pane-id", "--event", "SessionStart"}
+	for _, version := range []string{"", "2.0.0 (Claude Code)", "2.1.269 (Claude Code)"} {
+		claudeVersion = func(string) string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read settings: %v", err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("decode settings: %v", err)
+		}
+		matchers, ok := got.Hooks["SessionStart"]
+		if !ok || len(matchers) == 0 || len(matchers[0].Hooks) == 0 {
+			t.Fatalf("%q: no SessionStart hook in %s", version, raw)
+		}
+		h := matchers[0].Hooks[0]
+		execForm := h.Command == "/bin/flockdeck" && slices.Equal(h.Args, wantArgs)
+		lineForm := len(h.Args) == 0 && strings.Contains(h.Command, "--event SessionStart")
+		if want := version == "2.1.269 (Claude Code)"; execForm != want || (!want && !lineForm) {
+			t.Errorf("%q: SessionStart hook = %q %q, want exec form %v", version, h.Command, h.Args, want)
+		}
+	}
+}
+
+// TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem covers the events a
+// Claude Code older than the one read may not know. A settings file it refused
+// would take every hook of the pane with it, so they are only asked of one
+// known to have them, and what every Claude Code has is always asked.
+func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
+	for _, c := range []struct {
+		version string
+		later   bool
+	}{
+		{"2.1.269 (Claude Code)", true},
+		{"2.1.270 (Claude Code)", true},
+		{"2.2.0 (Claude Code)", true},
+		{"3.0.0", true},
+		{"2.1.269-beta.1 (Claude Code)", true},
+		{"2.1.268 (Claude Code)", false},
+		{"2.0.300 (Claude Code)", false},
+		{"1.0.128 (Claude Code)", false},
+		{"", false},
+		{"claude: command not found", false},
+	} {
+		events := hookEventsFor(c.version)
+		for _, ev := range laterHookEvents {
+			if slices.Contains(events, ev) != c.later {
+				t.Errorf("%q: subscribes to %s = %v, want %v", c.version, ev, !c.later, c.later)
+			}
+		}
+		for _, ev := range hookEvents {
+			if !slices.Contains(events, ev) {
+				t.Errorf("%q: %s is missing, and every Claude Code has it", c.version, ev)
+			}
+		}
+	}
+
+	// The settings file follows the version the installed Claude Code gives.
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	for version, want := range map[string]bool{"2.1.269 (Claude Code)": true, "2.0.0 (Claude Code)": false} {
+		claudeVersion = func(string) string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got.Hooks["PermissionRequest"]; ok != want {
+			t.Errorf("%s: PermissionRequest subscribed = %v, want %v", version, ok, want)
+		}
+	}
+
+	// A pane runs the program its Spec names, which a catalog entry can pin
+	// somewhere other than the claude on PATH: that is the one asked.
+	var asked []string
+	claudeVersion = func(exe string) string {
+		asked = append(asked, exe)
+		return "2.0.0 (Claude Code)"
+	}
+	spec := claudeLaunchSpec()
+	spec.Exe = filepath.Join(t.TempDir(), "pinned", "claude")
+	path, err := Settings(spec, t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+	if err != nil || path == "" {
+		t.Fatalf("settings: %q, %v", path, err)
+	}
+	if len(asked) != 1 || asked[0] != spec.Exe {
+		t.Errorf("asked %q for its version, want the pane's own program %q", asked, spec.Exe)
+	}
+}
+
+// TestAnUnreadableVersionKeepsTheCommandLine covers the version question going
+// wrong: no such program, one that answers with something else, one that does
+// not answer in time. Each is an unknown version, and an unknown version gets
+// the hook settings every Claude Code can read -- the command line, not exec
+// form, which an older one would start Flockdeck from with no arguments.
+func TestAnUnreadableVersionKeepsTheCommandLine(t *testing.T) {
+	if got := installedClaudeVersion(filepath.Join(t.TempDir(), "no-such-claude")); got != "" {
+		t.Errorf("a missing program reported version %q", got)
+	}
+
+	// The test binary itself stands in for a program that answers late.
+	wait := versionTimeout
+	versionTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { versionTimeout = wait })
+	t.Setenv("FLOCKDECK_SLOW_VERSION", "1")
+	self, err := os.Executable()
 	if err != nil {
-		t.Fatalf("write settings: %v", err)
+		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read settings: %v", err)
+	began := time.Now()
+	if got := installedClaudeVersion(self); got != "" {
+		t.Errorf("a program that did not answer in time reported %q", got)
 	}
-	var got settingsFile
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("decode settings: %v", err)
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("the version question took %v; it is bounded by versionTimeout", took)
+	} else if took < versionTimeout {
+		t.Errorf("the version question gave up after %v, before the program could have been waited for", took)
 	}
-	matchers, ok := got.Hooks["SessionStart"]
-	if !ok || len(matchers) == 0 || len(matchers[0].Hooks) == 0 {
-		t.Fatalf("no SessionStart hook in %s", raw)
+
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	for _, version := range []string{"", "claude: command not found", "2.1", "v2.1.269", "Claude Code"} {
+		claudeVersion = func(string) string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		for ev, matchers := range got.Hooks {
+			if h := matchers[0].Hooks[0]; len(h.Args) > 0 || !strings.Contains(h.Command, "--event "+ev) {
+				t.Errorf("%q: %s hook = %q %q, want the command line", version, ev, h.Command, h.Args)
+			}
+		}
 	}
-	if cmd := matchers[0].Hooks[0].Command; !strings.Contains(cmd, "--event SessionStart") {
-		t.Errorf("SessionStart command = %q", cmd)
+}
+
+// A test binary started as `<binary> --version` with FLOCKDECK_SLOW_VERSION set
+// stands in for a Claude Code that takes too long to say its version. This
+// has to happen before the test flags are parsed, which would reject
+// --version and exit at once.
+func init() {
+	if os.Getenv("FLOCKDECK_SLOW_VERSION") == "1" && len(os.Args) == 2 && os.Args[1] == "--version" {
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+}
+
+// TestHookCommandQuotingIsLiteral covers the paths the hook command is written
+// with. sh expands "$" and a backtick inside double quotes, so a binary under
+// such a directory ran something else on macOS and Linux.
+func TestHookCommandQuotingIsLiteral(t *testing.T) {
+	cases := []struct{ goos, in, want string }{
+		{"linux", "/usr/local/bin/flockdeck", "/usr/local/bin/flockdeck"},
+		{"linux", "/home/me/$work/flockdeck", `'/home/me/$work/flockdeck'`},
+		{"darwin", "/Users/me/`x`/flockdeck", "'/Users/me/`x`/flockdeck'"},
+		{"linux", "/home/it's/flockdeck", `'/home/it'\''s/flockdeck'`},
+		{"linux", "/home/a;b/flockdeck", `'/home/a;b/flockdeck'`},
+		{"linux", "", `''`},
+		{"windows", `C:\Program Files\flockdeck.exe`, `"C:\Program Files\flockdeck.exe"`},
+		{"windows", "", `""`},
+		{"windows", "0123abcdef", "0123abcdef"},
+	}
+	for _, c := range cases {
+		if got := quoteArgFor(c.goos, c.in); got != c.want {
+			t.Errorf("quoteArgFor(%s, %q) = %s, want %s", c.goos, c.in, got, c.want)
+		}
 	}
 }
 
@@ -150,7 +322,7 @@ func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
 // into it and hands new viewers a closed stream, and nothing arrives later to
 // put it right.
 func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
-	for _, ev := range hookEvents {
+	for _, ev := range append(slices.Clip(hookEvents), laterHookEvents...) {
 		st, detail, ok := StatusForEvent(ev, "Bash")
 		if !ok {
 			continue

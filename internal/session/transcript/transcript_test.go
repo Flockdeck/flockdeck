@@ -176,15 +176,121 @@ func TestAllKeepsWhatItFoundWhenOneAgentCannotBeRead(t *testing.T) {
 	}
 }
 
-// TestAgentsStartsAtClaude pins what the history overlay lists before anything
-// points it at the catalog: exactly the conversations this build's users
-// already have.
-func TestAgentsStartsAtClaude(t *testing.T) {
-	specs := Agents()
-	if len(specs) != 1 || specs[0].ID != "claude" {
-		t.Fatalf("Agents() = %+v, want Claude alone", specs)
+// TestAgentsIsTheCatalog covers what the history overlay lists. It was Claude
+// alone until something pointed it at the catalog, and nothing did, so an API
+// agent's chats were recorded and never offered.
+func TestAgentsIsTheCatalog(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("APPDATA", base)
+	t.Setenv("XDG_CONFIG_HOME", base)
+	t.Setenv("HOME", base)
+
+	var claude, api bool
+	for _, spec := range Agents() {
+		switch For(spec).(type) {
+		case Claude:
+			claude = true
+		case Chat:
+			api = true
+		}
 	}
-	if got := For(specs[0]); got != (Claude{}) {
-		t.Errorf("the default agent reads with %T, want the Claude reader", got)
+	if !claude || !api {
+		t.Errorf("Agents() reads Claude's store: %v, the chat client's: %v; want both", claude, api)
+	}
+}
+
+// TestChatRepliesStartAtAClear covers /clear in a chat pane, which the chat
+// client marks in the file rather than starting a new one. A fan-out asked
+// after it read the plan the user had just cleared away.
+func TestChatRepliesStartAtAClear(t *testing.T) {
+	const id = "11111111-1111-1111-1111-111111111111"
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","text":"plan it"}`,
+		`{"type":"assistant","text":"- the old plan"}`,
+		`{"type":"clear"}`,
+	}})
+	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 0 {
+		t.Errorf("Replies = %q straight after a clear, want nothing", got)
+	}
+
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","text":"plan it"}`,
+		`{"type":"assistant","text":"- the old plan"}`,
+		`{"type":"clear"}`,
+		`{"type":"user","text":"plan again"}`,
+		`{"type":"assistant","text":"- the new plan"}`,
+	}})
+	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 1 || got[0] != "- the new plan" {
+		t.Errorf("Replies = %q, want only what was said since the clear", got)
+	}
+}
+
+// TestAChatWithNoModelGoesToAnAgentWithoutOne covers a chat whose pane asked
+// for no model, which it only does when its agent has no default to ask for --
+// a local endpoint left to choose. Put under the first API agent instead, it
+// offered to carry on a local model's conversation through Anthropic.
+func TestAChatWithNoModelGoesToAnAgentWithoutOne(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "myrepo")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const id = "11111111-1111-1111-1111-111111111111"
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","cwd":"` + jsonPath(cwd) + `","text":"hi"}`,
+		`{"type":"assistant","cwd":"` + jsonPath(cwd) + `","text":"hello"}`,
+	}})
+	api := func(id, model string) agent.Spec {
+		return agent.Spec{ID: id, Runner: agent.RunnerAPI, DefaultModel: model, Caps: agent.Caps{Transcript: true, Resume: true}}
+	}
+	got, err := All([]agent.Spec{api("anthropic", "claude-sonnet-5"), api("openai", "gpt-5"), api("local", "")}, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Agent != "local" {
+		t.Errorf("listed %+v, want the chat under the agent with no default model", got)
+	}
+}
+
+// TestAllListsEachChatOnceUnderItsAgent covers the chat folder every API agent
+// shares. Asked once per API agent, it listed every chat under every one of
+// them, each row offering to resume it through a different endpoint.
+func TestAllListsEachChatOnceUnderItsAgent(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "myrepo")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	line := func(typ, extra string) string {
+		return `{"type":"` + typ + `","cwd":"` + jsonPath(cwd) + `","text":"hi"` + extra + `}`
+	}
+	writeChats(t, map[string][]string{
+		// The model that answered says which agent offers it.
+		"11111111-1111-1111-1111-111111111111": {line("user", ""), line("assistant", `,"model":"gpt-5"`)},
+		"22222222-2222-2222-2222-222222222222": {line("user", ""), line("assistant", `,"model":"claude-sonnet-5"`)},
+		// A recorded agent wins over the model: two agents can offer one.
+		"33333333-3333-3333-3333-333333333333": {line("user", `,"agent":"openai"`), line("assistant", `,"model":"claude-sonnet-5"`)},
+		// Nothing to go on leaves the first API agent.
+		"44444444-4444-4444-4444-444444444444": {line("user", "")},
+	})
+
+	anthropic := chatSpec
+	anthropic.Models = []agent.Model{{ID: "claude-sonnet-5"}}
+	openai := agent.Spec{ID: "openai", Runner: agent.RunnerAPI, DefaultModel: "gpt-5", Caps: agent.Caps{Transcript: true, Resume: true}}
+	got, err := All([]agent.Spec{claudeSpec, anthropic, openai}, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := map[string]string{}
+	for _, c := range got {
+		if _, twice := held[c.ID]; twice {
+			t.Errorf("%s is listed more than once", c.ID)
+		}
+		held[c.ID] = c.Agent
+	}
+	want := map[string]string{
+		"11111111-1111-1111-1111-111111111111": "openai",
+		"22222222-2222-2222-2222-222222222222": "anthropic",
+		"33333333-3333-3333-3333-333333333333": "openai",
+		"44444444-4444-4444-4444-444444444444": "anthropic",
+	}
+	for id, agentID := range want {
+		if held[id] != agentID {
+			t.Errorf("%s is listed under %q, want %q", id, held[id], agentID)
+		}
 	}
 }

@@ -183,6 +183,31 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	}
 }
 
+// TestChatRunsTheConsoleBuildOnWindows covers the Windows release, whose
+// flockdeck.exe is a GUI program Windows gives no console even inside a
+// pseudo-console: an API agent's pane runs the console build shipped beside
+// it, and a build without one runs itself.
+func TestChatRunsTheConsoleBuildOnWindows(t *testing.T) {
+	dir := t.TempDir()
+	self := filepath.Join(dir, "flockdeck.exe")
+	twin := filepath.Join(dir, chatTwin)
+	if err := os.WriteFile(self, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatExeFor("windows", self); got != self {
+		t.Errorf("with no console build beside it, chat runs %q, want Flockdeck itself", got)
+	}
+	if err := os.WriteFile(twin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatExeFor("windows", self); got != twin {
+		t.Errorf("chat runs %q, want the console build beside Flockdeck", got)
+	}
+	if got := chatExeFor("linux", self); got != self {
+		t.Errorf("on Linux chat runs %q; only the Windows release is a GUI program", got)
+	}
+}
+
 // TestAPIRunnerRunsFlockdeckItself covers the runner that has no CLI to find: the
 // pane runs Flockdeck's own binary, which only the caller can name.
 func TestAPIRunnerRunsFlockdeckItself(t *testing.T) {
@@ -275,6 +300,23 @@ func TestStripEnvComesFromTheSpecs(t *testing.T) {
 	// pane started before the catalog is read is no worse off than it was.
 	if slices.Contains(Env(), "CLAUDECODE=1") {
 		t.Error("Env with no list given should still strip the markers it always did")
+	}
+}
+
+// TestTheBuiltInMarkersAreAlwaysStripped covers an agents.json entry for claude
+// that gives a stripEnv of its own. It replaces the built-in list rather than
+// adding to it, so the catalog's union no longer names CLAUDECODE, and a pane
+// handed that union believed it was a nested child session again.
+func TestTheBuiltInMarkersAreAlwaysStripped(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("MY_TOOL_MARKER", "1")
+
+	env := EnvStripping([]string{"MY_TOOL_MARKER"})
+	for _, gone := range []string{"CLAUDECODE=", "CLAUDE_CODE_ENTRYPOINT=", "MY_TOOL_MARKER="} {
+		if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, gone) }) {
+			t.Errorf("%s survived a list that named only MY_TOOL_MARKER", gone)
+		}
 	}
 }
 

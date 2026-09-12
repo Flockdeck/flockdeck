@@ -264,6 +264,87 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 }
 
+// TestAnInterruptedToolIsReportedAsSuch covers Esc pressed while a tool runs:
+// the tool fails, Claude Code goes back to its prompt, and no Stop follows. A
+// tool that failed on its own is part of a turn that goes on.
+func TestAnInterruptedToolIsReportedAsSuch(t *testing.T) {
+	srv, r := newServer(t)
+	for _, c := range []struct{ payload, want string }{
+		{`{"session_id":"s","tool_name":"Bash","is_interrupt":true}`, Interrupted},
+		{`{"session_id":"s","tool_name":"Bash","is_interrupt":false}`, "PostToolUseFailure"},
+		{`{"session_id":"s","tool_name":"Bash"}`, "PostToolUseFailure"},
+	} {
+		if _, err := Emit(strings.NewReader(c.payload), srv.Endpoint(), srv.Token(), "pane-i", "PostToolUseFailure"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if got := r.next(t); got.Event != c.want || got.Tool != "Bash" {
+			t.Errorf("%s: reported as %q (tool %q), want %q", c.payload, got.Event, got.Tool, c.want)
+		}
+	}
+}
+
+// TestFinishedNotificationsAreNotReported covers the Notifications that say
+// something is done rather than waiting: every Notification turns a pane
+// amber, and a login that succeeded, an MCP question just answered, a
+// background agent that has finished or a turn done with the computer is the
+// opposite of an agent needing you.
+func TestFinishedNotificationsAreNotReported(t *testing.T) {
+	srv, r := newServer(t)
+	for _, kind := range []string{"auth_success", "elicitation_complete", "elicitation_response", "agent_completed", "computer_use_exit"} {
+		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
+		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
+			t.Fatalf("emit %s: %v", kind, err)
+		}
+	}
+	select {
+	case e := <-r.ch:
+		t.Fatalf("a notification of something finished was reported: %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// The ones that do mean the user is wanted still arrive, and so does one
+	// from a Claude Code too old to say what it is about.
+	for _, kind := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog", "agent_needs_input", "push_notification", ""} {
+		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
+		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
+			t.Fatalf("emit %q: %v", kind, err)
+		}
+		if got := r.next(t); got.Event != "Notification" {
+			t.Errorf("%q: event = %q, want Notification", kind, got.Event)
+		}
+	}
+}
+
+// TestSpawnSaysWhatAFailureMeans covers what the agent that ran `flockdeck
+// spawn` is told, since it acts on it. A timeout is not a refusal: the helper
+// may be on its way, and an agent that reads a bare deadline error asks again.
+// A refused connection is the application gone, which asking again cannot fix.
+func TestSpawnSaysWhatAFailureMeans(t *testing.T) {
+	srv, _ := newServer(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		<-release
+		return SpawnResult{PaneID: "late"}, nil
+	})
+	old := spawnTimeout
+	spawnTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { spawnTimeout = old })
+
+	_, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "x"})
+	if err == nil || !strings.Contains(err.Error(), "may still be starting") {
+		t.Errorf("a spawn that timed out said %v; it should say the helper may still be starting", err)
+	}
+
+	gone, _ := newServer(t)
+	api := gone.BaseURL()
+	_ = gone.Close()
+	_, err = Spawn(api, "token", "pane-1", SpawnRequest{Task: "x"})
+	if err == nil || !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("a spawn to a closed application said %v; it should say Flockdeck is not answering", err)
+	}
+}
+
 // A PreToolUse payload carries the whole tool input, so a Write of a generated
 // file is megabytes of JSON. Reading a fixed slice of it leaves the payload
 // unparseable and loses the tool name, the directory and the prompt together —

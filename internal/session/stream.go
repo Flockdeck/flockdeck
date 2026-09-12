@@ -2,7 +2,9 @@ package session
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -103,10 +105,121 @@ func (r *ring) tail(n int) (b []byte, truncated bool) {
 // change would look like a request for attention. This tracks whether the
 // stream is inside a string sequence and ignores the BEL that ends one.
 //
+// It also keeps track of the terminal modes the stream has switched, which is
+// the same walk over the same bytes: see termModes.
+//
 // It is only ever driven from the single PTY reader goroutine, so it needs no
 // locking of its own.
 type bellScanner struct {
 	state scanState
+	// pos is how many bytes were scanned before the current chunk, and escAt
+	// where the escape that began the current sequence was.
+	pos, escAt int64
+	// param is the number being read in a DEC private sequence, CSI ?, and
+	// pending the tracked modes among the ones already read, as bits of
+	// trackedModes: which way they go is only known at the end.
+	param   int
+	pending uint16
+	modes   termModes
+}
+
+// push ends a control sequence parameter, noting it if it is a tracked mode.
+// A sequence can switch any number of modes at once, and only the tracked ones
+// are kept.
+func (b *bellScanner) push() {
+	for i, t := range trackedModes {
+		if t.mode == b.param {
+			b.pending |= 1 << i
+			break
+		}
+	}
+	b.param = 0
+}
+
+// control acts on a control character met inside a control sequence, which a
+// terminal does where it stands: a bell rings, and an escape or a CAN or SUB
+// abandons the sequence. i is where it is in the current chunk.
+func (b *bellScanner) control(c byte, i int) (bell bool) {
+	switch c {
+	case 0x07:
+		return true
+	case 0x1b:
+		b.state = scanEsc
+		b.escAt = b.pos + int64(i)
+	case 0x18, 0x1a:
+		b.state = scanNormal
+	}
+	return false
+}
+
+// trackedModes are the terminal modes a replay has to put back, alternate
+// screens first so that what follows is drawn on the screen it was drawn on.
+// All but the cursor start switched off.
+var trackedModes = [...]struct {
+	mode        int
+	onByDefault bool
+}{
+	// The alternate screens.
+	{1049, false}, {1047, false}, {47, false},
+	// Application cursor keys, and whether the cursor is shown.
+	{1, false}, {25, true},
+	// Mouse reporting, and the encodings it is reported in.
+	{1000, false}, {1002, false}, {1003, false},
+	{1005, false}, {1006, false}, {1015, false},
+	// Focus reports and bracketed paste.
+	{1004, false}, {2004, false},
+}
+
+// termModes is what a pane's output has done to the terminal's modes: which of
+// trackedModes it has left other than their default, and where in the output
+// each was last switched.
+//
+// A mode is switched once and holds until it is switched back, which for an
+// agent's mouse reporting, vim's alternate screen or a shell's bracketed paste
+// is usually the moment the program started. Once that has scrolled out of the
+// history the replay no longer says so, and a window reloading an agent that
+// has been running for an hour gets a terminal with all of them off: the wheel
+// scrolls the window instead of the agent, a full-screen program draws over
+// the scrollback, and a paste arrives as if it were typed.
+type termModes struct {
+	changed uint16
+	at      [len(trackedModes)]int64
+}
+
+// apply records the modes in bits, as bits of trackedModes, switched on or
+// off by the sequence beginning at offset at.
+func (m *termModes) apply(bits uint16, on bool, at int64) {
+	for i, t := range trackedModes {
+		if bits&(1<<i) == 0 {
+			continue
+		}
+		if on != t.onByDefault {
+			m.changed |= 1 << i
+		} else {
+			m.changed &^= 1 << i
+		}
+		m.at[i] = at
+	}
+}
+
+// restore returns the sequences that put back what the output left changed,
+// for a replay beginning at offset from. A mode last switched at or after that
+// is switched again by the replay itself.
+func (m termModes) restore(from int64) []byte {
+	var out []byte
+	for i, t := range trackedModes {
+		if m.changed&(1<<i) == 0 || m.at[i] >= from {
+			continue
+		}
+		out = append(out, "\x1b[?"...)
+		out = strconv.AppendInt(out, int64(t.mode), 10)
+		if t.onByDefault {
+			out = append(out, 'l')
+		} else {
+			out = append(out, 'h')
+		}
+	}
+	return out
 }
 
 type scanState int
@@ -118,6 +231,10 @@ const (
 	scanOSCEsc
 	scanCSI
 	scanEscArg
+	// scanCSIEntry is the first byte of a control sequence, which says whether
+	// it is a private one, and scanCSIPrivate the rest of one that is.
+	scanCSIEntry
+	scanCSIPrivate
 )
 
 // scan reports whether p contains a real bell.
@@ -130,12 +247,13 @@ const (
 // three shapes of output in view so the next attempt starts from the numbers.
 func (b *bellScanner) scan(p []byte) bool {
 	rang := false
-	for _, c := range p {
+	for i, c := range p {
 		switch b.state {
 		case scanNormal:
 			switch c {
 			case 0x1b:
 				b.state = scanEsc
+				b.escAt = b.pos + int64(i)
 			case 0x07:
 				rang = true
 			}
@@ -147,13 +265,50 @@ func (b *bellScanner) scan(p []byte) bool {
 			// attention.
 			case ']', 'P', '^', '_':
 				b.state = scanOSC
+			case '[':
+				b.state = scanCSIEntry
+			case 'c':
+				// A full reset puts every mode back as it started.
+				b.modes = termModes{}
+				b.state = scanNormal
 			case 0x1b:
 				// A second escape restarts the sequence rather than being the
 				// body of the first.
+				b.escAt = b.pos + int64(i)
 			default:
-				// Any other escape sequence (CSI included) is terminated by a
-				// byte that cannot be BEL, so tracking it adds nothing.
+				// Any other escape sequence is terminated by a byte that
+				// cannot be BEL, so tracking it adds nothing.
 				b.state = scanNormal
+			}
+		case scanCSIEntry, scanCSI:
+			// A control sequence is read for the modes it switches, which only
+			// a private one -- CSI ? -- can. The others, colours and cursor
+			// moves and nearly everything else, are only watched for their end.
+			switch {
+			case c >= 0x40 && c <= 0x7e:
+				b.state = scanNormal
+			case c < 0x20:
+				rang = b.control(c, i) || rang
+			case c == '?' && b.state == scanCSIEntry:
+				b.state = scanCSIPrivate
+				b.param, b.pending = 0, 0
+			default:
+				b.state = scanCSI
+			}
+		case scanCSIPrivate:
+			switch {
+			case c >= '0' && c <= '9':
+				b.param = min(b.param*10+int(c-'0'), 1<<20)
+			case c == ';':
+				b.push()
+			case c >= 0x40 && c <= 0x7e:
+				if c == 'h' || c == 'l' {
+					b.push()
+					b.modes.apply(b.pending, c == 'h', b.escAt)
+				}
+				b.state = scanNormal
+			case c < 0x20:
+				rang = b.control(c, i) || rang
 			}
 		case scanOSC:
 			switch c {
@@ -176,6 +331,7 @@ func (b *bellScanner) scan(p []byte) bool {
 			}
 		}
 	}
+	b.pos += int64(len(p))
 	return rang
 }
 
@@ -189,9 +345,19 @@ func stripANSI(p []byte) string {
 	// lineStart is where the line currently being written began, which is
 	// where a carriage return goes back to.
 	lineStart := 0
+	// cr records a carriage return that nothing has been written over yet. It
+	// takes the cursor back to the start of the line, but a terminal leaves
+	// the line on screen until something takes its place, and a line break or
+	// the end of the output may come first: "text\r\r\n" is what a line that
+	// already ended "\r\n" -- a Windows file, a script printing one -- becomes
+	// on its way through a Unix terminal, whose ONLCR turns its "\n" into
+	// "\r\n" as well, and every such line was read back as empty. What was
+	// there makes way at the moment something is written over it.
+	cr := false
 	breakLine := func() {
 		out = append(out, '\n')
 		lineStart = len(out)
+		cr = false
 	}
 	// back moves the write position left, which is what the moves that rub
 	// characters out amount to where text is appended rather than laid out.
@@ -234,22 +400,28 @@ func stripANSI(p []byte) string {
 				// A backspace is how a program takes back what it has just
 				// printed -- a spinner frame, a character being erased --
 				// and dropping it leaves both the character and the one that
-				// replaced it in the text.
-				back(1)
+				// replaced it in the text. At the start of the line, where a
+				// carriage return left the cursor, it goes nowhere.
+				if !cr {
+					back(1)
+				}
 			case c == '\r':
 				// Before a newline a carriage return is only part of the line
 				// break. On its own it rewinds to the start of the line and
-				// what follows takes the place of what was there, which is
-				// how a progress line redraws itself; keeping both is how the
-				// screen's "100%" is read back as "50%100%".
+				// what is written next takes the place of what was there,
+				// which is how a progress line redraws itself; keeping both is
+				// how the screen's "100%" is read back as "50%100%".
 				if i+1 < len(p) && p[i+1] == '\n' {
 					break
 				}
-				out = out[:lineStart]
+				cr = true
 			case c == '\n':
 				breakLine()
 			case c < 0x20 && c != '\t':
 			default:
+				if cr {
+					out, cr = out[:lineStart], false
+				}
 				out = append(out, c)
 			}
 		case scanEsc:
@@ -285,6 +457,16 @@ func stripANSI(p []byte) string {
 			}
 			state = scanNormal
 			switch {
+			// Moving up is how a program redraws what it drew last: a spinner
+			// and the lines under it, a block of progress bars, a whole frame
+			// of an Ink interface. What it moves back over is about to be
+			// drawn again, so it is dropped rather than left standing above
+			// the redraw -- where a question already answered went on being
+			// read as the most recent thing the pane said.
+			case c == 'A' || c == 'F':
+				lineStart = lineAbove(out, lineStart, csiCount(params))
+				out = out[:lineStart]
+				cr = false
 			// A terminal application often moves the cursor to the next
 			// line rather than printing a newline, so dropping these
 			// outright would run separate lines together. Treat the
@@ -298,6 +480,9 @@ func stripANSI(p []byte) string {
 			// on either side of it together, which is how a sentence ends up
 			// here as onelongword.
 			case c == 'C':
+				if cr {
+					out, cr = out[:lineStart], false
+				}
 				for n := csiCount(params); n > 0; n-- {
 					out = append(out, ' ')
 				}
@@ -305,7 +490,9 @@ func stripANSI(p []byte) string {
 			// rightward move left the text of a redraw standing in front of
 			// whatever redrew it.
 			case c == 'D':
-				back(csiCount(params))
+				if !cr {
+					back(csiCount(params))
+				}
 			// Moving to a column is the other way of saying what a carriage
 			// return says, and the way Claude Code's own interface says it:
 			// go back to the start of the line and draw it again. Without
@@ -313,20 +500,31 @@ func stripANSI(p []byte) string {
 			// as one, which is how a status line that has counted to a
 			// hundred arrives here as every number it passed through.
 			case c == 'G':
+				//
+				// A column is a cell, not a byte. Counting bytes cut a spinner
+				// frame or a box-drawing border in half, and the rest of the
+				// reading came back as invalid UTF-8.
 				col := csiCount(params)
-				if col < 1 {
-					col = 1
-				}
-				target := lineStart + col - 1
-				for len(out) < target {
-					out = append(out, ' ')
+				target := lineStart
+				for ; col > 1; col-- {
+					if target < len(out) {
+						_, size := utf8.DecodeRune(out[target:])
+						target += size
+					} else {
+						out = append(out, ' ')
+						target++
+					}
 				}
 				out = out[:target]
+				cr = false
 			// Erasing the line is the rest of that idiom. Only erasing all of
 			// it has anything to undo where text is appended rather than laid
-			// out: the other forms erase what has not been written yet.
-			case c == 'K' && csiCount(params) == 2:
+			// out: the other forms erase what has not been written yet --
+			// except from the start of the line, where a carriage return left
+			// the cursor, where erasing to the end is erasing all of it too.
+			case c == 'K' && (csiCount(params) == 2 || cr && (len(params) == 0 || string(params) == "0")):
 				out = out[:lineStart]
+				cr = false
 			}
 		case scanOSC:
 			if c == 0x07 {
@@ -371,16 +569,26 @@ func csiCount(params []byte) int {
 }
 
 // breaksLine reports whether a CSI final byte represents moving off the
-// current line. Horizontal moves and erase-in-line do not.
+// current line. Horizontal moves and erase-in-line do not, and moving up is
+// handled as the redraw it is.
 func breaksLine(final byte) bool {
 	switch final {
 	case 'H', 'f', // cursor position
-		'A', 'B', // up, down
-		'E', 'F', // next line, previous line
+		'B', // down
+		'E', // next line
 		'J': // erase in display
 		return true
 	}
 	return false
+}
+
+// lineAbove returns where the line n lines above the one beginning at start
+// begins, stopping at the first line there is.
+func lineAbove(out []byte, start, n int) int {
+	for ; n > 0 && start > 0; n-- {
+		start = bytes.LastIndexByte(out[:start-1], '\n') + 1
+	}
+	return start
 }
 
 // RecentText returns the tail of the pane's output as plain text, with escape
@@ -422,7 +630,7 @@ func (s *Session) patternStatus() (Status, bool) {
 // them: one that asked a question and has since printed its prompt again is no
 // longer waiting for an answer to it. The last line counts even with no newline
 // after it, because the prompt an agent is sitting at is exactly the line it
-// has not finished.
+// has not finished. The patterns are the ones foldPatterns returns.
 func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 	lines := strings.Split(text, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -442,7 +650,8 @@ func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 	return StatusIdle, false
 }
 
-// containsAny reports whether a lower-cased line holds any of the patterns.
+// containsAny reports whether a lower-cased line holds any of the patterns,
+// which foldPatterns has already lower-cased.
 //
 // The patterns are plain text rather than expressions. They come from a file
 // the user may edit, and what a mistake in an expression there costs is paid by
@@ -453,12 +662,28 @@ func matchPatterns(text string, p agent.Patterns) (Status, bool) {
 // prompt is capitalised is not something a catalog entry should have to know.
 func containsAny(lowered string, pats []string) bool {
 	for _, pat := range pats {
-		pat = strings.ToLower(strings.TrimSpace(pat))
-		if pat != "" && strings.Contains(lowered, pat) {
+		if strings.Contains(lowered, pat) {
 			return true
 		}
 	}
 	return false
+}
+
+// foldPatterns trims and lower-cases an agent's patterns once, when its pane
+// starts, and drops any left empty. They are compared with every line of every
+// chunk the pane prints, and folding them there cost an allocation per pattern
+// per line: six times the cost of publishing a chunk at all.
+func foldPatterns(p agent.Patterns) agent.Patterns {
+	fold := func(pats []string) []string {
+		var out []string
+		for _, pat := range pats {
+			if pat = strings.ToLower(strings.TrimSpace(pat)); pat != "" {
+				out = append(out, pat)
+			}
+		}
+		return out
+	}
+	return agent.Patterns{Waiting: fold(p.Waiting), Idle: fold(p.Idle)}
 }
 
 // dropPartialLine drops everything up to and including the first line break,

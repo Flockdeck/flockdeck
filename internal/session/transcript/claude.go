@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -193,6 +195,10 @@ type transcriptLine struct {
 // one whose transcripts record this directory, which is where a folder Claude
 // named differently turns up.
 func claudeConversations(cwd string) ([]Conversation, error) {
+	// A directory named with a separator on the end is the same directory,
+	// but it derives a folder name with a dash on the end, and the folders of
+	// the worktrees inside it no longer start with that name.
+	cwd = filepath.Clean(cwd)
 	home := claudeHome()
 	if home == "" {
 		return nil, nil
@@ -509,18 +515,42 @@ func transcriptID(name string) string {
 	return id
 }
 
+// maxSlug is how long a folder name Claude Code derives may be before it is cut
+// short and ended with a hash of the whole path instead.
+const maxSlug = 200
+
 // projectSlug reproduces the folder name Claude Code derives from a path.
+//
+// Every UTF-16 code unit that is not an ASCII letter or digit becomes a dash --
+// Claude Code does this in JavaScript, where a character outside the Basic
+// Multilingual Plane is two units and so two dashes -- and a name longer than
+// maxSlug is cut there and given a hash of the path, so that two long paths
+// sharing a beginning still get folders of their own. Deriving it any other way
+// finds nothing where the folder is, and every listing falls back to searching
+// all of them.
 func projectSlug(path string) string {
-	var b strings.Builder
-	for _, r := range path {
+	units := utf16.Encode([]rune(path))
+	b := make([]byte, len(units))
+	var hash int32
+	for i, u := range units {
+		// Java's String.hashCode, which is what Claude Code uses, wrapping at
+		// 32 bits the way JavaScript's |0 does.
+		hash = hash<<5 - hash + int32(u)
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
-			b.WriteRune(r)
+		case u >= 'a' && u <= 'z', u >= 'A' && u <= 'Z', u >= '0' && u <= '9':
+			b[i] = byte(u)
 		default:
-			b.WriteByte('-')
+			b[i] = '-'
 		}
 	}
-	return b.String()
+	if len(b) <= maxSlug {
+		return string(b)
+	}
+	h := int64(hash)
+	if h < 0 {
+		h = -h
+	}
+	return string(b[:maxSlug]) + "-" + strconv.FormatInt(h, 36)
 }
 
 // cwdProbeLimit bounds how many transcripts in one folder are opened looking

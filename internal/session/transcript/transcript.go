@@ -11,6 +11,7 @@ package transcript
 
 import (
 	"os"
+	"slices"
 	"sort"
 	"time"
 
@@ -108,15 +109,15 @@ func Exists(spec agent.Spec, sessionID string) bool {
 	return err == nil && fi.Size() > 0
 }
 
-// Agents is the catalog the history overlay lists conversations for.
+// Agents is the catalog the history overlay lists conversations for: every
+// agent, hidden ones included, since a hidden agent's conversations are still
+// there to resume.
 //
-// It is a variable rather than a call into the catalog because a reader has no
-// business depending on the picker: whoever assembles the catalog points this
-// at it. Until something does, it is Claude alone -- which is every stored
-// conversation anybody upgrading to this build has.
-var Agents = func() []agent.Spec {
-	return []agent.Spec{{ID: "claude", Name: "Claude Code", Caps: agent.Caps{Transcript: true, Resume: true}}}
-}
+// It was Claude alone until whoever assembled the catalog pointed it there,
+// and nothing ever did, so an API agent's chats were recorded and never
+// offered. It is still a variable, so a test can put a catalog of its own
+// behind it.
+var Agents = func() []agent.Spec { return agent.Load().Specs }
 
 // All lists the stored conversations of every given agent for a working
 // directory, most recently used first, each labelled with the agent that held
@@ -129,12 +130,32 @@ var Agents = func() []agent.Spec {
 func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
 	var out []Conversation
 	var first error
-	for _, spec := range specs {
-		found, err := For(spec).Conversations(spec, cwd)
+	note := func(err error) {
 		if err != nil && first == nil {
 			first = err
 		}
+	}
+	var api []agent.Spec
+	for _, spec := range specs {
+		r := For(spec)
+		// Every API agent is the same chat client writing to the same folder,
+		// so the folder is read once and each chat put under the agent that
+		// held it, rather than listed again under every one of them.
+		if _, chat := r.(Chat); chat {
+			api = append(api, spec)
+			continue
+		}
+		found, err := r.Conversations(spec, cwd)
+		note(err)
 		out = append(out, found...)
+	}
+	if len(api) > 0 {
+		rows, err := chatRows(cwd)
+		note(err)
+		for _, r := range rows {
+			r.Agent = heldBy(r, api)
+			out = append(out, r.Conversation)
+		}
 	}
 	// Across agents as within one: most recently used first, with the id
 	// breaking a tie so that two conversations started together do not swap
@@ -146,6 +167,33 @@ func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
 		return out[i].ID < out[j].ID
 	})
 	return out, first
+}
+
+// heldBy names the API agent a chat belongs to: the one it recorded, if it
+// recorded one still in the catalog; failing that, one offering the model that
+// answered in it; failing that, the first. Resuming a chat through the wrong
+// agent asks another endpoint to carry on a conversation it never had, so
+// every clue the file holds is used.
+//
+// A chat that recorded no model is a clue too. The chat client records the
+// model it asked for, and a pane only asks for none when its agent has no
+// default model to ask for -- a local endpoint left to choose for itself --
+// so such a chat goes to an agent without one before it goes to the first.
+func heldBy(r chatRow, api []agent.Spec) string {
+	for _, s := range api {
+		if r.agent != "" && s.ID == r.agent {
+			return s.ID
+		}
+	}
+	for _, s := range api {
+		if r.model == "" && s.DefaultModel == "" {
+			return s.ID
+		}
+		if r.model != "" && (s.DefaultModel == r.model || slices.ContainsFunc(s.Models, func(m agent.Model) bool { return m.ID == r.model })) {
+			return s.ID
+		}
+	}
+	return api[0].ID
 }
 
 // label puts the agent's id on every row a reader found. Readers are written

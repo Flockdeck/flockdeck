@@ -1,12 +1,21 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // LookClaude returns the path to the claude CLI, or an error explaining that
@@ -67,6 +76,115 @@ var hookEvents = []string{
 	"SessionEnd",
 }
 
+// laterHookEvents are the events that say what the ones above leave unsaid:
+// PermissionRequest as a permission dialog opens -- the Notification about it
+// comes only six seconds later, and never if it is answered first -- and the
+// turn or tool that ended on an error or a refusal, which fires none of the
+// events above, so the pane went on saying "working" until the next prompt.
+//
+// They are only subscribed to where the installed Claude Code is known to have
+// them. Claude Code 2.1.269, read from its executable, has all four, and skips
+// a hook event it does not know with a warning ("Unknown hook event ... was
+// ignored") instead of refusing the file. How an older one treats a name it
+// does not know was not established, and a settings file it refused would take
+// every hook of the pane with it.
+var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied"}
+
+// laterHooksSince is the first Claude Code known to have laterHookEvents.
+var laterHooksSince = [3]int{2, 1, 269}
+
+// claudeVersion is what a Claude Code program says its version is, asked once
+// per program per run: the one a pane runs is the one whose events matter, and
+// a catalog entry can name a different one from the claude on PATH. An empty
+// program is the claude on PATH. It is a variable so a test can say instead.
+var claudeVersion = cachedClaudeVersion
+
+var claudeVersions struct {
+	sync.Mutex
+	byExe map[string]string
+}
+
+func cachedClaudeVersion(exe string) string {
+	claudeVersions.Lock()
+	defer claudeVersions.Unlock()
+	if v, ok := claudeVersions.byExe[exe]; ok {
+		return v
+	}
+	v := installedClaudeVersion(exe)
+	if claudeVersions.byExe == nil {
+		claudeVersions.byExe = map[string]string{}
+	}
+	claudeVersions.byExe[exe] = v
+	return v
+}
+
+// versionTimeout bounds the version question. It is a variable so a test can
+// shorten it.
+var versionTimeout = 3 * time.Second
+
+// installedClaudeVersion asks a Claude Code program what version it is, which
+// takes it some tens of milliseconds, and gives up after three seconds.
+// Anything that goes wrong is an unknown version, which subscribes to what
+// every Claude Code has.
+func installedClaudeVersion(exe string) string {
+	var err error
+	if exe == "" {
+		exe, err = LookClaude()
+	} else {
+		exe, err = exec.LookPath(exe)
+	}
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "--version")
+	sysproc.NoWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// hookEventsFor is the events to subscribe to for a Claude Code reporting a
+// version, as `claude --version` prints it: "2.1.269 (Claude Code)".
+func hookEventsFor(version string) []string {
+	if versionAtLeast(version, laterHooksSince) {
+		return append(slices.Clip(hookEvents), laterHookEvents...)
+	}
+	return hookEvents
+}
+
+// versionAtLeast reports whether a version, as `claude --version` prints it, is
+// at least min. One it cannot read is not.
+func versionAtLeast(version string, min [3]int) bool {
+	field, _, _ := strings.Cut(strings.TrimSpace(version), " ")
+	parts := strings.SplitN(field, ".", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		// A pre-release is numbered like the release: "2.1.269-beta.1".
+		digits := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' })
+		if digits < 0 {
+			digits = len(part)
+		}
+		n, err := strconv.Atoi(part[:digits])
+		if err != nil {
+			return false
+		}
+		got[i] = n
+	}
+	for i := range got {
+		if got[i] != min[i] {
+			return got[i] > min[i]
+		}
+	}
+	return true
+}
+
 // settingsFile is the shape of the JSON handed to `claude --settings`.
 type settingsFile struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
@@ -80,8 +198,24 @@ type hookMatcher struct {
 type hookSpec struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"`
+	// Args makes the hook exec form: Command is the program and Args its
+	// arguments, started with no shell in between.
+	Args    []string `json:"args,omitempty"`
+	Timeout int      `json:"timeout,omitempty"`
 }
+
+// execHooksSince is the first Claude Code known to start a hook in exec form.
+//
+// A hook written as one command line is run through a shell, and on Windows
+// that is Git Bash, or PowerShell where Git Bash is missing -- read from the
+// executable (2.1.269): `-Command <line>` for PowerShell, and the line as it is
+// for bash. The command line is quoted for cmd.exe, which is neither: a program
+// path in double quotes followed by its arguments is not a command PowerShell
+// will run, so without Git Bash no hook of any pane arrived. Exec form starts
+// the program itself, so nothing is quoted for anything, and one process fewer
+// is started for every hook. An older Claude Code that did not read the
+// arguments would start Flockdeck with none, so it keeps the command line.
+var execHooksSince = [3]int{2, 1, 269}
 
 // WriteHookSettings writes a settings file that makes the pane report its
 // lifecycle to Flockdeck, and returns its path.
@@ -89,19 +223,37 @@ type hookSpec struct {
 // The hook command re-invokes this same binary in `hook` mode, so there is no
 // dependency on node, python or a shell script living next to the binary. The
 // settings are additive: the user's own settings and hooks still load.
+//
+// Which events it subscribes to depends on the Claude Code that will read it,
+// and this asks the claude on PATH; WriteHookSettingsFor asks the program the
+// pane will actually run.
 func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string, error) {
+	return WriteHookSettingsFor("", dir, sessionID, selfExe, endpoint, token)
+}
+
+// WriteHookSettingsFor is WriteHookSettings for a pane running a given Claude
+// Code program -- the one its Spec names -- which is the one asked what
+// events it has. An empty program is the claude on PATH.
+func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create settings dir: %w", err)
 	}
 	path := filepath.Join(dir, sessionID+".settings.json")
 
-	hooks := make(map[string][]hookMatcher, len(hookEvents))
-	for _, ev := range hookEvents {
-		cmd := fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
-			quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
-		hooks[ev] = []hookMatcher{{
-			Hooks: []hookSpec{{Type: "command", Command: cmd, Timeout: 5}},
-		}}
+	version := claudeVersion(exe)
+	events := hookEventsFor(version)
+	execForm := versionAtLeast(version, execHooksSince)
+	hooks := make(map[string][]hookMatcher, len(events))
+	for _, ev := range events {
+		spec := hookSpec{Type: "command", Timeout: 5}
+		if execForm {
+			spec.Command = selfExe
+			spec.Args = []string{"hook", "--endpoint", endpoint, "--token", token, "--session", sessionID, "--event", ev}
+		} else {
+			spec.Command = fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
+				quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
+		}
+		hooks[ev] = []hookMatcher{{Hooks: []hookSpec{spec}}}
 	}
 
 	data, err := json.MarshalIndent(settingsFile{Hooks: hooks}, "", "  ")
@@ -114,17 +266,25 @@ func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string,
 	return path, nil
 }
 
-// quoteArg wraps an argument in double quotes when it contains characters that
-// would otherwise split it. Double quoting behaves the same way in cmd.exe and
-// in POSIX shells for the paths and tokens we generate.
-func quoteArg(s string) string {
-	if s == "" {
-		return `""`
-	}
-	if !strings.ContainsAny(s, " \t\"'&|<>()^%$`\\") {
+// quoteArg quotes an argument for the shell that runs the hook command, when
+// it contains anything that shell would otherwise act on.
+func quoteArg(s string) string { return quoteArgFor(runtime.GOOS, s) }
+
+// quoteArgFor is quoteArg for a given platform.
+//
+// On Windows the shell may be cmd.exe, where only double quotes group
+// anything. Elsewhere it is sh, where double quotes still expand "$" and a
+// backtick: a binary installed under a directory with either in its name ran
+// something else or nothing at all, and every pane's status stopped changing.
+// Single quotes there take everything literally.
+func quoteArgFor(goos, s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n\"'&|<>()^%$`\\;*?[]{}~#!") {
 		return s
 	}
-	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	if goos == "windows" {
+		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // StatusForEvent maps a Claude lifecycle event to the pane status it implies.
@@ -139,13 +299,34 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	case "UserPromptSubmit":
 		return StatusWorking, "", true
 	case "PreToolUse":
+		// A question put to the user arrives as a tool call like any other,
+		// so without this the pane shows it as work in progress -- green,
+		// with the tool's name on it -- for as long as nobody answers.
+		if tool == "AskUserQuestion" {
+			return StatusWaiting, tool, true
+		}
 		return StatusWorking, tool, true
 	case "PostToolUse":
 		return StatusWorking, "", true
 	case "Notification":
 		// Fired when Claude needs permission or has been idle waiting on input.
-		return StatusWaiting, "", true
+		// Claude's names no tool; Flockdeck's own chat client names the one it
+		// is asking permission for.
+		return StatusWaiting, tool, true
 	case "Stop":
+		return StatusIdle, "", true
+	case "PermissionRequest":
+		// A permission dialog is opening for the tool the PreToolUse before it
+		// named. Naming nothing here keeps that tool on the pane, and marks the
+		// wait as one Enter answers, as the Notification six seconds later does.
+		return StatusWaiting, "", true
+	case "PostToolUseFailure", "PermissionDenied":
+		// A tool failed, or was refused without asking; the turn goes on.
+		return StatusWorking, "", true
+	case "StopFailure", "Interrupted":
+		// The turn ended on an error rather than with a Stop, or the user
+		// stopped the tool it was running (hooks.Interrupted) and Claude Code
+		// went back to its prompt.
 		return StatusIdle, "", true
 	case "SessionEnd":
 		// The conversation has ended; the process has not, necessarily.
@@ -162,18 +343,6 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	}
 }
 
-// claudeHome returns the directory Claude Code keeps its state in.
-func claudeHome() string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude")
-}
-
 // ConversationExists reports whether Claude Code has a stored transcript for a
 // session id.
 //
@@ -183,13 +352,5 @@ func claudeHome() string {
 // resuming one would kill it on restart, and would kill every such pane when a
 // saved layout is restored.
 func ConversationExists(sessionID string) bool {
-	path := TranscriptPath(sessionID)
-	if path == "" {
-		return false
-	}
-	// The file existing is not enough: a session that was interrupted before
-	// it recorded anything leaves an empty one behind, and Claude Code refuses
-	// that the same way it refuses a missing one.
-	fi, err := os.Stat(path)
-	return err == nil && fi.Size() > 0
+	return transcript.Exists(claudeSpec, sessionID)
 }

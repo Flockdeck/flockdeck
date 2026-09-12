@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +71,68 @@ func TestSessionEchoesInput(t *testing.T) {
 	got, ok := collect(t, out, replay, "flockdeck_marker_ok", 20*time.Second)
 	if !ok {
 		t.Fatalf("input was not echoed back; saw:\n%s", got)
+	}
+}
+
+// TestAClosedPaneLetsGoOfItsFolder covers removing a pane's folder straight
+// after closing the pane. On Windows killing a process only begins its end,
+// and until that is over it keeps its working directory open: a Claude pane
+// closed and its folder removed at once failed as "being used by another
+// process" in four runs out of ten. A shell ends too quickly to lose that race
+// here, so what is checked is what prevents it: Close does not return until
+// the process has been reaped.
+func TestAClosedPaneLetsGoOfItsFolder(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		dir := filepath.Join(t.TempDir(), "pane-folder")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Start(Config{ID: "folder", Kind: KindShell, Cwd: dir, Argv: ShellArgs(), Env: Env(), Cols: 80, Rows: 24})
+		if err != nil {
+			t.Skipf("cannot start a shell in this environment: %v", err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		select {
+		case <-s.reaped:
+		default:
+			t.Fatalf("run %d: Close returned while the process was still ending", i+1)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("run %d: the folder of a closed pane could not be removed: %v", i+1, err)
+		}
+	}
+}
+
+// TestOnChangeIsInstalledBeforeTheReaderStarts covers the callback a pane
+// reports on. The reader starts with the process and a pane's first output is
+// already a change -- from starting to working -- so a callback that can only
+// be assigned once Start has returned races the reader that calls it.
+func TestOnChangeIsInstalledBeforeTheReaderStarts(t *testing.T) {
+	changed := make(chan struct{}, 1)
+	s, err := Start(Config{
+		ID:   "on-change",
+		Kind: KindShell,
+		Cwd:  t.TempDir(),
+		Argv: ShellArgs(),
+		Env:  Env(),
+		OnChange: func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		},
+	})
+	if err != nil {
+		t.Skipf("cannot start a shell in this environment: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	select {
+	case <-changed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the pane never reported a change on the callback it was started with")
 	}
 }
 
@@ -211,8 +275,16 @@ func TestStatusForEvent(t *testing.T) {
 	}{
 		{"UserPromptSubmit", "", StatusWorking, true},
 		{"PreToolUse", "Bash", StatusWorking, true},
+		// A question for the user is a tool call, and the pane is waiting on
+		// the answer.
+		{"PreToolUse", "AskUserQuestion", StatusWaiting, true},
 		{"Notification", "", StatusWaiting, true},
 		{"Stop", "", StatusIdle, true},
+		{"PermissionRequest", "Bash", StatusWaiting, true},
+		{"PostToolUseFailure", "Bash", StatusWorking, true},
+		{"PermissionDenied", "Bash", StatusWorking, true},
+		{"StopFailure", "", StatusIdle, true},
+		{"Interrupted", "Bash", StatusIdle, true},
 		{"SomethingElse", "", StatusIdle, false},
 	}
 	for _, c := range cases {
@@ -224,8 +296,8 @@ func TestStatusForEvent(t *testing.T) {
 		if ok && got != c.want {
 			t.Errorf("%s: status = %v, want %v", c.event, got, c.want)
 		}
-		if c.event == "PreToolUse" && detail != "Bash" {
-			t.Errorf("PreToolUse should surface the tool name, got %q", detail)
+		if c.event == "PreToolUse" && detail != c.tool {
+			t.Errorf("PreToolUse should surface the tool name %q, got %q", c.tool, detail)
 		}
 	}
 }
@@ -303,6 +375,56 @@ func TestEnvExtrasReplaceInheritedValues(t *testing.T) {
 	}
 	if seen[0] != "FLOCKDECK_PANE=this-pane" {
 		t.Errorf("environment says %q; the given value should win", seen[0])
+	}
+}
+
+// TestAPaneIsToldItsOwnTerminal covers what a pane is told about the terminal
+// it runs in, which is the one Flockdeck draws: not nothing, as a desktop
+// launcher leaves it, and not the terminal Flockdeck was started from.
+func TestAPaneIsToldItsOwnTerminal(t *testing.T) {
+	lookup := func(env []string, name string) (value string, copies int) {
+		for _, kv := range env {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+				value, copies = v, copies+1
+			}
+		}
+		return value, copies
+	}
+	inherited := []string{
+		"TERM=screen-256color", "TERM_PROGRAM=iTerm.app", "TERM_PROGRAM_VERSION=3.6.6",
+		"LC_TERMINAL=iTerm2", "TMUX=/tmp/tmux-501/default,1234,0", "TMUX_PANE=%3",
+		"HOME=/home/me",
+	}
+
+	env := envFrom("linux", inherited, nil, nil)
+	for name, want := range map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "HOME": "/home/me"} {
+		if got, n := lookup(env, name); n != 1 || got != want {
+			t.Errorf("%s = %q (%d copies), want %q once", name, got, n, want)
+		}
+	}
+	for _, name := range []string{"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "LC_TERMINAL", "TMUX", "TMUX_PANE"} {
+		if got, n := lookup(env, name); n != 0 {
+			t.Errorf("%s=%q was passed on from the terminal Flockdeck was started in", name, got)
+		}
+	}
+
+	// A desktop launcher passes no TERM at all.
+	if got, _ := lookup(envFrom("darwin", []string{"HOME=/Users/me"}, nil, nil), "TERM"); got != "xterm-256color" {
+		t.Errorf("TERM = %q in a pane of an application started from the desktop", got)
+	}
+
+	// The catalog or the caller can still say otherwise.
+	if got, n := lookup(envFrom("linux", inherited, nil, []string{"TERM=xterm-kitty"}), "TERM"); n != 1 || got != "xterm-kitty" {
+		t.Errorf("TERM = %q (%d copies), want the one given", got, n)
+	}
+
+	// Windows is left as it is.
+	win := envFrom("windows", []string{"TERM_PROGRAM=vscode", "WT_SESSION=abc"}, nil, nil)
+	if _, n := lookup(win, "TERM"); n != 0 {
+		t.Error("a Windows pane was given a TERM")
+	}
+	if got, _ := lookup(win, "WT_SESSION"); got != "abc" {
+		t.Error("a Windows pane lost WT_SESSION")
 	}
 }
 
@@ -628,6 +750,61 @@ func BenchmarkPublish(b *testing.B) {
 	}
 }
 
+// TestAWaitingPaneKeepsTheToolItIsAskingAbout covers a permission prompt: the
+// tool is named by the PreToolUse before it, and the Notification that turns
+// the pane amber names nothing, which left the pane saying nothing about what
+// it wanted.
+func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
+	s := claudePane()
+	report := func(event, tool string) {
+		st, detail, ok := StatusForEvent(event, tool)
+		if ok {
+			s.SetStatus(st, detail)
+		}
+	}
+
+	report("PreToolUse", "Bash")
+	report("Notification", "")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "Bash" {
+		t.Errorf("status = %v %q; the pane should say it is waiting on Bash", st, detail)
+	}
+
+	// An idle nudge arrives with nothing running, and names nothing.
+	report("Stop", "")
+	report("Notification", "")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "" {
+		t.Errorf("status = %v %q after an idle nudge, want waiting on nothing", st, detail)
+	}
+
+	// Flockdeck's chat client names the tool it is asking about.
+	report("Stop", "")
+	report("Notification", "run_command")
+	if _, detail := s.Status(); detail != "run_command" {
+		t.Errorf("detail = %q, want the tool the chat client named", detail)
+	}
+}
+
+// TestARepeatedEventIsNotReported covers the lifecycle events that say what a
+// pane already said: Claude nudges about the same unanswered question, and
+// every report rebuilds and sends the whole workspace.
+func TestARepeatedEventIsNotReported(t *testing.T) {
+	s := claudePane()
+	var wakes int64
+	s.OnChange = func() { atomic.AddInt64(&wakes, 1) }
+
+	s.SetStatus(StatusWaiting, "")
+	s.SetStatus(StatusWaiting, "")
+	s.SetStatus(StatusWaiting, "")
+	if got := atomic.LoadInt64(&wakes); got != 1 {
+		t.Errorf("three identical events were reported %d times, want once", got)
+	}
+	s.SetStatus(StatusWorking, "Bash")
+	s.SetStatus(StatusWorking, "Edit")
+	if got := atomic.LoadInt64(&wakes); got != 3 {
+		t.Errorf("a change of status or tool was not reported: %d reports, want 3", got)
+	}
+}
+
 // TestConcurrentResizesLeaveThePaneTheSizeItReports covers two resizes in
 // flight at once, which is the ordinary case: the browser measures a pane on
 // every layout change, so one arrives on the terminal socket while another
@@ -853,6 +1030,23 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 	waitForStatus(t, s, StatusIdle, 5*time.Second)
 
+	// Focusing the pane is not answering it. The terminal reports focus to an
+	// application that asked for it, down the same path as typing.
+	s.publish([]byte("and this one?\x07"))
+	if err := s.WriteString("\x1b[I"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after a focus report; nothing was answered", st)
+	}
+	if err := s.WriteString("\x1b[O\x1b[Iy"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after typing behind a focus report, want working", st)
+	}
+	waitForStatus(t, s, StatusIdle, 5*time.Second)
+
 	// A hook that says the pane is waiting knows better than the keyboard
 	// does: the next event will move it, and typing something the agent has
 	// not acted on yet must not clear the one status worth surfacing.
@@ -862,6 +1056,113 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 	if st, _ := s.Status(); st != StatusWaiting {
 		t.Errorf("status = %v; a hook outranks the keyboard", st)
+	}
+}
+
+// TestEnterAnswersAPermissionPrompt covers the one question no hook reports
+// the answer to. Claude asks permission for a tool after the PreToolUse naming
+// it, and after approving it says nothing more until the tool has finished, so
+// the pane stayed amber -- counted among the agents needing you -- through the
+// whole of the command it had just been allowed to run.
+func TestEnterAnswersAPermissionPrompt(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindClaude
+	s.sawInput = true
+	report := func(event, tool string) {
+		if st, detail, ok := StatusForEvent(event, tool); ok {
+			s.SetStatus(st, detail)
+		}
+	}
+	press := func(keys string) {
+		if err := s.WriteString(keys); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	report("PreToolUse", "Bash")
+	report("Notification", "")
+	press("\x1b[B") // moving to another choice settles nothing
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v after an arrow key, want still waiting", st)
+	}
+	press("\r")
+	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
+		t.Errorf("status = %v %q after answering, want working on Bash", st, detail)
+	}
+
+	// AskUserQuestion can put several questions, and Enter moves from one to
+	// the next: its answer is the tool finishing, which a hook does report.
+	report("PostToolUse", "")
+	report("PreToolUse", "AskUserQuestion")
+	report("Notification", "") // Claude's nudge about the same question
+	if st, detail := s.Status(); st != StatusWaiting || detail != "AskUserQuestion" {
+		t.Fatalf("status = %v %q, want still waiting on AskUserQuestion", st, detail)
+	}
+	press("\r")
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after Enter on a question, want still waiting", st)
+	}
+
+	// Waiting at the prompt: what is typed there is reported by its own hook.
+	report("PostToolUse", "")
+	report("Stop", "")
+	report("Notification", "")
+	press("\r")
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v after Enter at the prompt, want waiting until a hook says otherwise", st)
+	}
+
+	// A Claude Code that reports the dialog as it opens says so with
+	// PermissionRequest, six seconds before its nudge, and Enter answers it the
+	// same way.
+	report("UserPromptSubmit", "")
+	report("PreToolUse", "Edit")
+	report("PermissionRequest", "Edit")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "Edit" {
+		t.Fatalf("status = %v %q as the dialog opens, want waiting on Edit", st, detail)
+	}
+	press("\r")
+	if st, detail := s.Status(); st != StatusWorking || detail != "Edit" {
+		t.Errorf("status = %v %q after answering, want working on Edit", st, detail)
+	}
+}
+
+// TestScrollingIsNotAnswering covers a pane whose program asked for mouse
+// reports, as full-screen agents do: turning the wheel to read back over the
+// question arrives exactly like typing, and is no answer to it.
+func TestScrollingIsNotAnswering(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.sawInput = true
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+
+	s.publish([]byte("may I run this?\x07"))
+	for _, report := range []string{
+		"\x1b[<64;10;5M",               // wheel up, SGR encoding
+		"\x1b[<65;10;5M\x1b[<65;10;5M", // wheel down, twice in one read
+		"\x1b[<35;12;7M",               // the pointer moving with no button held
+		"\x1b[M`*%",                    // wheel up, the older X10 encoding
+	} {
+		if err := s.WriteString(report); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if st, _ := s.Status(); st != StatusWaiting {
+			t.Fatalf("status = %v after %q; scrolling answers nothing", st, report)
+		}
+	}
+
+	// A click is left alone: in a program drawn for the mouse, clicking an
+	// option is how the question is answered.
+	if err := s.WriteString("\x1b[<0;10;5M"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after a click, want working", st)
 	}
 }
 
@@ -1096,6 +1397,25 @@ func TestPatternsSharpenTheFallback(t *testing.T) {
 	s.publish([]byte("\noverwrite config.go? (y/n) "))
 	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
 		t.Errorf("status = %v/%q; a reported lifecycle beats a pattern", st, detail)
+	}
+}
+
+// TestPatternsAreNotFoldedPerLine covers the cost of the pattern fallback,
+// which runs in the reader on every chunk a pane prints. Lower-casing each
+// pattern for each line it was compared with allocated dozens of times a chunk.
+func TestPatternsAreNotFoldedPerLine(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.patterns = foldPatterns(agent.Patterns{
+		Waiting: []string{"Do you want to proceed?", "Allow command?", "Approve?"},
+		Idle:    []string{"Ready."},
+	})
+	chunk := []byte(strings.Repeat("\x1b[36mSome Output\x1b[m on a line\r\n", 40))
+	allocs := testing.AllocsPerRun(100, func() { s.publish(chunk) })
+	if allocs > 20 {
+		t.Errorf("publishing a chunk allocated %.0f times; the patterns are being folded per line", allocs)
 	}
 }
 

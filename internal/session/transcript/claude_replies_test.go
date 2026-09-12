@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,57 @@ func writeReplies(t *testing.T, lines ...string) string {
 	const id = "11111111-2222-3333-4444-555555555555"
 	writeTranscript(t, filepath.Join(home, "projects", "C--Users-someone-code-repo"), id, lines...)
 	return id
+}
+
+// TestPathIsFoundUnderAHomeWithBrackets covers a Claude Code state directory
+// whose path a glob would read as a pattern. Finding nothing there is not a
+// missing history panel: it is every restored pane starting afresh instead of
+// resuming its conversation.
+func TestPathIsFoundUnderAHomeWithBrackets(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "[dev] home")
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	const id = "11111111-2222-3333-4444-555555555555"
+	writeTranscript(t, filepath.Join(home, "projects", "C--Users-dev-repo"), id,
+		`{"type":"user","message":{"role":"user","content":"hello"}}`)
+
+	want := filepath.Join(home, "projects", "C--Users-dev-repo", id+".jsonl")
+	if got := claudePath(id); got != want {
+		t.Errorf("claudePath = %q, want %q", got, want)
+	}
+	// An id is a file name and nothing more.
+	if got := claudePath(`..\` + id); got != "" {
+		t.Errorf("claudePath of a path = %q, want nothing", got)
+	}
+}
+
+// TestPathPrefersACopyWithSomethingInIt covers a conversation stored in two
+// folders whose newer copy is empty -- a session interrupted before it
+// recorded anything. The empty one is not the conversation, and choosing it
+// tells a restored pane there is nothing to resume.
+func TestPathPrefersACopyWithSomethingInIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	const id = "11111111-2222-3333-4444-555555555555"
+	full := writeTranscript(t, filepath.Join(home, "projects", "C--repo"), id,
+		`{"type":"user","message":{"role":"user","content":"the conversation"}}`)
+	empty := filepath.Join(home, "projects", "C--repo-wt", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(empty), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(full, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := claudePath(id); got != full {
+		t.Errorf("claudePath = %q, want the copy with the conversation in it, %q", got, full)
+	}
+	if !Exists(claudeSpec, id) {
+		t.Error("a conversation with a copy holding it should be worth resuming")
+	}
 }
 
 // TestRecentRepliesReadsWhatTheAgentSaid covers the source a fan-out reads its

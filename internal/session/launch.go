@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -57,8 +58,8 @@ type Launch struct {
 	// passes the union across the whole catalog rather than this Spec's own
 	// list, so that a pane is a clean top-level session whatever is running in
 	// it: the markers of the Claude session Flockdeck was launched from have to go
-	// from a Codex pane too. An empty list falls back to the markers Flockdeck knew
-	// before agents had Specs.
+	// from a Codex pane too. The markers Flockdeck knew before agents had Specs
+	// are stripped whatever it holds.
 	StripEnv []string
 	// Env is added to the pane's environment last and wins over everything
 	// before it: these are the FLOCKDECK_* variables telling the pane what to call
@@ -113,12 +114,38 @@ func (l Launch) argv() ([]string, error) {
 		if l.SelfExe == "" {
 			return nil, fmt.Errorf("agent %s talks to an API, which needs Flockdeck's own binary to run", l.Spec.ID)
 		}
-		argv = append([]string{l.SelfExe, "chat"}, argv...)
+		argv = append([]string{ChatExe(l.SelfExe), "chat"}, argv...)
 	}
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("agent %s has no command to run", l.Spec.ID)
 	}
 	return argv, nil
+}
+
+// chatTwin is the console build of Flockdeck that a Windows release ships
+// beside flockdeck.exe, for API agents' panes to run.
+const chatTwin = "flockdeck-chat.exe"
+
+// ChatExe returns the program an API agent's pane runs: Flockdeck's own
+// binary, or on Windows the console build shipped beside it.
+//
+// A release for Windows is linked as a GUI program (-H=windowsgui), so that
+// starting it opens no console window, and Windows attaches no console to a
+// GUI program even inside a pseudo-console: `flockdeck.exe chat` in a pane
+// printed nothing and read nothing. A build without the twin -- a plain `go
+// build` makes a console program -- runs itself as before.
+func ChatExe(selfExe string) string { return chatExeFor(runtime.GOOS, selfExe) }
+
+// chatExeFor is ChatExe for a given platform.
+func chatExeFor(goos, selfExe string) string {
+	if goos != "windows" || selfExe == "" {
+		return selfExe
+	}
+	twin := filepath.Join(filepath.Dir(selfExe), chatTwin)
+	if fi, err := os.Stat(twin); err == nil && fi.Mode().IsRegular() {
+		return twin
+	}
+	return selfExe
 }
 
 // model is the model the pane runs on: the one it was asked for, or the Spec's
@@ -180,7 +207,7 @@ func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint, token string) 
 	if !spec.Caps.Hooks || endpoint == "" || !wantsSettings(spec) {
 		return "", nil
 	}
-	return WriteHookSettings(dir, sessionID, selfExe, endpoint, token)
+	return WriteHookSettingsFor(spec.Exe, dir, sessionID, selfExe, endpoint, token)
 }
 
 // wantsSettings reports whether an agent's arguments ever refer to a settings
@@ -231,8 +258,8 @@ func StripEnvUnion(specs []agent.Spec) []string {
 // saving its transcript). They are stripped so each pane is a clean top-level
 // session, regardless of whether Flockdeck itself was launched from Claude.
 //
-// They are the fallback rather than the rule: a caller with a catalog to hand
-// passes the union of StripEnv across it, which is where this list lives now.
+// They are stripped whatever else is: a caller with a catalog to hand passes
+// the union of StripEnv across it on top of them.
 var defaultStripEnv = []string{
 	"CLAUDECODE",
 	"CLAUDE_CODE_CHILD_SESSION",
@@ -242,14 +269,49 @@ var defaultStripEnv = []string{
 	"CLAUDE_CODE_DONT_INHERIT_ENV",
 }
 
+// terminalEnv is what a pane is told about the terminal it runs in, and what
+// it inherits about another terminal that has to go, on a given platform.
+//
+// A pane's terminal is the one Flockdeck draws, whatever Flockdeck itself was
+// started in. Started from a desktop launcher on macOS or Linux it has no TERM
+// to pass on, and every pane was a dumb terminal: Claude Code 2.1.269, read
+// from its executable, picks no colour at all with neither TERM nor COLORTERM
+// set, and vim and clear refuse to run. Started from another terminal, every
+// pane was told it was that one: Claude Code picks its colours, notifications
+// and key handling from TERM_PROGRAM and LC_TERMINAL, and with TMUX set it runs
+// `tmux display-message -t $TMUX_PANE` and `tmux show-environment -g` against
+// the user's own tmux server, about a pane that is not this one. What is
+// stripped is what it reads to tell which terminal it is in.
+//
+// Windows is left as it is. Nothing there reads TERM the way terminfo does --
+// Claude Code takes its colours from the Windows version -- and Claude Code
+// reads WT_SESSION and TERM_PROGRAM there to decide that the console
+// understands escape sequences, which a ConPTY pane does too.
+func terminalEnv(goos string) (strip, set []string) {
+	if goos == "windows" {
+		return nil, nil
+	}
+	strip = []string{
+		"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "LC_TERMINAL", "LC_TERMINAL_VERSION",
+		"TMUX", "TMUX_PANE", "STY",
+		"KONSOLE_VERSION", "GNOME_TERMINAL_SERVICE", "XTERM_VERSION",
+	}
+	return strip, []string{"TERM=xterm-256color", "COLORTERM=truecolor"}
+}
+
 // Env builds the environment for a pane: Flockdeck's own environment minus the
 // markers of the session it was launched from, plus extra KEY=VALUE entries.
 func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 
-// EnvStripping is Env with the variables to remove named explicitly, which is
+// EnvStripping is Env with more variables to remove named explicitly, which is
 // how a pane's environment comes to be driven by Spec.StripEnv rather than by
-// what Flockdeck happened to know about Claude. An empty list means the built-in
-// markers, so a caller with no catalog to hand strips what it always did.
+// what Flockdeck happened to know about Claude.
+//
+// The built-in markers go whatever the list says. What a caller has is the
+// catalog's union, and an agents.json entry for claude that gives a stripEnv of
+// its own replaces the built-in one rather than adding to it: handed that union
+// alone, every pane opened from inside Claude Code would believe it was a
+// nested child session again.
 //
 // An extra entry replaces an inherited one of the same name rather than
 // joining it. A duplicated name in an environment block is resolved by the
@@ -257,11 +319,20 @@ func Env(extra ...string) []string { return EnvStripping(nil, extra...) }
 // stale value in force -- which is how a pane opened from inside another
 // instance would tell its agent it was the pane that spawned it.
 func EnvStripping(strip []string, extra ...string) []string {
-	if len(strip) == 0 {
-		strip = defaultStripEnv
+	return envFrom(runtime.GOOS, os.Environ(), strip, extra)
+}
+
+// envFrom is EnvStripping for a given platform and inherited environment.
+func envFrom(goos string, base, strip, extra []string) []string {
+	termStrip, termSet := terminalEnv(goos)
+	// What a pane is told about its terminal is the least of what it is given:
+	// the catalog and the caller can still say otherwise.
+	if len(termSet) > 0 {
+		extra = layerEnv(termSet, extra)
 	}
-	drop := make(map[string]bool, len(strip)+len(extra))
-	for _, name := range strip {
+
+	drop := make(map[string]bool, len(defaultStripEnv)+len(termStrip)+len(strip)+len(extra))
+	for _, name := range append(append(slices.Clip(defaultStripEnv), termStrip...), strip...) {
 		drop[envKey(name)] = true
 	}
 	for _, kv := range extra {
@@ -270,7 +341,6 @@ func EnvStripping(strip []string, extra ...string) []string {
 		}
 	}
 
-	base := os.Environ()
 	out := make([]string, 0, len(base)+len(extra))
 	for _, kv := range base {
 		name, _, ok := strings.Cut(kv, "=")

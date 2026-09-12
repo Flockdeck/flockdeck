@@ -22,6 +22,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -68,6 +69,37 @@ type claudePayload struct {
 	// Claude Code has spelled the SessionStart source both ways; read either.
 	Source string `json:"source"`
 	How    string `json:"how"`
+	// NotificationType says what a Notification is about.
+	NotificationType string `json:"notification_type"`
+	// IsInterrupt says a PostToolUseFailure is the user stopping the tool.
+	IsInterrupt bool `json:"is_interrupt"`
+}
+
+// Interrupted is what a PostToolUseFailure is reported as when the tool failed
+// because the user stopped it. Claude Code 2.1.269, read from its executable,
+// says so in the payload's is_interrupt, and then goes back to its prompt
+// without a Stop: the turn is over, which the failure of a tool on its own is
+// not, so the two are told apart here, where the payload is read.
+const Interrupted = "Interrupted"
+
+// finishedNotifications are the kinds of Notification that report something
+// done rather than something waiting on the user: a login that succeeded, and
+// an MCP server's question that has just been answered. Every Notification
+// turns a pane amber, so passing these on put a pane back in the count of
+// agents waiting on you the moment the user had dealt with it.
+//
+// Claude Code 2.1.269, read from its executable, sends two more through the
+// same hook: "agent_completed" when a background agent it is keeping an eye
+// on finishes or fails, and "computer_use_exit" -- "Claude is done using your
+// computer" -- when a turn that used the computer ends. Both are news of
+// something over. "agent_needs_input" and a push notification the model asks
+// for itself are left to turn the pane amber: somebody is waiting on the user.
+var finishedNotifications = map[string]bool{
+	"auth_success":         true,
+	"elicitation_complete": true,
+	"elicitation_response": true,
+	"agent_completed":      true,
+	"computer_use_exit":    true,
 }
 
 // Server receives hook events on the loopback interface.
@@ -213,7 +245,9 @@ func clip(s string, n int) string {
 }
 
 // Emit is the client half, run inside the hook subprocess. It reads Claude's
-// hook JSON from stdin to pick up the tool name, then posts the event.
+// hook JSON from stdin for the tool, the directory, the prompt and the source,
+// and posts the event -- unless it is a Notification of something finished,
+// which is not reported at all.
 //
 // What it returns is the pane briefing, and only a SessionStart is answered
 // with one: the caller prints it for the agent to read. An agent reporting its
@@ -236,6 +270,12 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 			p.Source = cp.Source
 			if p.Source == "" {
 				p.Source = cp.How
+			}
+			if event == "Notification" && finishedNotifications[cp.NotificationType] {
+				return "", nil
+			}
+			if event == "PostToolUseFailure" && cp.IsInterrupt {
+				p.Event.Event = Interrupted
 			}
 		}
 	}
@@ -346,6 +386,10 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(res)
 }
 
+// spawnTimeout is how long `flockdeck spawn` waits for the application to
+// answer. It is a variable so a test does not have to wait that long.
+var spawnTimeout = 60 * time.Second
+
 // Spawn is the client half, used by the `spawn` subcommand inside a pane.
 func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	req.Token = token
@@ -355,7 +399,7 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	if err != nil {
 		return none, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), spawnTimeout)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
 	if err != nil {
@@ -364,6 +408,19 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
+		// What comes back is read by the agent that asked, which acts on it.
+		// "context deadline exceeded" reads as a failure, and an agent told
+		// that asks again -- while the application, which only answers once
+		// the worktree is made and the pane is started, may be doing exactly
+		// what it was asked. A refused connection is the application having
+		// gone, which no retry will fix.
+		var dial *net.OpError
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return none, fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
+		case errors.As(err, &dial) && dial.Op == "dial":
+			return none, fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
+		}
 		return none, err
 	}
 	defer resp.Body.Close()
