@@ -135,13 +135,13 @@ func TestBuildArgvDashDash(t *testing.T) {
 			want: []string{"x", "-not an option"},
 		},
 		{
-			// The guard looks only at the argument, not at what precedes it,
-			// so a task handed to a flag is guarded too -- and "-i -- -task"
-			// is not what any of these tools mean. That is why every catalog
-			// entry that passes the task as a flag's value sets NoDashDash.
-			name: "the guard does not know the task is a flag's value",
+			// A task after its flag in a group is that flag's value, and
+			// "-i -- -task" is not what any of these tools mean. The guard
+			// once looked only at the argument and put one there anyway,
+			// which a hand-written entry without NoDashDash then got.
+			name: "a task grouped after its flag is the flag's value",
 			spec: Spec{Exe: "x", Args: []Arg{Group("prompt", "-i", "{{prompt}}")}},
-			want: []string{"x", "-i", "--", "-not an option"},
+			want: []string{"x", "-i", "-not an option"},
 		},
 		{
 			name: "which is what NoDashDash is for",
@@ -236,5 +236,23 @@ func TestTokensMayHaveSpaceInsideTheirBraces(t *testing.T) {
 	// The task's own text is still left as it was written.
 	if got := (Tokens{Prompt: "fix {{ pane }}", Pane: "p1"}).Expand("{{ prompt }}"); got != "fix {{ pane }}" {
 		t.Errorf("prompt expanded to %q", got)
+	}
+}
+
+// TestNoDashDashBetweenAnOptionAndItsValue: a task grouped with the option it
+// is the value of took the guard between the two, so the option's value
+// became "--" and the task was left over.
+func TestNoDashDashBetweenAnOptionAndItsValue(t *testing.T) {
+	tokens := Tokens{Prompt: "-v is not what I meant"}
+	grouped := Spec{ID: "g", Exe: "g", Runner: RunnerCLI, Args: []Arg{Group("prompt", "--message", "{{prompt}}")}}
+	if got, want := BuildArgv(grouped, false, tokens), []string{"g", "--message", "-v is not what I meant"}; !slices.Equal(got, want) {
+		t.Errorf("grouped argv = %q, want %q", got, want)
+	}
+	// A task standing on its own, in a group or not, still gets it.
+	for _, args := range [][]Arg{{Lit("{{prompt}}")}, {Group("prompt", "{{prompt}}")}} {
+		s := Spec{ID: "p", Exe: "p", Runner: RunnerCLI, Args: args}
+		if got, want := BuildArgv(s, false, tokens), []string{"p", "--", "-v is not what I meant"}; !slices.Equal(got, want) {
+			t.Errorf("positional argv = %q, want %q", got, want)
+		}
 	}
 }

@@ -222,16 +222,18 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 	if s.Runner != RunnerAPI && s.Exe != "" {
 		out = append(out, s.Exe)
 	}
-	return appendArgs(out, args, s, t)
+	return appendArgs(out, args, s, t, false)
 }
 
-func appendArgs(out []string, args []Arg, s Spec, t Tokens) []string {
-	for _, a := range args {
+// appendArgs expands args onto out. grouped says they are one group's, where
+// everything after the first is a value for the option before it.
+func appendArgs(out []string, args []Arg, s Spec, t Tokens, grouped bool) []string {
+	for i, a := range args {
 		if a.If != "" && t.Value(a.If) == "" {
 			continue
 		}
 		if len(a.Args) > 0 {
-			out = appendArgs(out, a.Args, s, t)
+			out = appendArgs(out, a.Args, s, t, true)
 			continue
 		}
 		if a.Value == "" {
@@ -241,7 +243,12 @@ func appendArgs(out []string, args []Arg, s Spec, t Tokens) []string {
 		if v == "" {
 			continue
 		}
-		if onlyToken(a.Value) == "prompt" && !s.NoDashDash && strings.HasPrefix(v, "-") {
+		// The guard is for a task standing on its own. One that follows its
+		// option in a group -- "--message", "{{prompt}}" -- is that option's
+		// value, and a "--" between the two became the value instead, with
+		// the task left over as an argument the program did not expect.
+		positional := !grouped || i == 0
+		if positional && onlyToken(a.Value) == "prompt" && !s.NoDashDash && strings.HasPrefix(v, "-") {
 			out = append(out, "--")
 		}
 		out = append(out, v)
