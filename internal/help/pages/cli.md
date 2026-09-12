@@ -6,7 +6,7 @@ switched from inside the window. These are what is left.
 ```sh
 flockdeck                 # open the current directory
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # ignore the saved layout
+flockdeck -new            # start without the saved layout, and replace it on exit
 flockdeck -shell          # first pane is a shell, not an agent
 flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
@@ -19,6 +19,11 @@ flockdeck -version        # print the version
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
 window onto it. `-solo` is the escape hatch when you genuinely want two.
+
+`-new` is not a way to glance at an empty window. When that run ends, its
+layout is saved over the one it skipped, and the list of other open projects is
+replaced too, so they are not reopened next time either — their own layouts are
+kept, and come back when you open them.
 
 ## spawn
 
