@@ -40,7 +40,11 @@ func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
 // agents ask whether a folder is trusted.
 func TestFanoutCatalogSaysWhichAgentsAskAboutTrust(t *testing.T) {
 	srv, ws := newTestServer(t)
-	agents, _ := srv.fanoutCatalog()
+	specs, _ := ask(srv, func() []agent.Spec {
+		specs, _ := ws.Agents()
+		return specs
+	})
+	agents := srv.fanoutCatalog(specs)
 	asking := 0
 	for _, a := range agents {
 		spec, _ := ws.Catalog().Find(a.ID)

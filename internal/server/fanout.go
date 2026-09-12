@@ -69,9 +69,10 @@ type fanoutAgentView struct {
 // after a quiet spell asks afresh -- eight searches took up to half a second
 // on a Windows machine with an ordinary PATH. It is therefore called off the
 // workspace goroutine, where every window's commands would otherwise wait
-// behind it; the catalog is safe to read from any goroutine.
-func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
-	specs, def := s.ws.Agents()
+// behind it. Only the probing is: which agents there are, and which one a run
+// starts on, are read on that goroutine and handed in, because the default
+// depends on the active project, a field nothing else may read.
+func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 	out := make([]fanoutAgentView, 0, len(specs))
 	for _, spec := range specs {
 		if spec.Hidden {
@@ -86,15 +87,21 @@ func (s *Server) fanoutCatalog() ([]fanoutAgentView, string) {
 		}
 		out = append(out, view)
 	}
-	return out, def
+	return out
 }
+
+// planTasks reads a pane's plan. It is a variable so a test can hold the
+// preview between the workspace's answer and the probing that follows it.
+var planTasks = func(src workspace.PlanSource) ([]string, bool) { return src.Tasks() }
 
 // previewFanout reads a pane's recent output and proposes tasks from it.
 func (s *Server) previewFanout(c *controlClient, paneID string) {
 	type info struct {
-		id  string
-		cwd string
-		src workspace.PlanSource
+		id    string
+		cwd   string
+		src   workspace.PlanSource
+		specs []agent.Spec
+		def   string
 	}
 	in, ok := ask(s, func() info {
 		id := paneID
@@ -107,7 +114,12 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		if p := s.ws.Pane(id); p != nil {
 			cwd = p.Cwd
 		}
-		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id)}
+		// The default agent is the active project's, and the active project
+		// is a field only this goroutine may read. Read from the preview's
+		// own goroutine, it raced every project switch -- and a switch landing
+		// in between offered the run to the other project's default.
+		specs, def := s.ws.Agents()
+		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), specs: specs, def: def}
 	})
 	if !ok {
 		return
@@ -117,8 +129,8 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		// Reading the transcript touches the disk and asking about the agents
 		// searches PATH, which is why both happen here rather than on the
 		// goroutine that owns the workspace.
-		tasks, fromReply := in.src.Tasks()
-		agents, def := s.fanoutCatalog()
+		tasks, fromReply := planTasks(in.src)
+		agents, def := s.fanoutCatalog(in.specs), in.def
 		msg := fanoutPreviewMsg{
 			Type:      "fanoutPreview",
 			PaneID:    in.id,
