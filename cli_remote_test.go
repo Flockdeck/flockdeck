@@ -513,6 +513,11 @@ func TestRemoteRevokeANameOfSeveralWords(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "revoke", "d7", "d8"); err == nil {
 		t.Error("revoke of two ids was accepted")
 	}
+	// Several words that name no device are told so, from the roster, rather
+	// than shown the usage, which does not say what went wrong.
+	if _, _, err := runRemoteCmd(t, "revoke", "chrome", "on", "windos"); err == nil || !strings.Contains(err.Error(), `no paired device is called "chrome on windos"`) {
+		t.Errorf("revoke of a name no device has = %v, want it to say so", err)
+	}
 	if f.saw("DELETE /api/v1/host/devices/d7 d8") {
 		t.Error("two ids were sent to the relay as one")
 	}

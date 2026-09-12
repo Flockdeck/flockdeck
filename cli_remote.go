@@ -550,13 +550,19 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	// The roster turns a name into the id the relay takes, and an id into the
 	// name that says the right device went. A name of several words, typed
 	// without quotes as "Chrome on Windows" is, arrives as several arguments,
-	// and is taken whole if it names a device; anything else of several
-	// words is not one device, and is answered with the usage.
-	id, name, err := pickDevice(rosterBriefly(cfg), strings.Join(fs.Args(), " "))
+	// and is taken whole if it names a device. Several words that name none
+	// are told so when the roster can say it; without the roster there is no
+	// telling what they were, and the usage answers.
+	roster := rosterBriefly(cfg)
+	arg := strings.Join(fs.Args(), " ")
+	id, name, err := pickDevice(roster, arg)
 	if err != nil {
 		return err
 	}
 	if fs.NArg() > 1 && name == "" {
+		if roster != nil {
+			return fmt.Errorf("no paired device is called %q; `flockdeck remote devices` lists them by id and name", arg)
+		}
 		fs.Usage()
 		return errReported
 	}
