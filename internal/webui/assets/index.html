@@ -96,7 +96,12 @@
     <div class="panel" role="alertdialog" aria-modal="true"
          aria-labelledby="disconnected-title" aria-describedby="disconnected-desc">
       <h2 id="disconnected-title">Disconnected</h2>
-      <p id="disconnected-desc">The flockdeck process is no longer running, or the connection was lost.</p>
+      <!-- It says that it is already trying again, and what to do if that
+           will never work: without it, nothing told anybody whether to wait,
+           press the button, or go and start something. -->
+      <p id="disconnected-desc">The flockdeck process is no longer running, or the connection was lost.
+        This window tries again on its own every couple of seconds, and comes back as it was once flockdeck answers.
+        If flockdeck has stopped, start it again and this window reconnects.</p>
       <button id="retry" class="chip primary">Reconnect</button>
     </div>
   </div>

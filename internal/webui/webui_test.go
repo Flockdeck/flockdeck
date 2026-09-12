@@ -3813,6 +3813,22 @@ assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer 
 `)
 }
 
+// The disconnected panel said the connection was lost and offered a button,
+// and nothing about the window already trying again every couple of seconds,
+// or about what to do if flockdeck had stopped - so nobody could tell whether
+// to wait, press the button, or go and start something.
+func TestTheDisconnectedPanelSaysWhatIsHappening(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.control.onclose();
+assert.ok(!h.$("disconnected").hidden, "losing the connection did not show the panel");
+const text = h.$("disconnected-desc").textContent;
+assert.ok(/tries again on its own/.test(text), "the panel does not say it is already trying again: " + text);
+assert.ok(/start it again/.test(text), "the panel does not say what to do if flockdeck has stopped: " + text);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
