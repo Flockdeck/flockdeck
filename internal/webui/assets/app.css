@@ -744,7 +744,10 @@ textarea:focus-visible {
 }
 
 /* In a narrow window the contents would leave the prose a gutter to read in,
- * so it goes above the page rather than beside it. */
+ * so it goes above the page rather than beside it. The index is a fixed
+ * 240px, and beside it the article would be left narrower than the shortcut
+ * tables and command lines it is made of, which would then scroll sideways;
+ * above it, the index keeps its own scroll. */
 @media (max-width: 760px) {
   .help { flex-direction: column; }
   .help-nav {
@@ -779,16 +782,10 @@ textarea:focus-visible {
 .help-content th { color: var(--fg-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .help-content td:first-child { white-space: nowrap; }
 
-/* The index is a fixed 240px, so on a narrow window the article it sits beside
- * is left with under 200px - narrower than the shortcut tables and the command
- * lines it is made of, both of which would then scroll sideways. Below that
- * width the index moves above the article instead and keeps its own scroll. */
+/* Narrower still, the stacked index gives up a little more of the height and
+ * the article's margins close in. The stacking itself is the rule above. */
 @media (max-width: 720px) {
-  .help { flex-direction: column; }
-  .help-nav {
-    flex: 0 1 auto; max-height: 42%;
-    border-right: 0; border-bottom: 1px solid var(--line);
-  }
+  .help-nav { max-height: 42%; }
   .help-content { padding: 4px 14px 30px; }
 }
 
