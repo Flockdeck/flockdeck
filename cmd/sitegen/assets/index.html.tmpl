@@ -244,7 +244,7 @@
       <span class="g">private</span>
       <h3>Only your desktops</h3>
       <p>Your devices reach your desktops and nobody else's. Connections are
-         encrypted with TLS in both directions. The relay decrypts traffic to
+         encrypted with TLS over the internet. The relay decrypts traffic to
          route it, so remote access is not end-to-end encrypted.</p>
     </div>
   </div>
@@ -362,7 +362,10 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
          Flockdeck itself only contacts GitHub to check for updates, and the
-         relay if you turn on remote access.</p>
+         relay if you turn on remote access. The exception is the built-in API
+         agents: they send your conversations to the model provider you
+         choose, with your own key. The <a href="privacy.html">privacy
+         policy</a> has the details.</p>
     </details>
     <details>
       <summary>Do I need API keys?</summary>
@@ -373,7 +376,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>Can I use it from my phone?</summary>
       <p>Yes. Turn on remote access and pair your phone with a QR code. Traffic
-         is encrypted with TLS in both directions and routed through the
+         is encrypted with TLS over the internet and routed through the
          Flockdeck relay, which decrypts it to route it, so remote access is not
          end-to-end encrypted.</p>
     </details>
