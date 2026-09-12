@@ -103,8 +103,9 @@ is running from an image the operating system already holds, so the new version
 is simply what starts next time. The old file is moved aside and swept up by
 the following start.
 
-A build you made yourself is stamped `dev` rather than a version, and is never
-replaced by a release — there is no sense in which it is behind one.
+A build made with plain `go build` or `go install` is stamped `dev` rather than
+a version, and is never replaced by a release — there is no sense in which it
+is behind one.
 
 Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own. The
 subcommand still works; it is the background check that goes.
