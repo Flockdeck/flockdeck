@@ -97,7 +97,7 @@ func (w *Workspace) MovePaneDir(dir layout.Direction) error {
 		return fmt.Errorf("no pane is focused")
 	}
 	if t.Zoom {
-		return fmt.Errorf("a zoomed pane fills the tab; unzoom it first")
+		return fmt.Errorf("a zoomed pane fills the tab; unzoom it first with %s", how("zoomPane"))
 	}
 	computeTab(t)
 	other := t.Tree.Neighbor(t.Focus, dir)
