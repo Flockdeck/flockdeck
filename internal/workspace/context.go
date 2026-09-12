@@ -627,9 +627,10 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"| `FLOCKDECK_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
 		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
 		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
-		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n\n" +
+		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n" +
+		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n\n" +
 		"`spawn` reads the first three, which is why it works from inside a pane and nowhere " +
-		"else. The same values are set under the older `PERCH_*` names as well, for " +
+		"else. The first five are also set under the older `PERCH_*` names, for " +
 		"anything written before the application was renamed.\n")
 }
 

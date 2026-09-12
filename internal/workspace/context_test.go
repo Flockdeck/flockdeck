@@ -866,6 +866,21 @@ func TestTheSpawnCommandSurvivesTheShell(t *testing.T) {
 	}
 }
 
+// TestTheBriefingNamesEveryVariableAPaneCarries covers the table of what a
+// pane has in its environment. FLOCKDECK_AGENT and FLOCKDECK_MODEL are set on
+// every agent pane, and are how a script or a prompt says what it is sitting
+// in, but the table stopped at five, so an agent asked which model it runs
+// had nowhere to point.
+func TestTheBriefingNamesEveryVariableAPaneCarries(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "FLOCKDECK_PANE", "FLOCKDECK_PANE_NAME",
+		"FLOCKDECK_PROJECT", "FLOCKDECK_AGENT", "FLOCKDECK_MODEL"} {
+		if !strings.Contains(text, "`"+name+"`") {
+			t.Errorf("the briefing never names %s:\n%s", name, text)
+		}
+	}
+}
+
 // TestRenderNamesEveryActionTheInterfaceHas keeps the description of the
 // application whole as the application grows. An action added to the palette
 // and left out of here is one the agent beside the user will never mention,
