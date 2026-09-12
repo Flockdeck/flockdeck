@@ -18,7 +18,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 	case "help":
 		s.out.line(ansiBold, "commands")
 		for _, l := range []string{
-			"/model        the models to choose from; /model 2 or /model <id> switches",
+			"/model        the models to choose from; /model 2, /model opus or /model <id>",
 			"/output [n]   all of the last tool's output, or of the nth last",
 			"/history [n]  the conversation so far, or its last n entries",
 			"/retry        carry on a turn that failed or was interrupted",
@@ -135,9 +135,55 @@ func (s *session) chooseModel(ctx context.Context, arg string) {
 			return
 		}
 		arg = s.choices()[n-1].ID
+	} else if m, ok := s.matchModel(arg); ok {
+		arg = m
+	} else {
+		return
 	}
 	s.model = arg
 	s.out.line(ansiDim, "answering with "+arg+" from here on")
+}
+
+// matchModel is the listed model somebody named by less than its exact id --
+// "opus", "Sonnet 5", "flash" -- since the ids are long and nobody remembers
+// the date on the end of one. An exact id is taken as it is, and so is a name
+// no listed model matches, which is how a model the list leaves out is named.
+// A name several listed models match switches to none of them: it lists them
+// instead, and reports false.
+func (s *session) matchModel(arg string) (string, bool) {
+	want := strings.ToLower(arg)
+	var named, containing []ModelChoice
+	for _, m := range s.choices() {
+		id, name := strings.ToLower(m.ID), strings.ToLower(m.Name)
+		switch {
+		case id == want:
+			return m.ID, true
+		case name == want:
+			named = append(named, m)
+		case strings.Contains(id, want) || strings.Contains(name, want):
+			containing = append(containing, m)
+		}
+	}
+	if len(named) == 1 {
+		return named[0].ID, true
+	}
+	found := append(named, containing...)
+	switch len(found) {
+	case 0:
+		return arg, true
+	case 1:
+		return found[0].ID, true
+	}
+	s.out.line(ansiDim, "more than one model goes by "+arg+":")
+	for i, m := range s.choices() {
+		for _, f := range found {
+			if f.ID == m.ID {
+				s.out.line(ansiDim, fmt.Sprintf("    %d  %s  %s", i+1, m.ID, m.Name))
+			}
+		}
+	}
+	s.out.line(ansiDim, "switch with /model <number>")
+	return "", false
 }
 
 // choices are the models /model offers: the catalog's, or failing those, the
