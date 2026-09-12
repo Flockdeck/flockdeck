@@ -12,7 +12,7 @@ them, how to change it, and where it is kept.
 | Which agent and model a project starts | **Set as default for this project**, at the foot of the picker | `agents.json` |
 | An API agent's key | [[action:apiKeys]], or `flockdeck keys set <agent>` | `keys.json` |
 | A tab's name | double-click the tab | with the layout |
-| Which panes broadcast reaches | the `⇉` button in each pane header | until Flockdeck stops |
+| Which panes the prompt bar reaches | [[key:toggleBroadcast]], and the `⇉` button in each pane header | until Flockdeck stops |
 | Terminal font size | [[key:fontUp]], [[key:fontDown]], [[key:fontReset]] | until Flockdeck is next started |
 | Paired devices | [[action:remote]] — **Pair a device**, **Unpair** | on the relay |
 | Desktop notifications | the browser's own site settings, for the address in the title bar | the browser |
