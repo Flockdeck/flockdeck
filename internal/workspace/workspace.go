@@ -926,7 +926,16 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// An agent with no hooks to answer is briefed here or nowhere, so
 			// the briefing goes in front of the task. One with hooks is briefed
 			// when it fires its first, and gets the task untouched.
-			tokens.Prompt = w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context)
+			task := p.initial
+			if task == "" && resume && spec.Caps.Resume {
+				// A pane that would have resumed but has no conversation to
+				// resume never got as far as its first turn — stopped at a
+				// question, or before it began — so the task it was spawned
+				// with has not been done. It is asked again rather than
+				// brought back idle with its task gone.
+				task = p.Task
+			}
+			tokens.Prompt = w.OpeningPrompt(p.ID, task, spec.Caps.Context)
 		}
 		argv = agent.BuildArgv(spec, resuming, tokens)
 		extra := append([]string{}, spec.Env...)
