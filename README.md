@@ -371,11 +371,12 @@ apply.
 
 Not every coding agent has a lifecycle to register, and Flockdeck runs those too.
 For them the status is read from the terminal instead: the bell, a quiet timer,
-and per-agent patterns for the two lines that matter — the shape of a
-permission question, and the shape of a prompt waiting to be typed at. It is
-matched against the last few hundred bytes with the escape sequences stripped,
-never against the whole scrollback, and a reported event always beats a
-pattern. It is a guess where the other is a fact, and the help says which
+and — for an agent whose `agents.json` entry gives them — patterns for the two
+lines that matter, the shape of a permission question and the shape of a
+prompt waiting to be typed at. They are matched against the last few hundred
+bytes with the escape sequences stripped, never against the whole scrollback,
+and a reported event always beats a pattern. None of the built-in agents has
+patterns yet. It is a guess where the other is a fact, and the help says which
 agents are which so you know which you are looking at.
 
 ### Rearranging what is already running
