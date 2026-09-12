@@ -519,6 +519,8 @@
       main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
       item.append(main);
       const actions = el("div", "wt-actions");
+      const rename = el("button", "chip", "Rename");
+      rename.onclick = () => remoteRename("device", d.id, d.name || "");
       const drop = el("button", "chip danger", "Unpair");
       drop.onclick = () => {
         const q = mine
@@ -527,7 +529,7 @@
         if (!window.confirm(q)) return;
         send({ cmd: "remoteRevoke", id: d.id });
       };
-      actions.append(drop);
+      actions.append(rename, drop);
       item.append(actions);
       dev.append(item);
     });
@@ -545,8 +547,24 @@
         main.append(title);
         main.append(el("div", "wt-meta", h.online ? "online" : "offline — last seen " + remoteAgo(h.lastSeen)));
         item.append(main);
+        // A machine renames itself here; the relay takes a new name for
+        // another machine only from that machine, or from a paired device.
+        if (h.self) {
+          const actions = el("div", "wt-actions");
+          const rename = el("button", "chip", "Rename");
+          rename.id = "remote-rename";
+          rename.onclick = () => remoteRename("host", "", h.name || "");
+          actions.append(rename);
+          item.append(actions);
+        }
         hw.append(item);
       });
+      // A machine wiped without turning remote access off is listed offline
+      // for good unless somebody takes it off, and this is where it is seen.
+      if (hosts.some((h) => !h.self && !h.online)) {
+        hw.append(el("p", "fan-hint", "A machine that was wiped or lost, and so never turned remote access off, " +
+          "is taken off the account from the Devices page of a paired device."));
+      }
       body.append(hw);
     }
     body.append(remoteMachineSection(r, roster));
@@ -683,6 +701,18 @@
     }
     box.append(privateRelaysNote());
     return box;
+  }
+
+  /** remoteRename asks for a new name for this machine or a paired device,
+   *  starting from the one it has. The name is what every device and machine
+   *  on the account lists it as. An answer left empty goes too, to be refused
+   *  with a reason rather than dropped without one. */
+  function remoteRename(kind, id, current) {
+    const name = window.prompt(kind === "host" ? "Rename this machine" : "Rename " + (current || "this device"), current);
+    if (name === null || name === undefined) return;
+    const next = String(name).trim();
+    if (next === current) return;
+    send(kind === "host" ? { cmd: "remoteRename", kind, name: next } : { cmd: "remoteRename", kind, id, name: next });
   }
 
   function remoteDisable(force) {

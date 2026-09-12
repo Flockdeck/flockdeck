@@ -269,7 +269,8 @@ type command struct {
 	TaskModels []string `json:"taskModels"`
 	// Relay, Name, Join and Invite are what the remote access dialog turns
 	// remote access on with, each the flag of the same name to `flockdeck
-	// remote enable`, and each may be empty.
+	// remote enable`, and each may be empty. Name is also the new name
+	// remoteRename gives this machine (Kind "host") or the device ID names.
 	Relay  string `json:"relay"`
 	Name   string `json:"name"`
 	Join   string `json:"join"`
@@ -900,6 +901,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "remoteRevoke":
 		s.remoteRevoke(c, cmd.ID)
+		return
+	case "remoteRename":
+		s.remoteRename(c, cmd.Kind, cmd.ID, cmd.Name)
 		return
 	case "remoteEnable":
 		s.remoteEnable(c, cmd)

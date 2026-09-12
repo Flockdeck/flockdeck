@@ -31,14 +31,15 @@ import (
 
 // RemoteAccess is what the server needs of remote access: to say how the
 // tunnel is, to reach the relay on the window's behalf, to be told to reread
-// the enrolment, and to turn it on and off and try the relay again from the
-// dialog as `flockdeck remote` does from a terminal.
+// the enrolment, and to turn it on and off, rename this machine and try the
+// relay again from the dialog as `flockdeck remote` does from a terminal.
 type RemoteAccess interface {
 	Status() (remote.Status, bool)
 	Client() (*remote.Client, error)
 	Reload() error
 	Enable(ctx context.Context, req remote.EnableRequest) (replaced bool, err error)
 	Disable(ctx context.Context, force bool) (untold error, err error)
+	Rename(ctx context.Context, name string) error
 	Reconnect() error
 }
 
@@ -331,6 +332,49 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 			c.notify("could not unpair that device: "+err.Error(), true)
 		} else {
 			c.notify("device unpaired", false)
+		}
+		s.remoteDevices(c)
+	}()
+}
+
+// remoteRename renames this machine, or one of the account's devices, from
+// the dialog, and sends the list again with the new name in it. A name that
+// could not be one is refused before the relay is asked.
+func (s *Server) remoteRename(c *controlClient, kind, id, name string) {
+	clean, err := remote.CheckName(name)
+	if err != nil {
+		c.notify("could not rename it: "+err.Error(), true)
+		return
+	}
+	if kind != remote.KindHost && id == "" {
+		c.notify("no device was named", true)
+		return
+	}
+	go func() {
+		defer s.survive("renaming")
+		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+		defer cancel()
+		what := "this machine"
+		var err error
+		if kind == remote.KindHost {
+			// Through remote access rather than the relay alone, so that the
+			// name is saved here too and the window shows it.
+			if ra := s.remoteAccess(); ra == nil {
+				err = remote.ErrNotEnabled
+			} else {
+				err = ra.Rename(ctx, clean)
+			}
+		} else {
+			what = "the device"
+			var cl *remote.Client
+			if cl, err = s.remoteClient(); err == nil {
+				err = cl.RenameDevice(ctx, id, clean)
+			}
+		}
+		if err != nil {
+			c.notify("could not rename "+what+": "+err.Error(), true)
+		} else {
+			c.notify(what+" is now called “"+clean+"”", false)
 		}
 		s.remoteDevices(c)
 	}()

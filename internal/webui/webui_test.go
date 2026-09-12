@@ -189,6 +189,42 @@ assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialo
 `)
 }
 
+// This machine and each paired device are renamed from the dialog, starting
+// from the name each has; a cancelled or unchanged answer sends nothing.
+// Another machine is renamed only by itself or a paired device, so it is
+// offered no rename here, and one that is offline is said to be removed from
+// a paired device.
+func TestRemoteAccessRenames(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" } }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true },
+    { id: "h2", name: "old laptop", online: false, lastSeen: "2029-06-01T00:00:00Z" }] });
+const body = h.$("overlay-body");
+const renames = Array.from(body.querySelectorAll("button")).filter((b) => b.textContent === "Rename");
+assert.strictEqual(renames.length, 2, "the device and this machine are each offered a rename, and only they are");
+
+h.win._prompt = "  Work PC ";
+h.click(h.$("remote-rename"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRename", kind: "host", name: "Work PC" });
+h.win._prompt = "Sam's phone";
+h.click(renames[0]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRename", kind: "device", id: "d1", name: "Sam's phone" });
+
+const before = h.commands().length;
+h.win._prompt = null;
+h.click(renames[0]);
+h.win._prompt = "phone";
+h.click(renames[0]);
+assert.strictEqual(h.commands().length, before, "a cancelled or unchanged rename was sent");
+assert.ok(body.textContent.includes("Devices page of a paired device"), "an offline machine is not said to be removed from a paired device");
+`)
+}
+
 // Remote access is turned on and off from the dialog as well as a terminal:
 // "try again" for a tunnel that is not up, turning it off only once asked, a
 // relay that could not be told offered again before it is forgotten anyway,

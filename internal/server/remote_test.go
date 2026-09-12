@@ -36,6 +36,15 @@ type fakeRemote struct {
 	disabled  []bool
 	enableErr error
 	untoldErr error
+	// renamed is each name this machine was given, and renameErr what
+	// renaming it is refused with.
+	renamed   []string
+	renameErr error
+}
+
+func (f *fakeRemote) Rename(_ context.Context, name string) error {
+	f.renamed = append(f.renamed, name)
+	return f.renameErr
 }
 
 func (f *fakeRemote) Status() (remote.Status, bool)   { return f.st, f.ok }
@@ -101,6 +110,47 @@ func TestTheDialogTurnsRemoteAccessOnAndOff(t *testing.T) {
 	}
 	if len(fake.disabled) != 2 || fake.disabled[0] || !fake.disabled[1] {
 		t.Errorf("remote access was asked to disable with force %v", fake.disabled)
+	}
+}
+
+// TestTheDialogRenamesThisMachine covers renaming from the Remote access
+// dialog: this machine through remote access, so that the name is saved and
+// shown here too, trimmed as the relay keeps it; a name that could not be one,
+// or a device not named, is refused before anything is asked.
+func TestTheDialogRenamesThisMachine(t *testing.T) {
+	srv, _ := newTestServer(t)
+	fake := &fakeRemote{}
+	srv.SetRemote(fake)
+	conn := dialControl(t, srv)
+	var note noticeMsg
+	read := func() {
+		t.Helper()
+		note = noticeMsg{}
+		readUntil(t, conn, "notice", &note)
+	}
+
+	sendCmd(t, conn, command{Cmd: "remoteRename", Kind: "host", Name: "  Work PC "})
+	read()
+	if note.Error || note.Text != "this machine is now called “Work PC”" {
+		t.Errorf("renaming this machine was answered %+v", note)
+	}
+	if len(fake.renamed) != 1 || fake.renamed[0] != "Work PC" {
+		t.Errorf("remote access was asked to rename this machine to %q", fake.renamed)
+	}
+	for _, name := range []string{" ", "fdp_code"} {
+		sendCmd(t, conn, command{Cmd: "remoteRename", Kind: "host", Name: name})
+		read()
+		if !note.Error || !strings.HasPrefix(note.Text, "could not rename it: ") {
+			t.Errorf("renaming this machine to %q was answered %+v, want it refused", name, note)
+		}
+	}
+	sendCmd(t, conn, command{Cmd: "remoteRename", Kind: "device", Name: "phone"})
+	read()
+	if !note.Error || note.Text != "no device was named" {
+		t.Errorf("renaming a device without its id was answered %+v", note)
+	}
+	if len(fake.renamed) != 1 {
+		t.Errorf("a refused rename reached remote access: %q", fake.renamed)
 	}
 }
 
