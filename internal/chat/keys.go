@@ -222,7 +222,10 @@ func isLoopback(base string) bool {
 		return false
 	}
 	host := u.Hostname()
-	if host == "localhost" {
+	// A host name has no case, and the picker already reads it so: an
+	// address typed "http://LocalHost:11434" was offered as needing no key,
+	// and the chat then refused to start for want of one.
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
