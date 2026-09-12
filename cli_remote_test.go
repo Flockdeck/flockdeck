@@ -483,6 +483,20 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	}
 }
 
+// The general usage is read in a terminal, which is often 80 columns wide, as
+// each command's own help is.
+func TestRemoteUsageFitsATerminal(t *testing.T) {
+	out, _, err := runRemoteCmd(t)
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote") {
+		t.Fatalf("remote with no command = %q, %v", out, err)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("the usage has a line %d wide: %q", n, l)
+		}
+	}
+}
+
 // A device's name of several words, typed without quotes, is taken whole when
 // it names a device; several words that do not are answered with the usage.
 func TestRemoteRevokeANameOfSeveralWords(t *testing.T) {

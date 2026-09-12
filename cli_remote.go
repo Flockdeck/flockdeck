@@ -176,7 +176,8 @@ Commands:
   disable [-force]  remove this machine from the relay
 
 Run flockdeck remote help <command> for more about one of them.
-The relay is %s unless -relay or %s says otherwise.
+The relay is %s unless -relay or %s
+says otherwise.
 To move to another relay, disable remote access, then enable it with -relay.
 In the window, Remote access… in the command palette does the same things.
 Traffic is encrypted on its way to and from the relay, which decrypts it to
