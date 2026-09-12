@@ -267,6 +267,16 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		stopped = errors.New("the conversation has filled the model's context window")
 	}
 	if stopped != nil {
+		// Reasoning the API finished -- signed, or redacted whole -- goes back
+		// with what was written of the answer, unchanged, as the vendor's
+		// guidance for its thinking models asks: "go on" after an answer cut
+		// off at its limit then carries on from the model's reasoning rather
+		// than without it. Half a block, unsigned, is not sent.
+		for _, i := range sortedKeys(thoughts) {
+			if t := thoughts[i]; t.Signature != "" || t.Redacted != "" {
+				emit(Event{Kind: EventReasoning, Thinking: *t})
+			}
+		}
 		// What was read is spent whether or not the answer is whole.
 		emit(Event{Kind: EventUsage, Usage: usage})
 		return stopped
