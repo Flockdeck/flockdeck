@@ -166,6 +166,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "flockdeck:", err)
 		os.Exit(2)
 	}
+	if w := notInstalledWarning(c.agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck:", w)
+	}
 	server.Version = version
 
 	if c.quit {
@@ -808,6 +811,9 @@ func runSpawn(args []string) error {
 	if err != nil {
 		return err
 	}
+	if w := notInstalledWarning(req.Agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck spawn:", w)
+	}
 	api := paneEnv("API")
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
@@ -1111,6 +1117,30 @@ func checkAgent(id, model string) error {
 		}
 	}
 	return fmt.Errorf("no agent offers a model called %q; run `flockdeck agents` to see what each of them does", model)
+}
+
+// notInstalledWarning is what to say when the agent named on the command line
+// is in the catalog but cannot be started on this machine, or "" when there is
+// nothing to say.
+//
+// checkAgent only asks whether the name exists. Without this, `-agent codex`
+// on a machine with no Codex opened a window of panes that would not start,
+// with the reason only in the window. It is a warning rather than a refusal
+// because whether an agent is there is a probe, not a certainty.
+func notInstalledWarning(id string) string {
+	if id == "" {
+		return ""
+	}
+	specs, _ := agentCatalog()
+	s, ok := findSpec(specs, id)
+	if !ok || agentAvailable(s) {
+		return ""
+	}
+	msg := agentName(s) + " is not installed here, so its panes will not start"
+	if s.Install != "" {
+		msg += "; to install it: " + s.Install
+	}
+	return msg
 }
 
 // agentCatalog is how the command line reaches the catalog: the agents Flockdeck

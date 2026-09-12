@@ -539,6 +539,21 @@ func TestPrintAgentsShowsWhatIsNotInstalled(t *testing.T) {
 	}
 }
 
+// An agent that exists but is not installed is still worth a word at the
+// command line, and the word says how to get it.
+func TestNotInstalledWarning(t *testing.T) {
+	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
+	if w := notInstalledWarning("codex"); !strings.Contains(w, "Codex") || !strings.Contains(w, "npm i -g @openai/codex") {
+		t.Errorf("codex, not installed: %q, want its name and install line", w)
+	}
+	if w := notInstalledWarning("claude"); w != "" {
+		t.Errorf("claude, installed: %q, want nothing", w)
+	}
+	if w := notInstalledWarning(""); w != "" {
+		t.Errorf("no agent chosen: %q, want nothing", w)
+	}
+}
+
 // The models line has to say something for each of the three shapes an entry
 // can take, because "models:" followed by nothing reads as a bug.
 func TestModelSummary(t *testing.T) {
