@@ -16,6 +16,46 @@
     return n;
   };
 
+  /** ICON_PATHS is the drawing for each icon in the rail, the top bar and the
+   *  settings, on a 16-unit grid and stroked in the text colour. A glyph in a
+   *  font is drawn however that font draws it, and several of these had no
+   *  glyph that said the thing at all. */
+  const ICON_PATHS = {
+    broadcast: '<circle cx="8" cy="8" r="1.4"></circle><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.1 3.1a7 7 0 0 0 0 9.8M12.9 3.1a7 7 0 0 1 0 9.8"></path>',
+    changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
+    history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
+    worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
+    help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
+    settings: '<path d="M2.5 4.5h6.5M12.5 4.5h1M2.5 11.5h1.5M7.5 11.5h6"></path><circle cx="10.7" cy="4.5" r="1.6"></circle><circle cx="5.7" cy="11.5" r="1.6"></circle>',
+    update: '<path d="M8 2.5v7.5M4.8 7 8 10.2 11.2 7M3.5 13.3h9"></path>',
+    plus: '<path d="M8 3.2v9.6M3.2 8h9.6"></path>',
+    minus: '<path d="M3.5 8h9"></path>',
+    chev: '<path d="M4.8 6.4 8 9.6l3.2-3.2"></path>',
+    search: '<circle cx="7" cy="7" r="4.2"></circle><path d="M10.2 10.2 13.3 13.3"></path>',
+    folderplus: '<path d="M8 4.5v7M4.5 8h7"></path>',
+    ext: '<path d="M6.5 3.5h-3v9h9v-3M9.5 2.5h4v4M13.5 2.5 8 8"></path>',
+    menu: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path>',
+  };
+
+  /** iconSVG is the markup for one icon. It goes in as markup because a node
+   *  made in the SVG namespace needs createElementNS for every part of it. */
+  function iconSVG(name, size) {
+    const s = size || 16;
+    return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false">' +
+      (ICON_PATHS[name] || "") + "</svg>";
+  }
+
+  /** iconEl is an icon as an element, hidden from a screen reader: whatever
+   *  it sits in carries the words. */
+  function iconEl(name, size) {
+    const n = el("span", "ico");
+    n.setAttribute("aria-hidden", "true");
+    n.innerHTML = iconSVG(name, size);
+    return n;
+  }
+
   // ------------------------------------------------------------------ tips
 
   /* Native title tooltips are wrong here twice over: they wait about a second,
@@ -287,15 +327,15 @@
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
       else if (msg.type === "agentAddress") addressAnswered(msg);
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (dialog === "remote") keepFocus(renderRemote); }
-      else if (msg.type === "remotePair") { remotePairing = msg; if (dialog === "remote") keepFocus(renderRemote); }
+      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote); }
+      else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
         remoteOutcome = msg;
         // A machine that has just been enrolled starts from an empty form the
         // next time it is turned off and on, not from the codes used once.
         if (msg.action === "enable" && !msg.error) remoteDraft = newRemoteDraft();
-        if (dialog === "remote") keepFocus(renderRemote);
+        if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
@@ -330,7 +370,8 @@
     updateShown = key;
     const b = $("btn-update");
     if (!u) { b.hidden = true; return; }
-    b.textContent = "Update " + u.version;
+    b.textContent = "";
+    b.append(iconEl("update", 14), document.createTextNode("Update " + u.version));
     describe(b, "Version " + u.version + " has been downloaded and is ready to install");
     b.hidden = false;
   }
@@ -389,30 +430,40 @@
   let remoteBusy = "";
   let remoteOutcome = null;
 
-  /** renderRemoteChip shows the Remote chip on an enrolled machine, and keeps
-   *  the dialog's status line current while it is open. Like the update chip
-   *  it is keyed on what it shows, so a snapshot that says nothing new about
-   *  the tunnel does not rebuild it. */
+  /** renderRemoteChip keeps the rail's Remote button saying where the tunnel
+   *  stands, and the dialog's status line current while it is open. The
+   *  button is there whether or not remote access is on: hidden until the
+   *  machine was enrolled, it could only be found by somebody who already
+   *  knew to look in the palette. Like the update pill it is keyed on what it
+   *  shows, so a snapshot that says nothing new about the tunnel does not
+   *  rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
-    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "";
+    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
     const b = $("btn-remote");
-    if (!r) {
-      b.hidden = true;
-    } else {
-      // Amber only when it needs somebody, which is what amber means
-      // everywhere else here. A working tunnel is a plain chip, and the count
-      // says whether anybody is using it.
-      b.textContent = r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
-      b.classList.toggle("trouble", r.state === "error" || r.state === "revoked" || r.state === "replaced");
-      b.classList.toggle("pending", r.state === "connecting");
-      describe(b, remoteSummary(r));
-      b.hidden = false;
-    }
-    if (dialog === "remote") keepFocus(renderRemote);
+    // Amber only when it needs somebody, which is what amber means everywhere
+    // else here; green is a working tunnel, grey one still connecting, and
+    // no badge at all is remote access turned off.
+    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced");
+    const pending = !!r && r.state === "connecting";
+    b.classList.toggle("trouble", trouble);
+    b.classList.toggle("pending", pending);
+    const badge = b.querySelector(".rail-badge");
+    badge.classList.toggle("on", !!r && r.state === "connected");
+    badge.classList.toggle("pending", pending);
+    badge.classList.toggle("trouble", trouble);
+    // The count says whether anybody is using it, and is part of the name.
+    b.querySelector(".rail-label").textContent = r && r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
+    describe(b, r ? remoteSummary(r) : actionTip("remote",
+      "off. Turn it on to open this window from another device, such as a tablet or a phone"));
+    if (remoteShown()) keepFocus(renderRemote);
   }
+
+  /** remoteShown is whether remote access is on screen to be drawn: its own
+   *  dialog, or its section of the settings. */
+  function remoteShown() { return !!remoteHost(); }
 
   /** remoteSummary says in a sentence where the tunnel stands. */
   function remoteSummary(r) {
@@ -444,9 +495,15 @@
     send({ cmd: "remoteDevices" });
   }
 
+  /** remoteHost is where remote access is drawn, or null while it is not on
+   *  screen. */
+  function remoteHost() {
+    return dialog === "remote" ? $("overlay-body") : null;
+  }
+
   function renderRemote() {
-    if (dialog !== "remote") return;
-    const body = $("overlay-body");
+    const body = remoteHost();
+    if (!body) return;
     body.textContent = "";
     const r = state && state.remote;
     // Enrolling decides where the traffic goes, so the form says which relay
@@ -768,6 +825,7 @@
     applyWeights(s);
     showActiveTab(s, rebuilt);
     renderTabs(s);
+    renderRail(s);
     renderSummary(s);
     followAgents(s);
     followProjects(s);
@@ -1322,11 +1380,15 @@
     field.select();
   }
 
-  /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
-   *  after it are the reading, and the tip explains the state being counted. */
-  function tally(cls, sym, n, tip) {
+  /** tally builds one "3 waiting" count: the dot is decoration in the status's
+   *  colour, the words after it are the reading, and the tip explains the
+   *  state being counted. The word is its own element so that a narrow
+   *  screen can keep it for a screen reader and show only the figure. */
+  function tally(cls, n, tip) {
     const span = el("span", cls);
-    span.append(glyph(sym), document.createTextNode(` ${n} ${cls}`));
+    const dot = el("span", "tally-dot");
+    dot.setAttribute("aria-hidden", "true");
+    span.append(dot, document.createTextNode(String(n)), el("span", "tally-word", " " + cls));
     return describe(span, tip);
   }
 
@@ -1371,23 +1433,36 @@
       // describeChrome; re-titling it here would put a stale binding back.
       // Each count says what its own glyph means: the button's tooltip explains
       // where clicking leads, which is not the same question.
-      if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
-      if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
-      if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
+      if (s.waiting > 0) box.append(tally("waiting", s.waiting, TIPS.waiting));
+      // The gap between the two is the eye's; a screen reader needs a pause.
+      if (s.waiting > 0 && s.working > 0) box.append(el("span", "sr-only", ", "));
+      if (s.working > 0) box.append(tally("working", s.working, TIPS.working));
       document.title = s.waiting > 0
         ? `▲ ${s.waiting} waiting · flockdeck`
         : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
       setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
     }
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
+    $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
     renderProjectChip(s);
   }
 
-  /** renderProjectChip labels the switcher with the active project. */
+  /** renderProjectChip labels the switcher with the active project, and the
+   *  branch its own checkout is on. */
   function renderProjectChip(s) {
     const active = (s.projects || []).find((p) => p.active);
     const name = active ? active.name : "project";
     if ($("project-name").textContent !== name) $("project-name").textContent = name;
+    // The branch of the project's own folder, read off a pane working there.
+    // A pane in a worktree is on a branch of its own and says so in its
+    // header; with no pane in the folder itself there is nothing to say.
+    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = norm(active ? active.root : s.root);
+    const home = Object.values(s.panes || {}).find((v) => v.branch && norm(v.cwd) === root);
+    const branch = home ? home.branch : "";
+    const bn = $("project-branch");
+    if (bn.textContent !== branch) bn.textContent = branch;
+    bn.hidden = !branch;
     // The path goes into the same bubble as what the button does and the key
     // that does it, rather than into a title of its own. A title is taken over
     // as the tooltip the first time an element is hovered, so writing one here
@@ -1403,6 +1478,187 @@
     if (btn.dataset.tip !== tip) describe(btn, tip);
     btn.classList.toggle("attention", elsewhere.length > 0);
   }
+
+  // ------------------------------------------------------------------- rail
+
+  /** The tile for each open project, by its folder, kept across the pushes
+   *  for the reason the tab buttons are: rebuilt on each, the keyboard and a
+   *  tooltip resting on one would go with it. */
+  const railTiles = new Map();
+  /** What the tiles were last drawn from, so a push that changes nothing they
+   *  show - which is nearly every push - is not drawn at all. */
+  let railShown = "";
+  /** The rail's one stop for Tab. The arrows move it. Until somebody does,
+   *  it is the project on screen, and follows it from project to project. */
+  let railStop = null;
+  let railStopChosen = false;
+
+  /** renderRail draws a tile for each open project: its monogram, which one
+   *  is on screen, and an amber badge where an agent is waiting on you. That
+   *  last is what the rail is for - a project with somebody blocked in it is
+   *  seen from any other without opening anything. */
+  function renderRail(s) {
+    const projects = s.projects || [];
+    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0]));
+    if (key === railShown) return;
+    railShown = key;
+    const box = $("rail-projects");
+    const monos = monograms(projects.map((p) => p.name));
+    projects.forEach((p, i) => {
+      let t = railTiles.get(p.root);
+      if (!t) { t = railTile(p.root); railTiles.set(p.root, t); }
+      t.mono.textContent = monos[i];
+      t.name.textContent = p.name;
+      t.btn.classList.toggle("current", !!p.active);
+      if (p.active) t.btn.setAttribute("aria-current", "true");
+      else t.btn.removeAttribute("aria-current");
+      t.badge.classList.toggle("waiting", (p.waiting || 0) > 0);
+      // Two letters say which project to somebody who already knows; the
+      // name and the folder say it to everybody else, and two checkouts of
+      // one repository have the same name and only the folder differs.
+      const waiting = p.waiting
+        ? ", " + (p.waiting === 1 ? "an agent is" : p.waiting + " agents are") + " waiting on you" : "";
+      const says = p.name + " — " + p.root + waiting;
+      t.btn.setAttribute("aria-label", says);
+      describe(t.btn, p.active ? says + ". The project on screen." : says);
+      if (box.children[i] !== t.btn) box.insertBefore(t.btn, box.children[i] || null);
+    });
+    for (const [root, t] of railTiles) {
+      if (projects.some((p) => p.root === root)) continue;
+      if (tipFor && t.btn.contains(tipFor)) hideTip();
+      t.btn.remove();
+      railTiles.delete(root);
+    }
+    placeRailStop();
+  }
+
+  /** railTile makes the button for one project, bound to its folder rather
+   *  than to the record it arrived in. */
+  function railTile(root) {
+    const btn = el("button", "rail-btn rail-tile");
+    btn.dataset.root = root;
+    const mono = el("span", "mono");
+    mono.setAttribute("aria-hidden", "true");
+    const badge = el("span", "rail-badge");
+    badge.setAttribute("aria-hidden", "true");
+    const name = el("span", "rail-label");
+    btn.append(mono, badge, name);
+    btn.onclick = () => {
+      closeRailMenu(false);
+      const p = ((state && state.projects) || []).find((x) => x.root === root);
+      // The project already on screen: the click was for its terminal.
+      if (p && p.active) focusTerminal();
+      else send({ cmd: "selectProject", root });
+    };
+    return { btn, mono, badge, name };
+  }
+
+  /** monograms gives each name two letters, and no two the same: the first
+   *  letter of the first word and of the last, and where that is taken, the
+   *  first with a later consonant of the last word - flockdeck-relay and
+   *  flockdeck-remote are FR and FM, not FR twice. A name of one word starts
+   *  from its first two letters. Taken in the order the projects were opened,
+   *  so a project keeps its letters while the ones after it come and go. */
+  function monograms(names) {
+    const taken = new Set();
+    return names.map((name) => {
+      const pick = monogramCandidates(name).find((c) => !taken.has(c)) || String(taken.size + 1);
+      taken.add(pick);
+      return pick;
+    });
+  }
+
+  function monogramCandidates(name) {
+    const words = String(name || "").replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, "$1 $2")
+      .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const out = [];
+    const add = (a, b) => {
+      const m = (a + (b || "")).toUpperCase();
+      if (a && !out.includes(m)) out.push(m);
+    };
+    if (!words.length) return ["?"];
+    const first = [...words[0]][0];
+    const last = [...words[words.length - 1]];
+    if (words.length > 1) {
+      add(first, last[0]);
+      last.slice(1).filter((c) => !/[aeiouy]/i.test(c)).forEach((c) => add(first, c));
+      words.slice(1, -1).forEach((w) => add(first, [...w][0]));
+    }
+    const letters = [...words.join("")];
+    if (letters.length === 1) add(first);
+    letters.slice(1).forEach((c) => add(first, c));
+    for (let d = 2; d <= 9; d++) add(first, String(d));
+    return out;
+  }
+
+  /** railButtons is every button in the rail, in the order the arrows walk. */
+  function railButtons() {
+    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled);
+  }
+
+  /** placeRailStop keeps exactly one of the rail's buttons as its stop for
+   *  Tab: the one last used, or the project on screen to begin with. Ten
+   *  projects and seven tools are otherwise seventeen presses of Tab between
+   *  the top bar and anything past the rail. */
+  function placeRailStop(to) {
+    const all = railButtons();
+    if (to) { railStop = to; railStopChosen = true; }
+    if (!railStopChosen || !railStop || !railStop.isConnected || !all.includes(railStop)) {
+      railStopChosen = false;
+      railStop = all.find((b) => b.classList.contains("current")) || all[0] || null;
+    }
+    all.forEach((b) => {
+      const stop = b === railStop ? 0 : -1;
+      if (b.getAttribute("tabindex") !== String(stop)) b.tabIndex = stop;
+    });
+  }
+
+  /** railKey walks the rail with the arrow keys, up and down as it stands, and
+   *  left and right as well for anybody who reaches for those. */
+  function railKey(ev) {
+    const all = railButtons();
+    const at = all.indexOf(document.activeElement);
+    if (at < 0) return;
+    let to;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowRight") to = (at + 1) % all.length;
+    else if (ev.key === "ArrowUp" || ev.key === "ArrowLeft") to = (at - 1 + all.length) % all.length;
+    else if (ev.key === "Home") to = 0;
+    else if (ev.key === "End") to = all.length - 1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    placeRailStop(all[to]);
+    all[to].focus();
+    all[to].scrollIntoView({ block: "nearest" });
+  }
+
+  /* On a narrow screen the rail is folded into a menu opened from the top bar
+   * (the style sheet decides where; this only opens and closes it). While it
+   * is open it holds the keyboard as a dialog does, and Escape, a tap beside
+   * it or choosing anything in it puts it away. */
+  function railMenuOpen() { return document.body.classList.contains("rail-open"); }
+
+  function openRailMenu() {
+    document.body.classList.add("rail-open");
+    $("rail-toggle").setAttribute("aria-expanded", "true");
+    // The menu opens on the project on screen: it is where the list of them
+    // is read from.
+    placeRailStop(railButtons().find((b) => b.classList.contains("current")));
+    if (railStop) railStop.focus();
+  }
+
+  /** closeRailMenu puts the menu away, and the keyboard back on the button
+   *  that opened it where nothing else is about to take it. */
+  function closeRailMenu(refocus) {
+    if (!railMenuOpen()) return;
+    document.body.classList.remove("rail-open");
+    $("rail-toggle").setAttribute("aria-expanded", "false");
+    if (refocus) $("rail-toggle").focus();
+  }
+
+  /** railFolded is whether the rail is a menu at the window's width now: the
+   *  button that opens it is only on screen while it is. */
+  function railFolded() { return $("rail-toggle").offsetParent !== null; }
 
   // ------------------------------------------------- rearranging the layout
 
@@ -2333,6 +2589,7 @@
    * also moved the focus, and the answer must not depend on which won. */
   function dialogOpen() {
     if (typingInDialog()) return true;
+    if (railMenuOpen()) return true;
     return ["overlay", "palette", "promptbar", "searchbar"].some((id) => {
       const n = $(id);
       return n && !n.hidden;
@@ -2365,6 +2622,9 @@
     if (!$("disconnected").hidden) return $("disconnected").querySelector(".panel");
     if (!$("palette").hidden) return $("palette-box");
     if (!$("overlay").hidden) return $("overlay-panel");
+    // The rail folded into a menu covers the window's edge, with the panes
+    // dimmed behind it, and is left the way a dialog is.
+    if (railMenuOpen() && railFolded()) return $("rail");
     return null;
   }
 
@@ -2817,7 +3077,10 @@
   /** The same for an open project whose × was last pressed. */
   let closedAt = -1;
 
-  function openProjects() {
+  /** openProjects opens the projects dialog. `browsing` is the rail's button
+   *  for opening a project, which puts the keyboard in the folder field: the
+   *  one question that button asks is which folder. */
+  function openProjects(browsing) {
     dialog = "projects";
     browseDraft = null;
     recentsAll = false;
@@ -2825,6 +3088,7 @@
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
     renderProjects();
+    if (browsing === true && $("browse-path")) $("browse-path").focus();
   }
 
   function renderProjects() {
@@ -3032,6 +3296,8 @@
     up.disabled = !b || !b.parent;
     up.onclick = () => send({ cmd: "browse", path: b.parent });
     const path = el("input");
+    path.id = "browse-path";
+    path.setAttribute("aria-label", "Folder");
     // A path being typed survives a redraw of the dialog — dropping a project
     // from the recent list redraws it — and gives way to wherever the browser
     // has actually been sent, which is what arriving somewhere new means.
@@ -3550,11 +3816,18 @@
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
-    label("toggleBroadcast", $("btn-broadcast"));
+    label("toggleBroadcast", $("btn-broadcast"), "on while it is lit");
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("help", $("btn-help"));
+    label("palette", $("btn-palette"), "every action there is, searchable");
+    label("projects", $("rail-open"), "open a folder as a project");
+    // The palette's key, drawn as keys on the button that opens it.
+    const k = keyTable.find((x) => x.id === "palette");
+    const keys = $("palette-keys");
+    keys.textContent = "";
+    if (k && k.keys) k.keys.split("+").forEach((part) => keys.append(el("kbd", null, part)));
   }
 
   /** actionTip is the copy for a control that runs an action: what it does and
@@ -5704,6 +5977,7 @@
     }
     if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
+    if (e.key === "Escape" && railMenuOpen() && $("overlay").hidden) { e.preventDefault(); closeRailMenu(true); return; }
     // Anywhere in the bar, not only in its field: after a click on one of its
     // arrows the keyboard is on that button, and Escape did nothing there.
     // F3 steps through the matches, as in nearly every Windows program, from
@@ -5779,6 +6053,32 @@
 
   // ------------------------------------------------------------------ wiring
 
+  document.querySelectorAll("[data-icon]").forEach((n) => {
+    n.innerHTML = iconSVG(n.dataset.icon, Number(n.dataset.size) || 16);
+  });
+  $("rail").addEventListener("keydown", railKey);
+  // Wherever the keyboard or a click lands in the rail becomes its stop, so
+  // Tab brings it back to the button last used.
+  $("rail").addEventListener("focusin", (e) => {
+    const b = e.target.closest && e.target.closest("button");
+    if (b && b !== railStop && railButtons().includes(b)) placeRailStop(b);
+  });
+  // Choosing anything in the menu is done with it. Each button's own handler
+  // has run by now, so the dialog it opened keeps the keyboard.
+  $("rail").addEventListener("click", (e) => {
+    if (e.target.closest && e.target.closest("button")) closeRailMenu(false);
+  });
+  $("rail-toggle").onclick = () => { if (railMenuOpen()) closeRailMenu(true); else openRailMenu(); };
+  describe($("rail-toggle"), "Projects, tools and settings");
+  $("rail-scrim").onclick = () => closeRailMenu(true);
+  // Widened past the point where the rail folds, an open menu would go on
+  // holding the keyboard with nothing on screen to say so.
+  try {
+    matchMedia("(max-width: 640px)").addEventListener("change", (e) => { if (!e.matches) closeRailMenu(false); });
+  } catch { /* no matchMedia, no folding */ }
+  placeRailStop();
+  $("rail-open").onclick = () => openProjects(true);
+  $("btn-palette").onclick = () => runAction("palette");
   $("new-tab").onclick = () => send({ cmd: "newTab", kind: "agent" });
   // Described here rather than only in describeChrome, which writes what the
   // action table says and can only do so once the table names this one.

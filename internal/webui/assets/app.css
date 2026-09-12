@@ -30,20 +30,140 @@ html, body {
 
 body { display: flex; flex-direction: column; }
 
+/* Visually hidden, still read out: the words a screen reader needs where the
+ * eye already has an icon or a colour to go by. */
+.sr-only, .rail-label {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+
+/* The icons are inline SVG drawn from app.js, in the text colour. */
+.ico { display: flex; flex: 0 0 auto; }
+.ico svg { display: block; }
+
+/* ---------------------------------------------------------------- the rail */
+
+/* The page is the rail beside everything else. The top bar, the hints, the
+ * panes and the bars along the bottom stay the one column they were. */
+body { flex-direction: row; }
+#main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+
+#rail {
+  width: 52px; flex: 0 0 auto;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 0;
+  background: var(--bg-inset); border-right: 1px solid var(--line);
+  /* A short window - a phone held sideways - has less height than the
+   * buttons need, and the rail then scrolls as a whole rather than cutting
+   * Settings off the bottom. */
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
+}
+#rail::-webkit-scrollbar { display: none; }
+.rail-mark { width: 24px; height: 24px; margin: 6px 0; flex: 0 0 auto; }
+.rail-rule { width: 24px; height: 1px; background: var(--line); margin: 4px 0; flex: 0 0 auto; }
+.rail-fill { flex: 1 1 auto; }
+/* The projects scroll among themselves when there are more than fit, and
+ * give up their height before the tools under them do. The padding is room
+ * for the focus ring, which the scrolling box would otherwise clip. */
+#rail-projects {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  flex: 0 1 auto; min-height: 44px; width: 100%; padding: 2px 0;
+  overflow-y: auto; scrollbar-width: none;
+}
+#rail-projects::-webkit-scrollbar { display: none; }
+
+.rail-btn {
+  position: relative; flex: 0 0 auto;
+  width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+}
+.rail-btn:hover { background: #22262e; color: var(--fg); }
+.rail-tile .mono { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+/* The project on screen: a lighter ground, and an edge so that it is told
+ * apart from the tile the pointer happens to be over. */
+.rail-tile.current { background: #262a32; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* Broadcast is on: the orange it is everywhere else, with dark ink on it. */
+.rail-btn.on { background: var(--cast); color: #1f0d02; }
+.rail-btn.on:hover { background: var(--cast); color: #1f0d02; }
+
+/* A dot on the corner of a tile or a button. Amber on a project is an agent
+ * there waiting on you, which is what the rail is most for; on Remote, green
+ * is a working tunnel, grey one still connecting and amber one in trouble. */
+.rail-badge {
+  display: none; position: absolute; right: 3px; top: 3px;
+  width: 8px; height: 8px; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg-inset);
+}
+.rail-badge.waiting, .rail-badge.trouble { display: block; background: var(--waiting); }
+.rail-badge.on { display: block; background: var(--working); }
+.rail-badge.pending { display: block; background: var(--idle); }
+
+/* Only a narrow screen, where the rail is folded away, has these two. */
+#rail-toggle { display: none; }
+#rail-scrim { display: none; }
+
 /* ---------------------------------------------------------------- top bar */
 
 #topbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 8px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 12px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
 }
+/* The tab strip is the one part of the bar that scrolls, so it is the part
+ * that gives up width; the project's name is cut short after it. Everything
+ * else keeps its size, so the last control is never clipped off the edge. */
+#topbar > * { flex: 0 0 auto; }
+#topbar > .spacer { flex: 1 1 auto; }
+#topbar > .project { flex: 0 1 auto; min-width: 0; }
+#topbar > #tabbar { flex: 0 1 auto; min-width: 0; }
+#tabbar { display: flex; align-items: center; gap: 8px; }
 
-#tabs { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.project {
+  display: flex; align-items: center; gap: 8px; max-width: 320px;
+  height: 28px; padding: 0 6px 0 8px; border: 0; border-radius: var(--radius);
+  background: transparent; color: var(--fg); font: inherit; cursor: pointer;
+}
+.project:hover { background: #22262e; }
+#project-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#project-branch { color: var(--fg-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+#project-branch[hidden] { display: none; }
+.project .caret { color: var(--fg-dim); }
+/* An agent is waiting in a project that is not on screen. Its tile in the
+ * rail has the badge; this says as much where the eye is. */
+.project.attention .caret { color: var(--waiting); }
+
+.bar-btn {
+  display: flex; align-items: center; justify-content: center;
+  height: 26px; min-width: 26px; padding: 0 4px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+}
+.bar-btn:hover { background: #22262e; color: var(--fg); }
+/* The plus and its caret are one control with a fast half and a slow half. */
+.new-tab-group { display: flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); }
+.new-tab-group .bar-btn { height: 24px; border-radius: 0; }
+.new-tab-group #new-tab { width: 28px; border-radius: 5px 0 0 5px; }
+.new-tab-group .caret-btn { width: 22px; min-width: 22px; border-left: 1px solid var(--line); border-radius: 0 5px 5px 0; }
+
+.commands {
+  display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 8px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: transparent; color: var(--fg-dim); font: inherit; font-size: 12px;
+  white-space: nowrap; cursor: pointer;
+}
+.commands:hover { background: #22262e; color: var(--fg); }
+.commands-keys { display: flex; gap: 3px; }
+.commands-keys kbd {
+  background: transparent; color: var(--fg-dim); border-bottom-width: 1px;
+  padding: 0 5px; font-size: 11px; line-height: 17px;
+}
+
+#tabs { display: flex; gap: 2px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 #tabs::-webkit-scrollbar { display: none; }
 /* With the scroll bar hidden, tabs past an end of the strip were out of sight
  * with nothing to say they were there, so an end with more beyond it fades.
@@ -58,24 +178,12 @@ body { display: flex; flex-direction: column; }
  * over its close button. */
 #tabs { scroll-padding-inline: 32px; }
 
-/* The tab strip is the one part of the bar that scrolls, so it is also the one
- * part that should give up width. Without this the buttons on the right shrink
- * too and the last of them is clipped off the edge of a narrow window. */
-#topbar > .chip, #topbar > .icon-btn, #topbar > .divider-v { flex: 0 0 auto; }
-/* In a narrow window the chips took all of that: measured in Chrome, at 640px
- * the strip was left 23px, the one tab in it unreadable, and at 480px the bar
- * ran 129px past the edge and the help button with it, out of reach. The
- * three that open dialogs step aside there - each is in the palette and has a
- * key of its own - so the tabs, the summary and the help stay. */
-@media (max-width: 820px) {
-  #btn-changes, #btn-history, #btn-worktrees { display: none; }
-}
-
 .tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  height: 28px;
+  padding: 0 6px 0 10px;
   border-radius: var(--radius);
   border: 1px solid transparent;
   background: transparent;
@@ -86,7 +194,7 @@ body { display: flex; flex-direction: column; }
   font: inherit;
 }
 .tab:hover { background: #22262e; color: var(--fg); }
-.tab.active { background: var(--bg-inset); color: var(--fg); border-color: var(--line-strong); }
+.tab.active { background: var(--bg); color: var(--fg); border-color: var(--line); }
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .close {
   opacity: 0; border: 0; background: transparent; color: var(--fg-dim);
@@ -118,21 +226,33 @@ body { display: flex; flex-direction: column; }
 
 .spacer { flex: 1 1 auto; }
 
-.chip.project { font-weight: 600; color: var(--fg); display: flex; align-items: center; gap: 6px; max-width: 260px; }
-.chip.project #project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip.project .caret { color: var(--fg-dim); font-size: 10px; }
-.chip.project.attention { border-color: var(--waiting); color: var(--waiting); }
-
-.divider-v { width: 1px; height: 20px; background: var(--line-strong); flex: 0 0 auto; }
+.divider-v { width: 1px; height: 18px; background: var(--line); flex: 0 0 auto; }
 
 #summary {
-  color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
-  border-color: transparent; background: transparent;
+  display: flex; align-items: center; gap: 12px; height: 28px; padding: 0 6px;
+  border: 0; border-radius: var(--radius); background: transparent;
+  color: var(--fg-dim); font: inherit; font-size: 12px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
 }
-#summary:hover { border-color: var(--line-strong); background: #22262e; }
-#summary:empty { display: none; }
-#summary .working { color: var(--working); }
+#summary:hover { background: #22262e; }
+#summary:empty, #summary:empty + .summary-rule { display: none; }
+#summary .waiting, #summary .working { display: flex; align-items: center; gap: 6px; }
 #summary .waiting { color: var(--waiting); font-weight: 600; }
+.tally-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+#summary .waiting .tally-dot { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
+#summary .working .tally-dot { background: var(--working); }
+
+/* The one thing in the bar that appears on its own account rather than
+ * because the user opened something, so it is given the accent to be
+ * findable, and nothing louder because it is never urgent. */
+.update {
+  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px;
+  border: 0; border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.update:hover { background: var(--accent); color: #06101f; }
+.update[hidden] { display: none; }
 
 .chip {
   border: 1px solid var(--line-strong);
@@ -171,6 +291,12 @@ body { display: flex; flex-direction: column; }
  * checkboxes. */
 .chip:focus-visible,
 .icon-btn:focus-visible,
+.rail-btn:focus-visible,
+.bar-btn:focus-visible,
+.project:focus-visible,
+#summary:focus-visible,
+.commands:focus-visible,
+.update:focus-visible,
 .tab:focus-visible,
 .tab .close:focus-visible,
 .pane-actions button:focus-visible,
@@ -281,10 +407,7 @@ textarea:focus-visible {
 .tab.drop-after::after { right: 0; }
 #tabs { position: relative; }
 #tabs.drop-end::after { right: 0; }
-#new-tab.drop-into { border-color: var(--accent); color: var(--accent); }
-/* The caret sits against the plus rather than beside it, so the two read as
- * one control with a fast half and a slow half. */
-.caret-btn { margin-left: -6px; font-size: 10px; }
+#new-tab.drop-into { background: rgba(76, 154, 255, .18); color: var(--accent); }
 
 .pane-header {
   display: flex;
@@ -477,15 +600,6 @@ textarea:focus-visible {
 .wt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .chip.danger { border-color: var(--exited); color: var(--exited); }
 
-/* The update chip is the only thing in the bar that appears on its own
-   account rather than because the user opened something, so it is given the
-   accent to be findable, and nothing louder because it is never urgent. */
-.chip.update { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.chip.update:hover { background: var(--accent); border-color: var(--accent); color: #06101f; }
-/* Remote access. The chip is plain while the tunnel works — it is a fact about
-   the machine, not something to look at — and amber only when it wants you. */
-.chip.remote.pending { color: var(--fg-dim); }
-.chip.remote.trouble { border-color: var(--waiting); color: var(--waiting); }
 .remote-status { margin: 0 0 12px; color: var(--fg-dim); }
 .remote-status.error, .remote-status.revoked, .remote-status.replaced { color: var(--waiting); }
 .remote-error { color: var(--exited); }
@@ -1013,4 +1127,64 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   overflow-wrap: break-word;
   box-shadow: 0 8px 24px rgba(0,0,0,.45);
   pointer-events: none;
+}
+
+/* ---------------------------------------------------------- narrow screens */
+
+/* A phone through the relay is four hundred pixels wide, and a column of
+ * icons down its left edge would take an eighth of the terminal for buttons
+ * used now and then. There the rail folds away into a menu opened from the
+ * top bar, where each button has the room to say what it is - a touch screen
+ * has no pointer to hover for a tooltip - and the top bar goes to two rows,
+ * the tabs getting the second to themselves. */
+@media (max-width: 640px) {
+  #rail {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 45;
+    width: min(260px, 85vw); padding: 10px 8px; align-items: stretch;
+    box-shadow: 0 0 40px rgba(0,0,0,.6);
+    /* Hidden rather than only moved off screen, so that Tab does not walk
+     * into buttons nobody can see. */
+    transform: translateX(-100%); visibility: hidden;
+    transition: transform 160ms ease, visibility 0s linear 160ms;
+  }
+  body.rail-open #rail { transform: none; visibility: visible; transition: transform 160ms ease; }
+  body.rail-open #rail-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.5); }
+  #rail-toggle { display: flex; }
+  .rail-mark { align-self: flex-start; margin: 4px 10px 8px; }
+  .rail-rule { width: auto; align-self: stretch; }
+  #rail-projects { align-items: stretch; }
+  .rail-btn { width: 100%; height: 40px; justify-content: flex-start; padding: 0 10px; }
+  .rail-btn .rail-label {
+    position: static; width: auto; height: auto; clip-path: none;
+    overflow: hidden; text-overflow: ellipsis; color: inherit;
+  }
+  .rail-tile .mono { width: 24px; flex: 0 0 auto; text-align: center; }
+  .rail-badge { left: 30px; right: auto; top: 6px; }
+
+  #topbar { flex-wrap: wrap; height: auto; padding: 4px 8px; row-gap: 4px; column-gap: 6px; }
+  #topbar > #tabbar { order: 10; flex: 1 1 100%; }
+  #topbar > .divider-v, #project-branch, .commands-label, .commands-keys { display: none; }
+  .commands { padding: 0 8px; }
+  #summary { gap: 10px; }
+  #summary .tally-word {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}
+
+/* On a touch screen every control in the rail and the top bar is at least
+ * the 44px a fingertip needs; the 26px that suit a pointer were too small to
+ * hit, and a tap beside one landed on its neighbour. */
+@media (pointer: coarse) {
+  .rail-btn { width: 44px; height: 44px; }
+  #topbar { height: auto; min-height: 48px; }
+  .bar-btn, .project, #summary, .commands, .update, .tab { min-height: 44px; }
+  .bar-btn, .commands { min-width: 44px; justify-content: center; }
+  .update { border-radius: 22px; }
+  .new-tab-group .bar-btn { height: 42px; }
+  .new-tab-group #new-tab, .new-tab-group .caret-btn { width: 44px; }
+  .tab .close { width: 44px; height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 640px) {
+  .rail-btn { width: 100%; }
 }

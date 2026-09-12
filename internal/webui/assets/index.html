@@ -14,36 +14,63 @@
 <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <header id="topbar">
-    <button id="project-btn" class="chip project">
-      <span id="project-name">project</span><span class="caret" aria-hidden="true">▾</span>
-    </button>
-    <div class="divider-v"></div>
-    <div id="tabs" role="tablist" aria-label="Tabs"></div>
-    <button id="new-tab" class="icon-btn" aria-label="New agent tab">+</button>
-    <!-- The caret is the slow way round: the plus starts the agent this project
-         runs by default, and this asks which agent and which model first. -->
-    <button id="new-tab-pick" class="icon-btn caret-btn" aria-label="New agent tab, choosing the agent">▾</button>
-    <div class="spacer"></div>
-    <button id="summary" class="chip summary" aria-live="polite"></button>
-    <button id="btn-broadcast" class="chip">Broadcast</button>
-    <button id="btn-changes" class="chip">Changes</button>
-    <button id="btn-history" class="chip">History</button>
-    <button id="btn-worktrees" class="chip">Worktrees</button>
-    <!-- A bare "?" is not a name a screen reader can read out, and the same
-         goes for the two arrows in the find bar below. -->
-    <button id="btn-update" class="chip update" hidden></button>
-    <!-- Shown only on a machine enrolled for remote access: the tunnel to the
-         relay, and how many windows are open through it. -->
-    <button id="btn-remote" class="chip remote" hidden>Remote</button>
-    <button id="btn-help" class="chip" aria-label="Help">?</button>
-  </header>
+  <!-- The rail: the open projects, and everything that opens a dialog. Each
+       button's label is real text, kept out of sight beside the icon while the
+       rail is a column of icons and shown when a narrow screen folds the rail
+       into a menu; either way it is the button's name. The icons are drawn
+       from app.js, from one set of path data. -->
+  <nav id="rail" aria-label="Projects and tools">
+    <img class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
+    <div class="rail-rule"></div>
+    <div id="rail-projects" role="group" aria-label="Open projects"></div>
+    <button id="rail-open" class="rail-btn"><span class="ico" data-icon="folderplus" aria-hidden="true"></span><span class="rail-label">Open a project</span></button>
+    <div class="rail-fill"></div>
+    <button id="btn-broadcast" class="rail-btn"><span class="ico" data-icon="broadcast" aria-hidden="true"></span><span class="rail-label">Broadcast</span></button>
+    <button id="btn-changes" class="rail-btn"><span class="ico" data-icon="changes" aria-hidden="true"></span><span class="rail-label">Changes</span></button>
+    <button id="btn-history" class="rail-btn"><span class="ico" data-icon="history" aria-hidden="true"></span><span class="rail-label">History</span></button>
+    <button id="btn-worktrees" class="rail-btn"><span class="ico" data-icon="worktrees" aria-hidden="true"></span><span class="rail-label">Worktrees</span></button>
+    <div class="rail-rule"></div>
+    <!-- Always here, so remote access can be found before it is turned on.
+         The badge is the tunnel: on, connecting, or wanting attention. -->
+    <button id="btn-remote" class="rail-btn remote"><span class="ico" data-icon="remote" aria-hidden="true"></span><span class="rail-badge" aria-hidden="true"></span><span class="rail-label">Remote</span></button>
+    <button id="btn-help" class="rail-btn"><span class="ico" data-icon="help" aria-hidden="true"></span><span class="rail-label">Help</span></button>
+  </nav>
+  <!-- Behind the rail while a narrow screen shows it as a menu; a tap here
+       puts it away. The style sheet shows it, from the class on the body. -->
+  <div id="rail-scrim"></div>
 
-  <div id="hints" hidden></div>
+  <div id="main">
+    <header id="topbar">
+      <!-- Only on a narrow screen, where the rail is folded away. -->
+      <button id="rail-toggle" class="bar-btn" aria-controls="rail" aria-expanded="false"><span class="ico" data-icon="menu" aria-hidden="true"></span></button>
+      <button id="project-btn" class="project">
+        <span id="project-name">project</span><span id="project-branch" hidden></span><span class="ico caret" data-icon="chev" data-size="14" aria-hidden="true"></span>
+      </button>
+      <div class="divider-v"></div>
+      <div id="tabbar">
+        <div id="tabs" role="tablist" aria-label="Tabs"></div>
+        <span class="new-tab-group">
+          <button id="new-tab" class="bar-btn" aria-label="New agent tab"><span class="ico" data-icon="plus" data-size="14" aria-hidden="true"></span></button>
+          <!-- The caret is the slow way round: the plus starts the agent this
+               project runs by default, and this asks which agent and which
+               model first. -->
+          <button id="new-tab-pick" class="bar-btn caret-btn" aria-label="New agent tab, choosing the agent"><span class="ico" data-icon="chev" data-size="12" aria-hidden="true"></span></button>
+        </span>
+      </div>
+      <div class="spacer"></div>
+      <button id="summary" class="summary" aria-live="polite"></button>
+      <div class="divider-v summary-rule"></div>
+      <!-- The palette, made visible: the keys are filled in from the action
+           table, like every other binding on screen. -->
+      <button id="btn-palette" class="commands"><span class="ico" data-icon="search" data-size="13" aria-hidden="true"></span><span class="commands-label">Commands</span><span id="palette-keys" class="commands-keys" aria-hidden="true"></span></button>
+      <button id="btn-update" class="update" hidden></button>
+    </header>
 
-  <main id="workspace"></main>
+    <div id="hints" hidden></div>
 
-  <div id="promptbar" hidden>
+    <main id="workspace"></main>
+
+    <div id="promptbar" hidden>
     <label for="prompt-input" id="prompt-label">Prompt</label>
     <textarea id="prompt-input" rows="1" autocomplete="off" spellcheck="false"
               placeholder="Type an instruction: Enter sends it, Shift+Enter starts a new line"></textarea>
@@ -60,6 +87,7 @@
     <button id="search-prev" class="chip" title="Previous (Shift+Enter)" aria-label="Previous match (Shift+Enter)">↑</button>
     <button id="search-next" class="chip" title="Next (Enter)" aria-label="Next match (Enter)">↓</button>
     <button id="search-close" class="chip">Close</button>
+  </div>
   </div>
 
   <div id="palette" hidden>

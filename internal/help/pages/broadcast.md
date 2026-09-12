@@ -37,7 +37,7 @@ prompt as one.
 
 With broadcast off, the prompt goes to the focused pane, and to any panes you
 have added with their `⇉` button. [[key:toggleBroadcast]] — or **Broadcast** in
-the top bar — turns broadcast on, and then it goes to every pane in the
+the rail — turns broadcast on, and then it goes to every pane in the
 **broadcast set**: by default every agent in the tab on screen. While
 broadcast is on and the set holds more than one pane, the bar's label says how
 many it will reach.
