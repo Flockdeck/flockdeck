@@ -47,6 +47,13 @@ var httpClient = &http.Client{}
 // version is added only when it is not already there.
 func endpoint(base, fallback, version, path string) string {
 	b := strings.TrimRight(strings.TrimSpace(base), "/")
+	// The address a server's documentation gives is as often the whole
+	// request URL as its root -- http://127.0.0.1:1234/v1/chat/completions --
+	// and pasted as the base it had the path added a second time, which is a
+	// 404 on every request. The API's own paths are taken back off first.
+	for _, tail := range []string{"/chat/completions", "/messages", "/models"} {
+		b = strings.TrimRight(strings.TrimSuffix(b, tail), "/")
+	}
 	if b == "" {
 		b = strings.TrimRight(fallback, "/")
 	}
