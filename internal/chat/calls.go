@@ -29,6 +29,12 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 			s.answer(c, fmt.Sprintf("there is no tool called %q in this pane", c.Name))
 			continue
 		}
+		if c.BadArgs != "" {
+			s.out.line(ansiRed, "  not run: the model's arguments were not valid JSON")
+			s.answer(c, "not run: the arguments were not valid JSON, so the call was not made. "+
+				"They were: "+clipTo(c.BadArgs, 400)+"\nSend them again as one JSON object.")
+			continue
+		}
 		question := tool.Approval(c.Args)
 		if key, ok := s.approved(tool, c); question != "" && ok {
 			// Not asked, and said so: a command running without a question

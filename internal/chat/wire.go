@@ -315,14 +315,18 @@ type callBuffer struct {
 
 // done returns the finished call, with arguments that at least parse.
 //
-// A stream cut off mid-argument leaves a fragment, and handing that to a tool
-// would have it fail on JSON rather than on anything the user did; an empty
-// object is the honest reading of "the model named this tool and said nothing
-// more".
+// No arguments at all are an empty object, which is the honest reading of "the
+// model named this tool and said nothing more". Arguments that are not JSON --
+// which a local model writes more often than one would like -- are an empty
+// object too, since the call goes back to the API in the next request and has
+// to parse there, and what was written is kept in BadArgs for the model to be
+// told about: handed the empty object, a tool says a required argument is
+// missing, and the model sends the same broken JSON again.
 func (c *callBuffer) done() ToolCall {
 	args := strings.TrimSpace(c.args.String())
+	call := ToolCall{ID: c.id, Name: c.name, Args: json.RawMessage(args)}
 	if args == "" || !json.Valid([]byte(args)) {
-		args = "{}"
+		call.Args, call.BadArgs = json.RawMessage("{}"), args
 	}
-	return ToolCall{ID: c.id, Name: c.name, Args: json.RawMessage(args)}
+	return call
 }

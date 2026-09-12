@@ -42,6 +42,11 @@ type ToolCall struct {
 	// back with it: Gemini's thought signature, without which a model that
 	// thought before calling refuses the request carrying the answer.
 	Signature string
+	// BadArgs is what the model wrote for its arguments where that was not
+	// JSON, in which case Args is an empty object. The call is not run: the
+	// model is told what was wrong with what it wrote, rather than being told
+	// by the tool that it wrote nothing.
+	BadArgs string
 }
 
 // Message is one entry in a conversation, in the single shape all three wires
