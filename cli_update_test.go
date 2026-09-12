@@ -67,6 +67,17 @@ func TestUpdateRefusesAStrayWord(t *testing.T) {
 	}
 }
 
+// A build newer than anything published is not "the latest release", and
+// saying so about a candidate or a withdrawn release was simply untrue.
+func TestUpToDate(t *testing.T) {
+	if got := upToDate("v1.5.0", "v1.4.0"); !strings.Contains(got, "newer than the latest release, v1.4.0") {
+		t.Errorf("ahead of the latest: %q", got)
+	}
+	if got := upToDate("v1.4.0", "v1.4.0"); got != "flockdeck v1.4.0 is the latest release." {
+		t.Errorf("on the latest: %q", got)
+	}
+}
+
 // Each round of the watcher: fetch what moves this build forward, keep what is
 // already staged, and throw away a staged release that has since been
 // withdrawn, which is one newer than anything still published.

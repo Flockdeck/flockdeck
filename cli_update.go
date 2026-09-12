@@ -57,12 +57,12 @@ func runUpdate(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	rel, err := selfupdate.Check(ctx, version)
+	rel, err := selfupdate.Latest(ctx)
 	if err != nil {
 		return explainUnreachable(err, "look for a newer release")
 	}
-	if rel == nil {
-		fmt.Printf("flockdeck %s is the latest release.\n", version)
+	if rel.Draft || !selfupdate.Newer(rel.Version, version) {
+		fmt.Println(upToDate(version, rel.Version))
 		return nil
 	}
 
@@ -127,6 +127,18 @@ func runUpdate(args []string) error {
 		fmt.Println("Flockdeck is running now: quit it and start it again to switch to the new version.")
 	}
 	return nil
+}
+
+// upToDate is what `flockdeck update` says when there is nothing to install.
+//
+// It used to say the running version was the latest release whatever the
+// latest was, which is untrue of a build newer than anything published: a
+// release candidate, or a release that has since been withdrawn.
+func upToDate(running, latest string) string {
+	if selfupdate.Newer(running, latest) {
+		return fmt.Sprintf("flockdeck %s is newer than the latest release, %s, so there is nothing to update to.", running, latest)
+	}
+	return fmt.Sprintf("flockdeck %s is the latest release.", running)
 }
 
 // explainUnreachable says in words what a failure to reach GitHub at all
