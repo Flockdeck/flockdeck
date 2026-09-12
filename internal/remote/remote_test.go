@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1261,6 +1263,166 @@ func TestManagerEnablesAndDisables(t *testing.T) {
 	if _, ok := m.Status(); ok {
 		t.Error("the tunnel outlived disabling")
 	}
+}
+
+// saw reports whether the fake relay was asked call.
+func (f *fakeRelay) saw(call string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.calls {
+		if c == call {
+			return true
+		}
+	}
+	return false
+}
+
+// Moving enrols with the new relay, and has it answer for the machine,
+// before the enrolment here is replaced; the old relay is told last, after
+// the caller has been given the chance to move a tunnel across.
+func TestMoveEnrolsFirstAndLeavesLast(t *testing.T) {
+	isolate(t)
+	old, next := newFakeRelay(t), newFakeRelay(t)
+	cfg := old.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var atSwitch string
+	moved, untold, err := Move(context.Background(), "v", EnableRequest{Relay: next.URL}, func() {
+		saved, _ := Load()
+		atSwitch = fmt.Sprintf("saved=%v answered=%v oldTold=%v", saved != nil && saved.Relay == next.URL,
+			next.saw("GET /api/v1/host/devices"), old.saw("DELETE /api/v1/host"))
+	})
+	if err != nil || untold != nil {
+		t.Fatalf("Move = %v, %v", untold, err)
+	}
+	if atSwitch != "saved=true answered=true oldTold=false" {
+		t.Errorf("when told to switch: %s; want the new enrolment saved and answered for, and the old relay not yet told", atSwitch)
+	}
+	if !old.saw("DELETE /api/v1/host") {
+		t.Error("the old relay was never told")
+	}
+	if moved.Relay != next.URL || moved.Name != "desk" {
+		t.Errorf("moved to %+v; want the new relay, under the name the machine had", moved)
+	}
+}
+
+// A new relay that refuses the machine, or takes it and then will not answer
+// for it, leaves everything as it was: the enrolment here, and the old relay
+// never told. One that took it is asked to let it go again.
+func TestMoveChangesNothingUnlessTheNewRelayAnswers(t *testing.T) {
+	isolate(t)
+	old := newFakeRelay(t)
+	cfg := old.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"this relay needs an invite code"}`)
+	}))
+	defer refusing.Close()
+	var mu sync.Mutex
+	var halfCalls []string
+	half := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		halfCalls = append(halfCalls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/hosts" {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"hostId":"h9","accountId":"a9","token":"fdh_half"}`)
+			return
+		}
+		// As a proxy in front of it might: registration let through, and
+		// nothing else.
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer half.Close()
+
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: refusing.URL}, nil); err == nil || !strings.Contains(err.Error(), "needs an invite code") {
+		t.Errorf("moving to a relay that refuses = %v", err)
+	}
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: half.URL}, nil); err == nil || !strings.Contains(err.Error(), "nothing has changed") {
+		t.Errorf("moving to a relay that will not answer for the machine = %v", err)
+	}
+	mu.Lock()
+	if !slices.Contains(halfCalls, "DELETE /api/v1/host") {
+		t.Errorf("the relay that took the machine and would not answer for it was not asked to let it go: %q", halfCalls)
+	}
+	mu.Unlock()
+	if saved, _ := Load(); saved == nil || *saved != cfg {
+		t.Errorf("a move that did not happen left the enrolment as %+v", saved)
+	}
+	if old.saw("DELETE /api/v1/host") {
+		t.Error("the old relay was told of a move that did not happen")
+	}
+}
+
+// An old relay that cannot be told does not stop the move, which is done by
+// then; why it was not told comes back for the caller to say.
+func TestMoveOffAGoneRelay(t *testing.T) {
+	isolate(t)
+	old, next := newFakeRelay(t), newFakeRelay(t)
+	cfg := old.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	moved, untold, err := Move(context.Background(), "v", EnableRequest{Relay: next.URL}, nil)
+	if err != nil || untold == nil || moved == nil || moved.Relay != next.URL {
+		t.Errorf("moving off a relay that is gone = %+v, %v, %v; want it moved, saying why the old one was not told", moved, untold, err)
+	}
+}
+
+// There is nothing to move without an enrolment, nowhere to move to without a
+// relay named, and nowhere new to go on the relay the machine is already on,
+// by whichever of its names.
+func TestMoveRefusals(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: f.URL}, nil); !errors.Is(err, ErrNotEnabled) {
+		t.Errorf("moving with nothing enrolled = %v", err)
+	}
+	cfg := Config{Relay: DefaultRelay, HostID: "h1", AccountID: "a1", Token: "fdh_x", Name: "desk"}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: oldDefaultRelay}, nil); !errors.Is(err, ErrSameRelay) {
+		t.Errorf("moving to the relay's old name = %v", err)
+	}
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: "  "}, nil); err == nil || !strings.Contains(err.Error(), "name the relay") {
+		t.Errorf("moving with no relay named = %v", err)
+	}
+	if _, _, err := Move(context.Background(), "v", EnableRequest{Relay: f.URL, Join: "fdi_0123456789abcdefghijkl"}, nil); err == nil || !strings.Contains(err.Error(), "invitation, not a join code") {
+		t.Errorf("moving with an invitation as the join code = %v", err)
+	}
+	if f.saw("POST /api/v1/hosts") {
+		t.Error("a refused move reached the relay")
+	}
+}
+
+// The window moves through the manager, which takes the tunnel across to the
+// new relay.
+func TestManagerMovesTheTunnel(t *testing.T) {
+	isolate(t)
+	quick(t)
+	old, next := newFakeRelay(t), newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: old.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	old.session(t)
+	if untold, err := m.Move(context.Background(), EnableRequest{Relay: next.URL}); err != nil || untold != nil {
+		t.Fatalf("Manager.Move = %v, %v", untold, err)
+	}
+	next.session(t)
+	waitFor(t, "connected to the new relay", func() bool {
+		st, ok := m.Status()
+		return ok && st.State == StateConnected && st.Relay == next.URL
+	})
 }
 
 // Renaming this machine saves the new name and shows it, without dropping the
