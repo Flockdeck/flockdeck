@@ -3140,6 +3140,26 @@ assert.strictEqual(h.$("search-count").textContent, "", "the last search's count
 `)
 }
 
+// The projects dialog listed eight recent projects and simply left out the
+// rest, of up to forty remembered: an older one could be reached only by
+// browsing to its folder again.
+func TestEveryRecentProjectCanBeReached(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+const items = [];
+for (let i = 0; i < 12; i++) items.push({ root: "C:/p" + i, name: "p" + i, exists: true, open: false });
+h.recv({ type: "recents", items });
+const body = h.$("overlay-body");
+const more = body.querySelectorAll("button").find((b) => b.textContent === "Show 4 more");
+assert.ok(more, "the recent projects past the eighth are not offered at all");
+h.click(more);
+assert.ok(body.textContent.includes("p11"), "the rest of the recent projects did not appear");
+assert.ok(h.doc.activeElement === h.$("recent-8"), "the keyboard did not land on the first of the projects shown");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

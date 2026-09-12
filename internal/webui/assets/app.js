@@ -2186,9 +2186,13 @@
 
   // -------------------------------------------------------------- projects
 
+  /** Whether every recent project is listed, rather than the first eight. */
+  let recentsAll = false;
+
   function openProjects() {
     dialog = "projects";
     browseDraft = null;
+    recentsAll = false;
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -2271,7 +2275,8 @@
     const notOpen = recents.filter((r) => !r.open);
     if (notOpen.length) {
       const rec = section("Recent");
-      notOpen.slice(0, 8).forEach((r) => {
+      const shown = recentsAll ? notOpen : notOpen.slice(0, 8);
+      shown.forEach((r, i) => {
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
         const main = el("span", "proj-main");
         main.append(el("span", "proj-name", r.name));
@@ -2280,6 +2285,7 @@
         // rather than becoming a button that does nothing when it is pressed.
         if (r.exists) {
           const go = el("button", "proj-go");
+          go.id = "recent-" + i;
           go.append(main);
           go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
           row.append(go);
@@ -2292,6 +2298,19 @@
         row.append(forget);
         rec.append(row);
       });
+      // Eight at first, and the rest - up to forty are remembered - simply
+      // were not there, so an older project could be reached only by browsing
+      // to its folder again.
+      if (shown.length < notOpen.length) {
+        const more = el("button", "chip", "Show " + (notOpen.length - shown.length) + " more");
+        more.onclick = () => {
+          recentsAll = true;
+          renderProjects();
+          const next = $("recent-" + shown.length);
+          if (next) next.focus();
+        };
+        rec.append(more);
+      }
       body.append(rec);
     }
 
