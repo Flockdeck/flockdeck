@@ -46,7 +46,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 		// conversation that really happened.
 		s.record(Entry{Type: entryClear})
 		s.reporter.sessionEnd()
-		s.system = compose(systemPrompt, s.reporter.sessionStart("clear"))
+		s.system = s.systemWith(s.reporter.sessionStart("clear"))
 		// Said in full, because "cleared" alone leaves somebody wondering
 		// whether what was said is gone.
 		s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")

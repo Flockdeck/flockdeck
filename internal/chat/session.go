@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -242,7 +243,7 @@ func (s *session) run(ctx context.Context) error {
 	}
 	// The reply to this is the pane's briefing -- which pane this is, who else
 	// is working, what it can ask Flockdeck for.
-	s.system = compose(systemPrompt, s.reporter.sessionStart(source))
+	s.system = s.systemWith(s.reporter.sessionStart(source))
 
 	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for what it can do",
 		firstNonEmpty(s.opts.Agent, s.wire.Name()), firstNonEmpty(s.model, "the endpoint's own model")))
@@ -539,6 +540,30 @@ func (s *session) record(e Entry) {
 	if err := s.log.Append(e); err != nil {
 		s.out.line(ansiRed, "could not write the transcript: "+err.Error())
 	}
+}
+
+// systemWith is the system prompt with where the chat is working said in it,
+// and the pane's briefing after.
+//
+// The directory and the system are said because everything the model does
+// with the tools depends on them, and a chat run by hand has no briefing to
+// say either: a model not told it is on Windows reaches for ls and /tmp.
+func (s *session) systemWith(brief string) string {
+	where := fmt.Sprintf("%s\n\nYou are working in %s, on %s.", systemPrompt, s.opts.Cwd, osName())
+	return compose(where, brief)
+}
+
+// osName is the operating system as the model is told it.
+func osName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "Windows"
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
+	}
+	return runtime.GOOS
 }
 
 // compose puts the pane's briefing after the system prompt, fenced so the model
