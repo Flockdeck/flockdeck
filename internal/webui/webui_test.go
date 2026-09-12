@@ -3068,6 +3068,26 @@ func TestANarrowWindowKeepsTheTabsAndTheHelp(t *testing.T) {
 	}
 }
 
+// Several commands are reached only from the palette - tiling, restarting a
+// pane, the settings - and one used a minute ago had to be typed for again
+// each time. The last ones run come first while nothing has been typed.
+func TestThePaletteOffersWhatWasLastRunFirst(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("tile");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "tilePanes" });
+paletteRun("restart");
+h.press("palette");
+const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.deepStrictEqual(labels.slice(0, 2), ["Restart pane", "Tile these panes evenly"],
+  "the commands just run are not the first offered: " + labels.slice(0, 3).join(", "));
+// Enter on the first row runs the last command again.
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "restartPane", id: "p1" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -2863,6 +2863,26 @@
     return cmds;
   }
 
+  /** The commands last run from the palette, newest first, by label. Several
+   *  have no key of their own and are reached only from here - tiling,
+   *  restarting a pane, giving one a tab of its own, the settings - and one
+   *  used a minute ago had to be typed for again every time. While nothing
+   *  has been typed they come first. */
+  const palRecent = [];
+  function recentFirst(all) {
+    const first = palRecent.map((label) => all.find((c) => c.label === label)).filter(Boolean);
+    return first.concat(all.filter((c) => !first.includes(c)));
+  }
+  function runFromPalette(c) {
+    closePalette();
+    if (!c) return;
+    const at = palRecent.indexOf(c.label);
+    if (at >= 0) palRecent.splice(at, 1);
+    palRecent.unshift(c.label);
+    palRecent.length = Math.min(palRecent.length, 5);
+    c.run();
+  }
+
   /** Where the keyboard was when the palette opened, to go back to. The
    *  palette opens over a dialog as readily as over the terminals, and sending
    *  the keyboard to a terminal on the way out put it behind a dialog that was
@@ -2890,7 +2910,7 @@
     const all = paletteCommands();
     palItems = q
       ? all.filter((c) => q.split(/\s+/).every((w) => c.label.toLowerCase().includes(w)))
-      : all;
+      : recentFirst(all);
     if (palIndex >= palItems.length) palIndex = Math.max(0, palItems.length - 1);
 
     const list = $("palette-list");
@@ -2913,7 +2933,7 @@
       // highlight jumped back under the pointer each time the list scrolled,
       // and walking past the bottom of the box could not be done.
       row.onmousemove = () => selectPaletteRow(i);
-      row.onclick = () => { closePalette(); c.run(); };
+      row.onclick = () => runFromPalette(c);
       palRows.push(row);
       list.append(row);
     });
@@ -2974,9 +2994,7 @@
     if (to !== null) { e.preventDefault(); selectPaletteRow(to); return; }
     if (e.key === "Enter") {
       e.preventDefault();
-      const c = palItems[palIndex];
-      closePalette();
-      if (c) c.run();
+      runFromPalette(palItems[palIndex]);
     }
   }
 
