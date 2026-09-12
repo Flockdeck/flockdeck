@@ -878,7 +878,17 @@ func (w *Workspace) worktreeFor(cwd, branch string) (string, error) {
 	}
 	repo, err := gitx.Root(cwd)
 	if err != nil {
-		return "", fmt.Errorf("%s is not a git repository", cwd)
+		// Only git's plain "not a git repository (or any of the parent
+		// directories)" means there is no repository here. Every other
+		// refusal is about one that is here — a worktree whose repository
+		// has moved, a .git file that is not what it should be, a checkout
+		// git will not trust because another account owns it — and calling
+		// all of them "not a git repository" sent the user looking for a
+		// repository they could see was there. git's own words say which.
+		if strings.Contains(err.Error(), "or any of the parent directories") {
+			return "", fmt.Errorf("%s is not a git repository", cwd)
+		}
+		return "", fmt.Errorf("a worktree cannot be made from %s: %w", cwd, err)
 	}
 	// A branch that already has a worktree is reused rather than duplicated.
 	if wts, err := gitx.List(repo); err == nil {
