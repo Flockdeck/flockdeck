@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -155,10 +156,52 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 			// A command that could not be started at all -- usually a program
 			// that is not installed -- is an error rather than a result, so
 			// the model is told plainly instead of reading an empty output.
-			return "", runErr
+			return "", notFoundHint(argv[0], runErr)
 		}
 	}
 	return b.String(), nil
+}
+
+// notFoundHint says what to do about a program that could not be found, where
+// there is something better to say than that it was not on PATH.
+//
+// On Windows the commonest reasons are two: the command is one cmd.exe provides
+// itself, with no program behind it, or it is a Unix habit with no Windows
+// program of that name. A model told only "executable file not found" tries
+// the same thing again.
+func notFoundHint(program string, err error) error {
+	if runtime.GOOS != "windows" || !errors.Is(err, exec.ErrNotFound) {
+		return err
+	}
+	name := strings.ToLower(program)
+	switch {
+	case cmdBuiltins[name]:
+		return fmt.Errorf("%s is built into cmd.exe rather than a program on PATH; run it as `cmd /c %s ...`", program, program)
+	case unixOnly[name] != "":
+		return fmt.Errorf("there is no %s on this Windows machine; %s", program, unixOnly[name])
+	}
+	return err
+}
+
+// cmdBuiltins are the commands cmd.exe carries out itself.
+var cmdBuiltins = map[string]bool{
+	"dir": true, "type": true, "echo": true, "copy": true, "del": true, "erase": true,
+	"move": true, "ren": true, "rename": true, "mkdir": true, "md": true, "rmdir": true,
+	"rd": true, "set": true, "cd": true, "chdir": true, "mklink": true, "ver": true, "vol": true,
+}
+
+// unixOnly are programs a model reaches for out of habit, and the tool here
+// that does their job.
+var unixOnly = map[string]string{
+	"ls":   "use list_dir, or `cmd /c dir`",
+	"cat":  "use read_file",
+	"head": "use read_file with a limit",
+	"tail": "use read_file with an offset",
+	"grep": "use the grep tool",
+	"find": "use the glob tool",
+	"rm":   "use `cmd /c del` for a file, or `cmd /c rmdir /s /q` for a directory",
+	"cp":   "use `cmd /c copy`",
+	"mv":   "use `cmd /c move`",
 }
 
 // commandPrefix is the first two words of a command, or the first if that is
