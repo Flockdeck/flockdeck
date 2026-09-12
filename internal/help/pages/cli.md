@@ -86,9 +86,10 @@ one that talks to a model API itself, with no wrapper CLI, no node and no
 Python. It is told which agent, which model and which session to be; the pane
 fills all three in, which is why you meet it as a pane rather than type it. Run
 outside a pane it still works, but there is nothing listening for the lifecycle
-events it reports, so nothing turns amber when it wants you. `flockdeck chat -h`
-lists the flags that set it up by hand — `-wire`, `-base-url`, `-model`,
-`-key-env` among them — for talking to an endpoint from a plain terminal. On
+events it reports, so nothing turns amber when it wants you. It has flags of its
+own for setting it up by hand — which wire to speak, the base URL, the model,
+and which environment variable holds the key — and lists them when asked for
+help, for talking to an endpoint from a plain terminal. On
 Windows, run it as `flockdeck-chat chat`: `flockdeck.exe` is built without a
 console, so it has nowhere to draw the conversation, and `flockdeck-chat.exe`
 beside it is the same program built with one.
