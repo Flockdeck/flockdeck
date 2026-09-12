@@ -209,6 +209,38 @@ func TestExtractTasksDropsALeadInBesideItsSteps(t *testing.T) {
 	}
 }
 
+// TestExtractTasksKeepsTheStepOnTheAgentsOwnLine covers a reply that opens on
+// its list. The agent marks the start of what it says — Claude Code with ⏺,
+// Gemini with ✦, Codex with a bullet — so the first step shares that line and
+// the rest are indented to line up under it. The first step was lost without a
+// sign, or for Codex came out as the one task, "1." and all.
+func TestExtractTasksKeepsTheStepOnTheAgentsOwnLine(t *testing.T) {
+	three := []string{
+		"Split the router into its own package",
+		"Add a timeout to the control socket",
+		"Cover the reconnect path with a test",
+	}
+	rest := "  2. Add a timeout to the control socket\n  3. Cover the reconnect path with a test\n"
+	for name, tc := range map[string]struct {
+		screen string
+		want   []string
+	}{
+		"claude": {"⏺ 1. Split the router into its own package\n" + rest, three},
+		"gemini": {"✦ 1. Split the router into its own package\n" + rest, three},
+		"codex":  {"• 1. Split the router into its own package\n" + rest, three},
+		"claude, bullets": {
+			"⏺ - Split the router into its own package\n  - Add a timeout to the control socket\n",
+			three[:2],
+		},
+		// The glyphs an agent spins through while it works are not a list.
+		"a spinner": {"✻ Perambulating the router package… (esc to interrupt)\n", nil},
+	} {
+		if got := ExtractTasks(tc.screen); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
 // TestExtractTasksIgnoresCodeBlocks covers a plan that shows its work: a list
 // inside a fence is sample text, not a set of jobs.
 func TestExtractTasksIgnoresCodeBlocks(t *testing.T) {

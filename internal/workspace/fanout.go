@@ -154,7 +154,8 @@ func listItems(text string) ([]item, []int) {
 			open = -1
 			continue
 		}
-		if entry, ok := listItem(body); ok {
+		if entry, at, ok := openingEntry(body, indent); ok {
+			indent = at
 			// A heading or lead-in written as a list entry with the steps nested
 			// under it — "- Next steps:" over indented bullets, or Codex's bullet
 			// in front of "Plan:" or "Here's the plan:" — announces the plan as
@@ -469,6 +470,36 @@ func listItem(line string) (string, bool) {
 	}
 	// "Task 2: text", "Step 3 — text", "## Step 4: text"
 	return labelledItem(unheaded(line))
+}
+
+// openingEntry reads a line as a list entry, and says how far in the entry
+// starts, which for most lines is where the line does.
+//
+// An agent marks the start of what it says — Claude Code with ⏺, Gemini with
+// ✦, Codex with a bullet — and a reply that opens on its list puts the first
+// step on that line, the rest indented to line up under it. Read as written,
+// that step was no entry at all, or for Codex a bullet whose text was "1. …",
+// the shallowest entry, with the steps below dropped as its detail. So a line
+// at the left edge whose mark leaves an entry behind it is read as that entry,
+// measured from where its text starts. The glyphs an agent spins through while
+// it works leave no entry behind, so they are still not a list; and one
+// indented under a message, as Claude Code's tool output is, is left alone.
+func openingEntry(body string, indent int) (string, int, bool) {
+	width := func(s string) int { return utf8.RuneCountInString(s) }
+	if entry, ok := listItem(body); ok {
+		if inner, numbered := numberedItem(entry); numbered && strings.HasPrefix(body, "• ") {
+			return inner, indent + width(body) - width(entry), true
+		}
+		return entry, indent, true
+	}
+	if indent == 0 {
+		if rest := trimLeadGlyph(body); rest != body {
+			if entry, ok := listItem(rest); ok {
+				return entry, width(body) - width(rest), true
+			}
+		}
+	}
+	return "", indent, false
 }
 
 // unheaded strips what a numbered line of a plan may be dressed in: a markdown
