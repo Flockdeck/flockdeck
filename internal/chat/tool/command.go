@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -92,10 +93,36 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 		return ""
 	}
 	argv, err := splitCommand(a.Command)
-	if err != nil {
+	if err != nil || runsAnything(argv) {
 		return ""
 	}
 	return commandPrefix(argv)
+}
+
+// runsAnything reports whether a command's first two words are a shell or an
+// interpreter told to run whatever follows -- `cmd /c`, `sh -c`, `python -c`.
+// "Always" for one of those would be standing permission for every command
+// there is, offered as though it were for one, so it is not offered: each is
+// asked about on its own.
+func runsAnything(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	prog := strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe")
+	flag := strings.ToLower(argv[1])
+	switch prog {
+	case "cmd":
+		return flag == "/c" || flag == "/k"
+	case "powershell", "pwsh":
+		return flag == "-c" || flag == "-command" || flag == "-e" || flag == "-ec" || flag == "-encodedcommand"
+	case "sh", "bash", "zsh", "dash", "fish":
+		return flag == "-c"
+	case "python", "python3", "py":
+		return flag == "-c"
+	case "node", "ruby", "perl", "deno", "bun":
+		return flag == "-e" || flag == "eval"
+	}
+	return false
 }
 
 func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, error) {
