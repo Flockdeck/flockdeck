@@ -535,10 +535,7 @@ func (root *Node) MovePane(pane, target string, edge Edge) bool {
 	if moving == nil || onto == nil {
 		return false
 	}
-	if alreadyBeside(root, moving, onto, edge) {
-		// A drop on the edge the pane is already on is a no-op, but taking it
-		// out and putting it back would rebuild both nodes with fresh ids and
-		// even weights, throwing away wherever the user had left the divider.
+	if reorder(root, moving, onto, edge) {
 		return true
 	}
 	if !root.Remove(pane) {
@@ -547,19 +544,34 @@ func (root *Node) MovePane(pane, target string, edge Edge) bool {
 	return root.InsertBeside(target, pane, edge)
 }
 
-// alreadyBeside reports whether moving is the immediate neighbour of onto on
-// the given edge, in a split along that edge's axis.
-func alreadyBeside(root, moving, onto *Node, edge Edge) bool {
+// reorder moves a pane to one side of a sibling in the split they share along
+// the edge's axis, and reports false when they share no such split.
+//
+// The pane's own node is moved, weight and all. Taking it out and putting it
+// back would rebuild it with a fresh id and the weight of the pane it was
+// dropped against: a pane the user had widened to half a row came out a third
+// of it at the other end, and a drop on the edge it was already on evened out
+// the whole row.
+func reorder(root, moving, onto *Node, edge Edge) bool {
 	dir, before := edge.axis()
-	mp, mi := root.parentOf(moving)
-	op, oi := root.parentOf(onto)
-	if mp == nil || mp != op || mp.Dir != dir {
+	parent, from := root.parentOf(moving)
+	if op, _ := root.parentOf(onto); parent == nil || op != parent || parent.Dir != dir {
 		return false
 	}
-	if before {
-		return mi == oi-1
+	// Both slices are cut to their length so each append makes a new array
+	// rather than writing over the children still being read.
+	rest := append(parent.Children[:from:from], parent.Children[from+1:]...)
+	at := 0
+	for i, c := range rest {
+		if c == onto {
+			at = i
+		}
 	}
-	return mi == oi+1
+	if !before {
+		at++
+	}
+	parent.Children = append(rest[:at:at], append([]*Node{moving}, rest[at:]...)...)
+	return true
 }
 
 // SwapPanes exchanges the positions of two panes, keeping every split and
