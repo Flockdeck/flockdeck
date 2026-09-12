@@ -113,7 +113,12 @@ func Load() (*Config, error) {
 	// network in the clear. Only this rule of CheckRelay's is applied here:
 	// a later one about what an address looks like must not stop an
 	// enrolment already made from loading.
-	if u, err := url.Parse(c.Relay); err == nil && u.Scheme == "http" && !isLoopback(u.Hostname()) {
+	//
+	// ws:// is the same thing by another name: the tunnel is dialled at the
+	// relay's address as it stands, and the WebSocket library takes ws:// as
+	// plain HTTP, so a hand-edited "ws://relay.example" sent the token in the
+	// clear as surely as http:// would have.
+	if u, err := url.Parse(c.Relay); err == nil && (u.Scheme == "http" || u.Scheme == "ws") && !isLoopback(u.Hostname()) {
 		return nil, fmt.Errorf("%s names a relay at %s without TLS, which this machine's token would cross in the clear; put https:// in its place, or delete it to start again", p, u.Host)
 	}
 	return &c, nil

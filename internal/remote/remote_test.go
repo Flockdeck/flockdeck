@@ -195,6 +195,10 @@ func TestLoadRefusesARelayWithoutTLS(t *testing.T) {
 		"http://relay.example":  false,
 		"http://127.0.0.1:9":    true, // a relay being developed, on this machine
 		"https://relay.example": true,
+		// The tunnel is dialled at the address as it stands, and ws:// is
+		// plain HTTP to the WebSocket library.
+		"ws://relay.example": false,
+		"ws://127.0.0.1:9":   true,
 	} {
 		if err := (&Config{Relay: relay, HostID: "h1", Token: "fdh_test"}).Save(); err != nil {
 			t.Fatal(err)
