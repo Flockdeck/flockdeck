@@ -3034,6 +3034,40 @@ assert.strictEqual(list().scrollTop, 400, "the file list went back to its top wh
 `)
 }
 
+// The review reads the tree again when an agent changes it, and the list came
+// back current while the diff beside it - of the file being read - stayed as
+// it was first read.
+func TestTheDiffOnShowFollowsTheTree(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (added) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added, removed: 0 }, { path: "b.go", label: "M", added: 1, removed: 0 }] });
+h.recv(tree(1));
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[0]);
+const lines = (n) => Array.from({ length: n }, (_, i) => "+line " + i).join("\n");
+h.recv({ type: "diff", file: "a.go", text: lines(300) });
+const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
+diff().scrollTop = 900;
+const diffs = () => h.commands().filter((c) => c.cmd === "diff");
+const before = diffs().length;
+
+h.recv(tree(40));
+assert.strictEqual(diffs().length, before + 1, "the tree changed and the diff on show was not read again");
+assert.deepStrictEqual(diffs().pop(), { cmd: "diff", path: "C:/repo", text: "a.go" });
+assert.ok(!/Loading/.test(diff().textContent), "the diff on show was taken away while the new one was read");
+h.recv({ type: "diff", file: "a.go", text: lines(340) });
+assert.ok(/line 339/.test(diff().textContent), "the new diff is not shown");
+assert.strictEqual(diff().scrollTop, 900, "the new diff lost the reader's place");
+
+// Another file chosen starts at its top.
+h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[1]);
+h.recv({ type: "diff", file: "b.go", text: lines(300) });
+assert.strictEqual(diff().scrollTop, 0, "a file just chosen did not start at its top");
+`)
+}
+
 // The agents overview is where you look to see who needs you, and it was a
 // picture taken when it opened: an agent that stopped to wait while it was up
 // went on being listed as working.

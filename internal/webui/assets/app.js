@@ -3580,6 +3580,12 @@
       if (selectedFile && !(msg.files || []).some((f) => f.path === selectedFile)) {
         selectedFile = null;
         diffText = "";
+      } else if (selectedFile && diffText) {
+        // The tree is read again because it changed, and the file on show
+        // may be what changed: its diff stayed as it was first read, beside
+        // a list saying otherwise. The old one stays up until the new one
+        // is back, rather than a "Loading" flashing under the reader.
+        send({ cmd: "diff", path: msg.cwd, text: selectedFile });
       }
     }
     if (dialog !== "changes") return; // see openWorktrees
@@ -3789,20 +3795,24 @@
   }
 
   /** fillDiff draws whatever the diff panel should be showing now. */
-  function fillDiff() {
+  function fillDiff(keep) {
     if (!changeView) return;
     const diff = changeView.diff;
+    const top = diff.scrollTop;
     diff.textContent = "";
     if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
     else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
     else renderDiffInto(diff, diffText);
-    diff.scrollTop = 0;
+    diff.scrollTop = keep ? top : 0;
   }
 
   function showDiff(msg) {
     if (msg.file !== selectedFile) return; // a stale reply for another file
+    // A diff already on show is being read again, and the reader's place in
+    // it is kept; a file just chosen starts at its top.
+    const again = !!diffText;
     diffText = msg.error ? msg.error : msg.text;
-    if (changeView) fillDiff();
+    if (changeView) fillDiff(again);
     else renderChanges();
   }
 
