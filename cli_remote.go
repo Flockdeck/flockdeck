@@ -173,7 +173,9 @@ func parseRemote(fs *flag.FlagSet, args []string) error {
 		return errReported
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected %q", fs.Arg(0))
+		// Which command it was, and where to find what it does take, are what
+		// somebody who typed a word too many needs to hear.
+		return fmt.Errorf("%s takes no arguments, but was given %q; `flockdeck %s -h` says what it does take", fs.Name(), fs.Arg(0), fs.Name())
 	}
 	return nil
 }

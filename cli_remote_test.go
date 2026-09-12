@@ -488,6 +488,12 @@ func TestRemoteUsage(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "revoke", "-h"); err != nil {
 		t.Errorf("remote revoke -h = %v, want its usage", err)
 	}
+	// A word too many is answered with which command it was and where its
+	// help is, not a bare "unexpected".
+	if _, _, err := runRemoteCmd(t, "pair", "phone"); err == nil ||
+		!strings.Contains(err.Error(), "remote pair takes no arguments") || !strings.Contains(err.Error(), "`flockdeck remote pair -h`") {
+		t.Errorf("remote pair phone = %v, want it to name the command and its help", err)
+	}
 	// revoke with no id is answered with its own usage, not every command's.
 	if out, _, err := runRemoteCmd(t, "revoke"); err == nil {
 		t.Error("revoke with no device was accepted")
