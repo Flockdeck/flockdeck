@@ -60,11 +60,15 @@ body {
 }
 
 /* A single wash behind the fold, in the accent, so the ground is not flat
-   without anything on the page having to be loud about it. */
+   without anything on the page having to be loud about it. It scrolls away
+   with the fold rather than being fixed to the window, which would tint the
+   top of every section in turn and, on a phone, be repainted whenever the
+   browser's toolbar slides in or out. */
+body { position: relative; }
 body::before {
   content: "";
-  position: fixed;
-  inset: -20% -10% auto -10%;
+  position: absolute;
+  inset: -20vh -10% auto -10%;
   height: 70vh;
   background:
     radial-gradient(60% 55% at 22% 0%, rgba(79,209,219,.13), transparent 70%),
