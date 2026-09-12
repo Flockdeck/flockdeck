@@ -12,7 +12,7 @@ import (
 func TestWritesAndEditsShareOneStandingPermission(t *testing.T) {
 	root := newRoot(t)
 	w, e := &writeFile{root: root}, &editFile{root: root}
-	if w.Prefix(json.RawMessage(`{}`)) != e.Prefix(json.RawMessage(`{}`)) {
+	if w.Prefix(json.RawMessage(`{"path":"a.txt"}`)) != e.Prefix(json.RawMessage(`{"path":"b.txt"}`)) {
 		t.Error("a write and an edit offer different standing permissions")
 	}
 	if n := len(strings.Fields(editFamily)); n <= 2 {

@@ -211,7 +211,31 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 }
 
 // Prefix is the standing permission on offer for a write, which is every edit.
-func (t *writeFile) Prefix(json.RawMessage) string { return editFamily }
+func (t *writeFile) Prefix(args json.RawMessage) string {
+	var a writeArgs
+	if err := decode(args, &a); err != nil {
+		return ""
+	}
+	return editPrefix(t.root, a.Path)
+}
+
+// editPrefix is the standing permission on offer for changing path: every
+// edit, except to a file inside a repository's own directory. A hook there
+// runs at the next commit, and a config there names programs to run -- a
+// pager, an editor, an ssh command -- so "always" for edits would be standing
+// permission to run anything the next time anybody used git in the pane.
+func editPrefix(root *Root, path string) string {
+	abs, err := root.ResolveFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, part := range strings.Split(filepath.ToSlash(root.Rel(abs)), "/") {
+		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".hg") {
+			return ""
+		}
+	}
+	return editFamily
+}
 
 func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error) {
 	var a writeArgs
@@ -367,7 +391,13 @@ func (t *editFile) Approval(args json.RawMessage) string {
 }
 
 // Prefix is the standing permission on offer for an edit, which is every edit.
-func (t *editFile) Prefix(json.RawMessage) string { return editFamily }
+func (t *editFile) Prefix(args json.RawMessage) string {
+	var a editArgs
+	if err := decode(args, &a); err != nil {
+		return ""
+	}
+	return editPrefix(t.root, a.Path)
+}
 
 func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) {
 	var a editArgs
