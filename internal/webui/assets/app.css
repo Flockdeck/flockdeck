@@ -826,6 +826,7 @@ kbd {
 /* A search that found nothing leaves the terminal exactly where it was, so the
  * field has to be the thing that says so. */
 #searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); }
+#search-count { color: var(--fg-dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------- command palette */
 

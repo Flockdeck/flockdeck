@@ -1407,6 +1407,9 @@
     try {
       search = new SearchAddon.SearchAddon();
       term.loadAddon(search);
+      if (search.onDidChangeResults) {
+        search.onDidChangeResults((r) => { if (searchPane === id) showMatchCount(r); });
+      }
     } catch {
       /* Search is a convenience; the terminal works without it. */
     }
@@ -2517,6 +2520,7 @@
     const input = $("search-input");
     input.value = "";
     noMatch(false);
+    showMatchCount(null);
     input.focus();
   }
   function closeSearch() {
@@ -2535,6 +2539,7 @@
     if (!p || !p.search || !q) {
       if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
       noMatch(false);
+      showMatchCount(null);
       return;
     }
     const opts = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
@@ -2551,6 +2556,18 @@
     const input = $("search-input");
     input.classList.toggle("nomatch", on);
     input.setAttribute("aria-invalid", String(on));
+  }
+
+  /** showMatchCount says which match is showing and how many there are, as
+   *  the search addon reports them. Stepping through the matches gave no idea
+   *  how far there was to go, or whether Enter had wrapped round to the
+   *  first. The addon stops counting past its highlight limit. */
+  function showMatchCount(r) {
+    const n = r ? r.resultCount : 0;
+    $("search-count").textContent = !r || !$("search-input").value ? ""
+      : n > 0 ? (r.resultIndex + 1) + " of " + n
+      : n === 0 ? "No matches"
+      : "Many matches";
   }
 
   // --------------------------------------------------------- notifications

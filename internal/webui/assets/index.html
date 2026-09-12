@@ -54,6 +54,9 @@
   <div id="searchbar" hidden>
     <label for="search-input" id="search-label">Find</label>
     <input id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search this terminal">
+    <!-- Which match is showing, of how many: without it, stepping through
+         them gave no idea how far there was to go. -->
+    <span id="search-count" aria-live="polite"></span>
     <button id="search-prev" class="chip" title="Previous (Shift+Enter)" aria-label="Previous match (Shift+Enter)">↑</button>
     <button id="search-next" class="chip" title="Next (Enter)" aria-label="Next match (Enter)">↓</button>
     <button id="search-close" class="chip">Close</button>

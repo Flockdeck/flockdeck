@@ -3116,6 +3116,30 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 `)
 }
 
+// Stepping through a search's matches gave no idea how many there were, which
+// one was showing, or whether Enter had wrapped round to the first.
+func TestTheFindBarCountsTheMatches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const search = h.searchers[0];
+h.$("search-input").value = "error";
+search.results({ resultIndex: 2, resultCount: 12 });
+assert.strictEqual(h.$("search-count").textContent, "3 of 12", "the find bar does not say where in the matches it is");
+search.results({ resultIndex: -1, resultCount: 0 });
+assert.strictEqual(h.$("search-count").textContent, "No matches");
+
+// Another pane's search is not this bar's business.
+h.searchers[1].results({ resultIndex: 0, resultCount: 5 });
+assert.strictEqual(h.$("search-count").textContent, "No matches", "another pane's matches were counted here");
+
+h.key({ key: "Escape" });
+h.press("findInTerminal");
+assert.strictEqual(h.$("search-count").textContent, "", "the last search's count was left on a new one");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -3521,6 +3545,7 @@ class FakeSearch {
   findNext(q) { this.forward.push(q); return this.hit; }
   findPrevious(q) { this.back.push(q); return this.hit; }
   clearDecorations() { this.cleared++; }
+  onDidChangeResults(fn) { this.results = fn; }
 }
 class FakeWebgl { onContextLoss() {} dispose() {} }
 
