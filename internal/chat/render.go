@@ -171,9 +171,20 @@ func (p *printer) codeRune(r rune) {
 		p.code = false
 		return
 	}
-	p.put(p.style(ansiCyan, line))
+	p.put(p.style(p.codeStyle(), line))
 	p.put("\n")
 	p.col, p.started, p.blank = 0, false, line == ""
+}
+
+// codeStyle is how a line of code is drawn: picked out from the prose, and
+// dimmed with it when the whole is background -- a replayed conversation or
+// the model's reasoning -- so that code in the history does not stand out
+// brighter than the answer being written now.
+func (p *printer) codeStyle() string {
+	if p.dim {
+		return ansiDim + ansiCyan
+	}
+	return ansiCyan
 }
 
 // flushWord places the word that has been gathered, wrapping where it will not
@@ -295,7 +306,7 @@ func (p *printer) endLine() {
 func (p *printer) endMessage() {
 	if p.code {
 		if line := p.codeBuf.String(); line != "" {
-			p.put(p.style(ansiCyan, line))
+			p.put(p.style(p.codeStyle(), line))
 			p.put("\n")
 			p.codeBuf.Reset()
 		}
