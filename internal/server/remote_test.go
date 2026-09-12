@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -234,6 +237,50 @@ func TestRemoteDetachLeavesTheDeskAlone(t *testing.T) {
 	readUntil(t, local, "detached", &struct{}{})
 	if !srv.Detached() {
 		t.Error("the window on the desk could not detach")
+	}
+}
+
+// TestRemoteAssetsAreSentCompressed covers the front end fetched through the
+// relay, which is fetched again on every page load: a megabyte of script, most
+// of it text that compresses to a fraction. A window on this machine is sent it
+// as it is.
+func TestRemoteAssetsAreSentCompressed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	// A client that leaves the body as it came, as a proxy in the middle does.
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	get := func(url string) (*http.Response, []byte) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp, body
+	}
+
+	resp, packed := get(ts.URL + "/assets/app.js")
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("app.js through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(packed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := io.ReadAll(zr)
+
+	resp, local := get(srv.baseURL() + "/assets/app.js?t=" + srv.Token())
+	if enc := resp.Header.Get("Content-Encoding"); enc != "" {
+		t.Errorf("app.js on this machine came as %q", enc)
+	}
+	if !bytes.Equal(plain, local) {
+		t.Fatalf("the compressed app.js is not the file: %d bytes against %d", len(plain), len(local))
+	}
+	if 2*len(packed) > len(plain) {
+		t.Errorf("app.js compressed to %d of %d bytes", len(packed), len(plain))
 	}
 }
 

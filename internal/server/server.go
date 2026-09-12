@@ -6,17 +6,22 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -424,8 +429,64 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 		// time for the browser to revalidate against either, and fetching them
 		// again over loopback costs nothing.
 		w.Header().Set("Cache-Control", "no-store")
+		// Through the relay the window is often a phone on a metered link, and
+		// no-store means every page load fetches the front end again: a
+		// megabyte of script, most of it the terminal emulator. Script and
+		// styles compress to a fraction, so they are sent that way when the
+		// browser says it can take it. Over loopback it would buy nothing.
+		if fromRemote(r) && acceptsGzip(r) {
+			if data, ok := gzipped(fsys, r.URL.Path); ok {
+				if ct := mime.TypeByExtension(path.Ext(r.URL.Path)); ct != "" {
+					w.Header().Set("Content-Type", ct)
+				}
+				w.Header().Set("Content-Encoding", "gzip")
+				w.Header().Set("Vary", "Accept-Encoding")
+				_, _ = w.Write(data)
+				return
+			}
+		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// acceptsGzip reports whether a request says it can take a gzipped reply.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		if name, _, _ := strings.Cut(strings.TrimSpace(part), ";"); strings.EqualFold(name, "gzip") {
+			return true
+		}
+	}
+	return false
+}
+
+// gzippedAssets holds each text asset compressed, keyed by its path. The files
+// are compiled in and never change, so each is compressed once, on its first
+// request through the relay, and the answer kept for the life of the process.
+var gzippedAssets sync.Map
+
+// gzipped returns an asset gzipped, and reports false for one that is not
+// worth it -- an image is compressed already -- or not there.
+func gzipped(fsys fs.FS, name string) ([]byte, bool) {
+	switch path.Ext(name) {
+	case ".js", ".css", ".html", ".json", ".svg":
+	default:
+		return nil, false
+	}
+	if data, ok := gzippedAssets.Load(name); ok {
+		return data.([]byte), true
+	}
+	plain, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, false
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	_, _ = zw.Write(plain)
+	if zw.Close() != nil {
+		return nil, false
+	}
+	gzippedAssets.Store(name, buf.Bytes())
+	return buf.Bytes(), true
 }
 
 // Close shuts the server down.
