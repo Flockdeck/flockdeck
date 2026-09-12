@@ -64,6 +64,15 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	if strings.Contains(req.Join, "/pair#") {
 		return nil, false, errors.New("that is a pairing link, for a phone or browser to open; a machine joins another's account with a code made for that, which `flockdeck remote pair -desktop` prints")
 	}
+	// The relay's codes say what they are in their prefixes (fdp_ a join or
+	// pairing code, fdi_ an invitation), so one given for the other is told
+	// so here, rather than by a relay that answers as if none had been given.
+	if strings.HasPrefix(strings.TrimSpace(req.Join), "fdi_") {
+		return nil, false, errors.New("that is an invitation, not a join code; give it as the invitation (-invite)")
+	}
+	if strings.HasPrefix(strings.TrimSpace(req.Invite), "fdp_") {
+		return nil, false, errors.New("that is a join code, not an invitation; give it as the join code (-join)")
+	}
 	relay, err := RelayURL(req.Relay)
 	if err != nil {
 		return nil, false, err

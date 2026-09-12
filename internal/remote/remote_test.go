@@ -888,6 +888,32 @@ func TestEnableRefusesAPairingLinkAsAJoinCode(t *testing.T) {
 	}
 }
 
+// An invitation given as the join code, or a join code as the invitation,
+// is told so before anything reaches the relay, whose own answer would be
+// that no code had been given.
+func TestEnableTellsSwappedCodesApart(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	for _, tc := range []struct {
+		req  EnableRequest
+		want string
+	}{
+		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdi_0123456789abcdefghijkl"}, "that is an invitation, not a join code"},
+		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdp_0123456789abcdefghijkl"}, "that is a join code, not an invitation"},
+	} {
+		if _, _, err := Enable(context.Background(), "v", tc.req); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("Enable(%+v) = %v, want %q", tc.req, err, tc.want)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if call == "POST /api/v1/hosts" {
+			t.Error("a code given under the wrong name was sent to the relay")
+		}
+	}
+}
+
 // The window enables and disables through the manager, which brings the
 // tunnel up and down to match.
 func TestManagerEnablesAndDisables(t *testing.T) {
