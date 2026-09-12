@@ -92,6 +92,12 @@ func TestAOneKeystrokePaneRunsItsProjectsDefault(t *testing.T) {
 	if p := ws.FocusedPane(); p.Agent != "gocli" || p.Model != "m1" {
 		t.Errorf("new tab runs %q · %q, want the project's gocli · m1", p.Agent, p.Model)
 	}
+	// Choosing the agent in the picker with its Default model — whatever the
+	// CLI is set to — is a choice, and the project's model must not replace it.
+	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gocli"}, first, "")
+	if p := ws.FocusedPane(); p.Agent != "gocli" || p.Model != "" {
+		t.Errorf("gocli chosen on its default model runs %q · %q, want gocli with no model", p.Agent, p.Model)
+	}
 
 	if err := ws.OpenProject(second); err != nil {
 		t.Fatalf("open second: %v", err)

@@ -1073,12 +1073,17 @@ func (w *Workspace) defaultAgentFor(root string) string {
 // split into another project; and a pane restored after the default had
 // changed came back as a different agent on top of the old conversation.
 //
-// An agent the catalog has no entry for is left as asked, so that starting it
-// reports the problem in the pane rather than quietly running something else.
+// Only a pane that asked for no agent is given the defaults. One chosen in the
+// picker is recorded as it was chosen: an empty model there is the agent's
+// "Default" row, whatever the CLI is set to, and filling it from the project
+// would run a model nobody picked. An agent the catalog has no entry for is
+// left as asked too, so that starting it reports the problem in the pane
+// rather than quietly running something else.
 func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) {
-	if agentID == "" {
-		agentID = w.defaultAgentFor(root)
+	if agentID != "" {
+		return agentID, model
 	}
+	agentID = w.defaultAgentFor(root)
 	c := w.agents()
 	if _, ok := c.Find(agentID); !ok {
 		return agentID, model
