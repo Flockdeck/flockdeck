@@ -1491,3 +1491,34 @@ func TestPushOfABranchTrackingALocalOneSaysSo(t *testing.T) {
 		t.Errorf("err = %v, want it to say the upstream is local and give the way out", err)
 	}
 }
+
+// TestFetchOnABranchTrackingALocalOneReachesTheRemote: the branch's remote is
+// the repository itself, and a bare fetch brought down nothing while its
+// output read like a fetch.
+func TestFetchOnABranchTrackingALocalOneReachesTheRemote(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature", "--track", "main")
+
+	before := gitRun(t, repo, "rev-parse", "origin/main")
+	if _, err := Fetch(repo); err != nil {
+		t.Fatal(err)
+	}
+	if gitRun(t, repo, "rev-parse", "origin/main") == before {
+		t.Error("origin/main did not move: the fetch never reached the remote")
+	}
+}

@@ -161,7 +161,21 @@ func Pull(dir string) (string, error) {
 }
 
 // Fetch updates the remote-tracking branches.
+//
+// A bare fetch goes to the current branch's remote, which for a branch
+// tracking a local one -- `git checkout -b feature --track main` -- is the
+// repository itself: "From . * branch main -> FETCH_HEAD", nothing brought
+// down from anywhere, and a toast that read like a fetch. Such a branch
+// fetches from the remote a first push would go to instead; every other
+// branch keeps git's own choice.
 func Fetch(dir string) (string, error) {
+	if branch := CurrentBranch(dir); branch != "" {
+		if out, err := run(dir, "config", "--get", "branch."+branch+".remote"); err == nil && strings.TrimSpace(out) == "." {
+			if remote, rerr := pushRemote(dir, branch); rerr == nil {
+				return runVerbose(dir, "fetch", "--prune", remote)
+			}
+		}
+	}
 	return runVerbose(dir, "fetch", "--prune")
 }
 
