@@ -243,6 +243,37 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 }
 
+// TestFinishedNotificationsAreNotReported covers the Notifications that say
+// something is done rather than waiting: every Notification turns a pane
+// amber, and a login that succeeded or an MCP question just answered is the
+// opposite of an agent needing you.
+func TestFinishedNotificationsAreNotReported(t *testing.T) {
+	srv, r := newServer(t)
+	for _, kind := range []string{"auth_success", "elicitation_complete", "elicitation_response"} {
+		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
+		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
+			t.Fatalf("emit %s: %v", kind, err)
+		}
+	}
+	select {
+	case e := <-r.ch:
+		t.Fatalf("a notification of something finished was reported: %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// The ones that do mean the user is wanted still arrive, and so does one
+	// from a Claude Code too old to say what it is about.
+	for _, kind := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog", ""} {
+		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
+		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
+			t.Fatalf("emit %q: %v", kind, err)
+		}
+		if got := r.next(t); got.Event != "Notification" {
+			t.Errorf("%q: event = %q, want Notification", kind, got.Event)
+		}
+	}
+}
+
 // TestSpawnSaysWhatAFailureMeans covers what the agent that ran `flockdeck
 // spawn` is told, since it acts on it. A timeout is not a refusal: the helper
 // may be on its way, and an agent that reads a bare deadline error asks again.

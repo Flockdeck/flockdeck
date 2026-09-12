@@ -63,6 +63,19 @@ type claudePayload struct {
 	// Claude Code has spelled the SessionStart source both ways; read either.
 	Source string `json:"source"`
 	How    string `json:"how"`
+	// NotificationType says what a Notification is about.
+	NotificationType string `json:"notification_type"`
+}
+
+// finishedNotifications are the kinds of Notification that report something
+// done rather than something waiting on the user: a login that succeeded, and
+// an MCP server's question that has just been answered. Every Notification
+// turns a pane amber, so passing these on put a pane back in the count of
+// agents waiting on you the moment the user had dealt with it.
+var finishedNotifications = map[string]bool{
+	"auth_success":         true,
+	"elicitation_complete": true,
+	"elicitation_response": true,
 }
 
 // Server receives hook events on the loopback interface.
@@ -230,6 +243,9 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 			p.Source = cp.Source
 			if p.Source == "" {
 				p.Source = cp.How
+			}
+			if event == "Notification" && finishedNotifications[cp.NotificationType] {
+				return "", nil
 			}
 		}
 	}
