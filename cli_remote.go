@@ -376,7 +376,10 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// A new name is something to do, and rename does it without enrolling
 		// again, which would cost the account's devices if this is its only
 		// machine; the cost is said, for whoever meant to enrol again anyway.
-		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote disable`, unpairs its devices if it is the account's only machine", err, strings.TrimSpace(f.name))
+		// Quoted when it has to be: "Jim's laptop" pasted as it stood left the
+		// shell waiting on the closing quote of its apostrophe, and a name of
+		// two words renamed the machine to the first.
+		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote disable`, unpairs its devices if it is the account's only machine", err, cliWord(strings.TrimSpace(f.name)))
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
