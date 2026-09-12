@@ -57,7 +57,7 @@
 <main class="wrap">
 
 <section class="hero">
-  <p class="kicker"><span class="dot waiting">▲</span> Built for multi-agent coding</p>
+  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built for multi-agent coding</p>
   <h1>Run all your coding agents <em>at once</em>.</h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and more side by side
      in one desktop app, and shows you the moment an agent needs your input.</p>
@@ -88,17 +88,17 @@
      one before it. -->
 <section class="deck" id="deck" aria-label="A Flockdeck window with three agents running">
   <div class="deck-bar">
-    <span class="deck-tab on"><span class="dot working" data-tab="api">●</span> api</span>
-    <span class="deck-tab"><span class="dot waiting" data-tab="ui">▲</span> ui</span>
-    <span class="deck-tab"><span class="dot idle" data-tab="docs">●</span> docs</span>
+    <span class="deck-tab on"><span aria-hidden="true" class="dot working" data-tab="api">●</span> api</span>
+    <span class="deck-tab"><span aria-hidden="true" class="dot waiting" data-tab="ui">▲</span> ui</span>
+    <span class="deck-tab"><span aria-hidden="true" class="dot idle" data-tab="docs">●</span> docs</span>
     <span class="deck-tally">
-      <span><span class="dot waiting">▲</span> <b data-tally="waiting">1</b> waiting</span>
-      <span><span class="dot working">●</span> <b data-tally="working">1</b> working</span>
+      <span><span aria-hidden="true" class="dot waiting">▲</span> <b data-tally="waiting">1</b> waiting</span>
+      <span><span aria-hidden="true" class="dot working">●</span> <b data-tally="working">1</b> working</span>
     </span>
   </div>
   <div class="deck-panes">
     <div class="pane" data-pane="api">
-      <div class="pane-head"><span class="dot working">●</span> <span class="name">api</span> <span class="branch">feat/api</span></div>
+      <div class="pane-head"><span aria-hidden="true" class="dot working">●</span> <span class="name">api</span> <span class="branch">feat/api</span></div>
       <pre class="term" data-term="api" data-at="0 420 760 700 900"><span class="u">$</span> flockdeck — agent: claude-code
 <b>Reading</b> internal/api/router.go
 <b>Edit</b> internal/api/router.go <span class="dim">+38 −12</span>
@@ -106,7 +106,7 @@
 <span class="ok">ok</span>  internal/api  <span class="dim">1.284s</span></pre>
     </div>
     <div class="pane is-waiting" data-pane="ui">
-      <div class="pane-head"><span class="dot waiting">▲</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
+      <div class="pane-head"><span aria-hidden="true" class="dot waiting">▲</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
       <pre class="term" data-term="ui" data-at="0 500 820 700 260 200"><span class="u">$</span> flockdeck — agent: codex
 <b>Reading</b> internal/webui/assets/app.js
 <b>Edit</b> internal/webui/assets/app.css <span class="dim">+21 −4</span>
@@ -115,7 +115,7 @@
 <span class="dim">waiting for you…</span></pre>
     </div>
     <div class="pane wide" data-pane="docs">
-      <div class="pane-head"><span class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
+      <div class="pane-head"><span aria-hidden="true" class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
       <pre class="term" data-term="docs" data-at="0 560 900 700"><span class="u">$</span> flockdeck — agent: gemini
 <b>Reading</b> README.md
 <b>Edit</b> README.md <span class="dim">+64 −9</span>
@@ -126,10 +126,10 @@
 <p class="deck-cap">Three agents on three branches. One needs you.</p>
 
 <div class="legend" role="group" aria-label="What the status glyphs mean">
-  <div><span class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
-  <div><span class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
-  <div><span class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
-  <div><span class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
+  <div><span aria-hidden="true" class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
+  <div><span aria-hidden="true" class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
+  <div><span aria-hidden="true" class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
+  <div><span aria-hidden="true" class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
 </div>
 
 <section class="band" id="why">
@@ -162,7 +162,7 @@
          endpoint. Pick one per pane and Flockdeck remembers it for the project.</p>
     </div>
     <div class="card">
-      <span class="g">▲ waiting</span>
+      <span class="g"><span aria-hidden="true">▲</span> waiting</span>
       <h3>Know who needs you</h3>
       <p>Every pane shows whether its agent is working, waiting or done. Tabs and
          projects light up too, and you get a desktop notification when an agent
@@ -213,9 +213,9 @@
     <div class="fan-arrow" aria-hidden="true">→</div>
     <div class="fan-out">
       <ul>
-        <li><span class="dot working">●</span> config-loader <span class="br">feat/config-loader</span></li>
-        <li><span class="dot working">●</span> retry-policy <span class="br">feat/retry-policy</span></li>
-        <li><span class="dot waiting">▲</span> wire-format <span class="br">docs/wire-format</span></li>
+        <li><span aria-hidden="true" class="dot working">●</span> config-loader <span class="br">feat/config-loader</span></li>
+        <li><span aria-hidden="true" class="dot working">●</span> retry-policy <span class="br">feat/retry-policy</span></li>
+        <li><span aria-hidden="true" class="dot waiting">▲</span> wire-format <span class="br">docs/wire-format</span></li>
       </ul>
     </div>
   </div>
@@ -238,7 +238,7 @@
   <div class="relay" role="group" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
     <div class="relay-node">
       <span class="g">phone · tablet · laptop</span>
-      <div class="relay-tally"><span><span class="dot waiting">▲</span> 1 waiting</span> <span><span class="dot working">●</span> 2 working</span></div>
+      <div class="relay-tally"><span><span aria-hidden="true" class="dot waiting">▲</span> 1 waiting</span> <span><span aria-hidden="true" class="dot working">●</span> 2 working</span></div>
       <span class="t">any browser you've paired</span>
     </div>
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
@@ -250,7 +250,7 @@
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">outbound · TLS</span></div>
     <div class="relay-node">
       <span class="g">your desktop</span>
-      <div class="relay-tally"><span><span class="dot working">●</span> api</span> <span><span class="dot waiting">▲</span> ui</span> <span><span class="dot idle">●</span> docs</span></div>
+      <div class="relay-tally"><span><span aria-hidden="true" class="dot working">●</span> api</span> <span><span aria-hidden="true" class="dot waiting">▲</span> ui</span> <span><span aria-hidden="true" class="dot idle">●</span> docs</span></div>
       <span class="t">your agents keep running here</span>
     </div>
   </div>
