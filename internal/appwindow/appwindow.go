@@ -101,7 +101,14 @@ func Open(url, profileDir string) (*Window, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
-		return startAppMode(path, url, profileDir)
+		// One that is found but will not start is named too: without it,
+		// nothing in the message says the choice of browser was the user's
+		// own setting rather than something Flockdeck got wrong.
+		w, err := startAppMode(path, url, profileDir)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
+		}
+		return w, nil
 	}
 	if path := findBrowser(); path != "" {
 		if w, err := startAppMode(path, url, profileDir); err == nil {

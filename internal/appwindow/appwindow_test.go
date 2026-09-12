@@ -3,6 +3,8 @@ package appwindow
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +40,20 @@ func TestDarwinCandidatesLookInTheUsersApplications(t *testing.T) {
 	}
 	if len(darwinCandidates("")) != 4 {
 		t.Errorf("with no home directory known, want the four system paths only")
+	}
+}
+
+// A pinned browser that is there but will not start has to be named as the
+// user's own setting, or the failure reads as Flockdeck's.
+func TestAPinnedBrowserThatWillNotStartIsNamed(t *testing.T) {
+	notABrowser := filepath.Join(t.TempDir(), "notabrowser.exe")
+	if err := os.WriteFile(notABrowser, []byte("not a program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(BrowserEnv, notABrowser)
+	_, err := Open("http://127.0.0.1:1/", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), BrowserEnv) {
+		t.Errorf("Open = %v, want the failure to name %s", err, BrowserEnv)
 	}
 }
 
