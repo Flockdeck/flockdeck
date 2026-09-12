@@ -485,9 +485,37 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	if len(roster.Devices) == 0 {
 		fmt.Fprintln(rio.out, "devices: none paired — `flockdeck remote pair` pairs one")
 	} else {
-		fmt.Fprintf(rio.out, "devices: %d paired\n", len(roster.Devices))
+		fmt.Fprintf(rio.out, "devices: %s\n", pairedSummary(roster.Devices, 80-len("devices: ")))
 	}
 	return nil
+}
+
+// pairedSummary is status's line about the devices: how many, and as many of
+// their names as fit in width, so that the one to hand can be seen to be
+// there without asking for the whole list.
+func pairedSummary(ds []remote.Device, width int) string {
+	s := fmt.Sprintf("%d paired", len(ds))
+	for i, d := range ds {
+		sep := ": "
+		if i > 0 {
+			sep = ", "
+		}
+		// Room is kept for saying how many are left, should this be the last
+		// name that fits.
+		more := ""
+		if rest := len(ds) - i - 1; rest > 0 {
+			more = fmt.Sprintf(" and %d more", rest)
+		}
+		next := s + sep + orUnnamed(strings.TrimSpace(d.Name))
+		if len([]rune(next+more)) > width {
+			if i == 0 {
+				return s
+			}
+			return fmt.Sprintf("%s and %d more", s, len(ds)-i)
+		}
+		s = next
+	}
+	return s
 }
 
 func remoteDevicesCmd(args []string, rio remoteIO) error {

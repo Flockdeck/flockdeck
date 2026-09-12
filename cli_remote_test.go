@@ -105,6 +105,35 @@ func runRemoteCmd(t *testing.T, args ...string) (string, int, error) {
 	return out.String(), reloads, err
 }
 
+// status names the paired devices, as many as fit, and says how many more.
+func TestPairedSummary(t *testing.T) {
+	devices := func(names ...string) []remote.Device {
+		ds := make([]remote.Device, len(names))
+		for i, n := range names {
+			ds[i] = remote.Device{ID: string(rune('a' + i)), Name: n}
+		}
+		return ds
+	}
+	for _, c := range []struct {
+		ds    []remote.Device
+		width int
+		want  string
+	}{
+		{devices("phone"), 71, "1 paired: phone"},
+		{devices("phone", "laptop", "tablet"), 71, "3 paired: phone, laptop, tablet"},
+		{devices("phone", "laptop", "tablet"), 26, "3 paired: phone and 2 more"},
+		{devices(" "), 71, "1 paired: (unnamed)"},
+		{devices("phone", "laptop"), 10, "2 paired"},
+	} {
+		if got := pairedSummary(c.ds, c.width); got != c.want {
+			t.Errorf("pairedSummary(%d devices, %d) = %q, want %q", len(c.ds), c.width, got, c.want)
+		}
+		if n := len([]rune(pairedSummary(c.ds, c.width))); n > c.width && c.width >= len("N paired") {
+			t.Errorf("pairedSummary(%d devices, %d) is %d wide", len(c.ds), c.width, n)
+		}
+	}
+}
+
 // revoke takes a device by its id or its name, and does not guess between two
 // devices with one name.
 func TestPickDevice(t *testing.T) {
@@ -225,6 +254,10 @@ func TestRemoteLifecycle(t *testing.T) {
 	// Where a paired device opens this machine is worth knowing without one.
 	if !strings.Contains(out, "open at: "+f.URL+"/h/h-desk/\n") {
 		t.Errorf("status does not say where a device opens this machine: %q", out)
+	}
+	// The devices are named, for a glance.
+	if !strings.Contains(out, "devices: 1 paired: phone\n") {
+		t.Errorf("status does not name the paired device: %q", out)
 	}
 
 	out, _, err = runRemoteCmd(t, "revoke", "d1")
