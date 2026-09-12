@@ -23,6 +23,10 @@ type healthMsg struct {
 	// distinction that matters: a launch that cannot tell the two apart
 	// writes off a running instance and starts a rival set of agents.
 	Ready bool `json:"ready"`
+	// Windows is how many windows on this machine are open onto the instance,
+	// leaving out the ones reached through the relay. A launch that finds one
+	// open has a window to bring back rather than a reason to open another.
+	Windows int `json:"windows"`
 }
 
 // Version is reported by the health endpoint. main sets it at startup.
@@ -106,6 +110,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(healthMsg{
 		App: "flockdeck", Version: Version, PID: pid(), Projects: projects, Ready: true,
+		Windows: s.LocalClientCount(),
 	})
 }
 
@@ -121,7 +126,7 @@ func (s *Server) notReady(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(healthMsg{
-		App: "flockdeck", Version: Version, PID: pid(),
+		App: "flockdeck", Version: Version, PID: pid(), Windows: s.LocalClientCount(),
 	})
 }
 

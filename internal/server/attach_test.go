@@ -10,6 +10,29 @@ import (
 	"time"
 )
 
+// TestProbeCountsTheWindowsOnThisMachine covers a second launch deciding
+// whether it needs to open a window at all. Each launch used to open another,
+// so bringing back a window lost behind others added a duplicate every time.
+// A window through the relay is somebody elsewhere and is not counted.
+func TestProbeCountsTheWindowsOnThisMachine(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	remote, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer remote.CloseNow()
+	readRemoteMsg(t, remote, "state")
+
+	if h, err := Probe(srv.BaseURL(), srv.Token()); err != nil || h.Windows != 0 {
+		t.Fatalf("with only a relayed window open, probe = %+v, %v; want 0 windows", h, err)
+	}
+	nextState(t, dialControl(t, srv), nil)
+	if h, err := Probe(srv.BaseURL(), srv.Token()); err != nil || h.Windows != 1 {
+		t.Fatalf("with a window open on this machine, probe = %+v, %v; want 1 window", h, err)
+	}
+}
+
 // TestRequestOpenSaysWhyItFailed covers `flockdeck -C` handing the running
 // instance a project it will not open. The instance says why, and the launch
 // used to print "open project: 400 Bad Request" in place of it.
