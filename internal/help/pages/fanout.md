@@ -26,7 +26,8 @@ These choices go with it:
   Each child gets a branch named after its task, so they work in parallel
   without touching each other's files.
 - **Put them in this tab, beside the agent that planned them.** Off, the
-  children get a new tab of their own, called **Fan out**. Either way they end
+  children get a new tab of their own, called **Fan out** — or named after the
+  task, when there is only one. Either way they end
   up in one tab together rather than a tab each: a dozen agents is a dozen tabs
   nobody can read, and a fan-out is precisely when you want to see them at once.
 - **Trust the new worktrees.** A fresh worktree is a directory the agent has
@@ -49,7 +50,7 @@ starts. A row of twelve wraps every line a terminal prints and a stack of
 twelve leaves four lines showing, so neither is a tab you can actually watch.
 
 Rearrange them afterwards like any other pane: drag one onto another's edge,
-drag one out to the tab bar for a tab of its own, or drag a divider.
+drag one onto the `+` in the tab bar for a tab of its own, or drag a divider.
 
 Every child is a normal pane. Watch it, type into it, and review and commit
 its work from **Changes**.
