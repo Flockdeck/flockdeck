@@ -66,7 +66,7 @@ func TestPathPrefersACopyWithSomethingInIt(t *testing.T) {
 	if got := claudePath(id); got != full {
 		t.Errorf("claudePath = %q, want the copy with the conversation in it, %q", got, full)
 	}
-	if !Exists(Agents()[0], id) {
+	if !Exists(claudeSpec, id) {
 		t.Error("a conversation with a copy holding it should be worth resuming")
 	}
 }

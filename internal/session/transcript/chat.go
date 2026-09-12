@@ -32,6 +32,19 @@ type chatLine struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 	Cwd  string `json:"cwd"`
+	// Model is the model an answer came from, and Agent the catalog entry the
+	// chat was started as where the chat client records it. They are what puts
+	// a chat back under the agent that held it, since every API agent reads
+	// the same folder.
+	Model string `json:"model"`
+	Agent string `json:"agent"`
+}
+
+// chatRow is a chat as the folder describes it, with what it recorded about
+// the agent that held it.
+type chatRow struct {
+	Conversation
+	model, agent string
 }
 
 func (Chat) Path(_ agent.Spec, sessionID string) string {
@@ -82,8 +95,24 @@ func (c Chat) Replies(spec agent.Spec, sessionID string, n int) []string {
 }
 
 // Conversations lists the chats that ran in a working directory, most recently
-// used first.
+// used first, each labelled as spec's. All asks once for every API agent and
+// works out which of them held each chat instead.
 func (Chat) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
+	rows, err := chatRows(cwd)
+	if len(rows) == 0 {
+		return nil, err
+	}
+	out := make([]Conversation, len(rows))
+	for i, r := range rows {
+		out[i] = r.Conversation
+		out[i].Agent = spec.ID
+	}
+	return out, err
+}
+
+// chatRows describes the chats that ran in a working directory, most recently
+// used first.
+func chatRows(cwd string) ([]chatRow, error) {
 	dir, err := chatsDir()
 	if err != nil {
 		return nil, err
@@ -98,7 +127,7 @@ func (Chat) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
 		return nil, fmt.Errorf("read chats in %s: %w", dir, err)
 	}
 
-	var out []Conversation
+	var out []chatRow
 	for _, e := range entries {
 		id := transcriptID(e.Name())
 		if e.IsDir() || id == "" {
@@ -110,21 +139,24 @@ func (Chat) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
 		if err != nil || info.Size() == 0 {
 			continue
 		}
-		summary, recorded, entries := describeChat(filepath.Join(dir, e.Name()))
-		if recorded == "" || !sameDir(recorded, cwd) {
+		f := describeChat(filepath.Join(dir, e.Name()))
+		if f.cwd == "" || !sameDir(f.cwd, cwd) {
 			continue
 		}
-		if summary == "" {
-			summary = NoPrompt
+		if f.summary == "" {
+			f.summary = NoPrompt
 		}
-		out = append(out, Conversation{
-			ID:       id,
-			Agent:    spec.ID,
-			Cwd:      cwd,
-			Summary:  summary,
-			Modified: info.ModTime(),
-			Messages: entries,
-			Size:     info.Size(),
+		out = append(out, chatRow{
+			Conversation: Conversation{
+				ID:       id,
+				Cwd:      cwd,
+				Summary:  f.summary,
+				Modified: info.ModTime(),
+				Messages: f.entries,
+				Size:     info.Size(),
+			},
+			model: f.model,
+			agent: f.agent,
 		})
 	}
 
@@ -137,24 +169,34 @@ func (Chat) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
 	return out, nil
 }
 
+// chatFacts is what a chat says about itself.
+type chatFacts struct {
+	summary, cwd, model, agent string
+	entries                    int
+}
+
 // describeChat reads what a chat says about itself: the opening prompt, the
-// directory it ran in, and how many entries it holds.
+// directory it ran in, the model that answered and the agent it was started
+// as where it says, and how many entries it holds.
 //
-// The first two are in the opening entries and the third is the whole file, so
-// they are found the way Claude's are -- parse the head, count the line breaks
-// of the rest -- except that there is no cache behind it. A chat is Flockdeck's
-// own writing rather than a conversation with every tool result pasted into
-// it, so the folder is small enough to read on each listing.
-func describeChat(path string) (summary, cwd string, entries int) {
+// All but the count are in the opening entries and the count is the whole
+// file, so they are found the way Claude's are -- parse the head, count the
+// line breaks of the rest -- except that there is no cache behind it. A chat is
+// Flockdeck's own writing rather than a conversation with every tool result
+// pasted into it, so the folder is small enough to read on each listing.
+func describeChat(path string) chatFacts {
+	var c chatFacts
 	f, err := os.Open(path)
 	if err != nil {
-		return "", "", 0
+		return c
 	}
 	defer f.Close()
 
 	counted := &countingReader{r: f, last: '\n'}
 	lines := newTranscriptReader(counted)
-	for i := 0; i < summaryScanLimit && (summary == "" || cwd == ""); i++ {
+	// The agent is not waited for: a chat that names one names it from the
+	// start, and one that does not would otherwise be read to the scan limit.
+	for i := 0; i < summaryScanLimit && (c.summary == "" || c.cwd == "" || c.model == ""); i++ {
 		raw, ok := lines.next()
 		if !ok {
 			break
@@ -163,23 +205,29 @@ func describeChat(path string) (summary, cwd string, entries int) {
 		if json.Unmarshal(raw, &line) != nil {
 			continue
 		}
-		if cwd == "" {
-			cwd = line.Cwd
+		if c.cwd == "" {
+			c.cwd = line.Cwd
 		}
-		if summary == "" && line.Type == "user" {
-			summary = firstPrompt(line.Text)
+		if c.model == "" {
+			c.model = line.Model
+		}
+		if c.agent == "" {
+			c.agent = line.Agent
+		}
+		if c.summary == "" && line.Type == "user" {
+			c.summary = firstPrompt(line.Text)
 		}
 	}
 	lines.release()
 	drain(counted)
 
-	entries = counted.newlines
+	c.entries = counted.newlines
 	if counted.last != '\n' {
 		// A chat being written to right now usually ends mid-entry, and what
 		// is on that last line is still an entry.
-		entries++
+		c.entries++
 	}
-	return summary, cwd, entries
+	return c
 }
 
 // chatsDir returns the folder Flockdeck's chat client keeps its transcripts in.
