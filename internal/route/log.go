@@ -75,12 +75,19 @@ func AppendLog(dir string, entries ...LogEntry) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read the routing log: %w", err)
 	}
-	if bytes.Count(old, []byte("\n"))+len(entries) <= logCap {
+	data := add.Bytes()
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		// The last line has no end: an editor that drops the final newline, or
+		// a write cut short. Appended to as it stood, it and the first new
+		// decision became one line that parsed as neither, and both were lost.
+		data = append([]byte{'\n'}, data...)
+	}
+	if bytes.Count(old, []byte("\n"))+bytes.Count(data, []byte("\n")) <= logCap {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return fmt.Errorf("write the routing log: %w", err)
 		}
-		_, err = f.Write(add.Bytes())
+		_, err = f.Write(data)
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}

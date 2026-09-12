@@ -61,3 +61,19 @@ func TestTheLogIsTrimmedToItsCap(t *testing.T) {
 		t.Errorf("the log kept %q to %q, want the newest", got[0].Rule, got[len(got)-1].Rule)
 	}
 }
+
+// A log whose last line lost its newline -- an editor that strips it, a write
+// cut short -- is appended to on a line of its own, so neither decision is lost.
+func TestALogWithoutAFinalNewlineKeepsBothDecisions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, LogName), []byte(`{"kind":"fanout","rule":"old","outcome":"kept"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendLog(dir, LogEntry{Kind: KindFanout, Rule: "new", Outcome: OutcomeKept}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadLog(dir)
+	if err != nil || len(got) != 2 || got[0].Rule != "old" || got[1].Rule != "new" {
+		t.Errorf("read back %+v, %v; want the old decision and the new", got, err)
+	}
+}
