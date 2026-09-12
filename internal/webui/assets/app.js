@@ -2140,6 +2140,14 @@
         chips.append(btn);
       });
       bs.append(chips);
+      // Only the first fourteen are offered as buttons, and the rest simply
+      // were not there: a branch further down the list looked as though it
+      // did not exist. Typing its name into the form above checks it out.
+      if (free.length > 14) {
+        const more = free.length - 14;
+        bs.append(el("div", "wt-hint", (more === 1 ? "1 more branch" : more + " more branches") +
+          " not shown - type a branch name into the form above to check it out."));
+      }
       body.append(bs);
     }
 

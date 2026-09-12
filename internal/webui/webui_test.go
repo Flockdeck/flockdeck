@@ -2835,6 +2835,22 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth
 `)
 }
 
+// The worktrees dialog offers branches without a worktree as buttons, at most
+// fourteen of them, and the rest simply were not there: a branch further down
+// looked as though it did not exist.
+func TestBranchesPastTheFirstFourteenAreAccountedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const branches = [];
+for (let i = 0; i < 20; i++) branches.push({ name: "branch-" + i, checkedIn: false });
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches, items: [] });
+const text = h.$("overlay-body").textContent;
+assert.ok(text.includes("6 more branches"), "the branches past the first fourteen vanished without a word");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
