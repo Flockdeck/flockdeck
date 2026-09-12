@@ -43,6 +43,7 @@ func StatusOf(dir string) Status {
 		return st
 	}
 
+	var counted bool // git said how far ahead and behind the upstream is
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "" {
@@ -76,6 +77,7 @@ func StatusOf(dir string) Status {
 			if len(fields) == 2 {
 				st.Ahead, _ = strconv.Atoi(strings.TrimPrefix(fields[0], "+"))
 				st.Behind, _ = strconv.Atoi(strings.TrimPrefix(fields[1], "-"))
+				counted = true
 			}
 		case strings.HasPrefix(line, "? "):
 			st.Untracked++
@@ -85,6 +87,14 @@ func StatusOf(dir string) Status {
 		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "), strings.HasPrefix(line, "u "):
 			st.Dirty++
 		}
+	}
+	// An upstream git names but cannot count against is one that is gone --
+	// deleted on the remote and pruned here -- and read as 0 and 0 it was
+	// shown as "level with" a branch that no longer exists, over commits
+	// that were never pushed. It is no upstream, as UpstreamOf already said,
+	// and Push sets up another.
+	if !counted {
+		st.Upstream = ""
 	}
 	if st.Detached && st.Branch == "" {
 		st.Branch = rebasingBranch(dir)

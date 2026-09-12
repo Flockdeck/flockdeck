@@ -676,3 +676,29 @@ func TestDefaultBaseOfAFreshRepositoryIsEmpty(t *testing.T) {
 		t.Errorf("default base = %q in a repository with a commit, want its branch", got)
 	}
 }
+
+// TestAGoneUpstreamIsNoUpstream: a branch whose upstream was deleted on the
+// remote and pruned here was reported as tracking it, level, 0 and 0 -- over
+// a commit that had never been pushed.
+func TestAGoneUpstreamIsNoUpstream(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "checkout", "-q", "-b", "feature")
+	gitRun(t, repo, "push", "-q", "-u", "origin", "feature")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
+	gitRun(t, repo, "push", "-q", "origin", "--delete", "feature")
+	gitRun(t, repo, "fetch", "-q", "--prune")
+
+	if st := StatusOf(repo); st.Upstream != "" {
+		t.Errorf("status = %+v, want no upstream once it is gone", st)
+	}
+	if got := UpstreamOf(repo); got != "" {
+		t.Errorf("UpstreamOf = %q, want none, agreeing with the status", got)
+	}
+}
