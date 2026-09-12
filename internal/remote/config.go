@@ -216,6 +216,17 @@ func CheckRelay(raw string) (string, error) {
 		u.Host = strings.TrimSuffix(u.Host, ":"+p)
 	}
 	u.Path = strings.TrimRight(u.Path, "/")
+	// A machine's own address on the relay, <relay>/h/<id>, is what status
+	// shows as where a paired device opens it, and so the address most to
+	// hand on a machine being set up beside it. It is a page, not a relay,
+	// and taken for one it would have registration posted beneath it.
+	if i := strings.LastIndex(u.Path, "/h/"); i >= 0 && u.Path[i+3:] != "" && !strings.Contains(u.Path[i+3:], "/") {
+		relay := u.Scheme + "://" + u.Host + u.Path[:i]
+		if relay == oldDefaultRelay {
+			relay = DefaultRelay
+		}
+		return "", fmt.Errorf("that is a machine's address on the relay, for a paired device to open; the relay's own address is %s", relay)
+	}
 	// The hosted relay's old name is the same relay, and a machine enrolled
 	// now is given the current one, whichever was typed.
 	if s := u.String(); s != oldDefaultRelay {

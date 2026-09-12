@@ -169,6 +169,17 @@ func TestRelayURL(t *testing.T) {
 			t.Errorf("CheckRelay(%q) = %q, %v; want %q", raw, got, err, want)
 		}
 	}
+	// A machine's own address on the relay, which status shows, is not the
+	// relay's, and the refusal gives the relay's.
+	for raw, want := range map[string]string{
+		"https://remote.flockdeck.ai/h/abcdefghijklmnop/": "the relay's own address is https://remote.flockdeck.ai",
+		"https://relay.flockdeck.ai/h/abcdefghijklmnop":   "the relay's own address is " + DefaultRelay,
+		"https://relay.example/base/h/abcdefghijklmnop/":  "the relay's own address is https://relay.example/base",
+	} {
+		if _, err := CheckRelay(raw); err == nil || !strings.HasSuffix(err.Error(), want) {
+			t.Errorf("CheckRelay(%q) = %v, want it refused, ending %q", raw, err, want)
+		}
+	}
 }
 
 // fakeRelay is enough of a relay to carry requests down a tunnel.
