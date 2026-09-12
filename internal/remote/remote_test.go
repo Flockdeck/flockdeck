@@ -391,6 +391,21 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 	}
 }
 
+// serve stopping of its own accord, as the server's does while this Flockdeck
+// shuts down, is not the relay closing the connection and is not reported as
+// it.
+func TestServeStoppingIsNotBlamedOnTheRelay(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	c := NewConnector(f.config(), "", func(net.Listener) error { return errors.New("the server has shut down") }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; d != "this Flockdeck stopped answering remote windows: the server has shut down" {
+		t.Errorf("detail = %q, want it to say serving stopped here", d)
+	}
+}
+
 // revokedSays is what a machine the relay no longer accepts is told to do:
 // enrol again, by either of the ways there are.
 const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"

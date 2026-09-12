@@ -324,6 +324,7 @@ func (c *Connector) session(ctx context.Context) error {
 	go func() { served <- c.serve(listener{sess}) }()
 
 	serving, silent := true, false
+	var serveErr error
 	select {
 	case <-ctx.Done():
 		// Say goodbye, briefly. The relay would find out anyway; this only
@@ -348,7 +349,7 @@ func (c *Connector) session(ctx context.Context) error {
 	// the keepalive gives up most of a minute later. The failure itself is
 	// the news, so it is watched for directly.
 	case <-rec.failed:
-	case <-served:
+	case serveErr = <-served:
 		serving = false
 	}
 	_ = sess.Close()
@@ -366,6 +367,17 @@ func (c *Connector) session(ctx context.Context) error {
 	}
 	if silent {
 		return errSilent
+	}
+	if !serving {
+		// serve ends only once the session has, and a session that ended is
+		// seen above before serve can say so. So serve stopped of its own
+		// accord, with the tunnel still open: this Flockdeck is shutting down,
+		// or its server failed. The relay did nothing, and saying it did would
+		// send somebody to look at the relay.
+		if serveErr != nil {
+			return fmt.Errorf("this Flockdeck stopped answering remote windows: %w", serveErr)
+		}
+		return errors.New("this Flockdeck stopped answering remote windows")
 	}
 	return why(rec.err())
 }
