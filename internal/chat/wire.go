@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // NewWire returns the wire named by an agent's APISpec.
@@ -78,21 +80,44 @@ func post(ctx context.Context, url string, header http.Header, body any) (io.Rea
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		resp.Body.Close()
-		return nil, &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
+		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
+		if secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && secs > 0 {
+			e.RetryAfter = time.Duration(secs) * time.Second
+		}
+		return nil, e
 	}
 	return resp.Body, nil
 }
 
 // apiError is a request the API answered with a failure, kept whole rather
 // than flattened into a string so that the loop can tell a refused key --
-// which the user can fix without leaving the pane -- from everything else.
+// which the user can fix without leaving the pane -- or a busy API, which
+// is worth asking again, from everything else.
 type apiError struct {
 	Code   int
 	Status string
 	Msg    string
+	// RetryAfter is how long the API asked to be left, where it said.
+	RetryAfter time.Duration
 }
 
 func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
+
+// busy reports whether err is the API being too busy to answer just now --
+// rate-limited, overloaded, or failing on its own side -- rather than
+// refusing the request.
+func busy(err error) (*apiError, bool) {
+	var e *apiError
+	if !errors.As(err, &e) {
+		return nil, false
+	}
+	switch e.Code {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return e, true
+	}
+	return nil, false
+}
 
 // refusedKey reports whether err is the API refusing the key it was given.
 func refusedKey(err error) bool {

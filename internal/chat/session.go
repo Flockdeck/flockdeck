@@ -102,6 +102,11 @@ const defaultMaxTokens = 32000
 // is well past what real work needs in one turn.
 const maxToolSteps = 30
 
+// busyBackoff is how long to wait before asking a busy API again, once for each
+// attempt, where it did not say how long itself. Twice is enough to ride out a
+// moment's overload and few enough that a real outage is reported promptly.
+var busyBackoff = []time.Duration{2 * time.Second, 6 * time.Second}
+
 // Run is the chat client: it holds one conversation until the user leaves, the
 // input ends, or the context is cancelled.
 func Run(ctx context.Context, o Options) error {
@@ -424,9 +429,25 @@ func (s *session) turn(ctx context.Context, prompt string) {
 	}()
 	defer close(watching)
 
-	rekeyed := false
+	rekeyed, retries := false, 0
 	for step := 0; ; step++ {
 		calls, err := s.stream(turnCtx)
+		if e, ok := busy(err); ok && retries < len(busyBackoff) {
+			// Nothing of an answer arrived, so asking again repeats nothing;
+			// and a busy API is the one failure that asking again fixes.
+			wait := busyBackoff[retries]
+			if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
+				wait = e.RetryAfter
+			}
+			retries++
+			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", e.Status, wait.Round(time.Second)))
+			select {
+			case <-time.After(wait):
+				continue
+			case <-turnCtx.Done():
+				err = turnCtx.Err()
+			}
+		}
 		if err != nil && refusedKey(err) && !rekeyed && s.rekey() {
 			// Somebody who has just set a new key should not have to restart
 			// the pane for it, or type the prompt again.
