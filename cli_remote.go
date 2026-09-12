@@ -375,6 +375,23 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	return nil
 }
 
+// devicesLost is how many paired devices taking cfg's machine off its relay
+// unpairs with it: every one, when it is the only machine in its account,
+// because the account goes with its last machine. It is 0 when there is no
+// knowing, and it asks for a few seconds at most.
+func devicesLost(cfg *remote.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r, err := remote.NewClient(cfg, version).Devices(ctx)
+	if err != nil || len(r.Hosts) != 1 {
+		return 0
+	}
+	return len(r.Devices)
+}
+
 func remoteDisable(args []string, rio remoteIO) error {
 	var f remoteDisableFlags
 	if err := parseRemote(remoteDisableFlagSet(&f), args); err != nil {
@@ -382,9 +399,11 @@ func remoteDisable(args []string, rio remoteIO) error {
 	}
 	// An enrolment that cannot be read stops Disable too, but only here is
 	// there a -force to point at.
-	if _, err := remote.Load(); err != nil && !f.force {
+	cfg, err := remote.Load()
+	if err != nil && !f.force {
 		return fmt.Errorf("%w (-force removes it anyway)", err)
 	}
+	lost := devicesLost(cfg)
 	had, untold, err := remote.Disable(context.Background(), version, f.force)
 	var relayUntold *remote.RelayUntoldError
 	switch {
@@ -399,6 +418,16 @@ func remoteDisable(args []string, rio remoteIO) error {
 		fmt.Fprintf(rio.out, "could not tell the relay (%v); forgetting the enrolment here anyway\n", untold)
 	}
 	fmt.Fprintln(rio.out, "remote access disabled")
+	// The account goes with its last machine, and its devices with it, which
+	// somebody switching this one machine off may not have expected. A relay
+	// that was not told has removed nothing.
+	switch {
+	case untold != nil:
+	case lost == 1:
+		fmt.Fprintln(rio.out, "It was the account's only machine, so its paired device has been unpaired too.")
+	case lost > 1:
+		fmt.Fprintf(rio.out, "It was the account's only machine, so its %d paired devices have been unpaired too.\n", lost)
+	}
 	reportReload(rio, "")
 	return nil
 }

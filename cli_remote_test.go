@@ -175,6 +175,10 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !f.saw("DELETE /api/v1/host") || reloads != 1 {
 		t.Errorf("disable = %q, %v, %d reloads", out, err, reloads)
 	}
+	// The account's only machine takes its devices with it, and says so.
+	if !strings.Contains(out, "its paired device has been unpaired too") {
+		t.Errorf("disable of the account's only machine does not say its device went too: %q", out)
+	}
 	if cfg, _ := remote.Load(); cfg != nil {
 		t.Error("disable left the enrolment behind")
 	}
