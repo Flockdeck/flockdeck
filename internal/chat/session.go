@@ -412,20 +412,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 			continue
 		}
 		if err != nil {
-			switch {
-			case s.interrupted.Load() || errors.Is(err, context.Canceled):
-				s.out.line(ansiDim, "(interrupted; /retry carries on)")
-			case refusedKey(err):
-				agent := firstNonEmpty(s.opts.Agent, "<agent>")
-				s.out.line(ansiRed, "the API refused the key: "+err.Error())
-				s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
-			case contextFull(err):
-				s.out.line(ansiRed, "the model could not answer: "+err.Error())
-				s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
-			default:
-				s.out.line(ansiRed, "the model could not answer: "+err.Error())
-				s.out.line(ansiDim, "(/retry asks again)")
-			}
+			s.sayWhyItStopped(err)
 			break
 		}
 		if len(calls) == 0 {
@@ -443,6 +430,26 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 	// Whatever happened, the pane is no longer working: an interrupted turn and
 	// a finished one both leave the user at the prompt.
 	s.reporter.stop()
+}
+
+// sayWhyItStopped draws why a turn ended without an answer, and what the user
+// can do about it: each failure has its own way on, and the one line that
+// names it is the only place the user learns which.
+func (s *session) sayWhyItStopped(err error) {
+	switch {
+	case s.interrupted.Load() || errors.Is(err, context.Canceled):
+		s.out.line(ansiDim, "(interrupted; /retry carries on)")
+	case refusedKey(err):
+		agent := firstNonEmpty(s.opts.Agent, "<agent>")
+		s.out.line(ansiRed, "the API refused the key: "+err.Error())
+		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
+	case contextFull(err):
+		s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
+	default:
+		s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		s.out.line(ansiDim, "(/retry asks again)")
+	}
 }
 
 // stream asks for one answer and draws it as it arrives, returning the tools the
