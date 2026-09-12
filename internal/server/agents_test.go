@@ -219,7 +219,7 @@ func TestTheCatalogMasksAPasswordInAnAddress(t *testing.T) {
 // had set up.
 func stateDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := stateTempDir(t)
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
 	t.Setenv("HOME", dir)            // macOS and fallback

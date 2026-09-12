@@ -46,10 +46,41 @@ func goTelemetryOff(tb testing.TB) {
 	}
 }
 
+// stateTempDir is a temporary folder for a test's configuration and state,
+// removed when the test ends as t.TempDir's is, but given a few seconds to come
+// free first. On Windows a file that a pane's process or output reader still
+// holds is only marked for deletion until it lets go, so its folder is "not
+// empty" for a moment after the workspace has closed, and t.TempDir, which
+// does not wait for that, failed an old test at random for it. The cleanup is
+// registered before the server's and the workspace's, so it runs after both.
+// A folder still held after ten seconds fails the test: that is a leak.
+func stateTempDir(tb testing.TB) string {
+	tb.Helper()
+	dir, err := os.MkdirTemp("", "flockdeck-state-")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				tb.Errorf("the test's state folder was still held ten seconds after the test ended: %v", err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+	return dir
+}
+
 // newTestServer starts a workspace with one shell pane behind a server.
 func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := stateTempDir(t)
 	t.Setenv("APPDATA", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
@@ -828,7 +859,7 @@ func TestSnapshotsSupersedeRatherThanQueue(t *testing.T) {
 // claude CLI. The panes carry the git summaries a real one would.
 func benchServer(b *testing.B, panes int) *Server {
 	b.Helper()
-	dir := b.TempDir()
+	dir := stateTempDir(b)
 	b.Setenv("APPDATA", dir)
 	b.Setenv("XDG_CONFIG_HOME", dir)
 	b.Setenv("HOME", dir)

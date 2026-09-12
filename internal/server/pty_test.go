@@ -908,7 +908,7 @@ func port(addr string) string {
 // Turning the window away had it redial each of them every few seconds for as
 // long as it was open.
 func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
-	dir := t.TempDir()
+	dir := stateTempDir(t)
 	t.Setenv("APPDATA", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
