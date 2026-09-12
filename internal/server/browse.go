@@ -100,7 +100,7 @@ func (s *Server) browse(c *controlClient, path string) {
 				Name:   name,
 				Path:   full,
 				IsRepo: isRepoDir(full),
-				Hidden: strings.HasPrefix(name, "."),
+				Hidden: strings.HasPrefix(name, ".") || hiddenOnDisk(e),
 			})
 		}
 		sort.Slice(msg.Entries, func(i, j int) bool {
