@@ -2793,6 +2793,31 @@ assert.strictEqual(zoom.getAttribute("aria-pressed"), "false");
 `)
 }
 
+// Removing a worktree asked first only when it had uncommitted files. A clean
+// one with agents working in it went without a word, and they were left in a
+// directory that no longer existed.
+func TestRemovingAWorktreeAgentsAreInAsksFirst(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [
+  { label: "main", path: "C:/repo", main: true },
+  { label: "fix-auth", path: "C:/repo-fix-auth", panes: 2, dirty: 0, untracked: 0 },
+] });
+const remove = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Remove");
+let asked = "";
+h.win.confirm = (q) => { asked = q; return false; };
+const before = h.commands().length;
+h.click(remove);
+assert.ok(/2 agents are working/.test(asked), "a worktree with agents in it was removed without asking");
+assert.strictEqual(h.commands().length, before, "the worktree was removed although the answer was no");
+h.win.confirm = () => true;
+h.click(remove);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-fix-auth", force: false });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
