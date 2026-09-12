@@ -375,6 +375,44 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 // enrol again, by either of the ways there are.
 const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
 
+// A tunnel that has held for a while and is then dropped, as a relay
+// restarting drops every tunnel, is not shown as trouble while its first,
+// prompt retry is still to come: nothing needs anybody yet.
+func TestADropAfterAWhileIsNotTrouble(t *testing.T) {
+	quick(t)
+	old := stableAfter
+	stableAfter = 50 * time.Millisecond
+	t.Cleanup(func() { stableAfter = old })
+	f := newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var c *Connector
+	c = NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		mu.Lock()
+		seen = append(seen, c.Status().State)
+		mu.Unlock()
+	})
+	c.Start()
+	defer c.Stop()
+	first := f.session(t)
+	waitFor(t, "connected", func() bool { return c.Status().State == StateConnected })
+	time.Sleep(2 * stableAfter)
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
+	first.Close()
+	f.session(t)
+	waitFor(t, "connected again", func() bool { return c.Status().State == StateConnected })
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateError {
+			t.Errorf("a drop after a while showed %v on the way back", seen)
+			break
+		}
+	}
+}
+
 // The relay's refusals that mean "stop": a token it no longer accepts, before
 // or after the upgrade, and another connection taking this host's place. Each
 // has to end the retrying, or a removed machine would hammer the relay for as

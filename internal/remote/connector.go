@@ -204,12 +204,16 @@ func (c *Connector) run(ctx context.Context) {
 			return
 		}
 		// A tunnel that held for a good while and then dropped is a new
-		// problem, not the next failure of an old one, and is retried promptly.
+		// problem, not the next failure of an old one, and is retried
+		// promptly. Until that retry has failed too it is not shown as
+		// trouble: a relay restarting drops every tunnel, and nothing here
+		// needs anybody for the second it takes to come back.
+		state := StateError
 		if time.Since(began) > stableAfter {
-			wait = backoffMin
+			wait, state = backoffMin, StateConnecting
 		}
 		pause := jitter(wait)
-		c.set(StateError, err.Error(), time.Now().Add(pause))
+		c.set(state, err.Error(), time.Now().Add(pause))
 		timer := time.NewTimer(pause)
 		select {
 		case <-ctx.Done():
