@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,29 @@ func TestAnthropicHandsBackTheReasoningBehindACall(t *testing.T) {
 	want := `[{"type":"thinking","thinking":"","signature":"sig-abc"},{"type":"tool_use","id":"toolu_1","name":"read_file","input":{"path":"a"}}]`
 	if string(data) != want {
 		t.Errorf("the assistant turn went back as\n%s\nwant\n%s", data, want)
+	}
+}
+
+// A model that thinks without showing its reasoning is silent for as long as it
+// thinks, and a pane silent for half a minute looks stuck. It says it is
+// thinking the moment the thinking starts.
+func TestThinkingIsShownAsItStartsEvenWithNothingInIt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, data := range []string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"s"}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"the answer"}}`,
+			`{"type":"message_stop"}`,
+		} {
+			w.Write([]byte("data: " + data + "\n\n"))
+		}
+	}))
+	defer srv.Close()
+	out := run(t, Options{Agent: "anthropic", Model: "claude-sonnet-5", Task: "think"}, "", &anthropicWire{base: srv.URL})
+	before, _, found := strings.Cut(out, "the answer")
+	if !found || !strings.Contains(before, "thinking") {
+		t.Errorf("the pane did not say it was thinking before the answer:\n%s", out)
 	}
 }
 

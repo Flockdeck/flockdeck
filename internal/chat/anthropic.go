@@ -150,8 +150,14 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 				calls[ev.Index] = &callBuffer{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
 			case "thinking":
 				thoughts[ev.Index] = &Thinking{Text: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}
+				// Said as soon as it starts, with nothing in it yet: the
+				// models that think by default send none of the reasoning
+				// itself, and the pane would otherwise sit silent through it
+				// as though nothing were happening.
+				emit(Event{Kind: EventThinking})
 			case "redacted_thinking":
 				thoughts[ev.Index] = &Thinking{Redacted: ev.ContentBlock.Data}
+				emit(Event{Kind: EventThinking})
 			}
 		case "content_block_delta":
 			switch ev.Delta.Type {
