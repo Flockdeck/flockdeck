@@ -81,9 +81,9 @@ func StatusOf(dir string) Status {
 			}
 		case strings.HasPrefix(line, "? "):
 			st.Untracked++
-		case strings.HasPrefix(line, "1 AD "):
-			// Added and then deleted, which leaves nothing to commit; the
-			// file list leaves it out, and the count agrees with it.
+		case strings.HasPrefix(line, "1 AD "), strings.HasPrefix(line, "2 CD "):
+			// Added -- or copied -- and then deleted, which leaves nothing to
+			// commit; the file list leaves it out, and the count agrees with it.
 		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "), strings.HasPrefix(line, "u "):
 			st.Dirty++
 		}

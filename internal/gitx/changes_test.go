@@ -1445,3 +1445,25 @@ func TestPushToAnUpstreamOfAnotherNameSaysHow(t *testing.T) {
 		t.Errorf("err = %v, want it to name the upstream and the way out", err)
 	}
 }
+
+// TestRenamedThenDeletedIsListedAsTheFileThatGoes: listed under the new name,
+// which the last commit never had, with an empty diff -- while the file a
+// commit actually deletes, the old name, had no row.
+func TestRenamedThenDeletedIsListedAsTheFileThatGoes(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "mv", "README.md", "GUIDE.md")
+	if err := os.Remove(filepath.Join(repo, "GUIDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Changes(repo)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("changes = %+v, %v; want one entry", files, err)
+	}
+	if f := files[0]; f.Path != "README.md" || f.Label != "deleted" || f.Removed != 1 {
+		t.Errorf("entry = %+v, want README.md deleted, one line removed", f)
+	}
+	diff, err := Diff(repo, files[0].Path)
+	if err != nil || !strings.Contains(diff, "-hello") {
+		t.Errorf("diff = %q, %v; want the deletion", diff, err)
+	}
+}

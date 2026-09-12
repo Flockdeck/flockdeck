@@ -83,14 +83,26 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		}
 		code := entry[:2]
 		path := entry[3:]
+		var from string
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the name it came from follows as its own record
+			if i < len(records) {
+				from = records[i]
+			}
 		}
-		if code == "AD" {
-			// Staged as new, then deleted: neither the last commit nor the
-			// working tree has it, so a commit does nothing with it. It was
-			// listed as a deletion of content that was never committed.
+		if code == "AD" || code == "CD" {
+			// Staged as new -- or as a copy -- then deleted: the last commit
+			// never had it, and the working tree no longer does, so a commit
+			// does nothing with it. It was listed as a deletion of content
+			// that was never committed.
 			continue
+		}
+		if code == "RD" && from != "" {
+			// Renamed, then the new name deleted: what a commit does is delete
+			// the old one. It was listed under the new name, which the last
+			// commit never had, with an empty diff -- while the file actually
+			// going, the old name, had no row at all.
+			path = from
 		}
 
 		fc := FileChange{
