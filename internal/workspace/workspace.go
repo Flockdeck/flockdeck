@@ -1291,38 +1291,12 @@ func (w *Workspace) CloseTab(id string) {
 	if closing == nil {
 		return
 	}
-	// Note the position among its own project's tabs before removing it, so
-	// focus can land on a neighbour rather than jumping to another project.
-	siblings := w.tabsOf(closing.Root)
-	pos := 0
-	for i, t := range siblings {
-		if t.ID == id {
-			pos = i
-		}
-	}
-
 	for _, pid := range closing.Tree.Panes() {
 		w.destroyPane(pid)
 	}
-	kept := make([]*Tab, 0, len(w.Tabs))
-	for _, t := range w.Tabs {
-		if t.ID != id {
-			kept = append(kept, t)
-		}
-	}
-	w.Tabs = kept
-
-	if w.activeTab != id {
-		return
-	}
-	w.activeTab = ""
-	remaining := w.tabsOf(closing.Root)
-	if len(remaining) > 0 {
-		if pos >= len(remaining) {
-			pos = len(remaining) - 1
-		}
-		w.activeTab = remaining[pos].ID
-	}
+	// What is left to do is what a tab emptied by a move needs, focus landing
+	// on a neighbour in the same project included.
+	w.unlinkTab(closing)
 }
 
 // destroyPane terminates and forgets a pane.
