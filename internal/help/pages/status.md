@@ -24,6 +24,8 @@ tells you what the agent is actually doing rather than only that it is busy.
 - **The tab** holding a waiting agent is marked `▲`.
 - **The window title** reports the count, so a waiting agent is visible in the
   taskbar with the window behind something else.
+- **The top bar** counts the agents waiting and working in this project. Click
+  the count for the same list [[key:agents]] opens.
 - **The rail** down the left of the window has a tile for each open project,
   and the tile of a project with an agent waiting on you carries an amber
   badge — so one that starts waiting in a project you are *not* looking at is
@@ -55,9 +57,8 @@ their panes the status is read from the terminal instead: the bell an agent
 rings when it wants you, a quiet timer for when it has stopped producing
 output, and — where its entry in `agents.json` gives it `patterns` — the lines
 it prints: the shape of a permission question, the shape of a prompt waiting
-to be typed at. None of the built-in agents has patterns yet. Only the last
-few hundred bytes are looked
-at, with the escape sequences stripped, so a question two screens back does not
+to be typed at. Only the last few hundred bytes are looked at, with the
+escape sequences stripped, so a question two screens back does not
 keep a finished pane amber.
 
 That is a guess where the other is a fact, and it is worth knowing which you

@@ -10,8 +10,8 @@ where that is. Running `flockdeck` from a terminal shows the same message there.
 
 ## macOS or Windows will not open a Flockdeck I downloaded
 
-Release binaries are not signed. A copy you downloaded from the releases page
-in a browser carries the browser's download mark, so the first start may be
+Release binaries are not signed. A copy you downloaded in a browser, from
+`dl.flockdeck.ai` or the GitHub mirror, carries the browser's download mark, so the first start may be
 stopped. On macOS, allow it under System Settings → Privacy & Security, or run
 `xattr -d com.apple.quarantine` on the binary. On Windows, choose More info →
 Run anyway, or run `Unblock-File` on the program in PowerShell. The install
@@ -103,8 +103,8 @@ access](#remote) has the rest.
 ## Desktop notifications never appear
 
 The browser asks for permission on your first interaction with the window. If
-it was refused, grant it in the browser's site settings for the address in the
-title bar — for this run only: the address changes each time Flockdeck starts,
+it was refused, grant it in the browser's site settings for this window's
+address, for this run only: the address changes each time Flockdeck starts,
 and the question comes back with it. Notifications are only raised while the window is *not* in front.
 
 ## An agent seems to think it is a child of another session

@@ -1,7 +1,7 @@
 # Review, commit and push
 
-[[key:changes]] shows what changed in the working tree the focused agent has
-been using. The **Review** button on each worktree opens the same panel for
+[[key:changes]], or **Changes** in the rail, shows what changed in the working
+tree the focused agent has been using. The **Review** button on each worktree opens the same panel for
 that checkout, which is usually how you get here: see which agent produced
 something, then look at what it did.
 

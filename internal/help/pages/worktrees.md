@@ -2,7 +2,7 @@
 
 Worktrees are how you run several agents without them fighting over one
 checkout: each gets its own directory and its own branch, backed by the same
-repository. [[key:worktrees]] opens the panel.
+repository. [[key:worktrees]], or **Worktrees** in the rail, opens the panel.
 
 ## What the panel shows
 

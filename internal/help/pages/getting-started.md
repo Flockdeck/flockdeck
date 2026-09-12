@@ -22,8 +22,9 @@ you.
 another tab, or a tab of its own; nothing restarts, and the conversation,
 working directory and scrollback come with it.
 
-**[[key:palette]] opens the command palette**, which holds every action in the
-application but switching tabs, searchable. If you remember one shortcut, remember that one.
+**[[key:palette]] opens the command palette**, and so does **Commands** at the
+right of the top bar. It holds every action in the application but switching
+tabs, searchable. If you remember one shortcut, remember that one.
 
 ## A first session
 
@@ -61,6 +62,4 @@ pointer on one, or reach it with the keyboard, and it says what it is and the
 key that does the same. On a phone or a narrow window the rail folds into the
 menu at the left of the top bar.
 
-[[key:help]] brings this back from anywhere, and [[key:palette]] opens the
-command palette, which lists every action there is but switching tabs —
-including the ones with no shortcut of their own.
+[[key:help]] brings this page back from anywhere.

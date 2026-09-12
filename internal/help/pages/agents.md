@@ -15,9 +15,11 @@ the `+` that opens a new tab.
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than
 hidden: somebody who has never installed Codex should still learn that Flockdeck
-would run it. Expand an agent for its models, with its default marked. **Set
-as default for this project**, at the foot of the picker, makes the choice
-stick for this project, so the one-keystroke split keeps doing the right thing.
+would run it. Expand an agent for its models, with its default marked. At the
+foot of the picker, **Set as default for** makes the choice stick, either for
+this project or for every project, so the one-keystroke split keeps doing the
+right thing. **Use the default for every project** removes this project's own
+choice.
 
 The pane header names what is running, beside the branch and in the same dim
 weight — `claude · sonnet`, `codex · gpt-5`. A shell pane shows nothing there,
@@ -64,7 +66,8 @@ instead: `localhost:11434` is answered with `http://localhost:11434`. An
 address with a name or password in it is refused too, because it is shown in
 the picker; the key goes under [[action:apiKeys]]. A pane already running keeps
 the address it started with until it is restarted. From a terminal, `flockdeck
-keys endpoint <agent> <address>` does the same.
+keys endpoint <agent> <address>` does the same, and `default` in place of the
+address goes back to the vendor's own.
 
 ## Not every agent can do everything
 
@@ -87,12 +90,11 @@ attempted, and the pane starts fresh.
 
 Of the built-in agents, Claude Code and the four API agents report their own
 lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
-Cursor Agent are read from their terminals, and are not briefed; an entry in
-`agents.json` can have the briefing put in front of its opening task instead,
-with `"caps": {"context": "prompt"}`. An entry in
-`agents.json` can give such an agent `"patterns"` — `"waiting"` and `"idle"`,
-each a list of phrases its output shows in that state — so that its status is
-read from what it prints as well. They are plain text, not expressions, and
+Cursor Agent are read from their terminals, and are not briefed. An entry in
+`agents.json` can have the briefing put in front of such an agent's opening
+task instead, with `"caps": {"context": "prompt"}`, and can give it
+`"patterns"` — `"waiting"` and `"idle"`, each a list of phrases its output
+shows in that state — so that its status is read from what it prints as well. They are plain text, not expressions, and
 case does not matter; none of the built-ins has any yet.
 
 Aider is handed its opening task with `--message`, which Aider treats as a

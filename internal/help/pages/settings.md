@@ -19,7 +19,8 @@ the keys change, so whichever you use, the others show it.
 - **Remote access** — turn it on or off, the relay it goes through, this
   machine's name, and the paired devices.
 - **Account & plan** — the free plan you are on, and private relays, coming as
-  a paid plan; the shared relay stays free.
+  a paid plan; the shared relay stays free. At its foot are the privacy policy
+  and terms for the shared relay, and the licences.
 
 Type into **Find a setting** to narrow the sections to the ones that mention a
 word. On a narrow screen the sections go across the top.
@@ -29,7 +30,7 @@ word. On a narrow screen the sections go across the top.
 - **The agent and model a pane runs** — [[action:splitRightChoose]] or
   [[action:newAgentTabChoose]]. Kept with the layout.
 - **Which agent and model a project starts** — **Agents** in the settings, or
-  **Set as default for this project** at the foot of the picker. Kept in
+  **Set as default for** at the foot of the picker. Kept in
   `agents.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
   `flockdeck keys set <agent>`. Kept in `keys.json`.
@@ -41,8 +42,9 @@ word. On a narrow screen the sections go across the top.
   rest. Kept until Flockdeck stops.
 - **The terminal's font, size, scrollback and cursor** — **Terminal** in the
   settings, or the palette's entries for each. Kept in `prefs.json`.
-- **Paired devices** — [[action:remote]]: **Pair a device** and **Unpair**.
-  Kept on the relay; [Remote access](#remote) has the rest.
+- **This machine's name and paired devices** — **Remote access** in the
+  settings, or [[action:remote]]. Use **Pair a device**, **Rename** and
+  **Unpair**. Kept on the relay; [Remote access](#remote) has the rest.
 - **Desktop notifications** — **General** in the settings, or **Turn desktop
   notifications off** in the palette; kept in `prefs.json`. The browser also
   asks once whether this window may show them, and keeps the answer for that
