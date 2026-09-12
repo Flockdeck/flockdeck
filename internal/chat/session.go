@@ -936,9 +936,16 @@ func resolveKey(o Options) (string, error) {
 	if isLoopback(o.BaseURL) {
 		return "", nil
 	}
-	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`",
+	// The chat cannot start without one, so the error ends it -- and a pane
+	// that has ended does not pick a key up later: it has to be started again,
+	// which is the step people miss.
+	then := "then run this again"
+	if o.API != "" {
+		then = "then restart this pane (Restart pane, in the command palette)"
+	}
+	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`; %s",
 		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(names, " or "),
-		firstNonEmpty(o.Agent, o.Wire, "<agent>"))
+		firstNonEmpty(o.Agent, o.Wire, "<agent>"), then)
 }
 
 // defaultKeyEnv is the conventional variable for a wire, used when the agent's

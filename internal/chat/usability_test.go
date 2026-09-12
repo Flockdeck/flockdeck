@@ -21,6 +21,22 @@ func TestTheMissingKeyErrorNamesEachPlaceOnce(t *testing.T) {
 	}
 }
 
+// A pane that could not start for want of a key has ended, and setting a key
+// does not bring it back: the error says what to do after setting one.
+func TestTheMissingKeyErrorSaysWhatToDoAfterSettingOne(t *testing.T) {
+	for _, name := range []string{"ANTHROPIC_API_KEY", "FLOCKDECK_API_KEY"} {
+		t.Setenv(name, "")
+	}
+	_, err := resolveKey(Options{Agent: "anthropic", Wire: "anthropic", API: "http://127.0.0.1:1"})
+	if err == nil || !strings.Contains(err.Error(), "Restart pane") {
+		t.Errorf("in a pane: %v", err)
+	}
+	_, err = resolveKey(Options{Agent: "anthropic", Wire: "anthropic"})
+	if err == nil || !strings.Contains(err.Error(), "run this again") {
+		t.Errorf("by hand: %v", err)
+	}
+}
+
 func TestAnthropicWithNoModelSaysHowToNameOne(t *testing.T) {
 	asked := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
