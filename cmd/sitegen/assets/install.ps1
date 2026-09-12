@@ -66,8 +66,15 @@ function Install-Flockdeck {
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         Write-Host "flockdeck: downloading $archive"
-        Invoke-WebRequest -UseBasicParsing "$base/$version/$archive" -OutFile (Join-Path $tmp $archive)
-        Invoke-WebRequest -UseBasicParsing "$base/$version/checksums.txt" -OutFile (Join-Path $tmp 'checksums.txt')
+        # A version that was never released is the usual failure here, and
+        # Invoke-WebRequest's own error does not say which file it wanted.
+        foreach ($name in $archive, 'checksums.txt') {
+            try {
+                Invoke-WebRequest -UseBasicParsing "$base/$version/$name" -OutFile (Join-Path $tmp $name)
+            } catch {
+                throw "flockdeck: could not download $base/$version/$name ($($_.Exception.Message))"
+            }
+        }
 
         $want = $null
         foreach ($line in Get-Content (Join-Path $tmp 'checksums.txt')) {
