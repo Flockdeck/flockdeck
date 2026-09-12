@@ -500,6 +500,31 @@ textarea:focus-visible {
   text-overflow: ellipsis;
 }
 .pane-usage.hot { color: var(--working); }
+/* What the agent has spent, and the tightest limit it runs under. Glanceable
+ * like the usage figure, and in the same dim tabular type, but worth a little
+ * more of the header: they give way after it, and the limit last of the three,
+ * because it is the one that says an agent is about to stop. */
+.pane-spend {
+  color: var(--fg-dim); font-size: 11px; white-space: nowrap;
+  overflow: hidden; flex: 0 900 auto; min-width: 0;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+.pane-limit {
+  color: var(--fg-dim); font-size: 11px; white-space: nowrap;
+  overflow: hidden; flex: 0 800 auto; min-width: 0;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex; flex-direction: column; align-items: stretch;
+  line-height: 1.1;
+}
+.pane-limit .limit-text { overflow: hidden; text-overflow: ellipsis; }
+/* A bar under the figure, so a limit filling up can be seen without reading. */
+.pane-limit .limit-meter { height: 3px; width: 28px; max-width: 100%; background: var(--line-strong); border-radius: 2px; overflow: hidden; margin-top: 1px; }
+.pane-limit .limit-fill { height: 100%; background: var(--fg-dim); }
+.pane-limit.warn { color: var(--waiting); }
+.pane-limit.warn .limit-fill { background: var(--waiting); }
+.pane-limit.full { color: var(--exited); }
+.pane-limit.full .limit-fill { background: var(--exited); }
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-cast.active { color: var(--cast); font-weight: 600; }
 .pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
