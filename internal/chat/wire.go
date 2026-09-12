@@ -143,9 +143,25 @@ func contextFull(err error) bool {
 }
 
 // refusedKey reports whether err is the API refusing the key it was given.
+// Anthropic and OpenAI say so with a 401; Gemini with a 400 whose message says
+// the key is not valid. A 403 is not one: it is a key that was accepted and is
+// not allowed to do what was asked, and sending somebody to set a new key over
+// it would be sending them the wrong way.
 func refusedKey(err error) bool {
 	var e *apiError
-	return errors.As(err, &e) && (e.Code == http.StatusUnauthorized || e.Code == http.StatusForbidden)
+	if !errors.As(err, &e) {
+		return false
+	}
+	return e.Code == http.StatusUnauthorized ||
+		e.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(e.Msg), "api key not valid")
+}
+
+// forbidden reports whether err is the API accepting the key and refusing what
+// was asked of it -- most often a model the account behind the key has no
+// access to.
+func forbidden(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && e.Code == http.StatusForbidden
 }
 
 // apiMessage digs the human half out of an error body.

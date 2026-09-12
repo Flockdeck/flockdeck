@@ -449,6 +449,9 @@ func (s *session) sayWhyItStopped(err error) {
 		agent := firstNonEmpty(s.opts.Agent, "<agent>")
 		s.out.line(ansiRed, "the API refused the key: "+err.Error())
 		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
+	case forbidden(err):
+		s.out.line(ansiRed, "the API would not do this with this key: "+err.Error())
+		s.out.line(ansiDim, "(the key was accepted, but the account behind it may not have this model; /model switches to another)")
 	case contextFull(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
