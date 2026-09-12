@@ -494,6 +494,33 @@ func TestWorktreePanelDescribesEveryCheckout(t *testing.T) {
 	}
 }
 
+// TestWorktreePanelMarksACheckoutWhoseFolderIsGone: a worktree deleted outside
+// git was listed like any other, with an empty status the panel drew as
+// clean and buttons that could only fail in a folder that is not there.
+func TestWorktreePanelMarksACheckoutWhoseFolderIsGone(t *testing.T) {
+	_, _, repo := newRepoServer(t)
+	gone := filepath.Join(t.TempDir(), "gone")
+	gitCmd(t, repo, "worktree", "add", "-b", "gone", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := collectWorktrees(repo)
+	if msg.Error != "" {
+		t.Fatalf("worktrees: %s", msg.Error)
+	}
+	if len(msg.Items) != 2 {
+		t.Fatalf("%d checkouts, want the main one and the gone one: %+v", len(msg.Items), msg.Items)
+	}
+	// Told apart by branch rather than path: git names the path with its
+	// symlinks resolved, which on macOS is not how the test spelled it.
+	for _, it := range msg.Items {
+		if want := it.Branch == "gone"; it.Prunable != want {
+			t.Errorf("%s: prunable = %v, want %v", it.Label, it.Prunable, want)
+		}
+	}
+}
+
 // gitCmd runs git in dir and fails the test if it does not succeed.
 func gitCmd(t *testing.T, dir string, args ...string) {
 	t.Helper()
