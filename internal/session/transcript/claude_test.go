@@ -25,6 +25,31 @@ func writeTranscript(t testing.TB, dir, id string, lines ...string) string {
 	return path
 }
 
+// TestProjectSlugMatchesClaudeCode holds the folder name derived here to the one
+// Claude Code derives. The expected values were produced by running Claude
+// Code's own function, taken from its executable, over the same paths.
+func TestProjectSlugMatchesClaudeCode(t *testing.T) {
+	cases := []struct{ path, want string }{
+		{`C:\Users\someone\code\repo`, "C--Users-someone-code-repo"},
+		{"/home/me/my_app", "-home-me-my-app"},
+		// A character outside the Basic Multilingual Plane is two UTF-16 units,
+		// and so two dashes.
+		{"/home/me/proj-\U0001F680-x", "-home-me-proj----x"},
+		{"/home/me/café", "-home-me-caf-"},
+		// Up to 200 characters the name is kept whole; past that it is cut and
+		// ended with a hash of the whole path.
+		{"/" + strings.Repeat("a", 199), "-" + strings.Repeat("a", 199)},
+		{"/" + strings.Repeat("a", 199) + "b", "-" + strings.Repeat("a", 199) + "-b6ymvk"},
+		{`C:\Users\someone\code\` + strings.Repeat(`a-very-long-directory-name\`, 9) + "repo",
+			"C--Users-someone-code-a-very-long-directory-name-a-very-long-directory-name-a-very-long-directory-name-a-very-long-directory-name-a-very-long-directory-name-a-very-long-directory-name-a-very-long-dire-6gz7o1"},
+	}
+	for _, c := range cases {
+		if got := projectSlug(c.path); got != c.want {
+			t.Errorf("projectSlug(%q)\n got %q\nwant %q", c.path, got, c.want)
+		}
+	}
+}
+
 // TestConversationsWithATrailingSeparator covers a project named with a
 // separator on the end, which is the same directory but derives a folder name
 // with a dash on the end: the conversation stored under a worktree's folder
