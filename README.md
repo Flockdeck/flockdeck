@@ -114,8 +114,8 @@ background, checking it against its published SHA-256. Nothing is replaced
 while you are working. When a release is ready a chip appears in the top bar,
 and installing it now is a restart you ask for: the layout is saved and
 reopened, though the agents running in panes are stopped, which is why it is
-never done for you. Otherwise it goes in as Flockdeck next quits, so the start
-after that is the new version.
+never done for you. Otherwise it goes in as Flockdeck next quits, unless
+`FLOCKDECK_UPDATE=off`, so the start after that is the new version.
 
 From a terminal:
 
@@ -125,9 +125,11 @@ flockdeck update -check   # say whether there is one, and stop
 ```
 
 Replacing the binary leaves a running instance alone — it is already loaded —
-so the new version is what starts next time. A build made with plain
-`go build` or `go install` is stamped `dev` and is never replaced by a release. `FLOCKDECK_UPDATE=off` turns
-the background check off; the subcommand still works.
+so the new version is what starts next time. A build you made
+yourself — stamped `dev` by `go build`, or by `git describe` when built with
+make — is never replaced by a release. `FLOCKDECK_UPDATE=off` turns the
+background check off, and stops an update already downloaded being put in
+place when Flockdeck exits; the subcommand still works.
 
 ## Running it
 
