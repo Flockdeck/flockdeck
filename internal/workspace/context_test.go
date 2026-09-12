@@ -451,6 +451,11 @@ func TestSiblingsInTheSameCheckoutAreCalledOut(t *testing.T) {
 // was already there.
 func TestOpenProjectMatchesAnOpenProjectWhateverTheCase(t *testing.T) {
 	isolateConfig(t)
+	// Asked as a filesystem that ignores case would be, so that Linux, which
+	// does not, checks the folding all the same rather than failing on it.
+	was := foldsCase
+	foldsCase = true
+	t.Cleanup(func() { foldsCase = was })
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 

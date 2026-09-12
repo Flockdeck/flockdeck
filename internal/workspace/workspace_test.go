@@ -537,6 +537,11 @@ func TestClosingAProjectLeavesTheFocusBesideTheGap(t *testing.T) {
 // strings, so a pane naming its project in the wrong case belongs to nothing.
 func TestAPaneKnowsItsProjectWhateverTheSpellingSaved(t *testing.T) {
 	isolateConfig(t)
+	// A layout saved under another spelling is only the same project where
+	// the filesystem ignores case, which is asked for here on every platform.
+	was := foldsCase
+	foldsCase = true
+	t.Cleanup(func() { foldsCase = was })
 	ws, first, second := twoProjects(t)
 	ws.SplitPaneInProject(layout.Horizontal, session.KindShell, second)
 

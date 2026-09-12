@@ -91,11 +91,11 @@ func letTerminalGo() {}
 // they make of the event, so a console build started from a terminal — the
 // one `go install` makes, or -no-window — went down with its agents when that
 // terminal closed, detached or not. What it prints from then on goes nowhere,
-// unless it was redirected somewhere that is still there. The release has let
-// its borrowed terminal go already, and this finds nothing to do.
+// unless it was redirected somewhere that is still there. The release borrows
+// its terminal and lets it go as start-up ends, and letting it go any sooner
+// cut what start-up was printing short, so a borrowed console is left to that.
 func detachConsole() {
 	if borrowed.held {
-		releaseConsole()
 		return
 	}
 	var mode uint32

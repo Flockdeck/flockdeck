@@ -688,8 +688,6 @@ func run(opts options) error {
 		restarting.Store(true)
 		stop()
 	}
-	// Set before -detach below detaches, so that one is told too.
-	srv.OnDetach = detachConsole
 
 	// Record where this instance is listening so a later launch can attach.
 	// Only now, with the callbacks that answer for it in place: the server has
@@ -722,6 +720,10 @@ func run(opts options) error {
 	if opts.detach {
 		srv.Detach()
 	}
+	// Only a detach after start-up lets go of the console: one made here, by
+	// -detach, would take it while start-up is still printing the address
+	// and how to stop the run, which then never reached the terminal.
+	srv.OnDetach = detachConsole
 
 	win, err := showWindow(opts, recorded, srv, stop)
 	if err != nil {
