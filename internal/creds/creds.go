@@ -134,18 +134,22 @@ type Status struct {
 	// somebody without one can be told where to put it instead of being sent
 	// to the documentation.
 	Vars []string `json:"vars,omitempty"`
+	// NotNeeded is set for an agent that talks to a model on this machine,
+	// which wants no key: "not set" would say something was missing.
+	NotNeeded bool `json:"notNeeded,omitempty"`
 }
 
 // StatusOf reports on one Spec's key without reading it back.
 func StatusOf(spec agent.Spec) Status {
 	k := Resolve(spec)
 	return Status{
-		Agent:  spec.ID,
-		Name:   spec.Name,
-		Set:    k.Set(),
-		Source: k.Source,
-		Env:    k.Env,
-		Vars:   spec.API.KeyEnv,
+		Agent:     spec.ID,
+		Name:      spec.Name,
+		Set:       k.Set(),
+		Source:    k.Source,
+		Env:       k.Env,
+		Vars:      spec.API.KeyEnv,
+		NotNeeded: agent.NeedsNoKey(spec),
 	}
 }
 
@@ -167,11 +171,15 @@ func StatusAll(specs []agent.Spec) []Status {
 // the interface shows. It never contains a key.
 func (s Status) Describe() string {
 	switch {
+	case !s.Set && s.NotNeeded:
+		return "not needed — it talks to a model on this machine"
 	case !s.Set && len(s.Vars) > 0:
 		return fmt.Sprintf("not set — export %s, or run `flockdeck keys set %s`",
 			strings.Join(s.Vars, " or "), s.Agent)
 	case !s.Set:
-		return "not set"
+		// With no variable to name, the store is the one place to put it,
+		// and "not set" alone would leave somebody to find that out.
+		return fmt.Sprintf("not set — run `flockdeck keys set %s`", s.Agent)
 	case s.Source == SourceEnv:
 		return "set (from " + s.Env + ")"
 	default:

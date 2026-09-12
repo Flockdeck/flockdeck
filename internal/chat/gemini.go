@@ -3,9 +3,11 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // geminiWire speaks streamGenerateContent.
@@ -21,10 +23,24 @@ type geminiWire struct {
 
 func (w *geminiWire) Name() string { return "gemini" }
 
+// header is what every request to the API carries.
+func (w *geminiWire) header() http.Header {
+	h := http.Header{}
+	if w.key != "" {
+		h.Set("x-goog-api-key", w.key)
+	}
+	return h
+}
+
 type geminiPart struct {
 	Text         string            `json:"text,omitempty"`
 	FunctionCall *geminiCall       `json:"functionCall,omitempty"`
 	Response     *geminiCallAnswer `json:"functionResponse,omitempty"`
+	// Thought marks a part that is the model's reasoning rather than its
+	// answer, and ThoughtSignature is what has to come back with a call the
+	// model made after thinking.
+	Thought          bool   `json:"thought,omitempty"`
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 type geminiCall struct {
@@ -64,6 +80,11 @@ type geminiConfig struct {
 }
 
 func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) error {
+	if req.Model == "" {
+		// The model is part of the address here, so there is no endpoint
+		// default to fall back on, and asking anyway is a 404 naming a path.
+		return errors.New("the Gemini API needs a model named: choose one with /model, for example /model gemini-2.5-pro")
+	}
 	body := geminiRequest{Contents: geminiContents(req.Messages)}
 	if req.System != "" {
 		body.SystemInstruction = &geminiContent{Parts: []geminiPart{{Text: req.System}}}
@@ -82,13 +103,15 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		body.Tools = []geminiToolset{{FunctionDeclarations: fns}}
 	}
 
-	h := http.Header{}
-	if w.key != "" {
-		h.Set("x-goog-api-key", w.key)
-	}
+	h := w.header()
 	// alt=sse asks for the answer as an event stream; without it the same
 	// endpoint streams a JSON array, which cannot be read a piece at a time.
-	path := "/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?alt=sse"
+	//
+	// Gemini's own list of models names each one "models/gemini-...", and a
+	// name copied from it as it stands would be escaped into a single path
+	// segment and answered with a 404.
+	model := strings.TrimPrefix(req.Model, "models/")
+	path := "/models/" + url.PathEscape(model) + ":streamGenerateContent?alt=sse"
 	rc, err := post(ctx, endpoint(w.base, "https://generativelanguage.googleapis.com", "v1beta", path), h, body)
 	if err != nil {
 		return err
@@ -97,14 +120,22 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 
 	var usage Usage
 	var calls []ToolCall
+	var finish, blocked string
 	err = readSSE(rc, func(event, data string) error {
 		var chunk struct {
 			Candidates []struct {
-				Content geminiContent `json:"content"`
+				Content      geminiContent `json:"content"`
+				FinishReason string        `json:"finishReason"`
 			} `json:"candidates"`
+			PromptFeedback struct {
+				BlockReason string `json:"blockReason"`
+			} `json:"promptFeedback"`
 			UsageMetadata struct {
 				PromptTokenCount     int `json:"promptTokenCount"`
 				CandidatesTokenCount int `json:"candidatesTokenCount"`
+				// The reasoning a thinking model did is billed as output
+				// but counted apart from the answer.
+				ThoughtsTokenCount int `json:"thoughtsTokenCount"`
 			} `json:"usageMetadata"`
 			Error struct {
 				Message string `json:"message"`
@@ -114,28 +145,38 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			return nil
 		}
 		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", chunk.Error.Message)
+			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
 		}
 		// Every chunk repeats the counts for the whole answer so far, so they
 		// are taken rather than added up.
 		if chunk.UsageMetadata.PromptTokenCount > 0 || chunk.UsageMetadata.CandidatesTokenCount > 0 {
 			usage = Usage{
 				In:  chunk.UsageMetadata.PromptTokenCount,
-				Out: chunk.UsageMetadata.CandidatesTokenCount,
+				Out: chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
 			}
 		}
+		if chunk.PromptFeedback.BlockReason != "" {
+			blocked = chunk.PromptFeedback.BlockReason
+		}
 		for _, c := range chunk.Candidates {
+			if c.FinishReason != "" {
+				finish = c.FinishReason
+			}
 			for _, p := range c.Content.Parts {
-				if p.Text != "" {
+				switch {
+				case p.Text != "" && p.Thought:
+					emit(Event{Kind: EventThinking, Text: p.Text})
+				case p.Text != "":
 					emit(Event{Kind: EventText, Text: p.Text})
 				}
 				if p.FunctionCall != nil {
 					calls = append(calls, ToolCall{
 						// The name doubles as the id: there is nothing else to
 						// quote in the answer, and the answer names the tool.
-						ID:   p.FunctionCall.Name,
-						Name: p.FunctionCall.Name,
-						Args: argsOrEmpty(p.FunctionCall.Args),
+						ID:        p.FunctionCall.Name,
+						Name:      p.FunctionCall.Name,
+						Args:      argsOrEmpty(p.FunctionCall.Args),
+						Signature: p.ThoughtSignature,
 					})
 				}
 			}
@@ -145,10 +186,41 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	if err != nil {
 		return err
 	}
+	// An answer that stopped short, and a prompt refused outright, say so in
+	// fields of their own; left unread, the pane showed half a reply, or none,
+	// as though it were the whole of one.
+	if why := geminiStopped(finish, blocked); why != nil {
+		emit(Event{Kind: EventUsage, Usage: usage})
+		return why
+	}
 	for _, c := range calls {
 		emit(Event{Kind: EventCall, Call: c})
 	}
 	emit(Event{Kind: EventUsage, Usage: usage})
+	return nil
+}
+
+// geminiStopped is why an answer ended before it was finished, or nil when it
+// ended because it was done.
+func geminiStopped(finish, blocked string) error {
+	switch {
+	case blocked != "":
+		return fmt.Errorf("Gemini refused the prompt (%s)", blocked)
+	case finish == "":
+		// Every answer ends with a reason, so one with none was cut off --
+		// a dropped connection, a proxy's timeout -- part-way.
+		return errors.New("the connection closed before the answer was finished")
+	case finish == "MAX_TOKENS":
+		return &cutOffError{"the answer reached the model's limit on its length and was cut off there"}
+	case finish == "MALFORMED_FUNCTION_CALL":
+		return errors.New("the model wrote a tool call that could not be read")
+	case finish != "STOP":
+		// SAFETY, RECITATION and the rest, and any reason added since: STOP is
+		// the one that means the answer is done, and an answer that ended for
+		// any other reason read as done is half a reply, or none, shown as the
+		// whole of one.
+		return fmt.Errorf("Gemini stopped the answer (%s)", finish)
+	}
 	return nil
 }
 
@@ -179,7 +251,8 @@ func geminiContents(msgs []Message) []geminiContent {
 			}
 			for _, c := range m.Calls {
 				parts = append(parts, geminiPart{
-					FunctionCall: &geminiCall{Name: c.Name, Args: argsOrEmpty(c.Args)},
+					FunctionCall:     &geminiCall{Name: c.Name, Args: argsOrEmpty(c.Args)},
+					ThoughtSignature: c.Signature,
 				})
 			}
 			if len(parts) == 0 {

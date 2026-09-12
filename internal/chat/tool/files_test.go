@@ -275,13 +275,7 @@ func TestEditApprovalDescribesTheEditThatWillBeMade(t *testing.T) {
 	}
 }
 
-func TestPreviewAndSizes(t *testing.T) {
-	if got := preview("one\ntwo"); got != "one / two" {
-		t.Errorf("preview = %q", got)
-	}
-	if got := preview(strings.Repeat("x", previewRunes+10)); !strings.HasSuffix(got, "...") {
-		t.Errorf("a long preview should be cut: %q", got)
-	}
+func TestSizes(t *testing.T) {
 	sizes := []struct {
 		n    int64
 		want string

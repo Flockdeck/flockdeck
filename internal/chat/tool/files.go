@@ -1,10 +1,12 @@
 package tool
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +21,10 @@ const (
 	// because a single minified line can be larger than everything else the
 	// turn contains.
 	readMaxBytes = 256 << 10
-	// previewRunes bounds how much of a string is quoted back in an approval
-	// question or an error, so that neither can push the rest of the terminal
-	// off the screen.
-	previewRunes = 240
+	// readMaxLine bounds one line of what a read returns, for the same reason
+	// applied to the one line of a minified file that is larger than the rest
+	// of the project.
+	readMaxLine = 4 << 10
 )
 
 // readFile hands the model the contents of one file, with line numbers,
@@ -68,19 +70,27 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory; use list_dir", t.root.Rel(abs))
 	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
+	if err := regularFile(t.root, abs, info); err != nil {
 		return "", err
 	}
-	if looksBinary(data) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", t.root.explain(err)
+	}
+	defer f.Close()
+	// The file is read a line at a time rather than whole, because the model
+	// pages through a large log with offset and limit and a read of two
+	// thousand lines should not cost the memory of the whole file.
+	r, _ := utf16Text(bufio.NewReaderSize(f, 64<<10))
+	if head, _ := r.Peek(8 << 10); looksBinary(head) {
 		return "", fmt.Errorf("%s looks like a binary file (%s)", t.root.Rel(abs), humanBytes(info.Size()))
 	}
-	if len(data) == 0 {
+	if info.Size() == 0 {
 		return fmt.Sprintf("%s is empty.", t.root.Rel(abs)), nil
 	}
 
@@ -92,33 +102,51 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if limit <= 0 {
 		limit = readDefaultLines
 	}
-	lines := splitLines(data)
-	if offset > len(lines) {
-		return "", fmt.Errorf("%s has %d lines; offset %d is past the end", t.root.Rel(abs), len(lines), offset)
-	}
-	end := offset - 1 + limit
-	if end > len(lines) {
-		end = len(lines)
-	}
 
 	var b strings.Builder
-	shown := offset - 1
-	for i := offset - 1; i < end; i++ {
-		if b.Len() >= readMaxBytes {
+	lines, shown, full := 0, offset-1, false
+	for {
+		line, dropped, err := nextLine(r, readMaxLine)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		if err == io.EOF && line == "" && dropped == 0 {
 			break
 		}
-		fmt.Fprintf(&b, "%d\t%s\n", i+1, lines[i])
-		shown = i + 1
-	}
-	if remaining := len(lines) - shown; remaining > 0 {
-		noun := "lines"
-		if remaining == 1 {
-			noun = "line"
+		lines++
+		if lines >= offset && lines < offset+limit && !full {
+			if dropped > 0 {
+				line += fmt.Sprintf(" [... %s more on this line]", humanBytes(int64(dropped)))
+			}
+			entry := fmt.Sprintf("%d\t%s\n", lines, line)
+			if b.Len() > 0 && b.Len()+len(entry) > readMaxBytes {
+				full = true
+			} else {
+				b.WriteString(entry)
+				shown = lines
+			}
 		}
-		fmt.Fprintf(&b, "\n[%d more %s; read again with offset %d]\n", remaining, noun, shown+1)
+		if err == io.EOF {
+			break
+		}
+	}
+	if offset > lines {
+		return "", fmt.Errorf("%s has %d lines; offset %d is past the end", t.root.Rel(abs), lines, offset)
+	}
+	if remaining := lines - shown; remaining > 0 {
+		fmt.Fprintf(&b, "\n[%d more %s; read again with offset %d]\n", remaining, plural(remaining, "line", "lines"), shown+1)
 	}
 	return b.String(), nil
 }
+
+// editFamily is the standing permission write_file and edit_file offer: every
+// change to a file in the pane's directory, for the rest of the session. It is
+// three words so that it can never be a run_command prefix, which is two.
+//
+// It is offered because a turn that writes five files otherwise asks five
+// questions, and somebody who has read the first two and decided has nothing
+// to gain from being asked the rest.
+const editFamily = "edits to files"
 
 // writeFile creates or replaces a file whole. It is the tool for a new file
 // and for a rewrite; changing part of an existing file is edit_file's job,
@@ -155,11 +183,61 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
+	// The question shows what is being written, not only how much of it: a
+	// size is not something anybody can say yes or no to.
 	rel := t.root.Rel(abs)
-	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
-		return fmt.Sprintf("Overwrite %s (%s) with %s?", rel, humanBytes(info.Size()), humanBytes(int64(len(a.Content))))
+	newSize := humanBytes(int64(len(a.Content)))
+	info, err := os.Stat(abs)
+	if err == nil && (info.IsDir() || regularFile(t.root, abs, info) != nil) {
+		// Run refuses it, and a question the answer to which makes no
+		// difference only teaches the user to stop reading them.
+		return ""
 	}
-	return fmt.Sprintf("Create %s (%s)?", rel, humanBytes(int64(len(a.Content))))
+	if err == nil {
+		old, _ := os.ReadFile(abs)
+		q := fmt.Sprintf("Overwrite %s (%s, %s) with %s, %s?", rel,
+			humanBytes(info.Size()), linesOf(string(old)), newSize, linesOf(a.Content))
+		if at := firstChange(string(old), a.Content); at == 0 {
+			q += "\n  (it is the same as what the file holds now)"
+		} else {
+			q += fmt.Sprintf("\n  the first change is at line %d:\n%s", at, excerpt(a.Content, at))
+		}
+		return q
+	}
+	// Missing directories are made along with the file, which is part of what
+	// is being agreed to and so part of the question.
+	also := ""
+	if dir := firstMissingDir(filepath.Dir(abs)); dir != "" {
+		also = fmt.Sprintf(", making the directory %s/", t.root.Rel(dir))
+	}
+	return fmt.Sprintf("Create %s (%s, %s)%s?\n%s", rel, newSize, linesOf(a.Content), also, excerpt(a.Content, 1))
+}
+
+// Prefix is the standing permission on offer for a write, which is every edit.
+func (t *writeFile) Prefix(args json.RawMessage) string {
+	var a writeArgs
+	if err := decode(args, &a); err != nil {
+		return ""
+	}
+	return editPrefix(t.root, a.Path)
+}
+
+// editPrefix is the standing permission on offer for changing path: every
+// edit, except to a file inside a repository's own directory. A hook there
+// runs at the next commit, and a config there names programs to run -- a
+// pager, an editor, an ssh command -- so "always" for edits would be standing
+// permission to run anything the next time anybody used git in the pane.
+func editPrefix(root *Root, path string) string {
+	abs, err := root.ResolveFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, part := range strings.Split(filepath.ToSlash(root.Rel(abs)), "/") {
+		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".hg") {
+			return ""
+		}
+	}
+	return editFamily
 }
 
 func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error) {
@@ -173,14 +251,42 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	}
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", t.root.Rel(abs))
+	} else if err == nil {
+		if err := regularFile(t.root, abs, info); err != nil {
+			return "", err
+		}
+	}
+	// read_file shows a file without its carriage returns, so a file with
+	// Windows line endings is rewritten with bare newlines, and every one of
+	// its lines would then show as changed. A rewrite keeps the file's own
+	// endings, as an edit does.
+	if old, err := os.ReadFile(abs); err == nil && bytes.Contains(old, []byte("\r\n")) {
+		a.Content = withCRLF(a.Content)
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
-	return fmt.Sprintf("Wrote %s (%d lines, %s).", t.root.Rel(abs), countLines(a.Content), humanBytes(int64(len(a.Content)))), nil
+	return fmt.Sprintf("Wrote %s (%s, %s).", t.root.Rel(abs), linesOf(a.Content), humanBytes(int64(len(a.Content)))), nil
+}
+
+// firstMissingDir is the outermost directory on the way to dir that does not
+// exist yet, or "" when dir is there already.
+func firstMissingDir(dir string) string {
+	missing := ""
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			return missing
+		}
+		missing = dir
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return missing
+		}
+		dir = parent
+	}
 }
 
 // editFile replaces one exact stretch of text with another.
@@ -230,25 +336,52 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	if a.OldString == a.NewString {
 		return "", "", 0, fmt.Errorf("old_string and new_string are identical, so the edit would change nothing")
 	}
+	if info, err := os.Stat(abs); err == nil {
+		if err := regularFile(t.root, abs, info); err != nil {
+			return "", "", 0, err
+		}
+	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, t.root.explain(err)
+	}
+	if hasUTF16BOM(data) {
+		// read_file shows it as text, and an edit would have to be written
+		// back in its own encoding, which nothing here does.
+		return "", "", 0, fmt.Errorf("%s is UTF-16 text, which edit_file cannot change in place; write_file can rewrite it whole, as UTF-8", t.root.Rel(abs))
 	}
 	if looksBinary(data) {
 		return "", "", 0, fmt.Errorf("%s looks like a binary file", t.root.Rel(abs))
 	}
 	old := string(data)
-	count = strings.Count(old, a.OldString)
+	from, to := a.OldString, a.NewString
+	if strings.Contains(old, "\r\n") {
+		// read_file shows a file without its carriage returns, so an edit to
+		// one with Windows line endings arrives written with bare newlines. It
+		// is made in the file's own endings, rather than refused for not
+		// matching or left as a file that mixes the two.
+		to = withCRLF(to)
+		if !strings.Contains(old, from) {
+			from = withCRLF(from)
+		}
+	}
+	count = strings.Count(old, from)
 	switch {
 	case count == 0:
+		// The commonest way an edit misses is spacing: a tab written as
+		// spaces, a line re-indented. Told only that the text is not there, a
+		// model guesses; told where it nearly is, it reads those lines again.
+		if at := looseMatch(old, from); at > 0 {
+			return "", "", 0, fmt.Errorf("old_string does not appear in %s as written, but does at line %d with different spacing or indentation; read those lines again and copy them exactly", t.root.Rel(abs), at)
+		}
 		return "", "", 0, fmt.Errorf("old_string does not appear in %s", t.root.Rel(abs))
 	case count > 1 && !a.ReplaceAll:
 		return "", "", 0, fmt.Errorf("old_string appears %d times in %s; include more surrounding text so it is unique, or set replace_all", count, t.root.Rel(abs))
 	}
 	if a.ReplaceAll {
-		updated = strings.ReplaceAll(old, a.OldString, a.NewString)
+		updated = strings.ReplaceAll(old, from, to)
 	} else {
-		updated = strings.Replace(old, a.OldString, a.NewString, 1)
+		updated = strings.Replace(old, from, to, 1)
 		count = 1
 	}
 	return abs, updated, count, nil
@@ -263,12 +396,24 @@ func (t *editFile) Approval(args json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
-	where := "1 occurrence"
-	if count != 1 {
-		where = fmt.Sprintf("%d occurrences", count)
+	// The two texts are shown as the lines they are, marked the way a diff
+	// marks them: joined into one line, an edit of more than one line could
+	// not be read closely enough to agree to.
+	added := marked(textLines(a.NewString), "+")
+	if a.NewString == "" {
+		added = "  + (nothing: the text is removed)"
 	}
-	return fmt.Sprintf("Edit %s, replacing %s?\n- %s\n+ %s",
-		t.root.Rel(abs), where, preview(a.OldString), preview(a.NewString))
+	return fmt.Sprintf("Edit %s, replacing %d %s?\n%s\n%s", t.root.Rel(abs), count,
+		plural(count, "occurrence", "occurrences"), marked(textLines(a.OldString), "-"), added)
+}
+
+// Prefix is the standing permission on offer for an edit, which is every edit.
+func (t *editFile) Prefix(args json.RawMessage) string {
+	var a editArgs
+	if err := decode(args, &a); err != nil {
+		return ""
+	}
+	return editPrefix(t.root, a.Path)
 }
 
 func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) {
@@ -282,71 +427,12 @@ func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	// The file's own permissions are kept: an edit is not the moment to decide
 	// that a script should stop being executable.
 	if err := os.WriteFile(abs, []byte(updated), info.Mode().Perm()); err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
-	noun := "occurrence"
-	if count != 1 {
-		noun = "occurrences"
-	}
-	return fmt.Sprintf("Edited %s, replacing %d %s.", t.root.Rel(abs), count, noun), nil
-}
-
-// looksBinary reports whether data is something a model should be shown as
-// text. A NUL byte near the start is the cheap, and in practice reliable,
-// signal: no source file has one and almost every binary format does.
-func looksBinary(data []byte) bool {
-	head := data
-	if len(head) > 8<<10 {
-		head = head[:8<<10]
-	}
-	return bytes.IndexByte(head, 0) >= 0
-}
-
-// splitLines splits a file into lines without inventing a trailing empty one
-// for the newline that ends a well-formed text file.
-func splitLines(data []byte) []string {
-	s := strings.ReplaceAll(string(data), "\r\n", "\n")
-	s = strings.TrimSuffix(s, "\n")
-	if s == "" {
-		return nil
-	}
-	return strings.Split(s, "\n")
-}
-
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	return strings.Count(strings.TrimSuffix(s, "\n"), "\n") + 1
-}
-
-// preview is a short, single-line rendering of a string for a question or an
-// error. A newline becomes a marker rather than wrapping, so that an approval
-// question stays one glance long however much text the edit moves.
-func preview(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\n", " / ")
-	s = strings.TrimSpace(s)
-	r := []rune(s)
-	if len(r) > previewRunes {
-		return string(r[:previewRunes]) + "..."
-	}
-	return s
-}
-
-// humanBytes is a size as it should be read aloud, not as it is stored.
-func humanBytes(n int64) string {
-	switch {
-	case n < 1024:
-		return fmt.Sprintf("%d B", n)
-	case n < 1024*1024:
-		return fmt.Sprintf("%.1f kB", float64(n)/1024)
-	default:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
-	}
+	return fmt.Sprintf("Edited %s, replacing %d %s.", t.root.Rel(abs), count, plural(count, "occurrence", "occurrences")), nil
 }

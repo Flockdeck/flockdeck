@@ -38,6 +38,15 @@ type ToolCall struct {
 	// the way to the tool because a tool's own schema is the only thing that
 	// knows their shape.
 	Args json.RawMessage
+	// Signature is an opaque token a vendor attached to the call and wants
+	// back with it: Gemini's thought signature, without which a model that
+	// thought before calling refuses the request carrying the answer.
+	Signature string
+	// BadArgs is what the model wrote for its arguments where that was not
+	// JSON, in which case Args is an empty object. The call is not run: the
+	// model is told what was wrong with what it wrote, rather than being told
+	// by the tool that it wrote nothing.
+	BadArgs string
 }
 
 // Message is one entry in a conversation, in the single shape all three wires
@@ -50,18 +59,41 @@ type Message struct {
 	Calls []ToolCall
 	// Call is the call a tool message answers.
 	Call ToolCall
+	// Thinking is the reasoning an assistant message came with, kept only to
+	// be handed back.
+	Thinking []Thinking
+}
+
+// Thinking is one block of reasoning a model returned with its answer.
+//
+// It is never drawn or recorded -- EventThinking carries what is shown -- and
+// is kept for one reason: Anthropic's models that think by default refuse the
+// next request of a tool loop when the reasoning that led to a call has been
+// left out of it, and the signature is how the server knows it was not edited.
+type Thinking struct {
+	Text      string
+	Signature string
+	// Redacted is the opaque data of a block the server would not show.
+	Redacted string
 }
 
 // Usage is what a turn cost in tokens.
 type Usage struct {
-	In  int
-	Out int
+	// In is every token of input read, however it was priced; CacheRead and
+	// CacheWrite are the parts of it read from and written to a prompt cache,
+	// which cost a fraction and a premium of the rest.
+	In         int
+	Out        int
+	CacheRead  int
+	CacheWrite int
 }
 
 // Add accumulates one turn's usage into a running total.
 func (u *Usage) Add(v Usage) {
 	u.In += v.In
 	u.Out += v.Out
+	u.CacheRead += v.CacheRead
+	u.CacheWrite += v.CacheWrite
 }
 
 // Schema is a tool's arguments described as JSON Schema. Each wire translates
@@ -119,14 +151,21 @@ const (
 	EventCall
 	// EventUsage is the token count for the turn, sent once, at the end.
 	EventUsage
+	// EventReasoning is a completed block of reasoning, to go back with the
+	// answer in the next request.
+	EventReasoning
+	// EventNotice is something the user should know about how the answer is
+	// being got -- not part of it, and never recorded.
+	EventNotice
 )
 
 // Event is one thing that happened while a turn streamed.
 type Event struct {
-	Kind  EventKind
-	Text  string
-	Call  ToolCall
-	Usage Usage
+	Kind     EventKind
+	Text     string
+	Call     ToolCall
+	Usage    Usage
+	Thinking Thinking
 }
 
 // Wire speaks one vendor's HTTP protocol.

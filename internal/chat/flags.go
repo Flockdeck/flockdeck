@@ -34,10 +34,10 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 	fs.StringVar(&o.Model, "model", paneEnv("MODEL"), "the model to ask for; empty leaves it to the endpoint")
 	fs.StringVar(&o.Session, "session", "", "the conversation id, which is also the pane id")
 	fs.BoolVar(&o.Resume, "resume", false, "carry on the conversation this session id already has")
-	fs.StringVar(&o.Wire, "wire", paneEnv("WIRE"), "request shape: anthropic, openai or gemini")
-	fs.StringVar(&o.BaseURL, "base-url", paneEnv("BASE_URL"), "endpoint root; empty means the vendor's own")
-	fs.StringVar(&keyEnv, "key-env", paneEnv("KEY_ENV"), "comma-separated names an API key may arrive in")
-	fs.IntVar(&o.MaxTokens, "max-tokens", 0, "ceiling on one answer, in tokens")
+	fs.StringVar(&o.Wire, "wire", paneEnv("WIRE"), "request shape: anthropic, openai or gemini; empty takes the agent's catalog entry")
+	fs.StringVar(&o.BaseURL, "base-url", paneEnv("BASE_URL"), "endpoint root; empty takes the agent's catalog entry, and then the vendor's own")
+	fs.StringVar(&keyEnv, "key-env", paneEnv("KEY_ENV"), "comma-separated names an API key may arrive in; empty takes the agent's catalog entry")
+	fs.IntVar(&o.MaxTokens, "max-tokens", 0, "ceiling on one answer, in tokens; 0 leaves it to the model (32000 on the Anthropic API, which needs one)")
 	fs.StringVar(&o.Cwd, "cwd", "", "the working directory; empty means this one")
 	fs.Usage = func() { usage(fs, out) }
 
@@ -76,8 +76,14 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 	fmt.Fprintf(out, "no node, no python. Run inside a Flockdeck pane it reports its own status,\n")
 	fmt.Fprintf(out, "records a transcript and can be resumed.\n\nFlags:\n")
 	fs.PrintDefaults()
-	fmt.Fprintf(out, "\nThe API key is read from the names given to -key-env, then from the\n")
-	fmt.Fprintf(out, "conventional name for the wire, then from the keys Flockdeck has been given.\n")
+	fmt.Fprintf(out, "\nWhat -wire, -base-url and -key-env leave unsaid is taken from the -agent's\n")
+	fmt.Fprintf(out, "catalog entry, agents.json included. The API key is read from those names,\n")
+	fmt.Fprintf(out, "then from the conventional name for the wire, then from the keys Flockdeck\n")
+	fmt.Fprintf(out, "has been given with `flockdeck keys set <agent>`.\n")
+	// The commands are what somebody opening the help is looking for once
+	// the chat is running, and /help is only found by those who know of it.
+	fmt.Fprintf(out, "\nOnce it is running, /help lists the commands: /model to see and switch\n")
+	fmt.Fprintf(out, "models, /output and /history to read back what went by, /clear, /exit.\n")
 }
 
 // paneEnv reads one of the variables a pane carries, accepting the name an

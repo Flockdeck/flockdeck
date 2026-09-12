@@ -5,10 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // NewWire returns the wire named by an agent's APISpec.
@@ -44,6 +48,13 @@ var httpClient = &http.Client{}
 // version is added only when it is not already there.
 func endpoint(base, fallback, version, path string) string {
 	b := strings.TrimRight(strings.TrimSpace(base), "/")
+	// The address a server's documentation gives is as often the whole
+	// request URL as its root -- http://127.0.0.1:1234/v1/chat/completions --
+	// and pasted as the base it had the path added a second time, which is a
+	// 404 on every request. The API's own paths are taken back off first.
+	for _, tail := range []string{"/chat/completions", "/messages", "/models"} {
+		b = strings.TrimRight(strings.TrimSuffix(b, tail), "/")
+	}
 	if b == "" {
 		b = strings.TrimRight(fallback, "/")
 	}
@@ -77,9 +88,173 @@ func post(ctx context.Context, url string, header http.Header, body any) (io.Rea
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		resp.Body.Close()
-		return nil, fmt.Errorf("%s: %s", resp.Status, apiMessage(msg))
+		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
+		if secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && secs > 0 {
+			e.RetryAfter = time.Duration(secs) * time.Second
+		}
+		return nil, e
 	}
 	return resp.Body, nil
+}
+
+// apiError is a request the API answered with a failure, kept whole rather
+// than flattened into a string so that the loop can tell a refused key --
+// which the user can fix without leaving the pane -- or a busy API, which
+// is worth asking again, from everything else.
+type apiError struct {
+	Code   int
+	Status string
+	Msg    string
+	// RetryAfter is how long the API asked to be left, where it said.
+	RetryAfter time.Duration
+}
+
+// Error is the failure as it is shown, with any part of a key the vendor quoted
+// back taken out: every line that says why an answer or a listing failed goes
+// through here.
+func (e *apiError) Error() string { return e.Status + ": " + redactKeys(e.Msg) }
+
+// outOfCredit reports whether err is the account behind the key having run out
+// of what it pays with, rather than the API being busy for a moment. OpenAI
+// says so with a 429, the status of a rate limit, and asking again gets the
+// same answer; Anthropic says so with a 400 about the credit balance.
+func outOfCredit(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) {
+		return false
+	}
+	msg := strings.ToLower(e.Msg)
+	return strings.Contains(msg, "exceeded your current quota") || strings.Contains(msg, "insufficient_quota") ||
+		strings.Contains(msg, "credit balance is too low")
+}
+
+// busyWords is a busy API said in words, for the line that says it is being
+// asked again. The status is what the server sent, and in the middle of a
+// stream it is the error's own type -- "overloaded_error" -- which is a name
+// for a program, not a reason for a person.
+func busyWords(e *apiError) string {
+	switch e.Code {
+	case http.StatusTooManyRequests:
+		return "the API is limiting how often this key asks"
+	case 529:
+		return "the API is overloaded"
+	}
+	return "the API is failing on its side (" + strings.TrimSpace(e.Status) + ")"
+}
+
+// cutOffError is an answer that stopped because it reached a limit on its
+// length. What was written of it stands, and is the start of the answer rather
+// than a failed one: the way on is to ask for the rest, not to ask again.
+type cutOffError struct{ msg string }
+
+func (e *cutOffError) Error() string { return e.msg }
+
+// cutOff reports whether err is an answer cut off at its length limit.
+func cutOff(err error) bool {
+	var e *cutOffError
+	return errors.As(err, &e)
+}
+
+// busy reports whether err is the API being too busy to answer just now --
+// rate-limited, overloaded, or failing on its own side -- rather than
+// refusing the request.
+func busy(err error) (*apiError, bool) {
+	var e *apiError
+	if !errors.As(err, &e) || outOfCredit(err) {
+		return nil, false
+	}
+	switch e.Code {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return e, true
+	}
+	return nil, false
+}
+
+// unreachable reports whether err is the endpoint not being reached at all --
+// nothing listening at the address, a host that does not exist -- rather than
+// answering. Asking again changes nothing until the server is started or the
+// address is put right.
+func unreachable(err error) bool {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return true
+	}
+	var dns *net.DNSError
+	return errors.As(err, &dns)
+}
+
+// dropped reports whether err is a connection that opened and then broke while
+// the answer was arriving -- reset by the far end, a proxy giving up -- rather
+// than one never made, or a refusal the API sent in words.
+func dropped(err error) bool {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "read" {
+		return true
+	}
+	return errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+// contextFull reports whether err says the conversation is longer than the
+// model can read. Each vendor says it in words of its own, and none of them
+// says what to do, which is to start the conversation over: asking again
+// sends the same conversation and is refused the same way.
+func contextFull(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"context window",             // Anthropic's stop reason, and ours for it
+		"prompt is too long",         // Anthropic
+		"maximum context length",     // OpenAI and the servers that copy it
+		"input token count",          // Gemini
+		"exceeds the context window", // gateways
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// modelUnknown reports whether err is the API saying it has no model by the
+// name it was asked for -- a mistyped /model, or a model since retired -- in
+// the words each vendor uses for it.
+func modelUnknown(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) || (e.Code != http.StatusNotFound && e.Code != http.StatusBadRequest) {
+		return false
+	}
+	msg := strings.ToLower(e.Msg)
+	// Anthropic's 404 is the field and the value alone: "model: claude-x".
+	if e.Code == http.StatusNotFound && strings.HasPrefix(msg, "model:") {
+		return true
+	}
+	return strings.Contains(msg, "model") &&
+		(strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "invalid model"))
+}
+
+// refusedKey reports whether err is the API refusing the key it was given.
+// Anthropic and OpenAI say so with a 401; Gemini with a 400 whose message says
+// the key is not valid. A 403 is not one: it is a key that was accepted and is
+// not allowed to do what was asked, and sending somebody to set a new key over
+// it would be sending them the wrong way.
+func refusedKey(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) {
+		return false
+	}
+	return e.Code == http.StatusUnauthorized ||
+		e.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(e.Msg), "api key not valid")
+}
+
+// forbidden reports whether err is the API accepting the key and refusing what
+// was asked of it -- most often a model the account behind the key has no
+// access to.
+func forbidden(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && e.Code == http.StatusForbidden
 }
 
 // apiMessage digs the human half out of an error body.
@@ -216,14 +391,18 @@ type callBuffer struct {
 
 // done returns the finished call, with arguments that at least parse.
 //
-// A stream cut off mid-argument leaves a fragment, and handing that to a tool
-// would have it fail on JSON rather than on anything the user did; an empty
-// object is the honest reading of "the model named this tool and said nothing
-// more".
+// No arguments at all are an empty object, which is the honest reading of "the
+// model named this tool and said nothing more". Arguments that are not JSON --
+// which a local model writes more often than one would like -- are an empty
+// object too, since the call goes back to the API in the next request and has
+// to parse there, and what was written is kept in BadArgs for the model to be
+// told about: handed the empty object, a tool says a required argument is
+// missing, and the model sends the same broken JSON again.
 func (c *callBuffer) done() ToolCall {
 	args := strings.TrimSpace(c.args.String())
+	call := ToolCall{ID: c.id, Name: c.name, Args: json.RawMessage(args)}
 	if args == "" || !json.Valid([]byte(args)) {
-		args = "{}"
+		call.Args, call.BadArgs = json.RawMessage("{}"), args
 	}
-	return ToolCall{ID: c.id, Name: c.name, Args: json.RawMessage(args)}
+	return call
 }

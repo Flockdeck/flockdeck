@@ -301,7 +301,7 @@ func TestChatAsksOnceWhenAToolCanBeApprovedForGood(t *testing.T) {
 	if tool.ran() != 2 {
 		t.Errorf("the tool ran %d times, want both calls", tool.ran())
 	}
-	if !strings.Contains(out, "always for go test") {
+	if !strings.Contains(out, "always for `go test`") {
 		t.Errorf("the offer to agree for good was not made:\n%s", out)
 	}
 }
@@ -361,7 +361,7 @@ func TestCtrlCEndsTheTurnAndNotTheClient(t *testing.T) {
 		Agent: "anthropic", Task: "take your time", Signals: signals,
 	}, "/exit\n", wire)
 
-	if !strings.Contains(out, "(interrupted)") {
+	if !strings.Contains(out, "(interrupted") {
 		t.Errorf("the interruption was not shown:\n%s", out)
 	}
 	if !strings.Contains(out, "thinking about it") {
@@ -482,7 +482,7 @@ func TestChatTalksToAnEndpointForReal(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte("event: content_block_delta\n" +
 			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"# Right here"}}` +
-			"\n\n"))
+			"\n\n" + `data: {"type":"message_stop"}` + "\n\n"))
 	}))
 	defer srv.Close()
 

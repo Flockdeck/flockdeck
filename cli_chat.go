@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/chat"
 	"github.com/jmwri/flockdeck/internal/chat/tool"
+	"github.com/jmwri/flockdeck/internal/creds"
 )
 
 // runChat implements the `chat` subcommand: Flockdeck's own chat client, run inside
@@ -30,8 +33,107 @@ func runChat(args []string) error {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
 	}
-	opts.Tools = chatTools(opts.Cwd)
+	fillFromCatalog(&opts)
+	opts.Tools = chatTools(opts.Cwd, storedKeyVars(opts.Agent))
+	opts.Models = catalogModels(opts.Agent)
+	chat.KeyStore = storedKey
+	chat.EndpointStore = catalogEndpoint
 	return chat.Run(context.Background(), opts)
+}
+
+// catalogEndpoint is the address an agent talks to now, as the catalog --
+// agents.json included -- has it, which `flockdeck keys endpoint` may have
+// changed since the pane was started.
+func catalogEndpoint(agentID string) string {
+	for _, s := range agent.Load().Specs {
+		if s.ID == agentID {
+			return s.API.BaseURL
+		}
+	}
+	return ""
+}
+
+// fillFromCatalog takes the agent's wire, address and key variables from its
+// catalog entry, agents.json included, wherever the command line and the
+// environment left them unsaid.
+//
+// A pane is started as `flockdeck chat --agent <id>` and nothing more of the
+// endpoint (chatArgs, in the agent package, writes the id in precisely so that
+// the entry can be read from here). Left unread, every API agent's chat spoke
+// the Anthropic wire to Anthropic's address, asked for ANTHROPIC_API_KEY, and
+// sent an OpenAI or Gemini key there; a local model server's address was never
+// used at all, and `flockdeck keys endpoint` changed nothing a pane would see.
+// A flag or a variable that does say is still what the chat uses.
+func fillFromCatalog(opts *chat.Options) {
+	if opts.Agent == "" {
+		return
+	}
+	for _, s := range agent.Load().Specs {
+		if s.ID != opts.Agent {
+			continue
+		}
+		if opts.Wire == "" {
+			opts.Wire = s.API.Wire
+		}
+		if opts.BaseURL == "" {
+			opts.BaseURL = s.API.BaseURL
+		}
+		if len(opts.KeyEnv) == 0 {
+			opts.KeyEnv = s.API.KeyEnv
+		}
+		// Told so that a resumed conversation switched to another model is
+		// not put back on the default the pane was started with.
+		opts.DefaultModel = s.DefaultModel
+		return
+	}
+}
+
+// catalogModels are the models the pane's agent offers in the catalog,
+// agents.json included, for /model to list and pick from by number.
+func catalogModels(agentID string) []chat.ModelChoice {
+	for _, s := range agent.Load().Specs {
+		if s.ID != agentID {
+			continue
+		}
+		out := make([]chat.ModelChoice, 0, len(s.Models))
+		for _, m := range s.Models {
+			out = append(out, chat.ModelChoice{ID: m.ID, Name: m.Name, Note: m.Note})
+		}
+		return out
+	}
+	return nil
+}
+
+// storedKeyVars are the variables in this process's environment that carry the
+// key Flockdeck stored for an agent.
+//
+// A stored key reaches the pane in its environment, so that the chat can use
+// it; the promise is that it reaches that one process. Every command the model
+// runs would inherit it too, and `env` or `set` would print it into the
+// conversation and on to the vendor. A key the user exported themselves is
+// theirs to hand on and is not in the store, so it is not matched.
+func storedKeyVars(agentID string) []string {
+	key := storedKey(agentID)
+	if key == "" {
+		return nil
+	}
+	var names []string
+	for _, kv := range os.Environ() {
+		if name, v, ok := strings.Cut(kv, "="); ok && v == key {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// storedKey is the key `flockdeck keys set` stored for an agent, or "".
+//
+// A pane is handed its stored key in its environment, but a chat started by
+// hand has nobody to hand it one -- and the error it prints without a key
+// tells the user to run `flockdeck keys set`, which would otherwise make no
+// difference to it at all.
+func storedKey(agentID string) string {
+	return creds.Resolve(agent.Spec{ID: agentID}).Secret()
 }
 
 // chatTools are what the model in a chat pane can do besides talk: read and
@@ -42,12 +144,16 @@ func runChat(args []string) error {
 // The confinement every tool depends on is that resolved directory, so a tool
 // set built without one would be a tool set confined to nothing; a conversation
 // with no tools is a perfectly good thing for a pane to be, and it says so.
-func chatTools(cwd string) []chat.Tool {
+//
+// hide names the variables that carry a key Flockdeck handed the pane, which
+// no command the model runs should inherit.
+func chatTools(cwd string, hide []string) []chat.Tool {
 	set, err := tool.New(cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck chat: no tools in this pane:", err)
 		return nil
 	}
+	set.HideEnv(hide...)
 	tools := set.Tools()
 	out := make([]chat.Tool, 0, len(tools))
 	for _, t := range tools {
@@ -84,9 +190,10 @@ func (c chatTool) Run(ctx context.Context, args json.RawMessage) (string, error)
 	return c.t.Run(ctx, args)
 }
 
-// AlwaysKey lets a tool that can be approved in bulk say so. Only run_command
-// offers it, as the command prefix -- "go test", "npm run" -- that the user
-// would be agreeing to for the rest of the session.
+// AlwaysKey lets a tool that can be approved in bulk say so: run_command as the
+// command prefix -- "go test", "npm run" -- and write_file and edit_file as
+// every edit to a file, which is what the user would be agreeing to for the
+// rest of the session.
 func (c chatTool) AlwaysKey(args json.RawMessage) string {
 	p, ok := c.t.(interface {
 		Prefix(json.RawMessage) string

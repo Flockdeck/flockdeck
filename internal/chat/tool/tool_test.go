@@ -39,7 +39,8 @@ func TestSchemasAreWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range set.Schemas() {
+	for _, tl := range set.Tools() {
+		s := tl.Describe()
 		t.Run(s.Name, func(t *testing.T) {
 			if s.Name == "" || s.Description == "" {
 				t.Fatalf("schema is incomplete: %+v", s)
@@ -61,27 +62,6 @@ func TestSchemasAreWellFormed(t *testing.T) {
 				t.Errorf("schema does not survive JSON: %v", err)
 			}
 		})
-	}
-}
-
-// TestSetSharesOneAllowlist matters because the standing permission the user
-// gives is for the session, and a tool holding its own copy would ask again.
-func TestSetSharesOneAllowlist(t *testing.T) {
-	set, err := New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd, ok := set.Lookup("run_command")
-	if !ok {
-		t.Fatal("no run_command")
-	}
-	pa, ok := cmd.(PrefixApprover)
-	if !ok {
-		t.Fatal("run_command should offer standing permission")
-	}
-	pa.Allow("git status")
-	if !set.Allowlist().Allowed("git status") {
-		t.Error("the set and the tool should share one allowlist")
 	}
 }
 

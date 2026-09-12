@@ -52,16 +52,48 @@ func TestCostIsOnlyClaimedWhenItIsKnown(t *testing.T) {
 	}
 }
 
+func TestStatusLineSaysNothingOfTokensBeforeAny(t *testing.T) {
+	if got := statusLine("claude-opus-5", Usage{}, spend{}); got != "claude-opus-5" {
+		t.Errorf("status line before anything was asked = %q", got)
+	}
+}
+
+// spendOf is what one turn cost, as the loop adds it up.
+func spendOf(model string, u Usage) spend {
+	var s spend
+	s.add(model, u)
+	return s
+}
+
 func TestStatusLineSaysTokensAndOnlyAPriceItKnows(t *testing.T) {
-	priced := statusLine("claude-opus-5", Usage{In: 12_345, Out: 678})
+	u := Usage{In: 12_345, Out: 678}
+	priced := statusLine("claude-opus-5", u, spendOf("claude-opus-5", u))
 	for _, want := range []string{"claude-opus-5", "12k in", "678 out", "$"} {
 		if !strings.Contains(priced, want) {
 			t.Errorf("status line %q does not mention %q", priced, want)
 		}
 	}
-	unpriced := statusLine("qwen3-coder", Usage{In: 5, Out: 6})
+	u = Usage{In: 5, Out: 6}
+	unpriced := statusLine("qwen3-coder", u, spendOf("qwen3-coder", u))
 	if strings.Contains(unpriced, "$") {
 		t.Errorf("status line %q invents a price", unpriced)
+	}
+}
+
+// /model changes who answers from the next turn on, and what was already spent
+// was spent at the old model's rate.
+func TestSwitchingModelsDoesNotRepriceWhatWasSpent(t *testing.T) {
+	var s spend
+	s.add("claude-opus-5", Usage{In: 1_000_000})
+	s.add("claude-haiku-4-5", Usage{In: 1_000_000})
+	line := statusLine("claude-haiku-4-5", Usage{In: 2_000_000}, s)
+	if !strings.Contains(line, "$6.00") {
+		t.Errorf("status line %q, want the $5 and $1 the two turns cost", line)
+	}
+
+	s.add("qwen3-coder", Usage{In: 10})
+	if line := statusLine("qwen3-coder", Usage{}, s); !strings.Contains(line, "$6.00+") {
+		t.Errorf("status line %q, want what is known shown as a floor", line)
 	}
 }
 

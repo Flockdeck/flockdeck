@@ -59,14 +59,14 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if !info.IsDir() {
 		return "", fmt.Errorf("%s is a file; use read_file", t.root.Rel(abs))
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		return "", err
+		return "", t.root.explain(err)
 	}
 	if len(entries) == 0 {
 		return fmt.Sprintf("%s is empty.", t.root.Rel(abs)), nil
@@ -77,6 +77,24 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 	// system's and says nothing.
 	var dirs, files []string
 	for _, e := range entries {
+		// A link that leads out of the pane is refused by every tool, and
+		// shown as the file it looks like, the model reaches for it and is
+		// refused; it is said to be what it is.
+		if e.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			if _, err := t.root.Resolve(filepath.Join(abs, e.Name())); errors.Is(err, ErrOutsideRoot) {
+				files = append(files, e.Name()+"  (a link leading outside the working directory)")
+				continue
+			}
+			// A link to a directory is not a directory to the entry, which
+			// describes the link: listed as a file of a few bytes, it was
+			// read as one and the model told it was a directory. What it
+			// leads to is what it is -- a package linked in by pnpm or a
+			// workspace, a junction on Windows.
+			if info, err := os.Stat(filepath.Join(abs, e.Name())); err == nil && info.IsDir() {
+				dirs = append(dirs, e.Name()+"/")
+				continue
+			}
+		}
 		if e.IsDir() {
 			dirs = append(dirs, e.Name()+"/")
 			continue
@@ -88,8 +106,16 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 		files = append(files, e.Name()+size)
 	}
 
+	// The first line names the directory and says what is in it. It is the
+	// line drawn under the call in the pane, where ".:" -- the root by its
+	// relative name -- told the user nothing at all.
+	name := t.root.Rel(abs) + "/"
+	if name == "./" {
+		name = "the working directory"
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s:\n", t.root.Rel(abs))
+	fmt.Fprintf(&b, "%s: %d %s, %d %s\n", name, len(dirs), plural(len(dirs), "directory", "directories"),
+		len(files), plural(len(files), "file", "files"))
 	shown := 0
 	for _, line := range append(sortedStrings(dirs), sortedStrings(files)...) {
 		if shown == maxListed {
@@ -130,7 +156,7 @@ type globArgs struct {
 // and a path outside it is refused rather than asked about.
 func (t *globTool) Approval(json.RawMessage) string { return "" }
 
-func (t *globTool) Run(_ context.Context, args json.RawMessage) (string, error) {
+func (t *globTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var a globArgs
 	if err := decode(args, &a); err != nil {
 		return "", err
@@ -138,13 +164,16 @@ func (t *globTool) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if strings.TrimSpace(a.Pattern) == "" {
 		return "", fmt.Errorf("pattern is required")
 	}
+	if err := validGlob(a.Pattern); err != nil {
+		return "", err
+	}
 	base, err := t.root.Resolve(a.Path)
 	if err != nil {
 		return "", err
 	}
 	var found []string
 	truncated := false
-	err = walkFiles(base, func(_, rel string, _ fs.DirEntry) error {
+	err = walkFiles(ctx, base, func(_, rel string, _ fs.DirEntry) error {
 		if !matchGlob(a.Pattern, rel) {
 			return nil
 		}
@@ -181,6 +210,23 @@ func matchGlob(pattern, name string) bool {
 	pattern = strings.TrimPrefix(filepath.ToSlash(pattern), "./")
 	name = strings.TrimPrefix(filepath.ToSlash(name), "./")
 	return matchSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
+}
+
+// validGlob refuses a pattern that cannot match anything because it is not a
+// pattern at all -- an unclosed [, a stray escape. Matched as it stands it
+// matches nothing and says nothing, and the model told "no files match" goes
+// looking for files that are there under a pattern it wrote wrongly.
+func validGlob(pattern string) error {
+	for _, seg := range strings.Split(filepath.ToSlash(pattern), "/") {
+		if seg == "**" {
+			continue
+		}
+		// Match checks the whole of a pattern before it says no.
+		if _, err := path.Match(seg, ""); err != nil {
+			return fmt.Errorf("%q is not a valid glob (%v): check its [ and ] and backslashes", pattern, err)
+		}
+	}
+	return nil
 }
 
 func matchSegments(pat, name []string) bool {
@@ -226,8 +272,13 @@ func joinRel(base, rel string) string {
 // link. The links are the important half: confinement here is by path, and a
 // link inside the tree is free to point outside it, so a walk that followed
 // one would hand back a file the tools are not allowed to open.
-func walkFiles(root string, fn func(abs, rel string, d fs.DirEntry) error) error {
+func walkFiles(ctx context.Context, root string, fn func(abs, rel string, d fs.DirEntry) error) error {
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		// A walk of a large tree is the one read long enough for somebody to
+		// give up on, and Ctrl+C has to reach it wherever it has got to.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			// A directory that cannot be read is skipped rather than ending
 			// the search: one unreadable corner should not cost the model the
@@ -244,6 +295,14 @@ func walkFiles(root string, fn func(abs, rel string, d fs.DirEntry) error) error
 			return nil
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		// Nor is a pipe, a socket or a device handed on: a named pipe in the
+		// tree, opened by grep to be searched, waits for a writer forever.
+		// Only those: on Windows a file behind a reparse point of another
+		// kind -- a OneDrive placeholder, a deduplicated file -- is reported
+		// as irregular, and reads like any other.
+		if notAFile(d.Type()) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, p)

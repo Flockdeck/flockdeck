@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,9 +30,16 @@ type Entry struct {
 	Type string    `json:"type"`
 	TS   timestamp `json:"ts"`
 	Text string    `json:"text"`
-	// Tool names the tool a "tool" entry is the output of.
-	Tool  string `json:"tool,omitempty"`
-	Cwd   string `json:"cwd,omitempty"`
+	// Tool names the tool a "tool" entry is the output of, and Call is what
+	// the call acted on as it was drawn -- "read_file src/a.go" -- without
+	// which the history could say what a tool returned but not what of.
+	Tool string `json:"tool,omitempty"`
+	Call string `json:"call,omitempty"`
+	Cwd  string `json:"cwd,omitempty"`
+	// Agent is the catalog id the conversation was held with. Every API
+	// agent keeps its chats in the one folder, so without it a chat with one
+	// agent reopens as another.
+	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
 	In    int    `json:"in,omitempty"`
 	Out   int    `json:"out,omitempty"`
@@ -118,10 +126,11 @@ func Path(session string) string {
 // read it while the pane is still running, and an answer still sitting in a
 // buffer is an answer they cannot see.
 type Log struct {
-	mu   sync.Mutex
-	f    *os.File
-	cwd  string
-	when func() time.Time
+	mu    sync.Mutex
+	f     *os.File
+	cwd   string
+	agent string
+	when  func() time.Time
 }
 
 // OpenLog opens a session's transcript for appending, creating it if need be.
@@ -150,11 +159,20 @@ func (l *Log) Append(e Entry) error {
 	if e.Cwd == "" {
 		e.Cwd = l.cwd
 	}
-	data, err := json.Marshal(e)
-	if err != nil {
+	if e.Agent == "" {
+		e.Agent = l.agent
+	}
+	// Code is most of what a transcript holds, and encoding/json would write
+	// every < > and & in it as a six-character Unicode escape; the file is
+	// read by people as well as by programs. Encode ends the entry with its
+	// newline.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(e); err != nil {
 		return err
 	}
-	if _, err := l.f.Write(append(data, '\n')); err != nil {
+	if _, err := l.f.Write(buf.Bytes()); err != nil {
 		return err
 	}
 	return nil
@@ -177,12 +195,34 @@ func (l *Log) Close() error {
 	return l.f.Close()
 }
 
-// entryScanner reads a transcript a line at a time, with a buffer large enough
-// for an entry carrying a whole file that a tool read.
-func entryScanner(r io.Reader) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	return sc
+// maxEntry bounds one entry read back from a transcript. A longer line -- a
+// paste of many megabytes, recorded whole -- is read past rather than kept.
+//
+// It used to end the read: the scanner gave up on the line and the error
+// took every entry with it, so one enormous paste left a conversation that
+// resume could not put back and the history could not list. A conversation
+// missing one entry is still a conversation.
+const maxEntry = 8 << 20
+
+// readBoundedLine reads one line without its ending, and reports whether it was
+// longer than max, in which case none of it is kept and the rest of it is read
+// past. It is how both a transcript and the user's typing are read: a line
+// that is too long is left out, and the ones after it are still read.
+func readBoundedLine(br *bufio.Reader, max int) (line []byte, long bool, err error) {
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if !long {
+			if len(line)+len(chunk) > max {
+				line, long = nil, true
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return bytes.TrimRight(line, "\r\n"), long, err
+	}
 }
 
 // ReadEntries reads a whole transcript. A line that does not parse is skipped
@@ -210,23 +250,36 @@ func readTail(path string, max int64) ([]Entry, error) {
 	defer f.Close()
 	partial := false
 	if fi, err := f.Stat(); err == nil && fi.Size() > max {
-		if _, err := f.Seek(fi.Size()-max, io.SeekStart); err == nil {
-			partial = true
+		// The byte before where reading starts says whether it starts a
+		// line. Only when it does not is the first line read a fragment:
+		// dropping it regardless threw away a whole entry whenever the cut
+		// fell between two.
+		if _, err := f.Seek(fi.Size()-max-1, io.SeekStart); err == nil {
+			var before [1]byte
+			_, err := io.ReadFull(f, before[:])
+			partial = err != nil || before[0] != '\n'
 		}
 	}
-	sc := entryScanner(f)
+	br := bufio.NewReaderSize(f, 64<<10)
 	if partial {
-		sc.Scan()
+		if _, _, err := readBoundedLine(br, maxEntry); err != nil {
+			return nil, nil
+		}
 	}
 	var out []Entry
-	for sc.Scan() {
+	for {
+		line, long, err := readBoundedLine(br, maxEntry)
 		var e Entry
-		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Type == "" {
-			continue
+		if !long && len(line) > 0 && json.Unmarshal(line, &e) == nil && e.Type != "" {
+			out = append(out, e)
 		}
-		out = append(out, e)
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
 	}
-	return out, sc.Err()
 }
 
 // Messages turns a transcript back into a conversation to resume from.
@@ -261,10 +314,10 @@ func Messages(entries []Entry) []Message {
 		case string(RoleAssistant):
 			add(RoleAssistant, e.Text)
 		case string(RoleTool):
-			label := e.Tool
-			if label == "" {
-				label = "tool"
-			}
+			// Labelled with what the call acted on, where the entry says:
+			// "[read_file]" over a file's contents does not tell the model,
+			// picking a conversation back up, which file it is looking at.
+			label := firstNonEmpty(e.Call, e.Tool, "tool")
 			add(RoleUser, "["+label+"]\n"+e.Text)
 		}
 	}

@@ -1,6 +1,7 @@
 package creds
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,6 +46,11 @@ func load() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", keysFile, err)
 	}
+	// Notepad, and PowerShell's own Set-Content, start a UTF-8 file with a
+	// byte-order mark, which the JSON decoder takes for a syntax error: a
+	// store edited by hand on Windows would otherwise read as broken and
+	// refuse every later `keys set`.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var keys map[string]string
 	if err := json.Unmarshal(data, &keys); err != nil {
 		// The parse error is not wrapped. encoding/json quotes the offending

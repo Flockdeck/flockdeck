@@ -68,6 +68,9 @@ func TestWiresStream(t *testing.T) {
 				`event: message_delta`,
 				`data: {"type":"message_delta","usage":{"output_tokens":7}}`,
 				``,
+				`event: message_stop`,
+				`data: {"type":"message_stop"}`,
+				``,
 			}, "\n"),
 			verify: func(t *testing.T, sent map[string]any, path string) {
 				if path != "/v1/messages" {
@@ -76,7 +79,8 @@ func TestWiresStream(t *testing.T) {
 				if sent["model"] != "m1" {
 					t.Errorf("model = %v", sent["model"])
 				}
-				if sent["system"] != "be brief" {
+				system, _ := sent["system"].([]any)
+				if len(system) != 1 || system[0].(map[string]any)["text"] != "be brief" {
 					t.Errorf("system = %v", sent["system"])
 				}
 				// Three, not four: the tool's answer and the prompt that follows
@@ -150,7 +154,7 @@ func TestWiresStream(t *testing.T) {
 				``,
 				`data: {"candidates":[{"content":{"parts":[{"text":"two"}]}}]}`,
 				``,
-				`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"echo","args":{"text":"hi"}}}]}}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7}}`,
+				`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"echo","args":{"text":"hi"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7}}`,
 				``,
 			}, "\n"),
 			verify: func(t *testing.T, sent map[string]any, path string) {

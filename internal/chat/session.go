@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -21,8 +20,16 @@ import (
 type Options struct {
 	// Agent is the catalog id of the agent this pane was started as. It names
 	// the key to look for and is what the header says.
-	Agent   string
-	Model   string
+	Agent string
+	Model string
+	// DefaultModel is the one the agent's catalog entry falls back to when
+	// nobody picks one. A resumed conversation that had gone on with another,
+	// chosen with /model, is taken up with that one rather than put back on
+	// the default.
+	DefaultModel string
+	// Models are what the agent's catalog entry offers, which /model lists and
+	// picks from by number. Any other id can still be named.
+	Models  []ModelChoice
 	Session string
 	Resume  bool
 	// Task is the opening prompt, which arrives in the argv rather than being
@@ -30,8 +37,9 @@ type Options struct {
 	Task string
 
 	// Wire, BaseURL and KeyEnv are the agent's APISpec, passed in rather than
-	// looked up: what the pane runs is decided by whoever built the argv, and
-	// the chat client does not need a catalog of its own to be told.
+	// looked up here: the chat client has no catalog of its own. A flag or a
+	// variable can say them; otherwise `flockdeck chat` reads them from the
+	// agent's catalog entry before it gets here.
 	Wire      string
 	BaseURL   string
 	KeyEnv    []string
@@ -64,17 +72,28 @@ type Options struct {
 	// wire, when set, is used instead of building one from Wire and BaseURL. It
 	// is how the loop is tested without a model to talk to.
 	wire Wire
+	// waitForKey waits for a key to be stored where there is none, as the
+	// chat does when a person is at the terminal. It is how that is tested
+	// without one.
+	waitForKey bool
 }
 
-// KeyStore is asked for an API key when the environment does not have one. It
-// is a variable so that the credential store can supply it without the chat
-// client depending on it, and so that a key reaches exactly one process: this
-// one.
-var KeyStore func(agent string) string
+// ModelChoice is one model /model offers.
+type ModelChoice struct {
+	ID   string
+	Name string
+	Note string
+}
 
-// defaultMaxTokens is the ceiling on one answer. It is high because this is a
-// streamed conversation, where a long answer costs patience rather than a
-// timeout, and an answer cut off mid-sentence is worth nothing.
+// defaultMaxTokens is the ceiling on one answer where the API insists on one
+// and the user named none. It is high because this is a streamed conversation,
+// where a long answer costs patience rather than a timeout, and an answer cut
+// off mid-sentence is worth nothing.
+//
+// Only the Anthropic wire sends it. The others take no ceiling to mean the
+// model's own, and a figure sent where none was asked for is refused outright
+// by a model whose limit is lower -- an older OpenAI model, or a local one
+// served with a short context.
 const defaultMaxTokens = 32000
 
 // maxToolSteps bounds how many times one turn may call tools before the loop
@@ -85,6 +104,11 @@ const defaultMaxTokens = 32000
 // is well past what real work needs in one turn.
 const maxToolSteps = 30
 
+// busyBackoff is how long to wait before asking a busy API again, once for each
+// attempt, where it did not say how long itself. Twice is enough to ride out a
+// moment's overload and few enough that a real outage is reported promptly.
+var busyBackoff = []time.Duration{2 * time.Second, 6 * time.Second}
+
 // Run is the chat client: it holds one conversation until the user leaves, the
 // input ends, or the context is cancelled.
 func Run(ctx context.Context, o Options) error {
@@ -94,11 +118,11 @@ func Run(ctx context.Context, o Options) error {
 	if o.Out == nil {
 		o.Out = os.Stdout
 	}
-	if o.Width <= 0 {
+	// A width the caller gave is kept; otherwise it is asked for again before
+	// each answer, so a pane that has been resized is wrapped to its new size.
+	autoWidth := o.Width <= 0
+	if autoWidth {
 		o.Width = resolveWidth()
-	}
-	if o.MaxTokens <= 0 {
-		o.MaxTokens = defaultMaxTokens
 	}
 	if o.Cwd == "" {
 		o.Cwd, _ = os.Getwd()
@@ -112,11 +136,23 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	wire := o.wire
+	var key, keyFrom string
 	if wire == nil {
-		key, err := resolveKey(o)
+		var err error
+		key, err = resolveKey(o)
 		if err != nil {
-			return err
+			// Somebody at a terminal is told how to set a key and the chat
+			// waits for one, rather than ending: a pane that has ended does
+			// not pick a key up later, and has to be restarted after it,
+			// which is the step people miss. A script is told at once.
+			if !o.waitForKey && !isConsole(o.In) {
+				return err
+			}
+			if key, err = waitForKey(ctx, o); err != nil {
+				return err
+			}
 		}
+		_, keyFrom = lookupKey(o)
 		wire, err = NewWire(o.Wire, o.BaseURL, key)
 		if err != nil {
 			return err
@@ -136,17 +172,24 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer log.Close()
+	// Every entry says which agent it was written by: the chats of every API
+	// agent share one folder, and one reopened with no agent recorded is
+	// reopened as whichever API agent comes first.
+	log.agent = o.Agent
 
 	s := &session{
-		opts:     o,
-		wire:     wire,
-		log:      log,
-		out:      newPrinter(o.Out, o.Width, o.Colour),
-		in:       newInput(o.In),
-		reporter: newReporter(o.API, o.Token, o.Session, o.Cwd),
-		model:    o.Model,
-		tools:    map[string]Tool{},
-		always:   map[string]bool{},
+		opts:      o,
+		wire:      wire,
+		key:       key,
+		keyFrom:   keyFrom,
+		log:       log,
+		out:       newPrinter(o.Out, o.Width, o.Colour),
+		in:        newInput(o.In, isConsole(o.In)),
+		reporter:  newReporter(o.API, o.Token, o.Session, o.Cwd),
+		model:     o.Model,
+		tools:     map[string]Tool{},
+		always:    map[string]bool{},
+		autoWidth: autoWidth,
 	}
 	for _, t := range o.Tools {
 		s.tools[t.Name()] = t
@@ -169,8 +212,15 @@ func Run(ctx context.Context, o Options) error {
 
 // session is one conversation in progress.
 type session struct {
-	opts     Options
-	wire     Wire
+	opts Options
+	wire Wire
+	// key is the one the wire was built with, so that a refused one can be
+	// told from a new one set since; refused are the keys the API has
+	// refused in this session, which are not tried again. keyFrom is where
+	// the key came from, in the words /status says it in.
+	key      string
+	refused  map[string]bool
+	keyFrom  string
 	log      *Log
 	out      *printer
 	in       *input
@@ -181,13 +231,26 @@ type session struct {
 	system   string
 	messages []Message
 	total    Usage
+	spent    spend
 	tools    map[string]Tool
 	// always remembers the families of calls the user has agreed to for the
-	// rest of the session.
+	// rest of the session. A family is named by the tools themselves and may
+	// span more than one of them: every write and every edit are one family.
 	always map[string]bool
 	// interrupted is set from the goroutine watching for interrupts and read
 	// back once the turn has ended, so nothing is drawn from two goroutines.
 	interrupted atomic.Bool
+	// autoWidth is set when the width is the terminal's rather than given.
+	autoWidth bool
+	// ahead are lines the user typed while the model was working, kept for
+	// the prompt they were meant for.
+	ahead []string
+	// listed are the models the endpoint said it offers, for an agent whose
+	// catalog entry lists none.
+	listed []ModelChoice
+	// unfinished is set when the last turn ended without its answer --
+	// interrupted, failed, cut short -- which is what /retry carries on.
+	unfinished bool
 }
 
 // systemPrompt is what the model is told about where it is before anything
@@ -205,13 +268,22 @@ func (s *session) run(ctx context.Context) error {
 	}
 	// The reply to this is the pane's briefing -- which pane this is, who else
 	// is working, what it can ask Flockdeck for.
-	s.system = compose(systemPrompt, s.reporter.sessionStart(source))
+	s.system = s.systemWith(s.reporter.sessionStart(source))
 
-	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for what it can do",
+	// Short enough for a pane of the width a dozen side by side leave, where
+	// the longer "/help for what it can do" broke to leave "do" on a line of
+	// its own.
+	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for commands",
 		firstNonEmpty(s.opts.Agent, s.wire.Name()), firstNonEmpty(s.model, "the endpoint's own model")))
 
 	if s.opts.Resume {
 		s.replay()
+	}
+	if s.model == "" {
+		// Most endpoints want a model named, a local model server above all,
+		// and the first sign of it would otherwise be the first answer
+		// failing with "model is required".
+		s.pickOnlyModel(ctx)
 	}
 
 	queued := strings.TrimSpace(s.opts.Task)
@@ -229,8 +301,8 @@ func (s *session) run(ctx context.Context) error {
 		if prompt == "" {
 			continue
 		}
-		if strings.HasPrefix(prompt, "/") {
-			if leave := s.command(prompt); leave {
+		if isCommand(prompt) {
+			if leave := s.command(ctx, prompt); leave {
 				s.reporter.sessionEnd()
 				return nil
 			}
@@ -240,44 +312,20 @@ func (s *session) run(ctx context.Context) error {
 	}
 }
 
-// replay puts a resumed conversation back, on the screen and in the request.
-//
-// The whole conversation goes into the request, because that is what resuming
-// means; only the tail is drawn, because a pane restored with a thousand lines
-// of scrollback in front of the prompt is a pane nobody can see the prompt in.
-func (s *session) replay() {
-	// The log's own file rather than a lookup, so that what is replayed is
-	// exactly what is being appended to.
-	entries, err := ReadEntries(s.log.Path())
-	if err != nil {
-		s.out.line(ansiRed, "could not read the transcript: "+err.Error())
-		return
+// isCommand reports whether a line is a slash command rather than a prompt
+// that happens to begin with a slash. A path is the usual one -- "/usr/lib/
+// libssl.so is missing", "/c/Users/me/app.log says ..." -- and taken for a
+// command, it was answered "no such command" and the question was gone, with
+// no way to send it: a leading space is trimmed off like any other.
+func isCommand(line string) bool {
+	if !strings.HasPrefix(line, "/") {
+		return false
 	}
-	s.messages = Messages(entries)
-	if len(s.messages) == 0 {
-		s.out.line(ansiDim, "(nothing recorded for this conversation yet)")
-		return
+	name := line[1:]
+	if i := strings.IndexAny(name, " \t\r\n"); i >= 0 {
+		name = name[:i]
 	}
-	const shown = 8
-	from := 0
-	if len(s.messages) > shown {
-		from = len(s.messages) - shown
-		s.out.line(ansiDim, fmt.Sprintf("(%d earlier messages)", from))
-	}
-	for _, m := range s.messages[from:] {
-		s.out.blankLine()
-		if m.Role == RoleUser {
-			s.out.line(ansiDim, "you")
-			s.out.setDim(true)
-			s.out.text(m.Text)
-			s.out.endMessage()
-			s.out.setDim(false)
-			continue
-		}
-		s.out.text(m.Text)
-		s.out.endMessage()
-	}
-	s.out.blankLine()
+	return !strings.ContainsAny(name, `/\.:`)
 }
 
 // readPrompt draws the status line and waits for what the user types.
@@ -285,52 +333,93 @@ func (s *session) replay() {
 // A line ending in a backslash is continued on the next one, which is how a
 // prompt with a paragraph in it is typed without raw mode.
 func (s *session) readPrompt(ctx context.Context) (string, bool) {
+	// Lines typed while the model was answering were echoed by the terminal
+	// in the middle of the answer, and were sent from a prompt that showed
+	// nothing after it. They are taken now and drawn after the prompt, as the
+	// lines held back from a tool's question are.
+	s.ahead = append(s.ahead, s.in.pending()...)
 	var gathered []string
 	var interruptedAt time.Time
 	for {
 		if len(gathered) == 0 {
 			s.out.blankLine()
-			s.out.line(ansiDim, statusLine(s.model, s.total))
+			s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
 			s.out.bare(ansiBold, "you > ")
 		} else {
 			s.out.bare(ansiBold, "   … ")
 		}
-		select {
-		case <-ctx.Done():
-			return "", false
-		case <-s.in.closed:
-			s.out.line("", "")
-			return "", false
-		case <-s.signals:
-			// Nothing is running, so there is no turn to interrupt. Leaving on
-			// the first Ctrl+C would throw away a conversation over a stray
-			// keystroke; leaving on none of them would trap somebody whose
-			// habit it is.
-			if !interruptedAt.IsZero() && time.Since(interruptedAt) < 2*time.Second {
+		var line string
+		if len(s.ahead) > 0 {
+			// Typed while the model worked; shown again after the prompt it
+			// now answers, since it went by in the middle of the answer. All
+			// of it is one prompt, as the same lines arriving at the prompt
+			// are: several lines typed ahead are a paste far more often than
+			// they are several questions, and each sent alone is a turn paid
+			// for.
+			line, s.ahead = strings.Join(s.ahead, "\n"), nil
+			s.out.line("", line)
+			if n := strings.Count(line, "\n") + 1; n > 1 {
+				s.out.line(ansiDim, fmt.Sprintf("(%d lines typed while the model worked, sent as one prompt)", n))
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return "", false
+			case <-s.in.closed:
 				s.out.line("", "")
 				return "", false
-			}
-			interruptedAt = time.Now()
-			gathered = nil
-			s.out.line(ansiDim, "(press Ctrl+C again to leave, or type /exit)")
-		case line := <-s.in.lines:
-			if strings.HasSuffix(line, "\\") {
-				gathered = append(gathered, strings.TrimSuffix(line, "\\"))
+			case <-s.signals:
+				s.in.interrupt()
+				// Nothing is running, so there is no turn to interrupt. Leaving
+				// on the first Ctrl+C would throw away a conversation over a
+				// stray keystroke; leaving on none of them would trap somebody
+				// whose habit it is.
+				if !interruptedAt.IsZero() && time.Since(interruptedAt) < 2*time.Second {
+					s.out.line("", "")
+					return "", false
+				}
+				interruptedAt = time.Now()
+				gathered = nil
+				s.out.line(ansiDim, "(press Ctrl+C again to leave, or type /exit)")
 				continue
+			case line = <-s.in.lines:
+				// A paste arrives as lines in a burst, and each would
+				// otherwise be sent as a prompt of its own: a stack trace
+				// pasted to ask about it went as twenty questions.
+				if rest := s.in.pending(); len(rest) > 0 {
+					line = strings.Join(append([]string{line}, rest...), "\n")
+					s.out.line(ansiDim, fmt.Sprintf("(%d pasted lines, sent as one prompt)", len(rest)+1))
+				}
 			}
-			gathered = append(gathered, line)
-			return strings.TrimSpace(strings.Join(gathered, "\n")), true
 		}
+		if strings.Contains(line, lineTooLong) {
+			s.out.line(ansiRed, fmt.Sprintf("(that line was longer than %d MB and was not sent; put it in a file and ask for the file instead)", maxLine>>20))
+			gathered = nil
+			continue
+		}
+		if strings.HasSuffix(line, "\\") {
+			gathered = append(gathered, strings.TrimSuffix(line, "\\"))
+			continue
+		}
+		gathered = append(gathered, line)
+		return strings.TrimSpace(strings.Join(gathered, "\n")), true
 	}
 }
 
 // turn runs one exchange: the user's prompt, the model's answer, and any tools
 // it asks for along the way.
 func (s *session) turn(ctx context.Context, prompt string) {
-	s.reporter.userPrompt(prompt)
 	s.messages = append(s.messages, Message{Role: RoleUser, Text: prompt})
 	s.record(Entry{Type: string(RoleUser), Text: prompt})
+	s.carryOn(ctx, prompt)
+}
 
+// carryOn asks the model to go on from where the conversation stands, which is
+// a prompt the user has just added, or -- for /retry -- one that was never
+// answered.
+func (s *session) carryOn(ctx context.Context, prompt string) {
+	s.reporter.userPrompt(prompt)
+	s.unfinished = false
 	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.interrupted.Store(false)
@@ -339,6 +428,7 @@ func (s *session) turn(ctx context.Context, prompt string) {
 		for {
 			select {
 			case <-s.signals:
+				s.in.interrupt()
 				// Interrupting is drawn once the turn has stopped: the printer
 				// belongs to the goroutine below, and two goroutines writing to
 				// a terminal produce one unreadable line.
@@ -351,30 +441,158 @@ func (s *session) turn(ctx context.Context, prompt string) {
 	}()
 	defer close(watching)
 
+	rekeyed, readdressed, retries := false, false, 0
 	for step := 0; ; step++ {
+		before := len(s.messages)
 		calls, err := s.stream(turnCtx)
-		if err != nil {
-			if s.interrupted.Load() || errors.Is(err, context.Canceled) {
-				s.out.line(ansiDim, "(interrupted)")
-			} else {
-				s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		e, isBusy := busy(err)
+		if (isBusy || dropped(err)) && retries < len(busyBackoff) && len(s.messages) == before {
+			// A connection that dropped before a word of the answer came is as
+			// passing as a busy API, and asking again as safe: nothing was
+			// drawn to be drawn twice.
+			// Nothing of an answer arrived, so asking again repeats nothing;
+			// and a busy API is the one failure that asking again fixes. An
+			// answer the API gave up on part-way is not asked for again: what
+			// was drawn of it would be drawn twice.
+			wait := busyBackoff[retries]
+			why := "the connection dropped before any of the answer came"
+			if isBusy {
+				why = busyWords(e)
+				if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
+					wait = e.RetryAfter
+				}
 			}
+			retries++
+			s.out.line(ansiDim, fmt.Sprintf("(%s; trying again in %s)", why, wait.Round(time.Second)))
+			select {
+			case <-time.After(wait):
+				continue
+			case <-turnCtx.Done():
+				err = turnCtx.Err()
+			}
+		}
+		if err != nil && refusedKey(err) && !rekeyed && s.rekey() {
+			// Somebody who has just set a new key should not have to restart
+			// the pane for it, or type the prompt again.
+			rekeyed = true
+			s.out.line(ansiDim, "(the key was refused; trying again with the one now set)")
+			continue
+		}
+		if err != nil && unreachable(err) && !readdressed && s.readdress() {
+			// The address was changed since the pane started, which is what
+			// the pane itself advises when one cannot be reached.
+			readdressed = true
+			s.out.line(ansiDim, "(the address is now "+endpointOf(s.opts)+"; asking there)")
+			continue
+		}
+		if err != nil {
+			s.sayWhyItStopped(err)
+			s.unfinished = true
 			break
 		}
 		if len(calls) == 0 {
+			if len(s.messages) == before {
+				// Nothing came back but the end of the answer -- a model that
+				// only thought, or a local one that stopped at once -- and the
+				// pane went back to the prompt with nothing on the screen to
+				// say whether it had been answered at all.
+				s.out.line(ansiDim, "(the model answered with nothing; /retry asks again)")
+				s.unfinished = true
+			}
 			break
 		}
 		if step >= maxToolSteps {
 			s.out.line(ansiRed, fmt.Sprintf("stopping: the model has asked for tools %d times in one turn", step))
+			s.decline(calls, "not run: the turn reached its limit of tool calls")
+			// A long piece of work reaches the limit honestly -- twenty files
+			// edited and the tests run -- and whoever is watching decides
+			// whether it goes on, with one word rather than a prompt that
+			// explains where it had got to.
+			s.out.line(ansiDim, "(/retry lets it carry on for as many again)")
+			s.unfinished = true
 			break
 		}
 		if stop := s.runCalls(turnCtx, calls); stop {
+			if s.interrupted.Load() {
+				// Ctrl+C at a tool's question, or while a tool ran: the turn
+				// stopped as surely as one interrupted mid-answer, and is
+				// carried on the same way, from the calls' answers.
+				s.out.line(ansiDim, "(interrupted; /retry carries on)")
+				s.unfinished = true
+			}
 			break
 		}
 	}
 	// Whatever happened, the pane is no longer working: an interrupted turn and
 	// a finished one both leave the user at the prompt.
 	s.reporter.stop()
+}
+
+// sayWhyItStopped draws why a turn ended without an answer, and what the user
+// can do about it: each failure has its own way on, and the one line that
+// names it is the only place the user learns which.
+func (s *session) sayWhyItStopped(err error) {
+	be, isBusy := busy(err)
+	switch {
+	case s.interrupted.Load() || errors.Is(err, context.Canceled):
+		s.out.line(ansiDim, "(interrupted; /retry carries on)")
+	case refusedKey(err):
+		agent := firstNonEmpty(s.opts.Agent, "<agent>")
+		s.out.line(ansiRed, "the API refused the key: "+err.Error())
+		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
+	case outOfCredit(err):
+		// Not asked again, and not called busy: what fixes it is money or
+		// another key, and neither is in the pane.
+		s.out.line(ansiRed, "the account behind this key is out of credit: "+err.Error())
+		s.out.line(ansiDim, "(add credit with the vendor, or set another key with `flockdeck keys set "+keyAgent(s.opts)+"`, then /retry)")
+	case modelUnknown(err):
+		s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		if names := s.localModels(); len(names) > 0 {
+			// The names are what somebody reading this needs next, and a
+			// server on this machine can say them at once.
+			s.out.line(ansiDim, "(the endpoint has no model called "+firstNonEmpty(s.model, "that")+"; it has "+
+				strings.Join(names, ", ")+" -- /model <part of a name> switches)")
+		} else {
+			s.out.line(ansiDim, "(the endpoint has no model called "+firstNonEmpty(s.model, "that")+"; /model shows the ones to choose from)")
+		}
+	case forbidden(err):
+		s.out.line(ansiRed, "the API would not do this with this key: "+err.Error())
+		s.out.line(ansiDim, "(the key was accepted, but the account behind it may not have this model; /model switches to another)")
+	case cutOff(err):
+		// What was written is the start of the answer and is kept; asking
+		// again throws it away and is cut off at the same length.
+		s.out.line(ansiRed, err.Error())
+		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
+	case unreachable(err):
+		s.out.line(ansiRed, "could not reach the endpoint: "+err.Error())
+		change := "`flockdeck keys endpoint " + keyAgent(s.opts) + " <url>` changes the address"
+		if isLoopback(s.opts.BaseURL) {
+			// A server on this machine that is not answering is almost always
+			// one that has not been started.
+			s.out.line(ansiDim, "(nothing is answering at "+s.opts.BaseURL+"; is the model server running? "+change+"; /retry asks again)")
+		} else {
+			s.out.line(ansiDim, "(check the connection, or the address: "+change+"; /retry asks again)")
+		}
+	case dropped(err):
+		// The socket's own words -- "wsarecv: An existing connection was
+		// forcibly closed by the remote host" -- say nothing a person can
+		// act on; what happened is one line, and the way on is to ask again.
+		s.out.line(ansiRed, "the connection to the endpoint dropped part-way through the answer")
+		s.out.line(ansiDim, "(/retry asks again)")
+	case contextFull(err):
+		s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
+	case isBusy:
+		// Said in the words the retries are announced in, rather than as
+		// "overloaded_error: Overloaded" at the one moment it matters. It
+		// does not say whether it was asked again: an answer that failed
+		// part-way is not, and one that failed at once was.
+		s.out.line(ansiRed, busyWords(be)+": "+redactKeys(be.Msg))
+		s.out.line(ansiDim, "(/retry asks again, once it is less busy)")
+	default:
+		s.out.line(ansiRed, "the model could not answer: "+err.Error())
+		s.out.line(ansiDim, "(/retry asks again)")
+	}
 }
 
 // stream asks for one answer and draws it as it arrives, returning the tools the
@@ -388,8 +606,13 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 		MaxTokens: s.opts.MaxTokens,
 	}
 
+	if s.autoWidth {
+		s.opts.Width = resolveWidth()
+		s.out.width = s.opts.Width
+	}
 	var said strings.Builder
 	var calls []ToolCall
+	var thoughts []Thinking
 	var usage Usage
 	thinking := false
 	s.out.blankLine()
@@ -412,6 +635,10 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 			s.out.text(ev.Text)
 		case EventCall:
 			calls = append(calls, ev.Call)
+		case EventReasoning:
+			thoughts = append(thoughts, ev.Thinking)
+		case EventNotice:
+			s.out.line(ansiDim, "("+ev.Text+")")
 		case EventUsage:
 			usage = ev.Usage
 		}
@@ -421,10 +648,11 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	}
 	s.out.endMessage()
 	s.total.Add(usage)
+	s.spent.add(s.model, usage)
 
 	text := strings.TrimSpace(said.String())
 	if text != "" || len(calls) > 0 {
-		s.messages = append(s.messages, Message{Role: RoleAssistant, Text: text, Calls: calls})
+		s.messages = append(s.messages, Message{Role: RoleAssistant, Text: text, Calls: calls, Thinking: thoughts})
 	}
 	if text != "" {
 		s.record(Entry{
@@ -438,112 +666,6 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	return calls, err
 }
 
-// runCalls runs the tools the model asked for, in the order it asked. It
-// returns true when the turn should stop rather than go back to the model.
-func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
-	for _, c := range calls {
-		tool := s.tools[c.Name]
-		if tool == nil {
-			// Answering rather than failing is deliberate: a model that asked
-			// for a tool it does not have can be told so and carry on, and
-			// killing the turn over it teaches nobody anything.
-			s.answer(c, fmt.Sprintf("there is no tool called %q in this pane", c.Name))
-			continue
-		}
-		if question := tool.Approval(c.Args); question != "" && !s.approved(tool, c) {
-			ok, asked := s.ask(ctx, tool, c, question)
-			if !asked {
-				// The user never answered: the turn was interrupted, or the
-				// pane has gone.
-				s.answer(c, "the user did not answer, so this was not run")
-				return true
-			}
-			if !ok {
-				s.answer(c, "the user declined this")
-				continue
-			}
-		}
-		s.reporter.preTool(c.Name)
-		out, err := tool.Run(ctx, c.Args)
-		s.reporter.postTool(c.Name)
-		if err != nil {
-			s.answer(c, "the tool failed: "+err.Error())
-			continue
-		}
-		s.out.line(ansiDim, "  "+summarise(out, s.opts.Width))
-		s.answer(c, out)
-	}
-	return false
-}
-
-// answer records a tool's output and adds it to the conversation.
-//
-// Silence is turned into words because every one of the wires refuses an empty
-// answer to a call, and a tool that legitimately has nothing to say -- a write
-// that succeeded, a search that found nothing -- would otherwise take the turn
-// down with it.
-func (s *session) answer(c ToolCall, text string) {
-	if strings.TrimSpace(text) == "" {
-		text = "(the tool produced no output)"
-	}
-	s.messages = append(s.messages, Message{Role: RoleTool, Text: text, Call: c})
-	s.record(Entry{Type: string(RoleTool), Tool: c.Name, Text: text})
-}
-
-// approved reports whether the user has already agreed to this family of calls.
-func (s *session) approved(t Tool, c ToolCall) bool {
-	if a, ok := t.(AlwaysApprover); ok {
-		if key := a.AlwaysKey(c.Args); key != "" {
-			return s.always[t.Name()+"\x00"+key]
-		}
-	}
-	return false
-}
-
-// ask puts a tool's question to the user.
-//
-// The question is also a Notification event, which is what turns the pane amber
-// and tells the user which pane is waiting for them -- the whole reason for
-// running agents side by side rather than one at a time.
-func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) (ok, asked bool) {
-	s.reporter.notification(t.Name())
-	always, canAlways := "", false
-	if a, is := t.(AlwaysApprover); is {
-		if key := a.AlwaysKey(c.Args); key != "" {
-			always, canAlways = key, true
-		}
-	}
-	s.out.blankLine()
-	s.out.line(ansiBold, question)
-	if canAlways {
-		s.out.line(ansiDim, "  [y] once   [a] always for "+always+"   [n] no")
-	} else {
-		s.out.line(ansiDim, "  [y] yes   [n] no")
-	}
-	for {
-		s.out.bare(ansiBold, "  > ")
-		select {
-		case <-ctx.Done():
-			return false, false
-		case <-s.in.closed:
-			return false, false
-		case line := <-s.in.lines:
-			switch strings.ToLower(strings.TrimSpace(line)) {
-			case "y", "yes":
-				return true, true
-			case "n", "no", "":
-				return false, true
-			case "a", "always":
-				if canAlways {
-					s.always[t.Name()+"\x00"+always] = true
-					return true, true
-				}
-			}
-			s.out.line(ansiDim, "answer y or n")
-		}
-	}
-}
-
 // record writes one entry to the transcript, saying so if it cannot: the
 // transcript is what resume, the history overlay and a fan-out read, so losing
 // it silently would leave three things quietly not working.
@@ -553,50 +675,28 @@ func (s *session) record(e Entry) {
 	}
 }
 
-// command runs a slash command, and returns true when the client should leave.
-func (s *session) command(line string) bool {
-	name, rest, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
-	rest = strings.TrimSpace(rest)
-	switch strings.ToLower(name) {
-	case "exit", "quit":
-		return true
-	case "help":
-		s.out.line(ansiBold, "commands")
-		for _, l := range []string{
-			"/model <id>   answer with a different model from here on",
-			"/clear        start the conversation over, keeping the pane",
-			"/status       what has been spent, and where the transcript is",
-			"/exit         leave; the pane's own conversation ends with it",
-			"",
-			"A line ending in a backslash is continued on the next one.",
-			"Ctrl+C stops the answer being written, not the client.",
-		} {
-			s.out.line(ansiDim, "  "+l)
-		}
-	case "model":
-		if rest == "" {
-			s.out.line(ansiDim, "the model is "+firstNonEmpty(s.model, "whatever the endpoint is set to"))
-			return false
-		}
-		s.model = rest
-		s.out.line(ansiDim, "answering with "+rest+" from here on")
-	case "clear":
-		s.messages = nil
-		// The transcript is marked rather than truncated: what was said was
-		// said, and a reader that does not know this entry still shows a
-		// conversation that really happened.
-		s.record(Entry{Type: entryClear})
-		s.reporter.sessionEnd()
-		s.system = compose(systemPrompt, s.reporter.sessionStart("clear"))
-		s.out.line(ansiDim, "(cleared)")
-	case "status":
-		s.out.line(ansiDim, statusLine(s.model, s.total))
-		s.out.line(ansiDim, "session "+s.opts.Session)
-		s.out.line(ansiDim, "transcript "+s.log.Path())
-	default:
-		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
+// systemWith is the system prompt with where the chat is working said in it,
+// and the pane's briefing after.
+//
+// The directory and the system are said because everything the model does
+// with the tools depends on them, and a chat run by hand has no briefing to
+// say either: a model not told it is on Windows reaches for ls and /tmp.
+func (s *session) systemWith(brief string) string {
+	where := fmt.Sprintf("%s\n\nYou are working in %s, on %s.", systemPrompt, s.opts.Cwd, osName())
+	return compose(where, brief)
+}
+
+// osName is the operating system as the model is told it.
+func osName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "Windows"
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
 	}
-	return false
+	return runtime.GOOS
 }
 
 // compose puts the pane's briefing after the system prompt, fenced so the model
@@ -606,108 +706,4 @@ func compose(prompt, brief string) string {
 		return prompt
 	}
 	return prompt + "\n\n<flockdeck-context>\n" + strings.TrimSpace(brief) + "\n</flockdeck-context>"
-}
-
-// describeCall is the one line a tool call is drawn as: its name and enough of
-// its arguments to recognise it by.
-func describeCall(c ToolCall, width int) string {
-	args := strings.Join(strings.Fields(string(c.Args)), " ")
-	if args == "{}" {
-		args = ""
-	}
-	return clipTo(c.Name+" "+args, width-4)
-}
-
-// summarise is what a tool's output is drawn as. The output itself goes to the
-// model; what the user needs is enough to see that the right thing happened.
-func summarise(out string, width int) string {
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	first := clipTo(strings.TrimSpace(lines[0]), width-12)
-	if len(lines) > 1 {
-		return fmt.Sprintf("%s (%d lines)", first, len(lines))
-	}
-	if first == "" {
-		return "(no output)"
-	}
-	return first
-}
-
-// clipTo cuts s to n columns, on a rune boundary, marking that it was cut.
-func clipTo(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if n < 8 {
-		n = 8
-	}
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n-1]) + "…"
-}
-
-// entryClear marks the point in a transcript where the conversation was started
-// over. It is a fourth entry type, and a reader that only knows the three
-// carries on: it sees the whole conversation, which is true, rather than the
-// part of it the model was still being shown.
-const entryClear = "clear"
-
-// resolveKey finds the API key for this agent: the environment first, under the
-// names the agent's spec gives and then the conventional ones, and the
-// credential store after that.
-//
-// A key never appears in an error message, only the name of the place it was
-// looked for, because an error is the one string in a program that gets pasted
-// into a bug report.
-func resolveKey(o Options) (string, error) {
-	names := append([]string{}, o.KeyEnv...)
-	names = append(names, defaultKeyEnv(o.Wire)...)
-	names = append(names, "FLOCKDECK_API_KEY")
-	for _, name := range names {
-		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-			return v, nil
-		}
-	}
-	if KeyStore != nil {
-		if v := strings.TrimSpace(KeyStore(o.Agent)); v != "" {
-			return v, nil
-		}
-	}
-	// An endpoint on this machine is usually a local model, which wants no key
-	// at all; refusing to start would be refusing over nothing.
-	if isLoopback(o.BaseURL) {
-		return "", nil
-	}
-	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`",
-		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(names, " or "),
-		firstNonEmpty(o.Agent, o.Wire, "<agent>"))
-}
-
-// defaultKeyEnv is the conventional variable for a wire, used when the agent's
-// spec names none.
-func defaultKeyEnv(wire string) []string {
-	switch strings.ToLower(strings.TrimSpace(wire)) {
-	case "openai", "openai-compatible":
-		return []string{"OPENAI_API_KEY"}
-	case "gemini", "google":
-		return []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}
-	default:
-		return []string{"ANTHROPIC_API_KEY"}
-	}
-}
-
-// isLoopback reports whether a base URL points at this machine.
-func isLoopback(base string) bool {
-	if base == "" {
-		return false
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

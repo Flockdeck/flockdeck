@@ -19,7 +19,6 @@ const (
 	ansiCyan  = "\x1b[36m"
 	ansiBlue  = "\x1b[34m"
 	ansiRed   = "\x1b[31m"
-	ansiGreen = "\x1b[32m"
 )
 
 // defaultWidth is what the answer is wrapped to when the terminal's width
@@ -31,26 +30,42 @@ const defaultWidth = 80
 
 // resolveWidth works out how wide to wrap.
 //
-// Asking the terminal itself needs an ioctl, and the standard library has no way
-// to make one; since this must build with nothing but the standard library, the
-// environment is what there is. COLUMNS is the long-standing name for it, so a
-// pane can be told its own width without inventing a convention.
+// FLOCKDECK_COLUMNS says outright; then the terminal itself is asked, which is
+// the only answer that follows a pane being resized; then COLUMNS, which a
+// shell sets once and never updates. Nothing sets FLOCKDECK_COLUMNS for a pane,
+// so without asking the terminal every answer was wrapped at eighty columns,
+// and in a pane narrower than that every line was wrapped a second time by the
+// terminal into a line and a fragment.
 func resolveWidth() int {
-	for _, name := range []string{"FLOCKDECK_COLUMNS", "COLUMNS"} {
-		if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= 20 {
-			return n
-		}
+	if n := envWidth("FLOCKDECK_COLUMNS"); n > 0 {
+		return n
+	}
+	if n := terminalWidth(); n >= 20 {
+		return n
+	}
+	if n := envWidth("COLUMNS"); n > 0 {
+		return n
 	}
 	return defaultWidth
 }
 
+func envWidth(name string) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= 20 {
+		return n
+	}
+	return 0
+}
+
 // colourWanted reports whether to write escape sequences at all, honouring the
-// two conventions for saying no.
+// two conventions for saying no -- and a third that needs no saying: output
+// sent to a file or a pipe is read by something other than a terminal, and
+// `flockdeck chat "task" > answer.md` should leave an answer in the file
+// rather than the answer wrapped in escape codes.
 func colourWanted() bool {
-	if os.Getenv("NO_COLOR") != "" {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
 	}
-	return os.Getenv("TERM") != "dumb"
+	return isConsole(os.Stdout) && enableColour()
 }
 
 // printer draws a streamed answer: wrapped to the terminal, with headings, code
@@ -81,6 +96,13 @@ type printer struct {
 	code    bool            // inside a fenced code block
 	codeBuf strings.Builder // the code line being gathered
 	swallow bool            // dropping the rest of a line, which is a fence's language
+
+	lead int // spaces the current line began with, which is how a list nests
+	hang int // the column a wrapped line goes on from: under a list item's text
+
+	// raw is set for the rest of a table row, which is drawn as written: a
+	// row wrapped like prose is a table nobody can read down.
+	raw bool
 }
 
 func newPrinter(w io.Writer, width int, colour bool) *printer {
@@ -107,6 +129,7 @@ func (p *printer) put(s string) {
 
 // text draws a piece of a streamed answer.
 func (p *printer) text(s string) {
+	s = visible(s)
 	for _, r := range s {
 		switch {
 		case p.swallow:
@@ -115,6 +138,11 @@ func (p *printer) text(s string) {
 			}
 		case p.code:
 			p.codeRune(r)
+		case p.raw && r != '\n':
+			if r != '\r' {
+				p.put(string(r))
+				p.col++
+			}
 		case r == '\n':
 			p.endLine()
 			// A fence recognised by this very newline has nothing left of its
@@ -122,7 +150,24 @@ func (p *printer) text(s string) {
 			// line of the code block.
 			p.swallow = false
 		case r == ' ' || r == '\t':
+			if !p.started && len(p.word) == 0 && !p.heading {
+				// Indentation at the start of a line is kept: it is how a
+				// list says that one item belongs under another.
+				if r == '\t' {
+					p.lead += 4
+				} else {
+					p.lead++
+				}
+				continue
+			}
 			p.flushWord()
+			if p.raw {
+				// The word that began a table row has just been placed, and
+				// this space is the first of the row's own spacing.
+				p.put(string(r))
+				p.col++
+				continue
+			}
 			if p.started {
 				p.space = true
 			}
@@ -155,9 +200,29 @@ func (p *printer) codeRune(r rune) {
 		p.code = false
 		return
 	}
-	p.put(p.style(ansiCyan, line))
+	p.put(p.style(p.codeStyle(), line))
 	p.put("\n")
 	p.col, p.started, p.blank = 0, false, line == ""
+}
+
+// codeStyle is how a line of code is drawn: picked out from the prose, and
+// dimmed with it when the whole is background -- a replayed conversation or
+// the model's reasoning -- so that code in the history does not stand out
+// brighter than the answer being written now.
+func (p *printer) codeStyle() string {
+	if p.dim {
+		return ansiDim + ansiCyan
+	}
+	return ansiCyan
+}
+
+// rowStyle is how the start of a table row is drawn: plain, or dimmed with
+// the rest of a background conversation.
+func (p *printer) rowStyle() string {
+	if p.dim {
+		return ansiDim
+	}
+	return ""
 }
 
 // flushWord places the word that has been gathered, wrapping where it will not
@@ -181,9 +246,32 @@ func (p *printer) flushWord() {
 		case isFence(word):
 			p.code = true
 			p.codeBuf.Reset()
+			// The fence's line never ends through endLine -- its newline is
+			// swallowed with the language -- so its indentation is dropped
+			// here, rather than left to indent the prose after the block.
+			p.lead, p.hang = 0, 0
 			// The rest of the line names the language, which is nothing to
 			// draw.
 			p.swallow = true
+			return
+		}
+		// The first word of the line: its indentation goes in front of it,
+		// and a list marker sets where the item's wrapped lines go on from.
+		if p.lead > 0 {
+			p.put(strings.Repeat(" ", p.lead))
+			p.col = p.lead
+		}
+		p.hang = p.lead
+		if isListMarker(word) {
+			p.hang = p.lead + utf8.RuneCountInString(word) + 1
+		}
+		if strings.HasPrefix(word, "|") {
+			// A table row: drawn as written from here to the end of the line,
+			// its spacing and all, however wide.
+			p.raw = true
+			p.put(p.style(p.rowStyle(), word))
+			p.col += utf8.RuneCountInString(word)
+			p.started, p.space, p.blank = true, false, false
 			return
 		}
 	}
@@ -192,7 +280,7 @@ func (p *printer) flushWord() {
 	if text == "" {
 		return
 	}
-	n := utf8.RuneCountInString(text)
+	n := displayWidth(text)
 	if p.started && p.col+1+n > p.width {
 		p.newline()
 	}
@@ -250,10 +338,16 @@ func (p *printer) inline(word string) (string, string) {
 }
 
 // newline breaks the line without ending the paragraph, which is what wrapping
-// is: the heading a continuation line belongs to is still the same heading.
+// is: the heading a continuation line belongs to is still the same heading, and
+// a list item's continuation lines go on under its text rather than under its
+// marker, which is what makes a list of long items readable as a list.
 func (p *printer) newline() {
 	p.put("\n")
 	p.col, p.started, p.space, p.blank = 0, false, false, false
+	if p.hang > 0 {
+		p.put(strings.Repeat(" ", p.hang))
+		p.col, p.started = p.hang, true
+	}
 }
 
 // endLine ends the current line. Two in a row leave one blank line between
@@ -261,6 +355,7 @@ func (p *printer) newline() {
 // reader's, and are collapsed.
 func (p *printer) endLine() {
 	p.flushWord()
+	p.lead, p.hang, p.raw = 0, 0, false
 	if p.started {
 		p.put("\n")
 		p.col, p.started, p.space, p.blank = 0, false, false, false
@@ -279,7 +374,7 @@ func (p *printer) endLine() {
 func (p *printer) endMessage() {
 	if p.code {
 		if line := p.codeBuf.String(); line != "" {
-			p.put(p.style(ansiCyan, line))
+			p.put(p.style(p.codeStyle(), line))
 			p.put("\n")
 			p.codeBuf.Reset()
 		}
@@ -292,21 +387,111 @@ func (p *printer) endMessage() {
 	p.col, p.started, p.space = 0, false, false
 	p.heading, p.bold, p.mono, p.swallow = false, false, false, false
 	p.blank = false
+	p.lead, p.hang, p.raw = 0, 0, false
 	p.w.Flush()
 }
 
 // line writes one whole line in a style of its own: a label, a notice, a
-// question. It never wraps, because everything it draws is short and written by
-// us rather than by a model.
+// question.
+//
+// A notice or a question -- dim, red or bold, our own words -- has its first
+// line wrapped at spaces to the pane, continuation lines indented as far as it
+// was: left to the terminal, a long one is broken mid-word, and a pane
+// narrower than it is the usual thing with several side by side. The lines
+// after the first are left as they are, since under a question they are the
+// code it is asking about. Anything else is drawn as it is, tool output above
+// all, which is shown as it came.
 func (p *printer) line(st, s string) {
+	// A carriage return on its own draws the rest of a line over the start
+	// of it, which is how a progress bar works and how text is hidden.
+	s = strings.ReplaceAll(strings.ReplaceAll(visible(s), "\r\n", "\n"), "\r", "\n")
 	if p.started {
 		p.put("\n")
 		p.col, p.started = 0, false
+	}
+	if first, rest, more := strings.Cut(s, "\n"); (st == ansiDim || st == ansiRed || st == ansiBold) &&
+		displayWidth(first) > p.width {
+		for _, part := range wrapNotice(first, p.width) {
+			p.put(p.style(st, part))
+			p.put("\n")
+		}
+		if more {
+			p.put(p.style(st, rest))
+			p.put("\n")
+		}
+		p.blank = false
+		p.w.Flush()
+		return
 	}
 	p.put(p.style(st, s))
 	p.put("\n")
 	p.blank = s == ""
 	p.w.Flush()
+}
+
+// wrapNotice breaks s at spaces into lines no wider than width where the words
+// allow, each after the indentation s began with. A word wider than width --
+// a path, a URL -- is left whole on a line of its own.
+func wrapNotice(s string, width int) []string {
+	pad := s[:len(s)-len(strings.TrimLeft(s, " "))]
+	var lines []string
+	cur := ""
+	for _, w := range strings.Fields(s) {
+		switch {
+		case cur == "":
+			cur = pad + w
+		case displayWidth(cur)+1+displayWidth(w) > width:
+			lines = append(lines, cur)
+			cur = pad + w
+		default:
+			cur += " " + w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+// visible is s with the control characters a terminal would act on drawn as
+// marks instead: an escape as ␛, the rest as �. Tab, newline and carriage
+// return are left to whoever draws s.
+//
+// Everything drawn from outside -- the model's answer, a tool's output, a file
+// the model read -- goes through it, because the terminal does what an escape
+// sequence says whoever wrote it: a file the model reads and the user then
+// looks at with /output could set their clipboard (OSC 52), retitle the
+// window, draw over what is on the screen, or leave the pane red for good
+// where a line was clipped in the middle of a colour.
+func visible(s string) string {
+	// A byte that is not UTF-8 is counted as well: 0x9b alone is an eight-bit
+	// CSI to a terminal that takes one, and is written back out below as the
+	// replacement character it decodes to.
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, isControl) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			b.WriteString("␛")
+		case isControl(r):
+			b.WriteRune('�')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// isControl reports whether r is a C0 or C1 control character other than tab,
+// newline and carriage return, or DEL.
+func isControl(r rune) bool {
+	switch r {
+	case '\t', '\n', '\r':
+		return false
+	}
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0)
 }
 
 // bare writes text with no line of its own and no newline after it, which is
@@ -339,8 +524,6 @@ func (p *printer) blankLine() {
 // are there to be glanced at, and neither should read as what was just said.
 func (p *printer) setDim(on bool) { p.dim = on }
 
-func (p *printer) flush() { p.w.Flush() }
-
 // isHeadingMarker reports whether a word is a markdown heading's hashes and
 // nothing else. A hash on its own as a word in prose is rare; "#include" or
 // "#1" is not, which is why the whole word has to be hashes.
@@ -350,6 +533,25 @@ func isHeadingMarker(word string) bool {
 	}
 	for _, r := range word {
 		if r != '#' {
+			return false
+		}
+	}
+	return true
+}
+
+// isListMarker reports whether a word opens a list item: a bullet, or a number
+// followed by a full stop or a bracket.
+func isListMarker(word string) bool {
+	switch word {
+	case "-", "*", "+", "•":
+		return true
+	}
+	digits := strings.TrimRight(word, ".)")
+	if len(digits) == 0 || len(digits) != len(word)-1 {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
 			return false
 		}
 	}
