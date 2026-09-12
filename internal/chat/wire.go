@@ -184,6 +184,17 @@ func unreachable(err error) bool {
 	return errors.As(err, &dns)
 }
 
+// dropped reports whether err is a connection that opened and then broke while
+// the answer was arriving -- reset by the far end, a proxy giving up -- rather
+// than one never made, or a refusal the API sent in words.
+func dropped(err error) bool {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "read" {
+		return true
+	}
+	return errors.Is(err, io.ErrUnexpectedEOF)
+}
+
 // contextFull reports whether err says the conversation is longer than the
 // model can read. Each vendor says it in words of its own, and none of them
 // says what to do, which is to start the conversation over: asking again

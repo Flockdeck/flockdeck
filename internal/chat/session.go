@@ -565,6 +565,12 @@ func (s *session) sayWhyItStopped(err error) {
 		} else {
 			s.out.line(ansiDim, "(check the connection, or the address: "+change+"; /retry asks again)")
 		}
+	case dropped(err):
+		// The socket's own words -- "wsarecv: An existing connection was
+		// forcibly closed by the remote host" -- say nothing a person can
+		// act on; what happened is one line, and the way on is to ask again.
+		s.out.line(ansiRed, "the connection to the endpoint dropped part-way through the answer")
+		s.out.line(ansiDim, "(/retry asks again)")
 	case contextFull(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")
