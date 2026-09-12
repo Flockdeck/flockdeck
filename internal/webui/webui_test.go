@@ -3566,6 +3566,32 @@ assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not pu
 // which nothing else answers to - and each way shows the one dialog: the
 // sections on the left, walked with the arrows and narrowed by typing, and the
 // section chosen on the right, where it was left last time.
+// The account's section ends with whose Flockdeck is, under what licence, and
+// the way to the site's privacy policy, terms and licences, opened in the
+// browser as the private relays link is rather than in place of the app.
+func TestThePlanSaysWhoseItIsAndLinksThePolicies(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-plan"));
+const legal = h.$("set-legal");
+assert.ok(legal && h.$("settings-pane").contains(legal), "the plan does not say whose Flockdeck is");
+assert.ok(legal.textContent.startsWith("Flockdeck · © 2026 Jim Wright · MIT licence"), "the copyright line reads " + legal.textContent);
+for (const [id, text, page] of [
+  ["set-legal-privacy", "Privacy policy", "privacy.html"],
+  ["set-legal-terms", "Terms", "terms.html"],
+  ["set-legal-licences", "Licences", "licences.html"],
+]) {
+  const a = h.$(id);
+  assert.ok(a && legal.contains(a), "there is no link to the " + text.toLowerCase());
+  assert.strictEqual(a.textContent, text);
+  assert.strictEqual(a.getAttribute("href"), "https://flockdeck.ai/" + page);
+  assert.strictEqual(a.target, "_blank", text + " would open in place of the app");
+}
+`)
+}
+
 func TestTheSettingsOpenEveryWay(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();

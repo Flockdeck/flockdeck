@@ -1043,6 +1043,10 @@ textarea:focus-visible {
   border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--fg); text-decoration: none;
 }
 .plan-link:hover { background: #22262e; }
+.plan-legal { margin: 22px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.8; }
+.plan-legal a { color: var(--fg-dim); text-underline-offset: 2px; }
+.plan-legal a:hover { color: var(--fg); }
+.plan-legal a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 
 /* Narrow, the sections go across the top as the help's contents go above
  * its page, and each row puts its control under its words. */
