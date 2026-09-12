@@ -216,6 +216,10 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			parent string
 			cwd    string
 			tab    string
+			// def is the agent a row naming none runs. Resolving it reads the
+			// active project, which only this goroutine may, so it is read
+			// here with the rest; see specOrDefault.
+			def string
 		}
 		in, ok := ask(s, func() start {
 			id := req.Parent
@@ -236,7 +240,8 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			if req.Split {
 				tab = s.ws.TabIDOf(id)
 			}
-			return start{parent: id, cwd: cwd, tab: tab}
+			_, def := s.ws.Agents()
+			return start{parent: id, cwd: cwd, tab: tab, def: def}
 		})
 		if !ok {
 			return
@@ -286,7 +291,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
 			if req.Trust {
-				inheritTrust(jobsAskingTrust(jobs, s.ws.AgentSpec), baseCwd, session.InheritTrust,
+				inheritTrust(jobsAskingTrust(jobs, s.specOrDefault(in.def)), baseCwd, session.InheritTrust,
 					func(text string) { c.notify(text, true) })
 			}
 		}
@@ -680,6 +685,21 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 			notify("could not carry over folder trust: " + err.Error())
 			return
 		}
+	}
+}
+
+// specOrDefault looks up a fan-out row's agent away from the workspace
+// goroutine. A row on the run's default names no agent, and Workspace.AgentSpec
+// resolves an empty id from the active project -- a field only that goroutine
+// may read, written there on every project switch. So the default is read there
+// with the rest of the run's facts and filled in here, and the lookup only ever
+// sees a real id, which reads nothing of the workspace's own.
+func (s *Server) specOrDefault(def string) func(id string) (agent.Spec, error) {
+	return func(id string) (agent.Spec, error) {
+		if id == "" {
+			id = def
+		}
+		return s.ws.AgentSpec(id)
 	}
 }
 
