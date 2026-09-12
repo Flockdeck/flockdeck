@@ -364,10 +364,14 @@ pre {
 }
 pre code { font-family: var(--mono); font-size: 13px; color: var(--text); }
 pre code .c { color: var(--idle); }
+/* A path such as %LOCALAPPDATA%\Programs\flockdeck is one unbreakable word,
+   wider than a 320px phone; the body clips sideways overflow, so without a
+   break point its end would be cut off rather than wrap. */
 p code, li code {
   font-family: var(--mono); font-size: .88em;
   background: var(--sunken); border: 1px solid var(--edge-soft);
   border-radius: 4px; padding: 1px 6px;
+  overflow-wrap: anywhere;
 }
 kbd {
   font-family: var(--mono); font-size: .84em;
