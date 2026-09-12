@@ -581,6 +581,13 @@
       link.setAttribute("aria-label", "Pairing link");
       link.onfocus = () => link.select();
       text.append(link);
+      // Sending the link to the device, as a message to yourself, is the
+      // usual way it gets there, and copying it meant clicking into the
+      // field, selecting all of it and pressing the copy key.
+      const copy = el("button", "chip", "Copy link");
+      copy.id = "remote-copy";
+      copy.onclick = () => copyText(p.url, link, "Copied the pairing link");
+      text.append(copy);
       text.append(el("p", "fan-hint", "Whoever opens it can drive every agent here, so treat it like a password until then."));
       box.append(text);
       pair.append(box);
@@ -810,6 +817,21 @@
     }
     box.append(enterpriseNote());
     return box;
+  }
+
+  /** copyText puts text on the clipboard and says so. Where the browser will
+   *  not - a page it does not count as secure, a permission refused - the
+   *  text is selected in the field it is shown in, so the copy key does it. */
+  function copyText(text, field, done) {
+    const selectInstead = () => {
+      if (field) { field.focus(); field.select(); }
+      notice("The clipboard could not be reached, so the link is selected: copy it from there", true);
+    };
+    try {
+      const clip = window.navigator && window.navigator.clipboard;
+      if (!clip || !clip.writeText) { selectInstead(); return; }
+      clip.writeText(text).then(() => notice(done, false), selectInstead);
+    } catch { selectInstead(); }
   }
 
   /** remoteRename asks for a new name for this machine or a paired device,

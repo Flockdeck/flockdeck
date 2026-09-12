@@ -638,6 +638,7 @@ textarea:focus-visible {
 .remote-qr { flex: 0 0 auto; width: 200px; height: 200px; border-radius: 4px; image-rendering: pixelated; }
 .remote-pair-text { flex: 1 1 220px; min-width: 0; }
 .remote-pair-text p { margin: 0 0 8px; }
+.remote-pair-text .chip { margin: 0 0 10px; }
 .remote-link, .remote-cmd {
   width: 100%; padding: 6px 8px; margin: 0 0 8px;
   background: var(--bg-inset); color: var(--fg);

@@ -281,3 +281,34 @@ h.recv(convs("2 minutes ago"));
 assert.ok(h.doc.activeElement === rows()[1], "a conversation growing older took the keyboard off its row");
 `)
 }
+
+// A pairing link is usually sent to the device it is for, and copying it
+// meant clicking into the field, selecting it and pressing the copy key. A
+// button copies it; where the clipboard is refused, the link is selected so
+// the copy key does it, and that is said.
+func TestThePairingLinkCanBeCopied(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" } }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+h.click(h.$("remote-pair"));
+h.recv({ type: "remotePair", kind: "device", code: "fdp_c", url: "https://relay.example/pair#fdp_c",
+  expiresAt: "2030-01-01T00:10:00Z" });
+const copy = h.$("remote-copy");
+assert.ok(copy, "the pairing link has no copy button");
+h.click(copy);
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "https://relay.example/pair#fdp_c", "the link did not reach the clipboard");
+assert.ok(h.$("notice").textContent.includes("Copied"), "nothing said the link was copied: " + h.$("notice").textContent);
+
+h.win.navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
+h.click(h.$("remote-copy"));
+await h.sleep(0);
+const link = h.$("overlay-body").querySelector(".remote-link");
+assert.ok(h.doc.activeElement === link, "a refused clipboard left the link unselected");
+assert.strictEqual(link.selectionEnd, link.value.length, "the link is not selected whole");
+assert.ok(h.$("notice").classList.contains("error"), "nothing said the copy failed");
+`)
+}

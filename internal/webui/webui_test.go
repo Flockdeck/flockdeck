@@ -6448,6 +6448,9 @@ function boot(opts) {
     prompt: () => win._prompt,
     close: () => { win._closed = true; },
     focus: () => {},
+    // The clipboard a Copy button writes to; a case reads what it was given
+    // back as _copied.
+    navigator: { clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
     _listeners: new Map(),
   };
   win.window = win;
