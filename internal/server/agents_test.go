@@ -9,6 +9,34 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 )
 
+// TestDefaultForEveryProjectFromTheWindow covers the default every project
+// falls back on. agents.json holds it and every snapshot reports it, but the
+// window could only ever write the active project's own.
+func TestDefaultForEveryProjectFromTheWindow(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+
+	sendCmd(t, conn, command{Cmd: "setAgentDefault", Agent: "claude", Model: "opus", Target: "all"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if note.Error {
+		t.Fatalf("setting the default for every project failed: %s", note.Text)
+	}
+
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := agent.ReadConfig(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Defaults != (agent.Defaults{Agent: "claude", Model: "opus"}) || len(f.Projects) != 0 {
+		t.Errorf("agents.json holds %+v for every project and %+v per project, want claude · opus for every project and nothing else",
+			f.Defaults, f.Projects)
+	}
+}
+
 // stateDir points this test's state at a directory of its own, the way the
 // store's own tests do. The catalog reads agents.json out of it, and writing a
 // default into the real one would edit whatever the person running the tests
