@@ -231,8 +231,14 @@ func readTail(path string, max int64) ([]Entry, error) {
 	defer f.Close()
 	partial := false
 	if fi, err := f.Stat(); err == nil && fi.Size() > max {
-		if _, err := f.Seek(fi.Size()-max, io.SeekStart); err == nil {
-			partial = true
+		// The byte before where reading starts says whether it starts a
+		// line. Only when it does not is the first line read a fragment:
+		// dropping it regardless threw away a whole entry whenever the cut
+		// fell between two.
+		if _, err := f.Seek(fi.Size()-max-1, io.SeekStart); err == nil {
+			var before [1]byte
+			_, err := io.ReadFull(f, before[:])
+			partial = err != nil || before[0] != '\n'
 		}
 	}
 	br := bufio.NewReaderSize(f, 64<<10)
