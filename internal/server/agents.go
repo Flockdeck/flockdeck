@@ -106,6 +106,14 @@ func (s *Server) revealPane(c *controlClient, root, tabID, paneID string) {
 			c.notify(paneGone, true)
 			return
 		}
+		// The list says where the pane was when it was drawn -- the overview
+		// when it opened, a notification when it came -- and a pane can have
+		// changed tab since: moved into another, or given one of its own when
+		// the project it was borrowed into closed. Focusing a pane only works
+		// in its own tab, so where it is now is what is shown.
+		if id := s.ws.TabIDOf(paneID); id != "" {
+			tabID, root = id, s.ws.Tab(id).Root
+		}
 		if root != "" {
 			s.ws.SelectProject(root)
 		}
