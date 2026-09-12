@@ -54,6 +54,13 @@ type keysIO struct {
 
 func keysCmd(args []string, kio keysIO) error {
 	if len(args) == 0 {
+		// What somebody typing the bare command wants to know is which agents
+		// have a key; the listing answers it, and the usage after it says how
+		// to change what it shows.
+		if err := keysList(kio.out); err != nil {
+			return err
+		}
+		fmt.Fprintln(kio.out)
 		keysUsage(kio.out)
 		return nil
 	}

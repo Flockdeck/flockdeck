@@ -296,4 +296,8 @@ func TestKeysUsage(t *testing.T) {
 	if out, err := runKeysCmd(t, "", "frobnicate"); err == nil {
 		t.Errorf("an unknown command succeeded: %q", out)
 	}
+	// The bare command answers the question it is usually typed to ask.
+	if out, _ := runKeysCmd(t, ""); !strings.Contains(out, "anthropic") || !strings.Contains(out, "not set") {
+		t.Errorf("the bare command does not say which agents have a key:\n%s", out)
+	}
 }
