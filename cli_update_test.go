@@ -148,6 +148,25 @@ func TestUpdateHelpSucceeds(t *testing.T) {
 	}
 }
 
+// The usage said every download was checked against a SHA-256 signed by the
+// release key. One from GitHub's API, when the site cannot be read at all, has a
+// checksums.txt nothing signs, so the signature is claimed only for the site's.
+func TestUpdateUsageClaimsTheSignatureOnlyForTheSite(t *testing.T) {
+	var out bytes.Buffer
+	fs := updateFlagSet(&updateFlags{})
+	fs.SetOutput(&out)
+	fs.Usage()
+	text := strings.Join(strings.Fields(out.String()), " ")
+	if !strings.Contains(text, "signed by the release key when dl.flockdeck.ai gave it") {
+		t.Errorf("update's usage claims more than is checked:\n%s", out.String())
+	}
+	for _, l := range strings.Split(out.String(), "\n") {
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("a line %d wide: %q", n, l)
+		}
+	}
+}
+
 // FLOCKDECK_UPDATE=off is for somebody who wants the program left as it is. An
 // update staged before it was set must not go in on the way out regardless.
 func TestApplyStagedRespectsUpdatesOff(t *testing.T) {
