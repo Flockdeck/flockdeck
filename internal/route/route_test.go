@@ -251,3 +251,16 @@ func TestRoutingReachesNoNetwork(t *testing.T) {
 		}
 	}
 }
+
+// A rule for another agent's model does not match this agent's work, so the
+// rules after it are still tried.
+func TestARuleForAnotherAgentsModelLetsTheNextRuleDecide(t *testing.T) {
+	policy := on(
+		agent.RoutingRule{Name: "codex mini", Model: "gpt-5.4-mini", Agent: "codex", When: agent.RuleMatch{Task: "tests"}},
+		small("tests", "tests"),
+	)
+	d := Decide(policy, Input{Task: "run the tests", Agent: claude(), Current: "sonnet"})
+	if d.Model != "haiku" || d.Rule != "tests" {
+		t.Errorf("decided %+v, want haiku by rule \"tests\"", d)
+	}
+}
