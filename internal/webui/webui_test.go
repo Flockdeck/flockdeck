@@ -2851,6 +2851,26 @@ assert.ok(text.includes("6 more branches"), "the branches past the first fourtee
 `)
 }
 
+// Going into a folder in the projects dialog redraws the list, and the button
+// that was pressed goes with the folder it named: the keyboard fell out of
+// the dialog, and each folder deeper meant tabbing down from the top again.
+func TestTheFolderBrowserKeepsTheKeyboardOnTheWayDown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+h.recv({ type: "browse", path: "C:/code", parent: "C:/", entries: [
+  { name: "api", path: "C:/code/api" }, { name: "web", path: "C:/code/web" } ] });
+const into = () => h.$("overlay-body").querySelectorAll("button.dir-into");
+into()[0].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "browse", path: "C:/code/api" });
+h.recv({ type: "browse", path: "C:/code/api", parent: "C:/code", entries: [
+  { name: "cmd", path: "C:/code/api/cmd" } ] });
+assert.ok(h.doc.activeElement === into()[0], "going into a folder dropped the keyboard out of the list");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

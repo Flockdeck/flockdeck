@@ -245,7 +245,7 @@
       else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); }
       else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
       else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
-      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
@@ -1900,7 +1900,7 @@
    *  by what it is and what it says, which is how a person finds it too, and
    *  the text caret is put back where it was for a field.
    */
-  function keepFocus(draw) {
+  function keepFocus(draw, fallback) {
     const body = $("overlay-body");
     const was = document.activeElement;
     const key = was && body.contains(was) ? identify(was) : "";
@@ -1920,6 +1920,11 @@
       }
       return;
     }
+    // The control went with what it acted on - the folder gone into, say - so
+    // the keyboard goes to where the answer put things, where the caller has
+    // named such a place, rather than falling out of the dialog altogether.
+    const next = fallback && body.querySelector(fallback);
+    if (next) next.focus();
   }
 
   /** identify is what makes a control the same control across a redraw. An id
