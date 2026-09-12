@@ -4779,6 +4779,37 @@ assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes", "the b
 `)
 }
 
+// Left on one of an agent's models closed the agent but left the highlight at
+// the same place in the now shorter list, on whichever agent had moved up into
+// it - and Enter started that agent instead of the one being looked at.
+func TestClosingAnAgentsModelsLandsOnTheAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const agent = (id, name, models) => ({ id, name, runner: "cli", available: true, defaultModel: "",
+  models: models.map((m) => ({ id: m, name: m })) });
+h.recv(fixture({ agents: catalog({ items: [
+  agent("alpha", "Alpha", ["a1", "a2", "a3"]), agent("beta", "Beta", []), agent("gamma", "Gamma", []),
+] }) }));
+// The caret beside the + opens the picker; the action has no key of its own.
+h.click(h.$("new-tab-pick"));
+const sel = () => h.$("agent-list").querySelector(".sel").querySelector(".pick-name").textContent;
+assert.strictEqual(sel(), "Alpha");
+h.key({ key: "ArrowRight" });
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(sel(), "a3", "the third model is not the one picked out");
+h.key({ key: "ArrowLeft" });
+assert.strictEqual(sel(), "Alpha", "closing the agent's models left the highlight on another agent");
+// Enter acts on the agent closed - opening its models again, since it has
+// some - and not on the one the highlight used to slide onto.
+h.key({ key: "Enter" });
+assert.ok(!h.commands().some((c) => JSON.stringify(c).includes('"gamma"')), "Enter started another agent");
+assert.ok(h.$("agent-list").querySelectorAll(".pick-name").some((n) => n.textContent === "a1"),
+  "Enter did not act on the agent that was closed");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

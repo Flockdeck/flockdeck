@@ -4399,8 +4399,15 @@
       }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        picker.open.delete(item.agent.id);
+        const id = item.agent.id;
+        picker.open.delete(id);
         drawPickerList();
+        // Left on one of its models closes the agent and goes to it, as a
+        // tree does. Kept at the same place in the shorter list, the highlight
+        // landed on whichever agent had moved up into it - and Enter started
+        // that one.
+        const parent = pickRows.findIndex((r) => r.item.type === "agent" && r.item.agent.id === id);
+        if (parent >= 0) { picker.index = parent; markPickerRow(); }
         return;
       }
     }
