@@ -3845,6 +3845,23 @@ assert.strictEqual(wrap.getAttribute("aria-label"), "api", "the pane's name did 
 `)
 }
 
+// Tab inside a terminal belongs to the program in it, and nothing moved the
+// keyboard from one pane to another, so in a tab of six agents somebody
+// without a mouse stayed in the terminal they were in. The palette moves it to
+// the next pane or the previous one, coming round at either end.
+func TestTheKeyboardCanMoveBetweenPanes(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2"), leaf("n3", "p3")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } }));
+paletteRun("focus the next pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p2" }, "the keyboard cannot be moved to the next pane");
+paletteRun("focus the previous pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p3" }, "going back from the first pane did not come round to the last");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

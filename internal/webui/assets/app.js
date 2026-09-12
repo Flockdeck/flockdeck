@@ -1828,6 +1828,22 @@
   }
 
   function currentTab() { return activeTabOf(state); }
+
+  /** focusNeighbour moves the keyboard to the next pane in the tab, or the
+   *  one before, in the order the layout holds them, coming round at either
+   *  end. Tab inside a terminal belongs to the program in it, and nothing
+   *  else moved the keyboard from one pane to another: in a tab of six
+   *  agents, somebody without a mouse stayed in the terminal they were in. */
+  function focusNeighbour(step) {
+    const t = currentTab();
+    if (!t) return;
+    const ids = new Set();
+    collectPanes(t.root, ids);
+    const order = [...ids];
+    if (order.length < 2) return;
+    const at = Math.max(0, order.indexOf(t.focus));
+    send({ cmd: "focusPane", id: order[(at + step + order.length) % order.length] });
+  }
   function focusedPaneId() { const t = currentTab(); return t ? t.focus : ""; }
 
   // -------------------------------------------------------------- prompt bar
@@ -2860,6 +2876,8 @@
     movePaneToNewTab: () => send({ cmd: "movePaneToNewTab", id: focusedPaneId() }),
     tilePanes: () => send({ cmd: "tilePanes" }),
     zoomPane: () => send({ cmd: "toggleZoom", id: focusedPaneId() }),
+    focusNextPane: () => focusNeighbour(1),
+    focusPrevPane: () => focusNeighbour(-1),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
 
@@ -3044,7 +3062,10 @@
      ["fontFamily", "Terminal font…"],
      // Renaming was a double-click on the tab and nothing else: nothing a
      // keyboard could reach, and nothing that said it could be done.
-     ["renameTab", "Rename this tab…"]].forEach(([id, label]) => {
+     ["renameTab", "Rename this tab…"],
+     // Moving the keyboard between panes had no key and no command at all.
+     ["focusNextPane", "Focus the next pane"],
+     ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
       cmds.push({ label: label, run: () => runAction(id) });
     });
