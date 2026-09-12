@@ -4,8 +4,8 @@ Each open project has a tile in the rail down the left of the window: two
 letters, with the full name and folder in its tooltip, and a click switches to
 it. The project's name at the left of the top bar opens the projects dialog,
 which switches between them, opens new ones and closes them; [[key:projects]]
-does the same from the keyboard, and the **+** under the tiles opens it at the
-folder browser.
+does the same from the keyboard, and **Open a project**, under the tiles,
+opens it at the folder browser.
 
 Several projects stay open at once and **switching does not stop anything** —
 the other project's agents keep working, and its tile carries an amber badge if
@@ -19,7 +19,7 @@ else goes on getting Claude Code.
 ## Two at once, side by side
 
 Switching shows one project at a time. To watch two of them together, split a
-pane into another project: the split button beside a project in the picker, or
+pane into another project: the ⊞ beside a project in the projects dialog, or
 **Split into project** in the command palette. The new agent works in that
 project while sitting on this tab, and its header carries the project's name so
 the tab still says which is which.
@@ -36,8 +36,8 @@ that flags git repositories, so a project is two clicks away. You can also type
 or paste a path: <kbd>Enter</kbd> browses to it, and **Open this folder** opens
 whichever folder the browser is showing.
 
-The eight most recent projects are listed, and the `×` beside one takes it off
-the list. Once more than one project is open, each open one has a `×` of its
+The eight most recent projects are shown, with the rest a click away, and the
+`×` beside one takes it off the list. Once more than one project is open, each open one has a `×` of its
 own that closes it.
 
 The browser is served by the Go side rather than by the page, because a web

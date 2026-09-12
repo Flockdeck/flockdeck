@@ -1,5 +1,8 @@
 # Running any agent, not only Claude
 
+> A historical design record from the multi-agent work; the code and README
+> are current where they differ.
+
 This is the contract for the work that makes Flockdeck orchestrate **any coding
 agent** — any CLI, and any model API spoken to directly — with the model chosen
 per pane, including choosing between Claude's own models.

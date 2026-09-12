@@ -455,6 +455,14 @@ kbd {
 .os > p { color: var(--muted); margin: 0 0 12px; font-size: 16.5px; }
 .has-os-tabs .os-label { display: none; }
 
+/* The archives under each installer: the site's outline buttons, a size down
+   so that a system's set sits on one row at a desk and wraps on a phone. */
+.downloads {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  list-style: none; padding: 0; margin: 0 0 22px;
+}
+.downloads .button { padding: 9px 16px; font-size: 14.5px; }
+
 /* Room for the button. On a narrow screen a long command would still scroll
    underneath it, so there the commands wrap instead; what is copied is the
    text, not the lines it was drawn on. */

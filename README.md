@@ -9,9 +9,9 @@ panes, per-agent status, layout persistence, git worktrees and broadcast input.
 Each agent is told which pane it is and who else is working, so being one of
 several is something it can act on.
 
-The agent and the model are chosen per pane. Claude Code is the default and
-nothing about it changed; beside it Flockdeck will run Codex, Gemini, Aider,
-opencode or Cursor's agent, and it will talk to a model API directly — its own
+The agent and the model are chosen per pane. Claude Code is the default;
+beside it Flockdeck runs Codex, Gemini, Aider, opencode or Cursor's agent, and
+it talks to a model API directly — its own
 chat client in the pane, no wrapper CLI, no node, no Python — including a local
 Ollama or any other OpenAI-compatible endpoint.
 
@@ -20,15 +20,17 @@ key and no separate account. Talking to an API directly needs one, and `flockdec
 keys` keeps it.
 
 ```
-┌ flockdeck ──────────────────────────────────────── ─ □ × ┐
-│ [api ▾] │ [ main ] [ fix-auth ▲ ] +  Broadcast Worktrees │
-├───────────────────────────┬──────────────────────────────┤
-│ ● api ⎇ main ●3  Read     │ ▲ api ⎇ fix-auth ↑2          │
-│   claude · sonnet         │   codex · gpt-5              │
-│  (live agent terminal)    │  (live agent terminal)       │
-├───────────────────────────┴──────────────────────────────┤
-│ ○ shell ⎇ main                                           │
-└──────────────────────────────────────────────────────────┘
+┌ flockdeck ───────────────────────────────────────────────────────────── ─ □ × ┐
+│ ◭  │ api ▾ │ [ main ] [ fix-auth ▲ ] + ˅  ▲ 1 waiting │ Commands Ctrl+Shift+K │
+│ AP ├──────────────────────────────┬───────────────────────────────────────────┤
+│ WB▲│ ● api ⎇ main ●3  Read        │ ▲ api ⎇ fix-auth ↑2                       │
+│ ▭  │   claude · sonnet            │   codex · gpt-5                           │
+│    │  (live agent terminal)       │  (live agent terminal)                    │
+│ ⇉  ├──────────────────────────────┴───────────────────────────────────────────┤
+│ ±  │ ○ shell ⎇ main                                                           │
+│ ⚙  │                                                                          │
+└────┴──────────────────────────────────────────────────────────────────────────┘
+   AP WB = open projects   ▭ = Open a project   ⇉ ± ⚙ = tools, Settings last
    ▲ = blocked on you   ●3 = uncommitted files   ↑2 = ahead
 ```
 
@@ -155,11 +157,13 @@ release key's signature; when the site cannot be reached, answers with
 something else, or fails a signature, it goes to GitHub instead and logs why.
 Either way the download is checked against its published SHA-256, and the
 request carries nothing that tells one installation from another. Nothing is replaced
-while you are working. When a release is ready a chip appears in the top bar,
-and installing it now is a restart you ask for: the layout is saved and
+while you are working. When a release is ready an **Update** button, naming the
+version, appears at the right of the top bar, and installing it now is a
+restart you ask for: the layout is saved and
 reopened, though the agents running in panes are stopped, which is why it is
 never done for you. Otherwise it goes in as Flockdeck next quits, unless
-`FLOCKDECK_UPDATE=off`, so the start after that is the new version.
+`FLOCKDECK_UPDATE=off` or **Check for updates** is off in Settings → General,
+so the start after that is the new version.
 
 From a terminal:
 
@@ -171,9 +175,10 @@ flockdeck update -check   # say whether there is one, and stop
 Replacing the binary leaves a running instance alone — it is already loaded —
 so the new version is what starts next time. A build you made
 yourself — stamped `dev` by `go build`, or by `git describe` when built with
-make — is never replaced by a release. `FLOCKDECK_UPDATE=off` turns the
-background check off, and stops an update already downloaded being put in
-place when Flockdeck exits; the subcommand still works.
+make — is never replaced by a release. `FLOCKDECK_UPDATE=off`, or turning
+off **Check for updates** in Settings → General, turns the background check
+off, and stops an update already downloaded being put in place when Flockdeck
+exits; the subcommand still works.
 
 ### Uninstalling
 
@@ -183,7 +188,8 @@ relay forgets this machine. Then quit Flockdeck and delete it:
 folder, its Start menu shortcut and its entry in your PATH. Settings, layouts
 and keys are kept apart, in `%AppData%\flockdeck`,
 `~/Library/Application Support/flockdeck` or `~/.config/flockdeck`; delete that
-too. Worktrees Flockdeck made are ordinary git worktrees beside your
+too, and on Windows `%LOCALAPPDATA%\flockdeck`, which holds the window's
+browser profile. Worktrees Flockdeck made are ordinary git worktrees beside your
 repositories, and stay until you remove them.
 
 ## Running it
@@ -212,6 +218,9 @@ flockdeck -version        # print the version
 flockdeck agents          # the agents it can run, and which are installed here
 flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
+flockdeck keys clear openai # forget the key Flockdeck stored
+flockdeck keys check openai # ask the API whether it takes the key
+flockdeck keys endpoint local <url>  # point an API agent at another address
 
 flockdeck remote enable   # reach this machine from another device, via a relay
 flockdeck remote pair     # a one-time link and QR code that pairs a device
@@ -554,8 +563,9 @@ Cursor Agent start unbriefed.
 Panes also carry `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`,
 `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` in their environment. The first three are what
 a shell pane — with no lifecycle hooks of its own — has to go on; the last two
-are how a script or a prompt can say what it is sitting in. The first three
-were `PERCH_*` before the rename; both spellings are set for now, so a
+are how a script or a prompt can say what it is sitting in. Every
+`FLOCKDECK_*` pane variable except the agent and model, `FLOCKDECK_API` and
+`FLOCKDECK_TOKEN` included, is also set under its old `PERCH_*` name, so a
 shell prompt written against the old names keeps working until a later release
 drops them.
 
@@ -734,7 +744,8 @@ in beside the pane you are looking at**; create a worktree for a new branch off
 any base ref; check out a branch that has no worktree in one click; remove a
 worktree (with a confirmation that says what will be discarded when it has
 uncommitted work); and prune records left behind by folders deleted outside
-git.
+git. A worktree whose folder was deleted outside git is marked **folder
+gone**: only git's record of it is left, and **Prune** clears it.
 
 Pane headers carry the same information for the checkout they are working in —
 branch, `●n` uncommitted files, `↑n`/`↓n` against upstream — refreshed in the
@@ -746,10 +757,21 @@ of date, until it answers again.
 
 ### Finding your way around
 
-`Ctrl+Shift+K` opens a command palette listing every action but the
-tab-switching keys, and switching to any open project or tab by name. `Ctrl+Shift+F` searches the
-focused terminal. `Ctrl+=` and `Ctrl+-` change the terminal font size for
-every pane, until the application is next started.
+`Ctrl+Shift+K`, or **Commands** in the top bar, opens the command palette. It
+lists every action except tab switching, and it switches to any open project
+or tab by name. `Ctrl+Shift+F` searches the focused terminal. `Ctrl+=` and
+`Ctrl+-` change the terminal font size for every pane, and Flockdeck remembers
+it. Settings → Terminal sets the size, typeface, scrollback and cursor.
+
+### Settings
+
+`Ctrl+,`, or **Settings** at the foot of the rail, opens one dialog for
+everything Flockdeck remembers: notifications and updates (General), font,
+scrollback and cursor (Terminal), the default agent and model (Agents), keys
+(API keys), pairing (Remote access), and your plan (Account & plan). Every
+control changes its setting at once. Below 640px wide the rail folds into a
+menu behind the ☰ button at the left of the top bar, which is how a phone or a
+narrow window reaches Settings and the other tools.
 
 ### Help
 
@@ -788,14 +810,21 @@ through a relay, without a VPN and without opening a port on this machine.
 ```sh
 flockdeck remote enable           # enrol this machine with the relay
 flockdeck remote pair             # a one-time link, and a QR code of it, for a device
+flockdeck remote status           # whether it is on, and whether it is connected
 flockdeck remote devices          # what is paired
-flockdeck remote revoke <id>      # unpair one
+flockdeck remote revoke <id>      # unpair one, by its id or its name
 flockdeck remote rename <name>    # what every paired device calls this machine
+flockdeck remote rename -device <id> <name>   # what a paired device is called
 flockdeck remote disable          # remove this machine from the relay
 ```
 
+`remote pair -desktop` prints a code that `remote enable -join <code>` on
+another machine uses to join the same account, so one paired device reaches
+both. `enable -invite <code>` is for a relay that asks for an invitation, and
+`disable -force` forgets the enrolment here when the relay cannot be told.
+
 Flockdeck dials *out* to the relay — `https://remote.flockdeck.ai` unless
-`-relay` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open
+`flockdeck remote enable -relay <url>` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open
 while it runs, carrying a stream multiplexer. Each connection a paired browser
 makes becomes a stream, and each stream is served in-process by the very
 handlers the local window uses. So the remote window is not a second interface
@@ -805,6 +834,12 @@ that it works under the relay's per-machine prefix unchanged. A pane open in
 two windows at once takes the size of whichever last typed into it or focused
 it, so glancing from a phone leaves the desk's terminal alone, and typing on the
 phone fits it to the phone until you type at the desk again.
+
+A paired browser opens the relay's own client first, built for a small screen.
+It shows which agents are waiting, opens any pane's terminal, and lets you
+answer a permission question with a tap. **Full interface**, in its top bar,
+opens this window through the same tunnel. The client resizes a pane only when
+you ask it to fit the pane to the screen.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** button in the
@@ -862,21 +897,14 @@ relay stays free.
   terminal. A viewer that stops reading is dropped rather than being allowed to
   stall the process feeding it.
 - **The workspace has a single owner.** It is reached from many connection
-  goroutines, so every read and write of it is funnelled through one goroutine;
-  slow work such as git runs outside that loop and only its results are applied
-  there.
-- **Slow work never blocks the state.** Git and transcript reading happen off
-  the goroutine that owns the workspace, and only their results are applied
-  there — a fan-out creating five worktrees does not freeze the window.
+  goroutines, so every read and write of it is funnelled through one goroutine.
+  Slow work — git, reading transcripts — runs outside that loop and only its
+  results are applied there, so a fan-out creating five worktrees does not
+  freeze the window.
 - **Git is read in bulk, off the hot path.** One `status --porcelain=v2
   --branch` per checkout gives branch, upstream, ahead/behind and file counts
   together, worktrees are examined concurrently, and pane summaries refresh on
   a timer rather than per frame.
-- **Panes get a clean environment.** An instance launched from inside Claude
-  Code would otherwise leak `CLAUDE_CODE_CHILD_SESSION` and friends into every
-  pane, making each behave as a nested child session. Those markers are
-  stripped — every agent's, from every pane, because Flockdeck may have been
-  launched from inside any of them.
 
 ## Development
 
@@ -950,13 +978,15 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
   or has one in practice, but on a bare Linux install with no browser at all
   there is nothing to display the interface in.
 - Release binaries are not signed. The install scripts are unaffected, but a
-  copy downloaded from the releases page in a browser can be stopped by
-  Gatekeeper or SmartScreen the first time it runs; the in-app help's
+  copy downloaded in a browser, from dl.flockdeck.ai or GitHub, can be stopped
+  by Gatekeeper or SmartScreen the first time it runs; the in-app help's
   troubleshooting page says how to let it through.
 
 ## Licence
 
-The desktop app is MIT — see [LICENSE](LICENSE).
+The desktop app in this repository is MIT — see [LICENSE](LICENSE). The relay,
+the phone and web client, and the website are separate, closed-source
+projects, © 2026 Jim Wright, all rights reserved.
 
 The front end is compiled into the binary and the Go dependencies are linked
 into it, so a release carries other people's code as well as this project's.

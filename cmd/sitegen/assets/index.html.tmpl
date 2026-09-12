@@ -37,8 +37,7 @@
     <li>Aider</li>
     <li>opencode</li>
     <li>Cursor Agent</li>
-    <li>Ollama</li>
-    <li>any OpenAI-compatible API</li>
+    <li>Ollama and any OpenAI-compatible API</li>
   </ul>
 </section>
 
@@ -115,14 +114,14 @@
 
 <section class="band" id="what">
   <p class="eyebrow">Features</p>
-  <h2>Everything you need to run a team of agents.</h2>
+  <h2>Built for running agents in parallel.</h2>
   <div class="grid">
     <div class="card">
       <span class="g">agents · models</span>
       <h3>Any agent, any model</h3>
       <p>Claude Code, Codex, Gemini, Aider, opencode and Cursor Agent. Or talk to
          a model API directly, including local Ollama and any OpenAI-compatible
-         endpoint. Pick one per pane and Flockdeck remembers it for the project.</p>
+         endpoint. Pick one per pane, and set a default for each project.</p>
     </div>
     <div class="card">
       <span class="g"><span aria-hidden="true">▲</span> waiting</span>
@@ -155,7 +154,25 @@
       <h3>Pick up where you left off</h3>
       <p>Your layout and open projects come back when you reopen Flockdeck, and
          so do conversations with agents that can resume them. Detach, and your agents keep running after the window
-         closes.</p>
+         closes. A past Claude Code conversation can be resumed in a new tab.</p>
+    </div>
+    <div class="card">
+      <span class="g">review · commit · push</span>
+      <h3>Review and ship</h3>
+      <p>See every change an agent made, then commit and push it, without
+         leaving the app.</p>
+    </div>
+    <div class="card">
+      <span class="g">broadcast</span>
+      <h3>Say it once</h3>
+      <p>Write one prompt and send it to every agent in the tab, or to just the
+         panes you pick.</p>
+    </div>
+    <div class="card">
+      <span class="g">all agents</span>
+      <h3>Every agent, every project</h3>
+      <p>One list of every agent in every open project, each with its status,
+         and a jump to any of them.</p>
     </div>
   </div>
 </section>
@@ -237,8 +254,9 @@
     <div class="card">
       <span class="g">full app</span>
       <h3>The complete Flockdeck</h3>
-      <p>Every pane, every status, the agent picker and fan out. Everything you
-         can do at your desk works in the browser.</p>
+      <p>Every pane, every status, the agent picker and fan out. Your phone
+         shows the agent that's waiting, and the full interface is one tap
+         away.</p>
     </div>
     <div class="card">
       <span class="g">private</span>
@@ -253,8 +271,8 @@
     <figcaption class="caption">An agent's question, answered from your phone with a tap.</figcaption>
   </figure>
   </div>
-  <p>Turn it on from <em>Remote access…</em> in the command palette, or from any
-     terminal, then pair your phone:</p>
+  <p>Turn it on in <em>Settings › Remote access</em>, from the command palette,
+     or from any terminal, then pair your phone:</p>
   <pre><code>flockdeck remote enable
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
   <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
@@ -282,11 +300,11 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <h2>Pick any agent. See every branch.</h2>
   <div class="pair">
     <figure class="figure">
-      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The agent picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up, and the OpenAI-compatible endpoint offers to take its address there and then.">
+      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The New agent tab picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up, and the OpenAI-compatible endpoint offers to take its address there and then. At its foot, a box makes the choice the default, for this project or for every project.">
       <figcaption class="caption">Pick an agent and model for each pane.</figcaption>
     </figure>
     <figure class="figure">
-      <img src="worktrees.png" srcset="worktrees-1584.png 1584w, worktrees.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and four other branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there. One checkout's folder has been deleted, so it is marked folder gone and offers only Prune.">
+      <img src="worktrees.png" srcset="worktrees-1584.png 1584w, worktrees.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and four other branches, each with its git status, the agents working in it, and buttons to open an agent, a shell, a split or a review there, or to remove it. One checkout's folder has been deleted, so it is marked folder gone and offers only Prune.">
       <figcaption class="caption">Every checkout, its branch and the agents in it.</figcaption>
     </figure>
   </div>
@@ -297,7 +315,13 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <p>For Windows, macOS and Linux, on Intel and AMD (amd64) or ARM (arm64)
      machines.</p>
   <!-- Both commands are in the markup. With scripting on, the tabs show the one
-       for the visitor's own system; with it off, both are simply listed. -->
+       for the visitor's own system; with it off, both are simply listed.
+
+       Under each installer are its system's archives, as plain links to the
+       names scripts/publish-downloads.sh gives the latest release's files, for
+       somebody who would rather not pipe a script into a shell. The installer
+       stays first: it checks the download, puts it on the PATH, and leaves no
+       download mark for Gatekeeper or SmartScreen to stop. -->
   <div class="os-tabs" role="tablist" aria-label="Your operating system" hidden>
     <button type="button" role="tab" id="os-tab-unix" aria-controls="os-unix" data-os="unix">macOS &amp; Linux</button>
     <button type="button" role="tab" id="os-tab-windows" aria-controls="os-windows" data-os="windows">Windows</button>
@@ -305,18 +329,36 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <div class="os" id="os-unix" data-os="unix">
     <p class="os-label">macOS and Linux:</p>
     <pre><code>curl -fsSL {{ .URL }}/install.sh | sh</code></pre>
+    <p>Or download it:</p>
+    <ul class="downloads" aria-label="Downloads for macOS and Linux">
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_darwin_arm64.tar.gz"><span aria-hidden="true">↓</span> macOS (Apple silicon)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_darwin_amd64.tar.gz"><span aria-hidden="true">↓</span> macOS (Intel)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_amd64.tar.gz"><span aria-hidden="true">↓</span> Linux (x64)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_arm64.tar.gz"><span aria-hidden="true">↓</span> Linux (Arm)</a></li>
+    </ul>
   </div>
   <div class="os" id="os-windows" data-os="windows">
     <p class="os-label">Windows (PowerShell):</p>
     <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
+    <p>Or download it:</p>
+    <ul class="downloads" aria-label="Downloads for Windows">
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows_amd64.zip"><span aria-hidden="true">↓</span> Windows (x64)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows_arm64.zip"><span aria-hidden="true">↓</span> Windows (Arm)</a></li>
+    </ul>
   </div>
+  <p class="aside">Each archive holds the program itself: unpack it and run it.
+     Its checksum is in that release's <code>checksums.txt</code>, and every
+     release is also on <a href="{{ .Repo }}/releases">GitHub</a>. macOS and
+     Windows may ask before a downloaded copy first runs; the installers above
+     don't.</p>
   <p>The installer downloads the latest release for your machine, verifies it,
      and installs it to <code>~/.local/bin</code>. On Windows it goes to
      <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
      shortcut. No admin rights needed, now or when Flockdeck updates itself.
      To pick a release or a directory, set <code>FLOCKDECK_VERSION</code> or
      <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
-     at the top. View the scripts: <a href="install.sh">install.sh</a> ·
+     at the top. To stay on a release, also set
+     <code>FLOCKDECK_UPDATE=off</code>. View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
@@ -326,8 +368,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
   <p>No <code>make</code>, as on many Windows machines? <code>go build .</code>
      builds the same program. A build made any of these ways never updates
      itself: update it the same way you installed it.</p>
-  <p>Downloads are also on the <a href="{{ .Repo }}/releases">releases page</a>.
-     Flockdeck checks for updates, verifies every download and asks before it
+  <p>Flockdeck checks for updates, verifies every download and asks before it
      restarts, so an update never interrupts your work.</p>
   <p>Command-line agents use the login they already have, so Claude Code works
      with no extra setup. To use a model API directly, add your key with
@@ -362,8 +403,8 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <summary>Does my code leave my machine?</summary>
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
-         Flockdeck itself only contacts GitHub to check for updates, and the
-         relay if you turn on remote access. The exception is the built-in API
+         Flockdeck itself only contacts dl.flockdeck.ai to check for updates,
+         with GitHub as a mirror, and the relay if you turn on remote access. The exception is the built-in API
          agents: they send your conversations to the model provider you
          choose, with your own key. The <a href="privacy.html">privacy
          policy</a> has the details.</p>
@@ -383,8 +424,10 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>How do updates work?</summary>
-      <p>Flockdeck checks GitHub for new releases, verifies each download
-         against its published checksum and asks before it restarts. If you
+      <p>Flockdeck checks dl.flockdeck.ai for new releases, with GitHub as a
+         mirror. It trusts only what the release key has signed there, verifies
+         each download against its published checksum and asks before it
+         restarts. If you
          don't restart, the new version goes in the next time you quit. To turn
          updates off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
     </details>
@@ -394,11 +437,13 @@ make package    <span class="c"># archives for all six platforms</span></code></
          first so the relay forgets this machine. Then quit Flockdeck and delete
          the binary: <code>~/.local/bin/flockdeck</code>, or on Windows the
          <code>%LOCALAPPDATA%\Programs\flockdeck</code> folder and the Flockdeck
-         Start menu shortcut, and that folder's entry in your PATH. Your
+         Start menu shortcut, and remove that folder from your user PATH. Your
          settings, layouts and keys are kept apart from it, in
          <code>%AppData%\flockdeck</code>,
          <code>~/Library/Application Support/flockdeck</code> or
-         <code>~/.config/flockdeck</code>; delete that too. Worktrees Flockdeck
+         <code>~/.config/flockdeck</code>; delete that too, and on Windows
+         <code>%LOCALAPPDATA%\flockdeck</code>, which holds the window's browser
+         profile. Worktrees Flockdeck
          made are ordinary git worktrees beside your repositories, and stay
          until you remove them.</p>
     </details>

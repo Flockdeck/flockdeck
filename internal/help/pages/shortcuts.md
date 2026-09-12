@@ -3,10 +3,12 @@
 Everything not listed here goes to the focused agent, which needs the rest of
 the keyboard for itself. That is why almost every binding is on
 <kbd>Ctrl+Shift</kbd>. The exceptions are the ones no terminal program claims:
-switching tabs, the font size, and <kbd>F1</kbd> for this help.
+switching tabs, the font size, [[key:settings]] for the settings, and
+<kbd>F1</kbd> for this help.
 
 Actions marked *Command palette* have no binding of their own: press
-[[key:palette]] and search for them by name.
+[[key:palette]], or **Commands** at the right of the top bar, and search for
+them by name.
 
 On macOS the bindings are the same, with <kbd>Ctrl</kbd> rather than
 <kbd>Cmd</kbd>.

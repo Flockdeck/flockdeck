@@ -79,6 +79,11 @@ const (
 	defaultRepo   = "https://github.com/jmwri/flockdeck"
 	defaultModule = "github.com/jmwri/flockdeck"
 	defaultURL    = "https://flockdeck.ai"
+
+	// downloadsURL is where releases are published, which the install
+	// section's download buttons link to: scripts/publish-downloads.sh puts
+	// the latest release's archives under /latest/ there.
+	downloadsURL = "https://dl.flockdeck.ai"
 )
 
 func main() {
@@ -101,6 +106,8 @@ type site struct {
 	// URL is where the site itself is served, which the install lines have to
 	// name in full: they are pasted into a terminal, not followed as links.
 	URL string
+	// Downloads is where the release archives are published.
+	Downloads string
 }
 
 // pages are the site's pages: the file each is written to, the template that
@@ -177,7 +184,7 @@ func run(out, repo, module, url string) error {
 	// "@latest" to the module path, so a slash given at the end of any of them
 	// would print a doubled one into an install line, or a go install line go
 	// does not accept.
-	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/")}
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL}
 
 	files, err := render(s)
 	if err != nil {

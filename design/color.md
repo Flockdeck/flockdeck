@@ -20,6 +20,7 @@ Green is a verdict. A run in progress has not reached one. Activity — streamin
 thinking, connected — takes the accent cyan; only a finished, successful run
 turns green. This is why the accent had to be cyan and not a brand color chosen
 for taste: it has to sit next to the status trio without being read as one.
+The pane dot still uses green for working; migrating it is outstanding.
 
 **3. Never color alone.**
 Every status carries a glyph and a word. The color is the third channel, not

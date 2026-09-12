@@ -51,8 +51,8 @@ func SameRelay(a, b string) bool {
 	return canonical(a) == canonical(b)
 }
 
-// RelayEnv overrides DefaultRelay, for somebody running a relay of their own
-// or developing against one.
+// RelayEnv overrides DefaultRelay, for pointing Flockdeck at a development or
+// staging relay.
 const RelayEnv = "FLOCKDECK_RELAY"
 
 // File is where the enrolment is kept, in the state directory.

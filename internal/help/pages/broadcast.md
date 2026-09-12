@@ -38,9 +38,10 @@ prompt as one.
 With broadcast off, the prompt goes to the focused pane, and to any panes you
 have added with their `⇉` button. [[key:toggleBroadcast]] — or **Broadcast** in
 the rail — turns broadcast on, and then it goes to every pane in the
-**broadcast set**: by default every agent in the tab on screen. While
-broadcast is on and the set holds more than one pane, the bar's label says how
-many it will reach.
+**broadcast set**: by default every agent in the tab on screen. Whenever the
+prompt will reach more than one pane, the bar's label says how many, as in
+**Prompt → 3 panes**. That includes panes you added with `⇉` while broadcast
+is off.
 
 The `⇉` button in each pane header adds that pane to the set or takes it out.
 Membership is shown in the pane header even while broadcast is off. Once you

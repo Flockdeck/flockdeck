@@ -15,6 +15,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -no-window` | Just serve; print the URL and open it yourself |
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
+| `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
@@ -55,6 +56,8 @@ first, and then in `keys.json` in the state directory.
 | `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
 | `flockdeck keys list` | Which agents have one, not what it is |
 | `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
+| `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
+| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own |
 
 Nothing here ever prints a key back, and neither does the interface.
 
@@ -69,7 +72,7 @@ Reach this machine's agents from another device, through a relay.
 | `flockdeck remote pair -desktop` | A code that enrols another machine into the account |
 | `flockdeck remote status` | Whether it is on, and whether it is connected |
 | `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
-| `flockdeck remote revoke <id>` | Unpair a device |
+| `flockdeck remote revoke <id or name>` | Unpair a device |
 | `flockdeck remote rename <name>` | Rename this machine; with `-device <id or name>`, a paired device instead |
 | `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
 
@@ -101,6 +104,11 @@ beside it is the same program built with one.
 | --- | --- |
 | `flockdeck update` | Fetches the latest release and puts it in place |
 | `flockdeck update -check` | Says whether there is one, and stops |
+
+When a new version has been downloaded, an **Update** button appears at the
+right of the top bar. It offers **Restart now**, which saves and reopens your
+layout but stops the running agents, or **Later**, which installs it when
+Flockdeck next quits.
 
 Releases are published at `dl.flockdeck.ai` as one archive per platform, with
 a `checksums.txt` beside them, signed with the release key that is built into

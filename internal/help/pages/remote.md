@@ -53,6 +53,10 @@ device you want to pair, or open the link on it.
 A link works once and expires after a few minutes. Until then, whoever opens it
 can drive every agent here, so treat it like a password.
 
+On a phone, when an agent stops to ask a question with set answers, the relay's
+own client shows its choices as buttons, so you can answer with a tap rather
+than typing into the terminal.
+
 ## Renaming
 
 A machine is listed on every device under the name it was enrolled with — its
@@ -110,8 +114,8 @@ From a terminal:
 | Command | What it does |
 | --- | --- |
 | `flockdeck remote devices` | What is paired, and each device's id |
-| `flockdeck remote revoke <id>` | Unpairs one |
-| `flockdeck remote rename <name>` | Renames this machine; `-device <id>` renames a device |
+| `flockdeck remote revoke <id or name>` | Unpairs one |
+| `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
 | `flockdeck remote disable` | Removes this machine from the relay |
 
 A machine that was wiped or lost before remote access was turned off on it
