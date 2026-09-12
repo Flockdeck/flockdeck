@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestConversationExists guards the check that decides between --resume and a
@@ -194,6 +195,70 @@ func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != spec.Exe {
 		t.Errorf("asked %q for its version, want the pane's own program %q", asked, spec.Exe)
+	}
+}
+
+// TestAnUnreadableVersionKeepsTheCommandLine covers the version question going
+// wrong: no such program, one that answers with something else, one that does
+// not answer in time. Each is an unknown version, and an unknown version gets
+// the hook settings every Claude Code can read -- the command line, not exec
+// form, which an older one would start Flockdeck from with no arguments.
+func TestAnUnreadableVersionKeepsTheCommandLine(t *testing.T) {
+	if got := installedClaudeVersion(filepath.Join(t.TempDir(), "no-such-claude")); got != "" {
+		t.Errorf("a missing program reported version %q", got)
+	}
+
+	// The test binary itself stands in for a program that answers late.
+	wait := versionTimeout
+	versionTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { versionTimeout = wait })
+	t.Setenv("FLOCKDECK_SLOW_VERSION", "1")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	if got := installedClaudeVersion(self); got != "" {
+		t.Errorf("a program that did not answer in time reported %q", got)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("the version question took %v; it is bounded by versionTimeout", took)
+	} else if took < versionTimeout {
+		t.Errorf("the version question gave up after %v, before the program could have been waited for", took)
+	}
+
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	for _, version := range []string{"", "claude: command not found", "2.1", "v2.1.269", "Claude Code"} {
+		claudeVersion = func(string) string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		for ev, matchers := range got.Hooks {
+			if h := matchers[0].Hooks[0]; len(h.Args) > 0 || !strings.Contains(h.Command, "--event "+ev) {
+				t.Errorf("%q: %s hook = %q %q, want the command line", version, ev, h.Command, h.Args)
+			}
+		}
+	}
+}
+
+// A test binary started as `<binary> --version` with FLOCKDECK_SLOW_VERSION set
+// stands in for a Claude Code that takes too long to say its version. This
+// has to happen before the test flags are parsed, which would reject
+// --version and exit at once.
+func init() {
+	if os.Getenv("FLOCKDECK_SLOW_VERSION") == "1" && len(os.Args) == 2 && os.Args[1] == "--version" {
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
 	}
 }
 

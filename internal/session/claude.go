@@ -118,6 +118,10 @@ func cachedClaudeVersion(exe string) string {
 	return v
 }
 
+// versionTimeout bounds the version question. It is a variable so a test can
+// shorten it.
+var versionTimeout = 3 * time.Second
+
 // installedClaudeVersion asks a Claude Code program what version it is, which
 // takes it some tens of milliseconds, and gives up after three seconds.
 // Anything that goes wrong is an unknown version, which subscribes to what
@@ -132,7 +136,7 @@ func installedClaudeVersion(exe string) string {
 	if err != nil {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "--version")
 	sysproc.NoWindow(cmd)
