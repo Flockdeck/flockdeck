@@ -1302,6 +1302,13 @@ type Choice struct {
 
 // newPane creates and starts a pane, registering it in the workspace. An empty
 // root works the project out from the directory.
+//
+// The directories that arrive without a project are the project on screen's
+// own and, from the worktree panel, its worktrees — which sit beside the
+// repository, not in it. So the project on screen is the answer unless the
+// directory is inside a project more particular than that one, as for a
+// helper an agent spawns: the innermost project containing a worktree is,
+// with the home folder open, the home folder.
 func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	if cwd == "" {
 		cwd = w.activeRoot
@@ -1310,7 +1317,7 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 		name = filepath.Base(cwd)
 	}
 	if root == "" {
-		root = w.projectFor(cwd)
+		root = w.helperProject(cwd, w.activeRoot)
 	}
 	p := &Pane{
 		ID: uuid.NewString(), Kind: c.Kind, Cwd: cwd, Name: name, Root: root,
