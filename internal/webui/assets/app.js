@@ -1311,7 +1311,15 @@
         // an agent's task usually are. The bubble is the only place the rest
         // can be read, and the only thing saying how to change it.
         describe(node.btn, title + " — double-click, or press F2, to rename");
+        // The close button said only "Close tab", a dozen times over across
+        // the strip, and nothing said that closing one stops its agents.
+        describe(node.close, "Close tab: " + title + ". Every agent in it stops.");
       }
+      // Named by its title, and the agent waiting in it. Named from what it
+      // holds, a tab said the button inside it as well - "one, Close tab" -
+      // every time the keyboard reached it.
+      const name = title + (tab.attention ? ", an agent here is waiting on you" : "");
+      if (node.btn.getAttribute("aria-label") !== name) node.btn.setAttribute("aria-label", name);
       const active = tab.id === s.activeTab;
       node.btn.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));

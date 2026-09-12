@@ -389,3 +389,24 @@ assert.strictEqual(sent.tasks[10], "task number 11 and more");
 `)
 	t.Log(out)
 }
+
+// A tab was named from everything in it, so it said the close button inside
+// it too, and each close button said only "Close tab": a strip of a dozen
+// read as a dozen of the same, and nothing said closing one stops its agents.
+func TestATabAndItsCloseButtonSayWhichTab(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tabs").children[0];
+const close = tab.querySelector(".close");
+assert.strictEqual(tab.getAttribute("aria-label"), "one", "the tab is not named by its title alone");
+assert.ok(/one/.test(close.getAttribute("aria-label") || ""), "the close button does not say which tab: " + close.getAttribute("aria-label"));
+assert.ok(/stops/.test(close.dataset.tip || ""), "nothing says closing the tab stops its agents: " + close.dataset.tip);
+h.recv(fixture({ waiting: 1, tabs: [
+  { id: "t1", title: "renamed", focus: "p1", zoom: false, attention: true, root: { id: "n1", pane: "p1", weight: 1 } },
+  { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: { id: "n2", pane: "p2", weight: 1 } }] }));
+assert.ok(tab.getAttribute("aria-label").startsWith("renamed"), "the name did not follow a rename");
+assert.ok(/waiting/.test(tab.getAttribute("aria-label")), "the name does not say an agent is waiting");
+assert.ok(/renamed/.test(close.getAttribute("aria-label")), "the close button kept the old name");
+`)
+}
