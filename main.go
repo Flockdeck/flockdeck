@@ -605,16 +605,7 @@ func run(opts options) error {
 		})
 	}
 
-	// Two deep, so a second interrupt arriving while the first is still being
-	// acted on is not dropped on the floor.
-	//
-	// SIGTERM is what a logout, a shutdown, `kill` or a service manager
-	// sends, and what Windows makes of the console being closed. Left to the
-	// runtime it ended the process on the spot: no layout or open projects
-	// saved, agents not stopped, the instance record left behind.
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go interrupts(sigs, stop, forceQuit)
+	watchSignals(stop, forceQuit)
 
 	srv.OnQuit = stop
 	// A restart is a quit that comes back. The server only asks; the shutdown
@@ -902,6 +893,23 @@ func interrupts(sigs <-chan os.Signal, stop, force func()) {
 	stop()
 	<-sigs
 	force()
+}
+
+// watchSignals makes the signals that ask a program to end take the orderly
+// stop Ctrl+C does, rather than the runtime's, which ends the process on the
+// spot: no layout or open projects saved, agents not stopped, the instance
+// record left behind.
+//
+// SIGTERM is what a logout, a shutdown, `kill` or a service manager sends,
+// and what Windows makes of the console being closed. SIGHUP is what Linux
+// and macOS send when the terminal a run was started from is closed.
+//
+// Two deep, so a second signal arriving while the first is still being acted
+// on is not dropped on the floor.
+func watchSignals(stop, force func()) {
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go interrupts(sigs, stop, force)
 }
 
 // forceQuit ends the process without waiting for the orderly shutdown to
