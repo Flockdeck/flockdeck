@@ -451,7 +451,7 @@ func holdStartLock(wait time.Duration, warn func(string)) (release func()) {
 		case !errors.Is(err, store.ErrStartLocked):
 			return func() {}
 		case time.Now().After(deadline):
-			warn(fmt.Sprintf("another flockdeck has been starting for %s without finishing, so starting anyway", wait))
+			warn(fmt.Sprintf("another flockdeck has been starting for %s without finishing; going ahead without waiting for it", wait))
 			return func() {}
 		}
 	}

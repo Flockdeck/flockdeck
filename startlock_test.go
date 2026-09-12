@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -46,5 +47,10 @@ func TestHoldStartLockGivesUpOnAStuckStart(t *testing.T) {
 	holdStartLock(100*time.Millisecond, func(s string) { warned = s })()
 	if warned == "" {
 		t.Error("gave up on the lock without a word")
+	}
+	// -quit waits for the lock too, and starts nothing: the word has to be
+	// true for both.
+	if strings.Contains(warned, "starting anyway") {
+		t.Errorf("the warning %q says something is being started", warned)
 	}
 }
