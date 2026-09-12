@@ -3434,6 +3434,35 @@ assert.strictEqual(content.scrollTop, 0, "Page Up did not scroll it back");
 `)
 }
 
+// Help pages refer to each other, and the references were bold text with no
+// way to follow them. A link to a page's slug opens that page in the viewer.
+func TestAHelpPageLinksToAnother(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const content = h.$("help-content");
+// The harness does not parse the page's HTML into elements, so the link a
+// page renders is put there by hand.
+const a = h.doc.createElement("a");
+a.setAttribute("href", "#worktrees");
+content.append(a);
+const ev = new h.Ev("click", { target: a });
+h.dispatch(a, ev);
+assert.ok(ev.defaultPrevented, "the link was left to the browser");
+assert.strictEqual(content.dataset.slug, "worktrees", "following the link did not open the page it names");
+
+// A hash that names no page is left alone.
+const b = h.doc.createElement("a");
+b.setAttribute("href", "#no-such-page");
+h.$("help-content").append(b);
+const other = new h.Ev("click", { target: b });
+h.dispatch(b, other);
+assert.ok(!other.defaultPrevented);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

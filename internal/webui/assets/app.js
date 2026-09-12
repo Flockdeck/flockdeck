@@ -4417,6 +4417,18 @@
     const content = el("div", "help-content");
     content.id = "help-content";
     content.tabIndex = 0;
+    // A page refers to another as a link to its slug - [Worktrees](#worktrees)
+    // - and following one opens that page here. The references were bold
+    // text before, with no way to get from one page to the next but the
+    // contents list.
+    content.onclick = (e) => {
+      const a = e.target.closest && e.target.closest("a[href]");
+      const href = a ? a.getAttribute("href") : "";
+      if (!href.startsWith("#") || !pageFor(href.slice(1))) return;
+      e.preventDefault();
+      showHelpPage(href.slice(1));
+      content.focus();
+    };
     wrap.append(nav, content);
     body.append(wrap);
     search.focus();
