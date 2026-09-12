@@ -22,6 +22,9 @@ type ptyControl struct {
 		Cols int `json:"cols"`
 		Rows int `json:"rows"`
 	} `json:"resize,omitempty"`
+	// Focus says the terminal in this window has just been focused or tapped:
+	// somebody is using the pane here. See viewers.
+	Focus bool `json:"focus,omitempty"`
 }
 
 // restartPoll is how often a terminal socket whose process has ended looks to
@@ -233,6 +236,17 @@ var termReset = []byte("\x1bc")
 // everything else as JSON control messages.
 func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
+	// A size is recorded here and applied elsewhere. Applying it means reaching
+	// the workspace goroutine, which can be busy for seconds at a time opening
+	// a project, and waiting for that here would stop this window's keystrokes
+	// dead behind a measurement. The nudge says only that something changed,
+	// so one waiting is as good as ten.
+	nudge := func() {
+		select {
+		case measured <- struct{}{}:
+		default:
+		}
+	}
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
@@ -245,24 +259,23 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			if sess := live.Load(); sess != nil {
 				_, _ = sess.Write(data)
 			}
+			// Typing here is using the pane here, which is what it is sized
+			// for; a refit is asked for only when that moves it to this window.
+			if viewers.touch(id, viewer) {
+				nudge()
+			}
 			continue
 		}
 		var ctl ptyControl
 		if json.Unmarshal(data, &ctl) != nil {
 			continue
 		}
+		if ctl.Focus && viewers.touch(id, viewer) {
+			nudge()
+		}
 		if ctl.Resize != nil {
 			viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
-			// Recorded here and applied elsewhere. Applying it means reaching
-			// the workspace goroutine, which can be busy for seconds at a
-			// time opening a project, and waiting for that here would stop
-			// this window's keystrokes dead behind a measurement. The nudge
-			// says only that something changed, so one waiting is as good as
-			// ten.
-			select {
-			case measured <- struct{}{}:
-			default:
-			}
+			nudge()
 		}
 	}
 }
@@ -280,8 +293,8 @@ func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan st
 	}
 }
 
-// fitPane sizes a pane to fit every window watching it. It must run on the
-// workspace goroutine.
+// fitPane sizes a pane for the windows watching it: see viewers. It must run
+// on the workspace goroutine.
 //
 // The size is read here rather than carried in, so that whichever order these
 // reach the workspace in, the size that ends up applied is the one that is
@@ -296,7 +309,7 @@ func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan st
 // restarted without it runs its process at a conventional 80x24 and draws its
 // first screen at the wrong width.
 func (s *Server) fitPane(id string) {
-	if cols, rows := viewers.smallest(id); cols > 0 && rows > 0 {
+	if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
 		s.ws.ResizePaneTerminal(id, cols, rows)
 	}
 }
@@ -514,30 +527,45 @@ func gather(ctx context.Context, buf []byte, out <-chan []byte, wait time.Durati
 	return buf, false
 }
 
-// viewers remembers the size each attached window has reported for each pane,
-// and nextViewer names them apart.
+// viewers remembers, for each pane, the size each attached window has reported
+// and when each was last used, and nextViewer names them apart.
 //
 // More than one window can be looking at the same pane: a second launch
-// attaches to the running instance rather than starting a rival, and the page
-// can be opened in a browser beside the application's own window. Each
-// measures its own geometry, so each reports a different size, and whichever
-// spoke last used to win. The loser was left with a terminal wider than it
-// could draw -- every line wrapped -- and no reason to ever report again,
-// because nothing about its own geometry had changed.
+// attaches to the running instance rather than starting a rival, the page can
+// be opened in a browser beside the application's own window, and a phone can
+// reach it through the relay. Each measures its own geometry, so each reports
+// a different size, and the pane can only be one of them.
+//
+// It follows the window somebody is using -- the last one typed into, or whose
+// terminal was focused or tapped -- as tmux's window-size "latest" does.
+// Fitting every window at once meant a phone opened for a glance reflowed every
+// desktop terminal it looked at to phone width until it was closed. Reporting
+// a size is not using a window: every window reports one on connecting and on
+// each fit, and opening one must not take the pane over. Until any window has
+// been used the pane takes the least of each dimension, which every one of
+// them can draw; when the one in use goes, the pane follows the one used
+// before it.
 //
 // This lives here rather than on the Server because it is the terminal
 // transport's own bookkeeping, and it holds nothing once the last window
 // showing a pane has gone.
 var (
-	viewers    = &viewerSizes{panes: map[string]map[int64]termSize{}}
+	viewers    = &viewerSizes{panes: map[string]map[int64]viewerState{}}
 	nextViewer atomic.Int64
 )
 
-type termSize struct{ cols, rows int }
+// viewerState is what one window has said about a pane: the size it measured,
+// and when it was last used, as a place in viewerSizes.seq -- zero for never.
+type viewerState struct {
+	cols, rows int
+	used       int64
+}
 
 type viewerSizes struct {
 	mu    sync.Mutex
-	panes map[string]map[int64]termSize
+	panes map[string]map[int64]viewerState
+	// seq orders uses: the later a window was used, the higher its number.
+	seq int64
 }
 
 // set records what one window measured for a pane.
@@ -546,10 +574,47 @@ func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) {
 	defer v.mu.Unlock()
 	byViewer := v.panes[pane]
 	if byViewer == nil {
-		byViewer = map[int64]termSize{}
+		byViewer = map[int64]viewerState{}
 		v.panes[pane] = byViewer
 	}
-	byViewer[viewer] = termSize{cols, rows}
+	st := byViewer[viewer]
+	st.cols, st.rows = cols, rows
+	byViewer[viewer] = st
+}
+
+// touch records that somebody used a pane in one window, and reports whether
+// that moved the pane to it -- whether a refit is worth asking for.
+func (v *viewerSizes) touch(pane string, viewer int64) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	byViewer := v.panes[pane]
+	if byViewer == nil {
+		byViewer = map[int64]viewerState{}
+		v.panes[pane] = byViewer
+	}
+	was := lastUsed(byViewer)
+	v.seq++
+	st := byViewer[viewer]
+	st.used = v.seq
+	byViewer[viewer] = st
+	return lastUsed(byViewer) != was
+}
+
+// lastUsed is the window most recently used, among those that have measured
+// the pane, or zero when none of them has been used.
+//
+// A window that has never said how big it is cannot be sized for, and using
+// one leaves the pane as it is. The relay's phone client is one: it reports a
+// size only when asked to fit the pane to its screen, and a glance from it
+// must not shrink the desk's terminal to the least of the rest.
+func lastUsed(byViewer map[int64]viewerState) int64 {
+	var last, at int64
+	for id, st := range byViewer {
+		if st.used > at && st.cols > 0 && st.rows > 0 {
+			last, at = id, st.used
+		}
+	}
+	return last
 }
 
 // drop forgets a window that has gone away, and reports whether anything is
@@ -569,13 +634,17 @@ func (v *viewerSizes) drop(pane string, viewer int64) bool {
 	return true
 }
 
-// smallest is the size the pane should be: the least any of its windows can
-// show, taken per dimension, which is the only size all of them draw
-// correctly. It is zero when nothing has measured the pane.
-func (v *viewerSizes) smallest(pane string) (cols, rows int) {
+// size is the size the pane should be: the window last used's, or, until one
+// has been, the least any of them can show, taken per dimension. It is zero
+// when nothing has measured the pane.
+func (v *viewerSizes) size(pane string) (cols, rows int) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	for _, sz := range v.panes[pane] {
+	byViewer := v.panes[pane]
+	if last := lastUsed(byViewer); last != 0 {
+		return byViewer[last].cols, byViewer[last].rows
+	}
+	for _, sz := range byViewer {
 		if sz.cols > 0 && (cols <= 0 || sz.cols < cols) {
 			cols = sz.cols
 		}

@@ -574,57 +574,110 @@ func awaitSize(t *testing.T, srv *Server, paneID string, cols, rows int) {
 	t.Fatalf("pane settled at %dx%d, want %dx%d", gotC, gotR, cols, rows)
 }
 
-// TestPaneFitsEveryWindowWatchingIt covers two windows on one pane, which is
-// what attaching to a running instance produces. They measure their own
-// geometry, so they report different sizes; a pane bigger than the smaller of
-// them wraps every line there, and that window has no reason to report again.
-func TestPaneFitsEveryWindowWatchingIt(t *testing.T) {
+// sendFocus says a window's terminal has been focused, the way the window does.
+func sendFocus(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"focus":true}`)); err != nil {
+		t.Fatalf("focus: %v", err)
+	}
+}
+
+// TestPaneFollowsTheWindowInUse covers two windows on one pane -- the desk, and
+// a phone through the relay. The pane used to take the least of every window's
+// size, so the phone opened for a glance reflowed the desk's terminal to phone
+// width until it was closed. It follows the window being used instead.
+func TestPaneFollowsTheWindowInUse(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ctl := dialControl(t, srv)
 	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
 
-	first := dialPTY(t, srv, paneID)
-	sendResize(t, first, 100, 30)
-	awaitSize(t, srv, paneID, 100, 30)
+	desk := dialPTY(t, srv, paneID)
+	sendResize(t, desk, 160, 45)
+	awaitSize(t, srv, paneID, 160, 45)
+	sendFocus(t, desk)
 
-	// The second window is wider but shorter. Letting it win outright would
-	// leave the first one wrapping every line, so the pane takes the smaller
-	// of each dimension -- which both of them can draw.
-	second := dialPTY(t, srv, paneID)
-	sendResize(t, second, 200, 20)
-	awaitSize(t, srv, paneID, 100, 20)
+	// The phone reports its size, as every window does on opening, and that
+	// is all: the desk is the one in use, and keeps its width.
+	phone := dialPTY(t, srv, paneID)
+	sendResize(t, phone, 40, 20)
+	time.Sleep(300 * time.Millisecond)
+	awaitSize(t, srv, paneID, 160, 45)
 
-	// Once the first window has gone the pane is free to widen, and nothing
-	// else is going to tell it to: the remaining window's own geometry has not
-	// changed, so it has no reason to report again.
-	first.CloseNow()
-	awaitSize(t, srv, paneID, 200, 20)
+	// Typing on the phone is using it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := phone.Write(ctx, websocket.MessageBinary, []byte(" ")); err != nil {
+		t.Fatalf("type: %v", err)
+	}
+	awaitSize(t, srv, paneID, 40, 20)
+
+	// Focusing the desk's terminal takes it back.
+	sendFocus(t, desk)
+	awaitSize(t, srv, paneID, 160, 45)
+
+	// And when the window in use goes, the pane follows the one used before it.
+	desk.CloseNow()
+	awaitSize(t, srv, paneID, 40, 20)
 }
 
-// TestViewerSizesForgetsTheLastWindow keeps the registry from holding a pane
-// after nobody is watching it, which would size the next window that opened
-// against a measurement from a window that is gone.
-func TestViewerSizesForgetsTheLastWindow(t *testing.T) {
-	v := &viewerSizes{panes: map[string]map[int64]termSize{}}
+// TestAWindowWithNoSizeTakesNothingOver covers the relay's phone client, which
+// reports a size only when asked to fit the pane to its screen. Using it has to
+// leave the pane as it is, rather than shrink it to the least of the other
+// windows or size it to nothing.
+func TestAWindowWithNoSizeTakesNothingOver(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]viewerState{}}
+	v.set("pane", 1, 160, 45)
+	v.set("pane", 2, 100, 30)
+	v.touch("pane", 1)
+	if v.touch("pane", 3) {
+		t.Error("using a window with no size asked for a refit")
+	}
+	if cols, rows := v.size("pane"); cols != 160 || rows != 45 {
+		t.Errorf("after a window with no size was used the pane is %dx%d, want it left at 160x45", cols, rows)
+	}
+}
 
-	if cols, rows := v.smallest("pane"); cols != 0 || rows != 0 {
+// TestViewerSizesFollowTheWindowInUse covers the bookkeeping behind it, and
+// keeps the registry from holding a pane after nobody is watching it, which
+// would size the next window that opened against a measurement from one that
+// is gone.
+func TestViewerSizesFollowTheWindowInUse(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]viewerState{}}
+
+	if cols, rows := v.size("pane"); cols != 0 || rows != 0 {
 		t.Errorf("an unwatched pane gave %dx%d, want nothing", cols, rows)
 	}
 
 	v.set("pane", 1, 120, 40)
 	v.set("pane", 2, 90, 60)
-	if cols, rows := v.smallest("pane"); cols != 90 || rows != 40 {
-		t.Errorf("two windows gave %dx%d, want the least of each, 90x40", cols, rows)
+	if cols, rows := v.size("pane"); cols != 90 || rows != 40 {
+		t.Errorf("two windows neither of them used gave %dx%d, want the least of each, 90x40", cols, rows)
 	}
 
-	if !v.drop("pane", 2) {
+	if !v.touch("pane", 2) {
+		t.Error("using the second window did not move the pane to it")
+	}
+	if v.touch("pane", 2) {
+		t.Error("using the same window again asked for a refit")
+	}
+	if cols, rows := v.size("pane"); cols != 90 || rows != 60 {
+		t.Errorf("with the second window in use, %dx%d, want its 90x60", cols, rows)
+	}
+	v.touch("pane", 1)
+	if cols, rows := v.size("pane"); cols != 120 || rows != 40 {
+		t.Errorf("with the first window in use, %dx%d, want its 120x40", cols, rows)
+	}
+
+	if !v.drop("pane", 1) {
 		t.Error("dropping one of two windows left nothing to resize for")
 	}
-	if cols, rows := v.smallest("pane"); cols != 120 || rows != 40 {
-		t.Errorf("after the second window left, %dx%d, want the first's 120x40", cols, rows)
+	if cols, rows := v.size("pane"); cols != 90 || rows != 60 {
+		t.Errorf("after the window in use left, %dx%d, want the one used before it, 90x60", cols, rows)
 	}
 
-	if v.drop("pane", 1) {
+	if v.drop("pane", 2) {
 		t.Error("dropping the only window asked for a resize; there is nobody to resize for")
 	}
 	if len(v.panes) != 0 {

@@ -1378,6 +1378,9 @@
           shown: {} };
     panes.set(id, p);
 
+    // Focusing or tapping the terminal is using the pane in this window.
+    if (term.textarea) term.textarea.addEventListener("focus", () => sendFocus(p));
+    host.addEventListener("pointerdown", () => sendFocus(p));
     term.onData((data) => sendInput(p, data));
     term.onBinary((data) => {
       const bytes = new Uint8Array(data.length);
@@ -1429,6 +1432,13 @@
   function sendInput(p, data) {
     sendBytes(p, new TextEncoder().encode(data));
   }
+  /** sendFocus tells the server this window's terminal is the one being used,
+   *  so the pane is sized for it when more than one window is watching. The
+   *  keystrokes that follow would say so too; this is for the glance, and the
+   *  scroll, that comes before them. */
+  function sendFocus(p) {
+    if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ focus: true }));
+  }
   function sendBytes(p, bytes) {
     if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(bytes);
   }
@@ -1450,6 +1460,10 @@
       p.retries = 0;
       p.cols = p.rows = 0; // force the size to be re-reported
       scheduleFit(p);
+      // A socket that reconnects is a new window as far as the server can
+      // tell, so the terminal that has the keyboard says again that it is the
+      // one in use.
+      if (document.hasFocus() && p.host.contains(document.activeElement)) sendFocus(p);
     };
     ws.onmessage = (ev) => {
       // Text opens a run of the pane's output: where the bytes that follow
