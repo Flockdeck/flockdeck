@@ -77,6 +77,15 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 	// system's and says nothing.
 	var dirs, files []string
 	for _, e := range entries {
+		// A link that leads out of the pane is refused by every tool, and
+		// shown as the file it looks like, the model reaches for it and is
+		// refused; it is said to be what it is.
+		if e.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			if _, err := t.root.Resolve(filepath.Join(abs, e.Name())); errors.Is(err, ErrOutsideRoot) {
+				files = append(files, e.Name()+"  (a link leading outside the working directory)")
+				continue
+			}
+		}
 		if e.IsDir() {
 			dirs = append(dirs, e.Name()+"/")
 			continue
