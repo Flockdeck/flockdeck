@@ -3240,7 +3240,9 @@
     });
     (s.tabs || []).forEach((t) => {
       if (t.id === s.activeTab) return;
-      cmds.push({ label: "Go to tab: " + t.title, run: () => send({ cmd: "selectTab", id: t.id }) });
+      // The strip marks a tab with an agent waiting; the palette did not.
+      const hint = t.attention ? "▲ an agent here is waiting" : "";
+      cmds.push({ label: "Go to tab: " + t.title, hint, run: () => send({ cmd: "selectTab", id: t.id }) });
       cmds.push({
         label: "Merge tab into this one: " + t.title,
         run: () => send({ cmd: "mergeTab", id: t.id, target: s.activeTab, dir: "h" }),

@@ -4169,6 +4169,34 @@ assert.ok(!/waiting/.test(hint("docs")), "a project with nobody waiting says som
 `)
 }
 
+// The tab strip marks a tab with an agent waiting in it, and the palette's
+// entry for the same tab said nothing.
+func TestThePaletteSaysWhichTabsAreWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [
+    { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+    { id: "t2", title: "two", focus: "p2", attention: true, root: leaf("n2", "p2") },
+    { id: "t3", title: "three", focus: "p3", root: leaf("n3", "p3") },
+  ],
+  panes: { p1: pane("p1"), p2: pane("p2", { status: "waiting" }), p3: pane("p3") },
+}));
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "go to tab";
+input.oninput();
+const rows = h.$("palette-list").children;
+const hint = (title) => {
+  const row = rows.find((r) => r.querySelector(".pal-label").textContent === "Go to tab: " + title);
+  const span = row.querySelector(".pal-hint");
+  return span ? span.textContent : "";
+};
+assert.ok(/waiting/.test(hint("two")), "the palette does not say an agent is waiting in tab two");
+assert.ok(!/waiting/.test(hint("three")), "a tab with nobody waiting says somebody is");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
