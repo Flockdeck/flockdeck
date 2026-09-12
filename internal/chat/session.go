@@ -302,9 +302,16 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 		var line string
 		if len(s.ahead) > 0 {
 			// Typed while the model worked; shown again after the prompt it
-			// now answers, since it went by in the middle of the answer.
-			line, s.ahead = s.ahead[0], s.ahead[1:]
+			// now answers, since it went by in the middle of the answer. All
+			// of it is one prompt, as the same lines arriving at the prompt
+			// are: several lines typed ahead are a paste far more often than
+			// they are several questions, and each sent alone is a turn paid
+			// for.
+			line, s.ahead = strings.Join(s.ahead, "\n"), nil
 			s.out.line("", line)
+			if n := strings.Count(line, "\n") + 1; n > 1 {
+				s.out.line(ansiDim, fmt.Sprintf("(%d lines typed while the model worked, sent as one prompt)", n))
+			}
 		} else {
 			select {
 			case <-ctx.Done():

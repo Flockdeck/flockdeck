@@ -41,3 +41,18 @@ func TestALineTypedAheadIsNotTakenAsAnAnswer(t *testing.T) {
 		t.Errorf("the next prompt was %q, %v; want the line typed ahead", line, ok)
 	}
 }
+
+// Several lines typed ahead of a question -- a paste, most often -- are one
+// prompt when the prompt comes, as they would have been had they arrived at
+// it, rather than a turn each.
+func TestLinesTypedAheadAreOnePrompt(t *testing.T) {
+	s, _ := newTestSession(t, "", nil)
+	s.ahead = []string{"panic: boom", "", "goroutine 1 [running]:"}
+	line, ok := s.readPrompt(context.Background())
+	if !ok || line != "panic: boom\n\ngoroutine 1 [running]:" {
+		t.Errorf("the next prompt was %q, %v; want all three lines", line, ok)
+	}
+	if len(s.ahead) != 0 {
+		t.Errorf("left %q for the prompt after", s.ahead)
+	}
+}
