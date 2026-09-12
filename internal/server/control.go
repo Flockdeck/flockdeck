@@ -210,13 +210,13 @@ type paneView struct {
 	RoutedFrom string `json:"routedFrom,omitempty"`
 	Route      string `json:"route,omitempty"`
 	Err        string `json:"err,omitempty"`
-	Broadcast bool   `json:"broadcast"`
-	Cols      int    `json:"cols"`
-	Rows      int    `json:"rows"`
-	Dirty     int    `json:"dirty"`
-	Untracked int    `json:"untracked"`
-	Ahead     int    `json:"ahead"`
-	Behind    int    `json:"behind"`
+	Broadcast  bool   `json:"broadcast"`
+	Cols       int    `json:"cols"`
+	Rows       int    `json:"rows"`
+	Dirty      int    `json:"dirty"`
+	Untracked  int    `json:"untracked"`
+	Ahead      int    `json:"ahead"`
+	Behind     int    `json:"behind"`
 	// GitTimedOut says the last read of the pane's checkout gave up before git
 	// answered, so the four counts above are the ones read before that and may
 	// no longer be true. The header says so instead of showing them.
