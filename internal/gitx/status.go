@@ -1,10 +1,12 @@
 package gitx
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Status summarises a working tree: what is checked out, whether it has
@@ -37,14 +39,27 @@ func (s Status) HasChanges() bool { return s.Dirty > 0 || s.Untracked > 0 }
 // counts alongside the file entries, which avoids the several invocations the
 // same information would otherwise take.
 func StatusOf(dir string) Status {
+	st, _ := StatusWithin(dir, commandTimeout)
+	return st
+}
+
+// StatusWithin is StatusOf for a caller that gives git less time and needs to
+// know when it ran out: the pane headers, which are refreshed every few
+// seconds and would rather say a checkout did not answer than wait on it. The
+// whole of the read, the extra call for a detached checkout included, has
+// timeout to finish in. When it does not, git is stopped, the Status is empty,
+// and errors.Is(err, context.DeadlineExceeded) holds.
+func StatusWithin(dir string, timeout time.Duration) (Status, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	var st Status
 	// --untracked-files=all matters for the number, not the listing: "normal"
 	// collapses a new directory into one entry, so a pane header claiming one
 	// untracked file sat above a review panel -- which asks for "all" --
 	// listing the thirty inside it.
-	out, err := run(dir, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+	out, _, err := runCapture(ctx, timeout, dir, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
 	if err != nil {
-		return st
+		return st, err
 	}
 
 	var counted bool // git said how far ahead and behind the upstream is
@@ -101,9 +116,9 @@ func StatusOf(dir string) Status {
 		st.Upstream = ""
 	}
 	if st.Detached && st.Branch == "" {
-		st.Branch, st.Operation = operationBranch(dir)
+		st.Branch, st.Operation = operationBranch(ctx, dir)
 	}
-	return st
+	return st, nil
 }
 
 // operationBranch names the branch a rebase or a bisect in progress will return
@@ -120,8 +135,8 @@ func StatusOf(dir string) Status {
 // This costs an extra call, so it is only made for a checkout that has already
 // said it is detached, which is rare and stays that way for as long as the
 // operation does.
-func operationBranch(dir string) (branch, operation string) {
-	out, err := run(dir, "rev-parse", "--git-dir")
+func operationBranch(ctx context.Context, dir string) (branch, operation string) {
+	out, err := runUntil(ctx, dir, "rev-parse", "--git-dir")
 	if err != nil {
 		return "", ""
 	}
