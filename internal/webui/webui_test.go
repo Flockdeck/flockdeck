@@ -3508,6 +3508,38 @@ assert.ok(h.doc.activeElement === bars[1].children[1], "the arrows do not walk a
 `)
 }
 
+// Escape in the help's search box, or in the agent picker's filter, closed the
+// whole dialog even with something typed in it. It empties the field first,
+// as a search field does, and closes the dialog from an empty one.
+func TestEscapeEmptiesASearchBeforeClosingItsDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const all = h.$("overlay-body").querySelectorAll("button.help-item").length;
+const search = h.$("help-search");
+search.value = "worktree";
+search.oninput();
+search.focus();
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape with a search typed closed the help");
+assert.strictEqual(search.value, "", "Escape did not empty the search");
+assert.strictEqual(h.$("overlay-body").querySelectorAll("button.help-item").length, all, "the contents stayed narrowed");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape in an empty search no longer closes the help");
+
+h.click(h.$("new-tab-pick"));
+const filter = h.$("agent-filter");
+filter.value = "codex";
+filter.oninput();
+filter.focus();
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape with a filter typed closed the picker");
+assert.strictEqual(filter.value, "");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

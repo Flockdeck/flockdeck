@@ -4645,7 +4645,21 @@
       if (e.key === "Escape") { e.preventDefault(); closeSearch(); return; }
       if (e.key === "Enter" && document.activeElement === $("search-input")) { e.preventDefault(); runSearch(e.shiftKey); return; }
     }
-    if (!$("overlay").hidden && e.key === "Escape") { closeOverlay(); return; }
+    if (!$("overlay").hidden && e.key === "Escape") {
+      // A search field with something in it is emptied first, as search
+      // fields are: closing the help, or the picker, took the page being
+      // read or the dialog itself with it, when all that was wanted was to
+      // start the search again.
+      const f = e.target;
+      if (f && (f.id === "help-search" || f.id === "agent-filter") && f.value) {
+        e.preventDefault();
+        f.value = "";
+        f.dispatchEvent(new Event("input"));
+        return;
+      }
+      closeOverlay();
+      return;
+    }
 
     // Font size keeps working while the prompt bar is up, so the sentence
     // being composed can be made readable without abandoning it.
