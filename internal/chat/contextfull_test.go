@@ -19,7 +19,9 @@ func TestAFullContextSaysToStartOver(t *testing.T) {
 		wire := &scriptedWire{turns: []turnFunc{
 			func(context.Context, Request, func(Event)) error { return errors.New(msg) },
 		}}
-		out := run(t, Options{Agent: "anthropic", Task: "go on"}, "", wire)
+		// The notice is wrapped to the pane, so its words are compared
+		// rather than its lines.
+		out := strings.Join(strings.Fields(run(t, Options{Agent: "anthropic", Task: "go on"}, "", wire)), " ")
 		if !strings.Contains(out, "/clear starts it over") || strings.Contains(out, "/retry asks again") {
 			t.Errorf("%s:\n%s", msg, out)
 		}

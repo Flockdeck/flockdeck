@@ -391,17 +391,55 @@ func (p *printer) endMessage() {
 }
 
 // line writes one whole line in a style of its own: a label, a notice, a
-// question. It never wraps, because everything it draws is short and written by
-// us rather than by a model.
+// question.
+//
+// A notice -- dim or red, one line of our own words -- is wrapped at spaces to
+// the pane, its continuation lines indented as far as it was: left to the
+// terminal, a long one is broken mid-word, and a pane narrower than the
+// notice is the usual thing with several side by side. Anything else is drawn
+// as it is, tool output above all, which is shown as it came.
 func (p *printer) line(st, s string) {
 	if p.started {
 		p.put("\n")
 		p.col, p.started = 0, false
 	}
+	if (st == ansiDim || st == ansiRed) && !strings.Contains(s, "\n") && utf8.RuneCountInString(s) > p.width {
+		for _, part := range wrapNotice(s, p.width) {
+			p.put(p.style(st, part))
+			p.put("\n")
+		}
+		p.blank = false
+		p.w.Flush()
+		return
+	}
 	p.put(p.style(st, s))
 	p.put("\n")
 	p.blank = s == ""
 	p.w.Flush()
+}
+
+// wrapNotice breaks s at spaces into lines no wider than width where the words
+// allow, each after the indentation s began with. A word wider than width --
+// a path, a URL -- is left whole on a line of its own.
+func wrapNotice(s string, width int) []string {
+	pad := s[:len(s)-len(strings.TrimLeft(s, " "))]
+	var lines []string
+	cur := ""
+	for _, w := range strings.Fields(s) {
+		switch {
+		case cur == "":
+			cur = pad + w
+		case utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width:
+			lines = append(lines, cur)
+			cur = pad + w
+		default:
+			cur += " " + w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
 }
 
 // bare writes text with no line of its own and no newline after it, which is

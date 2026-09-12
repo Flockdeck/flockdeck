@@ -15,7 +15,7 @@ func TestTheAnswersFitTheWidthOfThePane(t *testing.T) {
 	tool.always = "edits to files"
 
 	s, out := newTestSession(t, "n\n", nil, tool)
-	s.opts.Width = 40
+	s.opts.Width, s.out.width = 40, 40
 	s.runCalls(context.Background(), []ToolCall{{ID: "c1", Name: "write_file"}})
 	for _, line := range strings.Split(out.String(), "\n") {
 		if utf8.RuneCountInString(line) > 40 {
@@ -27,7 +27,7 @@ func TestTheAnswersFitTheWidthOfThePane(t *testing.T) {
 	}
 
 	s, out = newTestSession(t, "n\n", nil, tool)
-	s.opts.Width = 200
+	s.opts.Width, s.out.width = 200, 200
 	s.runCalls(context.Background(), []ToolCall{{ID: "c1", Name: "write_file"}})
 	if !strings.Contains(out.String(), "[y] yes, once   [a] always") {
 		t.Errorf("a wide pane did not get the answers on one line:\n%s", out.String())
