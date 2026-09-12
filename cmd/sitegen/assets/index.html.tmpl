@@ -107,7 +107,7 @@
   <p class="eyebrow">In the app</p>
   <h2>Every agent in one window.</h2>
   <figure class="figure">
-    <img src="deck.png" srcset="deck-1584.png 1584w, deck.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid, and a rail down the left listing four open projects, two of them badged amber because an agent in each is waiting. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
+    <img src="deck.png" srcset="deck-1584.png 1584w, deck.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid, and a rail down the left listing four open projects, two of them badged amber because an agent in each is waiting. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration. The two Claude Code panes' headers show what they have spent: an estimated $2.14 for the one running tests, and 221k tokens for the waiting one, beside a small meter saying 72% of its five-hour limit is used.">
     <figcaption class="caption">Four agents on four branches. Amber marks the pane, and the project, waiting on you.</figcaption>
   </figure>
 </section>
@@ -141,6 +141,21 @@
       <h3>Turn a plan into a team</h3>
       <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
          starts one agent per task, each on its own branch.</p>
+    </div>
+    <div class="card">
+      <span class="g">routing</span>
+      <h3>The right model for each task</h3>
+      <p>Turn on routing for a project and fan out pre-sets tasks to a model
+         that suits them: a smaller one to run the tests, a stronger one for a
+         refactor. You see every choice before anything starts, and can change
+         it.</p>
+    </div>
+    <div class="card">
+      <span class="g">spend · limits</span>
+      <h3>See what each agent spends</h3>
+      <p>Claude Code and API agent panes estimate what each conversation has
+         cost, and show how close a Claude subscription is to its five-hour and
+         weekly limits. It's all worked out on your machine.</p>
     </div>
     <div class="card">
       <span class="g">context</span>
@@ -181,7 +196,9 @@
   <p class="eyebrow">Fan out</p>
   <h2>One plan in. A branch per task out.</h2>
   <p>Ask an agent for a plan and edit the list. Flockdeck starts an agent for
-     every line, each in its own worktree, and your deck fills up.</p>
+     every line, each in its own worktree, and your deck fills up. With
+     routing on, lines that match a rule come with a smaller or a stronger
+     model already chosen.</p>
   <div class="fan">
     <div class="fan-plan">
       <ol>
@@ -200,8 +217,8 @@
     </div>
   </div>
   <figure class="figure">
-    <img src="fanout.png" srcset="fanout-1584.png 1584w, fanout.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with a model picker for the whole run and for each task, and an option to give each agent its own git worktree.">
-    <figcaption class="caption">Fan out picks up the plan straight from the agent's output.</figcaption>
+    <img src="fanout.png" srcset="fanout-1584.png 1584w, fanout.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with the whole run on Claude Code's Sonnet and a model picker for each task. A line says routing chose a smaller model for one of the four tasks and a stronger one for another, beside a button to use the run's model for every task. Moving cart totals into a pricing package is set to Haiku and tagged routed, with an arrow pointing down; handling Stripe refund webhooks is set to Opus and tagged routed, with an arrow pointing up; the other two stay on the run's model. Below them are options to give each agent its own git worktree and to put them in this tab, and the Start button, beside 4 agents, 2 routed.">
+    <figcaption class="caption">Fan out picks up the plan straight from the agent's output, and routing marks each task it moved to another model.</figcaption>
   </figure>
 </section>
 
@@ -305,7 +322,7 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <h2>Pick any agent. See every branch.</h2>
   <div class="pair">
     <figure class="figure">
-      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The New agent tab picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up, and the OpenAI-compatible endpoint offers to take its address there and then. At its foot, a box makes the choice the default, for this project or for every project.">
+      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The New agent tab picker open over a window of running agents. Claude Code, marked as this project's default, Codex and Gemini CLI are listed as installed, with five, five and four models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up, and the OpenAI-compatible endpoint offers to take its address there and then. At its foot, a box makes the choice the default, for this project or for every project, beside a button that gives up this project's own default for the one every project uses.">
       <figcaption class="caption">Pick an agent and model for each pane.</figcaption>
     </figure>
     <figure class="figure">
@@ -411,7 +428,8 @@ make package    <span class="c"># archives for all six platforms</span></code></
          Flockdeck itself only contacts dl.flockdeck.ai to check for updates,
          with GitHub as a mirror, and the relay if you turn on remote access. The exception is the built-in API
          agents: they send your conversations to the model provider you
-         choose, with your own key. The <a href="privacy.html">privacy
+         choose, with your own key. Routing and the cost estimates add no
+         connection of their own. The <a href="privacy.html">privacy
          policy</a> has the details.</p>
     </details>
     <details>
@@ -419,6 +437,16 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>Not for command-line agents. Claude Code and the others use the login
          they already have. You only need a key to talk to a model API directly,
          and <code>flockdeck keys</code> stores it for you.</p>
+    </details>
+    <details>
+      <summary>Are the cost figures my bill?</summary>
+      <p>No, they're estimates. An API agent's tokens are priced from a dated
+         table of the providers' published prices, built into the app, and
+         Claude Code on an API key shows its own estimate. On a Claude
+         subscription the pane leads with your five-hour and weekly limits
+         instead. Flockdeck works all of it out on your machine and sends it
+         nowhere, except to your own paired devices with the rest of your
+         panes if you turn on remote access.</p>
     </details>
     <details>
       <summary>Can I use it from my phone?</summary>
