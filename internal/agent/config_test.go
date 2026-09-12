@@ -252,3 +252,23 @@ func TestAnEmptyConfigIsNoConfig(t *testing.T) {
 		}
 	}
 }
+
+// TestAParseErrorSaysWhereInTheFile: encoding/json gives a byte offset, or
+// for a file of the wrong shape a type name from inside this package.
+func TestAParseErrorSaysWhereInTheFile(t *testing.T) {
+	for body, want := range map[string]string{
+		"{\n  \"version\": 1,\n  \"agents\": [\n    {\"id\": \"x\"},\n  ]\n}\n":               "line 5, column 3",
+		"{\n  \"version\": 1,\n  \"defaults\": {\"agent\": \"codex\"}\n  \"agents\": []\n}\n": "line 4, column 3",
+		"[{\"id\": \"x\"}]":            "should be one object",
+		"{\n  \"version\": \"one\"\n}": `line 2, column 18: "version" cannot be string`,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		notice := LoadFrom(dir).Notice
+		if !strings.Contains(notice, want) || strings.Contains(notice, "agent.plain") {
+			t.Errorf("notice %q, want it to say %q", notice, want)
+		}
+	}
+}

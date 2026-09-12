@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -151,9 +152,38 @@ func readConfig(dir string) (*File, error) {
 	}
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", ConfigName, err)
+		return nil, fmt.Errorf("parse %s: %w", ConfigName, explainJSON(data, err))
 	}
 	return &f, nil
+}
+
+// explainJSON puts a parse error in the terms of the file somebody has open in
+// an editor. encoding/json gives a syntax error's place only as a byte offset,
+// and says of a file that is the wrong shape that it "cannot unmarshal array
+// into Go value of type agent.plain" -- a name from inside this package.
+func explainJSON(data []byte, err error) error {
+	var syn *json.SyntaxError
+	if errors.As(err, &syn) {
+		line, col := lineCol(data, syn.Offset)
+		return fmt.Errorf("line %d, column %d: %v", line, col, err)
+	}
+	if t := bytes.TrimSpace(data); len(t) > 0 && t[0] != '{' {
+		return errors.New(`the file should be one object, {"agents": [ ... ]}, not a list or a single value`)
+	}
+	var typ *json.UnmarshalTypeError
+	if errors.As(err, &typ) {
+		line, col := lineCol(data, typ.Offset)
+		return fmt.Errorf("line %d, column %d: %q cannot be %s", line, col, typ.Field, typ.Value)
+	}
+	return err
+}
+
+// lineCol turns the decoder's offset -- the count of bytes read when it
+// stopped, so the last of them is where it went wrong -- into the line and
+// column an editor shows that byte at.
+func lineCol(data []byte, offset int64) (line, col int) {
+	before := data[:max(0, min(int(offset), len(data))-1)]
+	return bytes.Count(before, []byte("\n")) + 1, len(before) - bytes.LastIndexByte(before, '\n')
 }
 
 // WriteConfig replaces agents.json in a directory.
