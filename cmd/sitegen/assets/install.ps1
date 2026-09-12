@@ -87,26 +87,34 @@ function Install-Flockdeck {
 
         $unpacked = Join-Path $tmp 'unpacked'
         Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $unpacked -Force
-        $exe = Join-Path $unpacked 'flockdeck.exe'
-        if (-not (Test-Path $exe)) { throw "flockdeck: $archive has no flockdeck.exe in it" }
+        if (-not (Test-Path (Join-Path $unpacked 'flockdeck.exe'))) { throw "flockdeck: $archive has no flockdeck.exe in it" }
 
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        # Windows will not overwrite an executable that is running, but it
-        # will rename one. This is what the application's own updater does:
-        # the old file goes to flockdeck.exe.old, and its next start removes it.
-        Copy-Item $exe "$dest.new" -Force
-        if (Test-Path $dest) {
-            # The last .old can itself still be running, when the installer is
-            # run a second time before the app has been restarted. Windows will
-            # not delete a running program but will rename one, so what is in
-            # the way is set aside under a name of its own instead.
-            $old = "$dest.old"
-            if (Test-Path $old) {
-                try { Remove-Item $old -Force } catch { $old = "$dest.$([Guid]::NewGuid().ToString('N')).old" }
+        # flockdeck-chat.exe is the console twin an API agent's pane runs,
+        # because flockdeck.exe itself gets no console there. Releases before it
+        # have none, so it goes in when the archive has one and is not missed
+        # when it does not. The archive's checksum covers both.
+        foreach ($name in 'flockdeck.exe', 'flockdeck-chat.exe') {
+            $from = Join-Path $unpacked $name
+            if (-not (Test-Path $from)) { continue }
+            $to = Join-Path $dir $name
+            # Windows will not overwrite an executable that is running, but it
+            # will rename one. This is what the application's own updater does:
+            # the old file goes to <name>.old, and its next start removes it.
+            Copy-Item $from "$to.new" -Force
+            if (Test-Path $to) {
+                # The last .old can itself still be running, when the installer
+                # is run a second time before the app has been restarted.
+                # Windows will not delete a running program but will rename one,
+                # so what is in the way is set aside under a name of its own.
+                $old = "$to.old"
+                if (Test-Path $old) {
+                    try { Remove-Item $old -Force } catch { $old = "$to.$([Guid]::NewGuid().ToString('N')).old" }
+                }
+                Move-Item $to $old
             }
-            Move-Item $dest $old
+            Move-Item "$to.new" $to
         }
-        Move-Item "$dest.new" $dest
     } finally {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
