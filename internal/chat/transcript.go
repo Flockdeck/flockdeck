@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -177,12 +178,32 @@ func (l *Log) Close() error {
 	return l.f.Close()
 }
 
-// entryScanner reads a transcript a line at a time, with a buffer large enough
-// for an entry carrying a whole file that a tool read.
-func entryScanner(r io.Reader) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
-	return sc
+// maxEntry bounds one entry read back from a transcript. A longer line -- a
+// paste of many megabytes, recorded whole -- is read past rather than kept.
+//
+// It used to end the read: the scanner gave up on the line and the error
+// took every entry with it, so one enormous paste left a conversation that
+// resume could not put back and the history could not list. A conversation
+// missing one entry is still a conversation.
+const maxEntry = 8 << 20
+
+// nextEntryLine reads one line of a transcript without its ending, and reports
+// whether it was longer than maxEntry, in which case none of it is kept.
+func nextEntryLine(br *bufio.Reader) (line []byte, long bool, err error) {
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if !long {
+			if len(line)+len(chunk) > maxEntry {
+				line, long = nil, true
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return bytes.TrimRight(line, "\r\n"), long, err
+	}
 }
 
 // ReadEntries reads a whole transcript. A line that does not parse is skipped
@@ -214,19 +235,26 @@ func readTail(path string, max int64) ([]Entry, error) {
 			partial = true
 		}
 	}
-	sc := entryScanner(f)
+	br := bufio.NewReaderSize(f, 64<<10)
 	if partial {
-		sc.Scan()
+		if _, _, err := nextEntryLine(br); err != nil {
+			return nil, nil
+		}
 	}
 	var out []Entry
-	for sc.Scan() {
+	for {
+		line, long, err := nextEntryLine(br)
 		var e Entry
-		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Type == "" {
-			continue
+		if !long && len(line) > 0 && json.Unmarshal(line, &e) == nil && e.Type != "" {
+			out = append(out, e)
 		}
-		out = append(out, e)
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
 	}
-	return out, sc.Err()
 }
 
 // Messages turns a transcript back into a conversation to resume from.
