@@ -269,6 +269,9 @@ func TestRemoteUsage(t *testing.T) {
 			t.Errorf("remote %v = %q, %v", args, out, err)
 		}
 		// What the relay can see is said plainly, as the README says it.
+		if !strings.Contains(out, "To move to another relay") {
+			t.Errorf("remote %v does not say how to change relay: %q", args, out)
+		}
 		if !strings.Contains(out, "decrypts") {
 			t.Errorf("remote %v does not say the relay decrypts the traffic: %q", args, out)
 		}

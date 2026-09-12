@@ -89,6 +89,8 @@ func remoteUsage(out io.Writer) {
 	fmt.Fprintf(out, "  revoke <id>    unpair a device\n")
 	fmt.Fprintf(out, "  disable [-force]  remove this machine from the relay\n\n")
 	fmt.Fprintf(out, "The relay is %s unless -relay or %s says otherwise.\n", remote.DefaultRelay, remote.RelayEnv)
+	fmt.Fprintf(out, "To move to another relay, disable remote access, then enable it with -relay.\n")
+	fmt.Fprintf(out, "In the window, Remote access… in the command palette does the same things.\n")
 	fmt.Fprintf(out, "Traffic is encrypted on its way to and from the relay, which decrypts it to\n")
 	fmt.Fprintf(out, "forward it: the relay is trusted, and it is not end-to-end encrypted.\n")
 }
