@@ -679,6 +679,8 @@ func agents(n int) string {
 // of any one worktree, so carrying on would bury the fan-out's own messages
 // under a dozen copies of the same complaint.
 func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to string) error, notify func(string)) {
+	trustWrites.Lock()
+	defer trustWrites.Unlock()
 	for _, j := range jobs {
 		if j.err != nil || j.cwd == "" || j.cwd == baseCwd {
 			continue
@@ -689,6 +691,14 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 		}
 	}
 }
+
+// trustWrites keeps two fan-outs' trust passes -- started from two windows at
+// once -- from each reading Claude Code's configuration, adding its own
+// worktrees and writing the whole file back without the other's. The session
+// package writes that file through one fixed temporary name, too, so two
+// passes side by side could also rename each other's half-written copy into
+// place, over a file that holds all of Claude Code's settings.
+var trustWrites sync.Mutex
 
 // specOrDefault looks up a fan-out row's agent away from the workspace
 // goroutine. A row on the run's default names no agent, and Workspace.AgentSpec
