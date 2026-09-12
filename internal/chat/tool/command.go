@@ -49,13 +49,20 @@ type runCommand struct {
 func (t *runCommand) Name() string { return "run_command" }
 
 func (t *runCommand) Describe() Schema {
+	description := "Run one program in the working directory and return its output and exit " +
+		"status. There is no shell, so pipes, redirection, globbing and command chaining " +
+		"(| > < ; && ||) are not available: run one program at a time and use the other " +
+		"tools to read files or find them. Arguments may be quoted with single or double " +
+		"quotes. The user is asked before anything runs."
+	if runtime.GOOS == "windows" {
+		// Said up front, because the only other way a model learns it is a
+		// failed call for every cmd.exe command it tries.
+		description += " On Windows, a command cmd.exe carries out itself -- dir, type, copy, " +
+			"del, mkdir -- has no program behind it and is run as `cmd /c dir`."
+	}
 	return Schema{
-		Name: t.Name(),
-		Description: "Run one program in the working directory and return its output and exit " +
-			"status. There is no shell, so pipes, redirection, globbing and command chaining " +
-			"(| > < ; && ||) are not available: run one program at a time and use the other " +
-			"tools to read files or find them. Arguments may be quoted with single or double " +
-			"quotes. The user is asked before anything runs.",
+		Name:        t.Name(),
+		Description: description,
 		Params: object(map[string]Property{
 			"command":         {Type: "string", Description: "The command line, for example: go test ./..."},
 			"timeout_seconds": {Type: "integer", Description: "How long to allow before the command is killed. Defaults to 120."},
