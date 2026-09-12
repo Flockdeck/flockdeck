@@ -194,16 +194,15 @@ func TestKeysSaysWhichAgentsTakeAKey(t *testing.T) {
 	if _, err := runKeysCmd(t, "sk-x\n", "set"); err == nil || !strings.Contains(err.Error(), "anthropic") {
 		t.Errorf("keys set with no agent = %v, want the ids listed", err)
 	}
-	out, err := runKeysCmd(t, "sk-x\n", "set", "anthropc")
-	if err != nil {
-		t.Fatalf("keys set: %v", err)
+	_, err := runKeysCmd(t, "sk-x\n", "set", "anthropc")
+	if err == nil || !strings.Contains(err.Error(), "no agent called anthropc") || !strings.Contains(err.Error(), "anthropic") {
+		t.Errorf("a mistyped id = %v, want it refused with the ids that take a key", err)
 	}
-	if !strings.Contains(out, "no agent called anthropc") || !strings.Contains(out, "anthropic") {
-		t.Errorf("a mistyped id was stored without a word:\n%s", out)
+	if creds.Has("anthropc") {
+		t.Error("a key was stored under a mistyped id")
 	}
-	out, _ = runKeysCmd(t, "sk-x\n", "set", "anthropic")
-	if strings.Contains(out, "note:") {
-		t.Errorf("a known id drew a note:\n%s", out)
+	if _, err := runKeysCmd(t, "sk-x\n", "set", "anthropic"); err != nil {
+		t.Errorf("a known id was refused: %v", err)
 	}
 }
 

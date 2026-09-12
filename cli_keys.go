@@ -136,6 +136,14 @@ func keysList(out io.Writer) error {
 
 // keysSet reads one key from standard input and stores it.
 func keysSet(agentID string, kio keysIO) error {
+	// The id is checked before the key is asked for: a key stored under a
+	// mistyped id is one nothing will ever read, leaving the agent still
+	// asking for one, and a key pasted only to be refused is pasted twice.
+	// An agent that is being added goes into agents.json first.
+	if ids := keyAgentIDs(); !slices.Contains(ids, agentID) {
+		return fmt.Errorf("no agent called %s takes a key: the ones that do are %s (an agent of your own goes in agents.json first)",
+			agentID, strings.Join(ids, ", "))
+	}
 	// A key pasted into a terminal that shows it is on the screen, in the
 	// scrollback, and in anything shared of either, so the terminal is asked
 	// not to show it. Where it cannot be, that is said plainly: pasting into a
@@ -192,14 +200,6 @@ func keysSet(agentID string, kio keysIO) error {
 	// pane already running still holds the key it started with.
 	fmt.Fprintf(kio.out, "stored a key for %s\n", agentID)
 	fmt.Fprintf(kio.out, "new panes use it; one already running picks it up when its old key is refused, or when it is restarted\n")
-	// A key stored under a mistyped id is a key nothing will ever read, and
-	// the only sign would be the agent still asking for one. It is kept all
-	// the same -- the id may be an agent about to be added to agents.json --
-	// but the ids that do take a key are named.
-	ids := keyAgentIDs()
-	if !slices.Contains(ids, agentID) {
-		fmt.Fprintf(kio.out, "note: no agent called %s takes a key yet; the ones that do are %s\n", agentID, strings.Join(ids, ", "))
-	}
 	return nil
 }
 
