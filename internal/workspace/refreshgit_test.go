@@ -2,6 +2,9 @@ package workspace
 
 import (
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +46,45 @@ func TestRefreshGitBoundsTheProcessesItStarts(t *testing.T) {
 	for _, p := range w.panes {
 		if p.Branch != "trunk" {
 			t.Errorf("pane in %s was not refreshed", p.Cwd)
+		}
+	}
+}
+
+// TestRefreshGitAsksOncePerCheckoutHoweverItIsSpelt covers panes in one
+// checkout whose directories are written differently — a trailing separator,
+// and on Windows a drive letter in another case. Each spelling cost a
+// whole-tree git status of its own, every refresh.
+func TestRefreshGitAsksOncePerCheckoutHoweverItIsSpelt(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed, so nothing is refreshed")
+	}
+	dir := filepath.Join(t.TempDir(), "repo")
+	other := dir + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		other = strings.ToUpper(dir[:1]) + dir[1:] + `\`
+		dir = strings.ToLower(dir[:1]) + dir[1:]
+	}
+	w := &Workspace{panes: map[string]*Pane{
+		"p": {ID: "p", Cwd: dir},
+		"q": {ID: "q", Cwd: other},
+	}, BroadcastSet: map[string]bool{}}
+
+	var calls atomic.Int32
+	status := gitStatus
+	gitStatus = func(string) gitx.Status {
+		calls.Add(1)
+		return gitx.Status{Branch: "trunk"}
+	}
+	t.Cleanup(func() { gitStatus = status })
+
+	w.RefreshGit(func(apply func()) { apply() })
+
+	if n := calls.Load(); n != 1 {
+		t.Errorf("git was asked %d times about one checkout, want once", n)
+	}
+	for _, p := range w.panes {
+		if p.Branch != "trunk" {
+			t.Errorf("pane in %q was not given the checkout's branch", p.Cwd)
 		}
 	}
 }

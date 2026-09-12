@@ -1702,15 +1702,21 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		return
 	}
 	// One status call per distinct directory, not per pane: several panes
-	// commonly share a checkout.
+	// commonly share a checkout. Distinct by pathKey rather than by string,
+	// since one checkout reaches panes spelt more than one way — a trailing
+	// separator, a drive letter in another case — and each spelling was a
+	// whole-tree status of its own. rep is the spelling git is asked with.
 	var cwds []string
-	seen := map[string]bool{}
+	rep := map[string]string{}
 	w.mu.RLock()
 	for _, p := range w.panes {
-		if p.Cwd == "" || seen[p.Cwd] {
+		if p.Cwd == "" {
 			continue
 		}
-		seen[p.Cwd] = true
+		if _, ok := rep[pathKey(p.Cwd)]; ok {
+			continue
+		}
+		rep[pathKey(p.Cwd)] = p.Cwd
 		cwds = append(cwds, p.Cwd)
 	}
 	w.mu.RUnlock()
@@ -1743,7 +1749,7 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		changed := false
 		w.mu.Lock()
 		for _, p := range w.panes {
-			st, ok := dirs[p.Cwd]
+			st, ok := dirs[rep[pathKey(p.Cwd)]]
 			if !ok || p.Git == st {
 				continue
 			}

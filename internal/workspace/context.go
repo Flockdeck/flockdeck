@@ -298,6 +298,18 @@ func sameDir(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
+// pathKey is a directory as a map key: cleaned, and case-folded where the
+// filesystem folds case, so that two spellings of one directory are one entry.
+// Only Windows is folded, where the spellings really do arrive — from the
+// command line, from git, from a picker — and where they name one directory.
+func pathKey(dir string) string {
+	d := filepath.Clean(dir)
+	if runtime.GOOS == "windows" {
+		d = strings.ToLower(d)
+	}
+	return d
+}
+
 // underDir reports whether dir is base or sits inside it.
 //
 // Case is folded for the same reason sameDir folds it: the two paths arrive
