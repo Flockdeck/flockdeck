@@ -282,6 +282,19 @@ func TestUsageNamesEveryFlag(t *testing.T) {
 	}
 }
 
+// The settings that have no flag are only discoverable if the usage names them.
+func TestUsageNamesTheEnvironment(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	for _, name := range []string{"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY"} {
+		if !strings.Contains(buf.String(), name) {
+			t.Errorf("%s is missing from the usage message", name)
+		}
+	}
+}
+
 // Saving walks the tabs and the pane tree; the server's own goroutine is still
 // changing them while any window is connected. Stopping the server has to come
 // first, or the one piece of state the user would notice losing is read while

@@ -202,6 +202,15 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
+	// These are settings with no flag, so this is the only place a person
+	// reading the usage would learn that they exist.
+	fmt.Fprintf(out, "\nEnvironment:\n")
+	fmt.Fprintf(out, "  %s=<program>\n", appwindow.BrowserEnv)
+	fmt.Fprintf(out, "        the browser that provides the window, instead of the first one found\n")
+	fmt.Fprintf(out, "  %s=off\n", updateEnv)
+	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
+	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
+	fmt.Fprintf(out, "        the relay remote access goes through, instead of the default one\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
