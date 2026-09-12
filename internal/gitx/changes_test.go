@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1169,5 +1170,36 @@ func TestAddedThenDeletedIsNotAChange(t *testing.T) {
 	}
 	if st := StatusOf(repo); st.HasChanges() {
 		t.Errorf("status = %+v; want nothing to commit, as the file list says", st)
+	}
+}
+
+// TestCommitRefusesAMergeWithMarkersInIt: "add --all" is what tells git a
+// conflict is resolved, so the commit button committed a merge with the
+// conflict markers still in the file.
+func TestCommitRefusesAMergeWithMarkersInIt(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "checkout", "-q", "-b", "other")
+	write(t, repo, "README.md", "theirs\n")
+	gitRun(t, repo, "commit", "-qam", "theirs")
+	gitRun(t, repo, "checkout", "-q", "main")
+	write(t, repo, "README.md", "ours\n")
+	gitRun(t, repo, "commit", "-qam", "ours")
+	if _, _, err := runCapture(context.Background(), commandTimeout, repo, "merge", "other"); err == nil {
+		t.Fatal("the merge should have stopped on a conflict")
+	}
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	err := CommitAll(repo, "from the panel")
+	if err == nil || !strings.Contains(err.Error(), "README.md") {
+		t.Fatalf("err = %v, want the conflicted file named", err)
+	}
+	if got := gitRun(t, repo, "rev-parse", "HEAD"); got != head {
+		t.Fatal("a commit was made with the markers in it")
+	}
+
+	// Sorted out by hand and not added: committing is how the panel adds it.
+	write(t, repo, "README.md", "both\n")
+	if err := CommitAll(repo, "merged"); err != nil {
+		t.Fatalf("a resolved merge should commit: %v", err)
 	}
 }

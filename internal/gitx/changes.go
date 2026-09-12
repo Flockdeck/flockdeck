@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -618,11 +619,63 @@ func CommitAll(dir, message string) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
+	// git refuses to commit while a merge has files in conflict, and "add
+	// --all" is what tells it they are resolved -- so the button committed a
+	// merge with the conflict markers still in it. A file that has been sorted
+	// out and merely not added is fine: committing is how the panel adds it.
+	if left := conflicted(dir); len(left) > 0 {
+		names := strings.Join(left[:min(len(left), 3)], ", ")
+		if len(left) > 3 {
+			names += fmt.Sprintf(" and %d more", len(left)-3)
+		}
+		return &gitError{"still in conflict: " + names + " — resolve the <<<<<<< markers first, then commit"}
+	}
 	if _, _, err := runCapture(context.Background(), networkTimeout, dir, "add", "--all"); err != nil {
 		return err
 	}
 	_, _, err := runCapture(context.Background(), networkTimeout, dir, "commit", "-m", message)
 	return err
+}
+
+// conflicted names the files a merge left unresolved that still hold the
+// markers git wrote into them.
+func conflicted(dir string) []string {
+	out, err := run(dir, "diff", "--name-only", "--diff-filter=U", "-z")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, name := range strings.Split(out, "\x00") {
+		if name != "" && hasConflictMarkers(filepath.Join(dir, name)) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// hasConflictMarkers reports whether a file has a line git starts a conflict
+// with, or ends one with. It reads a line at a time, since a conflicted file
+// can be large and is only wanted for the answer.
+func hasConflictMarkers(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadSlice('\n')
+		if bytes.HasPrefix(line, []byte("<<<<<<< ")) || bytes.HasPrefix(line, []byte(">>>>>>> ")) {
+			return true
+		}
+		// The rest of a line too long for the buffer is not the start of one.
+		for err == bufio.ErrBufferFull {
+			_, err = r.ReadSlice('\n')
+		}
+		if err != nil {
+			return false
+		}
+	}
 }
 
 // errEmptyMessage is returned rather than letting git open an editor, which
