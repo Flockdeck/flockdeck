@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"regexp"
@@ -21,6 +22,9 @@ const (
 	// grepMaxLine bounds one reported line, so that a minified bundle with a
 	// single matching line does not arrive whole.
 	grepMaxLine = 300
+	// grepScanLine bounds how much of one line is searched: the first
+	// megabyte, which is all of any line anybody wrote by hand.
+	grepScanLine = 1 << 20
 )
 
 // grepTool searches file contents by regular expression.
@@ -172,11 +176,13 @@ func matchFile(abs string, re *regexp.Regexp, filesOnly bool, room int) ([]strin
 	}
 	var hits []string
 	for n := 1; ; n++ {
-		line, err := r.ReadString('\n')
-		if line == "" && err != nil {
+		// Only so much of a line is searched. One line of a minified bundle or
+		// a log can be as long as the file, and read whole it would be held in
+		// memory whole, however large.
+		text, _, err := nextLine(r, grepScanLine)
+		if err != nil && (err != io.EOF || text == "") {
 			return hits, nil
 		}
-		text := strings.TrimRight(line, "\r\n")
 		if re.MatchString(text) {
 			if filesOnly {
 				return []string{""}, nil
@@ -193,10 +199,16 @@ func matchFile(abs string, re *regexp.Regexp, filesOnly bool, room int) ([]strin
 }
 
 // clip shortens a matching line to something a terminal can show on one row.
+//
+// It counts its way along rather than converting the whole line to runes,
+// which for a line of a megabyte is four megabytes to keep three hundred.
 func clip(s string) string {
-	r := []rune(s)
-	if len(r) > grepMaxLine {
-		return string(r[:grepMaxLine]) + "..."
+	n := 0
+	for i := range s {
+		if n == grepMaxLine {
+			return s[:i] + "..."
+		}
+		n++
 	}
 	return s
 }
