@@ -158,6 +158,7 @@ func (c *Catalog) parseAllRouting(f *File) []string {
 		var more []string
 		c.Routing, more = parseRouting(f.Routing, "routing")
 		problems = append(problems, more...)
+		problems = append(problems, c.unknownAgents(c.Routing, "routing")...)
 	}
 	projects := make([]string, 0, len(f.Projects))
 	for p, d := range f.Projects {
@@ -169,10 +170,34 @@ func (c *Catalog) parseAllRouting(f *File) []string {
 	for _, p := range projects {
 		policy, more := parseRouting(*f.Projects[p].Routing, "routing for "+p)
 		problems = append(problems, more...)
+		problems = append(problems, c.unknownAgents(policy, "routing for "+p)...)
 		if c.ProjectRouting == nil {
 			c.ProjectRouting = map[string]RoutingPolicy{}
 		}
 		c.ProjectRouting[p] = policy
+	}
+	return problems
+}
+
+// unknownAgents names each rule of a policy that names an agent the catalog
+// does not have.
+//
+// Ids are matched exactly, so such a rule -- a hand-typed "Claude", an agent
+// since taken out of agents.json -- never matches anything, and without a word
+// that looks like routing choosing to leave the work alone. The rule is kept:
+// it is harmless, and the agent may yet be added.
+func (c *Catalog) unknownAgents(p RoutingPolicy, where string) []string {
+	var problems []string
+	for _, r := range p.Rules {
+		for _, id := range []string{r.Agent, r.When.Agent} {
+			if id == "" {
+				continue
+			}
+			if _, ok := c.Find(id); !ok {
+				problems = append(problems, fmt.Sprintf("%s: rule %q names the agent %q, which is not one of the agents here, so it never matches", where, r.Name, id))
+				break
+			}
+		}
 	}
 	return problems
 }
