@@ -2453,11 +2453,18 @@
     searchPane = "";
     focusTerminal();
   }
-  function runSearch(back) {
+  /** runSearch finds the next or previous match. `typing` is a search made
+   *  as the words are typed rather than asked for with Enter, which keeps the
+   *  match already found while it still matches instead of moving past it. */
+  function runSearch(back, typing) {
     const p = panes.get(searchPane);
     const q = $("search-input").value;
-    if (!p || !p.search || !q) { noMatch(false); return; }
-    const opts = { decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
+    if (!p || !p.search || !q) {
+      if (p && p.search) { try { p.search.clearDecorations(); } catch {} }
+      noMatch(false);
+      return;
+    }
+    const opts = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
     let found = false;
     try {
       found = back ? p.search.findPrevious(q, opts) : p.search.findNext(q, opts);
@@ -4397,6 +4404,15 @@
   $("search-next").onclick = () => { runSearch(false); $("search-input").focus(); };
   $("search-prev").onclick = () => { runSearch(true); $("search-input").focus(); };
   $("search-close").onclick = closeSearch;
+  // The search follows the typing, as it does in any terminal or editor:
+  // waiting for Enter left the field saying nothing about whether the word
+  // was there at all until it had been typed in full and sent. A short pause
+  // first, so a long scrollback is not searched once for every letter.
+  let searchTimer = 0;
+  $("search-input").oninput = () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => runSearch(false, true), 120);
+  };
   $("notice").onclick = hideNotice;
   // A link out of the application - the help has one, to where Claude Code is
   // installed from - followed in place replaces the application with the page

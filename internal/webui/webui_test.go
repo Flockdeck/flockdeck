@@ -2730,6 +2730,35 @@ assert.ok(h.$("searchbar").hidden, "Escape on one of the bar's buttons did not c
 `)
 }
 
+// The find bar searched only when Enter was pressed, so the field said nothing
+// about whether a word was there until it had been typed in full and sent. It
+// searches as the word is typed, once per pause rather than once per letter.
+func TestTheFindBarSearchesAsItIsTypedInto(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("findInTerminal");
+const input = h.$("search-input");
+const search = h.searchers[0];
+for (const q of ["e", "er", "err"]) { input.value = q; input.oninput(); }
+await h.sleep(200);
+assert.deepStrictEqual(search.forward, ["err"], "typing did not search, or searched once for every letter");
+
+search.hit = false;
+input.value = "errx";
+input.oninput();
+await h.sleep(200);
+assert.strictEqual(input.getAttribute("aria-invalid"), "true", "a word that is not there was not said to be missing");
+
+const cleared = search.cleared;
+input.value = "";
+input.oninput();
+await h.sleep(200);
+assert.ok(search.cleared > cleared, "emptying the field left the last search marked");
+assert.strictEqual(input.getAttribute("aria-invalid"), "false");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
