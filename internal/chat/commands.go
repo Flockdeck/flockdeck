@@ -160,6 +160,13 @@ func (s *session) chooseModel(ctx context.Context, arg string) {
 		s.out.line(ansiDim, "switch with /model <number>, or /model <id> for any other")
 		return
 	}
+	if len(s.choices()) == 0 {
+		// Nothing has been listed yet, so there is nothing to match a part of
+		// a name or a number against: "/model qwen" was taken as the id
+		// "qwen", which the endpoint does not have. It is asked first, as a
+		// bare /model would ask it.
+		s.listModels(ctx)
+	}
 	if n, err := strconv.Atoi(arg); err == nil {
 		if n < 1 || n > len(s.choices()) {
 			s.out.line(ansiRed, fmt.Sprintf("there is no model %d in the list; /model shows it", n))
@@ -249,11 +256,18 @@ func (s *session) pickOnlyModel(ctx context.Context) {
 		// not answering will say so soon enough when it is asked something.
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		if ids, err := lister.ListModels(ctx); err == nil && len(ids) == 1 {
-			s.model = ids[0]
-			s.listed = []ModelChoice{{ID: ids[0]}}
-			s.out.line(ansiDim, "(answering with "+ids[0]+", the one model the endpoint offers)")
-			return
+		if ids, err := lister.ListModels(ctx); err == nil {
+			// Kept whether or not there is only one, so that /model 2 or
+			// /model qwen has them to choose from without asking again.
+			s.listed = s.listed[:0]
+			for _, id := range ids {
+				s.listed = append(s.listed, ModelChoice{ID: id})
+			}
+			if len(ids) == 1 {
+				s.model = ids[0]
+				s.out.line(ansiDim, "(answering with "+ids[0]+", the one model the endpoint offers)")
+				return
+			}
 		}
 	}
 	s.out.line(ansiDim, "no model is named for this agent; /model shows the ones to choose from")
