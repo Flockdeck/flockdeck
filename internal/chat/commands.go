@@ -44,7 +44,11 @@ func (s *session) command(ctx context.Context, line string) bool {
 	case "status":
 		s.status()
 	default:
-		s.out.line(ansiDim, "no such command: /"+name+" — try /help")
+		if near := nearestCommand(name); near != "" {
+			s.out.line(ansiDim, "no such command: /"+name+" — did you mean /"+near+"?")
+		} else {
+			s.out.line(ansiDim, "no such command: /"+name+" — try /help")
+		}
 	}
 	return false
 }
