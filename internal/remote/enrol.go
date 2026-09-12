@@ -73,6 +73,14 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	if strings.HasPrefix(strings.TrimSpace(req.Invite), "fdp_") {
 		return nil, false, errors.New("that is a join code, not an invitation; give it as the join code (-join)")
 	}
+	// A machine's own credential (fdh_, as remote.json holds) or a browser's
+	// session (fdd_) is a secret, not a code for joining or registering, and
+	// somebody copying one across has a code made for the purpose to use.
+	for _, code := range []string{req.Join, req.Invite} {
+		if c := strings.TrimSpace(code); strings.HasPrefix(c, "fdh_") || strings.HasPrefix(c, "fdd_") {
+			return nil, false, errors.New("that is a credential, not a code to join or register with, and it is not for passing on; a machine joins another's account with a code `flockdeck remote pair -desktop` prints")
+		}
+	}
 	relay, err := RelayURL(req.Relay)
 	if err != nil {
 		return nil, false, err
