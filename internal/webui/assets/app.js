@@ -3200,9 +3200,7 @@
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
-      if (!p.active) {
-        cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
-      }
+      cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
     });
     (s.tabs || []).forEach((t) => {
       if (t.id === s.activeTab) return;
