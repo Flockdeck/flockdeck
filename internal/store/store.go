@@ -83,8 +83,9 @@ type Pane struct {
 // Dir returns the per-user directory holding Flockdeck's state.
 //
 // It is kept private to the user. Below it sit the local server's auth token,
-// the browser profile the application window signs in through, and the
-// generated settings handed to each agent; the files themselves are written
+// the browser profile the application window signs in through (except on
+// Windows, where BrowserProfileDir keeps it in the local folder instead), and
+// the generated settings handed to each agent; the files themselves are written
 // 0600, but a world-readable directory still lets any other account on the
 // machine list them and read whatever was not written by this package.
 func Dir() (string, error) {
