@@ -77,7 +77,10 @@ func (s *Server) updatePrefs(change func(*store.Prefs) bool) {
 		}
 		if err := store.SavePrefs(p); err != nil {
 			// Preferences are a convenience; failing to record one must not
-			// interrupt what the person was actually doing.
+			// interrupt what the person was actually doing. But the window has
+			// already applied the change and said so, and it would go back at
+			// the next start with nothing to say why -- so that is said now.
+			s.notifyAll("could not save the setting, so it will not be kept after flockdeck restarts: "+err.Error(), true)
 			return
 		}
 		s.prefs = p
