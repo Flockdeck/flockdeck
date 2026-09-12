@@ -1256,7 +1256,14 @@ func orderSpawnArgs(fs *flag.FlagSet, args []string) []string {
 		if len(arg) > 1 && arg[0] == '-' {
 			flags = append(flags, arg)
 			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-			if !hasValue && takesValue(fs, name) && i+1 < len(args) {
+			if !hasValue && takesValue(fs, name) {
+				if i+1 == len(args) {
+					// A value flag with nothing after it is left last, alone, so
+					// the flag set says it needs an argument. Followed by the
+					// separator below, it took "--" as its value: `spawn "fix
+					// it" --worktree` asked for a worktree on a branch called --.
+					return flags
+				}
 				i++
 				flags = append(flags, args[i])
 			}

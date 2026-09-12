@@ -269,6 +269,22 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 	}
 }
 
+// A value flag given last with no value has to be reported as missing one.
+// The separator the reordering adds used to follow it, and the flag set took
+// "--" for its value: a worktree on a branch called --, and no complaint.
+func TestSpawnValueFlagWithNothingAfterItIsAnError(t *testing.T) {
+	for _, args := range [][]string{
+		{"watch the build", "--worktree"},
+		{"watch the build", "--agent"},
+		{"--split", "watch the build", "-model"},
+	} {
+		req, err := parseSpawn(args)
+		if err == nil {
+			t.Errorf("parseSpawn(%q) = %+v, want an error for the missing value", args, req)
+		}
+	}
+}
+
 // One Ctrl+C asks for an orderly stop. A second, arriving while that is still
 // going, has to be acted on: signal.Notify has taken the key away from the
 // runtime, so nothing else will.
