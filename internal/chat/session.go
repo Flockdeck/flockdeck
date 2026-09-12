@@ -309,9 +309,16 @@ func (s *session) readPrompt(ctx context.Context) (string, bool) {
 				s.out.line(ansiDim, "(press Ctrl+C again to leave, or type /exit)")
 				continue
 			case line = <-s.in.lines:
+				// A paste arrives as lines in a burst, and each would
+				// otherwise be sent as a prompt of its own: a stack trace
+				// pasted to ask about it went as twenty questions.
+				if rest := s.in.pending(); len(rest) > 0 {
+					line = strings.Join(append([]string{line}, rest...), "\n")
+					s.out.line(ansiDim, fmt.Sprintf("(%d pasted lines, sent as one prompt)", len(rest)+1))
+				}
 			}
 		}
-		if line == lineTooLong {
+		if strings.Contains(line, lineTooLong) {
 			s.out.line(ansiRed, fmt.Sprintf("(that line was longer than %d MB and was not sent; put it in a file and ask for the file instead)", maxLine>>20))
 			gathered = nil
 			continue
@@ -593,7 +600,7 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 	// -- the next prompt, typed while the model worked -- and taken as the
 	// answer it would decline the call with the prompt as the reason. It is
 	// kept for the prompt instead.
-	s.ahead = append(s.ahead, s.in.typedAhead()...)
+	s.ahead = append(s.ahead, s.in.pending()...)
 	s.reporter.notification(t.Name())
 	always, canAlways := "", false
 	if a, is := t.(AlwaysApprover); is {

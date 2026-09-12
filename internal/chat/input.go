@@ -78,11 +78,20 @@ func newInput(r io.Reader, console bool) *input {
 	return in
 }
 
-// typedAhead collects the lines already waiting: typed while nothing was asking
-// for them, and so not answers to whatever is about to be asked. The reader
-// hands over one line and then reads the next the terminal already holds, so a
-// moment's wait is enough to be sure none is left.
-func (in *input) typedAhead() []string {
+// pasteGap is how long after one line the next has to arrive to belong with
+// it. A paste arrives as a burst of lines far faster than this, and nobody
+// types a second line this soon after pressing Enter.
+const pasteGap = 30 * time.Millisecond
+
+// pending collects the lines already waiting, or arriving within pasteGap of
+// each other. At a question they are lines typed while nothing was asking, and
+// so not answers to it; after a line at the prompt they are the rest of a paste.
+// The reader hands over one line and then reads the next the terminal already
+// holds, so a moment's wait is enough to be sure none is left.
+//
+// Only a terminal has lines typed ahead or pasted: from a pipe or a file every
+// line is waiting at once, and each is meant on its own.
+func (in *input) pending() []string {
 	if !in.console {
 		return nil
 	}
@@ -91,7 +100,7 @@ func (in *input) typedAhead() []string {
 		select {
 		case line := <-in.lines:
 			got = append(got, line)
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(pasteGap):
 			return got
 		}
 	}
