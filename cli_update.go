@@ -51,7 +51,7 @@ func runUpdate(args []string) error {
 	// to say, which for a repository that has published nothing yet is a 404.
 	if !selfupdate.Parseable(version) {
 		fmt.Printf("This build (%s) was not made from a release, so there is no released version to compare it with.\n", shownVersion())
-		fmt.Printf("Releases are published from %s; a build made here is stamped by git describe.\n", selfupdate.Repo)
+		fmt.Printf("Releases are published from %s; only a copy installed from one of them is updated.\n", selfupdate.Repo)
 		return nil
 	}
 
