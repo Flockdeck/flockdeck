@@ -1642,9 +1642,12 @@
     p.cast.textContent = "";
     if (v.broadcast) {
       p.cast.append(glyph("⇉"), document.createTextNode(s.broadcast ? " broadcast" : " in set"));
+      // In the set it receives the prompt bar's message whether broadcast is
+      // on or not; this used to say it would only once broadcast was turned
+      // on, which is not what happens.
       describe(p.cast, s.broadcast
         ? "What you type in the prompt bar is delivered to this pane. " + TIPS.broadcast
-        : "This pane is in the broadcast set, so it receives what you type in the prompt bar once broadcast is on. " + TIPS.broadcast);
+        : "This pane is in the broadcast set, which it was put in by hand, so what you send from the prompt bar reaches it now, broadcast on or off. " + TIPS.broadcast);
     } else {
       delete p.cast.dataset.tip;
     }
@@ -1825,8 +1828,12 @@
     bar.hidden = false;
     promptAt = promptHistory.length;
     promptDraft = "";
+    // Whether or not broadcast is on: the message goes to the focused pane and
+    // every pane in the set, and a pane picked by hand with ⇉ stays in the set
+    // with broadcast off. Counting only while it was on said "Prompt" over a
+    // message about to reach three agents.
     const n = state ? countBroadcast(state) : 1;
-    $("prompt-label").textContent = state && state.broadcast && n > 1 ? `Prompt → ${n} panes` : "Prompt";
+    $("prompt-label").textContent = n > 1 ? `Prompt → ${n} panes` : "Prompt";
     const input = $("prompt-input");
     input.value = "";
     input.focus();

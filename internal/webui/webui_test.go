@@ -3559,6 +3559,28 @@ assert.ok(!h.commands().slice(before).some((c) => c.cmd === "toggleZoom"), "a do
 `)
 }
 
+// The prompt bar's message goes to the focused pane and every pane in the
+// broadcast set, and a pane picked by hand stays in the set with broadcast
+// off. The bar counted its recipients only while broadcast was on, and a
+// picked pane's tooltip said it would receive the message once broadcast was
+// turned on: with it off, both said less was happening than was.
+func TestThePromptBarSaysWhoItReachesWithBroadcastOff(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ broadcast: false,
+  tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+    root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2", { broadcast: true }) } }));
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes",
+  "with broadcast off the bar said it reaches one pane, and the message reaches two");
+h.key({ key: "Escape" });
+
+const cast = h.$("workspace").querySelectorAll("span.pane-cast").find((s) => s.dataset.tip);
+assert.ok(!/once broadcast is on/.test(cast.dataset.tip), "a picked pane still says it waits for broadcast: " + cast.dataset.tip);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
