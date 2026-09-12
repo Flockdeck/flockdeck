@@ -32,8 +32,9 @@ type Options struct {
 	Task string
 
 	// Wire, BaseURL and KeyEnv are the agent's APISpec, passed in rather than
-	// looked up: what the pane runs is decided by whoever built the argv, and
-	// the chat client does not need a catalog of its own to be told.
+	// looked up here: the chat client has no catalog of its own. A flag or a
+	// variable can say them; otherwise `flockdeck chat` reads them from the
+	// agent's catalog entry before it gets here.
 	Wire      string
 	BaseURL   string
 	KeyEnv    []string

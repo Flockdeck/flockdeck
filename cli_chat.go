@@ -33,6 +33,7 @@ func runChat(args []string) error {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
 	}
+	fillFromCatalog(&opts)
 	opts.Tools = chatTools(opts.Cwd, storedKeyVars(opts.Agent))
 	opts.Models = catalogModels(opts.Agent)
 	chat.KeyStore = storedKey
@@ -50,6 +51,38 @@ func catalogEndpoint(agentID string) string {
 		}
 	}
 	return ""
+}
+
+// fillFromCatalog takes the agent's wire, address and key variables from its
+// catalog entry, agents.json included, wherever the command line and the
+// environment left them unsaid.
+//
+// A pane is started as `flockdeck chat --agent <id>` and nothing more of the
+// endpoint (chatArgs, in the agent package, writes the id in precisely so that
+// the entry can be read from here). Left unread, every API agent's chat spoke
+// the Anthropic wire to Anthropic's address, asked for ANTHROPIC_API_KEY, and
+// sent an OpenAI or Gemini key there; a local model server's address was never
+// used at all, and `flockdeck keys endpoint` changed nothing a pane would see.
+// A flag or a variable that does say is still what the chat uses.
+func fillFromCatalog(opts *chat.Options) {
+	if opts.Agent == "" {
+		return
+	}
+	for _, s := range agent.Load().Specs {
+		if s.ID != opts.Agent {
+			continue
+		}
+		if opts.Wire == "" {
+			opts.Wire = s.API.Wire
+		}
+		if opts.BaseURL == "" {
+			opts.BaseURL = s.API.BaseURL
+		}
+		if len(opts.KeyEnv) == 0 {
+			opts.KeyEnv = s.API.KeyEnv
+		}
+		return
+	}
 }
 
 // catalogModels are the models the pane's agent offers in the catalog,
