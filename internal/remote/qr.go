@@ -49,7 +49,13 @@ func QRSVG(text string) (string, error) {
 // terminals have, the code comes out the right way round: dark modules on a
 // light field, quiet zone included.
 func QRTerminal(text string) (string, error) {
-	code, err := qr.Encode(text, qr.L)
+	// Level M, as the window's, corrects twice what L does, which is what
+	// carries a phone's camera past glare on a laptop's screen, an angle, or
+	// a code a light theme has inverted. For the hosted relay's links it
+	// costs nothing: they are version 4, 33 modules, at L and M alike; only a
+	// long address of one's own grows by one version, four columns and two
+	// lines.
+	code, err := qr.Encode(text, qr.M)
 	if err != nil {
 		return "", fmt.Errorf("draw the pairing code: %w", err)
 	}

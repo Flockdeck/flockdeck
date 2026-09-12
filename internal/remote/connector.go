@@ -42,7 +42,8 @@ const (
 	StateError      State = "error"
 )
 
-// Status is what the window and the command line are told about the tunnel.
+// Status is what the window is told about the tunnel. The command line asks
+// the relay instead, since the tunnel belongs to a process it is not.
 type Status struct {
 	State  State     `json:"state"`
 	Detail string    `json:"detail,omitempty"`
@@ -66,6 +67,11 @@ var (
 	// relay learns of a dropped connection anyway; a polite close only lets it
 	// say so sooner, and is not worth holding up a shutdown for.
 	closeWait = time.Second
+	// keepAlive is how often the tunnel is pinged, and keepAliveTimeout how
+	// long a relay may stay silent before it is taken to be gone. The relay
+	// uses the same two.
+	keepAlive        = 15 * time.Second
+	keepAliveTimeout = 45 * time.Second
 )
 
 // smuxConfig is the multiplexer's configuration, which has to agree with the
@@ -74,8 +80,8 @@ var (
 func smuxConfig() *smux.Config {
 	cfg := smux.DefaultConfig()
 	cfg.Version = 2
-	cfg.KeepAliveInterval = 15 * time.Second
-	cfg.KeepAliveTimeout = 45 * time.Second
+	cfg.KeepAliveInterval = keepAlive
+	cfg.KeepAliveTimeout = keepAliveTimeout
 	cfg.MaxReceiveBuffer = 4 << 20
 	cfg.MaxStreamBuffer = 1 << 20
 	return cfg
@@ -97,6 +103,8 @@ type Connector struct {
 	status Status
 	cancel context.CancelFunc
 	done   chan struct{}
+	// retry cuts short the wait before the next attempt; see RetryNow.
+	retry chan struct{}
 }
 
 // NewConnector prepares a tunnel for an enrolment; Start opens it.
@@ -106,6 +114,7 @@ func NewConnector(cfg Config, version string, serve func(net.Listener) error, ch
 		version: version,
 		serve:   serve,
 		changed: changed,
+		retry:   make(chan struct{}, 1),
 		status: Status{
 			State: StateOff, Since: time.Now(),
 			Relay: cfg.Relay, HostID: cfg.HostID, Name: cfg.Name,
@@ -133,6 +142,10 @@ func (c *Connector) Start() {
 	c.done = make(chan struct{})
 	done := c.done
 	c.mu.Unlock()
+	// Connecting from the moment Start returns: whatever is told of it just
+	// after, the window as remote access comes on, would otherwise see it
+	// off for the instant before the goroutine below gets to run.
+	c.set(StateConnecting, "", time.Time{})
 	go func() {
 		defer close(done)
 		c.run(ctx)
@@ -150,6 +163,16 @@ func (c *Connector) Stop() {
 	}
 	cancel()
 	<-done
+}
+
+// RetryNow cuts short the wait before the next attempt, when one is being
+// waited out, so that somebody who has put right whatever was wrong need not
+// sit through up to a minute of backoff to see it.
+func (c *Connector) RetryNow() {
+	select {
+	case c.retry <- struct{}{}:
+	default:
+	}
 }
 
 // set records a new status and says so. A status that has not moved is not
@@ -173,8 +196,9 @@ func (c *Connector) set(state State, detail string, retryAt time.Time) {
 }
 
 // errReplaced is the relay saying another connection has taken this host's
-// place.
-var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside")
+// place. This one does not come back of its own accord, even once the other
+// has gone, so it says what does bring it back.
+var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside; restart this one to take remote access back")
 
 // run is the life of the tunnel: connect, serve, and on losing it, wait and
 // connect again — longer each time it keeps failing, and not at all once the
@@ -198,12 +222,22 @@ func (c *Connector) run(ctx context.Context) {
 			return
 		}
 		// A tunnel that held for a good while and then dropped is a new
-		// problem, not the next failure of an old one, and is retried promptly.
+		// problem, not the next failure of an old one, and is retried
+		// promptly. Until that retry has failed too it is not shown as
+		// trouble: a relay restarting drops every tunnel, and nothing here
+		// needs anybody for the second it takes to come back.
+		state := StateError
 		if time.Since(began) > stableAfter {
-			wait = backoffMin
+			wait, state = backoffMin, StateConnecting
 		}
 		pause := jitter(wait)
-		c.set(StateError, err.Error(), time.Now().Add(pause))
+		// A retry asked for before this wait began was for one that is over;
+		// only one asked for during it cuts it short.
+		select {
+		case <-c.retry:
+		default:
+		}
+		c.set(state, err.Error(), time.Now().Add(pause))
 		timer := time.NewTimer(pause)
 		select {
 		case <-ctx.Done():
@@ -211,6 +245,8 @@ func (c *Connector) run(ctx context.Context) {
 			c.set(StateOff, "", time.Time{})
 			return
 		case <-timer.C:
+		case <-c.retry:
+			timer.Stop()
 		}
 		wait = min(wait*2, backoffMax)
 	}
@@ -223,7 +259,7 @@ func revokedDetail(err error) string {
 	if errors.As(err, &api) && api.Message != "" {
 		msg += " (" + api.Message + ")"
 	}
-	return msg + "; run `flockdeck remote enable` to enrol it again"
+	return msg + "; enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
 }
 
 // jitter spreads retries between half and all of d, so that every desktop that
@@ -236,34 +272,63 @@ func jitter(d time.Duration) time.Duration {
 	return half + rand.N(half)
 }
 
-// session is one tunnel, from dialling to losing it.
-func (c *Connector) session(ctx context.Context) error {
-	dialCtx, cancelDial := context.WithTimeout(ctx, dialTimeout)
-	defer cancelDial()
+// dialFailure says why the relay could not be reached. The window puts it
+// after "Cannot reach <relay>:", so it says what went wrong and not again
+// where, and in words rather than as the error of a context or a handshake.
+func dialFailure(err error, resp *http.Response) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("no answer within %s", dialTimeout)
+	case resp != nil && resp.StatusCode != http.StatusSwitchingProtocols:
+		return fmt.Errorf("it answered %s rather than opening the tunnel", resp.Status)
+	}
+	return transportError(err)
+}
+
+// dial opens the WebSocket the tunnel runs over. The timeout is on the
+// handshake alone: the connection it hands back outlives it.
+func (c *Connector) dial(ctx context.Context) (*websocket.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+c.cfg.Token)
 	if c.version != "" {
 		h.Set("Flockdeck-Version", c.version)
 	}
-	conn, resp, err := websocket.Dial(dialCtx, c.cfg.Relay+"/api/v1/host/connect", &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(ctx, c.cfg.Relay+"/api/v1/host/connect", &websocket.DialOptions{
+		HTTPClient:   relayHTTP,
 		HTTPHeader:   h,
 		Subprotocols: []string{Subprotocol},
 	})
-	if err != nil {
-		// A refusal is the relay's to explain, and a 401 or 403 in particular
-		// is the one answer that must stop the retrying.
-		if resp != nil && resp.StatusCode >= 400 {
-			var body []byte
-			if resp.Body != nil {
-				body, _ = io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-			}
-			return decodeError(resp.StatusCode, body)
+	if err == nil {
+		// A relay that does not know this build's tunnel still accepts the
+		// WebSocket, only without agreeing to the subprotocol, and what it
+		// makes of the multiplexer's frames after that is anybody's guess. So
+		// it is said here, in words, rather than as whatever fails first.
+		if conn.Subprotocol() != Subprotocol {
+			conn.CloseNow()
+			return nil, fmt.Errorf("it answered, but does not speak this version's tunnel (%s); the relay or this Flockdeck needs updating", Subprotocol)
 		}
-		return fmt.Errorf("reach the relay at %s: %w", c.cfg.Relay, unwrapURLError(err))
+		return conn, nil
 	}
-	// smux never writes a frame near this size; the limit is here so that a
-	// relay that has gone wrong cannot have this process buffer without end.
-	conn.SetReadLimit(1 << 20)
+	// A refusal is the relay's to explain, and a 401 or 403 in particular is
+	// the one answer that must stop the retrying.
+	if resp != nil && resp.StatusCode >= 400 {
+		var body []byte
+		if resp.Body != nil {
+			body, _ = io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		}
+		return nil, decodeError(resp.StatusCode, body)
+	}
+	return nil, dialFailure(err, resp)
+}
+
+// session is one tunnel, from dialling to losing it.
+func (c *Connector) session(ctx context.Context) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
+	}
 
 	// The tunnel lives for as long as this session does, so the byte stream
 	// over the WebSocket is bound to a context of its own rather than to ctx:
@@ -274,6 +339,10 @@ func (c *Connector) session(ctx context.Context) error {
 		Conn:   websocket.NetConn(streamCtx, conn, websocket.MessageBinary),
 		failed: make(chan struct{}),
 	}
+	// smux never writes a frame near this size; the limit is here so that a
+	// relay that has gone wrong is dropped rather than read without end. It
+	// comes after NetConn, which lifts whatever limit was set before it.
+	conn.SetReadLimit(1 << 20)
 	sess, err := smux.Server(rec, smuxConfig())
 	if err != nil {
 		conn.CloseNow()
@@ -284,7 +353,8 @@ func (c *Connector) session(ctx context.Context) error {
 	served := make(chan error, 1)
 	go func() { served <- c.serve(listener{sess}) }()
 
-	serving := true
+	serving, silent := true, false
+	var serveErr error
 	select {
 	case <-ctx.Done():
 		// Say goodbye, briefly. The relay would find out anyway; this only
@@ -300,12 +370,16 @@ func (c *Connector) session(ctx context.Context) error {
 		case <-time.After(closeWait):
 		}
 	case <-sess.CloseChan():
+		// Nothing but the keepalive closes the session of its own accord, and
+		// it does so when the relay has gone quiet. What reading the tunnel
+		// fails with after that is the closing, not the cause.
+		silent = true
 	// smux does not close a session whose connection has failed — it only
 	// refuses to do anything more with it, and CloseChan stays open until
 	// the keepalive gives up most of a minute later. The failure itself is
 	// the news, so it is watched for directly.
 	case <-rec.failed:
-	case <-served:
+	case serveErr = <-served:
 		serving = false
 	}
 	_ = sess.Close()
@@ -321,20 +395,49 @@ func (c *Connector) session(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if silent {
+		return errSilent
+	}
+	if !serving {
+		// serve ends only once the session has, and a session that ended is
+		// seen above before serve can say so. So serve stopped of its own
+		// accord, with the tunnel still open: this Flockdeck is shutting down,
+		// or its server failed. The relay did nothing, and saying it did would
+		// send somebody to look at the relay.
+		if serveErr != nil {
+			return fmt.Errorf("this Flockdeck stopped answering remote windows: %w", serveErr)
+		}
+		return errors.New("this Flockdeck stopped answering remote windows")
+	}
 	return why(rec.err())
 }
+
+// errSilent is the keepalive giving up on a relay that has stopped answering,
+// which is how a dropped network or a laptop gone to sleep looks from here.
+var errSilent = errors.New("the relay stopped answering")
 
 // why turns the way a tunnel ended into what to do next.
 func why(err error) error {
 	switch websocket.CloseStatus(err) {
 	case CloseRevoked:
+		// The close code is the relay's own, so it is a revocation with or
+		// without a reason, and Revoked needs a message to see one.
 		var ce websocket.CloseError
 		errors.As(err, &ce)
+		if ce.Reason == "" {
+			ce.Reason = "it closed the tunnel as revoked"
+		}
 		return &APIError{Status: http.StatusUnauthorized, Message: ce.Reason}
 	case CloseReplaced:
 		return errReplaced
 	}
-	if err == nil || errors.Is(err, io.EOF) {
+	// The window shows this, so a close the relay gave a reason for says the
+	// reason, and not the library's account of receiving it.
+	var ce websocket.CloseError
+	switch {
+	case errors.As(err, &ce) && ce.Reason != "":
+		return errors.New("the relay closed the connection: " + ce.Reason)
+	case err == nil, errors.Is(err, io.EOF), errors.As(err, &ce):
 		return errors.New("the relay closed the connection")
 	}
 	return fmt.Errorf("lost the relay: %w", err)

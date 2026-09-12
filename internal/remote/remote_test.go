@@ -9,11 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -106,6 +108,13 @@ func TestRelayURL(t *testing.T) {
 	if got, err := RelayURL("https://named.example"); err != nil || got != "https://named.example" {
 		t.Errorf("a named relay should beat the environment: %q, %v", got, err)
 	}
+	// A bad address set in the environment, perhaps long ago, is refused
+	// saying that is where it came from.
+	t.Setenv(RelayEnv, "http://relay.example")
+	if _, err := RelayURL(""); err == nil || !strings.Contains(err.Error(), RelayEnv) {
+		t.Errorf("a bad relay from the environment = %v, want it to name %s", err, RelayEnv)
+	}
+	t.Setenv(RelayEnv, "https://mine.example/")
 
 	for raw, ok := range map[string]bool{
 		"https://relay.example":       true,
@@ -115,7 +124,8 @@ func TestRelayURL(t *testing.T) {
 		"http://[::1]:9":              true,
 		"http://relay.example":        false, // the token would cross the network in the clear
 		"ftp://relay.example":         false,
-		"relay.example":               false,
+		"relay.example":               true, // typed as addresses usually are
+		"relay.example:8443":          true,
 		"https://relay.example/?x=1":  false,
 		"https://relay.example/#frag": false,
 	} {
@@ -126,6 +136,73 @@ func TestRelayURL(t *testing.T) {
 	}
 	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
 		t.Errorf("CheckRelay kept the trailing slash: %q", got)
+	}
+	// One of the relay's secrets typed where its address goes is refused, not
+	// taken for a host name, which would send it to the DNS resolver in the
+	// clear, and the refusal does not repeat it.
+	for _, secret := range []string{"fdh_0123456789abcdefghijkl", "fdp_0123456789abcdefghijkl"} {
+		if got, err := CheckRelay(secret); err == nil || strings.Contains(err.Error(), secret) {
+			t.Errorf("CheckRelay(%q) = %q, %v; want it refused without repeating it", secret, got, err)
+		}
+	}
+	// A pairing link pasted as the relay is the wrong thing to hand, which the
+	// refusal says, and its one-time code is not repeated back. The window
+	// says it too, so it points at the join code, not the flag.
+	if _, err := CheckRelay("https://remote.flockdeck.ai/pair#fdp_s3cretcode"); err == nil ||
+		!strings.Contains(err.Error(), "pairing link") || !strings.HasSuffix(err.Error(), "give the code it prints as the join code here") ||
+		strings.Contains(err.Error(), "s3cretcode") {
+		t.Errorf("CheckRelay of a pairing link = %v, want it named as one, pointing at the join code, without its code", err)
+	}
+	// A password in the address would be saved and printed back wherever the
+	// relay is named, so it is refused, and the refusal does not repeat it.
+	if _, err := CheckRelay("https://someone:hunter2@relay.example"); err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("CheckRelay of an address with a password = %v, want it refused without repeating the password", err)
+	}
+	if got, _ := CheckRelay("relay.example.com:8443"); got != "https://relay.example.com:8443" {
+		t.Errorf("CheckRelay of an address with no scheme = %q, want it taken as https://", got)
+	}
+	// One relay is one address however it is typed, or naming the relay this
+	// machine is on would read as asking to move to another.
+	for raw, want := range map[string]string{
+		"https://Remote.Flockdeck.AI:443/": "https://remote.flockdeck.ai",
+		"https://relay.flockdeck.ai":       DefaultRelay, // its old name, as a new enrolment types it
+		"http://LOCALHOST:80":              "http://localhost",
+		"https://relay.example:8443":       "https://relay.example:8443",
+	} {
+		if got, err := CheckRelay(raw); err != nil || got != want {
+			t.Errorf("CheckRelay(%q) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	// A machine's own address on the relay, which status shows, is not the
+	// relay's, and the refusal gives the relay's.
+	for raw, want := range map[string]string{
+		"https://remote.flockdeck.ai/h/abcdefghijklmnop/": "the relay's own address is https://remote.flockdeck.ai",
+		"https://relay.flockdeck.ai/h/abcdefghijklmnop":   "the relay's own address is " + DefaultRelay,
+		"https://relay.example/base/h/abcdefghijklmnop/":  "the relay's own address is https://relay.example/base",
+	} {
+		if _, err := CheckRelay(raw); err == nil || !strings.HasSuffix(err.Error(), want) {
+			t.Errorf("CheckRelay(%q) = %v, want it refused, ending %q", raw, err, want)
+		}
+	}
+}
+
+// An enrolment naming a relay off this machine without TLS is refused, not
+// used: the token would cross the network in the clear. Nothing Flockdeck
+// saves looks like this; only a hand edit does.
+func TestLoadRefusesARelayWithoutTLS(t *testing.T) {
+	isolate(t)
+	for relay, ok := range map[string]bool{
+		"http://relay.example":  false,
+		"http://127.0.0.1:9":    true, // a relay being developed, on this machine
+		"https://relay.example": true,
+	} {
+		if err := (&Config{Relay: relay, HostID: "h1", Token: "fdh_test"}).Save(); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load()
+		if ok != (err == nil) || (!ok && !strings.Contains(err.Error(), "without TLS")) {
+			t.Errorf("Load of an enrolment with the relay %s = %+v, %v; want ok=%v", relay, c, err, ok)
+		}
 	}
 }
 
@@ -349,6 +426,126 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 	}
 }
 
+// The relay never redirects a desktop, and a redirect is not followed, by
+// the API or the tunnel: Go would carry the token across one to the same
+// host even over plain HTTP.
+func TestRedirectIsNotFollowedWithTheToken(t *testing.T) {
+	quick(t)
+	var mu sync.Mutex
+	var leaked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/elsewhere" {
+			mu.Lock()
+			leaked = append(leaked, r.Header.Get("Authorization"))
+			mu.Unlock()
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	cfg := Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}
+	if _, err := NewClient(&cfg, "v").Devices(context.Background()); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("Devices from a relay that redirects = %v, want the redirect refused", err)
+	}
+	c := NewConnector(cfg, "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, "redirect") {
+		t.Errorf("the tunnel's detail = %q, want the redirect refused", d)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(leaked) > 0 {
+		t.Errorf("the token followed the redirect: %q", leaked)
+	}
+}
+
+// A relay that accepts the WebSocket without agreeing to the tunnel's
+// subprotocol does not speak it, and is told apart from one that does.
+func TestRelayWithoutTheSubprotocolIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, "does not speak this version's tunnel ("+Subprotocol+")") {
+		t.Errorf("detail = %q, want it to say the relay does not speak the tunnel", d)
+	}
+}
+
+// serve stopping of its own accord, as the server's does while this Flockdeck
+// shuts down, is not the relay closing the connection and is not reported as
+// it.
+func TestServeStoppingIsNotBlamedOnTheRelay(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	c := NewConnector(f.config(), "", func(net.Listener) error { return errors.New("the server has shut down") }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; d != "this Flockdeck stopped answering remote windows: the server has shut down" {
+		t.Errorf("detail = %q, want it to say serving stopped here", d)
+	}
+}
+
+// revokedSays is what a machine the relay no longer accepts is told to do:
+// enrol again, by either of the ways there are.
+const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
+
+// A tunnel that has held for a while and is then dropped, as a relay
+// restarting drops every tunnel, is not shown as trouble while its first,
+// prompt retry is still to come: nothing needs anybody yet.
+func TestADropAfterAWhileIsNotTrouble(t *testing.T) {
+	quick(t)
+	old := stableAfter
+	stableAfter = 50 * time.Millisecond
+	t.Cleanup(func() { stableAfter = old })
+	f := newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var c *Connector
+	c = NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		mu.Lock()
+		seen = append(seen, c.Status().State)
+		mu.Unlock()
+	})
+	c.Start()
+	defer c.Stop()
+	first := f.session(t)
+	waitFor(t, "connected", func() bool { return c.Status().State == StateConnected })
+	time.Sleep(2 * stableAfter)
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
+	first.Close()
+	f.session(t)
+	waitFor(t, "connected again", func() bool { return c.Status().State == StateConnected })
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateError {
+			t.Errorf("a drop after a while showed %v on the way back", seen)
+			break
+		}
+	}
+}
+
 // The relay's refusals that mean "stop": a token it no longer accepts, before
 // or after the upgrade, and another connection taking this host's place. Each
 // has to end the retrying, or a removed machine would hammer the relay for as
@@ -359,16 +556,20 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 		refuse    int
 		closeWith websocket.StatusCode
 		want      State
+		// says is what the status tells the user to do about it.
+		says string
 	}{
-		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked},
-		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked},
-		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked},
-		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced},
+		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked, says: revokedSays},
+		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked, says: revokedSays},
+		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked, says: revokedSays},
+		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced, says: "restart this one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			quick(t)
 			f := newFakeRelay(t)
+			f.mu.Lock()
 			f.refuse, f.closeWith = tc.refuse, tc.closeWith
+			f.mu.Unlock()
 			c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
 			c.Start()
 			defer c.Stop()
@@ -377,10 +578,60 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 			if n := f.count(); n != 1 {
 				t.Errorf("the relay saw %d connections, want 1 and no retrying", n)
 			}
-			if c.Status().Detail == "" {
-				t.Error("the status does not say why it stopped")
+			if d := c.Status().Detail; !strings.Contains(d, tc.says) {
+				t.Errorf("the status says %q, which does not say what to do (%q)", d, tc.says)
 			}
 		})
+	}
+}
+
+// The relay's reason for closing the tunnel — "update Flockdeck", say — is
+// what the window shows, as the relay put it.
+func TestTunnelShowsTheRelaysReason(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	f.mu.Lock()
+	f.closeWith = websocket.StatusPolicyViolation
+	f.mu.Unlock()
+	c := NewConnector(f.config(), "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if got, want := c.Status().Detail, "the relay closed the connection: because the test said so"; got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}
+
+// A relay that stops answering, which is what a dropped network or a laptop
+// asleep looks like from here, is found out by the keepalive, and the window
+// is told so in those words.
+func TestTunnelNoticesASilentRelay(t *testing.T) {
+	quick(t)
+	oldEvery, oldTimeout := keepAlive, keepAliveTimeout
+	keepAlive, keepAliveTimeout = 20*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { keepAlive, keepAliveTimeout = oldEvery, oldTimeout })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		// Take what the desktop sends, and say nothing back.
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "the silence to be noticed", func() bool { st = c.Status(); return st.State == StateError })
+	if want := "the relay stopped answering"; st.Detail != want {
+		t.Errorf("detail = %q, want %q", st.Detail, want)
 	}
 }
 
@@ -395,8 +646,353 @@ func TestUnreachableRelayIsRetried(t *testing.T) {
 	defer c.Stop()
 	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
 	st := c.Status()
-	if st.RetryAt.IsZero() || !strings.Contains(st.Detail, "reach the relay") {
-		t.Errorf("status = %+v, want an error saying the relay could not be reached, with a retry time", st)
+	if st.RetryAt.IsZero() || st.Detail == "" || strings.Contains(st.Detail, cfg.Relay) {
+		t.Errorf("status = %+v, want why the relay could not be reached, without naming it again, and a retry time", st)
+	}
+}
+
+// The window says "Cannot reach <relay>:" and then this, so a relay that
+// never answers, or a network that answers in its place, is said in words.
+func TestUnreachableRelaySaysWhy(t *testing.T) {
+	quick(t)
+	old := dialTimeout
+	dialTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { dialTimeout = old })
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer hang.Close()
+	defer close(release)
+	portal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<html>Sign in to use this Wi-Fi</html>")
+	}))
+	defer portal.Close()
+	for relay, want := range map[string]string{
+		hang.URL:   "no answer within 100ms",
+		portal.URL: "it answered 200 OK rather than opening the tunnel",
+	} {
+		c := NewConnector(Config{Relay: relay, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+		c.Start()
+		waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+		if got := c.Status().Detail; got != want {
+			t.Errorf("detail = %q, want %q", got, want)
+		}
+		c.Stop()
+	}
+}
+
+// A message far bigger than any smux frame is a relay gone wrong, and the
+// tunnel is dropped and dialled again rather than read to the end.
+func TestTunnelDropsAnOversizedMessage(t *testing.T) {
+	quick(t)
+	var connects atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connects.Add(1)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		// Two megabytes of smux keepalives: frames that are harmless one by
+		// one, in a single message twice the size the tunnel allows.
+		nop := "\x02\x03\x00\x00\x00\x00\x00\x00"
+		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte(strings.Repeat(nop, 2<<20/len(nop))))
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "the tunnel to be dropped and dialled again", func() bool { return connects.Load() >= 2 })
+}
+
+// Only the relay can revoke this machine. A 403 page from a proxy or a
+// firewall in front of it is a reason to try again, not to stop for good.
+func TestOnlyTheRelayRevokes(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{decodeError(http.StatusUnauthorized, []byte(`{"error":"this desktop is no longer registered with the relay"}`)), true},
+		{decodeError(http.StatusForbidden, []byte(`{"error":"this host was removed"}`)), true},
+		{why(websocket.CloseError{Code: CloseRevoked}), true},
+		{decodeError(http.StatusForbidden, []byte(`<html><body>Access denied</body></html>`)), false},
+		{decodeError(http.StatusUnauthorized, nil), false},
+		{decodeError(http.StatusInternalServerError, []byte(`{"error":"the database is not answering"}`)), false},
+	} {
+		if got := IsRevoked(tc.err); got != tc.want {
+			t.Errorf("IsRevoked(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+
+	quick(t)
+	var connects atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connects.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "<html><body>Access denied</body></html>")
+	}))
+	defer proxy.Close()
+	c := NewConnector(Config{Relay: proxy.URL, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "the tunnel to be tried again", func() bool { return connects.Load() >= 3 })
+	if st := c.Status(); st.State == StateRevoked {
+		t.Errorf("a proxy's 403 page stopped the tunnel as revoked: %+v", st)
+	}
+}
+
+// A relay that takes a request and never answers is said to have given no
+// answer, in those words, in the terminal and in the window alike.
+func TestClientSaysWhenTheRelayDoesNotAnswer(t *testing.T) {
+	old := requestTimeout
+	requestTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { requestTimeout = old })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	_, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "").Devices(context.Background())
+	if err == nil || !strings.HasSuffix(err.Error(), ": no answer within 100ms") {
+		t.Errorf("Devices from a relay that never answers = %v", err)
+	}
+}
+
+// A 404 not in the relay's own words is, most likely, an address that is not
+// a relay's, and both the command line and the window ask whether it is.
+func TestNotARelayIsAskedAbout(t *testing.T) {
+	quick(t)
+	site := httptest.NewServer(http.NotFoundHandler())
+	defer site.Close()
+	_, err := Register(context.Background(), site.URL, "v", RegisterRequest{Name: "desk"})
+	if err == nil || !strings.HasSuffix(err.Error(), "is that a Flockdeck relay's address?") {
+		t.Errorf("Register with a website = %v", err)
+	}
+	c := NewConnector(Config{Relay: site.URL, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "an error", func() bool { st = c.Status(); return st.State == StateError })
+	if !strings.HasSuffix(st.Detail, "is that a Flockdeck relay's address?") {
+		t.Errorf("detail = %q, want it to ask whether this is a relay", st.Detail)
+	}
+	// The relay's own 404, with its own words, is not second-guessed.
+	if msg := decodeError(http.StatusNotFound, []byte(`{"error":"there is no such device"}`)).Error(); strings.Contains(msg, "relay's address") {
+		t.Errorf("the relay's own 404 = %q", msg)
+	}
+}
+
+// A relay whose certificate this machine does not trust, a self-hosted one
+// with a certificate of its own making say, is said to be that, in words,
+// in the terminal and in the window, with the verifier's reason kept.
+// A relay whose name cannot be looked up is said in words, not the
+// resolver's, whichever way the error arrives.
+func TestLookupFailureIsSaidInWords(t *testing.T) {
+	lookup := func(dns *net.DNSError) error {
+		return &url.Error{Op: "Post", URL: "https://relay.example/api/v1/hosts", Err: &net.OpError{Op: "dial", Net: "tcp", Err: dns}}
+	}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{lookup(&net.DNSError{Err: "getaddrinfow: The requested name is valid, but no data of the requested type was found", Name: "relay.example", IsNotFound: true}),
+			"relay.example could not be found; check the address, and that this machine is online"},
+		{lookup(&net.DNSError{Err: "i/o timeout", Name: "relay.example", IsTimeout: true}),
+			"looking up relay.example took too long; check that this machine is online"},
+	} {
+		if got := transportError(tc.err); got == nil || got.Error() != tc.want {
+			t.Errorf("transportError(%v) = %v, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
+// A relay with nothing listening at its address is said in words, however
+// the system spells the refusal: Windows' socket error is not Unix's.
+func TestRefusedConnectionIsSaidInWords(t *testing.T) {
+	const want = "nothing is answering there (the connection was refused); check the address, and that the relay is running"
+	for _, errno := range []syscall.Errno{10061, syscall.ECONNREFUSED} {
+		err := &url.Error{Op: "Get", URL: "https://relay.example/api/v1/host/devices",
+			Err: &net.OpError{Op: "dial", Net: "tcp", Err: &os.SyscallError{Syscall: "connect", Err: errno}}}
+		if got := transportError(err); got == nil || got.Error() != want {
+			t.Errorf("transportError of errno %d = %v, want %q", uintptr(errno), got, want)
+		}
+	}
+	// And a real one: an address that was listening a moment ago.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	relay := srv.URL
+	srv.Close()
+	if _, err := NewClient(&Config{Relay: relay, Token: "fdh_test"}, "v").Devices(context.Background()); err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("Devices from a relay with nothing listening = %v, want it to end %q", err, want)
+	}
+}
+
+// A relay that answers in plain HTTP, reached as https:// (as an address
+// typed without a scheme is), is said to, by enrolling and by the tunnel.
+func TestPlainHTTPRelayIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	relay := "https://" + strings.TrimPrefix(srv.URL, "http://")
+	const want = "it answers in plain HTTP, not HTTPS"
+	if _, err := Register(context.Background(), relay, "v", RegisterRequest{Name: "desk"}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("enabling against a relay in plain HTTP = %v, want it to say %q", err, want)
+	}
+	c := NewConnector(Config{Relay: relay, HostID: "h1", Token: "fdh_test"}, "",
+		func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, want) {
+		t.Errorf("the tunnel's detail = %q, want it to say %q", d, want)
+	}
+}
+
+// A pairing code's expiry is given by this machine's clock, however far the
+// relay's is from it, so that how long it has left is said truly.
+func TestPairingExpiryIsByThisMachinesClock(t *testing.T) {
+	relayNow := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", relayNow.UTC().Format(http.TimeFormat))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": "fdp_code", "url": "x", "expiresAt": relayNow.Add(10 * time.Minute)})
+	}))
+	defer srv.Close()
+	p, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "v").Pair(context.Background(), KindDevice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := time.Until(p.ExpiresAt); left < 9*time.Minute || left > 11*time.Minute {
+		t.Errorf("a code the relay gives 10 minutes, by a clock 30 minutes behind this one, is due here in %v", left.Round(time.Second))
+	}
+}
+
+// The roster's times are given by this machine's clock too, so that "last
+// seen just now" is said of a device the relay saw just now.
+func TestRosterTimesAreByThisMachinesClock(t *testing.T) {
+	relayNow := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", relayNow.UTC().Format(http.TimeFormat))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"devices": []map[string]any{{"id": "d1", "name": "phone", "created": relayNow, "lastSeen": relayNow}},
+			"hosts":   []map[string]any{{"id": "h1", "name": "desk", "self": true, "lastSeen": relayNow}},
+		})
+	}))
+	defer srv.Close()
+	r, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "v").Devices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, at := range map[string]time.Time{
+		"a device last seen": r.Devices[0].LastSeen, "a device paired": r.Devices[0].Created, "a machine last seen": r.Hosts[0].LastSeen,
+	} {
+		if ago := time.Since(at); ago < -time.Minute || ago > time.Minute {
+			t.Errorf("%s just now, by a relay's clock 30 minutes behind this one, is %v ago here", what, ago.Round(time.Second))
+		}
+	}
+}
+
+// Probe finds out whether a relay is at an address before a machine moves to
+// it: one that is, one that is something else, and nothing at all.
+func TestProbe(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			_, _ = io.WriteString(w, "ok\n")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer up.Close()
+	if err := Probe(context.Background(), up.URL); err != nil {
+		t.Errorf("Probe of a relay = %v, want nil", err)
+	}
+	// An address as typed is checked as any relay address is: a trailing
+	// slash is no reason to miss the relay, and one of its codes is refused
+	// as one, not looked up as a host.
+	if err := Probe(context.Background(), up.URL+"/"); err != nil {
+		t.Errorf("Probe of a relay given with a trailing slash = %v, want nil", err)
+	}
+	if err := Probe(context.Background(), "fdp_0123456789abcdefghijkl"); err == nil || !strings.Contains(err.Error(), "one of the relay's codes") {
+		t.Errorf("Probe of a code = %v, want it refused as one", err)
+	}
+	other := httptest.NewServer(http.NotFoundHandler())
+	defer other.Close()
+	if err := Probe(context.Background(), other.URL); err == nil || !strings.Contains(err.Error(), "not what a Flockdeck relay answers") {
+		t.Errorf("Probe of something else = %v, want it said not to be a relay", err)
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	goneURL := gone.URL
+	gone.Close()
+	if err := Probe(context.Background(), goneURL); err == nil || !strings.Contains(err.Error(), "nothing is answering there") {
+		t.Errorf("Probe of nothing = %v, want it said that nothing answers", err)
+	}
+	// An address that redirects is not followed, and the refusal says where
+	// it pointed, not that a token was kept back: a probe sends none.
+	moved := httptest.NewServer(http.RedirectHandler("https://relay.example/healthz", http.StatusMovedPermanently))
+	defer moved.Close()
+	if err := Probe(context.Background(), moved.URL); err == nil || !strings.Contains(err.Error(), "a redirect to https://relay.example; if that is the relay's address, give that instead") || strings.Contains(err.Error(), "token") {
+		t.Errorf("Probe of an address that redirects = %v, want where it points, and no word of a token", err)
+	}
+}
+
+func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
+	quick(t)
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	const want = "its certificate is not one this machine trusts (x509: "
+	if _, err := Register(context.Background(), srv.URL, "v", RegisterRequest{Name: "desk"}); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("enabling against an untrusted relay = %v, want it to say %q", err, want)
+	}
+	c := NewConnector(Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "an error", func() bool { st = c.Status(); return st.State == StateError })
+	if !strings.HasPrefix(st.Detail, want) {
+		t.Errorf("detail = %q, want it to begin %q", st.Detail, want)
+	}
+}
+
+// One relay is one relay however it is written, and the hosted one by its old
+// name, which machines enrolled in v0.2.0 keep, is the same as by its new.
+func TestSameRelay(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"https://relay.flockdeck.ai", DefaultRelay, true},
+		{DefaultRelay, "remote.flockdeck.ai", true},
+		{"https://Remote.Flockdeck.AI:443/", DefaultRelay, true},
+		{"https://relay.example", DefaultRelay, false},
+		{"https://relay.flockdeck.ai", "https://relay.example", false},
+	} {
+		if got := SameRelay(tc.a, tc.b); got != tc.same {
+			t.Errorf("SameRelay(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
+		}
+	}
+}
+
+// A device's id is not a secret; a credential typed in its place is refused
+// before it travels in the request's path.
+func TestRevokeRefusesACredential(t *testing.T) {
+	f := newFakeRelay(t)
+	c := NewClient(&Config{Relay: f.URL, Token: f.token}, "v")
+	if err := c.Revoke(context.Background(), "fdd_0123456789abcdefghijkl"); err == nil || !strings.Contains(err.Error(), "not a device's id") {
+		t.Errorf("Revoke of a credential = %v, want it refused", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if strings.HasPrefix(call, "DELETE /api/v1/host/devices/") {
+			t.Errorf("the credential was sent to the relay: %s", call)
+		}
 	}
 }
 
@@ -463,6 +1059,10 @@ func TestManagerReload(t *testing.T) {
 	if _, err := m.Client(); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("Client with no enrolment = %v, want ErrNotEnabled", err)
 	}
+	// It is read in the window and in a terminal, and names the way from each.
+	if msg := ErrNotEnabled.Error(); !strings.Contains(msg, "Remote access… in the command palette") || !strings.Contains(msg, "flockdeck remote enable") {
+		t.Errorf("ErrNotEnabled = %q, want it to name both ways to turn remote access on", msg)
+	}
 
 	c := f.config()
 	cfg = &c
@@ -494,6 +1094,454 @@ func TestManagerReload(t *testing.T) {
 	m.load = func() (*Config, error) { return nil, errors.New("broken") }
 	if err := m.Reload(); err == nil {
 		t.Error("a broken enrolment was reloaded without a word")
+	}
+}
+
+// Enabling and disabling, which the command line and the window both do
+// through these.
+func TestEnableAndDisable(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	ctx := context.Background()
+
+	cfg, replaced, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: " desk "})
+	if err != nil || replaced || cfg.HostID != "h1" || cfg.Name != "desk" || cfg.Relay != f.URL {
+		t.Fatalf("Enable = %+v, %v, %v", cfg, replaced, err)
+	}
+	if saved, err := Load(); err != nil || saved == nil || *saved != *cfg {
+		t.Errorf("Enable saved %+v, %v; want %+v", saved, err, cfg)
+	}
+	var already *AlreadyEnabledError
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "again"}); !errors.As(err, &already) || already.Err != nil {
+		t.Errorf("enabling over a live enrolment = %v, want it refused", err)
+	}
+
+	// An enrolment the relay has forgotten is replaced, and the caller told.
+	// The relay forgetting it is a token it does not know, saved here, so the
+	// fake relay's own fields are never written while it is serving.
+	forgotten := *cfg
+	forgotten.Token = "fdh_forgotten"
+	if err := forgotten.Save(); err != nil {
+		t.Fatal(err)
+	}
+	_, replaced, err = Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"})
+	if err != nil || !replaced {
+		t.Errorf("enabling over a forgotten enrolment = %v, replaced %v", err, replaced)
+	}
+
+	if had, untold, err := Disable(ctx, "v", false); !had || untold != nil || err != nil {
+		t.Errorf("Disable = %v, %v, %v", had, untold, err)
+	}
+	if c, _ := Load(); c != nil {
+		t.Error("Disable left the enrolment behind")
+	}
+	if had, _, err := Disable(ctx, "v", false); had || err != nil {
+		t.Errorf("Disable with nothing enrolled = %v, %v", had, err)
+	}
+
+	// A relay that cannot be told keeps the enrolment, unless forced.
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	var untoldErr *RelayUntoldError
+	if _, _, err := Disable(ctx, "v", false); !errors.As(err, &untoldErr) {
+		t.Errorf("Disable with the relay gone = %v, want a RelayUntoldError", err)
+	}
+	if c, _ := Load(); c == nil {
+		t.Fatal("a Disable that could not tell the relay forgot the enrolment")
+	}
+	if had, untold, err := Disable(ctx, "v", true); !had || untold == nil || err != nil {
+		t.Errorf("forced Disable = %v, %v, %v; want it done, saying why the relay was not told", had, untold, err)
+	}
+	if c, _ := Load(); c != nil {
+		t.Error("a forced Disable left the enrolment behind")
+	}
+}
+
+// A phone's pairing link given as a join code is refused before anything
+// reaches the relay, saying what it is for and what a machine joins with.
+func TestEnableRefusesAPairingLinkAsAJoinCode(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	_, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: "desk", Join: f.URL + "/pair#fdp_s3cretcode"})
+	if err == nil || !strings.Contains(err.Error(), "pairing link") || !strings.Contains(err.Error(), "pair -desktop") {
+		t.Errorf("enabling with a pairing link as the join code = %v, want it named as one", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if call == "POST /api/v1/hosts" {
+			t.Error("the pairing link was sent to the relay as a join code")
+		}
+	}
+}
+
+// An invitation given as the join code, or a join code as the invitation,
+// is told so before anything reaches the relay, whose own answer would be
+// that no code had been given.
+func TestEnableTellsSwappedCodesApart(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	for _, tc := range []struct {
+		req  EnableRequest
+		want string
+	}{
+		// The window shows these too, so they name the code, not a flag.
+		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdi_0123456789abcdefghijkl"}, "that is an invitation, not a join code; give it as the invitation code instead"},
+		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdp_0123456789abcdefghijkl"}, "that is a join code, not an invitation; give it as the join code instead"},
+		{EnableRequest{Relay: f.URL, Name: "desk", Join: "fdh_0123456789abcdefghijkl"}, "that is a credential"},
+		{EnableRequest{Relay: f.URL, Name: "desk", Invite: "fdd_0123456789abcdefghijkl"}, "that is a credential"},
+		{EnableRequest{Relay: f.URL, Name: "fdp_0123456789abcdefghijkl"}, "not a name"},
+	} {
+		if _, _, err := Enable(context.Background(), "v", tc.req); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("Enable(%+v) = %v, want %q", tc.req, err, tc.want)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if call == "POST /api/v1/hosts" {
+			t.Error("a code given under the wrong name was sent to the relay")
+		}
+	}
+}
+
+// Trying again from the window does not wait out the backoff: a relay that
+// has come back is reached at once.
+func TestReconnectDoesNotWaitOutTheBackoff(t *testing.T) {
+	isolate(t)
+	oldMin, oldMax := backoffMin, backoffMax
+	backoffMin, backoffMax = time.Minute, time.Minute
+	t.Cleanup(func() { backoffMin, backoffMax = oldMin, oldMax })
+	f := newFakeRelay(t)
+	f.mu.Lock()
+	f.refuse = http.StatusServiceUnavailable
+	f.mu.Unlock()
+	cfg := f.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager("", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	waitFor(t, "an error", func() bool { s, _ := m.Status(); return s.State == StateError })
+	f.mu.Lock()
+	f.refuse = 0
+	f.mu.Unlock()
+	if err := m.Reconnect(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "connected", func() bool { s, _ := m.Status(); return s.State == StateConnected })
+}
+
+// The window enables and disables through the manager, which brings the
+// tunnel up and down to match.
+func TestManagerEnablesAndDisables(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	if _, err := m.Client(); err != nil {
+		t.Errorf("Client after Enable = %v", err)
+	}
+	if _, err := m.Disable(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Status(); ok {
+		t.Error("the tunnel outlived disabling")
+	}
+}
+
+// Two requests to enable at once, a double click say, enrol the machine once:
+// the second finds the first's enrolment rather than orphaning it.
+func TestManagerEnablesOnceAtATime(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"})
+			errs <- err
+		}()
+	}
+	refused := 0
+	for range 2 {
+		var already *AlreadyEnabledError
+		if err := <-errs; errors.As(err, &already) {
+			refused++
+		} else if err != nil {
+			t.Errorf("Enable: %v", err)
+		}
+	}
+	f.mu.Lock()
+	registered := strings.Count(strings.Join(f.calls, "\n"), "POST /api/v1/hosts")
+	f.mu.Unlock()
+	if registered != 1 || refused != 1 {
+		t.Errorf("the relay saw %d registrations and %d of 2 enables were refused; want 1 and 1", registered, refused)
+	}
+}
+
+// A machine nobody names is called by its host name, without the ".local" a
+// The name saved is the one the relay keeps, and so the one every device
+// lists: without control characters, and no longer than the relay's limit.
+func TestEnableSavesTheNameTheRelayKeeps(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	long := strings.Repeat("é", maxName) + "-and-more"
+	cfg, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: " desk\tone\x07 "})
+	if err != nil || cfg.Name != "deskone" {
+		t.Errorf("Enable saved the name %q (%v), want %q", cfg.Name, err, "deskone")
+	}
+	if err := Clear(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: long})
+	if want := strings.Repeat("é", maxName); err != nil || cfg.Name != want {
+		t.Errorf("Enable saved a long name as %q (%v), want it cut to %d characters", cfg.Name, err, maxName)
+	}
+}
+
+// A machine with no name given and no host name to be had is saved under the
+// name the relay gives it, which is the one every device lists.
+func TestEnableWithNoNameToBeHad(t *testing.T) {
+	isolate(t)
+	old := hostname
+	hostname = func() (string, error) { return "", errors.New("no host name") }
+	t.Cleanup(func() { hostname = old })
+	f := newFakeRelay(t)
+	cfg, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL})
+	if err != nil || cfg.Name != "Desktop" {
+		t.Errorf("Enable with no name to be had saved %+v, %v; want the relay's own name for it, Desktop", cfg, err)
+	}
+}
+
+// Mac adds for its own network, which is not part of what anybody calls it.
+func TestHostName(t *testing.T) {
+	for host, want := range map[string]string{
+		"Jims-MacBook-Pro.local": "Jims-MacBook-Pro",
+		"Jims-MacBook-Pro.LOCAL": "Jims-MacBook-Pro",
+		"DESKTOP-4F2K9LQ":        "DESKTOP-4F2K9LQ",
+		"build.local.example":    "build.local.example",
+		"workstation":            "workstation",
+	} {
+		if got := hostName(host); got != want {
+			t.Errorf("hostName(%q) = %q, want %q", host, got, want)
+		}
+	}
+}
+
+// The relay closes the tunnel as revoked the moment it is told a machine is
+// leaving. Disabling from the window must not show that — the relay no
+// longer accepting this machine — to somebody who has just switched it off,
+// and a disable the relay refuses must leave the tunnel as it was.
+func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
+	isolate(t)
+	quick(t)
+	var mu sync.Mutex
+	var tunnel *websocket.Conn
+	refuse := true
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/host/connect", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		tunnel = conn
+		mu.Unlock()
+		sess, err := smux.Client(websocket.NetConn(context.Background(), conn, websocket.MessageBinary), smuxConfig())
+		if err != nil {
+			return
+		}
+		for {
+			if _, err := sess.AcceptStream(); err != nil {
+				return
+			}
+		}
+	})
+	mux.HandleFunc("POST /api/v1/hosts", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"hostId":"h1","accountId":"a1","token":"fdh_test"}`)
+	})
+	mux.HandleFunc("DELETE /api/v1/host", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		c, no := tunnel, refuse
+		mu.Unlock()
+		if no {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":"the relay could not unregister this desktop"}`)
+			return
+		}
+		// What the relay does: kick the tunnel as revoked, then answer.
+		if c != nil {
+			go c.Close(CloseRevoked, "this desktop was unregistered")
+			time.Sleep(20 * time.Millisecond)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var seen []State
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: srv.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	connected := func() bool { st, _ := m.Status(); return st.State == StateConnected }
+	waitFor(t, "connected", connected)
+
+	var untold *RelayUntoldError
+	if _, err := m.Disable(context.Background(), false); !errors.As(err, &untold) {
+		t.Fatalf("a disable the relay refused = %v, want a RelayUntoldError", err)
+	}
+	waitFor(t, "the tunnel back after a refused disable", connected)
+
+	mu.Lock()
+	refuse, seen = false, nil
+	mu.Unlock()
+	if _, err := m.Disable(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateRevoked {
+			t.Errorf("disabling showed the window %v on the way", seen)
+			break
+		}
+	}
+}
+
+// A disable that cannot even read the enrolment leaves the tunnel alone:
+// had it been closed, Reload could not open it again, for the same reason.
+func TestManagerDisableOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	if _, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	p, err := path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Disable(context.Background(), false); err == nil {
+		t.Fatal("disabling with an unreadable enrolment succeeded")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if st, _ := m.Status(); st.State != StateConnected {
+		t.Errorf("after a refused disable the tunnel is %s, want it left as it was", st.State)
+	}
+}
+
+// Remote access coming on is shown as connecting, never, for an instant, as
+// off: the window is told as soon as the tunnel is started.
+func TestEnablingIsNeverShownAsOff(t *testing.T) {
+	quick(t)
+	f := newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var cfg *Config
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	m.load = func() (*Config, error) { return cfg, nil }
+	defer m.Close()
+	c := f.config()
+	cfg = &c
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f.session(t)
+	waitFor(t, "connected", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateOff {
+			t.Errorf("remote access coming on was shown as %v", seen)
+			break
+		}
+	}
+}
+
+// Moving to another relay while a tunnel is up is shown as connecting to the
+// new one, never as the new one not connected before it has been tried.
+func TestChangingRelayIsNeverShownAsOff(t *testing.T) {
+	quick(t)
+	f1, f2 := newFakeRelay(t), newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var cfg *Config
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	m.load = func() (*Config, error) { return cfg, nil }
+	defer m.Close()
+	c1 := f1.config()
+	cfg = &c1
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f1.session(t)
+	waitFor(t, "connected to the first relay", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
+	c2 := f2.config()
+	cfg = &c2
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f2.session(t)
+	waitFor(t, "connected to the second relay", func() bool {
+		st, _ := m.Status()
+		return st.State == StateConnected && st.Relay == f2.URL
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateOff {
+			t.Errorf("moving to another relay was shown as %v", seen)
+			break
+		}
 	}
 }
 

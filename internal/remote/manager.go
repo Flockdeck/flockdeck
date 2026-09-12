@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -8,15 +9,16 @@ import (
 
 // ErrNotEnabled is what anything that needs an enrolment is told when there is
 // none.
-var ErrNotEnabled = errors.New("remote access is not enabled on this machine; run `flockdeck remote enable` in a terminal")
+var ErrNotEnabled = errors.New("remote access is not enabled on this machine; turn it on from Remote access… in the command palette, or with `flockdeck remote enable`")
 
 // Manager is remote access as a running instance has it: the enrolment on
 // disk, and the tunnel that goes with it.
 //
-// The enrolment is written by `flockdeck remote`, from another process, and
-// the instance is told to look again. Reload is that looking: it brings the
-// tunnel in line with whatever the file now says — opened, reopened to a
-// different relay, or closed.
+// The enrolment is written by `flockdeck remote`, from another process that
+// then tells the instance to look again, or by Enable and Disable here on the
+// window's behalf. Reload is that looking: it brings the tunnel in line with
+// whatever the file now says — opened, reopened to a different relay, or
+// closed.
 type Manager struct {
 	version string
 	serve   func(net.Listener) error
@@ -27,6 +29,10 @@ type Manager struct {
 
 	// reloading keeps two reloads from interleaving their stop and start.
 	reloading sync.Mutex
+	// enrolling keeps an Enable or Disable from running beside another: two
+	// at once would each find no enrolment and each register a host, and
+	// the first would be left on the relay with nothing here to speak for it.
+	enrolling sync.Mutex
 
 	mu   sync.Mutex
 	cfg  *Config
@@ -74,16 +80,42 @@ func (m *Manager) Reload() error {
 	m.cfg, m.conn = cfg, next
 	m.mu.Unlock()
 
-	if old != nil {
-		old.Stop()
-	}
+	// The new tunnel is started before the old is stopped. Stopping the old
+	// tells the window to look, and what it reads by then is the new one,
+	// which should say connecting rather than, unstarted, not connected.
+	// Two at once is harmless: to different relays they do not meet, and to
+	// the same one the relay keeps the newer and drops the one going anyway.
 	if next != nil {
 		next.Start()
+	}
+	if old != nil {
+		old.Stop()
 	}
 	if m.changed != nil {
 		m.changed()
 	}
 	return nil
+}
+
+// Reconnect tries the relay again now, for the window's "try again": a
+// tunnel waiting out a failure skips the rest of the wait, and one that has
+// given up, revoked or stepped aside for another instance, is started again,
+// as Reload does. A connected tunnel is left alone.
+func (m *Manager) Reconnect() error {
+	m.mu.Lock()
+	c := m.conn
+	m.mu.Unlock()
+	if c == nil {
+		return ErrNotEnabled
+	}
+	switch c.Status().State {
+	case StateConnected:
+		return nil
+	case StateConnecting, StateError:
+		c.RetryNow()
+		return nil
+	}
+	return m.Reload()
 }
 
 // Status reports the tunnel's state, and whether this machine is enrolled at
@@ -107,6 +139,48 @@ func (m *Manager) Client() (*Client, error) {
 		return nil, ErrNotEnabled
 	}
 	return NewClient(cfg, m.version), nil
+}
+
+// Enable enrols this machine with a relay and brings the tunnel up to it:
+// what `flockdeck remote enable` does, for the window.
+func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool, err error) {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	if _, replaced, err = Enable(ctx, m.version, req); err != nil {
+		return false, err
+	}
+	return replaced, m.Reload()
+}
+
+// Disable takes this machine off its relay and closes the tunnel: what
+// `flockdeck remote disable` does, for the window. untold is why the relay
+// could not be told, when force had the enrolment forgotten regardless.
+func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err error) {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	// An enrolment that cannot be read is refused before the tunnel is
+	// touched: Reload could not open it again afterwards, for the same reason.
+	if _, err := Load(); err != nil && !force {
+		return nil, err
+	}
+	// The relay closes the tunnel as revoked the moment it is told, and the
+	// window would show that, the relay no longer accepting this machine,
+	// until Reload caught up. So the tunnel is closed first; if the relay
+	// cannot be told after all, the enrolment stands and Reload reopens it.
+	m.reloading.Lock()
+	m.mu.Lock()
+	c := m.conn
+	m.mu.Unlock()
+	if c != nil {
+		c.Stop()
+	}
+	m.reloading.Unlock()
+	_, untold, err = Disable(ctx, m.version, force)
+	rerr := m.Reload()
+	if err != nil {
+		return nil, err
+	}
+	return untold, rerr
 }
 
 // Close closes the tunnel, and every remote window with it.
