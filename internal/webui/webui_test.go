@@ -2793,28 +2793,33 @@ assert.strictEqual(zoom.getAttribute("aria-pressed"), "false");
 `)
 }
 
-// Removing a worktree asked first only when it had uncommitted files. A clean
-// one with agents working in it went without a word, and they were left in a
-// directory that no longer existed.
-func TestRemovingAWorktreeAgentsAreInAsksFirst(t *testing.T) {
+// A worktree with agents working in it is not removed from under them: the
+// server refuses it, forced or not, and the dialog says so before sending
+// anything, naming what to do instead. Force is only for uncommitted work in
+// a worktree nothing is running in.
+func TestAWorktreeAgentsAreInIsNotRemovedFromUnderThem(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-worktrees"));
 h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [
   { label: "main", path: "C:/repo", main: true },
-  { label: "fix-auth", path: "C:/repo-fix-auth", panes: 2, dirty: 0, untracked: 0 },
+  { label: "fix-auth", path: "C:/repo-fix-auth", panes: 2, dirty: 3, untracked: 0 },
+  { label: "spare", path: "C:/repo-spare", panes: 0, dirty: 1, untracked: 0 },
 ] });
-const remove = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Remove");
+const removes = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove");
 let asked = "";
-h.win.confirm = (q) => { asked = q; return false; };
+h.win.confirm = (q) => { asked = q; return true; };
 const before = h.commands().length;
-h.click(remove);
-assert.ok(/2 agents are working/.test(asked), "a worktree with agents in it was removed without asking");
-assert.strictEqual(h.commands().length, before, "the worktree was removed although the answer was no");
-h.win.confirm = () => true;
-h.click(remove);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-fix-auth", force: false });
+h.click(removes[0]);
+assert.strictEqual(h.commands().length, before, "a worktree was removed from under the agents working in it");
+assert.strictEqual(asked, "", "the dialog offered to go ahead past the agents working in it");
+assert.ok(/2 agents are working in fix-auth\. Close those panes first/.test(h.$("notice").textContent),
+  "nothing said why, or what to do: " + h.$("notice").textContent);
+
+h.click(removes[1]);
+assert.ok(/uncommitted changes/.test(asked), "uncommitted work was discarded without asking");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-spare", force: true });
 `)
 }
 

@@ -2116,17 +2116,19 @@
         const rm = el("button", "chip danger", "Remove");
         const unsafe = wt.dirty || wt.untracked;
         rm.title = unsafe ? "This worktree has uncommitted work" : "Remove this worktree";
-        // Agents working in it are asked about as well. A clean worktree was
-        // removed without a word, and whatever was running in it was left in
-        // a directory that no longer existed.
-        const busy = wt.panes
-          ? (wt.panes === 1 ? "An agent is" : wt.panes + " agents are") + " working in " + wt.label +
-            " and will be left without a directory.\n\n"
-          : "";
         rm.onclick = () => {
-          const q = unsafe ? busy + wt.label + " has uncommitted changes.\n\nRemove it and discard them?"
-            : busy ? busy + "Remove it anyway?" : "";
-          if (q && !window.confirm(q)) return;
+          // Not while agents are working in it: they would be left in a
+          // directory that no longer exists, and the server refuses it,
+          // forced or not. Saying so here, before anything is sent, is where
+          // the person can do something about it. Force is only ever the
+          // answer to uncommitted work in a worktree nothing is running in.
+          if (wt.panes) {
+            notice((wt.panes === 1 ? "An agent is" : wt.panes + " agents are") + " working in " + wt.label +
+              ". Close " + (wt.panes === 1 ? "that pane" : "those panes") + " first, then remove it.", true);
+            return;
+          }
+          if (unsafe && !window.confirm(
+            wt.label + " has uncommitted changes.\n\nRemove it and discard them?")) return;
           send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
         };
         actions.append(rm);
