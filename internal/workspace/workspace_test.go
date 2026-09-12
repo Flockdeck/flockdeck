@@ -180,6 +180,26 @@ func TestProjectNameOfARootDirectory(t *testing.T) {
 	}
 }
 
+// TestProjectNamesTellDrivesApart covers the mirror on another drive, which
+// agrees with the original on every element it has. Both were called
+// code\api, since the names stopped growing at the top of each path without
+// the drive that is the whole of the difference.
+func TestProjectNamesTellDrivesApart(t *testing.T) {
+	if filepath.VolumeName(`C:\`) == "" {
+		t.Skip("paths here have no drive")
+	}
+	roots := []string{`C:\code\api`, `D:\code\api`}
+	names := projectNames(roots)
+	if names[0] == names[1] {
+		t.Errorf("both projects are called %q", names[0])
+	}
+	for i, want := range roots {
+		if names[i] != want {
+			t.Errorf("name of %s = %q, want %q", roots[i], names[i], want)
+		}
+	}
+}
+
 func mustAbs(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs(".")
@@ -670,7 +690,7 @@ func TestClosingAProjectDropsATabLeftHoldingNothing(t *testing.T) {
 // a conversation that starts fresh where it should have resumed.
 func TestClaudeArgvIsUnchanged(t *testing.T) {
 	var w Workspace
-	spec, ok := w.specFor("")
+	spec, ok := w.specFor("", "")
 	if !ok {
 		t.Fatal("the default agent has no spec")
 	}
@@ -714,7 +734,7 @@ func TestClaudeArgvIsUnchanged(t *testing.T) {
 // it would swallow the next argument.
 func TestClaudeArgvNamesTheModelOnlyWhenOneIsChosen(t *testing.T) {
 	var w Workspace
-	spec, _ := w.specFor("claude")
+	spec, _ := w.specFor("", "claude")
 
 	tests := []struct {
 		name  string
@@ -749,7 +769,7 @@ func TestClaudeArgvNamesTheModelOnlyWhenOneIsChosen(t *testing.T) {
 // in the window has to carry on around it.
 func TestUnknownAgentFailsThePaneRatherThanTheWindow(t *testing.T) {
 	var w Workspace
-	if _, ok := w.specFor("no-such-agent"); ok {
+	if _, ok := w.specFor("", "no-such-agent"); ok {
 		t.Fatal("an agent that does not exist resolved to a spec")
 	}
 }
@@ -780,8 +800,11 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 			wantIsAgent: true,
 		},
 		{
-			name:        "an agent chosen by neither name falls to the defaults",
+			// Recorded as what it resolved to, so that the header can say what
+			// it runs and a default changed later cannot move its conversation.
+			name:        "an agent chosen by neither name records the defaults it runs",
 			choice:      Choice{Kind: session.KindClaude},
+			wantAgent:   agent.DefaultAgentID,
 			wantIsAgent: true,
 		},
 	}
@@ -809,7 +832,7 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 // at once.
 func TestNoTranscriptMeansNoResume(t *testing.T) {
 	var w Workspace
-	claude, _ := w.specFor("claude")
+	claude, _ := w.specFor("", "claude")
 
 	tests := []struct {
 		name string
@@ -852,14 +875,14 @@ func TestUseAgentOutranksTheCatalogDefault(t *testing.T) {
 	if _, def := w.Agents(); def != "openai" {
 		t.Errorf("default agent = %q, want the one -agent named", def)
 	}
-	spec, ok := w.specFor("")
+	spec, ok := w.specFor("", "")
 	if !ok || spec.ID != "openai" {
 		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want openai", spec.ID, ok)
 	}
 
 	// A pane that names its own agent still wins: a restored layout knows what
 	// it was, and a run-wide default must not rewrite it.
-	if spec, ok := w.specFor("claude"); !ok || spec.ID != "claude" {
+	if spec, ok := w.specFor("", "claude"); !ok || spec.ID != "claude" {
 		t.Errorf("a pane naming claude resolved to %q (found %v)", spec.ID, ok)
 	}
 }

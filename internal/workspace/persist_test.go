@@ -346,8 +346,16 @@ func TestRestoreSessionSkipsMissingProjects(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 	ws.Close()
-	if err := os.RemoveAll(gone); err != nil {
-		t.Fatal(err)
+	// Closing kills each pane without waiting for it to go, and Windows will
+	// not delete a directory a process is still sitting in. Under the load of
+	// the whole suite the delete could lose that race, so it is given the few
+	// seconds a killed process can take.
+	deadline := time.Now().Add(10 * time.Second)
+	for err := os.RemoveAll(gone); err != nil; err = os.RemoveAll(gone) {
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	again := newTestWorkspace(t, first)
@@ -544,6 +552,24 @@ func TestRestoredShellTabKeepsItsName(t *testing.T) {
 	}
 }
 
+// TestARestoredWorktreeTabStillNamesItself covers a tab opened on a worktree,
+// which is named after the worktree rather than after the project. Only the
+// project's own name was recognised as automatic, so a tab like that stopped
+// renaming itself after its first prompt as soon as it had been restored.
+func TestARestoredWorktreeTabStillNamesItself(t *testing.T) {
+	w := &Workspace{panes: map[string]*Pane{
+		"a": {ID: "a", Kind: session.KindClaude, Cwd: "/src/api-fix-auth", Name: "api-fix-auth"},
+	}}
+	tab := &Tab{Root: "/src/api", Title: "api-fix-auth", Tree: layout.NewLeaf("a")}
+	if !w.stillAutoTitled(tab) {
+		t.Error("a worktree tab under its automatic name is not waiting to be renamed")
+	}
+	tab.Title = "fix the token refresh"
+	if w.stillAutoTitled(tab) {
+		t.Error("a tab named after a prompt would be renamed again")
+	}
+}
+
 // TestRestoreSessionDoesNotReopenTheActiveProject covers a saved session that
 // spells the project the window was started on differently — a trailing
 // separator here, but on Windows and macOS it is as likely to be the case of a
@@ -613,6 +639,40 @@ func TestRestoreSessionKeepsTheTabTheUserLeftOn(t *testing.T) {
 	}
 	if current.Title != "beta" {
 		t.Errorf("tab on screen = %q, want the one the window was left on", current.Title)
+	}
+}
+
+// TestAProjectNotOnScreenComesBackOnItsOwnTab covers every open project but
+// the one being looked at when the window closed. Each was saved as sitting on
+// its first tab, since the tab it had been left on was known only while it was
+// on screen, and the tab it was restored on was then thrown away in favour of
+// the first one anyway.
+func TestAProjectNotOnScreenComesBackOnItsOwnTab(t *testing.T) {
+	isolateConfig(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "theirs")
+	// Leave the second project on its second tab, and quit from the first.
+	ws.SelectProject(first)
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	again := newTestWorkspace(t, first)
+	if _, err := again.Restore(); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	again.RestoreSession()
+	again.SelectProject(second)
+
+	if current := again.CurrentTab(); current == nil || current.Title != "theirs" {
+		t.Errorf("the second project came back on %v, want the tab it was left on", current)
 	}
 }
 

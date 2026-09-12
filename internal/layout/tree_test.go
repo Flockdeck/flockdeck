@@ -582,6 +582,53 @@ func TestEmptiedSplitIsNotAPane(t *testing.T) {
 	}
 }
 
+// TestMovePaneAlongItsOwnSplitKeepsItsShare covers a drag that reorders a row
+// or a column. The pane was taken out and put back at the weight of the pane it
+// was dropped against, so one the user had widened to half the row came out at
+// a third of it at the other end, and a 70/30 pair swapped came out even.
+func TestMovePaneAlongItsOwnSplitKeepsItsShare(t *testing.T) {
+	weights := func(n *Node) []float64 {
+		var out []float64
+		for _, c := range n.Children {
+			out = append(out, c.Weight)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name        string
+		dir         Dir
+		start       []float64
+		pane, onto  string
+		edge        Edge
+		order       []string
+		wantWeights []float64
+	}{
+		{"row, to the far end", Horizontal, []float64{2, 1, 1}, "a", "c", EdgeRight, []string{"b", "c", "a"}, []float64{1, 1, 2}},
+		{"a pair, swapped", Horizontal, []float64{0.7, 0.3}, "a", "b", EdgeRight, []string{"b", "a"}, []float64{0.3, 0.7}},
+		{"column, to the top", Vertical, []float64{1, 1, 3}, "c", "a", EdgeTop, []string{"c", "a", "b"}, []float64{3, 1, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			panes := []string{"a", "b", "c"}[:len(tc.start)]
+			root := NewLeaf(panes[0])
+			for i := 1; i < len(panes); i++ {
+				root.Split(panes[i-1], panes[i], tc.dir)
+			}
+			if !root.SetChildWeights(tc.start) {
+				t.Fatal("setting the starting weights failed")
+			}
+			if !root.MovePane(tc.pane, tc.onto, tc.edge) {
+				t.Fatalf("moving %s against %s failed", tc.pane, tc.onto)
+			}
+			if got := root.Panes(); !reflect.DeepEqual(got, tc.order) {
+				t.Fatalf("panes = %v, want %v", got, tc.order)
+			}
+			if got := weights(root); !reflect.DeepEqual(got, tc.wantWeights) {
+				t.Errorf("weights = %v, want %v: the pane moved should keep the share it had", got, tc.wantWeights)
+			}
+		})
+	}
+}
+
 // TestMovePaneOntoItsOwnEdgeKeepsTheWeights covers the drag that ends where it
 // started. Rebuilding the split would silently even out the columns the user
 // had dragged the divider to set.
@@ -1464,6 +1511,43 @@ func TestGridIgnoresRepeatsAndBlanks(t *testing.T) {
 	}
 	if got := Grid(nil).Count(); got != 0 {
 		t.Errorf("an empty grid holds %d panes, want none", got)
+	}
+}
+
+// TestTileLeavesAGridWhereItIs covers tiling a tab that is already rows of
+// columns. Built a column at a time, its tree lists the left column whole
+// before the pane beside its top, and filling the grid in that order swapped
+// two panes of a layout that needed nothing done to it — even after a divider
+// had been dragged, which is the tab someone reaches for tiling to fix.
+func TestTileLeavesAGridWhereItIs(t *testing.T) {
+	box := Rect{W: 1000, H: 1000}
+	for _, dragged := range []bool{false, true} {
+		root := NewLeaf("a")
+		root.Split("a", "c", Horizontal)
+		root.Split("a", "b", Vertical)
+		root.Split("c", "d", Vertical)
+		if dragged && !root.Children[0].SetChildWeights([]float64{3, 2}) {
+			t.Fatal("the drag was refused")
+		}
+		root.Compute(box)
+		quadrant := func(n *Node, pane string) (int, int) {
+			r := n.Find(pane).Rect()
+			return (2*r.X + r.W) / 1000, (2*r.Y + r.H) / 1000
+		}
+		want := map[string][2]int{}
+		for _, p := range root.Panes() {
+			x, y := quadrant(root, p)
+			want[p] = [2]int{x, y}
+		}
+
+		tiled := Tile(root, box)
+		tiled.Compute(box)
+		for _, p := range []string{"a", "b", "c", "d"} {
+			if x, y := quadrant(tiled, p); [2]int{x, y} != want[p] {
+				t.Errorf("dragged=%v: %s moved from quadrant %v to %v", dragged, p, want[p], [2]int{x, y})
+			}
+		}
+		checkInvariants(t, tiled, "tiled")
 	}
 }
 

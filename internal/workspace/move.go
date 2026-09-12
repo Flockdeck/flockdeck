@@ -2,8 +2,7 @@ package workspace
 
 import (
 	"fmt"
-
-	"github.com/google/uuid"
+	"strings"
 
 	"github.com/jmwri/flockdeck/internal/layout"
 )
@@ -98,16 +97,56 @@ func (w *Workspace) MovePaneDir(dir layout.Direction) error {
 		return fmt.Errorf("no pane is focused")
 	}
 	if t.Zoom {
-		return fmt.Errorf("a zoomed pane fills the tab; unzoom it first")
+		return fmt.Errorf("a zoomed pane fills the tab; unzoom it first with %s", how("zoomPane"))
 	}
 	computeTab(t)
 	other := t.Tree.Neighbor(t.Focus, dir)
+	// Swapping rather than re-nesting keeps a keyboard move reversible: press
+	// the opposite arrow and the layout is back as it was. The geometry alone
+	// does not promise that. Two panes of different sizes trade cells, and the
+	// one moved can land facing several panes the other way — moved down past
+	// a full-width pane from beside a wider one, back up it faces both, and the
+	// wider one shares more of its edge. So the move just made is undone by
+	// name, as long as nothing has rearranged the tab since.
+	if m := w.lastKeyMove; m.tab == t.ID && m.pane == t.Focus && dir == opposite(m.dir) &&
+		m.order == paneOrder(t) {
+		other = m.other
+	}
 	if other == "" {
 		return fmt.Errorf("there is no pane that way")
 	}
-	// Swapping rather than re-nesting keeps a keyboard move reversible: press
-	// the opposite arrow and the layout is back as it was.
-	return w.SwapPanes(t.Focus, other)
+	moving := t.Focus
+	if err := w.SwapPanes(moving, other); err != nil {
+		return err
+	}
+	w.lastKeyMove = keyMove{tab: t.ID, pane: moving, other: other, dir: dir, order: paneOrder(t)}
+	return nil
+}
+
+// keyMove is a keyboard move: which pane went past which, which way, and what
+// the tab looked like afterwards, which is what says it is still the last
+// thing that happened to it.
+type keyMove struct {
+	tab, pane, other string
+	dir              layout.Direction
+	order            string
+}
+
+// paneOrder fingerprints a tab's arrangement: its panes in tree order.
+func paneOrder(t *Tab) string { return strings.Join(t.Tree.Panes(), "\x00") }
+
+// opposite is the arrow that points back the way a move came.
+func opposite(d layout.Direction) layout.Direction {
+	switch d {
+	case layout.Left:
+		return layout.Right
+	case layout.Right:
+		return layout.Left
+	case layout.Up:
+		return layout.Down
+	default:
+		return layout.Up
+	}
 }
 
 // MovePaneToTab moves a pane into another tab, beside that tab's focused pane.
@@ -156,7 +195,7 @@ func (w *Workspace) TilePanes() error {
 	if t.Tree.Count() < 2 {
 		return fmt.Errorf("there is nothing to tile: this tab has one pane")
 	}
-	t.Tree = layout.Grid(t.Tree.Panes())
+	t.Tree = layout.Tile(t.Tree, nominalRect)
 	t.Zoom = false
 	return nil
 }
@@ -164,8 +203,7 @@ func (w *Workspace) TilePanes() error {
 // MovePaneToNewTab pulls a pane out into a tab of its own, which is how a pane
 // that has outgrown its split gets the room to itself.
 func (w *Workspace) MovePaneToNewTab(paneID string) error {
-	p := w.Pane(paneID)
-	if p == nil {
+	if w.Pane(paneID) == nil {
 		return fmt.Errorf("that pane is no longer open")
 	}
 	src := w.tabOf(paneID)
@@ -175,21 +213,11 @@ func (w *Workspace) MovePaneToNewTab(paneID string) error {
 	if src.Tree.Count() <= 1 {
 		return fmt.Errorf("that pane already has a tab to itself")
 	}
+	w.detachPane(paneID)
 	// The tab stays with the project the pane was pulled out of, which is the
 	// tab bar the user is looking at, whatever project the agent itself
 	// belongs to.
-	root := src.Root
-	title, auto := paneTabTitle(p)
-
-	w.detachPane(paneID)
-	t := &Tab{
-		ID:        uuid.NewString(),
-		Root:      root,
-		Title:     title,
-		Tree:      layout.NewLeaf(paneID),
-		Focus:     paneID,
-		AutoTitle: auto,
-	}
+	t := w.tabHolding(paneID, src.Root)
 	// Put it directly after the tab it came from rather than at the far end,
 	// so a pane pulled out stays next to its old neighbours.
 	w.insertTabAfter(t, src)
@@ -444,6 +472,7 @@ func (w *Workspace) landOn(t *Tab, paneID string) {
 	t.Focus = paneID
 	t.Zoom = false
 	if t.Root != w.activeRoot && w.isOpen(t.Root) {
+		w.rememberTab()
 		w.activeRoot = t.Root
 	}
 	w.activeTab = t.ID

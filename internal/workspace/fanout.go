@@ -13,6 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.
@@ -84,7 +85,11 @@ func ExtractTasks(text string) []string {
 			continue
 		}
 		task := tidyTask(it.text)
-		if !isTask(task) || isPlanHeading(task) {
+		// A lead-in written as an entry beside the steps, "Here's the plan:",
+		// heads nothing but is no task either. The colon is what hands over to
+		// a list: "Split this into two files" shares a phrase with a lead-in
+		// and is still a task.
+		if !isTask(task) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
 			continue
 		}
 		key := strings.ToLower(task)
@@ -103,6 +108,9 @@ func ExtractTasks(text string) []string {
 // item is one list entry, how far it was indented, and which line it came from.
 type item struct {
 	indent int
+	// textAt is where the entry's text starts, for one on the line an agent
+	// marks as the start of what it says; for every other entry it is indent.
+	textAt int
 	line   int
 	text   string
 }
@@ -149,8 +157,26 @@ func listItems(text string) ([]item, []int) {
 			open = -1
 			continue
 		}
-		if entry, ok := listItem(body); ok {
-			items = append(items, item{indent: indent, line: n, text: entry})
+		if entry, textAt, ok := openingEntry(body, indent); ok {
+			// A heading or lead-in written as a list entry with the steps nested
+			// under it — "- Next steps:" over indented bullets, or Codex's bullet
+			// in front of "Plan:" or "Here's the plan:" — announces the plan as
+			// the same words on a line of their own do. Kept as an entry it was
+			// the shallowest one, so the steps under it went as its detail, and
+			// the dialog offered nothing, or the lead-in itself as the one task.
+			// A heading beside the steps, at their own depth, heads nothing and
+			// stays an entry, to be dropped as one.
+			if last := len(items) - 1; last >= 0 && indent > items[last].indent && isPlanCue(items[last].text) {
+				heading := items[last].line
+				items = items[:last]
+				// Cues are read latest first, so the heading goes in by line.
+				at := len(cues)
+				for at > 0 && cues[at-1] > heading {
+					at--
+				}
+				cues = append(cues[:at], append([]int{heading}, cues[at:]...)...)
+			}
+			items = append(items, item{indent: indent, textAt: textAt, line: n, text: entry})
 			open = len(items) - 1
 			continue
 		}
@@ -172,6 +198,24 @@ func listItems(text string) ([]item, []int) {
 			}
 		}
 		open = -1
+	}
+	// A step on the agent's own line is one of the steps under it only when
+	// they line up with its text. Moving it there regardless made a numbered
+	// bullet beside a plain one the other's detail; detail indented under it
+	// deeper still does not stop the rest lining up after.
+	for i := range items {
+		if items[i].textAt <= items[i].indent {
+			continue
+		}
+		for _, later := range items[i+1:] {
+			if later.indent <= items[i].indent {
+				break
+			}
+			if later.indent == items[i].textAt {
+				items[i].indent = items[i].textAt
+				break
+			}
+		}
 	}
 	return items, cues
 }
@@ -221,6 +265,10 @@ func countFences(lines []string) int {
 var planHeadings = []string{
 	"plan", "the plan", "tasks", "the tasks", "work", "the work",
 	"next steps", "steps", "proposed work", "what i would do", "what i'd do",
+	// A reply that reports progress lists what is done before what is not,
+	// and only the second list is work to hand out.
+	"remaining", "remaining work", "remaining tasks", "what's left",
+	"still to do", "left to do", "to do", "todo",
 }
 
 // planPhrases announce a plan in the middle of a sentence, so they are looked
@@ -429,8 +477,9 @@ func listItem(line string) (string, bool) {
 			return trimCheckbox(strings.TrimPrefix(line, marker)), true
 		}
 	}
-	// "1. text", "2) text", "10 - text", "(3) text"
-	if entry, ok := numberedItem(line); ok {
+	// "1. text", "2) text", "10 - text", "(3) text", and each of those written
+	// as a heading or in bold.
+	if entry, ok := numberedItem(unheaded(line)); ok {
 		return entry, true
 	}
 	// "TODO: text"
@@ -439,8 +488,55 @@ func listItem(line string) (string, bool) {
 			return line[len(prefix):], true
 		}
 	}
-	// "Task 2: text", "Step 3 — text"
-	return labelledItem(line)
+	// "Task 2: text", "Step 3 — text", "## Step 4: text"
+	return labelledItem(unheaded(line))
+}
+
+// openingEntry reads a line as a list entry, and says how far in the entry
+// starts, which for most lines is where the line does.
+//
+// An agent marks the start of what it says — Claude Code with ⏺, Gemini with
+// ✦, Codex with a bullet — and a reply that opens on its list puts the first
+// step on that line, the rest indented to line up under it. Read as written,
+// that step was no entry at all, or for Codex a bullet whose text was "1. …",
+// the shallowest entry, with the steps below dropped as its detail. So a line
+// at the left edge whose mark leaves an entry behind it is read as that entry,
+// measured from where its text starts. The glyphs an agent spins through while
+// it works leave no entry behind, so they are still not a list; and one
+// indented under a message, as Claude Code's tool output is, is left alone.
+func openingEntry(body string, indent int) (string, int, bool) {
+	width := func(s string) int { return utf8.RuneCountInString(s) }
+	if entry, ok := listItem(body); ok {
+		if inner, numbered := numberedItem(entry); numbered && strings.HasPrefix(body, "• ") {
+			return inner, indent + width(body) - width(entry), true
+		}
+		return entry, indent, true
+	}
+	if indent == 0 {
+		if rest := trimLeadGlyph(body); rest != body {
+			if entry, ok := listItem(rest); ok {
+				return entry, width(body) - width(rest), true
+			}
+		}
+	}
+	return "", indent, false
+}
+
+// unheaded strips what a numbered line of a plan may be dressed in: a markdown
+// heading, and bold.
+//
+// A plan long enough to put a paragraph under each step is as often numbered
+// with headings as with a list, and a plan written that way offered nothing to
+// fan out. Only the number makes such a line a task, so a heading without one
+// is still read as a heading.
+func unheaded(line string) string {
+	if h := strings.TrimLeft(line, "#"); h != line && strings.HasPrefix(h, " ") {
+		line = strings.TrimLeft(h, " ")
+	}
+	for _, mark := range []string{"**", "__"} {
+		line = strings.TrimPrefix(line, mark)
+	}
+	return line
 }
 
 // numberedItem strips a leading number and its separator.
@@ -544,11 +640,9 @@ func isDecoration(line string) bool {
 // that.
 const maxTaskBytes = 16 << 10
 
-// defaultAgentID is the agent a pane runs when nothing has chosen one.
-const defaultAgentID = "claude"
-
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
-// be run when it cannot. An empty id means the default agent.
+// be run when it cannot. An empty id means the default agent of the project on
+// screen.
 //
 // The question asked here is about one spec rather than about Claude. A
 // fan-out may now give four of its tasks to one agent and eight to another,
@@ -556,7 +650,7 @@ const defaultAgentID = "claude"
 // other half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
-	spec, ok := w.specFor(id)
+	spec, ok := w.specFor(w.activeRoot, id)
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}
@@ -566,10 +660,26 @@ func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 	if spec.Exe == "" {
 		return spec, fmt.Errorf("%s cannot be started on this machine", spec.Name)
 	}
-	// Word for word what a Claude pane has always said when the CLI is
-	// missing, because for anyone who only ever runs Claude nothing about
-	// this has changed.
-	return spec, fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+	// Word for word what the pane that would have failed says, how to install
+	// the agent included: a refused spawn goes back to the agent that asked
+	// for it, and a fan-out's notice to the user, and either is where somebody
+	// learns the agent is missing.
+	return spec, missingCLI(spec)
+}
+
+// missingCLI is what somebody is told when the CLI an agent runs is not
+// installed — in the pane that could not start, and in the refusal of a spawn
+// or a fan-out that would have needed it: what is wrong, and where the catalog
+// knows it, how to put it right, worded as the session package words the same
+// failure.
+//
+// Being told only "not found on PATH" left them to go and look up what the
+// picker beside them already says.
+func missingCLI(spec agent.Spec) error {
+	if spec.Install == "" {
+		return fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+	}
+	return fmt.Errorf("the `%s` CLI was not found on PATH; install %s first (%s)", spec.Exe, spec.Name, spec.Install)
 }
 
 // agentAvailable reports whether a spec can be started on this machine.
@@ -584,13 +694,6 @@ func (w *Workspace) agentAvailable(spec agent.Spec) bool {
 		return true
 	}
 	return agent.Available(spec)
-}
-
-// setPaneAgent records on the pane which agent and model it was started with,
-// so that a restart and a saved layout both come back as the same agent rather
-// than as whatever the default has since become.
-func setPaneAgent(p *Pane, agentID, model string) {
-	p.Agent, p.Model = agentID, model
 }
 
 // SpawnOptions describes a child agent to start.
@@ -623,7 +726,7 @@ type SpawnOptions struct {
 
 // Spawn starts a child agent, optionally in a worktree of its own.
 //
-// The task is handed to Claude as its opening argument rather than typed into
+// The task is handed to the agent as its opening argument rather than typed into
 // the terminal: typing into a TUI means guessing when it is ready, while an
 // argument is submitted by the agent itself the moment it starts.
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
@@ -631,18 +734,12 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		return "", fmt.Errorf("a task is required")
 	}
 	if len(o.Task) > maxTaskBytes {
-		return "", fmt.Errorf("the task is %d characters; a pane can be started with at most %d", len(o.Task), maxTaskBytes)
+		// The length said is in characters, which is what the person who wrote
+		// the task can check it against; the limit is in bytes, so it is not
+		// quoted, since in most scripts the two would never agree.
+		return "", fmt.Errorf("the task is %d characters, too long to start an agent with; save the detail to a file in the checkout and give the agent a task that points at it",
+			utf8.RuneCountInString(o.Task))
 	}
-	// Asked about the agent this pane will actually run rather than about
-	// Claude, because a fan-out may now hand half its tasks to one agent and
-	// half to another, and "the `claude` CLI was not found" is a nonsense
-	// answer to a task that was never going to run Claude.
-	if o.Kind != session.KindShell {
-		if _, err := w.AgentSpec(o.Agent); err != nil {
-			return "", err
-		}
-	}
-
 	parent := w.Pane(parentPaneID)
 	cwd := o.Cwd
 	if cwd == "" && parent != nil {
@@ -650,6 +747,28 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	}
 	if cwd == "" {
 		cwd = w.activeRoot
+	}
+	// A worktree sits beside its repository, under no open project, and a
+	// helper working in one belongs to the agent that asked for it rather
+	// than to whichever project happens to be on screen.
+	home := w.activeRoot
+	if parent != nil {
+		home = w.rootOf(parentPaneID)
+	}
+
+	// Asked about the agent this pane will actually run rather than about
+	// Claude, because a fan-out may now hand half its tasks to one agent and
+	// half to another, and "the `claude` CLI was not found" is a nonsense
+	// answer to a task that was never going to run Claude. One asked for no
+	// agent runs its own project's default, which need not be the default of
+	// the project on screen. It is asked before any worktree is made for a
+	// helper that could not start in it.
+	agentID, model := o.Agent, o.Model
+	if o.Kind != session.KindShell {
+		agentID, model = w.resolveChoice(w.helperProject(cwd, home), o.Agent, o.Model)
+		if _, err := w.AgentSpec(agentID); err != nil {
+			return "", err
+		}
 	}
 
 	if o.Branch != "" {
@@ -673,12 +792,14 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Kind:    o.Kind,
 		Cwd:     cwd,
 		Name:    filepath.Base(cwd),
-		Root:    w.projectFor(cwd),
+		Root:    w.helperProject(cwd, home),
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
 	}
-	setPaneAgent(p, o.Agent, o.Model)
+	if p.IsAgent() {
+		p.Agent, p.Model = agentID, model
+	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
 	w.mu.Unlock()
@@ -850,8 +971,10 @@ const planTurns = 4
 
 // PlanSource is where a fan-out looks for the work it should propose.
 type PlanSource struct {
-	// SessionID names the pane's Claude transcript, when it has one.
+	// SessionID names the pane's transcript, when its agent keeps one, and
+	// Spec is that agent, which is what knows where the transcript is.
 	SessionID string
+	Spec      agent.Spec
 	// Screen is the pane's recent terminal output. It is the fallback: a shell
 	// pane has no transcript, and neither has an agent that has not yet spoken.
 	Screen string
@@ -868,9 +991,13 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 	}
 	var src PlanSource
 	// A pane's id is the session id its agent was started with, which is what
-	// names its transcript.
-	if p.Kind == session.KindClaude {
-		src.SessionID = p.ID
+	// names its transcript. Where that transcript is kept is the agent's own
+	// arrangement: asking Claude Code's store about every agent found nothing
+	// for the built-in chat client, whose plan was then read off the screen.
+	if p.IsAgent() {
+		if spec, ok := w.specFor(p.Root, p.Agent); ok {
+			src.SessionID, src.Spec = w.conversationOf(p), spec
+		}
 	}
 	if p.Sess != nil {
 		src.Screen = p.Sess.RecentText(recentOutputBytes)
@@ -885,7 +1012,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 // workspace. The most recent reply that yields any work wins: an agent that has
 // laid out a plan and then answered a follow-up should not lose the plan.
 func (s PlanSource) Tasks() ([]string, bool) {
-	for _, reply := range session.RecentReplies(s.SessionID, planTurns) {
+	for _, reply := range transcript.For(s.Spec).Replies(s.Spec, s.SessionID, planTurns) {
 		if tasks := ExtractTasks(reply); len(tasks) > 0 {
 			return tasks, true
 		}

@@ -39,10 +39,13 @@ func (w *Workspace) SaveAll() error {
 func (w *Workspace) SaveProject(root string) error {
 	tabs := w.tabsOf(root)
 	st := &store.State{}
-	onScreen := -1
+	onScreen, leftOn := -1, -1
 	for i, t := range tabs {
 		if t.ID == w.activeTab {
 			onScreen = i
+		}
+		if t.ID == w.lastTab[root] {
+			leftOn = i
 		}
 		st.Tabs = append(st.Tabs, store.Tab{
 			Title: t.Title,
@@ -50,12 +53,19 @@ func (w *Workspace) SaveProject(root string) error {
 			Root:  w.encodeNode(t.Tree, t.Root),
 		})
 	}
+	// A project that is not on screen is saved on the tab it was last left on,
+	// which is where switching back to it would land.
+	//
 	// Reading the last saved index back is a whole file read, and it is only
-	// an answer for a project with no tab on screen. Asking for it first and
-	// then throwing it away put that read on the way out of every run and on
-	// every project closed, for the one project it can never apply to.
+	// an answer for a project nobody has been in since it was opened. Asking
+	// for it first and then throwing it away put that read on the way out of
+	// every run and on every project closed, for projects it can never apply
+	// to.
 	st.Active = onScreen
-	if onScreen < 0 {
+	if st.Active < 0 {
+		st.Active = leftOn
+	}
+	if st.Active < 0 {
 		st.Active = w.rememberedActive(root, len(tabs))
 	}
 	return store.Save(root, st)
@@ -108,6 +118,12 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 		// for the ordinary case, which is every pane in a one-project tab.
 		if p.Root != "" && !sameDir(p.Root, tabRoot) {
 			out.Pane.Root = p.Root
+		}
+		// A conversation the agent has moved on to since the pane started is
+		// the one a restore has to resume; a pane still in its first one is
+		// written as panes always have been.
+		if c := w.conversationOf(p); c != p.ID {
+			out.Pane.Conversation = c
 		}
 		return out
 	}
@@ -194,6 +210,12 @@ func (w *Workspace) restoreProject(root string) int {
 		activeTab = firstTab
 	}
 	w.activeTab = activeTab
+	// Restoring a project alongside the one on screen hands the focus straight
+	// back to that one, so this is also what switching to it should land on.
+	if w.lastTab == nil {
+		w.lastTab = map[string]string{}
+	}
+	w.lastTab[root] = activeTab
 	return added
 }
 
@@ -202,24 +224,29 @@ func (w *Workspace) restoreProject(root string) int {
 //
 // The saved layout carries the title but nothing saying who chose it, so the
 // test is whether it is still the name the tab would have been given
-// automatically: the directory it was opened on. Without this, a tab created
-// but never prompted before a restart would keep its directory name forever,
-// while an identical tab created after one would rename itself — the same tab
+// automatically: the name of the pane it was opened with, which is that pane's
+// directory — the project's only for a tab opened in the project itself, and
+// the worktree's for one opened on a worktree. Without this, a tab created but
+// never prompted before a restart would keep its directory name forever, while
+// an identical tab created after one would rename itself — the same tab
 // behaving differently for no reason the user can see.
 //
 // A tab the user deliberately named after its own directory loses nothing much
 // by being renamed once more; a tab named after a prompt keeps that name.
 func (w *Workspace) stillAutoTitled(t *Tab) bool {
-	if t.Title != filepath.Base(t.Root) {
-		return false
-	}
 	// Only an agent pane reports the prompts a rename would come from.
+	agents := false
 	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil && p.IsAgent() {
+		p := w.Pane(id)
+		if p == nil || !p.IsAgent() {
+			continue
+		}
+		if t.Title == p.Name {
 			return true
 		}
+		agents = true
 	}
-	return false
+	return agents && t.Title == filepath.Base(t.Root)
 }
 
 // ensureProjectOpen opens the project a restored pane belongs to, so a tab
@@ -404,14 +431,15 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	}
 	if n.Pane != nil {
 		p := &Pane{
-			ID:    n.Pane.ID,
-			Kind:  parseKind(n.Pane.Kind),
-			Cwd:   n.Pane.Cwd,
-			Name:  n.Pane.Name,
-			Task:  n.Pane.Task,
-			Root:  n.Pane.Root,
-			Agent: n.Pane.Agent,
-			Model: n.Pane.Model,
+			ID:           n.Pane.ID,
+			Kind:         parseKind(n.Pane.Kind),
+			Cwd:          n.Pane.Cwd,
+			Name:         n.Pane.Name,
+			Task:         n.Pane.Task,
+			Root:         n.Pane.Root,
+			Agent:        n.Pane.Agent,
+			Model:        n.Pane.Model,
+			Conversation: n.Pane.Conversation,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot
@@ -567,11 +595,7 @@ func (w *Workspace) RestoreSession() int {
 			// it shows something.
 			active := w.activeRoot
 			w.activeRoot = root
-			kind := session.KindClaude
-			if !w.ClaudeAvailable() {
-				kind = session.KindShell
-			}
-			w.NewTab(kind, root, "")
+			w.NewTab(w.firstPaneKind(), root, "")
 			w.activeRoot = active
 		}
 		opened++

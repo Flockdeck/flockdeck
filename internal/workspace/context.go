@@ -111,7 +111,7 @@ type PaneContext struct {
 // when the pane is unknown.
 //
 // Everything here comes from state the workspace already holds — no git or
-// filesystem calls — because it is built while a pane's Claude session waits
+// filesystem calls — because it is built while a pane's agent session waits
 // on its SessionStart hook.
 func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	p := w.Pane(paneID)
@@ -184,7 +184,17 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			if !sameDir(sibRoot, c.ProjectRoot) {
 				continue
 			}
-			st, _ := sib.Status()
+			// The session is taken under the lock. A restore starts its panes
+			// on several goroutines at once, and one briefed through its
+			// opening prompt is described while the others' sessions are
+			// still being put in place.
+			w.mu.RLock()
+			sess := sib.Sess
+			w.mu.RUnlock()
+			st := session.StatusExited
+			if sess != nil {
+				st, _ = sess.Status()
+			}
 			if st == session.StatusExited {
 				continue
 			}
@@ -261,14 +271,15 @@ func (w *Workspace) OpeningPrompt(paneID, task string, mode agent.ContextMode) s
 	return c.OpeningPrompt()
 }
 
-// paneAgent names the agent and the model a pane is running.
-//
-// It is a shim, and a temporary one: the two values belong on Pane, which is
-// declared in a file this change does not own, so the briefing is written to
-// read them from here and the body becomes `return p.Agent, p.Model` the
-// moment the fields exist. Empty strings until then leave a sibling described
-// exactly as it is described today.
-func paneAgent(*Pane) (agentID, model string) { return "", "" }
+// paneAgent names the agent and the model a pane is running, exactly as the
+// server reports them for its header, so the agent reading about a sibling and
+// the user looking at it are told the same thing. A shell runs neither.
+func paneAgent(p *Pane) (agentID, model string) {
+	if !p.IsAgent() {
+		return "", ""
+	}
+	return p.Agent, p.Model
+}
 
 // tabOf returns the tab containing a pane, or nil.
 func (w *Workspace) tabOf(paneID string) *Tab {
@@ -280,22 +291,45 @@ func (w *Workspace) tabOf(paneID string) *Tab {
 	return nil
 }
 
+// foldsCase says whether file names on this system ignore case, which is what
+// decides whether two spellings of a path can name one directory. Windows and
+// macOS ignore it by default, which is what the store assumes when it keys a
+// project's layout; Linux does not, and there /code/Api and /code/api are two
+// projects. It is a variable so that a test can ask about the other kind.
+var foldsCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
 // sameDir compares two directory paths for the purposes of telling a pane
-// apart from its project root. Case is ignored, since Windows paths reach us
-// from both the command line and git.
+// apart from its project root, and one open project from another.
+//
+// Case is ignored only where the filesystem ignores it. Ignoring it everywhere
+// made two projects on Linux whose names differ only in case one project:
+// opening the second showed the first, and its own layout, which the store
+// keeps apart, was never read.
 func sameDir(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return pathKey(a) == pathKey(b)
+}
+
+// pathKey is a directory as a map key: cleaned, and case-folded where the
+// filesystem folds case, so that two spellings of one directory are one entry.
+// The spellings really do arrive — from the command line, from git, from a
+// picker — and where case is folded they name one directory.
+func pathKey(dir string) string {
+	d := filepath.Clean(dir)
+	if foldsCase {
+		d = strings.ToLower(d)
+	}
+	return d
 }
 
 // underDir reports whether dir is base or sits inside it.
 //
 // Case is folded for the same reason sameDir folds it: the two paths arrive
 // from different places — one from a project as it was opened, the other from
-// git or from a directory picker — and on Windows they can name the same
-// directory in different case.
+// git or from a directory picker — and where case is folded they can name the
+// same directory in different case.
 func underDir(dir, base string) bool {
 	d, b := filepath.Clean(dir), filepath.Clean(base)
-	if runtime.GOOS == "windows" {
+	if foldsCase {
 		// Folded before the comparison, not after: filepath.Rel compares the
 		// two case sensitively, so folding its answer would be too late.
 		d, b = strings.ToLower(d), strings.ToLower(b)
@@ -453,7 +487,10 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"created from yours. Without it every agent shares this one working tree and " +
 			"will edit files under the others; use it whenever two of them would otherwise " +
 			"touch the same files.\n" +
-			"- `--shell`: a terminal rather than another conversation.\n\n" +
+			"- `--shell`: a terminal rather than another conversation.\n" +
+			"- `--agent <id>` and `--model <model>`: which agent the helper is, and which of its " +
+			"models, where another suits the work better than the project's default; `" +
+			flockdeck + " agents` lists them. Neither goes with `--shell`.\n\n" +
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
 			"yours — not this context, not the task you were given, not what you have " +
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
@@ -496,9 +533,10 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 		"how to do something gets an answer from you.\n\n")
 
 	if hooked {
-		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** Every agent pane "+
-			"is started with a generated `--settings` file registering Claude Code's lifecycle "+
-			"hooks — your own settings, hooks and permissions still apply on top — and Flockdeck reads "+
+		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** You report your "+
+			"own lifecycle to Flockdeck — Claude Code through the hooks a generated `--settings` file "+
+			"registers, with your own settings, hooks and permissions still applying on top, and "+
+			"Flockdeck's built-in chat client by itself — and Flockdeck reads "+
 			"your state from those rather than from your output: green while you work, amber while "+
 			"you wait on the user, grey between turns, red once the process exits. A pane that is "+
 			"waiting marks its tab and the window title, and raises a desktop notification when the "+
@@ -523,10 +561,13 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 		"as it stands; a plan written as prose has to be rewritten before it can be, so write "+
 		"one that way when it is going to be handed to other agents.\n\n", how("fanout"))
 
-	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s mirrors what the user "+
-		"types into a set of panes — by default the agents on the current tab, adjusted with "+
-		"the `⇉` button in each pane header — and %s sends that set one composed message at "+
-		"once.\n\n", how("toggleBroadcast"), how("promptAll"))
+	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s decides where the "+
+		"prompt bar sends: while it is on, %s delivers one composed message to every pane in the "+
+		"broadcast set — by default the agents on the current tab, adjusted with the `⇉` button "+
+		"in each pane header — and while it is off, to the focused pane and any panes added "+
+		"to the set by hand. What the user "+
+		"types into a pane's own terminal only ever reaches that pane.\n\n",
+		how("toggleBroadcast"), how("promptAll"))
 
 	fmt.Fprintf(b, "**Git has a home in the window.** %s shows the diff of the checkout this "+
 		"pane is working in, and commits, pushes, pulls and fetches it. Nothing is staged "+
@@ -583,12 +624,14 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"instance already running rather than starting a second one:\n\n"+
 		"```sh\n"+
 		"%s -C ~/code/api   # open another project in this window\n"+
-		"%s -detach         # close the window, leave every agent running\n"+
 		"%s -quit           # stop every agent in every project\n"+
 		"```\n\n"+
 		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
-		"along with your own. `-new`, `-shell`, `-solo`, `-no-window` and `-version` shape a "+
-		"fresh start and mean nothing from in here, and `FLOCKDECK_BROWSER` picks the browser that "+
+		"along with your own. `-new`, `-shell`, `-agent`, `-detach`, `-solo`, `-no-window` and "+
+		"`-version` shape a fresh start and mean nothing from in here: `-detach` in particular "+
+		"does not detach the instance already running, it opens another window onto it — "+
+		"closing the window and leaving the agents running is "+how("detach")+". "+
+		"`FLOCKDECK_BROWSER` picks the browser that "+
 		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run, and exposes nothing to the "+
 		"network.\n\n", flockdeck, flockdeck, flockdeck)
@@ -600,9 +643,10 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"| `FLOCKDECK_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
 		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
 		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
-		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n\n" +
+		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n" +
+		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n\n" +
 		"`spawn` reads the first three, which is why it works from inside a pane and nowhere " +
-		"else. The same values are set under the older `PERCH_*` names as well, for " +
+		"else. The first five are also set under the older `PERCH_*` names, for " +
 		"anything written before the application was renamed.\n")
 }
 
@@ -687,6 +731,15 @@ func (c PaneContext) siblingAgentsNamed() bool {
 // Files", the brackets after it. Anything but what a bare path is made of is
 // quoted, rather than the space alone.
 func shellWord(s string) string {
+	// Double quotes keep a space and a bracket, but sh still reads a $, a
+	// backtick and a double quote inside them, and a doubled backslash
+	// anywhere — so a build run from a Windows share (\\server\...) was mangled
+	// even though every character in its path is one a bare path is made of.
+	// Single quotes keep every character as it is, and only a single quote
+	// itself has to be written around.
+	if strings.ContainsAny(s, "$`\"") || strings.Contains(s, `\\`) {
+		return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`
+	}
 	if s == "" || !strings.ContainsFunc(s, needsQuoting) {
 		return s
 	}

@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -241,6 +243,39 @@ func TestRenderSaysWhenSiblingsWereOmitted(t *testing.T) {
 	}
 }
 
+// TestTheBriefingSaysWhatBroadcastDoes covers what every agent is told about
+// broadcast, and so what it tells a user who asks. It said broadcast mirrors
+// what the user types, which it has never done: it decides where the prompt
+// bar's one message goes, and typing into a pane reaches that pane alone. With
+// it off the message still reaches the panes picked by hand, which stay picked.
+func TestTheBriefingSaysWhatBroadcastDoes(t *testing.T) {
+	text := PaneContext{PaneName: "one", Cwd: "/repo"}.Render()
+	if strings.Contains(text, "mirrors what the user types") {
+		t.Errorf("the briefing says broadcast mirrors typing:\n%s", text)
+	}
+	for _, want := range []string{"prompt bar", "added to the set by hand"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q about broadcast:\n%s", want, text)
+		}
+	}
+}
+
+// TestTheBriefingDoesNotTellEveryAgentItHasClaudesSettings covers the agents
+// briefed through a lifecycle hook, which are Claude Code and Flockdeck's own chat
+// client. Both were told they had been started with a generated `--settings`
+// file registering Claude Code's hooks, which the chat client never is.
+func TestTheBriefingDoesNotTellEveryAgentItHasClaudesSettings(t *testing.T) {
+	text := PaneContext{PaneName: "one", Cwd: "/repo"}.Render()
+	if strings.Contains(text, "Every agent pane is started with a generated `--settings` file") {
+		t.Errorf("the briefing tells every hooked agent it has Claude Code's settings file:\n%s", text)
+	}
+	for _, want := range []string{"Claude Code through the hooks", "chat client by itself"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q:\n%s", want, text)
+		}
+	}
+}
+
 // TestBroadcastDefaultIsDroppedWhenBroadcastIsTurnedOff covers the selection
 // nobody made: it describes the tab it was built from, so carrying it into
 // the next tab would leave broadcast on with nothing to send to.
@@ -297,6 +332,25 @@ func TestSummarisePromptStopsAtAWord(t *testing.T) {
 	}
 	if got := summarisePrompt("short enough"); got != "short enough" {
 		t.Errorf("short title = %q, want it left alone", got)
+	}
+}
+
+// TestSummarisePromptDropsMarkdown covers a first prompt written in markdown or
+// opening on something pasted. A tab has room for a few words, and the marks
+// that only mean anything rendered — a heading, a fence, a quote, a bullet and
+// its box, bold — were spending them: "``` panic: runtime error:…".
+func TestSummarisePromptDropsMarkdown(t *testing.T) {
+	for prompt, want := range map[string]string{
+		"## Task\nRefactor the router so handlers live in router.go": "Task Refactor the router so…",
+		"```\npanic: runtime error: index out of range\n```\nwhy?":   "panic: runtime error: index…",
+		"> the build fails on windows\ncan you look?":                "the build fails on windows…",
+		"**Fix** the login bug on the settings page":                 "Fix the login bug on the…",
+		"- [ ] add a timeout to the control socket":                  "add a timeout to the…",
+		"* check the #123 regression":                                "check the #123 regression",
+	} {
+		if got := summarisePrompt(prompt); got != want {
+			t.Errorf("summarisePrompt(%q) = %q, want %q", prompt, got, want)
+		}
 	}
 }
 
@@ -489,10 +543,14 @@ func TestProjectsWithTheSameNameAreToldApart(t *testing.T) {
 // it will not use.
 func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
-	for _, flag := range []string{"--worktree", "--split", "--shell"} {
+	for _, flag := range []string{"--worktree", "--split", "--shell", "--agent", "--model"} {
 		if !strings.Contains(text, flag) {
 			t.Errorf("the spawn section does not mention %s", flag)
 		}
+	}
+	// An id is only any use to an agent that can find out which ones there are.
+	if !strings.Contains(text, "flockdeck agents") {
+		t.Error("the spawn section names --agent but not how to list the agents it takes")
 	}
 	// Naming a flag is not the same as saying what it does. Where a spawned
 	// pane lands is the part an agent cannot discover without reading this
@@ -794,6 +852,75 @@ func TestTheSpawnCommandIsQuotedWhenItHasToBe(t *testing.T) {
 	}
 }
 
+// TestTheSpawnCommandSurvivesTheShell covers the characters sh still reads
+// inside double quotes. The examples an agent is given are run by a shell, and
+// a path through a folder with a $ in its name, or a build run from a Windows
+// share, was quoted into a command for some other path.
+func TestTheSpawnCommandSurvivesTheShell(t *testing.T) {
+	paths := []string{
+		`/home/me/$work/flockdeck`,
+		`C:\Users\me\a$b\flockdeck.exe`,
+		`\\server\share\flockdeck.exe`,
+		"/opt/odd`dir/flockdeck",
+		`/opt/it's $here/flockdeck`,
+	}
+	// Reading the word back through a real sh proves it, but only where sh is
+	// given its argument as it stands: on Windows the one to hand is Git's,
+	// whose runtime rewrites backslashes in the command line it is started
+	// with before sh ever sees the quotes.
+	sh, err := exec.LookPath("sh")
+	for _, p := range paths {
+		word := shellWord(p)
+		if !strings.HasPrefix(word, `'`) {
+			t.Errorf("shellWord(%q) = %s, which sh would expand", p, word)
+			continue
+		}
+		if err != nil || runtime.GOOS == "windows" {
+			continue
+		}
+		out, runErr := exec.Command(sh, "-c", "printf %s "+word).Output()
+		if runErr != nil {
+			t.Errorf("sh could not read %s: %v", word, runErr)
+			continue
+		}
+		if string(out) != p {
+			t.Errorf("sh read %s as %q, want %q", word, out, p)
+		}
+	}
+}
+
+// TestTheBriefingDoesNotOfferDetachFromThePane covers the shell section of the
+// briefing, which offered `flockdeck -detach` as the way to close the window
+// and leave the agents running. Run from inside a pane it joins the instance
+// already running, where -detach is one of the flags that only shape a fresh
+// start: it is ignored, and another window opens onto everything instead.
+func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	if strings.Contains(text, "-detach         # close the window") {
+		t.Errorf("the briefing offers -detach as a way to close the window:\n%s", text)
+	}
+	for _, want := range []string{"`-agent`, `-detach`", how("detach")} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q:\n%s", want, text)
+		}
+	}
+}
+
+// TestTheBriefingNamesEveryVariableAPaneCarries covers the table of what a
+// pane has in its environment. FLOCKDECK_AGENT and FLOCKDECK_MODEL are set on
+// every agent pane, and are how a script or a prompt says what it is sitting
+// in, but the table stopped at five, so an agent asked which model it runs
+// had nowhere to point.
+func TestTheBriefingNamesEveryVariableAPaneCarries(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "FLOCKDECK_PANE", "FLOCKDECK_PANE_NAME",
+		"FLOCKDECK_PROJECT", "FLOCKDECK_AGENT", "FLOCKDECK_MODEL"} {
+		if !strings.Contains(text, "`"+name+"`") {
+			t.Errorf("the briefing never names %s:\n%s", name, text)
+		}
+	}
+}
+
 // TestRenderNamesEveryActionTheInterfaceHas keeps the description of the
 // application whole as the application grows. An action added to the palette
 // and left out of here is one the agent beside the user will never mention,
@@ -992,6 +1119,38 @@ func TestSiblingsAreDescribedWithTheirAgentAndModel(t *testing.T) {
 				t.Errorf("describe() = %q, want nothing about %q", got, tc.avoid)
 			}
 		})
+	}
+}
+
+// TestPaneContextNamesTheAgentASiblingRuns checks the label reaches the
+// briefing from the pane itself. The describing was all in place while the
+// lookup behind it still answered nothing for every pane, so no agent was ever
+// told what was running next door.
+func TestPaneContextNamesTheAgentASiblingRuns(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	child, err := ws.Spawn(parent, SpawnOptions{Task: "port the parser", Kind: session.KindShell, Split: true})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	// A live process is what keeps a sibling in the list; which agent it is
+	// recorded as is what is under test, so the shell is relabelled as one.
+	p := ws.Pane(child)
+	p.Kind, p.Agent, p.Model = session.KindClaude, "codex", "gpt-5"
+
+	c, _ := ws.PaneContext(parent)
+	if len(c.Siblings) != 1 {
+		t.Fatalf("siblings = %#v, want the child", c.Siblings)
+	}
+	if got := c.Siblings[0]; got.Agent != "codex" || got.Model != "gpt-5" {
+		t.Errorf("sibling runs %q · %q, want codex · gpt-5", got.Agent, got.Model)
+	}
+	if text := c.Render(); !strings.Contains(text, "running codex · gpt-5") {
+		t.Errorf("the briefing never says what the sibling runs:\n%s", text)
 	}
 }
 

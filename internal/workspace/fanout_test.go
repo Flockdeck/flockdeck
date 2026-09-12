@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 )
@@ -132,6 +134,120 @@ func TestExtractTasksSkipsNestedDetail(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestExtractTasksReadsAPlanUnderABulletedHeading covers a plan whose heading is
+// itself a list entry, with the steps nested under it — Codex puts a bullet in
+// front of what it says, and markdown writes "- Next steps:" the same way. The
+// heading was the shallowest entry, so the steps under it were dropped as its
+// detail, and then the heading was dropped for being one: nothing was offered.
+func TestExtractTasksReadsAPlanUnderABulletedHeading(t *testing.T) {
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"codex": {
+			"• Plan:\n\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+			[]string{"Split the router into its own package", "Add a timeout to the control socket"},
+		},
+		"markdown": {
+			"- Next steps:\n  - Split the router into its own package\n  - Add a timeout to the control socket\n",
+			[]string{"Split the router into its own package", "Add a timeout to the control socket"},
+		},
+		"progress": {
+			"- Done:\n  - Moved the handlers into router.go\n- Remaining:\n  - Add a timeout to the control socket\n",
+			[]string{"Add a timeout to the control socket"},
+		},
+	} {
+		if got := ExtractTasks(tc.plan); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// TestExtractTasksReadsAPlanUnderABulletedLeadIn is the same shape with a
+// sentence in place of the heading: Codex bullets "Here's the plan:" as it
+// bullets everything it says. The dialog offered that sentence as the one task
+// and none of the steps under it.
+func TestExtractTasksReadsAPlanUnderABulletedLeadIn(t *testing.T) {
+	steps := []string{"Split the router into its own package", "Add a timeout to the control socket"}
+	for name, plan := range map[string]string{
+		"here's the plan": "• Here's the plan:\n\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+		"split this into": "• I'll split this into two parts:\n  - Split the router into its own package\n  - Add a timeout to the control socket\n",
+		"after a survey":  "• I looked at the router and the socket code.\n\n• Here's what I'd do:\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+	} {
+		if got := ExtractTasks(plan); !reflect.DeepEqual(got, steps) {
+			t.Errorf("%s: extracted %q, want %q", name, got, steps)
+		}
+	}
+}
+
+// TestExtractTasksDropsALeadInBesideItsSteps covers the lead-in written as an
+// entry at the steps' own depth. It heads nothing, so it is not where the plan
+// starts, but it is not a task either: "Here's the plan:" was offered as one.
+// A task that merely shares a phrase with a lead-in says what to do and does
+// not hand over to a list, so without the colon it is still offered.
+func TestExtractTasksDropsALeadInBesideItsSteps(t *testing.T) {
+	steps := []string{"Split the router into its own package", "Add a timeout to the control socket"}
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"bulleted": {"- Here's the plan:\n- Split the router into its own package\n- Add a timeout to the control socket\n", steps},
+		"codex":    {"• Here's what I'd do:\n• Split the router into its own package\n• Add a timeout to the control socket\n", steps},
+		"numbered": {"1. Here's the plan:\n2. Split the router into its own package\n3. Add a timeout to the control socket\n", steps},
+		"a task that shares the phrase": {
+			"- Split this into two files, router.go and routes.go\n- Add a timeout to the control socket\n",
+			[]string{"Split this into two files, router.go and routes.go", "Add a timeout to the control socket"},
+		},
+	} {
+		if got := ExtractTasks(tc.plan); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// TestExtractTasksKeepsTheStepOnTheAgentsOwnLine covers a reply that opens on
+// its list. The agent marks the start of what it says — Claude Code with ⏺,
+// Gemini with ✦, Codex with a bullet — so the first step shares that line and
+// the rest are indented to line up under it. The first step was lost without a
+// sign, or for Codex came out as the one task, "1." and all.
+func TestExtractTasksKeepsTheStepOnTheAgentsOwnLine(t *testing.T) {
+	three := []string{
+		"Split the router into its own package",
+		"Add a timeout to the control socket",
+		"Cover the reconnect path with a test",
+	}
+	rest := "  2. Add a timeout to the control socket\n  3. Cover the reconnect path with a test\n"
+	for name, tc := range map[string]struct {
+		screen string
+		want   []string
+	}{
+		"claude": {"⏺ 1. Split the router into its own package\n" + rest, three},
+		"gemini": {"✦ 1. Split the router into its own package\n" + rest, three},
+		"codex":  {"• 1. Split the router into its own package\n" + rest, three},
+		"claude, bullets": {
+			"⏺ - Split the router into its own package\n  - Add a timeout to the control socket\n",
+			three[:2],
+		},
+		// The glyphs an agent spins through while it works are not a list.
+		"a spinner": {"✻ Perambulating the router package… (esc to interrupt)\n", nil},
+		// Only steps that line up under the first one make it one of them: a
+		// numbered bullet beside a plain one is a list of two, and detail
+		// under the first step does not stop the rest lining up after it.
+		"a numbered bullet beside a plain one": {
+			"• 1. Split the router into its own package\n• Add a timeout to the control socket\n",
+			three[:2],
+		},
+		"detail under the first step": {
+			"⏺ 1. Split the router into its own package\n     - move the handlers first\n" + rest,
+			three,
+		},
+	} {
+		if got := ExtractTasks(tc.screen); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
 		}
 	}
 }
@@ -922,6 +1038,46 @@ func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
 	}
 }
 
+// A reply reporting progress lists what is done and then what is left, and
+// only what is left is work to hand out. With nothing to say where that began,
+// the finished items were offered as tasks alongside the rest.
+func TestExtractTasksTakesOnlyWhatRemains(t *testing.T) {
+	plan := "Done:\n- ✅ Split the router into its own package\n- ✅ Add a timeout to every outbound request\n\n" +
+		"Remaining:\n- Write the docs for the new flags\n- Add a metrics endpoint for the proxy\n"
+	want := []string{"Write the docs for the new flags", "Add a metrics endpoint for the proxy"}
+	if got := ExtractTasks(plan); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("ExtractTasks = %q, want only what remains, %q", got, want)
+	}
+	// Only a heading on its own announces the list; a line that mentions what
+	// remains is still prose, and the tasks around it all count.
+	prose := "Remaining issues are small.\n- Write the docs for the new flags\n- Add a metrics endpoint for the proxy\n"
+	if got := ExtractTasks(prose); len(got) != 2 {
+		t.Errorf("ExtractTasks = %q, want both tasks", got)
+	}
+}
+
+// A longer plan is often written as numbered headings, a paragraph under each,
+// or as numbered lines in bold. Neither began with a list marker, so the
+// extractor offered nothing for a plan it could have run as it stood.
+func TestExtractTasksReadsNumberedHeadings(t *testing.T) {
+	want := []string{"Split the router into its own package", "Add a timeout to every outbound request"}
+	for _, plan := range []string{
+		"## Plan\n\n### 1. Split the router into its own package\nIt has grown too big.\n\n### 2. Add a timeout to every outbound request\nNone has one.\n",
+		"## Step 1: Split the router into its own package\n\n## Step 2: Add a timeout to every outbound request\n",
+		"#### Task 1 — Split the router into its own package\n#### Task 2 — Add a timeout to every outbound request\n",
+		"**1. Split the router into its own package**\n\n**2. Add a timeout to every outbound request**\n",
+	} {
+		got := ExtractTasks(plan)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("ExtractTasks(%q) = %q, want %q", plan, got, want)
+		}
+	}
+	// A heading with no number is still a heading and not a job.
+	if got := ExtractTasks("## Overview of the router\n\n## Risks in the timeout work\n"); len(got) != 0 {
+		t.Errorf("plain headings were read as tasks: %q", got)
+	}
+}
+
 // The task becomes a command-line argument. Windows refuses a command line
 // past about thirty-two thousand characters, and what it says about that names
 // neither the task nor its length — so the length is checked here, where there
@@ -942,6 +1098,19 @@ func TestSpawnRefusesATaskTooLongToStartWith(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "characters") {
 		t.Errorf("err = %v, want it to name the length", err)
+	}
+	// The length is what the writer can count, which is characters rather
+	// than bytes in any script but ASCII, and the refusal says what to do.
+	accented := strings.Repeat("é", maxTaskBytes/2+1)
+	_, err = ws.Spawn(parent, SpawnOptions{Task: accented, Kind: session.KindShell})
+	if err == nil {
+		t.Fatal("a task too long for a command line was accepted")
+	}
+	if want := fmt.Sprint(utf8.RuneCountInString(accented)); !strings.Contains(err.Error(), want+" characters") {
+		t.Errorf("err = %v, want it to count %s characters", err, want)
+	}
+	if !strings.Contains(err.Error(), "file") {
+		t.Errorf("err = %v, want it to say what to do with a brief this long", err)
 	}
 	// Nothing may be left behind by a spawn that was refused.
 	if n := len(ws.VisibleTabs()); n != 1 {
@@ -970,7 +1139,7 @@ func TestAgentSpecResolvesByID(t *testing.T) {
 		want    string
 		unknown bool
 	}{
-		{name: "the default", id: "", want: defaultAgentID},
+		{name: "the default", id: "", want: agent.DefaultAgentID},
 		{name: "by name", id: "claude", want: "claude"},
 		{name: "one nobody has heard of", id: "nosuch", unknown: true},
 	}

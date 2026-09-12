@@ -46,11 +46,12 @@ type Pane struct {
 	Cwd  string
 	Name string
 	// Agent is the id of the agent this pane runs, and Model the model it was
-	// asked for. Both are empty on a shell pane; an empty Agent on an agent
-	// pane means the catalog's default, so a pane opened with one keystroke
-	// and a layout written before panes could choose both still mean the same
-	// thing. An empty Model means whatever the agent is already set to, which
-	// is not the same as naming its default model.
+	// asked for. Both are empty on a shell pane. A new agent pane records what
+	// its choice resolved to, so a restart and a saved layout come back as the
+	// same agent; an empty Agent, which only a layout written before panes
+	// could choose holds, means the catalog's default. An empty Model means
+	// whatever the agent is already set to, which is not the same as naming
+	// its default model.
 	Agent string
 	Model string
 	// Root is the open project this pane belongs to. It is usually the project
@@ -84,6 +85,11 @@ type Pane struct {
 	// has been spent so the agent can still be told why it exists — after a
 	// restart, or after its context has been compacted away.
 	Task string
+	// Conversation is the agent's own id for the conversation the pane is in,
+	// once that is no longer the pane's id; empty means the pane's id. It is
+	// set from the hook goroutine, so it is only touched under the lock — read
+	// it through conversationOf.
+	Conversation string
 }
 
 // Alive reports whether the pane has a running process.
@@ -137,8 +143,10 @@ type Workspace struct {
 	// Tabs holds every tab across every open project, in creation order.
 	Tabs []*Tab
 
-	// Broadcast, when enabled, mirrors typed input into every pane in the
-	// broadcast set as well as the focused one.
+	// Broadcast, when enabled, sends what is written in the prompt bar to every
+	// pane in the broadcast set as well as the focused one; with it off the
+	// prompt bar reaches the focused pane and any panes picked by hand, which
+	// stay picked. Typing into a pane's own terminal is never copied anywhere.
 	Broadcast    bool
 	BroadcastSet map[string]bool
 	// broadcastAuto marks a set that was filled in by default rather than
@@ -164,6 +172,9 @@ type Workspace struct {
 	// lastTab remembers which tab each project was left on, so coming back to
 	// a project comes back to what you were doing in it.
 	lastTab map[string]string
+	// lastKeyMove is the keyboard move just made, so that the opposite arrow
+	// can undo it.
+	lastKeyMove keyMove
 
 	selfExe     string
 	spawnCmd    string
@@ -194,7 +205,7 @@ type Options struct {
 	// OnWake is called whenever any session changes and the interface should
 	// refresh. It may be called from any goroutine.
 	OnWake func()
-	// HookBinary overrides the executable Claude panes invoke to report their
+	// HookBinary overrides the executable agent panes invoke to report their
 	// lifecycle. It defaults to this process, and exists so tests and the
 	// development harness can point at a built binary.
 	HookBinary string
@@ -272,13 +283,23 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	// server's goroutine while the interface may be restarting the very pane
 	// the event is about, and a pane mid-restart has no session at all: read
 	// the field twice and the second read can be the nil.
-	w.mu.RLock()
+	w.mu.Lock()
 	p := w.panes[ev.SessionID]
 	var sess *session.Session
 	if p != nil {
 		sess = p.Sess
+		// Every event says which conversation the agent is in, and after
+		// /clear that is a new one. Following it is what lets a restart, a
+		// restore and a fan-out go on finding the conversation on screen
+		// rather than the one before it.
+		if ev.Conversation != "" {
+			p.Conversation = ev.Conversation
+			if ev.Conversation == p.ID {
+				p.Conversation = ""
+			}
+		}
 	}
-	w.mu.RUnlock()
+	w.mu.Unlock()
 	if sess == nil {
 		return
 	}
@@ -424,6 +445,12 @@ func pathTail(path string, n int) string {
 		// The top of a path names nothing worth borrowing: Base of "C:\" and of
 		// "/" is a separator, and Dir stops moving once it is reached.
 		if base == "" || base == "." || (len(base) == 1 && os.IsPathSeparator(base[0])) {
+			// Copies on two drives agree on every element above the drive, so
+			// once those have run out the drive is what is left to tell them
+			// apart. A path with no volume has nothing more to give.
+			if out != "" && filepath.VolumeName(rest) != "" {
+				out = filepath.Join(rest, out)
+			}
 			break
 		}
 		if out == "" {
@@ -470,21 +497,36 @@ func (w *Workspace) OpenProject(path string) error {
 		return nil
 	}
 
+	// Restoring the new project's tabs, or making it one, moves the focus onto
+	// them, so the tab this project is being left on has to be noted first.
+	w.rememberTab()
 	w.openRoots = append(w.openRoots, root)
 	w.activeRoot = root
 	_ = store.TouchRecent(root)
 
 	if n := w.restoreProject(root); n == 0 {
-		kind := session.KindClaude
-		if !w.ClaudeAvailable() {
-			kind = session.KindShell
-		}
-		w.NewTab(kind, root, "")
+		w.NewTab(w.firstPaneKind(), root, "")
 	} else {
 		w.focusFirstTabOf(root)
 	}
 	w.wake()
 	return nil
+}
+
+// firstPaneKind is what a project with no saved tabs is opened on: the agent
+// it would run if that can be started here, and a shell otherwise, so the tab
+// comes up on something that works. It must be asked with the project active,
+// since the default agent is the project's own.
+//
+// Asking whether Claude is installed answered a different question once the
+// default could be another agent: somebody running only Codex got a shell in
+// every project they opened, and somebody with Claude whose default is an
+// agent they had not installed got a pane that could only report it missing.
+func (w *Workspace) firstPaneKind() session.Kind {
+	if _, err := w.AgentSpec(""); err != nil {
+		return session.KindShell
+	}
+	return session.KindClaude
 }
 
 // SelectProject shows an already open project.
@@ -637,17 +679,10 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 // back would put you somewhere other than where you were working, with the
 // tab you had open still to find.
 func (w *Workspace) focusFirstTabOf(root string) {
-	if t := w.CurrentTab(); t != nil {
-		if t.Root == root {
-			return
-		}
-		// The project being left is noted on the way out, which is the only
-		// moment it is known which tab it is being left on.
-		if w.lastTab == nil {
-			w.lastTab = map[string]string{}
-		}
-		w.lastTab[t.Root] = t.ID
+	if t := w.CurrentTab(); t != nil && t.Root == root {
+		return
 	}
+	w.rememberTab()
 	if t := w.Tab(w.lastTab[root]); t != nil && t.Root == root {
 		w.activeTab = t.ID
 		return
@@ -729,10 +764,14 @@ func (w *Workspace) applyPendingTitles() {
 
 // summarisePrompt reduces a prompt to something that fits in a tab.
 func summarisePrompt(prompt string) string {
-	s := strings.Join(strings.Fields(prompt), " ")
+	raw := strings.TrimSpace(prompt)
 	// Slash commands and the synthetic messages Claude records are not what
 	// the tab should be called.
-	if s == "" || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "<") {
+	if raw == "" || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "<") {
+		return ""
+	}
+	s := strings.Join(strings.Fields(plainPrompt(raw)), " ")
+	if s == "" {
 		return ""
 	}
 	const limit = 28
@@ -751,6 +790,32 @@ func summarisePrompt(prompt string) string {
 		}
 	}
 	return strings.TrimSpace(string(r[:cut])) + "…"
+}
+
+// plainPrompt drops the markdown a prompt may be written in — heading and
+// quote marks, code fences, a bullet and its checkbox, bold — which only meant
+// anything rendered. A tab has room for a few words, and "``` panic: runtime"
+// or "## Task Refactor" spends them on punctuation.
+func plainPrompt(prompt string) string {
+	var words []string
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if isFence(line) {
+			continue
+		}
+		line = unheaded(line)
+		for strings.HasPrefix(line, ">") {
+			line = strings.TrimSpace(line[1:])
+		}
+		for _, bullet := range []string{"- ", "* ", "• "} {
+			if strings.HasPrefix(line, bullet) {
+				line = trimCheckbox(strings.TrimPrefix(line, bullet))
+				break
+			}
+		}
+		words = append(words, line)
+	}
+	return strings.NewReplacer("**", "", "__", "").Replace(strings.Join(words, " "))
 }
 
 // tabHolding builds a tab in project root holding a single pane, named the way
@@ -838,25 +903,31 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	}
 
 	var argv, env []string
+	// spec is the agent the pane runs, and stays empty for a shell. The session
+	// is handed it as well as the command line: an agent that reports nothing
+	// of its own lifecycle is watched through the lines its Spec says mean
+	// waiting and idle, and a session never given it watches for none.
+	var spec agent.Spec
 	if !p.IsAgent() {
 		argv = session.ShellArgs()
-		env = session.Env(w.paneEnv(p, "", "")...)
+		env = w.environ(w.paneEnv(p, "", "")...)
 	} else {
 		// An empty agent is not a missing one: it means whichever agent this
-		// pane would be opened with today -- the project's default, or the
+		// pane would be opened with today -- its project's default, or the
 		// installation's -- which is how a layout written before panes could
 		// choose still restores, and how a project that has settled on another
 		// agent gets it without every pane having to record the name.
 		agentID := p.Agent
-		spec, ok := w.specFor(agentID)
+		if agentID == "" {
+			agentID = w.defaultAgentFor(p.Root)
+		}
+		var ok bool
+		spec, ok = w.agents().Find(agentID)
 		if !ok {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
 			// from a machine that had it. That is this pane's problem and no
 			// other's, so it is reported in place.
-			if agentID == "" {
-				agentID = w.agents().DefaultsFor(w.activeRoot).Agent
-			}
 			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
 			return
 		}
@@ -864,7 +935,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// machine; an API runner is this binary, which is by definition here.
 		if spec.Runner != agent.RunnerAPI && spec.Exe != "" {
 			if _, err := exec.LookPath(spec.Exe); err != nil {
-				p.Err = fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
+				p.Err = missingCLI(spec)
 				return
 			}
 		}
@@ -876,15 +947,15 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			model = spec.DefaultModel
 		}
 		tokens := agent.Tokens{
-			Session: p.ID,
+			// The conversation to start or reattach is the one the agent was
+			// last in, which is the pane's id until the agent moves to a new
+			// one — Claude Code does on /clear. The pane token stays the
+			// pane's id whatever happens, since that is what a lifecycle event
+			// is reported against.
+			Session: w.conversationOf(p),
 			Model:   model,
 			Cwd:     p.Cwd,
-			// A pane's id is also its conversation id, so the two tokens hold
-			// the same value here. They are separate because they answer
-			// different questions — which conversation to reattach, and which
-			// pane to report a lifecycle event against — and an agent whose
-			// two ids are not the same thing would need them apart.
-			Pane: p.ID,
+			Pane:    p.ID,
 		}
 		// Only an agent that reports its own lifecycle has anything to do with
 		// a settings file; for the rest the pane's status comes from watching
@@ -902,7 +973,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// Resuming an agent that has no transcript for this session fails
 		// immediately — `claude --resume` prints "No conversation found" and
 		// exits — so a pane that was never prompted must start fresh instead.
-		resuming := resume && spec.Caps.Resume && w.transcriptExists(spec, p.ID)
+		resuming := resume && spec.Caps.Resume && w.transcriptExists(spec, tokens.Session)
 		if !resuming {
 			// Handing the task over as an opening argument is far more
 			// reliable than typing into the terminal, which would mean
@@ -911,7 +982,16 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// An agent with no hooks to answer is briefed here or nowhere, so
 			// the briefing goes in front of the task. One with hooks is briefed
 			// when it fires its first, and gets the task untouched.
-			tokens.Prompt = w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context)
+			task := p.initial
+			if task == "" && resume && spec.Caps.Resume {
+				// A pane that would have resumed but has no conversation to
+				// resume never got as far as its first turn — stopped at a
+				// question, or before it began — so the task it was spawned
+				// with has not been done. It is asked again rather than
+				// brought back idle with its task gone.
+				task = p.Task
+			}
+			tokens.Prompt = w.OpeningPrompt(p.ID, task, spec.Caps.Context)
 		}
 		argv = agent.BuildArgv(spec, resuming, tokens)
 		extra := append([]string{}, spec.Env...)
@@ -926,12 +1006,13 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// of a secret is a second place it can be read from.
 			extra = append(extra, creds.Env(spec)...)
 		}
-		env = session.Env(append(extra, w.paneEnv(p, spec.ID, model)...)...)
+		env = w.environ(append(extra, w.paneEnv(p, spec.ID, model)...)...)
 	}
 
 	s, err := session.Start(session.Config{
 		ID:   p.ID,
 		Kind: p.Kind,
+		Spec: spec,
 		Name: p.Name,
 		Cwd:  p.Cwd,
 		Argv: argv,
@@ -955,6 +1036,17 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	w.mu.Unlock()
 	// The opening prompt is spent; a later restart resumes instead.
 	p.initial = ""
+}
+
+// environ builds a pane's environment: Flockdeck's own, less the markers every
+// agent in the catalog asks to have taken out, plus extra.
+//
+// The whole catalog's list rather than the built-in one, because the markers
+// are those of whatever session Flockdeck was launched from, which has nothing
+// to do with the agent in this pane — and an agent the user added with a
+// "stripEnv" of its own would otherwise have it ignored in every pane.
+func (w *Workspace) environ(extra ...string) []string {
+	return session.EnvStripping(w.agents().StripEnv(), extra...)
 }
 
 // paneEnv gives a pane what it needs to call back into the application, so an
@@ -1025,14 +1117,47 @@ func (w *Workspace) UseAgent(id string) {
 }
 
 // defaultAgent is the agent a pane with nothing recorded on it runs.
-func (w *Workspace) defaultAgent() string {
+func (w *Workspace) defaultAgent() string { return w.defaultAgentFor(w.activeRoot) }
+
+// defaultAgentFor is the agent a new pane in project root runs when it asks
+// for none.
+func (w *Workspace) defaultAgentFor(root string) string {
 	w.catalogMu.RLock()
 	run := w.runAgent
 	w.catalogMu.RUnlock()
 	if run != "" {
 		return run
 	}
-	return w.agents().DefaultsFor(w.activeRoot).Agent
+	return w.agents().DefaultsFor(root).Agent
+}
+
+// resolveChoice settles the agent and model a new pane in project root runs,
+// from what it asked for and that project's defaults, so that what is recorded
+// on the pane is what it runs.
+//
+// Leaving both empty to mean "the default" cost three things. Only the agent
+// was ever looked up, so the model a project was set to was never applied; it
+// was looked up for the project on screen, which is not the pane's when it is
+// split into another project; and a pane restored after the default had
+// changed came back as a different agent on top of the old conversation.
+//
+// Only a pane that asked for no agent is given the defaults. One chosen in the
+// picker is recorded as it was chosen: an empty model there is the agent's
+// "Default" row, whatever the CLI is set to, and filling it from the project
+// would run a model nobody picked. An agent the catalog has no entry for is
+// left as asked too, so that starting it reports the problem in the pane
+// rather than quietly running something else.
+func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) {
+	if agentID != "" {
+		return agentID, model
+	}
+	agentID = w.defaultAgentFor(root)
+	c := w.agents()
+	if _, ok := c.Find(agentID); !ok {
+		return agentID, model
+	}
+	spec, model, _ := c.Resolve(root, agentID, model)
+	return spec.ID, model
 }
 
 // ReloadAgents reads agents.json again, so that an edit made by hand takes
@@ -1068,22 +1193,18 @@ func (w *Workspace) agents() *agent.Catalog {
 
 // specFor resolves the agent id recorded on a pane to the Spec that says how
 // to start it, reporting whether the catalog has one. An empty id is the
-// project's default rather than a missing answer, which is how a layout
+// default of project root rather than a missing answer, which is how a layout
 // written before panes could choose still restores.
-func (w *Workspace) specFor(id string) (agent.Spec, bool) {
+func (w *Workspace) specFor(root, id string) (agent.Spec, bool) {
 	c := w.agents()
 	if id == "" {
-		id = w.defaultAgent()
+		id = w.defaultAgentFor(root)
 	}
 	return c.Find(id)
 }
 
 // transcriptExists reports whether the agent has a stored conversation for a
 // session id, which is what decides whether resuming one is worth trying.
-//
-// This is the question the transcript Reader will answer for every agent. Only
-// two answers are known here: an agent that records nothing has nothing to
-// resume, and Claude's transcripts are where they have always been.
 func (w *Workspace) transcriptExists(spec agent.Spec, sessionID string) bool {
 	// Where an agent keeps what it said is the agent's own arrangement, so the
 	// question goes to its reader. Asking Claude Code's store about every agent
@@ -1132,7 +1253,13 @@ func (w *Workspace) rootOf(paneID string) string {
 // one containing it, so a pane put into a worktree nested inside a project is
 // counted against that project rather than against whichever one happens to be
 // on screen. A directory under no open project belongs to the active one.
-func (w *Workspace) projectFor(cwd string) string {
+func (w *Workspace) projectFor(cwd string) string { return w.projectForOr(cwd, w.activeRoot) }
+
+// projectForOr is projectFor with the project a directory under none of them
+// belongs to named by the caller, for one that knows better than the screen
+// does: a helper spawned into a worktree beside its repository belongs to the
+// agent that spawned it, whichever project the user is looking at.
+func (w *Workspace) projectForOr(cwd, fallback string) string {
 	best := ""
 	for _, r := range w.openRoots {
 		if underDir(cwd, r) && len(r) > len(best) {
@@ -1140,9 +1267,27 @@ func (w *Workspace) projectFor(cwd string) string {
 		}
 	}
 	if best == "" {
-		return w.activeRoot
+		return fallback
 	}
 	return best
+}
+
+// helperProject is the project a helper an agent spawned belongs to. Its
+// directory always comes from the agent that asked for it — that agent's own,
+// or a worktree cut from its checkout — so the agent's project is the answer
+// unless the directory is inside a project more particular than that one.
+//
+// The innermost open project containing the directory is not enough on its
+// own. A project open on a directory above the others — the home folder, which
+// is where a launch from the Start menu opens — contains every worktree beside
+// its repository, and claimed each helper put in one: counted in its badge,
+// stopped when it closed, briefed as its agent.
+func (w *Workspace) helperProject(cwd, parent string) string {
+	project := w.projectForOr(cwd, parent)
+	if parent != "" && underDir(parent, project) {
+		return parent
+	}
+	return project
 }
 
 // Choice is what a new pane should run: a shell, or an agent and one of its
@@ -1157,6 +1302,13 @@ type Choice struct {
 
 // newPane creates and starts a pane, registering it in the workspace. An empty
 // root works the project out from the directory.
+//
+// The directories that arrive without a project are the project on screen's
+// own and, from the worktree panel, its worktrees — which sit beside the
+// repository, not in it. So the project on screen is the answer unless the
+// directory is inside a project more particular than that one, as for a
+// helper an agent spawns: the innermost project containing a worktree is,
+// with the home folder open, the home folder.
 func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	if cwd == "" {
 		cwd = w.activeRoot
@@ -1165,7 +1317,7 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 		name = filepath.Base(cwd)
 	}
 	if root == "" {
-		root = w.projectFor(cwd)
+		root = w.helperProject(cwd, w.activeRoot)
 	}
 	p := &Pane{
 		ID: uuid.NewString(), Kind: c.Kind, Cwd: cwd, Name: name, Root: root,
@@ -1175,7 +1327,7 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	// an agent that disagreed would be written to the layout and read back as
 	// a pane that is somehow both.
 	if p.IsAgent() {
-		p.Agent, p.Model = c.Agent, c.Model
+		p.Agent, p.Model = w.resolveChoice(root, c.Agent, c.Model)
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
@@ -1191,13 +1343,27 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 // been installed still serves panes that can spawn, and an agent told to run a
 // command that is not there has no way of finding that out but to try it.
 func spawnCommand(selfExe string) string {
-	if _, err := exec.LookPath("flockdeck"); err == nil {
-		return "flockdeck"
-	}
 	if selfExe == "" {
 		return "flockdeck"
 	}
+	// `flockdeck` on PATH is this binary only if it resolves to it. A build
+	// run from its own folder while an older copy is installed would otherwise
+	// hand every agent the older one, whose spawn need not know the flags this
+	// one's briefing describes.
+	if onPath, err := exec.LookPath("flockdeck"); err == nil && sameFile(onPath, selfExe) {
+		return "flockdeck"
+	}
 	return selfExe
+}
+
+// sameFile reports whether two paths name one file.
+func sameFile(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
 }
 
 // branchOf reports the branch checked out in dir, or "" when dir is not a
@@ -1249,38 +1415,12 @@ func (w *Workspace) CloseTab(id string) {
 	if closing == nil {
 		return
 	}
-	// Note the position among its own project's tabs before removing it, so
-	// focus can land on a neighbour rather than jumping to another project.
-	siblings := w.tabsOf(closing.Root)
-	pos := 0
-	for i, t := range siblings {
-		if t.ID == id {
-			pos = i
-		}
-	}
-
 	for _, pid := range closing.Tree.Panes() {
 		w.destroyPane(pid)
 	}
-	kept := make([]*Tab, 0, len(w.Tabs))
-	for _, t := range w.Tabs {
-		if t.ID != id {
-			kept = append(kept, t)
-		}
-	}
-	w.Tabs = kept
-
-	if w.activeTab != id {
-		return
-	}
-	w.activeTab = ""
-	remaining := w.tabsOf(closing.Root)
-	if len(remaining) > 0 {
-		if pos >= len(remaining) {
-			pos = len(remaining) - 1
-		}
-		w.activeTab = remaining[pos].ID
-	}
+	// What is left to do is what a tab emptied by a move needs, focus landing
+	// on a neighbour in the same project included.
+	w.unlinkTab(closing)
 }
 
 // destroyPane terminates and forgets a pane.
@@ -1297,16 +1437,32 @@ func (w *Workspace) destroyPane(id string) {
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
 }
 
+// rememberTab notes which tab the project on screen is being left on, so that
+// coming back to it comes back there. Everything that moves to another project
+// calls it before the focus moves, since afterwards the tab being left is no
+// longer the one on screen and there is nothing left to ask.
+func (w *Workspace) rememberTab() {
+	t := w.CurrentTab()
+	if t == nil {
+		return
+	}
+	if w.lastTab == nil {
+		w.lastTab = map[string]string{}
+	}
+	w.lastTab[t.Root] = t.ID
+}
+
 // SelectTab focuses a tab, switching project if it belongs to another.
 func (w *Workspace) SelectTab(id string) {
 	t := w.Tab(id)
 	if t == nil {
 		return
 	}
-	w.activeTab = id
 	if t.Root != w.activeRoot && w.isOpen(t.Root) {
+		w.rememberTab()
 		w.activeRoot = t.Root
 	}
+	w.activeTab = id
 }
 
 // NextTab and PrevTab cycle through the active project's tabs, wrapping.
@@ -1335,12 +1491,6 @@ func (w *Workspace) cycleTab(delta int) {
 // same directory.
 func (w *Workspace) SplitPane(dir layout.Dir, kind session.Kind) {
 	w.SplitPaneIn(dir, kind, "")
-}
-
-// SplitPaneWith is SplitPane with the agent and model to run named, which is
-// what the agent picker asks for.
-func (w *Workspace) SplitPaneWith(dir layout.Dir, c Choice) {
-	w.splitPaneIn(dir, c, "", "")
 }
 
 // SplitPaneInProject splits the focused pane and starts the new session in
@@ -1415,22 +1565,14 @@ func (w *Workspace) ClosePane() {
 		w.CloseTab(t.ID)
 		return
 	}
-	// Choose the pane to focus next before mutating the tree.
-	next := paneBesideTheGap(t, id)
-
-	t.Tree.Remove(id)
+	// Closing a pane is taking it out of its tab, which a move does too, focus
+	// on the pane beside the gap and all; only ending its process is extra.
+	w.detachPane(id)
 	w.destroyPane(id)
-	if next == "" {
-		if panes := t.Tree.Panes(); len(panes) > 0 {
-			next = panes[0]
-		}
-	}
-	t.Focus = next
-	t.Zoom = false
 }
 
-// RestartPane relaunches the focused pane's process. Claude panes resume the
-// same conversation when there is one.
+// RestartPane relaunches the focused pane's process. An agent pane resumes the
+// same conversation wherever its agent can.
 func (w *Workspace) RestartPane() {
 	p := w.FocusedPane()
 	if p == nil {
@@ -1446,18 +1588,6 @@ func (w *Workspace) RestartPane() {
 	w.wake()
 }
 
-// FocusDir moves focus to the adjacent pane in a direction.
-func (w *Workspace) FocusDir(dir layout.Direction) {
-	t := w.CurrentTab()
-	if t == nil || t.Zoom {
-		return
-	}
-	computeTab(t)
-	if next := t.Tree.Neighbor(t.Focus, dir); next != "" {
-		t.Focus = next
-	}
-}
-
 // FocusPane focuses a pane by id if it is in the active tab.
 func (w *Workspace) FocusPane(id string) {
 	t := w.CurrentTab()
@@ -1466,21 +1596,6 @@ func (w *Workspace) FocusPane(id string) {
 	}
 	if t.Tree.Find(id) != nil {
 		t.Focus = id
-	}
-}
-
-// CyclePane moves focus to the next pane in tree order.
-func (w *Workspace) CyclePane() {
-	t := w.CurrentTab()
-	if t == nil {
-		return
-	}
-	panes := t.Tree.Panes()
-	for i, id := range panes {
-		if id == t.Focus {
-			t.Focus = panes[(i+1)%len(panes)]
-			return
-		}
 	}
 }
 
@@ -1509,7 +1624,7 @@ func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 
 // ToggleBroadcast turns broadcast mode on or off.
 //
-// With no selection of the user's own, broadcast means every Claude pane in
+// With no selection of the user's own, broadcast means every agent pane in
 // the tab in front of you. That default is not written down as a set of panes:
 // it is answered from whichever tab is on screen at the time, so switching
 // tabs with broadcast still on broadcasts to the tab you are now looking at
@@ -1605,12 +1720,19 @@ func (w *Workspace) BroadcastTargets() []*Pane {
 }
 
 // SendPrompt types text into every broadcast target and submits it.
+//
+// Each pane is written to on a goroutine of its own. This runs on the
+// goroutine that owns the workspace, and a terminal whose program has stopped
+// reading its input fills after a few kilobytes on Linux and macOS, after
+// which a write into it blocks until the program reads again — which, done
+// here, held up the whole window for as long as one pane went on not reading.
 func (w *Workspace) SendPrompt(text string, submit bool) {
 	for _, p := range w.BroadcastTargets() {
-		_ = p.Sess.WriteString(text)
-		if submit {
-			_ = p.Sess.WriteString("\r")
-		}
+		go func(s *session.Session) {
+			if err := s.WriteString(text); err == nil && submit {
+				_ = s.WriteString("\r")
+			}
+		}(p.Sess)
 	}
 }
 
@@ -1635,6 +1757,10 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 	return waiting, working
 }
 
+// gitStatus reads one checkout's summary. It is a variable for the same reason
+// branchLookup is: how many are asked at once is the property worth checking.
+var gitStatus = gitx.StatusOf
+
 // RefreshGit updates every pane's git summary.
 //
 // The git calls are made off the caller's goroutine and only the results are
@@ -1645,15 +1771,21 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		return
 	}
 	// One status call per distinct directory, not per pane: several panes
-	// commonly share a checkout.
+	// commonly share a checkout. Distinct by pathKey rather than by string,
+	// since one checkout reaches panes spelt more than one way — a trailing
+	// separator, a drive letter in another case — and each spelling was a
+	// whole-tree status of its own. rep is the spelling git is asked with.
 	var cwds []string
-	seen := map[string]bool{}
+	rep := map[string]string{}
 	w.mu.RLock()
 	for _, p := range w.panes {
-		if p.Cwd == "" || seen[p.Cwd] {
+		if p.Cwd == "" {
 			continue
 		}
-		seen[p.Cwd] = true
+		if _, ok := rep[pathKey(p.Cwd)]; ok {
+			continue
+		}
+		rep[pathKey(p.Cwd)] = p.Cwd
 		cwds = append(cwds, p.Cwd)
 	}
 	w.mu.RUnlock()
@@ -1661,14 +1793,20 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		return
 	}
 
+	// No more git processes at once than a restore asks for branches with. A
+	// fan-out leaves a dozen worktrees open, and starting a git process for
+	// every one of them in the same instant, every refresh, contends with the
+	// agents working in them for no answer that arrives any sooner.
 	dirs := make(map[string]gitx.Status, len(cwds))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, branchLookups)
 	for _, cwd := range cwds {
 		wg.Add(1)
+		slots <- struct{}{}
 		go func(cwd string) {
-			defer wg.Done()
-			st := gitx.StatusOf(cwd)
+			defer func() { <-slots; wg.Done() }()
+			st := gitStatus(cwd)
 			mu.Lock()
 			dirs[cwd] = st
 			mu.Unlock()
@@ -1680,13 +1818,22 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 		changed := false
 		w.mu.Lock()
 		for _, p := range w.panes {
-			st, ok := dirs[p.Cwd]
+			st, ok := dirs[rep[pathKey(p.Cwd)]]
 			if !ok || p.Git == st {
 				continue
 			}
 			p.Git = st
-			if st.Branch != "" && st.Branch != p.Branch {
-				p.Branch = st.Branch
+			// A checkout that has left its branch for a bare commit reports no
+			// branch at all, and keeping the old name would go on telling the
+			// user it is still on it. It is named the way the worktree panel
+			// names one. Nothing reported at all -- git failing, or no longer
+			// a repository -- is no evidence the branch moved, so it is kept.
+			branch := st.Branch
+			if branch == "" && st.Detached && st.Head != "" {
+				branch = "detached@" + st.Head
+			}
+			if branch != "" && branch != p.Branch {
+				p.Branch = branch
 			}
 			changed = true
 		}
@@ -1733,14 +1880,6 @@ func (w *Workspace) Close() {
 	}
 }
 
-// Conversations lists the stored Claude conversations for the active project.
-func (w *Workspace) Conversations(cwd string) ([]session.Conversation, error) {
-	if cwd == "" {
-		cwd = w.activeRoot
-	}
-	return session.Conversations(cwd)
-}
-
 // OpenConversation opens a stored conversation in a new tab.
 //
 // The pane takes the conversation's own id, which is what makes `--resume`
@@ -1751,37 +1890,67 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	if id == "" {
 		return fmt.Errorf("no conversation given")
 	}
-	if existing := w.Pane(id); existing != nil {
-		for _, t := range w.Tabs {
-			if t.Tree.Find(id) != nil {
+	// The pane in the conversation need not be the one whose id it is: that
+	// one may have moved on, on /clear, to a conversation of its own.
+	for _, t := range w.Tabs {
+		for _, pid := range t.Tree.Panes() {
+			if p := w.Pane(pid); p != nil && w.conversationOf(p) == id {
 				w.SelectTab(t.ID)
-				t.Focus = id
+				t.Focus = pid
 				w.wake()
 				return nil
 			}
 		}
-		// Registered but on screen nowhere. Reusing the id below would drop it
-		// from the registry with its process still running, so end it first.
-		w.destroyPane(id)
+	}
+	paneID := id
+	if w.Pane(id) != nil {
+		if w.tabOf(id) != nil {
+			// On screen, but in another conversation now, so this one gets a
+			// pane of its own under an id of its own.
+			paneID = uuid.NewString()
+		} else {
+			// Registered but on screen nowhere. Reusing the id below would
+			// drop it from the registry with its process still running, so
+			// end it first.
+			w.destroyPane(id)
+		}
 	}
 	if cwd == "" {
 		cwd = w.activeRoot
 	}
-	if !session.ConversationExists(id) {
+	// The pane runs whichever agent recorded the conversation, since only that
+	// agent can reattach to it, whichever agent this project opens new panes
+	// with. Claude Code is asked first, being where every conversation from
+	// before there were other agents lives, then the rest in catalog order.
+	// Every API agent is the same chat client keeping one folder of
+	// transcripts, so a chat conversation goes to the first of them.
+	c := w.agents()
+	specs := c.Specs
+	if claude, ok := c.Find("claude"); ok {
+		specs = append([]agent.Spec{claude}, specs...)
+	}
+	var spec agent.Spec
+	for _, s := range specs {
+		if transcript.Exists(s, id) {
+			spec = s
+			break
+		}
+	}
+	if spec.ID == "" {
 		return fmt.Errorf("that conversation is no longer stored")
 	}
 
 	p := &Pane{
-		ID:   id,
-		Kind: session.KindClaude,
-		// The conversation being reopened is one Claude recorded, so the pane
-		// has to run Claude to reattach to it, whichever agent this project
-		// opens new panes with.
-		Agent:  "claude",
+		ID:     paneID,
+		Kind:   session.KindClaude,
+		Agent:  spec.ID,
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),
 		Root:   w.projectFor(cwd),
 		Branch: branchOf(cwd),
+	}
+	if paneID != id {
+		p.Conversation = id
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
