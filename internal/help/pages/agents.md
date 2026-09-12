@@ -36,7 +36,8 @@ and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane
 a real terminal chat client — streamed answers, a status line carrying the
 model, its token counts and, for Anthropic's models, the running cost, and tools for reading files, editing them and
 running commands; the ones that write a file or run a command ask before they
-act. Anthropic, OpenAI and
+act. A command can be let through for the rest of the session by answering
+*always*; a write is asked about every time. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 

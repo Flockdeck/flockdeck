@@ -354,8 +354,10 @@ There are two ways an agent gets run:
   Python; one binary. It streams, it renders code and tool calls, it carries the
   model and its token counts on a status line (and the running cost for
   Anthropic's models, the only prices it knows), and it has the file and command
-  tools an agent needs, each confined to the pane's working directory and each
-  asking before it writes or runs anything. That ask is reported as a
+  tools an agent needs: the file tools confined to the pane's working
+  directory, commands started in it, and each asking before it writes or runs
+  anything, unless you have answered *always* to a command like it this
+  session. That ask is reported as a
   lifecycle event, so the pane turns amber and the user is told which pane
   wants them — which is the whole point of this application.
 
