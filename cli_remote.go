@@ -100,7 +100,7 @@ forward it: the relay is trusted, and it is not end-to-end encrypted.
 // remoteSynopses is how each subcommand is written and what it is for, which
 // its -h says before its flags.
 var remoteSynopses = map[string][2]string{
-	"enable": {" [-relay URL] [-name N] [-join CODE] [-invite CODE]",
+	"enable": {" [flags]",
 		"Enrol this machine with a relay, so its window can be opened from another\ndevice."},
 	"pair": {" [-desktop]",
 		"Print a one-time link, and a QR code of it, that pairs a device with this\nmachine."},
