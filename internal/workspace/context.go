@@ -610,12 +610,14 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"instance already running rather than starting a second one:\n\n"+
 		"```sh\n"+
 		"%s -C ~/code/api   # open another project in this window\n"+
-		"%s -detach         # close the window, leave every agent running\n"+
 		"%s -quit           # stop every agent in every project\n"+
 		"```\n\n"+
 		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
-		"along with your own. `-new`, `-shell`, `-solo`, `-no-window` and `-version` shape a "+
-		"fresh start and mean nothing from in here, and `FLOCKDECK_BROWSER` picks the browser that "+
+		"along with your own. `-new`, `-shell`, `-agent`, `-detach`, `-solo`, `-no-window` and "+
+		"`-version` shape a fresh start and mean nothing from in here: `-detach` in particular "+
+		"does not detach the instance already running, it opens another window onto it — "+
+		"closing the window and leaving the agents running is "+how("detach")+". "+
+		"`FLOCKDECK_BROWSER` picks the browser that "+
 		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run, and exposes nothing to the "+
 		"network.\n\n", flockdeck, flockdeck, flockdeck)

@@ -866,6 +866,23 @@ func TestTheSpawnCommandSurvivesTheShell(t *testing.T) {
 	}
 }
 
+// TestTheBriefingDoesNotOfferDetachFromThePane covers the shell section of the
+// briefing, which offered `flockdeck -detach` as the way to close the window
+// and leave the agents running. Run from inside a pane it joins the instance
+// already running, where -detach is one of the flags that only shape a fresh
+// start: it is ignored, and another window opens onto everything instead.
+func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
+	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
+	if strings.Contains(text, "-detach         # close the window") {
+		t.Errorf("the briefing offers -detach as a way to close the window:\n%s", text)
+	}
+	for _, want := range []string{"`-agent`, `-detach`", how("detach")} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q:\n%s", want, text)
+		}
+	}
+}
+
 // TestTheBriefingNamesEveryVariableAPaneCarries covers the table of what a
 // pane has in its environment. FLOCKDECK_AGENT and FLOCKDECK_MODEL are set on
 // every agent pane, and are how a script or a prompt says what it is sitting
