@@ -221,7 +221,9 @@ func clip(s string, n int) string {
 }
 
 // Emit is the client half, run inside the hook subprocess. It reads Claude's
-// hook JSON from stdin to pick up the tool name, then posts the event.
+// hook JSON from stdin for the tool, the directory, the prompt and the source,
+// and posts the event -- unless it is a Notification of something finished,
+// which is not reported at all.
 //
 // What it returns is the pane briefing, and only a SessionStart is answered
 // with one: the caller prints it for the agent to read. An agent reporting its
