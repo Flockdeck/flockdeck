@@ -325,6 +325,10 @@ func normalize(s *Spec) {
 		// what nearly every local server and gateway speaks.
 		s.API.Wire = "openai"
 	}
+	// A local model's address is commonly kept in a variable -- OLLAMA_HOST --
+	// and "http://$OLLAMA_HOST/v1" went to the chat client, and to the check
+	// for whether it needs a key, as those very characters.
+	s.API.BaseURL = expandVars(s.API.BaseURL)
 	// Built from the entry as it now stands, wire and all, since the chat
 	// client learns its endpoint from these and from nothing else.
 	if len(s.Args) == 0 {

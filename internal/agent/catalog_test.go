@@ -658,3 +658,23 @@ func TestAnAPIAgentTellsTheChatClientItsEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// TestBaseURLVariablesAreExpanded: a local model's address kept in a variable
+// went to the chat client, and to the check for whether it needs a key, as
+// the characters "$OLLAMA_HOST".
+func TestBaseURLVariablesAreExpanded(t *testing.T) {
+	t.Setenv("FLOCKDECK_TEST_OLLAMA", "127.0.0.1:11434")
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://$FLOCKDECK_TEST_OLLAMA/v1"}}`),
+	}})
+	s, _ := c.Find("local")
+	if s.API.BaseURL != "http://127.0.0.1:11434/v1" {
+		t.Errorf("baseURL = %q, want the variable read", s.API.BaseURL)
+	}
+	if !NeedsNoKey(s) {
+		t.Error("an endpoint on this machine needs no key, however its address was written")
+	}
+	if argv := BuildArgv(s, false, Tokens{}); !slices.Contains(argv, "http://127.0.0.1:11434/v1") {
+		t.Errorf("argv %q does not carry the address", argv)
+	}
+}
