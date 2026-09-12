@@ -986,8 +986,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			_ = ws.SaveAll()
 		case "detach":
 			// Keep the agents running after the window goes; the window closes
-			// itself once it has been told the detach took effect.
-			s.Detach()
+			// itself once it has been told the detach took effect. A window
+			// through the relay closing never stopped anything, so for one
+			// there is nothing to change -- and marking the instance detached
+			// would quietly stop the window on the desk from quitting when its
+			// owner closes it, which nobody at the desk asked for.
+			if !c.remote {
+				s.Detach()
+			}
 			_ = ws.SaveAll()
 			c.sendJSON(map[string]any{"type": "detached"})
 		case "quit":

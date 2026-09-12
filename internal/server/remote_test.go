@@ -210,6 +210,33 @@ func TestRemoteTerminalsAreSentCompressed(t *testing.T) {
 	}
 }
 
+// TestRemoteDetachLeavesTheDeskAlone covers Detach pressed on a phone. The
+// phone's window closing never stopped anything, so there is nothing for it to
+// detach -- and setting the instance detached would stop the window on the
+// desk from quitting when it is closed, without anyone at the desk knowing.
+func TestRemoteDetachLeavesTheDeskAlone(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+
+	remoteConn, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer remoteConn.CloseNow()
+	sendCmd(t, remoteConn, command{Cmd: "detach"})
+	readRemoteMsg(t, remoteConn, "detached")
+	if srv.Detached() {
+		t.Error("a window through the relay detached the instance on the desk")
+	}
+
+	local := dialControl(t, srv)
+	sendCmd(t, local, command{Cmd: "detach"})
+	readUntil(t, local, "detached", &struct{}{})
+	if !srv.Detached() {
+		t.Error("the window on the desk could not detach")
+	}
+}
+
 // dialRemoteControl opens the control socket through the tunnel as a page
 // from origin would.
 func dialRemoteControl(ts *httptest.Server, origin string) (*websocket.Conn, error) {
