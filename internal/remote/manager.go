@@ -37,6 +37,10 @@ type Manager struct {
 	mu   sync.Mutex
 	cfg  *Config
 	conn *Connector
+	// closed is set by Close, under reloading, and keeps a Reload that comes
+	// after it -- a rename or a `flockdeck remote` finishing while the
+	// instance shuts down -- from starting a tunnel nothing would serve.
+	closed bool
 }
 
 // NewManager makes a manager with nothing running. serve answers each tunnel's
@@ -60,6 +64,9 @@ func NewManager(version string, serve func(net.Listener) error, changed func()) 
 func (m *Manager) Reload() error {
 	m.reloading.Lock()
 	defer m.reloading.Unlock()
+	if m.closed {
+		return nil
+	}
 
 	cfg, err := m.load()
 	if err != nil {
@@ -216,6 +223,7 @@ func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err er
 func (m *Manager) Close() {
 	m.reloading.Lock()
 	defer m.reloading.Unlock()
+	m.closed = true
 	m.mu.Lock()
 	c := m.conn
 	m.conn = nil

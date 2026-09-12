@@ -1103,6 +1103,25 @@ func TestManagerReload(t *testing.T) {
 	}
 }
 
+// A reload that arrives once the manager is closed -- a rename, or a
+// `flockdeck remote` finishing while the instance shuts down -- starts nothing:
+// it used to open a fresh tunnel that nothing would serve, dialling the relay
+// until the process exited.
+func TestAReloadAfterCloseStartsNothing(t *testing.T) {
+	cfg := &Config{Relay: "http://127.0.0.1:1", HostID: "h1", Token: "fdh_test", Name: "desk"}
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	m.load = func() (*Config, error) { return cfg, nil }
+	t.Cleanup(m.Close)
+
+	m.Close()
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := m.Status(); ok {
+		t.Errorf("after Close, a reload started a tunnel (%v)", s.State)
+	}
+}
+
 // Enabling and disabling, which the command line and the window both do
 // through these.
 func TestEnableAndDisable(t *testing.T) {
