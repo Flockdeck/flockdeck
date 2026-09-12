@@ -451,6 +451,16 @@ like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 The settings are additive — your own settings, hooks and permissions still
 apply.
 
+The one key the file can take over is `statusLine`, because Claude Code hands a
+subscription's usage limits to its status line command and nowhere else. Where
+you have a status line of your own, the pane's runs this binary in a hidden
+`statusline` mode, which passes the figures to the app and then runs your
+command with the same input, so the line under the prompt is the one you had.
+Where you have none it is left alone unless Settings says otherwise, since any
+status line hides the keyboard hints in Claude Code's footer. The header then
+shows the five-hour and weekly windows beside what the conversation has cost;
+the help's *Spend and limits* page has the rest.
+
 Not every coding agent has a lifecycle to register, and Flockdeck runs those too.
 For them the status is read from the terminal instead: the bell, a quiet timer,
 and — for an agent whose `agents.json` entry gives them — patterns for the two

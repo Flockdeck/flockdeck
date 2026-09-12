@@ -72,6 +72,12 @@ func main() {
 		runHook(os.Args[2:])
 		return
 	}
+	// `statusline` is a Claude pane's status line, when it is routed through
+	// Flockdeck to read the subscription's limits. Hidden for the same reason.
+	if len(os.Args) > 1 && os.Args[1] == "statusline" {
+		runStatusline(os.Args[2:])
+		return
+	}
 	// `spawn` is how an agent hands work to a helper of its own. It is run
 	// from inside a pane, which is where the address and token come from.
 	if len(os.Args) > 1 && os.Args[1] == "spawn" {

@@ -39,6 +39,18 @@ type Prefs struct {
 	// FontFamily is the typeface the terminals are drawn in, as a CSS font
 	// family list. Empty is the default.
 	FontFamily string `json:"fontFamily,omitempty"`
+	// Spend is how the pane headers show what the agents spend and how near
+	// they are to their limits. Left out of the file while it is all defaults.
+	Spend SpendPrefs `json:"spend,omitzero"`
+}
+
+// SpendPrefs are the preferences for spend and limits.
+type SpendPrefs struct {
+	// StatusLine says when a Claude pane's status line is routed through
+	// Flockdeck, which is how its subscription limits are read: "on", "off",
+	// or empty for only where the user has a status line of their own, which
+	// it keeps. Those are the session.StatusLine constants.
+	StatusLine string `json:"statusLine,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.

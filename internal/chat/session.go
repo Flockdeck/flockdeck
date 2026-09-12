@@ -649,6 +649,9 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	s.out.endMessage()
 	s.total.Add(usage)
 	s.spent.add(s.model, usage)
+	// The pane header shows what the conversation has cost, as the line
+	// under it does; this is what it is told.
+	s.reporter.usage(s.model, usage)
 
 	text := strings.TrimSpace(said.String())
 	if text != "" || len(calls) > 0 {

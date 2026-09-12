@@ -18,6 +18,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
@@ -223,6 +224,11 @@ type paneView struct {
 	CPU   float64 `json:"cpu,omitempty"`
 	RSS   uint64  `json:"rss,omitempty"`
 	Procs int     `json:"procs,omitempty"`
+
+	// Spend is what the pane's agent has spent in its conversation and how
+	// near it is to its limits, as far as it has said. Left out for a pane
+	// whose agent reports nothing.
+	Spend *spend.PaneView `json:"spend,omitempty"`
 }
 
 type noticeMsg struct {
@@ -328,6 +334,7 @@ func (s *Server) snapshot() stateMsg {
 	// one reading of the process table every few seconds and shares it between
 	// every pane, so this does not get dearer as panes are opened.
 	sampleUsage := s.ClientCount() > 0
+	spendNow := s.spendAt()
 
 	// Only the active project's tabs are rendered; the rest keep running.
 	tabs := ws.VisibleTabs()
@@ -386,6 +393,7 @@ func (s *Server) snapshot() stateMsg {
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind
 			pv.GitTimedOut = p.GitTimedOut
+			pv.Spend = s.book.Pane(p.ID, spendNow)
 			msg.Panes[p.ID] = pv
 		}
 	}
@@ -952,6 +960,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "cursorStyle":
 		s.setCursorStyle(cmd.Text)
+		return
+	case "statusLine":
+		s.setStatusLine(cmd.Text)
 		return
 	case "fontFamily":
 		s.setFontFamily(cmd.Text)

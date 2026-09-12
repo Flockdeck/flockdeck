@@ -1063,8 +1063,17 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// Which events and which form of hook to write depend on the Claude
 			// Code that will read them, so the one asked is the program this
 			// pane runs, not whichever claude happens to be first on PATH.
-			settings, err := session.WriteHookSettingsFor(spec.Exe,
-				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token())
+			//
+			// The status line goes through Flockdeck as the preference says,
+			// read afresh for each pane so that a change in Settings reaches
+			// the next pane started, and a restart of this one.
+			statusLine := session.StatusLine{
+				Mode:     store.LoadPrefs().Spend.StatusLine,
+				Endpoint: w.hookSrv.UsageEndpoint(),
+				Cwd:      p.Cwd,
+			}
+			settings, err := session.WriteHookSettingsWith(spec.Exe,
+				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token(), statusLine)
 			if err != nil {
 				p.Err = err
 				return

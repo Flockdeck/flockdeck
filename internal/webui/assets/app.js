@@ -1945,6 +1945,8 @@
       if (v && v.cwd) openChanges(v.cwd);
     };
     const usage = el("span", "pane-usage");
+    const spend = el("span", "pane-spend");
+    const limit = el("span", "pane-limit");
     const cast = el("span", "pane-cast");
     const actions = el("div", "pane-actions");
 
@@ -1968,7 +1970,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, git, detail, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, git, detail, spend, limit, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -2050,7 +2052,7 @@
       /* Canvas rendering is a fine fallback. */
     }
 
-    p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -2316,6 +2318,10 @@
       const usage = (v.procs || 0) + " " + Math.round(v.cpu || 0) + " " + (v.rss || 0);
       if (was.usage !== usage) { was.usage = usage; renderPaneUsage(p, v); }
 
+      // The server rounds these to what is drawn, so the whole of it is the key.
+      const spend = JSON.stringify(v.spend || null);
+      if (was.spend !== spend) { was.spend = spend; renderPaneSpend(p, v); }
+
       const cast = (v.broadcast ? "1" : "0") + (s.broadcast ? "1" : "0");
       if (was.cast !== cast) { was.cast = cast; renderPaneCast(p, v, s); }
 
@@ -2429,6 +2435,145 @@
       v.procs + (v.procs === 1 ? " process" : " processes") + ". " + TIPS.usage;
     p.usage.setAttribute("aria-label", text);
     describe(p.usage, text);
+  }
+
+  /** SPEND_WINDOWS names the usage windows an agent reports: short for the
+   *  header, in words for the tooltip. One not listed goes by its own name. */
+  const SPEND_WINDOWS = {
+    five_hour: ["5h", "five-hour limit"],
+    seven_day: ["7d", "weekly limit"],
+    seven_day_opus: ["7d Opus", "weekly Opus limit"],
+    seven_day_sonnet: ["7d Sonnet", "weekly Sonnet limit"],
+  };
+
+  /** renderPaneSpend shows what the pane's agent has spent in its
+   *  conversation, and the tightest limit it runs under. Every money figure
+   *  is an estimate and is written "~$": Flockdeck's price table or the
+   *  agent's own list price, never the bill. Somebody on a subscription pays
+   *  the same whatever happens and is stopped by the window instead, so where
+   *  a window is reported the header leads with it and shows tokens, and the
+   *  dollars - what the tokens would cost on the API - go in the tooltip. An
+   *  agent that reports nothing shows nothing. */
+  function renderPaneSpend(p, v) {
+    const sp = v.spend || null;
+    const windows = (sp && sp.windows) || [];
+    const quiet = (node) => {
+      node.textContent = "";
+      node.classList.remove("warn", "full");
+      node.removeAttribute("role");
+      node.removeAttribute("aria-label");
+      delete node.dataset.tip;
+    };
+    quiet(p.spend);
+    quiet(p.limit);
+    if (!sp) return;
+
+    const subscriber = windows.length > 0;
+    const tokens = sp.tokens ? formatTokens(sp.tokens) + " tok" : "";
+    const money = sp.usd ? formatUSD(sp.usd) + (sp.unpriced ? "+" : "") : "";
+    const moneyWords = money ? spendMoneyWords(v, sp, money, subscriber) : "";
+
+    if (subscriber) {
+      const w = windows[0];
+      const [short] = SPEND_WINDOWS[w.name] || [w.name];
+      const pct = Math.max(0, Math.min(100, Math.round(w.pct)));
+      const meter = el("span", "limit-meter");
+      const fill = el("span", "limit-fill");
+      fill.style.width = pct + "%";
+      meter.append(fill);
+      p.limit.append(el("span", "limit-text", short + " " + pct + "%"), meter);
+      if (w.level) p.limit.classList.add(w.level);
+      const lines = windows.map(spendWindowWords);
+      lines.push("Every pane on the same login shares these limits, and so does use elsewhere on it.");
+      // With no tokens to show, the dollars have nowhere else to be read.
+      if (!tokens && moneyWords) lines.push(moneyWords);
+      const text = lines.join(" ");
+      p.limit.setAttribute("role", "img");
+      p.limit.setAttribute("aria-label", text);
+      describe(p.limit, text);
+    }
+
+    const shown = subscriber ? tokens : (money || tokens);
+    if (!shown) return;
+    p.spend.textContent = shown;
+    const lines = [];
+    if (sp.in || sp.out) {
+      let t = "Tokens in this conversation: " + (sp.in || 0).toLocaleString("en-US") + " in";
+      if (sp.cacheRead) t += " (" + sp.cacheRead.toLocaleString("en-US") + " cached)";
+      t += ", " + (sp.out || 0).toLocaleString("en-US") + " out";
+      if (sp.reasoning) t += ", " + sp.reasoning.toLocaleString("en-US") + " of them reasoning";
+      lines.push(t + ".");
+    } else if (sp.tokens) {
+      lines.push(sp.tokens.toLocaleString("en-US") + " tokens in this conversation.");
+    }
+    if (moneyWords) lines.push(moneyWords);
+    else if (sp.tokens) lines.push("There is no price here for this model, so it is shown in tokens.");
+    const text = lines.join(" ");
+    p.spend.setAttribute("role", "img");
+    p.spend.setAttribute("aria-label", shown === money
+      ? "About " + money.slice(1) + " spent in this conversation, an estimate. " + text
+      : text);
+    describe(p.spend, text);
+  }
+
+  /** spendMoneyWords says where a money figure came from and what it is not. */
+  function spendMoneyWords(v, sp, money, subscriber) {
+    let words;
+    if (sp.source === "agent") {
+      const who = v.agent === "claude" ? "Claude Code" : (v.agent || "The agent");
+      words = who + " puts this session at " + money + ": " + who + "'s own estimate, at list price";
+    } else {
+      words = money + (sp.checked ? " at prices checked " + formatChecked(sp.checked) : " at published prices");
+    }
+    if (subscriber) words += ", which is what these tokens would cost on the API, not what your plan charges";
+    words += ".";
+    if (sp.unpriced) words += " Some tokens were used by a model with no price here, so this is a floor.";
+    return words + " An estimate at published prices, not your bill.";
+  }
+
+  /** spendWindowWords is one usage window as the tooltip says it. */
+  function spendWindowWords(w) {
+    const [, words] = SPEND_WINDOWS[w.name] || [w.name, w.name.replace(/_/g, " ") + " limit"];
+    let s = "The " + words + " is " + Math.round(w.pct) + "% used";
+    if (w.resetsAt) s += ", and resets " + formatWhen(w.resetsAt);
+    const now = Date.now() / 1000;
+    // A reading minutes old may no longer be true: use elsewhere on the same
+    // login moves it between readings.
+    if (w.asOf && now - w.asOf > 600) s += " (as of " + formatWhen(w.asOf, true) + ")";
+    return s + ".";
+  }
+
+  /** formatWhen writes a time in Unix seconds as a clock time, with the day
+   *  when it is not today. */
+  function formatWhen(sec, bare) {
+    const d = new Date(sec * 1000);
+    const clock = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    if (d.toDateString() === new Date().toDateString()) return bare ? clock : "at " + clock;
+    const day = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()];
+    return (bare ? "" : "on ") + day + " at " + clock;
+  }
+
+  /** formatChecked writes a price table's date, "2026-06-24", as "24 Jun 2026". */
+  function formatChecked(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    if (!m) return iso;
+    const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1];
+    return Number(m[3]) + " " + month + " " + m[1];
+  }
+
+  /** formatUSD writes an estimate with enough places to be worth showing, as
+   *  the chat's own status line does: a turn of a few hundred tokens costs a
+   *  fraction of a cent, and two places would show it as costing nothing. */
+  function formatUSD(v) {
+    return "~$" + (v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : v.toFixed(4));
+  }
+
+  /** formatTokens writes a count the way somebody glancing at it reads it. */
+  function formatTokens(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e4) return Math.floor(n / 1000) + "k";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
   }
 
   /** formatBytes writes a size the way a person reads one, to three
@@ -5413,7 +5558,7 @@
   const SETTINGS_SECTIONS = [
     { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
     { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview" },
-    { id: "agents", label: "Agents", words: "default agent model project" },
+    { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
     { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
@@ -5836,6 +5981,28 @@
       if (tab) tab.focus();
     };
     pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.", keys));
+
+    // Claude Code hands its usage limits only to its status line command, so
+    // reading them means Flockdeck's panes putting a command of their own
+    // there, which runs yours. Where you have none, any status line costs the
+    // footer's keyboard hints: hence the default, and the choice.
+    const sl = el("select", "set-select");
+    sl.id = "set-statusline";
+    [["auto", "Only where I have a status line"], ["on", "Always"], ["off", "Never"]].forEach(([value, label]) => {
+      const o = el("option", null, label);
+      o.value = value;
+      sl.append(o);
+    });
+    sl.value = (prefs.spend && prefs.spend.statusLine) || "auto";
+    sl.onchange = () => {
+      prefs.spend = Object.assign({}, prefs.spend, { statusLine: sl.value === "auto" ? "" : sl.value });
+      send({ cmd: "statusLine", text: sl.value });
+      notice("Claude panes started from now on will use this; restart a pane to apply it there", false);
+    };
+    pane.append(settingRow("Claude Code's usage limits",
+      "Shows a Claude subscription's five-hour and weekly limits in the pane header, read from Claude Code's status line. " +
+      "Your own status line is kept and runs as before. With none of your own, Claude Code hides its footer's keyboard hints " +
+      "while any status line is set, so by default the limits are read only where you already have one.", sl));
   }
 
   function settingsPlan(pane) {
