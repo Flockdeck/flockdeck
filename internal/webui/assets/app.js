@@ -1700,7 +1700,14 @@
       if (was.agent !== agent) { was.agent = agent; renderPaneAgent(p, v); }
 
       const detail = v.detail || "";
-      if (was.detail !== detail) { was.detail = detail; p.detail.textContent = detail; }
+      if (was.detail !== detail) {
+        was.detail = detail;
+        p.detail.textContent = detail;
+        // Cut short in a narrow pane - an MCP tool's name nearly always is -
+        // and with no bubble, so the rest could be read nowhere.
+        if (detail) describe(p.detail, detail);
+        else delete p.detail.dataset.tip;
+      }
 
       const git = [v.dirty, v.untracked, v.ahead, v.behind].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }

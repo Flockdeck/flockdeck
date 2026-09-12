@@ -4429,6 +4429,21 @@ assert.ok(/review/i.test(git.dataset.tip || ""), "the bubble does not say the co
 `)
 }
 
+// What a pane is doing is cut short in its header - an MCP tool's name
+// nearly always is - and it had no bubble, so the rest could be read nowhere.
+func TestThePaneDetailCanBeReadInFull(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tool = "mcp__github__create_pull_request_review_comment";
+h.recv(fixture({ panes: { p1: pane("p1", { status: "working", detail: tool }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const detail = wrap.querySelector(".pane-detail");
+assert.strictEqual(detail.dataset.tip, tool, "the detail cut short in the header has no bubble with the whole of it");
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", detail: "" }) } }));
+assert.ok(!detail.dataset.tip, "a bubble is left on a detail that is no longer there");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
