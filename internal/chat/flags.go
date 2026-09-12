@@ -77,7 +77,12 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 	fmt.Fprintf(out, "records a transcript and can be resumed.\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nThe API key is read from the names given to -key-env, then from the\n")
-	fmt.Fprintf(out, "conventional name for the wire, then from the keys Flockdeck has been given.\n")
+	fmt.Fprintf(out, "conventional name for the wire, then from the keys Flockdeck has been given\n")
+	fmt.Fprintf(out, "with `flockdeck keys set <agent>`.\n")
+	// The commands are what somebody opening the help is looking for once
+	// the chat is running, and /help is only found by those who know of it.
+	fmt.Fprintf(out, "\nOnce it is running, /help lists the commands: /model to see and switch\n")
+	fmt.Fprintf(out, "models, /output and /history to read back what went by, /clear, /exit.\n")
 }
 
 // paneEnv reads one of the variables a pane carries, accepting the name an
