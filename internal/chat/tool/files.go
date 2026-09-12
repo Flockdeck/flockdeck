@@ -179,11 +179,79 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
+	// The question shows what is being written, not only how much of it: a
+	// size is not something anybody can say yes or no to.
 	rel := t.root.Rel(abs)
+	newSize := humanBytes(int64(len(a.Content)))
 	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
-		return fmt.Sprintf("Overwrite %s (%s) with %s?", rel, humanBytes(info.Size()), humanBytes(int64(len(a.Content))))
+		old, _ := os.ReadFile(abs)
+		q := fmt.Sprintf("Overwrite %s (%s, %s) with %s, %s?", rel,
+			humanBytes(info.Size()), linesOf(string(old)), newSize, linesOf(a.Content))
+		if at := firstChange(string(old), a.Content); at == 0 {
+			q += "\n  (it is the same as what the file holds now)"
+		} else {
+			q += fmt.Sprintf("\n  the first change is at line %d:\n%s", at, excerpt(a.Content, at))
+		}
+		return q
 	}
-	return fmt.Sprintf("Create %s (%s)?", rel, humanBytes(int64(len(a.Content))))
+	return fmt.Sprintf("Create %s (%s, %s)?\n%s", rel, newSize, linesOf(a.Content), excerpt(a.Content, 1))
+}
+
+// excerptLines is how much of a write the question shows.
+const excerptLines = 6
+
+// excerpt is up to excerptLines lines of s from line from on, each on a line of
+// its own and cut to a width a pane shows, with a count of the rest.
+func excerpt(s string, from int) string {
+	lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
+	if from < 1 || from > len(lines) {
+		return ""
+	}
+	var b strings.Builder
+	shown := lines[from-1:]
+	if len(shown) > excerptLines {
+		shown = shown[:excerptLines]
+	}
+	for _, l := range shown {
+		r := []rune(strings.TrimRight(l, "\r"))
+		if len(r) > 100 {
+			r = append(r[:100], '…')
+		}
+		fmt.Fprintf(&b, "  │ %s\n", string(r))
+	}
+	if rest := len(lines) - (from - 1) - len(shown); rest > 0 {
+		fmt.Fprintf(&b, "  │ … %d more %s", rest, plural(rest, "line", "lines"))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// firstChange is the line at which b first differs from a, or 0 when the two
+// are the same.
+func firstChange(a, b string) int {
+	if a == b {
+		return 0
+	}
+	al := strings.Split(strings.ReplaceAll(a, "\r\n", "\n"), "\n")
+	bl := strings.Split(strings.ReplaceAll(b, "\r\n", "\n"), "\n")
+	for i := range bl {
+		if i >= len(al) || al[i] != bl[i] {
+			return i + 1
+		}
+	}
+	// b is a's opening lines and no more: what changed is that the rest went.
+	return len(bl)
+}
+
+func linesOf(s string) string {
+	n := countLines(s)
+	return fmt.Sprintf("%d %s", n, plural(n, "line", "lines"))
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error) {
