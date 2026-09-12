@@ -468,6 +468,28 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	}
 }
 
+// A command that is not one is answered with the one most likely meant, a
+// word for it or a letter or two off, and never run as it.
+func TestRemoteUnknownCommandSuggests(t *testing.T) {
+	isolateKeys(t)
+	for arg, want := range map[string]string{
+		"unpair": "revoke", "off": "disable", "on": "enable", "Enable": "enable",
+		"stauts": "status", "devcies": "devices", "piar": "pair", "disabel": "disable",
+	} {
+		for _, args := range [][]string{{arg}, {"help", arg}} {
+			if _, _, err := runRemoteCmd(t, args...); err == nil || !strings.HasSuffix(err.Error(), "; did you mean "+want+"?") {
+				t.Errorf("remote %v = %v, want it to suggest %s", args, err, want)
+			}
+		}
+	}
+	if _, _, err := runRemoteCmd(t, "nonsense"); err == nil || strings.Contains(err.Error(), "did you mean") {
+		t.Errorf("remote nonsense = %v, want it refused with no guess", err)
+	}
+	if cfg, _ := remote.Load(); cfg != nil {
+		t.Error("a guessed command was run")
+	}
+}
+
 // Moving off a relay that can no longer be reached takes disable -force, and
 // the refusal says so, not the plain disable, which would stop there too.
 func TestRemoteMoveFromAGoneRelay(t *testing.T) {

@@ -71,7 +71,7 @@ func remoteCmd(args []string, rio remoteIO) error {
 		return nil
 	default:
 		remoteUsage(rio.out)
-		return fmt.Errorf("unknown command %q", args[0])
+		return unknownRemote(args[0])
 	}
 	if errors.Is(err, errHelpAsked) {
 		return nil
@@ -96,11 +96,67 @@ func remoteHelp(name string, rio remoteIO) error {
 		fs = remoteFlags(name)
 	default:
 		remoteUsage(rio.out)
-		return fmt.Errorf("unknown command %q", name)
+		return unknownRemote(name)
 	}
 	fs.SetOutput(rio.out)
 	fs.Usage()
 	return nil
+}
+
+// remoteCommands are the subcommands a mistyped one is compared with.
+var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "disable"}
+
+// remoteGuesses are words somebody is likely to try for one of them. They are
+// answered with the command's name rather than taken for it: revoke and
+// disable cost something, and are not run on a guess.
+var remoteGuesses = map[string]string{
+	"on": "enable", "start": "enable", "setup": "enable", "register": "enable",
+	"off": "disable", "stop": "disable", "unregister": "disable",
+	"unpair": "revoke", "remove": "revoke", "rm": "revoke", "delete": "revoke",
+	"add": "pair", "link": "pair", "qr": "pair",
+	"info": "status", "state": "status",
+}
+
+// unknownRemote refuses a subcommand that is not one, naming the one most
+// likely meant: a word for it, or one typed a letter or two wrong.
+func unknownRemote(name string) error {
+	err := fmt.Errorf("unknown command %q", name)
+	word := strings.ToLower(strings.TrimSpace(name))
+	if c, ok := remoteGuesses[word]; ok {
+		return fmt.Errorf("%w; did you mean %s?", err, c)
+	}
+	best, bestAt := "", 3
+	for _, c := range remoteCommands {
+		if d := editDistance(word, c); d < bestAt {
+			best, bestAt = c, d
+		}
+	}
+	if best != "" {
+		return fmt.Errorf("%w; did you mean %s?", err, best)
+	}
+	return err
+}
+
+// editDistance is how many letters have to be added, removed or changed to
+// turn a into b.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			change := 1
+			if a[i-1] == b[j-1] {
+				change = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+change)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 func remoteUsage(out io.Writer) {
