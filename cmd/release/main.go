@@ -114,6 +114,13 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 	}
 	files := []archived{{built, binary + ext(goos)}}
 
+	// The twin doubles the Windows download (4.7 MB to 9.4 MB for a build
+	// measured here: zip compresses the two near-identical programs apart),
+	// and a program that can write its own directory makes the same file at
+	// its first start anyway. It is shipped all the same, by decision: an
+	// archive unpacked where the program cannot write, such as under Program
+	// Files, would otherwise give blank API agent panes with nothing to say
+	// why, which is worse than a few megabytes. Do not drop it to save them.
 	if goos == "windows" {
 		program, err := os.ReadFile(built)
 		if err != nil {
