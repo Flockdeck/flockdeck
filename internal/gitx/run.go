@@ -222,3 +222,7 @@ func firstLines(msg string, n int) string {
 	}
 	return strings.Join(lines[:n], "\n") + "\n…"
 }
+
+type gitError struct{ msg string }
+
+func (e *gitError) Error() string { return e.msg }
