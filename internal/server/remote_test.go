@@ -227,7 +227,29 @@ func TestRemoteDetachLeavesTheDeskAlone(t *testing.T) {
 	}
 	defer remoteConn.CloseNow()
 	sendCmd(t, remoteConn, command{Cmd: "detach"})
-	readRemoteMsg(t, remoteConn, "detached")
+	// Told why rather than told it has been detached: a phone's tab cannot
+	// close itself, and one that believes it is closing stops reconnecting.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for {
+		_, data, err := remoteConn.Read(ctx)
+		if err != nil {
+			t.Fatalf("waiting for the answer to detach: %v", err)
+		}
+		var msg noticeMsg
+		if json.Unmarshal(data, &msg) != nil {
+			continue
+		}
+		if msg.Type == "detached" {
+			t.Fatal("a window through the relay was told it had been detached")
+		}
+		if msg.Type == "notice" {
+			if msg.Error {
+				t.Errorf("detach through the relay was answered with an error: %q", msg.Text)
+			}
+			break
+		}
+	}
 	if srv.Detached() {
 		t.Error("a window through the relay detached the instance on the desk")
 	}

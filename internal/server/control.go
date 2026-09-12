@@ -1002,14 +1002,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			_ = ws.SaveAll()
 		case "detach":
 			// Keep the agents running after the window goes; the window closes
-			// itself once it has been told the detach took effect. A window
-			// through the relay closing never stopped anything, so for one
-			// there is nothing to change -- and marking the instance detached
-			// would quietly stop the window on the desk from quitting when its
-			// owner closes it, which nobody at the desk asked for.
-			if !c.remote {
-				s.Detach()
+			// itself once it has been told the detach took effect.
+			//
+			// A window through the relay closing never stopped anything, so
+			// for one there is nothing to detach -- marking the instance would
+			// only stop the window on the desk quitting when its owner closes
+			// it. Nor is it told it has been detached: a page the browser did
+			// not open by script cannot close itself, and one left believing
+			// it is on its way out stops reconnecting when the relay blinks,
+			// looking live and answering nothing. It is told what is true
+			// instead.
+			if c.remote {
+				c.notify("closing a window reached through the relay never stops the agents, so there is nothing to detach", false)
+				return
 			}
+			s.Detach()
 			_ = ws.SaveAll()
 			c.sendJSON(map[string]any{"type": "detached"})
 		case "quit":
