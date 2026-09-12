@@ -3408,6 +3408,37 @@ assert.ok(!open(), "a tap beside the menu left it open");
 `)
 }
 
+// The menu opens with the keyboard on the project on screen, and keyboard
+// focus brings a tooltip - which, over the folded rail, lay across the tiles
+// below and hid the projects the menu had been opened to show, while saying
+// nothing the menu's own words did not. Unfolded, the rail's icons still
+// explain themselves in a bubble.
+func TestTheRailMenuRaisesNoTooltipOverItself(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+const tip = () => h.doc.body.querySelector("div.tip");
+const focus = (b) => { b.focus(); h.dispatch(b, new h.Ev("focusin", { target: b })); };
+
+h.click(h.$("rail-toggle"));
+const tile = h.$("rail-projects").children[0];
+focus(tile);
+await h.sleep(320);
+assert.ok(!tip(), "a bubble opened over the menu: " + (tip() && tip().textContent));
+focus(h.$("btn-history"));
+await h.sleep(320);
+assert.ok(!tip(), "a bubble opened over the menu's History button");
+
+h.key({ key: "Escape" });
+focus(h.$("btn-history"));
+await h.sleep(320);
+assert.ok(tip(), "the unfolded rail's History button no longer explains itself");
+`)
+}
+
 // The rail is the open projects, one tile each: two letters, the whole name
 // and folder in the tooltip and the accessible name, the project on screen
 // marked, and an amber badge where an agent is waiting on you - which is what
