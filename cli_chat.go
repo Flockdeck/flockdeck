@@ -36,7 +36,20 @@ func runChat(args []string) error {
 	opts.Tools = chatTools(opts.Cwd, storedKeyVars(opts.Agent))
 	opts.Models = catalogModels(opts.Agent)
 	chat.KeyStore = storedKey
+	chat.EndpointStore = catalogEndpoint
 	return chat.Run(context.Background(), opts)
+}
+
+// catalogEndpoint is the address an agent talks to now, as the catalog --
+// agents.json included -- has it, which `flockdeck keys endpoint` may have
+// changed since the pane was started.
+func catalogEndpoint(agentID string) string {
+	for _, s := range agent.Load().Specs {
+		if s.ID == agentID {
+			return s.API.BaseURL
+		}
+	}
+	return ""
 }
 
 // catalogModels are the models the pane's agent offers in the catalog,

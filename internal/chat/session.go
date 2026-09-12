@@ -435,7 +435,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 	}()
 	defer close(watching)
 
-	rekeyed, retries := false, 0
+	rekeyed, readdressed, retries := false, false, 0
 	for step := 0; ; step++ {
 		before := len(s.messages)
 		calls, err := s.stream(turnCtx)
@@ -462,6 +462,13 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 			// the pane for it, or type the prompt again.
 			rekeyed = true
 			s.out.line(ansiDim, "(the key was refused; trying again with the one now set)")
+			continue
+		}
+		if err != nil && unreachable(err) && !readdressed && s.readdress() {
+			// The address was changed since the pane started, which is what
+			// the pane itself advises when one cannot be reached.
+			readdressed = true
+			s.out.line(ansiDim, "(the address is now "+endpointOf(s.opts)+"; asking there)")
 			continue
 		}
 		if err != nil {
