@@ -184,6 +184,31 @@ func TestExtractTasksReadsAPlanUnderABulletedLeadIn(t *testing.T) {
 	}
 }
 
+// TestExtractTasksDropsALeadInBesideItsSteps covers the lead-in written as an
+// entry at the steps' own depth. It heads nothing, so it is not where the plan
+// starts, but it is not a task either: "Here's the plan:" was offered as one.
+// A task that merely shares a phrase with a lead-in says what to do and does
+// not hand over to a list, so without the colon it is still offered.
+func TestExtractTasksDropsALeadInBesideItsSteps(t *testing.T) {
+	steps := []string{"Split the router into its own package", "Add a timeout to the control socket"}
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"bulleted": {"- Here's the plan:\n- Split the router into its own package\n- Add a timeout to the control socket\n", steps},
+		"codex":    {"• Here's what I'd do:\n• Split the router into its own package\n• Add a timeout to the control socket\n", steps},
+		"numbered": {"1. Here's the plan:\n2. Split the router into its own package\n3. Add a timeout to the control socket\n", steps},
+		"a task that shares the phrase": {
+			"- Split this into two files, router.go and routes.go\n- Add a timeout to the control socket\n",
+			[]string{"Split this into two files, router.go and routes.go", "Add a timeout to the control socket"},
+		},
+	} {
+		if got := ExtractTasks(tc.plan); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
 // TestExtractTasksIgnoresCodeBlocks covers a plan that shows its work: a list
 // inside a fence is sample text, not a set of jobs.
 func TestExtractTasksIgnoresCodeBlocks(t *testing.T) {

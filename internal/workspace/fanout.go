@@ -85,7 +85,11 @@ func ExtractTasks(text string) []string {
 			continue
 		}
 		task := tidyTask(it.text)
-		if !isTask(task) || isPlanHeading(task) {
+		// A lead-in written as an entry beside the steps, "Here's the plan:",
+		// heads nothing but is no task either. The colon is what hands over to
+		// a list: "Split this into two files" shares a phrase with a lead-in
+		// and is still a task.
+		if !isTask(task) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
 			continue
 		}
 		key := strings.ToLower(task)
