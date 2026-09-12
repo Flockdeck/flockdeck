@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"html"
+	"image"
 	"image/png"
 	"io/fs"
 	"os"
@@ -758,5 +760,51 @@ func TestFaviconIsTheAppIcon(t *testing.T) {
 	}
 	if string(lf(icon)) != string(lf(app)) {
 		t.Error("cmd/sitegen/assets/favicon.svg differs from internal/webui/assets/icon.svg; copy the app's icon over it")
+	}
+	ico, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon.ico"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(iconICO, ico) {
+		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/assets/icon.ico; copy the app's icon over it")
+	}
+}
+
+// Every page names all three icons, and each is written beside it: the SVG
+// for browsers that show one, favicon.ico for those that do not and for
+// whatever asks for /favicon.ico unprompted, and the home-screen icon, which
+// is a full 180-pixel square with nothing transparent for iOS to paint black.
+func TestEveryPageHasItsIcons(t *testing.T) {
+	dir, pages := generate(t)
+	for _, name := range []string{"favicon.svg", "favicon.ico", "apple-touch-icon.png"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("the site has no %s: %v", name, err)
+		}
+	}
+	if len(pages) == 0 {
+		t.Fatal("the site has no pages")
+	}
+	for page, body := range pages {
+		for _, link := range []string{
+			`<link rel="icon" href="favicon.ico" sizes="32x32">`,
+			`<link rel="icon" href="favicon.svg" type="image/svg+xml">`,
+			`<link rel="apple-touch-icon" href="apple-touch-icon.png">`,
+		} {
+			if !strings.Contains(body, link) {
+				t.Errorf("%s does not name its icon: %s", page, link)
+			}
+		}
+	}
+	img, err := png.Decode(bytes.NewReader(touchIcon))
+	if err != nil {
+		t.Fatalf("apple-touch-icon.png: %v", err)
+	}
+	if b := img.Bounds(); b.Dx() != 180 || b.Dy() != 180 {
+		t.Errorf("apple-touch-icon.png is %dx%d, want 180x180", b.Dx(), b.Dy())
+	}
+	for _, p := range []image.Point{{0, 0}, {179, 0}, {0, 179}, {179, 179}, {90, 90}} {
+		if _, _, _, a := img.At(p.X, p.Y).RGBA(); a != 0xffff {
+			t.Errorf("apple-touch-icon.png is see-through at %v, which iOS paints black", p)
+		}
 	}
 }

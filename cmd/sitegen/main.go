@@ -75,6 +75,22 @@ var assets embed.FS
 //go:embed assets/favicon.svg
 var icon []byte
 
+// iconICO is the same icon for whatever asks for /favicon.ico on its own, as
+// browsers, feed readers and bookmark tools do whether or not a page names it,
+// and for a browser that shows no SVG in its tabs. It too is the application's
+// own, internal/webui/assets/icon.ico, copied.
+//
+//go:embed assets/favicon.ico
+var iconICO []byte
+
+// touchIcon is the icon a phone puts on its home screen. It is the same mark
+// drawn to fill its square, because iOS rounds the corners itself and paints
+// anything transparent black, so the app's tile with its clear corners would
+// come out with a dark ring around it.
+//
+//go:embed assets/apple-touch-icon.png
+var touchIcon []byte
+
 const (
 	defaultRepo   = "https://github.com/jmwri/flockdeck"
 	defaultModule = "github.com/jmwri/flockdeck"
@@ -197,6 +213,8 @@ func run(out, repo, module, url string) error {
 	}
 	files["site.css"] = css
 	files["favicon.svg"] = icon
+	files["favicon.ico"] = iconICO
+	files["apple-touch-icon.png"] = touchIcon
 	for _, name := range []string{"install.sh", "install.ps1"} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
