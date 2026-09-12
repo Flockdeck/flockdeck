@@ -3792,6 +3792,27 @@ oneStop(h.$("overlay-body").querySelector("div.places"), "the places");
 `)
 }
 
+// The terminals' typeface was fixed in the source. It is asked for from the
+// palette, kept with the other preferences, and a font the machine does not
+// have still falls back to a fixed-width one.
+func TestTheTerminalFontCanBeChosen(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello({ fontFamily: "Fira Code" });
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.fontFamily, "Fira Code, monospace", "the font chosen on an earlier run was not used");
+
+h.win._prompt = "Iosevka";
+paletteRun("terminal font");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "Iosevka" });
+assert.strictEqual(h.terms[0].options.fontFamily, "Iosevka, monospace", "the terminals did not take the new font");
+
+h.win._prompt = "";
+paletteRun("terminal font");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "" });
+assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer did not go back to the default");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -154,6 +155,17 @@ func (s *Server) resetTips() {
 // in the source.
 func (s *Server) setCursorSteady(steady bool) {
 	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
+}
+
+// setFontFamily records the typeface the terminals are drawn in; empty goes
+// back to the default. It arrives from a text field, so anything longer than
+// a font list could sensibly be is refused rather than kept.
+func (s *Server) setFontFamily(family string) {
+	family = strings.TrimSpace(family)
+	if len(family) > 200 {
+		return
+	}
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
 }
 
 // handleHelp serves the rendered help pages to an authorised window.

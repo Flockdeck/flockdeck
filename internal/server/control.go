@@ -804,6 +804,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "cursorBlink":
 		s.setCursorSteady(cmd.Kind == "off")
 		return
+	case "fontFamily":
+		s.setFontFamily(cmd.Text)
+		return
 	case "forgetRecent":
 		if err := store.ForgetRecent(cmd.Root); err != nil {
 			// The list is about to be sent again with the project still on

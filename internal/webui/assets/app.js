@@ -1417,7 +1417,7 @@
     const term = new Terminal({
       allowProposedApi: true,
       cursorBlink: cursorBlinks(),
-      fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace',
+      fontFamily: terminalFont(),
       fontSize: fontSize,
       lineHeight: 1.15,
       scrollback: scrollback,
@@ -2627,6 +2627,39 @@
     applyFontSize(prefs.fontSize);
     applyScrollback(prefs.scrollback);
     applyCursorBlink();
+    applyFontFamily();
+  }
+
+  /** The typeface the terminals are drawn in where nobody has chosen one. */
+  const DEFAULT_FONT = '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace';
+
+  /** terminalFont is the font list the terminals use: the one chosen, with
+   *  monospace behind it so a font this machine does not have falls back to
+   *  a fixed-width one rather than to the page's own. */
+  function terminalFont() {
+    return prefs.fontFamily ? prefs.fontFamily + ", monospace" : DEFAULT_FONT;
+  }
+
+  function applyFontFamily() {
+    const font = terminalFont();
+    for (const p of panes.values()) {
+      if (p.term.options.fontFamily === font) continue;
+      p.term.options.fontFamily = font;
+      scheduleFit(p);
+    }
+  }
+
+  /** askFontFamily asks which typeface the terminals should use. It was
+   *  fixed in the source, and a terminal's font is among the first things
+   *  anybody who works in one sets to their own. */
+  function askFontFamily() {
+    const answer = window.prompt("Which font should the terminals use? Leave it empty for the default.", prefs.fontFamily || "");
+    if (answer === null || answer === undefined) return;
+    const family = String(answer).trim();
+    prefs.fontFamily = family;
+    applyFontFamily();
+    send({ cmd: "fontFamily", text: family });
+    notice(family ? "The terminals now use " + family : "The terminals use the default font again", false);
   }
 
   /** How many lines a terminal keeps once they have scrolled off the top,
@@ -2854,6 +2887,7 @@
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
     scrollback: () => askScrollback(),
+    fontFamily: () => askFontFamily(),
     remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
@@ -2998,6 +3032,7 @@
      ["splitRightChoose", "Split right (choose agent)…"],
      ["apiKeys", "API keys…"],
      ["scrollback", "Terminal scrollback…"],
+     ["fontFamily", "Terminal font…"],
      // Renaming was a double-click on the tab and nothing else: nothing a
      // keyboard could reach, and nothing that said it could be done.
      ["renameTab", "Rename this tab…"]].forEach(([id, label]) => {

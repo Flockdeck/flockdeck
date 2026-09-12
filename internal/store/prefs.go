@@ -33,6 +33,9 @@ type Prefs struct {
 	UpdatesOff bool `json:"updatesOff,omitempty"`
 	// CursorSteady stops the terminal cursors blinking.
 	CursorSteady bool `json:"cursorSteady,omitempty"`
+	// FontFamily is the typeface the terminals are drawn in, as a CSS font
+	// family list. Empty is the default.
+	FontFamily string `json:"fontFamily,omitempty"`
 }
 
 // Dismissed reports whether a hint has been sent away.
