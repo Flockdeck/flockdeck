@@ -167,6 +167,13 @@ func remoteEnable(args []string, rio remoteIO) error {
 		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
 	})
 	var already *remote.AlreadyEnabledError
+	if errors.As(err, &already) && f.relay != "" {
+		// Asking for another relay is moving this machine, which is two steps,
+		// and the refusal names both rather than only the first.
+		if want, _ := remote.RelayURL(f.relay); want != "" && want != already.Relay {
+			return fmt.Errorf("%v; to move this machine to %s, run `flockdeck remote disable`, then `flockdeck remote enable -relay %s`", err, want, want)
+		}
+	}
 	switch {
 	case errors.As(err, &already) && already.Err == nil:
 		return fmt.Errorf("%v; run `flockdeck remote disable` first to enrol this machine again", err)

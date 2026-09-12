@@ -124,6 +124,11 @@ func TestRemoteLifecycle(t *testing.T) {
 		!strings.Contains(err.Error(), "already enabled") {
 		t.Errorf("enabling twice = %v, want it refused", err)
 	}
+	// Naming another relay is asking to move there, and the refusal says how.
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example"); err == nil ||
+		!strings.Contains(err.Error(), "to move this machine to https://other.example, run `flockdeck remote disable`, then `flockdeck remote enable -relay https://other.example`") {
+		t.Errorf("enabling with another relay = %v, want it to say how to move", err)
+	}
 
 	out, _, err = runRemoteCmd(t, "pair")
 	if err != nil || !strings.Contains(out, f.URL+"/pair#fdp_code") || !strings.Contains(out, "█") {
