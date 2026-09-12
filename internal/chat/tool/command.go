@@ -109,28 +109,32 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	return commandPrefix(argv)
 }
 
-// runsAnything reports whether a command's first two words are a shell or an
-// interpreter told to run whatever follows -- `cmd /c`, `sh -c`, `python -c`.
-// "Always" for one of those would be standing permission for every command
-// there is, offered as though it were for one, so it is not offered: each is
-// asked about on its own.
+// runsAnything reports whether a command's first two words leave what will run
+// to the words after them. "Always" for one of those would be standing
+// permission for every command there is, offered as though it were for one, so
+// it is not offered: each is asked about on its own.
+//
+// Some programs run the rest of their arguments as a command of their own, and
+// their first two words never say what: `env FOO=1 ...`, `sudo ...`, and on
+// Windows `powershell` and `wsl`, which hand the rest to a shell -- so that
+// `powershell Get-ChildItem "; Remove-Item x"` runs both. A shell or an
+// interpreter is agreed to for one script, `bash build.sh` or `python
+// manage.py`; with an option in that place -- `-c`, `-lc`, `-e`, `-m`,
+// `-NoProfile` -- the code or the module it runs is named later, or anything
+// at all.
 func runsAnything(argv []string) bool {
 	if len(argv) < 2 {
 		return false
 	}
 	prog := strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe")
-	flag := strings.ToLower(argv[1])
+	next := strings.ToLower(argv[1])
 	switch prog {
-	case "cmd":
-		return flag == "/c" || flag == "/k"
-	case "powershell", "pwsh":
-		return flag == "-c" || flag == "-command" || flag == "-e" || flag == "-ec" || flag == "-encodedcommand"
-	case "sh", "bash", "zsh", "dash", "fish":
-		return flag == "-c"
-	case "python", "python3", "py":
-		return flag == "-c"
-	case "node", "ruby", "perl", "deno", "bun":
-		return flag == "-e" || flag == "eval"
+	case "cmd", "powershell", "wsl", "env", "sudo", "doas", "runas", "xargs", "nohup", "nice",
+		"time", "timeout", "busybox", "start", "watch":
+		return true
+	case "sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "python", "python3", "py",
+		"node", "ruby", "perl", "php", "deno", "bun":
+		return strings.HasPrefix(next, "-") || strings.HasPrefix(next, "/") || next == "eval"
 	}
 	return false
 }
