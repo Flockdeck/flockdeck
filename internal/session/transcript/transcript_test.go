@@ -199,6 +199,32 @@ func TestAgentsIsTheCatalog(t *testing.T) {
 	}
 }
 
+// TestChatRepliesStartAtAClear covers /clear in a chat pane, which the chat
+// client marks in the file rather than starting a new one. A fan-out asked
+// after it read the plan the user had just cleared away.
+func TestChatRepliesStartAtAClear(t *testing.T) {
+	const id = "11111111-1111-1111-1111-111111111111"
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","text":"plan it"}`,
+		`{"type":"assistant","text":"- the old plan"}`,
+		`{"type":"clear"}`,
+	}})
+	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 0 {
+		t.Errorf("Replies = %q straight after a clear, want nothing", got)
+	}
+
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","text":"plan it"}`,
+		`{"type":"assistant","text":"- the old plan"}`,
+		`{"type":"clear"}`,
+		`{"type":"user","text":"plan again"}`,
+		`{"type":"assistant","text":"- the new plan"}`,
+	}})
+	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 1 || got[0] != "- the new plan" {
+		t.Errorf("Replies = %q, want only what was said since the clear", got)
+	}
+}
+
 // TestAllListsEachChatOnceUnderItsAgent covers the chat folder every API agent
 // shares. Asked once per API agent, it listed every chat under every one of
 // them, each row offering to resume it through a different endpoint.

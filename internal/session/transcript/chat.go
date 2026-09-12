@@ -89,6 +89,12 @@ func (c Chat) Replies(spec agent.Spec, sessionID string, n int) []string {
 			t.say(strings.TrimSpace(line.Text))
 		case "user":
 			t.end()
+		case "clear":
+			// The chat client marks a /clear rather than starting a new file,
+			// and what came before it is not what the pane is saying now: a
+			// fan-out asked straight after one would offer the plan the user
+			// had just cleared away.
+			t = turns{}
 		}
 	}
 	return t.newest(n)
