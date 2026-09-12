@@ -434,6 +434,9 @@ func TestRemoteUsage(t *testing.T) {
 			t.Errorf("remote %v = %q, %v", args, out, err)
 		}
 		// What the relay can see is said plainly, as the README says it.
+		if !strings.Contains(out, "flockdeck remote help <command>") {
+			t.Errorf("remote %v does not say how to get one command's help: %q", args, out)
+		}
 		if !strings.Contains(out, "To move to another relay") {
 			t.Errorf("remote %v does not say how to change relay: %q", args, out)
 		}
