@@ -299,7 +299,13 @@
     // normally settles it; this is what settles the events already in flight.
     ws.onopen = () => {
       if (control !== ws) return;
-      $("disconnected").hidden = true;
+      const panel = $("disconnected");
+      // The panel took the keyboard as it went up, and hiding it left the
+      // keyboard on a button nobody could see: nothing typed went anywhere
+      // until something was clicked.
+      const held = !panel.hidden && panel.contains(document.activeElement);
+      panel.hidden = true;
+      if (held) giveKeyboardBack();
       // Whatever a dialog is showing was read before the connection went, and
       // the working tree it describes has had time to move on. Asking again is
       // also what releases a button left waiting for a reply that the drop
@@ -361,6 +367,9 @@
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
       if (detaching) return; // the window is on its way out
+      // Where the keyboard was, for the first failure only: the attempts
+      // after it find the panel already up with the keyboard on its button.
+      if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
       $("disconnected").hidden = false;
       // Nothing behind this can be used and the terminal it is covering has
       // the keyboard, so typing would go nowhere until the pointer was used.
@@ -368,6 +377,21 @@
       reconnectTimer = setTimeout(connectControl, 1500);
     };
     ws.onerror = () => ws.close();
+  }
+
+  /** Where the keyboard was when the disconnected panel took it. */
+  let beforeDisconnect = null;
+
+  /** giveKeyboardBack returns the keyboard to where it was before the
+   *  connection went: a field or a dialog still on screen, or else whatever
+   *  dialog is open, or else the terminal. */
+  function giveKeyboardBack() {
+    const back = beforeDisconnect;
+    beforeDisconnect = null;
+    if (back && back.isConnected && back !== document.body && back.offsetParent !== null) { back.focus(); return; }
+    const root = modalRoot();
+    if (root) root.focus();
+    else focusTerminal();
   }
 
   /** renderUpdate shows the chip when a release has been downloaded.
