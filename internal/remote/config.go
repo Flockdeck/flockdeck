@@ -126,14 +126,20 @@ func Clear() error {
 // normalised on the way out, so that everything downstream can join paths on
 // to it without thinking.
 func RelayURL(named string) (string, error) {
-	raw := strings.TrimSpace(named)
+	raw, from := strings.TrimSpace(named), ""
 	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv(RelayEnv))
+		raw, from = strings.TrimSpace(os.Getenv(RelayEnv)), RelayEnv
 	}
 	if raw == "" {
-		raw = DefaultRelay
+		raw, from = DefaultRelay, ""
 	}
-	return CheckRelay(raw)
+	relay, err := CheckRelay(raw)
+	// An address nobody typed just now, because it was set in the
+	// environment long ago, is no use refused without saying where it is.
+	if err != nil && from != "" {
+		return "", fmt.Errorf("%w (from %s)", err, from)
+	}
+	return relay, err
 }
 
 // CheckRelay insists on a relay address that can be trusted with the token.

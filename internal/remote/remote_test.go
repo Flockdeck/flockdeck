@@ -106,6 +106,13 @@ func TestRelayURL(t *testing.T) {
 	if got, err := RelayURL("https://named.example"); err != nil || got != "https://named.example" {
 		t.Errorf("a named relay should beat the environment: %q, %v", got, err)
 	}
+	// A bad address set in the environment, perhaps long ago, is refused
+	// saying that is where it came from.
+	t.Setenv(RelayEnv, "http://relay.example")
+	if _, err := RelayURL(""); err == nil || !strings.Contains(err.Error(), RelayEnv) {
+		t.Errorf("a bad relay from the environment = %v, want it to name %s", err, RelayEnv)
+	}
+	t.Setenv(RelayEnv, "https://mine.example/")
 
 	for raw, ok := range map[string]bool{
 		"https://relay.example":       true,
