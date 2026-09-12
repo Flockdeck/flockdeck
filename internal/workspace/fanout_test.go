@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -133,6 +134,35 @@ func TestExtractTasksSkipsNestedDetail(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("task %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestExtractTasksReadsAPlanUnderABulletedHeading covers a plan whose heading is
+// itself a list entry, with the steps nested under it — Codex puts a bullet in
+// front of what it says, and markdown writes "- Next steps:" the same way. The
+// heading was the shallowest entry, so the steps under it were dropped as its
+// detail, and then the heading was dropped for being one: nothing was offered.
+func TestExtractTasksReadsAPlanUnderABulletedHeading(t *testing.T) {
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"codex": {
+			"• Plan:\n\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+			[]string{"Split the router into its own package", "Add a timeout to the control socket"},
+		},
+		"markdown": {
+			"- Next steps:\n  - Split the router into its own package\n  - Add a timeout to the control socket\n",
+			[]string{"Split the router into its own package", "Add a timeout to the control socket"},
+		},
+		"progress": {
+			"- Done:\n  - Moved the handlers into router.go\n- Remaining:\n  - Add a timeout to the control socket\n",
+			[]string{"Add a timeout to the control socket"},
+		},
+	} {
+		if got := ExtractTasks(tc.plan); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
 		}
 	}
 }

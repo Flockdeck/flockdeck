@@ -151,6 +151,23 @@ func listItems(text string) ([]item, []int) {
 			continue
 		}
 		if entry, ok := listItem(body); ok {
+			// A heading written as a list entry with the steps nested under it —
+			// "- Next steps:" over indented bullets, or Codex's bullet in front
+			// of "Plan:" — announces the plan as the same words on a line of
+			// their own do. Kept as an entry it was the shallowest one, so the
+			// steps under it went as its detail and nothing was offered at all.
+			// A heading beside the steps, at their own depth, heads nothing and
+			// stays an entry, to be dropped as one.
+			if last := len(items) - 1; last >= 0 && indent > items[last].indent && isPlanHeading(items[last].text) {
+				heading := items[last].line
+				items = items[:last]
+				// Cues are read latest first, so the heading goes in by line.
+				at := len(cues)
+				for at > 0 && cues[at-1] > heading {
+					at--
+				}
+				cues = append(cues[:at], append([]int{heading}, cues[at:]...)...)
+			}
 			items = append(items, item{indent: indent, line: n, text: entry})
 			open = len(items) - 1
 			continue
