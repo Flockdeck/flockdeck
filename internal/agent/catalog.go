@@ -37,6 +37,12 @@ type Catalog struct {
 // It never fails. Where the state directory itself cannot be found there is
 // nowhere for an agents.json to be, and the built-ins are the whole answer.
 func Load() *Catalog {
+	// A catalog read again may say something new about any agent -- a program
+	// installed a moment ago, an entry pointed at another one -- so what was
+	// probed under the old one is forgotten. Reading it again is what the
+	// picker's opening does, which is the moment Refresh was written for and
+	// which never called it: an agent just installed stayed greyed out.
+	Refresh()
 	path, err := ConfigPath()
 	if err != nil {
 		return &Catalog{Specs: normalizeAll(Builtins())}
