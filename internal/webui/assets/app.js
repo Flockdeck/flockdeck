@@ -3178,7 +3178,11 @@
     m.items.forEach((c) => {
       const row = el("div", "conv-row" + (c.open ? " open" : ""));
       const main = el("div", "conv-main");
-      main.append(el("div", "conv-summary", c.summary));
+      // Cut short at the row's width, and summaries often begin alike -
+      // agents given the same brief open with the same words - so the part
+      // that tells two apart was the part hidden. The whole of it is in the
+      // bubble.
+      main.append(describe(el("div", "conv-summary", c.summary), c.summary));
       const meta = el("div", "conv-meta");
       meta.append(el("span", null, c.ago));
       meta.append(el("span", null, c.messages + " entries"));

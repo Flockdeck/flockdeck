@@ -3637,6 +3637,21 @@ assert.ok(h.$("overlay").hidden);
 `)
 }
 
+// A conversation's summary is cut short at the row's width, and summaries often
+// begin alike, so the part that tells two conversations apart was the part
+// hidden, with nothing to read the rest by.
+func TestAConversationsWholeSummaryCanBeRead(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("history");
+const long = "Read the brief at C:/Users/someone/scratchpad/AUDIT-BRIEF.md and follow it exactly: your area is the relay";
+h.recv({ type: "conversations", cwd: "C:/repo", items: [{ id: "aaaaaaaa-1", summary: long, ago: "1h", messages: 20 }] });
+const summary = h.$("overlay-body").querySelector("div.conv-summary");
+assert.strictEqual(summary.dataset.tip, long, "the whole summary cannot be read anywhere");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
