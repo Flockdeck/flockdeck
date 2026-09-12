@@ -4548,6 +4548,29 @@ assert.ok(h.doc.activeElement === forgets()[0], "forgetting the last project los
 `)
 }
 
+// Closing an open project from the dialog took away the row the keyboard was
+// on, and it fell out of the dialog. It goes to the project that takes the
+// closed one's place - to its own button, not its ×: an idle project closes
+// without asking, so a second Enter there would stop its agents too.
+func TestClosingAProjectKeepsTheKeyboardInTheDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (names) => names.map((n, i) =>
+  ({ root: "C:/" + n, name: n, active: i === 0, tabs: 1, waiting: 0, working: 0 }));
+h.recv(fixture({ projects: projects(["repo", "api", "docs"]) }));
+h.press("projects");
+const body = h.$("overlay-body");
+const closes = () => body.querySelectorAll("button.icon-btn").filter((b) => b.textContent === "\u00d7");
+closes()[1].focus();
+h.click(closes()[1]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeProject", root: "C:/api" });
+h.recv(fixture({ projects: projects(["repo", "docs"]) }));
+const on = h.doc.activeElement;
+assert.ok(on === body.querySelectorAll("button.proj-go")[1],
+  "the keyboard did not go to the project that took the closed one's place: " + (on && on.className));
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

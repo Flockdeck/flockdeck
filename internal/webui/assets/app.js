@@ -2467,12 +2467,19 @@
     const key = (s.projects || []).map((p) => [p.root, p.active, p.tabs, p.waiting, p.working].join(":")).join("|");
     if (key === projectsKey) return;
     projectsKey = key;
-    if (dialog === "projects") keepFocus(renderProjects);
+    // A closed project's row is gone with the keyboard on it: to the project
+    // now in its place - its own button, never its ×, which an idle project
+    // answers without asking.
+    const inPlace = (body) => closedAt < 0 ? null :
+      body.querySelectorAll("button.proj-go")[Math.min(closedAt, ((state && state.projects) || []).length - 1)] || null;
+    if (dialog === "projects") keepFocus(renderProjects, inPlace);
   }
 
   /** Which recent project's × was last pressed, by its place in the list,
    *  so the keyboard can go to whichever row takes that place. */
   let forgotAt = -1;
+  /** The same for an open project whose × was last pressed. */
+  let closedAt = -1;
 
   function openProjects() {
     dialog = "projects";
@@ -2550,6 +2557,7 @@
           const busy = (p.working || 0) + (p.waiting || 0);
           if (busy && !window.confirm("Close " + p.name + "? " + (busy === 1 ? "1 agent is" : busy + " agents are") +
             " still working or waiting on you there, and every agent in it stops.")) return;
+          closedAt = open.indexOf(p);
           send({ cmd: "closeProject", root: p.root });
         };
         row.append(close);
