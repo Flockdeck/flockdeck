@@ -614,7 +614,7 @@ type SpawnOptions struct {
 
 // Spawn starts a child agent, optionally in a worktree of its own.
 //
-// The task is handed to Claude as its opening argument rather than typed into
+// The task is handed to the agent as its opening argument rather than typed into
 // the terminal: typing into a TUI means guessing when it is ready, while an
 // argument is submitted by the agent itself the moment it starts.
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {

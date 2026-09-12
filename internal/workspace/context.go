@@ -111,7 +111,7 @@ type PaneContext struct {
 // when the pane is unknown.
 //
 // Everything here comes from state the workspace already holds — no git or
-// filesystem calls — because it is built while a pane's Claude session waits
+// filesystem calls — because it is built while a pane's agent session waits
 // on its SessionStart hook.
 func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	p := w.Pane(paneID)

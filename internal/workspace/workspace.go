@@ -46,11 +46,12 @@ type Pane struct {
 	Cwd  string
 	Name string
 	// Agent is the id of the agent this pane runs, and Model the model it was
-	// asked for. Both are empty on a shell pane; an empty Agent on an agent
-	// pane means the catalog's default, so a pane opened with one keystroke
-	// and a layout written before panes could choose both still mean the same
-	// thing. An empty Model means whatever the agent is already set to, which
-	// is not the same as naming its default model.
+	// asked for. Both are empty on a shell pane. A new agent pane records what
+	// its choice resolved to, so a restart and a saved layout come back as the
+	// same agent; an empty Agent, which only a layout written before panes
+	// could choose holds, means the catalog's default. An empty Model means
+	// whatever the agent is already set to, which is not the same as naming
+	// its default model.
 	Agent string
 	Model string
 	// Root is the open project this pane belongs to. It is usually the project
@@ -194,7 +195,7 @@ type Options struct {
 	// OnWake is called whenever any session changes and the interface should
 	// refresh. It may be called from any goroutine.
 	OnWake func()
-	// HookBinary overrides the executable Claude panes invoke to report their
+	// HookBinary overrides the executable agent panes invoke to report their
 	// lifecycle. It defaults to this process, and exists so tests and the
 	// development harness can point at a built binary.
 	HookBinary string
@@ -1122,10 +1123,6 @@ func (w *Workspace) specFor(id string) (agent.Spec, bool) {
 
 // transcriptExists reports whether the agent has a stored conversation for a
 // session id, which is what decides whether resuming one is worth trying.
-//
-// This is the question the transcript Reader will answer for every agent. Only
-// two answers are known here: an agent that records nothing has nothing to
-// resume, and Claude's transcripts are where they have always been.
 func (w *Workspace) transcriptExists(spec agent.Spec, sessionID string) bool {
 	// Where an agent keeps what it said is the agent's own arrangement, so the
 	// question goes to its reader. Asking Claude Code's store about every agent
@@ -1447,8 +1444,8 @@ func (w *Workspace) ClosePane() {
 	w.destroyPane(id)
 }
 
-// RestartPane relaunches the focused pane's process. Claude panes resume the
-// same conversation when there is one.
+// RestartPane relaunches the focused pane's process. An agent pane resumes the
+// same conversation wherever its agent can.
 func (w *Workspace) RestartPane() {
 	p := w.FocusedPane()
 	if p == nil {
@@ -1527,7 +1524,7 @@ func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 
 // ToggleBroadcast turns broadcast mode on or off.
 //
-// With no selection of the user's own, broadcast means every Claude pane in
+// With no selection of the user's own, broadcast means every agent pane in
 // the tab in front of you. That default is not written down as a set of panes:
 // it is answered from whichever tab is on screen at the time, so switching
 // tabs with broadcast still on broadcasts to the tab you are now looking at
