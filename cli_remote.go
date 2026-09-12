@@ -550,6 +550,12 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		return errReported
 	}
 	if err := remote.NewClient(cfg, version).Revoke(context.Background(), id); err != nil {
+		// An id that is not one, or a name that matched no device, comes back
+		// "there is no such device", which is true but not where to look.
+		var refused *remote.APIError
+		if errors.As(err, &refused) && refused.Status == http.StatusNotFound && refused.Message != "" {
+			return fmt.Errorf("%v; `flockdeck remote devices` lists the paired ones, by id and name", err)
+		}
 		return relayRefusal(err)
 	}
 	if name != "" {

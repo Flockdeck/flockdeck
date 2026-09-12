@@ -73,6 +73,10 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
 		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
 			`"hosts":[{"id":"h-desk","name":"desk","online":true,"self":true}]}`)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/") &&
+		!strings.Contains(devices, `"id":"`+strings.TrimPrefix(r.URL.Path, "/api/v1/host/devices/")+`"`):
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"there is no such device"}`)
 	case r.Method == http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -515,6 +519,23 @@ func TestRemoteUnknownCommandSuggests(t *testing.T) {
 	}
 	if cfg, _ := remote.Load(); cfg != nil {
 		t.Error("a guessed command was run")
+	}
+}
+
+// A device the relay does not know is refused in its words, and the refusal
+// says where the ones it does know are listed.
+func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := runRemoteCmd(t, "revoke", "d9")
+	if want := "there is no such device; `flockdeck remote devices` lists the paired ones, by id and name"; err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("revoke of an unknown device = %v, want it to end %q", err, want)
+	}
+	if !f.saw("DELETE /api/v1/host/devices/d9") {
+		t.Error("the relay was not asked")
 	}
 }
 
