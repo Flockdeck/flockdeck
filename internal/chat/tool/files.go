@@ -238,7 +238,7 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
 		return "", t.root.explain(err)
 	}
-	return fmt.Sprintf("Wrote %s (%d lines, %s).", t.root.Rel(abs), countLines(a.Content), humanBytes(int64(len(a.Content)))), nil
+	return fmt.Sprintf("Wrote %s (%s, %s).", t.root.Rel(abs), linesOf(a.Content), humanBytes(int64(len(a.Content)))), nil
 }
 
 // firstMissingDir is the outermost directory on the way to dir that does not
