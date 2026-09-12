@@ -144,7 +144,13 @@ func RelayURL(named string) (string, error) {
 // relay being developed or tested runs, and where there is no network for the
 // traffic to cross.
 func CheckRelay(raw string) (string, error) {
-	u, err := url.Parse(raw)
+	// An address typed without a scheme, as addresses mostly are, is taken
+	// to be HTTPS: that is the only one a relay off this machine may use.
+	addr := raw
+	if !strings.Contains(addr, "://") {
+		addr = "https://" + addr
+	}
+	u, err := url.Parse(addr)
 	if err != nil || u.Host == "" {
 		return "", fmt.Errorf("%q is not a relay address; it should look like %s", raw, DefaultRelay)
 	}

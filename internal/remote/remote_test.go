@@ -115,7 +115,8 @@ func TestRelayURL(t *testing.T) {
 		"http://[::1]:9":              true,
 		"http://relay.example":        false, // the token would cross the network in the clear
 		"ftp://relay.example":         false,
-		"relay.example":               false,
+		"relay.example":               true, // typed as addresses usually are
+		"relay.example:8443":          true,
 		"https://relay.example/?x=1":  false,
 		"https://relay.example/#frag": false,
 	} {
@@ -126,6 +127,9 @@ func TestRelayURL(t *testing.T) {
 	}
 	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
 		t.Errorf("CheckRelay kept the trailing slash: %q", got)
+	}
+	if got, _ := CheckRelay("relay.example.com:8443"); got != "https://relay.example.com:8443" {
+		t.Errorf("CheckRelay of an address with no scheme = %q, want it taken as https://", got)
 	}
 }
 
