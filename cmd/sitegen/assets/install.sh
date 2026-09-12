@@ -54,7 +54,9 @@ detect_os() {
 	case "$(uname -s)" in
 		Linux) echo linux ;;
 		Darwin) echo darwin ;;
-		*) die "$(uname -s) is not covered by this script; on Windows, in PowerShell: irm https://flockdeck.ai/install.ps1 | iex" ;;
+		# Git Bash, MSYS2 and Cygwin: Windows, which has its own installer.
+		MINGW* | MSYS* | CYGWIN*) die "on Windows, install from PowerShell instead: irm https://flockdeck.ai/install.ps1 | iex" ;;
+		*) die "no release is built for $(uname -s); with Go installed, go install github.com/$REPO@latest builds it from source" ;;
 	esac
 }
 
