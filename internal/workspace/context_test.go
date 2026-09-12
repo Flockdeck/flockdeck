@@ -543,10 +543,14 @@ func TestProjectsWithTheSameNameAreToldApart(t *testing.T) {
 // it will not use.
 func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
-	for _, flag := range []string{"--worktree", "--split", "--shell"} {
+	for _, flag := range []string{"--worktree", "--split", "--shell", "--agent", "--model"} {
 		if !strings.Contains(text, flag) {
 			t.Errorf("the spawn section does not mention %s", flag)
 		}
+	}
+	// An id is only any use to an agent that can find out which ones there are.
+	if !strings.Contains(text, "flockdeck agents") {
+		t.Error("the spawn section names --agent but not how to list the agents it takes")
 	}
 	// Naming a flag is not the same as saying what it does. Where a spawned
 	// pane lands is the part an agent cannot discover without reading this

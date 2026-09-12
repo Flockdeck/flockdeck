@@ -487,7 +487,10 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"created from yours. Without it every agent shares this one working tree and " +
 			"will edit files under the others; use it whenever two of them would otherwise " +
 			"touch the same files.\n" +
-			"- `--shell`: a terminal rather than another conversation.\n\n" +
+			"- `--shell`: a terminal rather than another conversation.\n" +
+			"- `--agent <id>` and `--model <model>`: which agent the helper is, and which of its " +
+			"models, where another suits the work better than the project's default; `" +
+			flockdeck + " agents` lists them. Neither goes with `--shell`.\n\n" +
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
 			"yours — not this context, not the task you were given, not what you have " +
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
