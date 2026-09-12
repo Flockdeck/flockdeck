@@ -11,6 +11,11 @@ Each connection a paired browser makes is carried down it and answered by the
 same server the window on your desk uses, so the remote window is not a lesser
 copy: it is this window, with every pane, every dialog and every keystroke.
 
+A pane open in two windows at once, the one on your desk and a phone say, takes
+the size of whichever window last typed into it or focused it. Glancing at it
+from the phone leaves the desk's terminal as it was; typing on the phone fits it
+to the phone until you type at the desk again.
+
 Nothing on this machine listens for the network. The local server still binds
 to loopback only, and its token never leaves the machine — a request that came
 through the relay is let in because the relay has already checked that the

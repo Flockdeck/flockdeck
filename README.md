@@ -711,7 +711,10 @@ makes becomes a stream, and each stream is served in-process by the very
 handlers the local window uses. So the remote window is not a second interface
 kept level with the first: it is the first, every pane and every dialog, and
 the front end asks for everything relative to wherever it was served from so
-that it works under the relay's per-machine prefix unchanged.
+that it works under the relay's per-machine prefix unchanged. A pane open in
+two windows at once takes the size of whichever last typed into it or focused
+it, so glancing from a phone leaves the desk's terminal alone, and typing on the
+phone fits it to the phone until you type at the desk again.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** chip in the
