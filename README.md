@@ -353,6 +353,7 @@ knows, not decorating the window.
 | green, pulsing | Working — producing output or running a tool |
 | amber | **Waiting on you** — a permission prompt or a question |
 | grey | Idle — finished its turn, ready for a new prompt |
+| faint grey | Starting — launched, and not heard from yet |
 | red | The process exited |
 
 For an agent that reports its own lifecycle, this is not screen scraping. A
