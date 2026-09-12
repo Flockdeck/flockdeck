@@ -7,11 +7,12 @@ They are an agreement between you and Jim Wright, an individual based in the
 United Kingdom ("we"). By turning on remote access with the shared relay, you
 agree to them.
 
-**The Flockdeck software is separate.** The desktop app, the relay's source
-code and the web client are free and open source under the [MIT
+**The Flockdeck desktop app is separate.** The desktop app is free and open
+source under the [MIT
 licence](https://github.com/jmwri/flockdeck/blob/main/LICENSE). That licence,
-not these terms, governs how you use, copy and change the software. You can
-run your own relay without these terms applying.
+not these terms, governs how you use, copy and change the desktop app. The
+relay and the web client it serves are not open source: they are a service,
+provided to you under these terms.
 
 ## The shared relay
 

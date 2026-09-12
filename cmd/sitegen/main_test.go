@@ -239,7 +239,7 @@ func TestEveryPageHasTheFooter(t *testing.T) {
 		foot := page[at:]
 		for _, want := range []string{
 			"© 2026 Jim Wright",
-			"Free and open source under the MIT licence.",
+			"The desktop app is free and open source under the MIT licence.",
 			`href="privacy.html"`, `href="terms.html"`, `href="licences.html"`,
 			`#install"`, `#remote"`, `#faq"`,
 			`href="` + defaultRepo + `/releases"`,
@@ -333,6 +333,50 @@ func TestEveryComponentHasItsLicenceText(t *testing.T) {
 	// The desktop's nine and the relay's seven, and the two fonts.
 	if components < 18 {
 		t.Errorf("the licences page lists %d components", components)
+	}
+}
+
+// Only the desktop app is open source. The phone client and the relay are a
+// proprietary service, so the licences page says so of each and sends
+// neither's own licence to the desktop app's MIT licence, and no page offers
+// their source or a relay of your own.
+func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
+	_, pages := generate(t)
+	page := pages["licences.html"]
+	section := func(id, next string) string {
+		from, to := strings.Index(page, `id="`+id+`"`), strings.Index(page, `id="`+next+`"`)
+		if from < 0 || to < from {
+			t.Fatalf("licences.html has no section %s before %s", id, next)
+		}
+		return page[from:to]
+	}
+	if s := section("flockdeck", "desktop"); !strings.Contains(s, "desktop app") || !strings.Contains(s, "MIT licence") {
+		t.Error("the licences page does not say the MIT licence is the desktop app's")
+	}
+	if !strings.Contains(section("desktop", "phone"), `href="#flockdeck"`) {
+		t.Error("the desktop app's notices do not lead to its licence")
+	}
+	for _, s := range []struct{ id, next string }{{"phone", "phone-fonts"}, {"relay", "website"}} {
+		body := section(s.id, s.next)
+		if !strings.Contains(body, "proprietary") || !strings.Contains(body, "© 2026 Jim Wright") {
+			t.Errorf("the licences page's %s section does not say it is proprietary, and whose it is", s.id)
+		}
+		if strings.Contains(body, `href="#flockdeck"`) {
+			t.Errorf("the licences page's %s section sends its own licence to the desktop app's", s.id)
+		}
+	}
+	if !strings.Contains(section("relay", "website"), `href="#relay"`) {
+		t.Error("the relay's notices do not lead to the relay's own licence")
+	}
+	for name, p := range pages {
+		for _, claim := range []string{
+			`href="https://github.com/jmwri/flockdeck-relay`, `href="https://github.com/jmwri/flockdeck-remote`,
+			"run your own", "relay is open source", "relay of your own",
+		} {
+			if strings.Contains(p, claim) {
+				t.Errorf("%s still has %s", name, claim)
+			}
+		}
 	}
 }
 

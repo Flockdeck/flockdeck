@@ -27,7 +27,7 @@ token, so a remote window cannot reach them.
 ## Turning it on
 
 [[action:remote]] in the command palette opens a dialog that turns it on: leave
-the relay empty for `https://remote.flockdeck.ai`, or name your own, give this
+the relay empty for `https://remote.flockdeck.ai`, or name another, give this
 machine a name if its host name is not the one you want, and press **Turn on
 remote access**. The same can be done from a terminal:
 
@@ -83,9 +83,7 @@ deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
 A private relay is one run for you alone: your agents' traffic goes through a
 server that carries nobody else's. It is coming as a paid plan. The shared
-relay stays free, and the relay is open source, so you can run your own now
-and point this machine at it with `flockdeck remote enable -relay <address>`,
-or by naming it in the Remote access dialog.
+relay stays free.
 
 ## Leaving the agents running for it
 
