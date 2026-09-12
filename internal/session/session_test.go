@@ -166,6 +166,11 @@ func tail(s string, n int) string {
 	return s[len(s)-n:]
 }
 
+// maxConcurrentTyping is how many two-byte keystrokes TestSessionConcurrentAccess
+// types at most: 512 bytes, half of the smallest pseudo-terminal input queue
+// it runs on (macOS's 1024), so a shell that stops reading cannot block it.
+const maxConcurrentTyping = 256
+
 // TestSessionConcurrentAccess hammers a session the way the server does: a PTY
 // reader fanning output out while viewers come and go and the pane resizes.
 func TestSessionConcurrentAccess(t *testing.T) {
@@ -216,7 +221,7 @@ func TestSessionConcurrentAccess(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
+		for typed := 0; ; typed++ {
 			select {
 			case <-stop:
 				return
@@ -228,7 +233,17 @@ func TestSessionConcurrentAccess(t *testing.T) {
 				// a pseudo-terminal's input queue is small, a write into a
 				// full one waits for the shell, and on macOS closing the
 				// terminal does not free it.
-				_ = s.WriteString("x\x15")
+				//
+				// Erasing the line is not enough on its own. A shell busy
+				// redrawing for the resizer can stop reading altogether,
+				// and v0.2.10-rc.1's release run stopped on macOS with this
+				// goroutine stuck in exactly that write. So the typing is
+				// capped below what the queue holds (MAX_INPUT, 1024 bytes
+				// on macOS): all of it fits whether the shell reads it or
+				// not, and no write here can wait.
+				if typed < maxConcurrentTyping {
+					_ = s.WriteString("x\x15")
+				}
 				s.SetStatus(StatusWorking, "tool")
 				_, _ = s.Status()
 			}
