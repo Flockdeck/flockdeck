@@ -945,16 +945,34 @@
   /** The tab the strip was last scrolled to. */
   let scrolledTab = "";
 
+  /** markStripEdges says which ends of the tab strip have tabs beyond them,
+   *  for the style sheet to fade. The strip hides its scroll bar, so tabs
+   *  past an end were out of sight with nothing to say they were there. It
+   *  is measured when it scrolls, when its width changes, and when renderTabs
+   *  changes what is in it. */
+  function markStripEdges() {
+    const strip = $("tabs");
+    const left = (strip.scrollLeft || 0) > 1;
+    const right = (strip.scrollLeft || 0) + (strip.clientWidth || 0) < (strip.scrollWidth || 0) - 1;
+    strip.classList.toggle("more-left", left);
+    strip.classList.toggle("more-right", right);
+  }
+  $("tabs").addEventListener("scroll", markStripEdges, { passive: true });
+  if (window.ResizeObserver) new ResizeObserver(markStripEdges).observe($("tabs"));
+
   function renderTabs(s) {
     // Rebuilding the strip would destroy the element a drag is holding, and
     // the drag would end nowhere. Status pushes arrive constantly, so this is
     // not a rare case; the bar catches up when the drag finishes.
     if (dragging && dragging.kind === "tab") return;
     const bar = $("tabs");
+    // Whether a tab came, went or changed width, for the fades at the ends.
+    let changed = false;
     s.tabs.forEach((tab, i) => {
       const node = tabNode(tab.id);
       const title = tab.title || "tab " + (i + 1);
       if (node.label.textContent !== title) {
+        changed = true;
         node.label.textContent = title;
         // A title is cut short at the tab's width, and the ones written from
         // an agent's task usually are. The bubble is the only place the rest
@@ -965,6 +983,7 @@
       node.btn.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));
       node.btn.classList.toggle("attention", !!tab.attention);
+      if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
       // One stop on the way through the window rather than two per tab. With
       // a dozen agents open, tabbing past the strip to reach the terminal
@@ -972,13 +991,18 @@
       // which is what a tab strip is expected to answer to anyway.
       const stop = active ? 0 : -1;
       if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
-      if (bar.childNodes[i] !== node.btn) bar.insertBefore(node.btn, bar.childNodes[i] || null);
+      if (bar.childNodes[i] !== node.btn) { bar.insertBefore(node.btn, bar.childNodes[i] || null); changed = true; }
     });
     for (const [id, node] of tabNodes) {
       if (s.tabs.some((t) => t.id === id)) continue;
       node.btn.remove();
       tabNodes.delete(id);
+      changed = true;
     }
+    // Measured only when a tab came, went or changed width: reading the
+    // strip's width on every status push would lay the page out again
+    // several times a second.
+    if (changed) markStripEdges();
     // The strip is only as wide as the bar and scrolls when there are more
     // tabs than fit, so switching to one that is off the end has to bring it
     // into view — otherwise walking the tabs from the keyboard or the palette

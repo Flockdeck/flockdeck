@@ -45,6 +45,18 @@ body { display: flex; flex-direction: column; }
 
 #tabs { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
 #tabs::-webkit-scrollbar { display: none; }
+/* With the scroll bar hidden, tabs past an end of the strip were out of sight
+ * with nothing to say they were there, so an end with more beyond it fades.
+ * Not while something is dragged over the strip: its end is then where a tab
+ * lands, and the marker saying so has to show. */
+#tabs.more-right:not(.drop-end) { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+#tabs.more-left:not(.drop-end) { mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+#tabs.more-left.more-right:not(.drop-end) {
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+/* A tab brought into view stops clear of the fade, which would otherwise lie
+ * over its close button. */
+#tabs { scroll-padding-inline: 32px; }
 
 /* The tab strip is the one part of the bar that scrolls, so it is also the one
  * part that should give up width. Without this the buttons on the right shrink

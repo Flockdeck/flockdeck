@@ -710,7 +710,10 @@ for (let i = 0; i < 4; i++) four.panes["p" + i] = pane("p" + i, { name: "task " 
 h.recv(fixture(four));
 
 assert.strictEqual(h.terms.length, 4, "one terminal per pane");
-assert.strictEqual(h.observers.length, 4, "one size watcher per pane");
+// The tab strip has a size watcher of its own; these are the panes'. Picked
+// out now, while each still watches something.
+const watchers = h.observers.filter((o) => !o.targets.includes(h.$("tabs")));
+assert.strictEqual(watchers.length, 4, "one size watcher per pane");
 assert.strictEqual(h.sockets.filter((s) => s.url.includes("/ws/pty")).length, 4, "one stream per pane");
 
 // Someone rests the pointer on a pane's header while three of the four finish.
@@ -724,14 +727,14 @@ h.recv(fixture({ tabs: [{ id: "t1", title: "fan out", focus: "p0", root: leaf("n
 
 for (let i = 1; i < 4; i++) {
   assert.ok(h.terms[i].disposed, "the terminal of pane " + i + " was not disposed");
-  assert.ok(h.observers[i].disconnected,
+  assert.ok(watchers[i].disconnected,
     "the size watcher of pane " + i + " is still registered, and holds the pane through its callback");
   assert.strictEqual(h.sockets.filter((s) => s.url.includes("id=p" + i))[0].readyState, 3,
     "the stream of pane " + i + " is still open");
 }
 // The one still running kept all of it.
 assert.ok(!h.terms[0].disposed, "the surviving pane lost its terminal");
-assert.ok(!h.observers[0].disconnected, "the surviving pane lost its size watcher");
+assert.ok(!watchers[0].disconnected, "the surviving pane lost its size watcher");
 assert.ok(!h.doc.body.querySelector("div.tip"), "a bubble was left over a pane that is gone");
 `)
 }
@@ -4675,6 +4678,39 @@ h.press("findInTerminal");
 h.recv(fixture({ tabs: [{ id: "t1", title: "pair", focus: "p1", root: leaf("n1", "p1") }],
   panes: { p1: pane("p1", { name: "reviewer" }) } }));
 assert.ok(!h.$("searchbar").hidden, "closing another pane closed the find bar");
+`)
+}
+
+// The tab strip hides its scroll bar, so with more tabs than fit, the ones
+// past an end were out of sight with nothing to say they were there.
+func TestTheTabStripSaysWhenTabsRunPastItsEnds(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const strip = h.$("tabs");
+const ends = () => [strip.classList.contains("more-left"), strip.classList.contains("more-right")];
+const scrolled = (left) => { strip.scrollLeft = left; h.dispatch(strip, new h.Ev("scroll", {})); };
+strip.scrollWidth = 900; strip.clientWidth = 300;
+scrolled(0);
+assert.deepStrictEqual(ends(), [false, true], "tabs past the right end are not marked");
+scrolled(300);
+assert.deepStrictEqual(ends(), [true, true], "tabs past both ends are not marked");
+scrolled(600);
+assert.deepStrictEqual(ends(), [true, false], "tabs past the left end are not marked");
+strip.scrollWidth = 300;
+scrolled(0);
+assert.deepStrictEqual(ends(), [false, false], "a strip whose tabs all fit is marked");
+
+// A tab arriving is measured then, without waiting for the strip to scroll.
+// A tab of its own, so the push is sure to bring one the strip did not have.
+strip.scrollWidth = 900;
+const base = fixture();
+h.recv(fixture({
+  tabs: base.tabs.concat([{ id: "t-new", title: "new", focus: "p-new", root: leaf("n-new", "p-new") }]),
+  panes: Object.assign({}, base.panes, { "p-new": pane("p-new") }),
+}));
+assert.deepStrictEqual(ends(), [false, true], "a new tab running the strip past its end is not marked: " +
+  JSON.stringify({ scrollWidth: strip.scrollWidth, clientWidth: strip.clientWidth, scrollLeft: strip.scrollLeft }));
 `)
 }
 
