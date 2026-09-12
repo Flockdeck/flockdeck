@@ -170,7 +170,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			return nil
 		}
 		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", chunk.Error.Message)
+			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
 		}
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens}

@@ -198,7 +198,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 			if code := streamErrorCodes[ev.Error.Type]; code != 0 {
 				return &apiError{Code: code, Status: ev.Error.Type, Msg: msg}
 			}
-			return fmt.Errorf("%s", msg)
+			return fmt.Errorf("%s", redactKeys(msg))
 		case "message_start":
 			counts = ev.Message.Usage
 		case "content_block_start":

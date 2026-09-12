@@ -145,7 +145,7 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			return nil
 		}
 		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", chunk.Error.Message)
+			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
 		}
 		// Every chunk repeats the counts for the whole answer so far, so they
 		// are taken rather than added up.
