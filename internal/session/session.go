@@ -196,6 +196,8 @@ type Session struct {
 	// reaped is closed once the process has exited and been waited for.
 	reaped chan struct{}
 
+	// bell reads the bell and the terminal modes out of the output as it
+	// streams. It is touched only in publish, under mu.
 	bell bellScanner
 }
 
@@ -318,8 +320,6 @@ func (s *Session) pumpOutput() {
 // screen -- then reads without allocating at all, which is most of them once
 // a handful of agents are running.
 func (s *Session) publish(chunk []byte) {
-	rang := s.bell.scan(chunk)
-
 	// Output itself is not a change anyone outside this type can see: it
 	// reaches viewers on their own subscriptions, and nothing in the interface
 	// is drawn from the fact that bytes arrived. Reporting a change per chunk
@@ -328,6 +328,11 @@ func (s *Session) publish(chunk []byte) {
 	notify := false
 
 	s.mu.Lock()
+	// The scanner carries state from one chunk to the next, so it is read and
+	// written under the lock like everything else here. Only the reader calls
+	// this in the running program, but nothing about the method says so, and a
+	// second caller -- a test feeding a live pane, say -- raced it.
+	rang := s.bell.scan(chunk)
 	s.history.write(chunk)
 	s.written += int64(len(chunk))
 	s.modes = s.bell.modes

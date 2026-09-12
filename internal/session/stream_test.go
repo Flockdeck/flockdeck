@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -211,6 +212,30 @@ func TestRecentTextReadsTheTail(t *testing.T) {
 	}
 	if strings.Contains(got, "\x1b") {
 		t.Error("escape sequences should not survive")
+	}
+}
+
+// TestPublishIsSafeFromAnyGoroutine feeds a live pane from two goroutines at
+// once, while its own reader is also publishing whatever the shell prints.
+// publish used to scan for the bell before taking the lock, and a test that
+// fed a running pane raced the reader over the scanner's state; the race
+// detector reported it only when the shell happened to print at that moment.
+// Two writers of our own make the collision certain rather than rare.
+func TestPublishIsSafeFromAnyGoroutine(t *testing.T) {
+	s := startShell(t)
+	var wg sync.WaitGroup
+	for w := 0; w < 2; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				s.publish([]byte("\x1b[?1049h\a- a line\r\n\x1b[?1049l"))
+			}
+		}()
+	}
+	wg.Wait()
+	if got := s.RecentText(0); !strings.Contains(got, "- a line") {
+		t.Errorf("recent text lost the content: %q", got)
 	}
 }
 
