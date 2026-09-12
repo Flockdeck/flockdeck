@@ -297,6 +297,14 @@ func walkFiles(ctx context.Context, root string, fn func(abs, rel string, d fs.D
 		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
+		// Nor is a pipe, a socket or a device handed on: a named pipe in the
+		// tree, opened by grep to be searched, waits for a writer forever.
+		// Only those: on Windows a file behind a reparse point of another
+		// kind -- a OneDrive placeholder, a deduplicated file -- is reported
+		// as irregular, and reads like any other.
+		if notAFile(d.Type()) {
+			return nil
+		}
 		rel, relErr := filepath.Rel(root, p)
 		if relErr != nil {
 			return nil

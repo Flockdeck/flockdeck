@@ -124,6 +124,9 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	}
 
 	if info, err := os.Stat(base); err == nil && !info.IsDir() {
+		if err := regularFile(t.root, base, info); err != nil {
+			return "", err
+		}
 		if err := search(base, t.root.Rel(base)); err != nil && !errors.Is(err, errStopWalk) {
 			return "", err
 		}
