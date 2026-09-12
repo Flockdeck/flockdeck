@@ -142,6 +142,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument %q\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
+			// Quoted when it would otherwise split, so the line can be copied
+			// as it stands. strconv.Quote is no use here: it doubles every
+			// backslash in a Windows path.
+			if strings.ContainsAny(arg, " \t") {
+				arg = `"` + arg + `"`
+			}
 			fmt.Fprintf(os.Stderr, "To open that directory: flockdeck -C %s\n", arg)
 		case fs.Lookup(arg) != nil:
 			fmt.Fprintf(os.Stderr, "Did you mean -%s?\n", arg)
