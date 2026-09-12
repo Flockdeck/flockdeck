@@ -85,6 +85,15 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 				files = append(files, e.Name()+"  (a link leading outside the working directory)")
 				continue
 			}
+			// A link to a directory is not a directory to the entry, which
+			// describes the link: listed as a file of a few bytes, it was
+			// read as one and the model told it was a directory. What it
+			// leads to is what it is -- a package linked in by pnpm or a
+			// workspace, a junction on Windows.
+			if info, err := os.Stat(filepath.Join(abs, e.Name())); err == nil && info.IsDir() {
+				dirs = append(dirs, e.Name()+"/")
+				continue
+			}
 		}
 		if e.IsDir() {
 			dirs = append(dirs, e.Name()+"/")
