@@ -807,7 +807,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.applyAgentDefault(c, cmd)
 		return
 	case "revealPane":
-		s.revealPane(cmd.Root, cmd.Node, cmd.ID)
+		s.revealPane(c, cmd.Root, cmd.Node, cmd.ID)
 		return
 	case "changes":
 		s.listChanges(c, cmd.Path)

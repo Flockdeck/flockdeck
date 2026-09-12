@@ -95,8 +95,17 @@ func (s *Server) listAgents(c *controlClient) {
 
 // revealPane brings a pane into view wherever it lives, switching project and
 // tab as needed.
-func (s *Server) revealPane(root, tabID, paneID string) {
+//
+// The list it is picked from was read when the overview opened, and a pane in
+// it may have closed since. Every step below ignores a pane that is not there,
+// so the click did nothing at all and nothing said why; it is answered the way
+// a click on any other pane that has gone is.
+func (s *Server) revealPane(c *controlClient, root, tabID, paneID string) {
 	s.do(func() {
+		if s.ws.Pane(paneID) == nil {
+			c.notify(paneGone, true)
+			return
+		}
 		if root != "" {
 			s.ws.SelectProject(root)
 		}

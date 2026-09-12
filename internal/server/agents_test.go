@@ -38,6 +38,22 @@ func TestDefaultForEveryProjectFromTheWindow(t *testing.T) {
 	}
 }
 
+// TestRevealingAGonePaneSaysSo covers the all-agents overview, whose list is
+// read when it opens: a pane in it may have closed since, and clicking it did
+// nothing and said nothing.
+func TestRevealingAGonePaneSaysSo(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	sendCmd(t, conn, command{Cmd: "revealPane", ID: "a-pane-that-has-gone"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || note.Text != paneGone {
+		t.Fatalf("revealing a pane that has gone was answered %+v, want %q", note, paneGone)
+	}
+}
+
 // TestAgentDefaultIsCheckedAndClearable covers the default agent as a setting
 // something other than the picker may write. A typo must not become the
 // default every pane then fails on, and clearing a project's default must say
