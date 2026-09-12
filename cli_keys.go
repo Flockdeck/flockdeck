@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/chat"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
@@ -241,8 +244,33 @@ func keysSet(agentID string, kio keysIO) error {
 			return nil
 		}
 	}
+	if kio.prompt != nil {
+		checkKey(agentID, key, kio.out)
+	}
 	fmt.Fprintf(kio.out, "new panes use it; one already running picks it up when its old key is refused, or when it is restarted\n")
 	return nil
+}
+
+// checkKey asks the agent's endpoint whether it takes the key just stored,
+// where somebody is at the terminal to be told. A key pasted with a character
+// missing, or the wrong one of two, was otherwise found out at the first prompt
+// of a pane. The key is stored whatever the answer: an endpoint that cannot be
+// reached now says nothing about the key. A script is not sent anywhere.
+func checkKey(agentID, key string, out io.Writer) {
+	spec, err := keyAgentSpec(agentID)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	switch err := chat.CheckKey(ctx, spec.API.Wire, spec.API.BaseURL, key); {
+	case err == nil:
+		fmt.Fprintf(out, "checked: the API accepted it\n")
+	case errors.Is(err, chat.ErrKeyRefused):
+		fmt.Fprintf(out, "but %v: check it was copied whole, and run this again to replace it\n", err)
+	default:
+		fmt.Fprintf(out, "could not check it just now: %v\n", err)
+	}
 }
 
 // keyAgentIDs are the ids of the agents that take a key, in catalog order.

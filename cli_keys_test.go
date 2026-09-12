@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -454,5 +456,35 @@ func TestKeysListSaysWhereAnAgentTalksTo(t *testing.T) {
 	line := anthropicLine()
 	if !strings.Contains(line, "on this machine, at http://127.0.0.1:8080") || strings.Count(line, "talks to") != 1 {
 		t.Errorf("anthropic is listed as %q", line)
+	}
+}
+
+// With somebody at the terminal, a key is checked with the agent's endpoint as
+// it is stored, and whether it was taken is said -- without the key.
+func TestKeysSetChecksTheKeyWithTheEndpoint(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "sk-good-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key sk-bad-key"}}`))
+			return
+		}
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"sk-bad-key": "refused", "sk-good-key": "accepted"} {
+		var out, prompt bytes.Buffer
+		if err := keysCmd([]string{"set", "anthropic"}, keysIO{in: strings.NewReader(key + "\n"), out: &out, prompt: &prompt}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("%s: the check was not said:\n%s", key, out.String())
+		}
+		if strings.Contains(out.String()+prompt.String(), key) {
+			t.Errorf("%s: the key was printed:\n%s", key, out.String())
+		}
 	}
 }
