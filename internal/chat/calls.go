@@ -53,6 +53,12 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 			// A no is said back, a reply in words above all: "yes please" is
 			// not one of the letters, and somebody who typed it would otherwise
 			// go on believing the call ran.
+			if !ok {
+				// The question turned the pane amber, and the model is working
+				// again from here; without an event to say so the pane stayed
+				// waiting until the turn ended. The call is over, run or not.
+				s.reporter.postTool(c.Name)
+			}
 			if !ok && instead != "" {
 				// What the user said instead is the next thing the model has
 				// to hear, and the calls it planned before hearing it are moot.
