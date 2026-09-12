@@ -112,9 +112,10 @@ cross-builds all six and publishes them.
 A running Flockdeck watches for releases and downloads anything newer in the
 background, checking it against its published SHA-256. Nothing is replaced
 while you are working. When a release is ready a chip appears in the top bar,
-and installing it is a restart you ask for: the layout is saved and reopened,
-though the agents running in panes are stopped, which is why it is never done
-for you.
+and installing it now is a restart you ask for: the layout is saved and
+reopened, though the agents running in panes are stopped, which is why it is
+never done for you. Otherwise it goes in as Flockdeck next quits, so the start
+after that is the new version.
 
 From a terminal:
 
