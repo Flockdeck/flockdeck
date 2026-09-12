@@ -46,3 +46,35 @@ func TestRefreshGitBoundsTheProcessesItStarts(t *testing.T) {
 		}
 	}
 }
+
+// TestRefreshGitNamesADetachedCheckout covers an agent that checks out a bare
+// commit — a bisect, a look at an old revision. git reports no branch then,
+// and the pane header went on naming the branch the checkout had left.
+func TestRefreshGitNamesADetachedCheckout(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed, so nothing is refreshed")
+	}
+	w := &Workspace{panes: map[string]*Pane{
+		"p": {ID: "p", Cwd: "/checkout", Branch: "trunk"},
+		"q": {ID: "q", Cwd: "/elsewhere", Branch: "trunk"},
+	}, BroadcastSet: map[string]bool{}}
+
+	status := gitStatus
+	gitStatus = func(dir string) gitx.Status {
+		if dir == "/checkout" {
+			return gitx.Status{Detached: true, Head: "abc1234"}
+		}
+		// git failing tells nothing about which branch is checked out.
+		return gitx.Status{}
+	}
+	t.Cleanup(func() { gitStatus = status })
+
+	w.RefreshGit(func(apply func()) { apply() })
+
+	if got := w.panes["p"].Branch; got != "detached@abc1234" {
+		t.Errorf("detached pane is labelled %q, want detached@abc1234", got)
+	}
+	if got := w.panes["q"].Branch; got != "trunk" {
+		t.Errorf("a pane git said nothing about is labelled %q, want it left as trunk", got)
+	}
+}

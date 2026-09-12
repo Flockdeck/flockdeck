@@ -1714,8 +1714,17 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 				continue
 			}
 			p.Git = st
-			if st.Branch != "" && st.Branch != p.Branch {
-				p.Branch = st.Branch
+			// A checkout that has left its branch for a bare commit reports no
+			// branch at all, and keeping the old name would go on telling the
+			// user it is still on it. It is named the way the worktree panel
+			// names one. Nothing reported at all -- git failing, or no longer
+			// a repository -- is no evidence the branch moved, so it is kept.
+			branch := st.Branch
+			if branch == "" && st.Detached && st.Head != "" {
+				branch = "detached@" + st.Head
+			}
+			if branch != "" && branch != p.Branch {
+				p.Branch = branch
 			}
 			changed = true
 		}
