@@ -150,6 +150,12 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	case "UserPromptSubmit":
 		return StatusWorking, "", true
 	case "PreToolUse":
+		// A question put to the user arrives as a tool call like any other,
+		// so without this the pane shows it as work in progress -- green,
+		// with the tool's name on it -- for as long as nobody answers.
+		if tool == "AskUserQuestion" {
+			return StatusWaiting, tool, true
+		}
 		return StatusWorking, tool, true
 	case "PostToolUse":
 		return StatusWorking, "", true

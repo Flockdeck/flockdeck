@@ -242,6 +242,9 @@ func TestStatusForEvent(t *testing.T) {
 	}{
 		{"UserPromptSubmit", "", StatusWorking, true},
 		{"PreToolUse", "Bash", StatusWorking, true},
+		// A question for the user is a tool call, and the pane is waiting on
+		// the answer.
+		{"PreToolUse", "AskUserQuestion", StatusWaiting, true},
 		{"Notification", "", StatusWaiting, true},
 		{"Stop", "", StatusIdle, true},
 		{"SomethingElse", "", StatusIdle, false},
@@ -255,8 +258,8 @@ func TestStatusForEvent(t *testing.T) {
 		if ok && got != c.want {
 			t.Errorf("%s: status = %v, want %v", c.event, got, c.want)
 		}
-		if c.event == "PreToolUse" && detail != "Bash" {
-			t.Errorf("PreToolUse should surface the tool name, got %q", detail)
+		if c.event == "PreToolUse" && detail != c.tool {
+			t.Errorf("PreToolUse should surface the tool name %q, got %q", c.tool, detail)
 		}
 	}
 }
