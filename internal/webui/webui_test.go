@@ -4025,6 +4025,31 @@ assert.ok(h.$("overlay-body").querySelector("div.proj-row") === row, "a status p
 `)
 }
 
+// A worktree's count of agents is taken when the list is read, and Remove
+// refuses while any are there. Close them and the dialog went on counting
+// them, refusing for agents that were gone until Refresh was pressed. The list
+// is asked for again when panes open or close while the dialog is up.
+func TestTheWorktreesDialogFollowsThePanes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [],
+  items: [{ label: "fix", path: "C:/repo-fix", panes: 1, dirty: 0, untracked: 0 }] });
+const asked = () => h.commands().filter((c) => c.cmd === "worktrees").length;
+const before = asked();
+
+// A push with the same panes asks for nothing.
+h.recv(fixture({ working: 1 }));
+assert.strictEqual(asked(), before, "the list was read again although no pane had opened or closed");
+
+// A pane closes: the counts are read again.
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: { id: "n1", pane: "p1", weight: 1 } }], panes: { p1: pane("p1") } }));
+assert.strictEqual(asked(), before + 1, "closing a pane left the worktree counts as they were");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

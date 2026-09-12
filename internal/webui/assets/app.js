@@ -568,6 +568,7 @@
     renderSummary(s);
     followAgents(s);
     followProjects(s);
+    followWorktrees(s);
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
@@ -2132,6 +2133,19 @@
    *  next, and the keyboard was left on Create with the new row's Agent
    *  button to be found among the others; it lands there instead. */
   let wtCreated = "";
+
+  /** The panes the worktree list last counted. How many agents work in each
+   *  worktree is counted when the list is read, and Remove refuses while any
+   *  do; close those panes and the dialog went on counting them, refusing
+   *  for agents that were no longer there until Refresh was pressed. The list
+   *  is asked for again whenever panes open or close while it is up. */
+  let worktreePanes = "";
+  function followWorktrees(s) {
+    const key = Object.keys(s.panes || {}).sort().join(",");
+    if (key === worktreePanes) return;
+    worktreePanes = key;
+    if (dialog === "worktrees") send({ cmd: "worktrees" });
+  }
 
   /** openWorktrees opens the dialog and asks for what goes in it. It opens at
    *  once rather than when the answer arrives, because the same answer comes
