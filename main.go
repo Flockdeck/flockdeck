@@ -456,6 +456,25 @@ func holdStartLock(wait time.Duration, warn func(string)) (release func()) {
 	}
 }
 
+// firstPaneKind is what the one pane of a project with nothing restored runs:
+// the agent new panes start as, where it can be started, and otherwise a
+// shell, which is also what -shell asks for. agentSpec resolves that agent,
+// and fails when it cannot be started; an empty id is the default.
+//
+// It used to ask whether Claude Code was installed, whichever agent new panes
+// start as. With another agent chosen, by -agent or as a project's default,
+// a machine without Claude Code opened on a shell rather than on the agent it
+// has, and a machine with it opened on a pane whose agent could not start.
+func firstPaneKind(shell bool, agentSpec func(id string) (agent.Spec, error)) session.Kind {
+	if shell {
+		return session.KindShell
+	}
+	if _, err := agentSpec(""); err != nil {
+		return session.KindShell
+	}
+	return session.KindAgent
+}
+
 // startupOnlyFlags lists the flags that describe a fresh start, and so mean
 // nothing when the launch turns into attaching to a running instance.
 func startupOnlyFlags(opts options) []string {
@@ -598,11 +617,7 @@ func run(opts options) error {
 		ws.RestoreSession()
 	}
 	if !restored {
-		kind := session.KindClaude
-		if opts.shell || !ws.ClaudeAvailable() {
-			kind = session.KindShell
-		}
-		ws.NewTab(kind, root, "")
+		ws.NewTab(firstPaneKind(opts.shell, ws.AgentSpec), root, "")
 	} else if opts.shell {
 		// -shell decides what the first pane is, and a restored layout
 		// already has its panes. Said, rather than dropped without a word,
