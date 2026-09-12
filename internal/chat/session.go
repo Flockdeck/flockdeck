@@ -22,6 +22,11 @@ type Options struct {
 	// the key to look for and is what the header says.
 	Agent string
 	Model string
+	// DefaultModel is the one the agent's catalog entry falls back to when
+	// nobody picks one. A resumed conversation that had gone on with another,
+	// chosen with /model, is taken up with that one rather than put back on
+	// the default.
+	DefaultModel string
 	// Models are what the agent's catalog entry offers, which /model lists and
 	// picks from by number. Any other id can still be named.
 	Models  []ModelChoice

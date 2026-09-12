@@ -411,11 +411,19 @@ func (s *session) replay() {
 	// The model the conversation last answered with is recorded, and is taken
 	// up again -- only where nothing names one, so that a model the pane was
 	// started with still wins.
-	if s.model == "" {
+	//
+	// A pane is started with the agent's default model when nobody picked
+	// one, so "nothing names one" is also a pane that names only the
+	// default: restarted, it put a conversation switched to another model
+	// with /model back on the default. A model picked for the pane itself
+	// is still the one used.
+	if s.model == "" || s.model == s.opts.DefaultModel {
 		for i := len(entries) - 1; i >= 0; i-- {
 			if e := entries[i]; e.Type == string(RoleAssistant) && e.Model != "" {
-				s.model = e.Model
-				s.out.line(ansiDim, "(answering with "+e.Model+", as this conversation last did; /model changes it)")
+				if e.Model != s.model {
+					s.model = e.Model
+					s.out.line(ansiDim, "(answering with "+e.Model+", as this conversation last did; /model changes it)")
+				}
 				break
 			}
 		}

@@ -81,6 +81,9 @@ func fillFromCatalog(opts *chat.Options) {
 		if len(opts.KeyEnv) == 0 {
 			opts.KeyEnv = s.API.KeyEnv
 		}
+		// Told so that a resumed conversation switched to another model is
+		// not put back on the default the pane was started with.
+		opts.DefaultModel = s.DefaultModel
 		return
 	}
 }
