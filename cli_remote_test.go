@@ -417,6 +417,16 @@ func TestRemoteDevicesWhileNotRunning(t *testing.T) {
 	}
 }
 
+// disable -force with nothing enrolled has nothing to turn off, and says so
+// rather than that remote access has been disabled.
+func TestRemoteDisableForceWithNothingEnrolled(t *testing.T) {
+	isolateKeys(t)
+	out, reloads, err := runRemoteCmd(t, "disable", "-force")
+	if err != nil || !strings.Contains(out, "remote access is not enabled") || strings.Contains(out, "disabled") || reloads != 0 {
+		t.Errorf("disable -force with nothing enrolled = %q, %v, telling the instance %d times; want it to say remote access is not enabled", out, err, reloads)
+	}
+}
+
 // A relay that answers with an error was reached; status says it could not
 // be asked, rather than that it could not be reached.
 func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {

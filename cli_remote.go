@@ -707,7 +707,9 @@ func remoteDisable(args []string, rio remoteIO) error {
 		return fmt.Errorf("%v; run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, for good, since nothing but this machine can take it off", err)
 	case err != nil:
 		return err
-	case !had && !f.force:
+	case !had:
+		// Nothing was there, readable or not, -force or no: there was
+		// nothing to turn off, and nothing to tell a running instance.
 		fmt.Fprintln(rio.out, "remote access is not enabled")
 		return nil
 	case untold != nil:
