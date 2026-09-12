@@ -133,11 +133,14 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	sysproc.NoWindow(cmd)
 	// Standard output and standard error are interleaved because that is the
 	// order they happened in, and a compiler's diagnostics are only useful
-	// beside the line of progress they interrupted.
-	out, runErr := cmd.CombinedOutput()
+	// beside the line of progress they interrupted. One writer for both is
+	// written to by one goroutine at a time.
+	var out capture
+	cmd.Stdout, cmd.Stderr = &out, &out
+	runErr := cmd.Run()
 
 	var b strings.Builder
-	b.WriteString(clipOutput(string(out)))
+	b.WriteString(out.String())
 	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
 		b.WriteString("\n")
 	}
@@ -276,23 +279,60 @@ func splitCommand(line string) ([]string, error) {
 	return argv, nil
 }
 
-// clipOutput keeps the beginning and the end of a long output and says how
-// much went missing between them. The end holds the failure and the beginning
+// capture keeps the beginning and the end of what a command prints and counts
+// what went missing between them. The end holds the failure and the beginning
 // holds what was being attempted, and the middle of a hundred thousand lines
 // of test output is where nothing happens.
-func clipOutput(s string) string {
+//
+// It keeps them as the output arrives rather than gathering all of it and
+// cutting afterwards, because a command can print gigabytes -- a runaway log,
+// a binary sent to the terminal -- and the chat would have to hold every byte
+// of it to hand the model sixty-four kilobytes.
+type capture struct {
+	head  []byte
+	tail  []byte // the most recent output, at most twice half before trimming
+	total int64
+}
+
+func (c *capture) Write(p []byte) (int, error) {
+	n := len(p)
+	c.total += int64(n)
+	half := commandMaxOutput / 2
+	if room := half - len(c.head); room > 0 {
+		k := min(room, len(p))
+		c.head, p = append(c.head, p[:k]...), p[k:]
+	}
+	c.tail = append(c.tail, p...)
+	if len(c.tail) > 2*half {
+		copy(c.tail, c.tail[len(c.tail)-half:])
+		c.tail = c.tail[:half]
+	}
+	return n, nil
+}
+
+// String is the output as the model is given it.
+func (c *capture) String() string {
+	half := commandMaxOutput / 2
+	tail := c.tail
+	if len(tail) > half && c.total > int64(commandMaxOutput) {
+		tail = tail[len(tail)-half:]
+	}
+	omitted := c.total - int64(len(c.head)) - int64(len(tail))
 	// What a command printed goes to the model over a wire that carries JSON,
 	// and bytes that are not valid UTF-8 -- a half-written escape sequence, a
-	// file name in some other encoding -- would fail to encode at all, losing
-	// the whole result rather than the byte.
-	s = strings.ToValidUTF8(s, "")
-	if len(s) <= commandMaxOutput {
-		return s
+	// file name in some other encoding, or a rune cut in two at either end of
+	// the gap -- would fail to encode at all, losing the whole result rather
+	// than the byte.
+	if omitted == 0 {
+		return strings.ToValidUTF8(string(c.head)+string(tail), "")
 	}
-	half := commandMaxOutput / 2
-	// Cutting by byte count can land in the middle of a rune, so each end is
-	// swept again.
-	head := strings.ToValidUTF8(s[:half], "")
-	tail := strings.ToValidUTF8(s[len(s)-half:], "")
-	return fmt.Sprintf("%s\n[... %s of output omitted ...]\n%s", head, humanBytes(int64(len(s)-2*half)), tail)
+	return fmt.Sprintf("%s\n[... %s of output omitted ...]\n%s",
+		strings.ToValidUTF8(string(c.head), ""), humanBytes(omitted), strings.ToValidUTF8(string(tail), ""))
+}
+
+// clipOutput is what capture makes of s.
+func clipOutput(s string) string {
+	var c capture
+	c.Write([]byte(s))
+	return c.String()
 }

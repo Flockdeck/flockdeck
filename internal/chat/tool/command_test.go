@@ -35,6 +35,13 @@ func TestToolHelperProcess(t *testing.T) {
 		os.Exit(3)
 	case "linger":
 		time.Sleep(30 * time.Second)
+	case "flood":
+		fmt.Println("BEGIN")
+		line := strings.Repeat("x", 1023) + "\n"
+		for i := 0; i < 20<<10; i++ {
+			os.Stdout.WriteString(line)
+		}
+		fmt.Println("END")
 	case "cwd":
 		dir, err := os.Getwd()
 		if err != nil {
