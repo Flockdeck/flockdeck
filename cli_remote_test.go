@@ -131,6 +131,12 @@ func TestRemoteLifecycle(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "unpairs its devices if it is the account's only machine") {
 		t.Errorf("enabling twice = %v, want it to say what enrolling again costs", err)
 	}
+	// A join code on an enrolled machine is asking for another account, not
+	// something with nothing to do.
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-join", "fdp_other"); err == nil ||
+		!strings.Contains(err.Error(), "to join that account instead") || strings.Contains(err.Error(), "nothing to do") {
+		t.Errorf("enabling with a join code over an enrolment = %v, want it to say how to join", err)
+	}
 	// Naming another relay is asking to move there, and the refusal says how.
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example"); err == nil ||
 		!strings.Contains(err.Error(), "to move this machine to https://other.example, run `flockdeck remote disable`, then `flockdeck remote enable -relay https://other.example`") {

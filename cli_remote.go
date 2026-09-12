@@ -208,6 +208,10 @@ func remoteEnable(args []string, rio remoteIO) error {
 		}
 	}
 	switch {
+	case errors.As(err, &already) && already.Err == nil && f.join != "":
+		// A join code is asking for another account, which this machine can
+		// be in only after leaving the one it is in.
+		return fmt.Errorf("%v; to join that account instead, run `flockdeck remote disable` first, which unpairs this machine's devices if it is its account's only machine, then run this again", err)
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
