@@ -611,6 +611,10 @@ func run(opts options) error {
 	}
 
 	watchSignals(stop, forceQuit)
+	// Closed once the layout and open projects are saved, which is what a
+	// session ending on Windows waits for before it lets the process go.
+	saved := make(chan struct{})
+	watchEndSession(stop, saved)
 
 	srv.OnQuit = stop
 	// A restart is a quit that comes back. The server only asks; the shutdown
@@ -681,6 +685,7 @@ func run(opts options) error {
 	if err := keepOpenProjects(before); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
 	}
+	close(saved)
 
 	// Once the deferred closes have run, the interface is closed and the panes
 	// are gone, which is the only moment the program's own file can be
