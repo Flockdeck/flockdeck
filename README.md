@@ -84,6 +84,24 @@ release's checksums and puts it in a directory you own — `~/.local/bin`, or
 neither installing nor updating ever asks for admin rights. The scripts are in
 `cmd/sitegen/assets`, beside the page that serves them.
 
+Both read a few settings from the environment:
+
+- `FLOCKDECK_VERSION` — a release such as `v0.1.1` instead of the latest. To
+  stay on it, also set `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it
+  updates itself.
+- `FLOCKDECK_INSTALL_DIR` — another directory to install into.
+- `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from.
+- `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
+  alone.
+
+```sh
+curl -fsSL https://flockdeck.ai/install.sh | FLOCKDECK_INSTALL_DIR=~/bin sh
+```
+
+```powershell
+$env:FLOCKDECK_VERSION = 'v0.1.1'; irm https://flockdeck.ai/install.ps1 | iex
+```
+
 With Go:
 
 ```sh
