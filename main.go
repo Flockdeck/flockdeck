@@ -1059,8 +1059,11 @@ func takesValue(fs *flag.FlagSet, name string) bool {
 // somebody who has never installed Codex should still be able to learn from
 // here that Flockdeck would run it.
 func printAgents(w io.Writer) {
-	specs, defaultID := agentCatalog()
+	specs, defaultID, notice := agentCatalog()
 	fmt.Fprintf(w, "Agents flockdeck can run.\n\n")
+	if notice != "" {
+		fmt.Fprintf(w, "Note: %s\n\n", unreadAgentsFile(notice))
+	}
 	for _, s := range specs {
 		// A hidden entry is one somebody has taken out of the picker in their
 		// own agents.json, and this is the picker in another form.
@@ -1182,12 +1185,16 @@ func offersModel(s agent.Spec, model string) bool {
 // project's default and is not known until the pane is made. That still
 // catches the typo, which is the point of checking at all.
 func checkAgent(id, model string) error {
-	specs, _ := agentCatalog()
+	specs, _, notice := agentCatalog()
 	if id != "" {
 		spec, ok := findSpec(specs, id)
 		if !ok {
-			return fmt.Errorf("no agent called %q; flockdeck can run %s (run `flockdeck agents` for what each of them offers)",
+			err := fmt.Errorf("no agent called %q; flockdeck can run %s (run `flockdeck agents` for what each of them offers)",
 				id, strings.Join(agentIDs(specs), ", "))
+			if notice != "" {
+				err = fmt.Errorf("%w. Also, %s", err, unreadAgentsFile(notice))
+			}
+			return err
 		}
 		if !offersModel(spec, model) {
 			return fmt.Errorf("%s has no model called %q; it offers %s",
@@ -1218,7 +1225,7 @@ func notInstalledWarning(id string) string {
 	if id == "" {
 		return ""
 	}
-	specs, _ := agentCatalog()
+	specs, _, _ := agentCatalog()
 	s, ok := findSpec(specs, id)
 	if !ok || agentAvailable(s) {
 		return ""
@@ -1235,13 +1242,22 @@ func notInstalledWarning(id string) string {
 // id of the one a pane takes when nothing has been chosen.
 //
 // It is a variable so that a test can hand it a catalog of its own.
-var agentCatalog = func() ([]agent.Spec, string) {
+//
+// The third value is the catalog's notice: empty unless the user's agents.json
+// could not be used in full, in which case an agent defined there may be
+// missing from the rest, and a name that is not found has to say why.
+var agentCatalog = func() ([]agent.Spec, string, string) {
 	c := agent.Load()
 	// The command line is not standing in any one project, so what it checks a
 	// name against is the installation's default rather than a project's. A
 	// project that runs something else of its own is answered where the pane is
 	// made, which is the only place the directory is known.
-	return c.Visible(), c.DefaultsFor("").Agent
+	return c.Visible(), c.DefaultsFor("").Agent, c.Notice
+}
+
+// unreadAgentsFile says what a catalog notice means for the command line.
+func unreadAgentsFile(notice string) string {
+	return "your agents.json was not fully read, so an agent defined there may be missing: " + notice
 }
 
 // agentAvailable reports whether an agent could actually be started here.

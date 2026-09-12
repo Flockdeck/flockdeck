@@ -448,7 +448,7 @@ func useCatalog(t *testing.T, specs []agent.Spec, defaultID string, installed ma
 	t.Helper()
 	catalog, available := agentCatalog, agentAvailable
 	t.Cleanup(func() { agentCatalog, agentAvailable = catalog, available })
-	agentCatalog = func() ([]agent.Spec, string) { return specs, defaultID }
+	agentCatalog = func() ([]agent.Spec, string, string) { return specs, defaultID, "" }
 	agentAvailable = func(s agent.Spec) bool { return installed[s.ID] }
 }
 
@@ -561,6 +561,25 @@ func TestPrintAgentsShowsWhatIsNotInstalled(t *testing.T) {
 	// form.
 	if strings.Contains(out, "Retired") {
 		t.Errorf("the listing shows a hidden agent:\n%s", out)
+	}
+}
+
+// When agents.json could not all be used, an agent defined there is missing
+// from the catalog, and "no agent called mine" alone sends the user to check
+// the spelling rather than the file. Both the error and the listing say so.
+func TestAnUnreadAgentsFileIsSaid(t *testing.T) {
+	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
+	agentCatalog = func() ([]agent.Spec, string, string) {
+		return testCatalog(), "claude", "agents.json: invalid character '}' after object key"
+	}
+	err := checkAgent("mine", "")
+	if err == nil || !strings.Contains(err.Error(), "agents.json was not fully read") || !strings.Contains(err.Error(), "invalid character") {
+		t.Errorf("checkAgent(mine) = %v, want it to say agents.json was not fully read, and why", err)
+	}
+	var buf bytes.Buffer
+	printAgents(&buf)
+	if !strings.Contains(buf.String(), "agents.json was not fully read") {
+		t.Errorf("the listing does not say agents.json was not fully read:\n%s", buf.String())
 	}
 }
 
