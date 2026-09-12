@@ -1123,12 +1123,14 @@
     // replaced the button's description with a bare path and took the binding
     // away with it — the one thing the action table exists to prevent.
     const btn = $("project-btn");
-    const tip = actionTip("projects", active ? active.root : "");
-    if (btn.dataset.tip !== tip) describe(btn, tip);
     // Highlight when another project needs attention, so switching away does
-    // not hide the fact that an agent there is blocked.
-    const elsewhere = (s.projects || []).some((p) => !p.active && p.waiting > 0);
-    btn.classList.toggle("attention", elsewhere);
+    // not hide the fact that an agent there is blocked - and say which, since
+    // the amber on its own says only that something somewhere wants you.
+    const elsewhere = (s.projects || []).filter((p) => !p.active && p.waiting > 0);
+    const why = elsewhere.length ? "waiting on you in " + elsewhere.map((p) => p.name).join(", ") : "";
+    const tip = actionTip("projects", [active ? active.root : "", why].filter(Boolean).join("; "));
+    if (btn.dataset.tip !== tip) describe(btn, tip);
+    btn.classList.toggle("attention", elsewhere.length > 0);
   }
 
   // ------------------------------------------------- rearranging the layout

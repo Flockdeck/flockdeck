@@ -4109,6 +4109,25 @@ assert.strictEqual(h.notifications.length, 1, "a count that did not rise raised 
 `)
 }
 
+// The project button turns amber when an agent in another project is waiting,
+// and nothing said which project or why: its tooltip named the current folder
+// alone.
+func TestTheProjectButtonSaysWhereAnAgentIsWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+const btn = h.$("project-btn");
+assert.ok(btn.classList.contains("attention"));
+assert.ok(/waiting on you in api/.test(btn.dataset.tip), "the amber does not say where the agent is: " + btn.dataset.tip);
+
+h.recv(fixture());
+assert.ok(!/waiting/.test(h.$("project-btn").dataset.tip), "the tooltip kept saying an agent was waiting");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
