@@ -225,6 +225,30 @@ func TestChatRepliesStartAtAClear(t *testing.T) {
 	}
 }
 
+// TestAChatWithNoModelGoesToAnAgentWithoutOne covers a chat whose pane asked
+// for no model, which it only does when its agent has no default to ask for --
+// a local endpoint left to choose. Put under the first API agent instead, it
+// offered to carry on a local model's conversation through Anthropic.
+func TestAChatWithNoModelGoesToAnAgentWithoutOne(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "myrepo")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const id = "11111111-1111-1111-1111-111111111111"
+	writeChats(t, map[string][]string{id: {
+		`{"type":"user","cwd":"` + jsonPath(cwd) + `","text":"hi"}`,
+		`{"type":"assistant","cwd":"` + jsonPath(cwd) + `","text":"hello"}`,
+	}})
+	api := func(id, model string) agent.Spec {
+		return agent.Spec{ID: id, Runner: agent.RunnerAPI, DefaultModel: model, Caps: agent.Caps{Transcript: true, Resume: true}}
+	}
+	got, err := All([]agent.Spec{api("anthropic", "claude-sonnet-5"), api("openai", "gpt-5"), api("local", "")}, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Agent != "local" {
+		t.Errorf("listed %+v, want the chat under the agent with no default model", got)
+	}
+}
+
 // TestAllListsEachChatOnceUnderItsAgent covers the chat folder every API agent
 // shares. Asked once per API agent, it listed every chat under every one of
 // them, each row offering to resume it through a different endpoint.

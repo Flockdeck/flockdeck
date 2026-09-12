@@ -174,17 +174,23 @@ func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
 // answered in it; failing that, the first. Resuming a chat through the wrong
 // agent asks another endpoint to carry on a conversation it never had, so
 // every clue the file holds is used.
+//
+// A chat that recorded no model is a clue too. The chat client records the
+// model it asked for, and a pane only asks for none when its agent has no
+// default model to ask for -- a local endpoint left to choose for itself --
+// so such a chat goes to an agent without one before it goes to the first.
 func heldBy(r chatRow, api []agent.Spec) string {
 	for _, s := range api {
 		if r.agent != "" && s.ID == r.agent {
 			return s.ID
 		}
 	}
-	if r.model != "" {
-		for _, s := range api {
-			if s.DefaultModel == r.model || slices.ContainsFunc(s.Models, func(m agent.Model) bool { return m.ID == r.model }) {
-				return s.ID
-			}
+	for _, s := range api {
+		if r.model == "" && s.DefaultModel == "" {
+			return s.ID
+		}
+		if r.model != "" && (s.DefaultModel == r.model || slices.ContainsFunc(s.Models, func(m agent.Model) bool { return m.ID == r.model })) {
+			return s.ID
 		}
 	}
 	return api[0].ID
