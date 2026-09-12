@@ -194,8 +194,24 @@ type hookMatcher struct {
 type hookSpec struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"`
+	// Args makes the hook exec form: Command is the program and Args its
+	// arguments, started with no shell in between.
+	Args    []string `json:"args,omitempty"`
+	Timeout int      `json:"timeout,omitempty"`
 }
+
+// execHooksSince is the first Claude Code known to start a hook in exec form.
+//
+// A hook written as one command line is run through a shell, and on Windows
+// that is Git Bash, or PowerShell where Git Bash is missing -- read from the
+// executable (2.1.269): `-Command <line>` for PowerShell, and the line as it is
+// for bash. The command line is quoted for cmd.exe, which is neither: a program
+// path in double quotes followed by its arguments is not a command PowerShell
+// will run, so without Git Bash no hook of any pane arrived. Exec form starts
+// the program itself, so nothing is quoted for anything, and one process fewer
+// is started for every hook. An older Claude Code that did not read the
+// arguments would start Flockdeck with none, so it keeps the command line.
+var execHooksSince = [3]int{2, 1, 269}
 
 // WriteHookSettings writes a settings file that makes the pane report its
 // lifecycle to Flockdeck, and returns its path.
@@ -220,14 +236,20 @@ func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) 
 	}
 	path := filepath.Join(dir, sessionID+".settings.json")
 
-	events := hookEventsFor(claudeVersion(exe))
+	version := claudeVersion(exe)
+	events := hookEventsFor(version)
+	execForm := versionAtLeast(version, execHooksSince)
 	hooks := make(map[string][]hookMatcher, len(events))
 	for _, ev := range events {
-		cmd := fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
-			quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
-		hooks[ev] = []hookMatcher{{
-			Hooks: []hookSpec{{Type: "command", Command: cmd, Timeout: 5}},
-		}}
+		spec := hookSpec{Type: "command", Timeout: 5}
+		if execForm {
+			spec.Command = selfExe
+			spec.Args = []string{"hook", "--endpoint", endpoint, "--token", token, "--session", sessionID, "--event", ev}
+		} else {
+			spec.Command = fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
+				quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
+		}
+		hooks[ev] = []hookMatcher{{Hooks: []hookSpec{spec}}}
 	}
 
 	data, err := json.MarshalIndent(settingsFile{Hooks: hooks}, "", "  ")

@@ -90,26 +90,37 @@ func TestClaudeArgsResumeVsFresh(t *testing.T) {
 // to the event whose reply tells a pane's agent where it is running. It fires
 // again on a compaction, which is what keeps that description from being
 // summarised away.
+//
+// A Claude Code known to start a hook as a program and its arguments is given
+// it that way, with no shell to quote for; an older one, a command line.
 func TestHookSettingsRegisterSessionStart(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WriteHookSettings(dir, "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
-	if err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read settings: %v", err)
-	}
-	var got settingsFile
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("decode settings: %v", err)
-	}
-	matchers, ok := got.Hooks["SessionStart"]
-	if !ok || len(matchers) == 0 || len(matchers[0].Hooks) == 0 {
-		t.Fatalf("no SessionStart hook in %s", raw)
-	}
-	if cmd := matchers[0].Hooks[0].Command; !strings.Contains(cmd, "--event SessionStart") {
-		t.Errorf("SessionStart command = %q", cmd)
+	was := claudeVersion
+	t.Cleanup(func() { claudeVersion = was })
+	wantArgs := []string{"hook", "--endpoint", "http://127.0.0.1:1/hook", "--token", "tok", "--session", "pane-id", "--event", "SessionStart"}
+	for _, version := range []string{"", "2.0.0 (Claude Code)", "2.1.269 (Claude Code)"} {
+		claudeVersion = func(string) string { return version }
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		if err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read settings: %v", err)
+		}
+		var got settingsFile
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("decode settings: %v", err)
+		}
+		matchers, ok := got.Hooks["SessionStart"]
+		if !ok || len(matchers) == 0 || len(matchers[0].Hooks) == 0 {
+			t.Fatalf("%q: no SessionStart hook in %s", version, raw)
+		}
+		h := matchers[0].Hooks[0]
+		execForm := h.Command == "/bin/flockdeck" && slices.Equal(h.Args, wantArgs)
+		lineForm := len(h.Args) == 0 && strings.Contains(h.Command, "--event SessionStart")
+		if want := version == "2.1.269 (Claude Code)"; execForm != want || (!want && !lineForm) {
+			t.Errorf("%q: SessionStart hook = %q %q, want exec form %v", version, h.Command, h.Args, want)
+		}
 	}
 }
 
