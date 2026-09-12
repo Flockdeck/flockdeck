@@ -222,15 +222,21 @@ func claudePath(sessionID string) string {
 	// id can match in more than one place. The most recently written copy is
 	// the live one; taking whichever sorts first would read a transcript that
 	// stopped growing turns ago.
-	newest, newestMod := "", time.Time{}
+	//
+	// Unless it is empty. A session interrupted before it recorded anything
+	// leaves an empty file, and the newest copy being one of those is not the
+	// conversation ending: preferring it told a restored pane there was
+	// nothing to resume while an older copy held all of it.
+	newest, newestMod, newestEmpty := "", time.Time{}, true
 	for _, folder := range folders {
 		m := filepath.Join(projects, folder.Name(), sessionID+".jsonl")
 		fi, err := os.Stat(m)
 		if err != nil || fi.IsDir() {
 			continue
 		}
-		if newest == "" || fi.ModTime().After(newestMod) {
-			newest, newestMod = m, fi.ModTime()
+		empty := fi.Size() == 0
+		if newest == "" || (newestEmpty && !empty) || (empty == newestEmpty && fi.ModTime().After(newestMod)) {
+			newest, newestMod, newestEmpty = m, fi.ModTime(), empty
 		}
 	}
 	return newest
