@@ -879,3 +879,33 @@ func TestABranchAlreadyCheckedOutSaysWhere(t *testing.T) {
 		t.Errorf("err = %v, want where it is checked out and what to do", err)
 	}
 }
+
+// TestAWorktreeMidBisectIsNamedByItsBranch: a bisect detaches HEAD as a rebase
+// does, and the checkout read as "detached" in the pane header and
+// "detached@<sha>" in the panel.
+func TestAWorktreeMidBisectIsNamedByItsBranch(t *testing.T) {
+	repo := newRepo(t)
+	for _, body := range []string{"a\n", "b\n", "c\n"} {
+		write(t, repo, "n.txt", body)
+		gitRun(t, repo, "add", "-A")
+		gitRun(t, repo, "commit", "-qm", "step")
+	}
+	gitRun(t, repo, "bisect", "start", "HEAD", "HEAD~2")
+	t.Cleanup(func() {
+		reset := exec.Command("git", "bisect", "reset")
+		reset.Dir = repo
+		_ = reset.Run()
+	})
+
+	st := StatusOf(repo)
+	if !st.Detached || st.Branch != "main" || st.Operation != "bisecting" {
+		t.Errorf("status = %+v, want main, bisecting", st)
+	}
+	wts, err := ListDetailed(repo)
+	if err != nil || len(wts) == 0 {
+		t.Fatalf("ListDetailed = %+v, %v", wts, err)
+	}
+	if got := wts[0].Label(); got != "main (bisecting)" {
+		t.Errorf("label = %q, want main (bisecting)", got)
+	}
+}

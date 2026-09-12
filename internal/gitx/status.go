@@ -19,6 +19,10 @@ type Status struct {
 	// Unborn marks a branch with no commits on it yet, where Head is empty
 	// because there is nothing to point at.
 	Unborn bool
+	// Operation names what a detached checkout is in the middle of --
+	// "rebasing" or "bisecting" -- when Branch was read from that operation's
+	// state rather than from HEAD, which names no branch while it runs.
+	Operation string
 	// Dirty counts tracked files with changes; Untracked counts new files.
 	Dirty     int
 	Untracked int
@@ -97,31 +101,33 @@ func StatusOf(dir string) Status {
 		st.Upstream = ""
 	}
 	if st.Detached && st.Branch == "" {
-		st.Branch = rebasingBranch(dir)
+		st.Branch, st.Operation = operationBranch(dir)
 	}
 	return st
 }
 
-// rebasingBranch names the branch a rebase in progress will return to.
+// operationBranch names the branch a rebase or a bisect in progress will return
+// to, and which of the two it is.
 //
-// Replaying commits is done on a detached HEAD, so a checkout in the middle of
-// a rebase reports no branch at all: an agent that stopped on a conflict shows
-// in its pane header, and in the review panel, as "detached" -- which is true
-// of HEAD and useless to the person looking at it, who has not stopped
-// thinking of it as their branch. git keeps the name it will go back to in the
-// state directory, and reads it back for its own "rebasing topic".
+// Both are done on a detached HEAD, so a checkout in the middle of one reports
+// no branch at all: an agent that stopped on a conflict, or that is halving
+// its way to a bad commit, shows in its pane header and in the review panel as
+// "detached" -- which is true of HEAD and useless to the person looking at it,
+// who has not stopped thinking of it as their branch. git keeps the name it
+// will go back to in the state directory, and reads it back for its own
+// "rebasing topic" and "bisecting".
 //
 // This costs an extra call, so it is only made for a checkout that has already
 // said it is detached, which is rare and stays that way for as long as the
-// rebase does.
-func rebasingBranch(dir string) string {
+// operation does.
+func operationBranch(dir string) (branch, operation string) {
 	out, err := run(dir, "rev-parse", "--git-dir")
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	base := strings.TrimSpace(out)
 	if base == "" {
-		return ""
+		return "", ""
 	}
 	// rev-parse answers relative to the directory it was asked from.
 	if !filepath.IsAbs(base) {
@@ -135,10 +141,25 @@ func rebasingBranch(dir string) string {
 			continue
 		}
 		if ref := strings.TrimSpace(string(data)); ref != "" {
-			return strings.TrimPrefix(ref, "refs/heads/")
+			return strings.TrimPrefix(ref, "refs/heads/"), "rebasing"
 		}
 	}
-	return ""
+	// A bisect writes down where it started: a branch's name, or a commit
+	// id when it was started from a detached HEAD, which is no branch.
+	if data, err := os.ReadFile(filepath.Join(base, "BISECT_START")); err == nil {
+		if start := strings.TrimSpace(string(data)); start != "" && !isCommitID(start) {
+			return strings.TrimPrefix(start, "refs/heads/"), "bisecting"
+		}
+	}
+	return "", ""
+}
+
+// isCommitID reports whether s is a full commit id rather than a name.
+func isCommitID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
 }
 
 // Branch is a local branch and where it stands against its upstream.
