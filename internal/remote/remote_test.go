@@ -870,6 +870,24 @@ func TestEnableAndDisable(t *testing.T) {
 	}
 }
 
+// A phone's pairing link given as a join code is refused before anything
+// reaches the relay, saying what it is for and what a machine joins with.
+func TestEnableRefusesAPairingLinkAsAJoinCode(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	_, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL, Name: "desk", Join: f.URL + "/pair#fdp_s3cretcode"})
+	if err == nil || !strings.Contains(err.Error(), "pairing link") || !strings.Contains(err.Error(), "pair -desktop") {
+		t.Errorf("enabling with a pairing link as the join code = %v, want it named as one", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		if call == "POST /api/v1/hosts" {
+			t.Error("the pairing link was sent to the relay as a join code")
+		}
+	}
+}
+
 // The window enables and disables through the manager, which brings the
 // tunnel up and down to match.
 func TestManagerEnablesAndDisables(t *testing.T) {

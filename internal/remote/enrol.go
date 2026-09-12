@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -58,6 +59,11 @@ func (e *RelayUntoldError) Unwrap() error { return e.Err }
 // has forgotten it: that is exactly when enrolling again is right, and replaced
 // says it happened.
 func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config, replaced bool, err error) {
+	// A pairing link is for a phone or a browser, and given as a join code it
+	// would reach the relay only to be refused in words that do not say why.
+	if strings.Contains(req.Join, "/pair#") {
+		return nil, false, errors.New("that is a pairing link, for a phone or browser to open; a machine joins another's account with a code made for that, which `flockdeck remote pair -desktop` prints")
+	}
 	relay, err := RelayURL(req.Relay)
 	if err != nil {
 		return nil, false, err
