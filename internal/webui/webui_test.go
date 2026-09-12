@@ -4396,6 +4396,23 @@ assert.strictEqual(h.commands().length, before, "the right button closed a tab")
 `)
 }
 
+// The header cuts a long branch, or an agent with a long model, short, and
+// their bubbles explained what a branch or an agent is rather than which one:
+// the whole name could be read nowhere.
+func TestThePaneHeaderBubblesNameTheBranchAndAgent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const branch = "feature/retry-the-release-upload-when-the-relay-drops";
+h.recv(fixture({ panes: { p1: pane("p1", { branch, agent: "claude", model: "claude-opus-5-with-a-long-name" }) } }));
+// The terminal's host sits in the pane's body, which sits in the pane.
+const wrap = h.terms[0].host.parentElement.parentElement;
+const tip = (cls) => wrap.querySelector(cls).dataset.tip || "";
+assert.ok(tip(".pane-branch").includes(branch), "the branch's bubble does not name the branch: " + tip(".pane-branch"));
+assert.ok(tip(".pane-agent").includes("claude-opus-5-with-a-long-name"), "the agent's bubble does not name the model: " + tip(".pane-agent"));
+assert.ok(/working tree/.test(tip(".pane-branch")), "the branch's bubble lost its explanation");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

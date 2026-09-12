@@ -1770,7 +1770,9 @@
     p.branch.textContent = "";
     if (!v.branch) { delete p.branch.dataset.tip; return; }
     p.branch.append(glyph("⎇"), document.createTextNode(" " + v.branch));
-    describe(p.branch, TIPS.branch);
+    // The header cuts a long branch short, and the bubble said what a branch
+    // is rather than which: the whole name could be read nowhere.
+    describe(p.branch, v.branch + " — " + TIPS.branch);
   }
 
   /** renderPaneAgent names what is running in the pane: the agent, and the
@@ -1781,7 +1783,8 @@
     p.agent.textContent = "";
     if (!v.agent) { delete p.agent.dataset.tip; return; }
     p.agent.textContent = v.model ? v.agent + " · " + v.model : v.agent;
-    describe(p.agent, TIPS.agent);
+    // Cut short like the branch, and named in its bubble for the same reason.
+    describe(p.agent, p.agent.textContent + " — " + TIPS.agent);
   }
 
   /** renderPaneUsage shows what the pane is costing the machine: its share of a
