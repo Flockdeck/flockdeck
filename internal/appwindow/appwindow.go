@@ -31,11 +31,16 @@ const legacyBrowserEnv = "PERCH_BROWSER"
 // pinnedBrowser returns the browser the user pinned, and the variable it came
 // from so a failure can name the one they actually set rather than the one
 // they didn't.
+//
+// Surrounding quotes are dropped. cmd.exe keeps them in the value of `set
+// FLOCKDECK_BROWSER="C:\Program Files\…"`, which is how a path with spaces is
+// habitually written there, and a quoted path is not one anything can find.
 func pinnedBrowser() (prog, from string) {
-	if v := os.Getenv(BrowserEnv); v != "" {
-		return v, BrowserEnv
+	prog, from = os.Getenv(BrowserEnv), BrowserEnv
+	if prog == "" {
+		prog, from = os.Getenv(legacyBrowserEnv), legacyBrowserEnv
 	}
-	return os.Getenv(legacyBrowserEnv), legacyBrowserEnv
+	return strings.Trim(prog, `"`), from
 }
 
 // ErrNoBrowser is returned when nothing could be found to display the UI.

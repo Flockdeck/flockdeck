@@ -22,6 +22,20 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// A path with spaces is written in quotes in cmd.exe, and `set` keeps them in
+// the value, so the pinned browser has to be read without them.
+func TestPinnedBrowserDropsQuotes(t *testing.T) {
+	t.Setenv(BrowserEnv, `"C:\Program Files\Chromium\chrome.exe"`)
+	if prog, from := pinnedBrowser(); prog != `C:\Program Files\Chromium\chrome.exe` || from != BrowserEnv {
+		t.Errorf("pinnedBrowser = %q from %s, want the path without its quotes", prog, from)
+	}
+	t.Setenv(BrowserEnv, "")
+	t.Setenv(legacyBrowserEnv, "chromium")
+	if prog, from := pinnedBrowser(); prog != "chromium" || from != legacyBrowserEnv {
+		t.Errorf("pinnedBrowser = %q from %s, want the older name's value", prog, from)
+	}
+}
+
 // A launch that passes its window to a browser already running on the profile
 // exits at once and successfully. The window is open, so that must not read as
 // the user closing it: it stopped every instance started while another's
