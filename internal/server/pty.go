@@ -106,10 +106,10 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 	viewer := nextViewer.Add(1)
 	defer func() {
-		// This window is no longer one the pane has to fit inside, so it is
-		// free to grow back to whatever the rest can show. Handed over rather
-		// than waited on: letting go of a connection should not queue behind
-		// whatever the workspace is busy with.
+		// This window is no longer one the pane is sized for, so it goes back
+		// to the window used before it, or to what the rest can all show. Handed
+		// over rather than waited on: letting go of a connection should not
+		// queue behind whatever the workspace is busy with.
 		if viewers.drop(id, viewer) {
 			go s.do(func() { s.fitPane(id) })
 		}
