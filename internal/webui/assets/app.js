@@ -1863,6 +1863,11 @@
   const promptHistory = [];
   let promptAt = 0;
   let promptDraft = "";
+  /** What was left in the bar when it was closed without sending. The bar
+   *  opened empty every time, so an instruction half-written for every agent
+   *  went with an Escape pressed a moment too soon - and, never sent, it was
+   *  not in the history either. */
+  let promptUnsent = "";
 
   function promptKey(ev) {
     const input = $("prompt-input");
@@ -1891,10 +1896,11 @@
     const n = state ? countBroadcast(state) : 1;
     $("prompt-label").textContent = n > 1 ? `Prompt → ${n} panes` : "Prompt";
     const input = $("prompt-input");
-    input.value = "";
+    input.value = promptUnsent;
     input.focus();
   }
   function closePrompt() {
+    promptUnsent = $("prompt-input").value;
     $("promptbar").hidden = true;
     focusTerminal();
   }
@@ -1905,6 +1911,7 @@
       if (promptHistory[promptHistory.length - 1] !== text) promptHistory.push(text);
       if (promptHistory.length > 50) promptHistory.shift();
     }
+    $("prompt-input").value = "";
     closePrompt();
   }
   function countBroadcast(s) {

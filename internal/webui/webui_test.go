@@ -3878,6 +3878,27 @@ assert.strictEqual(page.getAttribute("aria-labelledby"), tab.id, "the panel is n
 `)
 }
 
+// The prompt bar opened empty every time, so an instruction half-written for
+// every agent went with an Escape pressed a moment too soon, and never sent,
+// it was not in the history either. It is there when the bar opens again, and
+// sending it clears it.
+func TestThePromptBarKeepsAnUnsentDraft(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("prompt-input");
+h.press("promptAll");
+input.value = "stop and run the tests";
+h.key({ key: "Escape" });
+h.press("promptAll");
+assert.strictEqual(input.value, "stop and run the tests", "closing the bar threw away what was being written");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "stop and run the tests" });
+h.press("promptAll");
+assert.strictEqual(input.value, "", "a prompt that was sent came back as an unsent draft");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
