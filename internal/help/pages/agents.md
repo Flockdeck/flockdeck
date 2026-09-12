@@ -41,6 +41,31 @@ act. A command can be let through for the rest of the session by answering
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 
+## An endpoint's address
+
+The OpenAI-compatible endpoint ships with no address, because none would be
+right for everybody, so it waits under **not installed** until it has one.
+Pick it and the picker asks for the address there and then: type where the
+model server answers, starting `http://` or `https://` — `http://127.0.0.1:11434/v1`
+for Ollama, `http://127.0.0.1:1234/v1` for LM Studio — and press `Enter`.
+`Escape` puts the field away without saving anything.
+
+An address on this machine needs no key, so a local model server is offered
+the moment its address is saved. One anywhere else, such as a gateway, needs a
+key as well, set under [[action:apiKeys]].
+
+Any other API agent that has been given an address — one of your own, or a
+built-in pointed at a proxy — shows it beside its name. Open the agent with the
+right arrow and choose its **Address** row to change it. Saved empty, the
+address is taken away, and a built-in goes back to its vendor's own.
+
+An address that is not one is refused under the field, with what to type
+instead: `localhost:11434` is answered with `http://localhost:11434`. An
+address with a name or password in it is refused too, because it is shown in
+the picker; the key goes under [[action:apiKeys]]. A pane already running keeps
+the address it started with until it is restarted. From a terminal, `flockdeck
+keys endpoint <agent> <address>` does the same.
+
 ## Not every agent can do everything
 
 Most of what Flockdeck does beyond drawing a terminal depends on the agent
