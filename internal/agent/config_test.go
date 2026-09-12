@@ -235,3 +235,20 @@ func TestSavingADefaultKeepsTheUsersText(t *testing.T) {
 		t.Errorf("a save escaped the user's text:\n%s", data)
 	}
 }
+
+// TestAnEmptyConfigIsNoConfig: an empty file holds nothing to lose, and as a
+// parse error it stopped the picker saving any default into it.
+func TestAnEmptyConfigIsNoConfig(t *testing.T) {
+	for _, body := range []string{"", "  \r\n", "\xef\xbb\xbf"} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if c := LoadFrom(dir); c.Notice != "" {
+			t.Errorf("%q: notice %q, want none", body, c.Notice)
+		}
+		if err := SetDefaults(dir, "", Defaults{Agent: "codex"}); err != nil {
+			t.Errorf("%q: a default could not be saved: %v", body, err)
+		}
+	}
+}

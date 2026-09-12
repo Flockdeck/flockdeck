@@ -142,6 +142,13 @@ func readConfig(dir string) (*File, error) {
 	// in front, which the decoder takes for a stray character: the whole file
 	// was set aside, and the picker then refused to save a default over it.
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	// An empty file -- what `touch` or an editor's New File leaves -- holds
+	// nothing to lose, so it reads as no file at all. As a parse error it put a
+	// notice up and, since a file that cannot be read is not written over,
+	// stopped the picker saving any default into it.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return &File{Version: ConfigVersion}, nil
+	}
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", ConfigName, err)
