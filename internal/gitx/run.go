@@ -60,9 +60,32 @@ func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
 func runVerbose(dir string, args ...string) (string, error) {
 	out, errText, err := runCapture(context.Background(), networkTimeout, dir, args...)
 	if err != nil {
+		// A remote that wants a login, on a machine with no credential
+		// helper to supply one, is refused a prompt here -- there is no
+		// terminal to type into -- and git says only that it "could not read
+		// Username ... terminal prompts disabled". Saying how to get past it
+		// is the useful part: sign in once where git can ask.
+		if strings.Contains(err.Error(), "terminal prompts disabled") {
+			return "", &gitError{"the remote " + quotedURL(err.Error()) + "wants a login, and git cannot ask for one from inside Flockdeck. " +
+				"Sign in once from a terminal in " + dir + " (git fetch will do), or set up a credential helper; the panel then uses the saved login."}
+		}
 		return "", err
 	}
 	return cleanProgress(errText + out), nil
+}
+
+// quotedURL picks the address out of git's "could not read Username for
+// 'https://…'", with a space after it, or "" when there is none to pick.
+func quotedURL(msg string) string {
+	_, rest, ok := strings.Cut(msg, " for '")
+	if !ok {
+		return ""
+	}
+	url, _, ok := strings.Cut(rest, "'")
+	if !ok || url == "" {
+		return ""
+	}
+	return url + " "
 }
 
 // cleanProgress collapses git's in-place progress lines -- "Writing objects:
