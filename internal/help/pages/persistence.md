@@ -46,10 +46,10 @@ flockdeck -quit     # stop everything
 Closing the window normally still quits, so nothing is left running by
 accident.
 
-`flockdeck -detach` gives the terminal back, and the run outlives it. Detaching
-from the palette is different on macOS and Linux: a Flockdeck started from a
-terminal still belongs to it, and closing that terminal quits Flockdeck, saving
-the layout first.
+`flockdeck -detach` gives the terminal back. On macOS and Linux, closing the
+terminal a Flockdeck was started from quits an attached run the orderly way,
+saving the layout first; a detached one, started with `-detach` or detached
+from the palette, carries on.
 
 ## Reloading the window
 
