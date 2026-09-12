@@ -85,6 +85,11 @@ the assets and both WebSockets — must carry a token generated fresh for each
 run. A second launch of the binary reaches the running instance through that
 same loopback address.
 
+Remote access, once you turn it on, is a connection this machine makes out to
+the relay. A request arriving through it is let in without the token, because
+the relay has already checked that the device asking is paired — **Remote
+access** has the rest.
+
 ## Desktop notifications never appear
 
 The browser asks for permission on your first interaction with the window. If
