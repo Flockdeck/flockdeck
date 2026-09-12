@@ -1126,6 +1126,20 @@ func TestEnableSavesTheNameTheRelayKeeps(t *testing.T) {
 	}
 }
 
+// A machine with no name given and no host name to be had is saved under the
+// name the relay gives it, which is the one every device lists.
+func TestEnableWithNoNameToBeHad(t *testing.T) {
+	isolate(t)
+	old := hostname
+	hostname = func() (string, error) { return "", errors.New("no host name") }
+	t.Cleanup(func() { hostname = old })
+	f := newFakeRelay(t)
+	cfg, _, err := Enable(context.Background(), "v", EnableRequest{Relay: f.URL})
+	if err != nil || cfg.Name != "Desktop" {
+		t.Errorf("Enable with no name to be had saved %+v, %v; want the relay's own name for it, Desktop", cfg, err)
+	}
+}
+
 // Mac adds for its own network, which is not part of what anybody calls it.
 func TestHostName(t *testing.T) {
 	for host, want := range map[string]string{

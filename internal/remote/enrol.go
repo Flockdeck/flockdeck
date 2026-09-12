@@ -106,8 +106,14 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 
 	name := cleanName(req.Name)
 	if name == "" {
-		host, _ := os.Hostname()
+		host, _ := hostname()
 		name = cleanName(hostName(host))
+	}
+	if name == "" {
+		// What the relay calls a machine that gave it no name, which is then
+		// what every device lists; saved blank, status and the window would
+		// show nothing where the devices show that.
+		name = "Desktop"
 	}
 	reg, err := Register(ctx, relay, version, RegisterRequest{
 		Name: name, Join: strings.TrimSpace(req.Join), Invite: strings.TrimSpace(req.Invite),
@@ -124,6 +130,9 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	}
 	return cfg, replaced, nil
 }
+
+// hostname is os.Hostname, a variable so that a test can have it fail.
+var hostname = os.Hostname
 
 // hostName is what a machine is called on devices when nobody says: its host
 // name, without the ".local" a Mac adds for its own network, which is not
