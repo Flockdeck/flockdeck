@@ -771,11 +771,13 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 			fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
 		case opts.detach:
 			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		default:
-			// Ctrl+C alone was the advice, but the Windows build is linked
-			// for the GUI subsystem and is not attached to the console it was
-			// started from, so the key never reaches it there.
+		case ctrlCStops():
 			fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
+		default:
+			// The Windows release borrows the terminal's console rather than
+			// having one of its own, and Ctrl+C typed there never reaches it,
+			// so the one way that works is all that is offered.
+			fmt.Println("Run `flockdeck -quit` to stop.")
 		}
 		return nil, nil
 	}

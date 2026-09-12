@@ -46,22 +46,7 @@ func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
 	t.Setenv(updateEnv, "off")
 
 	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-shell", "-C", t.TempDir())
-	// Held from here, so that the cleanup can only ever stop the instance
-	// this test started, whatever happens below.
-	if inst, _ := store.LoadInstance(); inst != nil {
-		if p, err := os.FindProcess(inst.PID); err == nil {
-			t.Cleanup(func() {
-				stopped := make(chan struct{})
-				go func() { _, _ = p.Wait(); close(stopped) }()
-				select {
-				case <-stopped:
-				case <-time.After(20 * time.Second):
-					_ = p.Kill()
-					<-stopped
-				}
-			})
-		}
-	}
+	holdRecordedInstance(t)
 	if !ok {
 		t.Errorf("flockdeck -detach in a terminal showed %q, want its address and how to stop it", got)
 	}
@@ -70,6 +55,48 @@ func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
 	if err != nil || strings.Contains(string(out), "nothing is running") {
 		t.Errorf("-quit once the terminal had closed: %v, %q; want the detached run still there to stop", err, out)
 	}
+}
+
+// A -no-window run from a terminal offered Ctrl+C to stop it, and the key
+// never reaches the release, which borrows the terminal's console. It says
+// to run `flockdeck -quit`, the way that works.
+func TestReleaseBuildOffersAStopThatWorks(t *testing.T) {
+	exe := releaseBuild(t)
+	state := t.TempDir()
+	t.Setenv("APPDATA", state)
+	t.Setenv("LOCALAPPDATA", state)
+	t.Setenv(updateEnv, "off")
+
+	got, ok := inTerminal(t, "to stop.", exe, "-solo", "-no-window", "-shell", "-C", t.TempDir())
+	holdRecordedInstance(t)
+	if !ok || strings.Contains(got, "Ctrl+C") || !strings.Contains(got, "flockdeck -quit") {
+		t.Errorf("flockdeck -no-window in a terminal showed %q, want it to say to run `flockdeck -quit`, and nothing of Ctrl+C", got)
+	}
+}
+
+// holdRecordedInstance takes hold of the instance a test started, from its
+// record, so that the test's cleanup waits for it to stop and ends it after
+// 20 s: only ever that process, whatever the test goes on to find.
+func holdRecordedInstance(t *testing.T) {
+	t.Helper()
+	inst, _ := store.LoadInstance()
+	if inst == nil {
+		return
+	}
+	p, err := os.FindProcess(inst.PID)
+	if err != nil {
+		return
+	}
+	t.Cleanup(func() {
+		stopped := make(chan struct{})
+		go func() { _, _ = p.Wait(); close(stopped) }()
+		select {
+		case <-stopped:
+		case <-time.After(20 * time.Second):
+			_ = p.Kill()
+			<-stopped
+		}
+	})
 }
 
 // releaseBuild builds the program as the release does, for the GUI subsystem.

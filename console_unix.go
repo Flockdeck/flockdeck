@@ -26,6 +26,10 @@ var detached bool
 // depend on how it was linked.
 func useConsole() {}
 
+// ctrlCStops reports whether Ctrl+C typed in the terminal reaches this run,
+// which it always does here.
+func ctrlCStops() bool { return true }
+
 // detachFromTerminal is how -detach keeps its promise here.
 //
 // A run started from a terminal belongs to the terminal's session: it held

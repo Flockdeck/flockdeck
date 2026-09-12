@@ -86,6 +86,12 @@ func detachFromTerminal() (done bool, code int) { return false, 0 }
 // letTerminalGo is never needed here: Windows sends no SIGHUP.
 func letTerminalGo() {}
 
+// ctrlCStops reports whether Ctrl+C typed in the terminal reaches this run.
+// It does for a console build, whose console is its own, and not for the
+// release, which borrows its terminal's: with the prompt given back to the
+// shell, the key goes to the shell alone.
+func ctrlCStops() bool { return !borrowed.held }
+
 func openConsole(name string) (syscall.Handle, error) {
 	p, err := syscall.UTF16PtrFromString(name)
 	if err != nil {

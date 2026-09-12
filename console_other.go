@@ -10,4 +10,5 @@ package main
 func useConsole()                               {}
 func releaseConsole()                           {}
 func letTerminalGo()                            {}
+func ctrlCStops() bool                          { return true }
 func detachFromTerminal() (done bool, code int) { return false, 0 }
