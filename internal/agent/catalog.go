@@ -230,6 +230,14 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 	if d.Agent == "" {
 		d.Agent = DefaultAgentID
 	}
+	// A default naming an agent the catalog no longer has -- an entry since
+	// deleted from agents.json -- is a pane that cannot start, and it is
+	// every new pane rather than one: each asks for the default and was told
+	// "no agent named ... is configured". Claude opens instead, and the model
+	// chosen for the other agent does not come with it.
+	if _, ok := c.Find(d.Agent); !ok && len(c.Specs) > 0 {
+		d = Defaults{Agent: DefaultAgentID}
+	}
 	return d
 }
 

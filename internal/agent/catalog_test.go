@@ -451,3 +451,18 @@ func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
 		t.Errorf("an entry that empties the models should get none, got %+v", codex.Models)
 	}
 }
+
+// TestDefaultNamingADeletedAgentFallsBack: every new pane asks for the default,
+// so one naming an agent since deleted from agents.json stopped them all from
+// starting.
+func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "ollama", Model: "llama3"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "gone", Model: "x"}},
+	})
+	for _, project := range []string{"", "/work/app"} {
+		if got := c.DefaultsFor(project); got != (Defaults{Agent: DefaultAgentID}) {
+			t.Errorf("DefaultsFor(%q) = %+v, want Claude with no model", project, got)
+		}
+	}
+}
