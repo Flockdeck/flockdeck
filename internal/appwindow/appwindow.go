@@ -257,6 +257,11 @@ func candidates() []string {
 				filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`),
 				filepath.Join(base, `BraveSoftware\Brave-Browser\Application\brave.exe`),
 				filepath.Join(base, `Chromium\Application\chrome.exe`),
+				// Vivaldi installs for the one user, under LocalAppData, as
+				// often as for everyone. It was looked for on Linux alone, so
+				// FLOCKDECK_BROWSER=vivaldi, which the usage offers, found
+				// nothing here and the window did not open at all.
+				filepath.Join(base, `Vivaldi\Application\vivaldi.exe`),
 			)
 		}
 		return append(out, "chrome.exe", "msedge.exe")
@@ -284,6 +289,7 @@ func darwinCandidates(home string) []string {
 		"Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 		"Brave Browser.app/Contents/MacOS/Brave Browser",
 		"Chromium.app/Contents/MacOS/Chromium",
+		"Vivaldi.app/Contents/MacOS/Vivaldi",
 	}
 	var out []string
 	for _, b := range bundles {

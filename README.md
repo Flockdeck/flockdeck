@@ -260,8 +260,8 @@ interface and displays in a **chromeless application window** — no tabs, no
 address bar. It looks and behaves like a native window while keeping the
 program a single dependency-free binary.
 
-That window is provided by a Chromium-based browser in app mode: Chrome, Edge
-or Brave — and on Linux Chromium or Vivaldi as well — whichever is found first. On Windows this is always
+That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
+Brave, Chromium or Vivaldi, whichever is found first. On Windows this is always
 satisfied because Edge ships with the OS. If none is installed the page opens
 as an ordinary tab in your default browser instead, which works but looks less
 like an application. `FLOCKDECK_BROWSER` forces a specific one.
