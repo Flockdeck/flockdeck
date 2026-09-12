@@ -321,9 +321,12 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				tab = r.tab
 			}
 			if r.err != nil {
-				c.notify(fmt.Sprintf("%s: %v", short(j.task), r.err), true)
+				msg := fmt.Sprintf("%s: %v", short(j.task), r.err)
+				if err := discardWorktree(repo, baseCwd, j); err != nil {
+					msg += fmt.Sprintf(" (its worktree %s could not be removed: %v)", filepath.Base(j.cwd), err)
+				}
+				c.notify(msg, true)
 				failed++
-				discardWorktree(repo, baseCwd, j)
 				continue
 			}
 			started++
@@ -565,11 +568,16 @@ func makeWorktrees(jobs []*fanoutJob, prepare func(branch string) (string, error
 // ever run in it. That is also why the removal is forced — there is nothing in
 // it to lose, and a checkout can read as modified the instant it is made when
 // the repository and the platform disagree about line endings.
-func discardWorktree(repo, baseCwd string, j *fanoutJob) {
+//
+// Its failure is returned rather than dropped. A freshly written checkout can
+// be held for a moment on Windows by whatever scans new files, and one left
+// behind that way is exactly the stray worktree this exists to prevent -- so
+// it is said, beside the failure that caused it, rather than found later.
+func discardWorktree(repo, baseCwd string, j *fanoutJob) error {
 	if repo == "" || j.cwd == "" || j.cwd == baseCwd {
-		return
+		return nil
 	}
-	_ = gitx.Remove(repo, j.cwd, true)
+	return gitx.Remove(repo, j.cwd, true)
 }
 
 // fanoutTabTitle names the tab a fan-out's children share, or "" to let the

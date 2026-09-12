@@ -19,6 +19,22 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
+// TestDiscardingAWorktreeSaysWhenItCannot covers the clean-up after an agent
+// that could not start. A worktree it cannot remove stays behind looking like
+// one an agent is working in, so the failure has to reach the notice rather
+// than be dropped.
+func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
+	notARepo := t.TempDir()
+	job := &fanoutJob{task: "never started", cwd: t.TempDir()}
+	if err := discardWorktree(notARepo, t.TempDir(), job); err == nil {
+		t.Fatal("removing a worktree from somewhere that is not a repository reported nothing")
+	}
+	// Nothing was cut, so there is nothing to remove and nothing to say.
+	if err := discardWorktree("", notARepo, job); err != nil {
+		t.Errorf("a job with no worktree of its own reported %v", err)
+	}
+}
+
 // TestFanoutCatalogSaysWhichAgentsAskAboutTrust covers the fan-out dialog's
 // offer to carry folder trust over, which is only worth making for a run whose
 // agents ask whether a folder is trusted.
