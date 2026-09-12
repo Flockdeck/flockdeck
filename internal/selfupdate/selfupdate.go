@@ -26,6 +26,8 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"debug/pe"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -617,6 +619,74 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.Chmod(dst, 0o755)
+}
+
+// EnsureChatTwin makes the console twin (chatName) beside the program at
+// exePath when there is none, from the program itself: the same bytes with
+// the PE Subsystem field set to console, which is all that tells the two
+// apart and all that decides whether Windows gives a pane's process a console.
+//
+// A release carries the twin, but the first update to one is put in place by
+// the release before it, whose updater knows only the program, and an
+// installation made by an install script of before, or by `go install`, has
+// no twin either. Without one an API agent's pane is blank.
+//
+// It does nothing off Windows, for the twin itself, where something is
+// already there (the release's own twin, or anything that cannot be told
+// apart from it), or for a program that is not a GUI build, which runs in a
+// pane as it is.
+func EnsureChatTwin(exePath string) error {
+	if chatName == "" || exePath == "" {
+		return nil
+	}
+	exePath, err := filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(filepath.Base(exePath), binaryName) {
+		return nil
+	}
+	twin := filepath.Join(filepath.Dir(exePath), chatName)
+	if _, err := os.Lstat(twin); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	data, err := os.ReadFile(exePath)
+	if err != nil {
+		return err
+	}
+	off, ok := subsystemOffset(data)
+	if !ok || binary.LittleEndian.Uint16(data[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_GUI {
+		return nil
+	}
+	binary.LittleEndian.PutUint16(data[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_CUI)
+
+	next := twin + ".new"
+	if err := os.WriteFile(next, data, 0o755); err != nil {
+		os.Remove(next)
+		return err
+	}
+	if err := os.Rename(next, twin); err != nil {
+		os.Remove(next)
+		return err
+	}
+	return nil
+}
+
+// subsystemOffset is where a PE file keeps its Subsystem field: in the
+// optional header after the PE signature and the file header, 68 bytes in for
+// PE32 and PE32+ alike. It is false for anything that is not a PE file.
+func subsystemOffset(data []byte) (int, bool) {
+	if len(data) < 0x40 || data[0] != 'M' || data[1] != 'Z' {
+		return 0, false
+	}
+	at := int(binary.LittleEndian.Uint32(data[0x3c:]))
+	if at <= 0 || at+24+70 > len(data) || string(data[at:at+4]) != "PE\x00\x00" {
+		return 0, false
+	}
+	if magic := binary.LittleEndian.Uint16(data[at+24:]); magic != 0x10b && magic != 0x20b {
+		return 0, false
+	}
+	return at + 24 + 68, true
 }
 
 // Dir is where updates are staged, given the application's state directory.

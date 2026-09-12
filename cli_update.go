@@ -333,6 +333,14 @@ func sweepReplacedBinary() {
 	selfupdate.Sweep(startedAs)
 }
 
+// ensureChatTwin puts the console twin an API agent's pane runs beside the
+// program when the installation has none, as one updated by a release from
+// before the twin does not (selfupdate.EnsureChatTwin). Where it cannot be
+// written, the pane falls back to the program, as it always did.
+func ensureChatTwin() {
+	_ = selfupdate.EnsureChatTwin(startedAs)
+}
+
 // updateEnv turns the check off. It is read rather than kept as a setting
 // because the people most likely to want an unchanging binary — anyone
 // packaging Flockdeck for somewhere with its own updater — are configuring a

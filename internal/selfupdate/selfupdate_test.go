@@ -3,9 +3,12 @@ package selfupdate
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"debug/pe"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -441,6 +444,72 @@ func TestApplyPutsTheChatTwinInPlaceToo(t *testing.T) {
 		if _, err := os.Stat(twin + ".old"); !os.IsNotExist(err) {
 			t.Errorf("had a twin %v: Sweep left the replaced twin behind", hadTwin)
 		}
+	}
+}
+
+// The first update to a release with the twin is put in place by the release
+// before, whose updater knows only the program, and an installation made by
+// an older install script or by go install has no twin either. The program
+// makes one at start from itself: the same bytes with the PE Subsystem field
+// set to console.
+func TestEnsureChatTwinMakesTheTwinFromTheProgram(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	console, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, ok := subsystemOffset(console)
+	if !ok || binary.LittleEndian.Uint16(console[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_CUI {
+		t.Fatal("the test binary is not a console PE file to start from")
+	}
+	gui := bytes.Clone(console)
+	binary.LittleEndian.PutUint16(gui[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_GUI)
+
+	install := t.TempDir()
+	exe, twin := filepath.Join(install, binaryName), filepath.Join(install, chatName)
+	if err := os.WriteFile(exe, gui, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureChatTwin(exe); err != nil {
+		t.Fatalf("EnsureChatTwin: %v", err)
+	}
+	got, err := os.ReadFile(twin)
+	if err != nil || !bytes.Equal(got, console) {
+		t.Fatalf("the twin is not the program with only its subsystem set to console (%v)", err)
+	}
+	if out, err := exec.Command(twin, "-test.run=^$").CombinedOutput(); err != nil {
+		t.Errorf("the twin made does not run: %v\n%s", err, out)
+	}
+
+	// A twin already there is left as it is, and the twin makes none.
+	if err := os.WriteFile(twin, []byte("the released twin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, from := range []string{exe, twin} {
+		if err := EnsureChatTwin(from); err != nil {
+			t.Errorf("from %s: %v", filepath.Base(from), err)
+		}
+	}
+	if got, _ := os.ReadFile(twin); string(got) != "the released twin" {
+		t.Errorf("a twin already there was replaced: %q", got)
+	}
+
+	// A console build runs in a pane as it is.
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, binaryName), console, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureChatTwin(filepath.Join(other, binaryName)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(other, chatName)); !os.IsNotExist(err) {
+		t.Error("a console build was given a twin")
 	}
 }
 

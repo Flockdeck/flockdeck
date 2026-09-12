@@ -515,6 +515,9 @@ func run(opts options) error {
 	// Anything a previous update moved aside can go now, before the interface
 	// is up and while nothing is looking.
 	sweepReplacedBinary()
+	// And a console twin the installation lacks is made, before any pane
+	// needs it.
+	ensureChatTwin()
 
 	// A staged update goes in, and a restart starts the program again, only
 	// once everything else has been torn down, which is why this is deferred
