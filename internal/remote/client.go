@@ -38,10 +38,15 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.Message == "" {
-		return fmt.Sprintf("the relay answered %d %s", e.Status, http.StatusText(e.Status))
+	switch {
+	case e.Message != "":
+		return "the relay said: " + e.Message
+	case e.Status == http.StatusNotFound:
+		// Nothing at the address knows the relay's API, which most likely
+		// means it is not a relay's address at all.
+		return "the relay answered 404 Not Found; is that a Flockdeck relay's address?"
 	}
-	return "the relay said: " + e.Message
+	return fmt.Sprintf("the relay answered %d %s", e.Status, http.StatusText(e.Status))
 }
 
 // Revoked reports whether the relay no longer accepts this host's token —

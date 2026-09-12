@@ -571,6 +571,30 @@ func TestClientSaysWhenTheRelayDoesNotAnswer(t *testing.T) {
 	}
 }
 
+// A 404 not in the relay's own words is, most likely, an address that is not
+// a relay's, and both the command line and the window ask whether it is.
+func TestNotARelayIsAskedAbout(t *testing.T) {
+	quick(t)
+	site := httptest.NewServer(http.NotFoundHandler())
+	defer site.Close()
+	_, err := Register(context.Background(), site.URL, "v", RegisterRequest{Name: "desk"})
+	if err == nil || !strings.HasSuffix(err.Error(), "is that a Flockdeck relay's address?") {
+		t.Errorf("Register with a website = %v", err)
+	}
+	c := NewConnector(Config{Relay: site.URL, HostID: "h1", Token: "fdh_test"}, "", func(l net.Listener) error { return nil }, nil)
+	c.Start()
+	defer c.Stop()
+	var st Status
+	waitFor(t, "an error", func() bool { st = c.Status(); return st.State == StateError })
+	if !strings.HasSuffix(st.Detail, "is that a Flockdeck relay's address?") {
+		t.Errorf("detail = %q, want it to ask whether this is a relay", st.Detail)
+	}
+	// The relay's own 404, with its own words, is not second-guessed.
+	if msg := decodeError(http.StatusNotFound, []byte(`{"error":"there is no such device"}`)).Error(); strings.Contains(msg, "relay's address") {
+		t.Errorf("the relay's own 404 = %q", msg)
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()
