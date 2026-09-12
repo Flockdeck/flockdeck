@@ -228,6 +228,33 @@ func TestExternalLinksOpenElsewhere(t *testing.T) {
 	}
 }
 
+// Pages refer to each other as [Title](#slug), which the help viewer opens as
+// the page of that slug. A slug that names no page is a link that goes nowhere,
+// so it fails here rather than in front of a reader.
+func TestCrossReferencesNamePages(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, s := range order {
+		known[s] = true
+	}
+	links := 0
+	for _, p := range pages {
+		for _, l := range strings.Split(p.HTML, `<a href="#`)[1:] {
+			slug, _, _ := strings.Cut(l, `"`)
+			links++
+			if !known[slug] {
+				t.Errorf("%s: links to #%s, which is not a help page", p.Slug, slug)
+			}
+		}
+	}
+	if links == 0 {
+		t.Error("no page links to another; the cross-references have gone")
+	}
+}
+
 // A JSON example in a page is there to be copied into a real file, so one that
 // does not parse hands the reader a settings file the application rejects. A
 // Windows path written with single backslashes is the easy way to get there.

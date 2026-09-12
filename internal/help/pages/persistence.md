@@ -25,7 +25,7 @@ able to reattach one by id, and it has to have written a transcript to
 reattach. So a pane opened and never prompted starts a fresh conversation
 rather than dying on restore, and a pane running an agent that cannot resume
 comes back in the right place, in the right directory, with an empty
-conversation. **Agents and models** says which is which.
+conversation. [Agents and models](#agents) says which is which.
 
 A layout saved by a build that knew only about Claude is read without a
 murmur: its panes come back running Claude Code at whatever model the CLI is

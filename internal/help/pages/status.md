@@ -59,5 +59,5 @@ at, with the escape sequences stripped, so a question two screens back does not
 keep a finished pane amber.
 
 That is a guess where the other is a fact, and it is worth knowing which you
-are looking at: **Agents and models** says which agents report and which are
+are looking at: [Agents and models](#agents) says which agents report and which are
 read. Where both exist, a reported event always wins.

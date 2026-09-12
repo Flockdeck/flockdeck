@@ -27,7 +27,7 @@ set).
 
 | File | What it holds |
 | --- | --- |
-| `agents.json` | Your own agents, changes to the built-in ones, and the default agent and model — for every project under `defaults`, for one under `projects`. **Agents and models** describes it; it is read again each time the picker opens, so editing it needs no restart. |
+| `agents.json` | Your own agents, changes to the built-in ones, and the default agent and model — for every project under `defaults`, for one under `projects`. [Agents and models](#agents) describes it; it is read again each time the picker opens, so editing it needs no restart. |
 | `keys.json` | API keys set through Flockdeck. A key exported in the environment is used first. |
 | `remote.json` | This machine's enrolment with the relay. `flockdeck remote disable` removes it. |
 | `prefs.json` | Whether the help has been opened, and which hints were dismissed. Delete it while Flockdeck is not running to have the help open on the next start and every hint back. |
@@ -48,4 +48,4 @@ set).
 | `NO_COLOR` | The built-in chat client draws without colour |
 
 The variables Flockdeck sets in each pane, and the flags that shape one run —
-`-agent`, `-new`, `-shell` — are on **The command line**.
+`-agent`, `-new`, `-shell` — are on [The command line](#cli).

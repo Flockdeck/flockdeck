@@ -48,7 +48,7 @@ each take a task in a worktree of their own.
 ## Which agent, which model
 
 A pane's header names what is in it — `claude · sonnet`, `codex · gpt-5` —
-beside its branch. **Agents and models** explains the picker, what changes when
+beside its branch. [Agents and models](#agents) explains the picker, what changes when
 an agent cannot report its own status, and how to add one of your own.
 
 ## Finding the rest of it

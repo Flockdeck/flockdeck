@@ -56,7 +56,7 @@ Rearrange them afterwards like any other pane: drag one onto another's edge,
 drag one onto the `+` in the tab bar for a tab of its own, or drag a divider.
 
 Every child is a normal pane. Watch it, type into it, and review and commit
-its work from **Changes**.
+its work from [Changes](#changes).
 
 ## How many at once
 

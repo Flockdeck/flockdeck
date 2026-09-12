@@ -72,7 +72,7 @@ flockdeck remote disable     # remove this machine from the relay (-force if it 
 ```
 
 A running instance is told when `enable` or `disable` changes anything, and
-connects or disconnects on the spot. **Remote access** has the rest.
+connects or disconnects on the spot. [Remote access](#remote) has the rest.
 
 ## chat
 
