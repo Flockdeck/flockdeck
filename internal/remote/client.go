@@ -21,6 +21,17 @@ import (
 // that a test does not have to sit through it.
 var requestTimeout = 20 * time.Second
 
+// relayHTTP is how the relay is called, its API and its tunnel alike, and it
+// follows no redirect. The relay never answers a desktop with one — it
+// answers on any of its names — and Go carries the Authorization header
+// across a redirect to the same host whatever the scheme, so following one
+// to http:// would send this machine's token in the clear.
+var relayHTTP = &http.Client{
+	CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("it answered with a redirect to %s://%s, which is not followed with this machine's token", req.URL.Scheme, req.URL.Host)
+	},
+}
+
 // Client makes the relay's REST calls on behalf of an enrolled host.
 type Client struct {
 	Relay   string
@@ -205,7 +216,7 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 		req.Header.Set("Flockdeck-Version", c.Version)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := relayHTTP.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("reach the relay at %s: no answer within %s", c.Relay, requestTimeout)

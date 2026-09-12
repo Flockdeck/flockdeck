@@ -296,6 +296,7 @@ func (c *Connector) dial(ctx context.Context) (*websocket.Conn, error) {
 		h.Set("Flockdeck-Version", c.version)
 	}
 	conn, resp, err := websocket.Dial(ctx, c.cfg.Relay+"/api/v1/host/connect", &websocket.DialOptions{
+		HTTPClient:   relayHTTP,
 		HTTPHeader:   h,
 		Subprotocols: []string{Subprotocol},
 	})

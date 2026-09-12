@@ -425,6 +425,42 @@ func TestTunnelComesBackAfterADrop(t *testing.T) {
 	}
 }
 
+// The relay never redirects a desktop, and a redirect is not followed, by
+// the API or the tunnel: Go would carry the token across one to the same
+// host even over plain HTTP.
+func TestRedirectIsNotFollowedWithTheToken(t *testing.T) {
+	quick(t)
+	var mu sync.Mutex
+	var leaked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/elsewhere" {
+			mu.Lock()
+			leaked = append(leaked, r.Header.Get("Authorization"))
+			mu.Unlock()
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	cfg := Config{Relay: srv.URL, HostID: "h1", Token: "fdh_test"}
+	if _, err := NewClient(&cfg, "v").Devices(context.Background()); err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("Devices from a relay that redirects = %v, want the redirect refused", err)
+	}
+	c := NewConnector(cfg, "", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	c.Start()
+	defer c.Stop()
+	waitFor(t, "an error", func() bool { return c.Status().State == StateError })
+	if d := c.Status().Detail; !strings.Contains(d, "redirect") {
+		t.Errorf("the tunnel's detail = %q, want the redirect refused", d)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(leaked) > 0 {
+		t.Errorf("the token followed the redirect: %q", leaked)
+	}
+}
+
 // A relay that accepts the WebSocket without agreeing to the tunnel's
 // subprotocol does not speak it, and is told apart from one that does.
 func TestRelayWithoutTheSubprotocolIsSaidInWords(t *testing.T) {
