@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -490,5 +491,34 @@ func TestKeysSetChecksTheKeyWithTheEndpoint(t *testing.T) {
 		if strings.Contains(out.String()+prompt.String(), key) {
 			t.Errorf("%s: the key was printed:\n%s", key, out.String())
 		}
+	}
+}
+
+// An endpoint that cannot be reached to check a key with is said to be that,
+// in the address's words rather than a failed dial's, and the key is kept.
+func TestKeysSetSaysWhenTheEndpointCannotBeReachedToCheck(t *testing.T) {
+	isolateKeys(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := "http://" + ln.Addr().String()
+	ln.Close()
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", addr); err != nil {
+		t.Fatal(err)
+	}
+	var out, prompt bytes.Buffer
+	if err := keysCmd([]string{"set", "anthropic"}, keysIO{in: strings.NewReader("sk-some-key\n"), out: &out, prompt: &prompt}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "could not reach "+addr+" to check it; it is stored") {
+		t.Errorf("the unreachable endpoint was not said:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "dial tcp") || strings.Contains(out.String(), "connectex") ||
+		strings.Contains(out.String(), "sk-some-key") {
+		t.Errorf("the dial error or the key was printed:\n%s", out.String())
+	}
+	if got := creds.Resolve(keysAgent(t, "anthropic")).Secret(); got != "sk-some-key" {
+		t.Error("the key was not kept")
 	}
 }

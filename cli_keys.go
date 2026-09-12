@@ -273,6 +273,12 @@ func checkKey(agentID, key string, out io.Writer) (refused bool) {
 	case errors.Is(err, chat.ErrKeyRefused):
 		fmt.Fprintf(out, "but %v: check it was copied whole, and run this again to replace it\n", err)
 		return true
+	case errors.Is(err, chat.ErrUnreachable):
+		where := "the vendor's endpoint"
+		if spec.API.BaseURL != "" {
+			where = redactURL(spec.API.BaseURL)
+		}
+		fmt.Fprintf(out, "could not reach %s to check it; it is stored, and a pane will say if it is refused\n", where)
 	default:
 		fmt.Fprintf(out, "could not check it just now: %v\n", err)
 	}
