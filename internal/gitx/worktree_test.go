@@ -867,3 +867,15 @@ func TestDefaultWorktreePathIgnoresATrailingSeparator(t *testing.T) {
 		t.Errorf("suggested %q is not beside %q", got, repo)
 	}
 }
+
+// TestABranchAlreadyCheckedOutSaysWhere: git's answer led with its own
+// progress and said the branch was "already used by worktree at" a path,
+// without the way on.
+func TestABranchAlreadyCheckedOutSaysWhere(t *testing.T) {
+	repo := newRepo(t)
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "main", "")
+	if err == nil || !strings.Contains(err.Error(), "already checked out in") ||
+		!strings.Contains(err.Error(), "open an agent there") || strings.Contains(err.Error(), "Preparing") {
+		t.Errorf("err = %v, want where it is checked out and what to do", err)
+	}
+}

@@ -449,10 +449,18 @@ func AddFrom(repoDir, path, branch, base string) error {
 		// that is not there -- after a line of its own progress.
 		if wts, lerr := List(repoDir); lerr == nil {
 			for _, wt := range wts {
-				if wt.Prunable && wt.Branch == branch {
+				if wt.Branch != branch {
+					continue
+				}
+				if wt.Prunable {
 					return &gitError{fmt.Sprintf("%s is still recorded as checked out in %s, which no longer exists; "+
 						"Prune in the Worktrees panel clears that record, and then it can be created again", branch, wt.Path)}
 				}
+				// Somebody who typed the branch they are already on -- the
+				// main checkout's, as often as not -- was told only that it
+				// was "already used by worktree at" a path.
+				return &gitError{fmt.Sprintf("%s is already checked out in %s; open an agent there from the list, "+
+					"or give the new worktree a branch of its own", branch, wt.Path)}
 			}
 		}
 	}
