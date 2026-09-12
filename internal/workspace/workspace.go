@@ -1788,17 +1788,32 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	if cwd == "" {
 		cwd = w.activeRoot
 	}
-	if !session.ConversationExists(id) {
+	// The pane runs whichever agent recorded the conversation, since only that
+	// agent can reattach to it, whichever agent this project opens new panes
+	// with. Claude Code is asked first, being where every conversation from
+	// before there were other agents lives, then the rest in catalog order.
+	// Every API agent is the same chat client keeping one folder of
+	// transcripts, so a chat conversation goes to the first of them.
+	c := w.agents()
+	specs := c.Specs
+	if claude, ok := c.Find("claude"); ok {
+		specs = append([]agent.Spec{claude}, specs...)
+	}
+	var spec agent.Spec
+	for _, s := range specs {
+		if transcript.Exists(s, id) {
+			spec = s
+			break
+		}
+	}
+	if spec.ID == "" {
 		return fmt.Errorf("that conversation is no longer stored")
 	}
 
 	p := &Pane{
-		ID:   id,
-		Kind: session.KindClaude,
-		// The conversation being reopened is one Claude recorded, so the pane
-		// has to run Claude to reattach to it, whichever agent this project
-		// opens new panes with.
-		Agent:  "claude",
+		ID:     id,
+		Kind:   session.KindClaude,
+		Agent:  spec.ID,
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),
 		Root:   w.projectFor(cwd),
