@@ -35,7 +35,8 @@ whose command is not on your `PATH` is the greyed kind.
 and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
 a real terminal chat client — streamed answers, a status line carrying the
 model and the running cost, and tools for reading files, editing them and
-running commands, the last of which ask before they act. Anthropic, OpenAI and
+running commands; the ones that write a file or run a command ask before they
+act. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 
