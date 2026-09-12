@@ -264,7 +264,10 @@ func (s *session) run(ctx context.Context) error {
 	// is working, what it can ask Flockdeck for.
 	s.system = s.systemWith(s.reporter.sessionStart(source))
 
-	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for what it can do",
+	// Short enough for a pane of the width a dozen side by side leave, where
+	// the longer "/help for what it can do" broke to leave "do" on a line of
+	// its own.
+	s.out.line(ansiDim, fmt.Sprintf("flockdeck chat · %s · %s · /help for commands",
 		firstNonEmpty(s.opts.Agent, s.wire.Name()), firstNonEmpty(s.model, "the endpoint's own model")))
 
 	if s.opts.Resume {
