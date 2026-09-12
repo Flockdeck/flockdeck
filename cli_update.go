@@ -298,8 +298,15 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 	}
 
 	for {
-		if p, ok := stagedUpdate(dir, version); !ok || selfupdate.Newer(latestSeen(ctx), p.Version) {
-			stageUpdate(ctx, srv, dir)
+		// One question to GitHub a round. A release newer than this build is
+		// fetched unless it is the one already staged; a failed check leaves
+		// whatever is staged alone.
+		if rel, err := selfupdate.Check(ctx, version); err == nil && rel != nil {
+			if p, ok := stagedUpdate(dir, version); !ok || selfupdate.Newer(rel.Version, p.Version) {
+				if p, err := selfupdate.Stage(ctx, rel, dir); err == nil {
+					srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+				}
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -307,29 +314,6 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		case <-time.After(updateInterval):
 		}
 	}
-}
-
-// latestSeen reports the newest published version, or an empty string when it
-// could not be asked. An empty string is never newer than anything, so a
-// failed check leaves an already-staged update alone.
-func latestSeen(ctx context.Context) string {
-	rel, err := selfupdate.Latest(ctx)
-	if err != nil || rel == nil {
-		return ""
-	}
-	return rel.Version
-}
-
-func stageUpdate(ctx context.Context, srv *server.Server, dir string) {
-	rel, err := selfupdate.Check(ctx, version)
-	if err != nil || rel == nil {
-		return
-	}
-	p, err := selfupdate.Stage(ctx, rel, dir)
-	if err != nil {
-		return
-	}
-	srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 }
 
 // updateFlags are the flags of `flockdeck update` and where their values land.
