@@ -582,9 +582,13 @@ make package    <span class="c"># archives for all six platforms</span></code></
     btn.type = "button";
     btn.className = "copy";
     btn.textContent = "Copy";
+    // Comments are for reading, not for pasting into a shell.
+    const text = [...code.childNodes].filter((n) => !(n.classList && n.classList.contains("c"))).map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "");
+    // Five buttons all called "Copy" tell a screen reader user nothing about
+    // which command each one takes, so each is named after its first line.
+    const label = "Copy " + text.trim().split("\n")[0];
+    btn.setAttribute("aria-label", label);
     btn.addEventListener("click", async () => {
-      // Comments are for reading, not for pasting into a shell.
-      const text = [...code.childNodes].filter((n) => !(n.classList && n.classList.contains("c"))).map((n) => n.textContent).join("").replace(/[ \t]+$/gm, "");
       try {
         await navigator.clipboard.writeText(text);
         btn.textContent = "Copied";
