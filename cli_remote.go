@@ -237,7 +237,7 @@ func remoteEnable(args []string, rio remoteIO) error {
 	if errors.As(err, &already) && f.relay != "" {
 		// Asking for another relay is moving this machine, which is two steps,
 		// and the refusal names both rather than only the first.
-		if want, _ := remote.RelayURL(f.relay); want != "" && want != already.Relay {
+		if want, _ := remote.RelayURL(f.relay); want != "" && !remote.SameRelay(want, already.Relay) {
 			// Leaving a relay that could not be asked, which is most often why
 			// somebody moves, takes -force: plain disable would stop at the same.
 			disable := "flockdeck remote disable"

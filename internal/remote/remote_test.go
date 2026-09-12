@@ -681,6 +681,25 @@ func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	}
 }
 
+// One relay is one relay however it is written, and the hosted one by its old
+// name, which machines enrolled in v0.2.0 keep, is the same as by its new.
+func TestSameRelay(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"https://relay.flockdeck.ai", DefaultRelay, true},
+		{DefaultRelay, "remote.flockdeck.ai", true},
+		{"https://Remote.Flockdeck.AI:443/", DefaultRelay, true},
+		{"https://relay.example", DefaultRelay, false},
+		{"https://relay.flockdeck.ai", "https://relay.example", false},
+	} {
+		if got := SameRelay(tc.a, tc.b); got != tc.same {
+			t.Errorf("SameRelay(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
+		}
+	}
+}
+
 func TestClientCalls(t *testing.T) {
 	f := newFakeRelay(t)
 	ctx := context.Background()

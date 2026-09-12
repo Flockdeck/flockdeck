@@ -34,6 +34,26 @@ import (
 // one.
 const DefaultRelay = "https://remote.flockdeck.ai"
 
+// oldDefaultRelay is DefaultRelay's name in v0.2.0.
+const oldDefaultRelay = "https://relay.flockdeck.ai"
+
+// SameRelay reports whether two relay addresses name the same relay, however
+// each was typed: the hosted relay by either of its names is one relay, and
+// telling somebody enrolled under the old name to move to the new one would
+// have them unpair every device to arrive where they already are.
+func SameRelay(a, b string) bool {
+	canonical := func(s string) string {
+		if c, err := CheckRelay(s); err == nil {
+			s = c
+		}
+		if s == oldDefaultRelay {
+			return DefaultRelay
+		}
+		return s
+	}
+	return canonical(a) == canonical(b)
+}
+
 // RelayEnv overrides DefaultRelay, for somebody running a relay of their own
 // or developing against one.
 const RelayEnv = "FLOCKDECK_RELAY"
