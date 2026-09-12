@@ -3232,7 +3232,10 @@
       ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"]);
     (s.projects || []).forEach((p) => {
       if (p.active) return;
-      cmds.push({ label: "Switch to project: " + p.name, hint: p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
+      // Whether anybody there is waiting on you is what decides where to go
+      // next, and the entry showed only the folder.
+      const waiting = p.waiting ? "▲ " + p.waiting + " waiting · " : "";
+      cmds.push({ label: "Switch to project: " + p.name, hint: waiting + p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
       cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
     });
     (s.tabs || []).forEach((t) => {

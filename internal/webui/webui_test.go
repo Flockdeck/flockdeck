@@ -4147,6 +4147,28 @@ assert.ok(!h.$("hints").hidden && /amber dot/.test(h.$("hints").textContent),
 `)
 }
 
+// Choosing a project from the palette showed only each one's folder, when
+// whether an agent there is waiting on you is what decides where to go next.
+func TestThePaletteSaysWhichProjectsAreWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 2, working: 0 },
+  { root: "C:/docs", name: "docs", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "switch to project";
+input.oninput();
+const rows = h.$("palette-list").children;
+const hint = (name) => rows.find((r) => r.querySelector(".pal-label").textContent === "Switch to project: " + name)
+  .querySelector(".pal-hint").textContent;
+assert.ok(/2 waiting/.test(hint("api")), "the palette does not say agents are waiting in api: " + hint("api"));
+assert.ok(!/waiting/.test(hint("docs")), "a project with nobody waiting says somebody is");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
