@@ -2,9 +2,11 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -177,5 +179,33 @@ func TestConfigWithAByteOrderMarkIsRead(t *testing.T) {
 	}
 	if err := SetDefaults(dir, "", Defaults{Agent: "claude"}); err != nil {
 		t.Errorf("a default could not be saved over it: %v", err)
+	}
+}
+
+// TestConcurrentDefaultsAreAllKept: two saves at once each read the file,
+// changed their own entry and wrote it back, so one of them was lost -- and
+// on Windows a rename over a file the other had open failed outright.
+func TestConcurrentDefaultsAreAllKept(t *testing.T) {
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := range 20 {
+		wg.Go(func() {
+			if err := SetDefaults(dir, fmt.Sprintf("/work/p%d", i), Defaults{Agent: "codex"}); err != nil {
+				errs <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	f, err := ReadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Projects) != 20 {
+		t.Errorf("%d project defaults kept of 20", len(f.Projects))
 	}
 }

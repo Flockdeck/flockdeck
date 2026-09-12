@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -104,6 +105,20 @@ func ConfigPath() (string, error) {
 // ReadConfig reads agents.json from a directory. A file that is not there is
 // not an error -- it is the ordinary case, and means nothing but the built-ins.
 func ReadConfig(dir string) (*File, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return readConfig(dir)
+}
+
+// configMu is held across every read and write of agents.json in this
+// process. Two defaults saved at once each read the file, changed their own
+// entry and wrote it back, so one was lost; and Windows refuses to rename over
+// a file that the other save, or a picker reading the catalog, has open --
+// twenty saves at once lost nineteen and failed eleven with "Access is
+// denied".
+var configMu sync.Mutex
+
+func readConfig(dir string) (*File, error) {
 	data, err := os.ReadFile(filepath.Join(dir, ConfigName))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,6 +144,12 @@ func ReadConfig(dir string) (*File, error) {
 // and would do it at the moment Flockdeck was closing rather than somewhere they
 // could see it happen.
 func WriteConfig(dir string, f *File) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return writeConfig(dir, f)
+}
+
+func writeConfig(dir string, f *File) error {
 	if f.Version == 0 {
 		f.Version = ConfigVersion
 	}
@@ -176,7 +197,9 @@ func WriteConfig(dir string, f *File) error {
 // for that project alone, which is the picker's "set as default for this
 // project".
 func SetDefaults(dir, project string, d Defaults) error {
-	f, err := ReadConfig(dir)
+	configMu.Lock()
+	defer configMu.Unlock()
+	f, err := readConfig(dir)
 	if err != nil {
 		// A file that cannot be read must not be written over: it is the only
 		// copy of whatever agents the user defined, and a defaults change is
@@ -204,5 +227,5 @@ func SetDefaults(dir, project string, d Defaults) error {
 			f.Projects[project] = d
 		}
 	}
-	return WriteConfig(dir, f)
+	return writeConfig(dir, f)
 }
