@@ -108,6 +108,7 @@ func Merge(f *File) *Catalog {
 			merged.Args = orBuiltin(merged.Args, builtin.Args)
 			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
+			problems = append(problems, checkRunner(&merged)...)
 			c.Specs[i] = merged
 			continue
 		}
@@ -116,6 +117,7 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
 			continue
 		}
+		problems = append(problems, checkRunner(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
 		c.Specs = append(c.Specs, fresh)
 	}
@@ -169,6 +171,24 @@ func jsonFields(t reflect.Type) map[string]bool {
 		}
 	}
 	return out
+}
+
+// checkRunner settles a runner written by hand into one of the two there are.
+//
+// Anything else was taken at its word and matched neither: "API" in capitals
+// started a pane whose command line began "--agent", with no program in front
+// of it, which died on the spot with nothing to say why. Case is forgiven; a
+// runner that is neither is named in the notice and decided the way a missing
+// one is.
+func checkRunner(s *Spec) []string {
+	r := Runner(strings.ToLower(strings.TrimSpace(string(s.Runner))))
+	switch r {
+	case RunnerCLI, RunnerAPI, "":
+		s.Runner = r
+		return nil
+	}
+	s.Runner = ""
+	return []string{fmt.Sprintf("agent %q: runner %q is neither \"cli\" nor \"api\"", s.ID, r)}
 }
 
 // orBuiltin is the list an entry set, or the built-in's where it set none.

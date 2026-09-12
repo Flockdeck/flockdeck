@@ -488,3 +488,22 @@ func TestUnknownAgentFieldsAreNamed(t *testing.T) {
 		t.Errorf("the rest of the entry should still apply, got default model %q", claude.DefaultModel)
 	}
 }
+
+// TestRunnerIsSettledIntoOneThereIs: "API" in capitals matched neither runner
+// and started a pane whose command line began "--agent", with no program.
+func TestRunnerIsSettledIntoOneThereIs(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "caps", "runner": "API", "api": {"baseURL": "http://localhost:1/v1"}}`),
+		json.RawMessage(`{"id": "odd", "runner": "shell", "exe": "odd-agent"}`),
+	}})
+	if s, _ := c.Find("caps"); s.Runner != RunnerAPI {
+		t.Errorf("runner = %q, want api", s.Runner)
+	}
+	odd, _ := c.Find("odd")
+	if odd.Runner != RunnerCLI || BuildArgv(odd, false, Tokens{})[0] != "odd-agent" {
+		t.Errorf("an unknown runner should be decided as a missing one is, got %q", odd.Runner)
+	}
+	if !strings.Contains(c.Notice, `runner "shell"`) || strings.Contains(c.Notice, `"caps"`) {
+		t.Errorf("notice = %q, want only the unknown runner named", c.Notice)
+	}
+}
