@@ -3862,6 +3862,22 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p3" }, "goin
 `)
 }
 
+// The tab strip's buttons are tabs, and the pages they show were not marked as
+// the panels they control, so a screen reader heard "tab 2 of 4" and nothing
+// tied it to the panes below.
+func TestATabNamesThePanelItShows(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tabs").children[0];
+const page = h.$("page-t1");
+assert.ok(page, "the tab's page has no id to be controlled by");
+assert.strictEqual(page.getAttribute("role"), "tabpanel", "the tab's page is not a tab panel");
+assert.strictEqual(tab.getAttribute("aria-controls"), "page-t1", "the tab does not say which panel it shows");
+assert.strictEqual(page.getAttribute("aria-labelledby"), tab.id, "the panel is not labelled by its tab");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

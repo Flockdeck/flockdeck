@@ -643,6 +643,12 @@
       if (!page || tabShapes.get(tab.id) !== shape) {
         if (page) page.remove();
         page = el("div", "tab-page");
+        // The panel its tab controls, and labelled by it. The strip said
+        // "tab 2 of 4" to a screen reader, and nothing tied that tab to
+        // the panes it was showing.
+        page.id = "page-" + tab.id;
+        page.setAttribute("role", "tabpanel");
+        page.setAttribute("aria-labelledby", "tab-" + tab.id);
         if (tab.zoom && tab.focus) {
           // A zoomed pane takes the whole tab. The others stay in the pane
           // registry with their terminals and connections intact, simply
@@ -990,6 +996,8 @@
     if (node) return node;
     const btn = el("button", "tab");
     btn.setAttribute("role", "tab");
+    btn.id = "tab-" + id;
+    btn.setAttribute("aria-controls", "page-" + id);
     const label = el("span", "label");
     const close = el("button", "close", "×");
     describe(close, "Close tab");
