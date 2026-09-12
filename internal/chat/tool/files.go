@@ -25,10 +25,6 @@ const (
 	// applied to the one line of a minified file that is larger than the rest
 	// of the project.
 	readMaxLine = 4 << 10
-	// previewRunes bounds how much of a string is quoted back in an approval
-	// question or an error, so that neither can push the rest of the terminal
-	// off the screen.
-	previewRunes = 240
 )
 
 // readFile hands the model the contents of one file, with line numbers,
@@ -200,27 +196,38 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 // excerptLines is how much of a write the question shows.
 const excerptLines = 6
 
-// excerpt is up to excerptLines lines of s from line from on, each on a line of
-// its own and cut to a width a pane shows, with a count of the rest.
+// excerpt is up to excerptLines lines of s from line from on.
 func excerpt(s string, from int) string {
-	lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
+	lines := textLines(s)
 	if from < 1 || from > len(lines) {
 		return ""
 	}
+	return marked(lines[from-1:], "│")
+}
+
+// textLines splits s into lines without inventing an empty last one for the
+// newline that ends it.
+func textLines(s string) []string {
+	return strings.Split(strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
+}
+
+// marked draws up to excerptLines of lines, each on a line of its own behind
+// mark and cut to a width a pane shows, with a count of the rest.
+func marked(lines []string, mark string) string {
 	var b strings.Builder
-	shown := lines[from-1:]
+	shown := lines
 	if len(shown) > excerptLines {
 		shown = shown[:excerptLines]
 	}
 	for _, l := range shown {
-		r := []rune(strings.TrimRight(l, "\r"))
+		r := []rune(l)
 		if len(r) > 100 {
 			r = append(r[:100], '…')
 		}
-		fmt.Fprintf(&b, "  │ %s\n", string(r))
+		fmt.Fprintf(&b, "  %s %s\n", mark, string(r))
 	}
-	if rest := len(lines) - (from - 1) - len(shown); rest > 0 {
-		fmt.Fprintf(&b, "  │ … %d more %s", rest, plural(rest, "line", "lines"))
+	if rest := len(lines) - len(shown); rest > 0 {
+		fmt.Fprintf(&b, "  %s … %d more %s", mark, rest, plural(rest, "line", "lines"))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -375,8 +382,15 @@ func (t *editFile) Approval(args json.RawMessage) string {
 	if count != 1 {
 		where = fmt.Sprintf("%d occurrences", count)
 	}
-	return fmt.Sprintf("Edit %s, replacing %s?\n- %s\n+ %s",
-		t.root.Rel(abs), where, preview(a.OldString), preview(a.NewString))
+	// The two texts are shown as the lines they are, marked the way a diff
+	// marks them: joined into one line, an edit of more than one line could
+	// not be read closely enough to agree to.
+	added := marked(textLines(a.NewString), "+")
+	if a.NewString == "" {
+		added = "  + (nothing: the text is removed)"
+	}
+	return fmt.Sprintf("Edit %s, replacing %s?\n%s\n%s",
+		t.root.Rel(abs), where, marked(textLines(a.OldString), "-"), added)
 }
 
 func (t *editFile) Run(_ context.Context, args json.RawMessage) (string, error) {
@@ -454,20 +468,6 @@ func countLines(s string) int {
 		return 0
 	}
 	return strings.Count(strings.TrimSuffix(s, "\n"), "\n") + 1
-}
-
-// preview is a short, single-line rendering of a string for a question or an
-// error. A newline becomes a marker rather than wrapping, so that an approval
-// question stays one glance long however much text the edit moves.
-func preview(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\n", " / ")
-	s = strings.TrimSpace(s)
-	r := []rune(s)
-	if len(r) > previewRunes {
-		return string(r[:previewRunes]) + "..."
-	}
-	return s
 }
 
 // humanBytes is a size as it should be read aloud, not as it is stored.
