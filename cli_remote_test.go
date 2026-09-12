@@ -138,6 +138,11 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, f.URL+"/pair#fdp_code") || !strings.Contains(out, "█") {
 		t.Errorf("pair = %q, %v; want the link and a QR code", out, err)
 	}
+	// A light terminal draws the code inverted, so it says where one that
+	// scans can be had.
+	if !strings.Contains(out, "Remote access… in the window shows it dark on white") {
+		t.Errorf("pair does not say where a code that scans can be had: %q", out)
+	}
 	// It is read in a terminal, which is often 80 columns wide.
 	for _, l := range strings.Split(out, "\n") {
 		if n := len([]rune(l)); n > 80 {

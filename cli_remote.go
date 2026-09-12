@@ -236,6 +236,10 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	fmt.Fprintf(rio.out, "Scan the code, or open this link on the device you want to pair:\n\n  %s\n\n", p.URL)
 	fmt.Fprintf(rio.out, "It works once, %s.\n", until)
 	fmt.Fprintf(rio.out, "Whoever opens it can drive every agent here, so treat it like a password\nuntil then.\n")
+	// The code is drawn in the terminal's own colours, which on a light
+	// background comes out inverted, and a phone's camera is not reliably
+	// able to read that. The window draws it dark on white whatever the theme.
+	fmt.Fprintf(rio.out, "If the code will not scan, Remote access… in the window shows it dark on white.\n")
 	return nil
 }
 
