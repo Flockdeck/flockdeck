@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // geminiWire speaks streamGenerateContent.
@@ -99,7 +100,12 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	}
 	// alt=sse asks for the answer as an event stream; without it the same
 	// endpoint streams a JSON array, which cannot be read a piece at a time.
-	path := "/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?alt=sse"
+	//
+	// Gemini's own list of models names each one "models/gemini-...", and a
+	// name copied from it as it stands would be escaped into a single path
+	// segment and answered with a 404.
+	model := strings.TrimPrefix(req.Model, "models/")
+	path := "/models/" + url.PathEscape(model) + ":streamGenerateContent?alt=sse"
 	rc, err := post(ctx, endpoint(w.base, "https://generativelanguage.googleapis.com", "v1beta", path), h, body)
 	if err != nil {
 		return err
