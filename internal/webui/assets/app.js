@@ -3189,14 +3189,20 @@
       row.append(main);
 
       if (!c.open) {
-        const open = el("button", "chip primary", "Resume");
-        open.onclick = (ev) => {
-          ev.stopPropagation();
+        const resume = () => {
           send({ cmd: "resumeConversation", id: c.id, path: m.cwd, text: c.summary });
           closeOverlay();
         };
+        const open = el("button", "chip primary", "Resume");
+        open.onclick = (ev) => { ev.stopPropagation(); resume(); };
+        // The row is what the keyboard walks - the arrows move through the
+        // conversations and Enter resumes one, as in the other lists - so the
+        // button is there for the pointer and is not a stop of its own. The
+        // rows answered no key at all, and a long history was a button to
+        // tab to for every conversation in it.
+        open.tabIndex = -1;
         row.append(open);
-        row.onclick = () => open.onclick(new Event("click"));
+        rowAction(row, resume);
       }
       wrap.append(row);
     });

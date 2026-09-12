@@ -3610,6 +3610,33 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
 `)
 }
 
+// The conversations list answered no key: each row had a Resume button to tab
+// to, and the arrows did nothing. It is walked like the other lists now, and
+// Enter on a row resumes that conversation.
+func TestTheConversationsListIsWalkedFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("history");
+h.recv({ type: "conversations", cwd: "C:/repo", items: [
+  { id: "aaaaaaaa-1", summary: "fix the parser", ago: "1h", messages: 20 },
+  { id: "bbbbbbbb-2", summary: "write the docs", ago: "2h", messages: 12 },
+  { id: "cccccccc-3", summary: "already open", ago: "3h", messages: 5, open: true },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.conv-row");
+assert.strictEqual(rows[0].getAttribute("role"), "button", "a conversation row cannot be reached from the keyboard");
+rows[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next conversation");
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[1], "Down walked onto a conversation that is already open");
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "resumeConversation", id: "bbbbbbbb-2", path: "C:/repo", text: "write the docs" });
+assert.ok(h.$("overlay").hidden);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
