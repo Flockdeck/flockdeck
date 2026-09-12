@@ -1467,3 +1467,27 @@ func TestRenamedThenDeletedIsListedAsTheFileThatGoes(t *testing.T) {
 		t.Errorf("diff = %q, %v; want the deletion", diff, err)
 	}
 }
+
+// TestPushOfABranchTrackingALocalOneSaysSo: git's way out for a branch that
+// tracks a local branch was "git push . HEAD:main", into the repository
+// itself, cut off in the toast besides.
+func TestPushOfABranchTrackingALocalOneSaysSo(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "push.default", "simple")
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature", "--track", "main")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+
+	_, err := Push(repo)
+	if err == nil || !strings.Contains(err.Error(), "tracks the local branch main") ||
+		!strings.Contains(err.Error(), "git push -u origin feature") || strings.Contains(err.Error(), "git push .") {
+		t.Errorf("err = %v, want it to say the upstream is local and give the way out", err)
+	}
+}

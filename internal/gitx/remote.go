@@ -48,9 +48,20 @@ func Push(dir string) (string, error) {
 	// was cut off before the line saying what to do. Asked only once git has
 	// refused, so a setting that pushes to the upstream anyway is left alone.
 	if err != nil && upstream != "" {
-		if r, name := splitUpstream(dir, upstream); name != "" && name != branch {
+		r, name := splitUpstream(dir, upstream)
+		if name != "" && name != branch {
 			return "", &gitError{fmt.Sprintf("%s tracks %s, a branch of another name, so git will not push to it here. "+
 				"Give it one of its own by pushing once from a terminal: git push -u %s %s", branch, upstream, r, branch)}
+		}
+		// An upstream with no remote in front of it is a branch of this
+		// repository -- `git checkout -b feature --track main` makes one --
+		// and git's way out, "git push . HEAD:main", pushes into the local
+		// repository rather than anywhere else.
+		if name == "" {
+			if remote, perr := pushRemote(dir, branch); perr == nil {
+				return "", &gitError{fmt.Sprintf("%s tracks the local branch %s, not anything on a remote, so there is nowhere to push it. "+
+					"Give it an upstream of its own by pushing once from a terminal: git push -u %s %s", branch, upstream, remote, branch)}
+			}
 		}
 	}
 	return out, err
