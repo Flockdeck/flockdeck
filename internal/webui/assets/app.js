@@ -269,7 +269,16 @@
           return bar && bar.querySelector("button");
         });
       }
-      else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
+      else if (msg.type === "recents") {
+        recents = msg.items || [];
+        // A forgotten project's row is gone with the keyboard on it: the ×
+        // of the row now in its place, or the folder field when none is.
+        const inPlace = (body) => {
+          const xs = body.querySelectorAll("button.proj-forget");
+          return xs[Math.min(Math.max(forgotAt, 0), xs.length - 1)] || body.querySelector("input");
+        };
+        if (dialog === "projects") keepFocus(renderProjects, inPlace);
+      }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
@@ -2461,6 +2470,10 @@
     if (dialog === "projects") keepFocus(renderProjects);
   }
 
+  /** Which recent project's × was last pressed, by its place in the list,
+   *  so the keyboard can go to whichever row takes that place. */
+  let forgotAt = -1;
+
   function openProjects() {
     dialog = "projects";
     browseDraft = null;
@@ -2567,9 +2580,9 @@
         } else {
           row.append(main);
         }
-        const forget = el("button", "icon-btn", "\u00d7");
+        const forget = el("button", "icon-btn proj-forget", "\u00d7");
         describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = () => send({ cmd: "forgetRecent", root: r.root });
+        forget.onclick = () => { forgotAt = i; send({ cmd: "forgetRecent", root: r.root }); };
         row.append(forget);
         rec.append(row);
       });

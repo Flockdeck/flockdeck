@@ -4522,6 +4522,32 @@ assert.ok(on && on.textContent === "Later", "the keyboard starts on " + (on && o
 `)
 }
 
+// Forgetting a recent project took away the row the keyboard was on, and the
+// redraw had nowhere to put it: it fell out of the dialog, so clearing out a
+// second old project meant tabbing all the way back to the list.
+func TestForgettingARecentProjectKeepsTheKeyboardInTheList(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("projects");
+const recent = (names) => ({ type: "recents", items: names.map((n) =>
+  ({ root: "C:/old/" + n, name: n, exists: true, open: false })) });
+h.recv(recent(["alpha", "beta", "gamma"]));
+const forgets = () => h.$("overlay-body").querySelectorAll("button.proj-forget");
+assert.strictEqual(forgets().length, 3, "each recent project has its ×");
+forgets()[1].focus();
+h.click(forgets()[1]);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "forgetRecent", root: "C:/old/beta" });
+h.recv(recent(["alpha", "gamma"]));
+assert.ok(h.doc.activeElement === forgets()[1], "the keyboard did not go to the project that took the forgotten one's place");
+
+// The last one gone, the keyboard goes to the next row up.
+h.click(forgets()[1]);
+h.recv(recent(["alpha"]));
+assert.ok(h.doc.activeElement === forgets()[0], "forgetting the last project lost the keyboard");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
