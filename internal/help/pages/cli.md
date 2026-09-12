@@ -128,6 +128,9 @@ subcommand still works; it is the background check that goes.
 `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane —
 which has no lifecycle hooks of its own — has to go on.
 
-These were called `PERCH_*` before the program was renamed. Panes still
-carry both spellings and `spawn` still reads both, so a prompt or a script
-written against the old names keeps working; they will go in a later release.
+`FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
+`FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
+still carry both spellings of those five and `spawn` still reads both, so a
+prompt or a script written against the old names keeps working; they will go
+in a later release. `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` are newer and have
+only the one name.
