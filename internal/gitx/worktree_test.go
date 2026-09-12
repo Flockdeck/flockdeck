@@ -702,3 +702,25 @@ func TestAGoneUpstreamIsNoUpstream(t *testing.T) {
 		t.Errorf("UpstreamOf = %q, want none, agreeing with the status", got)
 	}
 }
+
+// TestABranchHeldByADeletedWorktreeSaysToPrune: git said only that the branch
+// was "already used by worktree at" a directory that was not there, after a
+// line of its own progress, and nothing about how to get past it.
+func TestABranchHeldByADeletedWorktreeSaysToPrune(t *testing.T) {
+	repo := newRepo(t)
+	gone := filepath.Join(t.TempDir(), "gone")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "feature", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "feature", "")
+	if err == nil || !strings.Contains(err.Error(), "Prune") || strings.Contains(err.Error(), "Preparing") {
+		t.Errorf("err = %v, want it to say Prune clears the stale record", err)
+	}
+	if _, err := Prune(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "feature", ""); err != nil {
+		t.Errorf("after pruning, the branch should check out again: %v", err)
+	}
+}

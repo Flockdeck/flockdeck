@@ -383,6 +383,20 @@ func AddFrom(repoDir, path, branch, base string) error {
 		}
 	}
 	_, err := run(repoDir, args...)
+	if err != nil && branch != "" {
+		// A branch still recorded as checked out in a worktree whose directory
+		// has gone cannot be checked out again until that record is cleared,
+		// and git says only that it is "already used by worktree at" a path
+		// that is not there -- after a line of its own progress.
+		if wts, lerr := List(repoDir); lerr == nil {
+			for _, wt := range wts {
+				if wt.Prunable && wt.Branch == branch {
+					return &gitError{fmt.Sprintf("%s is still recorded as checked out in %s, which no longer exists; "+
+						"Prune in the Worktrees panel clears that record, and then it can be created again", branch, wt.Path)}
+				}
+			}
+		}
+	}
 	return err
 }
 
