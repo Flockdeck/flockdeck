@@ -672,6 +672,12 @@ func Sweep(exePath string) {
 	if exePath == "" {
 		return
 	}
+	// Apply moves aside the file a link leads to, not the link, so that is
+	// where its .old is. Started through a link -- which macOS reports as the
+	// link -- this looked beside the link, and the old program stayed on disk.
+	if p, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = p
+	}
 	sweepAside(exePath)
 	if chatName == "" {
 		return

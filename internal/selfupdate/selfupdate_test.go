@@ -310,6 +310,37 @@ func TestStageClearsWhatAnInterruptedDownloadLeft(t *testing.T) {
 	}
 }
 
+// Apply moves aside the file a link leads to, and the sweep looked beside the
+// link: started through one, as macOS reports a program, the old program was
+// never cleared away.
+func TestSweepFindsWhatApplyMovedAsideThroughALink(t *testing.T) {
+	dir := t.TempDir()
+	realDir, linkDir := filepath.Join(dir, "real"), filepath.Join(dir, "bin")
+	for _, d := range []string{realDir, linkDir} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	program := filepath.Join(realDir, binaryName)
+	if err := os.WriteFile(program, []byte("the program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, binaryName)
+	if err := os.Symlink(program, link); err != nil {
+		t.Skipf("links cannot be made here: %v", err)
+	}
+	if err := os.WriteFile(program+".old", []byte("the old program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Sweep(link)
+	if _, err := os.Stat(program + ".old"); err == nil {
+		t.Error("the program an update moved aside is still there, beside the file the link leads to")
+	}
+	if _, err := os.Stat(program); err != nil {
+		t.Errorf("the program itself went: %v", err)
+	}
+}
+
 func TestStageRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
 	name, archive := buildArchive(t, "the new program")
 	// A hash of something else entirely: what a corrupted or swapped download
