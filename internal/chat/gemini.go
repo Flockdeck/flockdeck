@@ -214,8 +214,11 @@ func geminiStopped(finish, blocked string) error {
 		return errors.New("the answer reached the model's limit on its length and was cut off there")
 	case finish == "MALFORMED_FUNCTION_CALL":
 		return errors.New("the model wrote a tool call that could not be read")
-	case finish == "SAFETY", finish == "RECITATION", finish == "BLOCKLIST",
-		finish == "PROHIBITED_CONTENT", finish == "SPII":
+	case finish != "STOP":
+		// SAFETY, RECITATION and the rest, and any reason added since: STOP is
+		// the one that means the answer is done, and an answer that ended for
+		// any other reason read as done is half a reply, or none, shown as the
+		// whole of one.
 		return fmt.Errorf("Gemini stopped the answer (%s)", finish)
 	}
 	return nil
