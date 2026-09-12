@@ -29,7 +29,12 @@ it is being shown.
 
 The picker offers the projects you have opened before, and a directory browser
 that flags git repositories, so a project is two clicks away. You can also type
-or paste a path.
+or paste a path: <kbd>Enter</kbd> browses to it, and **Open this folder** opens
+whichever folder the browser is showing.
+
+The eight most recent projects are listed, and the `×` beside one takes it off
+the list. Once more than one project is open, each open one has a `×` of its
+own that closes it.
 
 The browser is served by the Go side rather than by the page, because a web
 page cannot be handed a real directory path.
