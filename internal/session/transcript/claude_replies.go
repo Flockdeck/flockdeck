@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"os"
@@ -46,33 +47,13 @@ func claudeReplies(sessionID string, maxTurns int) []string {
 	if path == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	sc, f, err := tailLines(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
-	// Reading only the tail lands mid-line, so the first line read back is a
-	// fragment and is dropped rather than parsed.
-	partial := false
-	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
-		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
-			partial = true
-		}
-	}
-
-	sc := newTranscriptScanner(f)
-	if partial {
-		sc.Scan()
-	}
-
-	var turns, said []string
-	endTurn := func() {
-		if len(said) > 0 {
-			turns = append(turns, strings.Join(said, "\n\n"))
-			said = nil
-		}
-	}
+	var t turns
 	for sc.Scan() {
 		var line replyLine
 		if json.Unmarshal(sc.Bytes(), &line) != nil {
@@ -85,22 +66,69 @@ func claudeReplies(sessionID string, maxTurns int) []string {
 		}
 		switch line.Type {
 		case "assistant":
-			if text := saidText(line.Message.Content); text != "" {
-				said = append(said, text)
-			}
+			t.say(saidText(line.Message.Content))
 		case "user":
 			// Tool results are recorded as user entries too, so only something
 			// a person typed ends the turn it answers.
 			if isPromptContent(line.Message.Content) {
-				endTurn()
+				t.end()
 			}
 		}
 	}
-	endTurn()
+	return t.newest(maxTurns)
+}
 
-	out := make([]string, 0, maxTurns)
-	for i := len(turns) - 1; i >= 0 && len(out) < maxTurns; i-- {
-		out = append(out, turns[i])
+// tailLines opens a transcript and returns a scanner over its last
+// replyTailBytes, which is where what an agent last said is. Reading only the
+// tail lands mid-line, so the first line read back is a fragment and is
+// dropped rather than parsed. The caller closes the file.
+func tailLines(path string) (*bufio.Scanner, *os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	partial := false
+	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
+		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
+			partial = true
+		}
+	}
+	sc := newTranscriptScanner(f)
+	if partial {
+		sc.Scan()
+	}
+	return sc, f, nil
+}
+
+// turns gathers what an agent said into turns. A turn is everything said in
+// answer to one prompt, so the tool calls in the middle of a long piece of
+// work do not cut it into pieces: a fan-out reads a plan out of this, and half
+// a plan is not one.
+type turns struct {
+	all, said []string
+}
+
+// say adds to the turn under way.
+func (t *turns) say(text string) {
+	if text != "" {
+		t.said = append(t.said, text)
+	}
+}
+
+// end closes the turn under way, if anything was said in it.
+func (t *turns) end() {
+	if len(t.said) > 0 {
+		t.all = append(t.all, strings.Join(t.said, "\n\n"))
+		t.said = nil
+	}
+}
+
+// newest returns at most n turns, most recent first.
+func (t *turns) newest(n int) []string {
+	t.end()
+	var out []string
+	for i := len(t.all) - 1; i >= 0 && len(out) < n; i-- {
+		out = append(out, t.all[i])
 	}
 	return out
 }

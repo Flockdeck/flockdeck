@@ -3,7 +3,6 @@ package transcript
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,12 +49,8 @@ func (Chat) Path(_ agent.Spec, sessionID string) string {
 	return path
 }
 
-// Replies returns what the model said in its last few turns, newest first.
-//
-// A turn is everything said in answer to one prompt, so the tool calls in the
-// middle of a long piece of work do not cut it into pieces -- which is the
-// same rule the Claude reader follows, and for the same reason: a fan-out
-// reads a plan out of this, and half a plan is not one.
+// Replies returns what the model said in its last few turns, newest first,
+// turn by turn the way the Claude reader counts them.
 func (c Chat) Replies(spec agent.Spec, sessionID string, n int) []string {
 	if n <= 0 {
 		return nil
@@ -64,33 +59,13 @@ func (c Chat) Replies(spec agent.Spec, sessionID string, n int) []string {
 	if path == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	sc, f, err := tailLines(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
-	// Reading only the tail lands mid-line, so the first line read back is a
-	// fragment and is dropped rather than parsed.
-	partial := false
-	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
-		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
-			partial = true
-		}
-	}
-
-	sc := newTranscriptScanner(f)
-	if partial {
-		sc.Scan()
-	}
-
-	var turns, said []string
-	endTurn := func() {
-		if len(said) > 0 {
-			turns = append(turns, strings.Join(said, "\n\n"))
-			said = nil
-		}
-	}
+	var t turns
 	for sc.Scan() {
 		var line chatLine
 		if json.Unmarshal(sc.Bytes(), &line) != nil {
@@ -98,23 +73,12 @@ func (c Chat) Replies(spec agent.Spec, sessionID string, n int) []string {
 		}
 		switch line.Type {
 		case "assistant":
-			if text := strings.TrimSpace(line.Text); text != "" {
-				said = append(said, text)
-			}
+			t.say(strings.TrimSpace(line.Text))
 		case "user":
-			endTurn()
+			t.end()
 		}
 	}
-	endTurn()
-
-	out := make([]string, 0, n)
-	for i := len(turns) - 1; i >= 0 && len(out) < n; i-- {
-		out = append(out, turns[i])
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return t.newest(n)
 }
 
 // Conversations lists the chats that ran in a working directory, most recently
