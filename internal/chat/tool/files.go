@@ -75,6 +75,9 @@ func (t *readFile) Run(_ context.Context, args json.RawMessage) (string, error) 
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory; use list_dir", t.root.Rel(abs))
 	}
+	if err := regularFile(t.root, abs, info); err != nil {
+		return "", err
+	}
 	f, err := os.Open(abs)
 	if err != nil {
 		return "", t.root.explain(err)
@@ -185,7 +188,7 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 	rel := t.root.Rel(abs)
 	newSize := humanBytes(int64(len(a.Content)))
 	info, err := os.Stat(abs)
-	if err == nil && info.IsDir() {
+	if err == nil && (info.IsDir() || regularFile(t.root, abs, info) != nil) {
 		// Run refuses it, and a question the answer to which makes no
 		// difference only teaches the user to stop reading them.
 		return ""
@@ -248,6 +251,10 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	}
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", t.root.Rel(abs))
+	} else if err == nil {
+		if err := regularFile(t.root, abs, info); err != nil {
+			return "", err
+		}
 	}
 	// read_file shows a file without its carriage returns, so a file with
 	// Windows line endings is rewritten with bare newlines, and every one of
@@ -328,6 +335,11 @@ func (t *editFile) plan(a editArgs) (abs, updated string, count int, err error) 
 	}
 	if a.OldString == a.NewString {
 		return "", "", 0, fmt.Errorf("old_string and new_string are identical, so the edit would change nothing")
+	}
+	if info, err := os.Stat(abs); err == nil {
+		if err := regularFile(t.root, abs, info); err != nil {
+			return "", "", 0, err
+		}
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
