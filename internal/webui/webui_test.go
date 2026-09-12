@@ -2958,6 +2958,23 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", tex
 `)
 }
 
+// A pane told the server it had the focus only when it was clicked. Tabbed
+// into from its header buttons, its terminal took the typing while the server
+// went on treating the last pane clicked as focused - the one Close pane would
+// close.
+func TestThePaneTheKeyboardIsInIsTheFocusedOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+const term = h.doc.createElement("textarea");
+term.className = "xterm-helper-textarea";
+h.terms[1].host.append(term);
+h.dispatch(term, new h.Ev("focusin", { target: term }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p2" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

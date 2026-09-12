@@ -1376,9 +1376,15 @@
     wrap.append(header, body, dropZone);
     makePaneDraggable(id, wrap, header, dropZone);
 
-    wrap.addEventListener("mousedown", () => {
+    const claimFocus = () => {
       if (state && currentTab() && currentTab().focus !== id) send({ cmd: "focusPane", id });
-    });
+    };
+    wrap.addEventListener("mousedown", claimFocus);
+    // The keyboard arriving counts as much as the pointer. Tabbed into from
+    // its own header buttons, a terminal took the typing while the server
+    // went on treating the last pane clicked as the focused one: that one
+    // kept the highlighted border, and it was the one Close pane closed.
+    wrap.addEventListener("focusin", claimFocus);
 
     const term = new Terminal({
       allowProposedApi: true,
