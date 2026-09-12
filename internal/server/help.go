@@ -25,12 +25,33 @@ type helloMsg struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	data, err := json.Marshal(helloMsg{Type: "hello", Keys: help.Keys, Prefs: s.prefs})
+	keys := help.Keys
+	if c.remote {
+		keys = remoteKeys
+	}
+	data, err := json.Marshal(helloMsg{Type: "hello", Keys: keys, Prefs: s.prefs})
 	if err != nil {
 		return
 	}
 	c.send(data)
 }
+
+// remoteKeys is the key table without what a window reached through the relay
+// cannot do. Detach and Quit are the desk's to choose -- a phone's window
+// closing never stopped anything, and nothing on the phone could start the
+// agents again -- and the server refuses both from there. Offered anyway, Quit
+// asked whether to stop every agent only for the answer to be no.
+var remoteKeys = func() []help.Key {
+	out := make([]help.Key, 0, len(help.Keys))
+	for _, k := range help.Keys {
+		switch k.ID {
+		case "detach", "quit":
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}()
 
 // prefsMsg tells every window that the preferences changed, so a second window
 // does not go on offering a hint that was dismissed in the first.
