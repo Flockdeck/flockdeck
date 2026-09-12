@@ -522,6 +522,22 @@ func TestRemoteUnknownCommandSuggests(t *testing.T) {
 	}
 }
 
+// A relay closed to new accounts still takes a machine into an account it
+// has, and the refusal says how.
+func TestRemoteEnableOnAClosedRelay(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"this relay is not accepting new accounts"}`)
+	}))
+	defer srv.Close()
+	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk")
+	if want := "; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here"; err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("enable on a closed relay = %v, want it to end %q", err, want)
+	}
+}
+
 // A device the relay does not know is refused in its words, and the refusal
 // says where the ones it does know are listed.
 func TestRemoteRevokeAnUnknownDevice(t *testing.T) {

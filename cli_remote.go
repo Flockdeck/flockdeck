@@ -325,6 +325,11 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// one. They are matched rather than its 403, which a relay closed to
 		// new accounts also answers, and for which an invite does not help.
 		return fmt.Errorf("%v; pass it with -invite CODE", err)
+	case err != nil && strings.Contains(err.Error(), "not accepting new accounts"):
+		// A relay closed to new accounts still takes machines into the ones
+		// it has, which is the way in that is left. Its words are matched for
+		// the reason the invite's are.
+		return fmt.Errorf("%v; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here", err)
 	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusConflict:
 		// An account with all the machines it may have. The relay says to
 		// unregister one, which is not a word this command line uses.
