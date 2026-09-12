@@ -1651,12 +1651,19 @@ func (w *Workspace) BroadcastTargets() []*Pane {
 }
 
 // SendPrompt types text into every broadcast target and submits it.
+//
+// Each pane is written to on a goroutine of its own. This runs on the
+// goroutine that owns the workspace, and a terminal whose program has stopped
+// reading its input fills after a few kilobytes on Linux and macOS, after
+// which a write into it blocks until the program reads again — which, done
+// here, held up the whole window for as long as one pane went on not reading.
 func (w *Workspace) SendPrompt(text string, submit bool) {
 	for _, p := range w.BroadcastTargets() {
-		_ = p.Sess.WriteString(text)
-		if submit {
-			_ = p.Sess.WriteString("\r")
-		}
+		go func(s *session.Session) {
+			if err := s.WriteString(text); err == nil && submit {
+				_ = s.WriteString("\r")
+			}
+		}(p.Sess)
 	}
 }
 
