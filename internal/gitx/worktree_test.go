@@ -153,8 +153,10 @@ func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
 	if got := CurrentBranch(empty); got != "main" {
 		t.Errorf("branch of an empty repository = %q, want main", got)
 	}
-	if got := DefaultBase(empty); got != "main" {
-		t.Errorf("default base = %q, want main", got)
+	// It is not a base, though: "main" names no commit yet, and a worktree
+	// asked to start from it fails, where one given no base starts empty.
+	if got := DefaultBase(empty); got != "" {
+		t.Errorf("default base = %q, want none", got)
 	}
 
 	// A detached checkout has no branch at all.
@@ -650,5 +652,27 @@ func TestRemoveOfALockedWorktreeSaysHowToUnlockIt(t *testing.T) {
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Errorf("a locked worktree should be left where it is: %v", err)
+	}
+}
+
+// TestDefaultBaseOfAFreshRepositoryIsEmpty: the panel pre-fills the base with
+// this, and "main" before anything is committed to it names no commit, so
+// every new worktree in a fresh repository failed.
+func TestDefaultBaseOfAFreshRepositoryIsEmpty(t *testing.T) {
+	if !Available() {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q", "--initial-branch=main")
+	base := DefaultBase(repo)
+	if base != "" {
+		t.Errorf("default base = %q before the first commit, want none", base)
+	}
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "topic", base)
+	if err != nil && strings.Contains(err.Error(), "invalid reference") {
+		t.Errorf("a worktree from the offered base failed: %v", err)
+	}
+	if got := DefaultBase(newRepo(t)); got != "main" {
+		t.Errorf("default base = %q in a repository with a commit, want its branch", got)
 	}
 }

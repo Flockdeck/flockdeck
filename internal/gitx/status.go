@@ -265,8 +265,16 @@ func AddFrom(repoDir, path, branch, base string) error {
 // nobody means, and one that will not exist as anything once the rebase
 // finishes. The branch being rebased still points at where it was before the
 // rebase started, which is a real place to branch from.
+//
+// A branch nobody has committed to yet is not one either: it names no commit,
+// and the panel's pre-filled base made every new worktree in a fresh
+// repository fail with "invalid reference: main". Offering nothing leaves git
+// to start the new branch empty, as it does when no base is given.
 func DefaultBase(repoDir string) string {
 	if b := CurrentBranch(repoDir); b != "" {
+		if !branchExists(repoDir, b) {
+			return ""
+		}
 		return b
 	}
 	if b := rebasingBranch(repoDir); b != "" {
