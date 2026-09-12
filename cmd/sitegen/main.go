@@ -83,10 +83,11 @@ func run(out, repo, module, url string) error {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
 
-	// The template appends "/install.sh" and the like to both addresses, so a
-	// slash given at the end of one would print a doubled one into every
-	// install line.
-	s := site{Repo: strings.TrimRight(repo, "/"), Module: module, URL: strings.TrimRight(url, "/")}
+	// The template appends "/install.sh" and the like to both addresses, and
+	// "@latest" to the module path, so a slash given at the end of any of them
+	// would print a doubled one into an install line, or a go install line go
+	// does not accept.
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/")}
 
 	page, err := render(s)
 	if err != nil {

@@ -94,7 +94,7 @@ func TestTextFilesUseLF(t *testing.T) {
 // lines a visitor pastes into a terminal.
 func TestTrailingSlashIsNotDoubled(t *testing.T) {
 	dir := t.TempDir()
-	if err := run(dir, defaultRepo+"/", defaultModule, defaultURL+"/"); err != nil {
+	if err := run(dir, defaultRepo+"/", defaultModule+"/", defaultURL+"/"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "index.html"))
@@ -105,6 +105,10 @@ func TestTrailingSlashIsNotDoubled(t *testing.T) {
 		if strings.Contains(string(b), base+"//") {
 			t.Errorf("the page writes %s// into an address", base)
 		}
+	}
+	// `go install path/@latest` is not a command go accepts.
+	if strings.Contains(string(b), defaultModule+"/@latest") {
+		t.Errorf("the page writes %s/@latest into the go install line", defaultModule)
 	}
 }
 
