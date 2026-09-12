@@ -521,7 +521,14 @@ func (s *session) sayWhyItStopped(err error) {
 		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
 	case modelUnknown(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
-		s.out.line(ansiDim, "(the endpoint has no model called "+firstNonEmpty(s.model, "that")+"; /model shows the ones to choose from)")
+		if names := s.localModels(); len(names) > 0 {
+			// The names are what somebody reading this needs next, and a
+			// server on this machine can say them at once.
+			s.out.line(ansiDim, "(the endpoint has no model called "+firstNonEmpty(s.model, "that")+"; it has "+
+				strings.Join(names, ", ")+" -- /model <part of a name> switches)")
+		} else {
+			s.out.line(ansiDim, "(the endpoint has no model called "+firstNonEmpty(s.model, "that")+"; /model shows the ones to choose from)")
+		}
 	case forbidden(err):
 		s.out.line(ansiRed, "the API would not do this with this key: "+err.Error())
 		s.out.line(ansiDim, "(the key was accepted, but the account behind it may not have this model; /model switches to another)")

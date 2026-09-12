@@ -273,6 +273,35 @@ func (s *session) pickOnlyModel(ctx context.Context) {
 	s.out.line(ansiDim, "no model is named for this agent; /model shows the ones to choose from")
 }
 
+// localModels are the models a server on this machine offers, where there are
+// few enough to name in a line -- listed now if they have not been -- and nil
+// for any other endpoint, which a failure is no reason to send a request to.
+func (s *session) localModels() []string {
+	lister, ok := s.wire.(modelLister)
+	if !ok || !isLoopback(s.opts.BaseURL) {
+		return nil
+	}
+	if len(s.listed) == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		ids, err := lister.ListModels(ctx)
+		if err != nil {
+			return nil
+		}
+		for _, id := range ids {
+			s.listed = append(s.listed, ModelChoice{ID: id})
+		}
+	}
+	if len(s.listed) > 8 {
+		return nil
+	}
+	var names []string
+	for _, m := range s.listed {
+		names = append(names, m.ID)
+	}
+	return names
+}
+
 // listModels asks the endpoint which models it offers, for a moment, and keeps
 // the answer for /model to choose from.
 func (s *session) listModels(ctx context.Context) {
