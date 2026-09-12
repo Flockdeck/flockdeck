@@ -470,13 +470,20 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 			continue
 		}
 		if question := tool.Approval(c.Args); question != "" && !s.approved(tool, c) {
-			ok, asked := s.ask(ctx, tool, c, question)
+			ok, asked, instead := s.ask(ctx, tool, c, question)
 			if !asked {
 				// The user never answered: the turn was interrupted, or the
 				// pane has gone.
 				s.answer(c, "the user did not answer, so this was not run")
 				s.decline(calls[i+1:], "not run: the user did not answer an earlier question")
 				return true
+			}
+			if !ok && instead != "" {
+				// What the user said instead is the next thing the model has
+				// to hear, and the calls it planned before hearing it are moot.
+				s.answer(c, "the user declined this, and said: "+instead)
+				s.decline(calls[i+1:], "not run: the user asked for something else first")
+				return false
 			}
 			if !ok {
 				s.answer(c, "the user declined this")
@@ -535,12 +542,18 @@ func (s *session) approved(t Tool, c ToolCall) bool {
 	return false
 }
 
-// ask puts a tool's question to the user.
+// ask puts a tool's question to the user, and returns whether they agreed,
+// whether they answered at all, and anything they said instead of agreeing.
 //
 // The question is also a Notification event, which is what turns the pane amber
 // and tells the user which pane is waiting for them -- the whole reason for
 // running agents side by side rather than one at a time.
-func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) (ok, asked bool) {
+//
+// It is answered in one line and never asked twice. Anything but a yes is a
+// no, which is the safe way to misread somebody, and a reply that is not one
+// of the letters is taken as what they would rather the model did: the one
+// thing a person saying no usually has to add.
+func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) (ok, asked bool, instead string) {
 	s.reporter.notification(t.Name())
 	always, canAlways := "", false
 	if a, is := t.(AlwaysApprover); is {
@@ -551,31 +564,32 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 	s.out.blankLine()
 	s.out.line(ansiBold, question)
 	if canAlways {
-		s.out.line(ansiDim, "  [y] once   [a] always for "+always+"   [n] no")
+		s.out.line(ansiDim, "  [y] yes, once   [a] always for `"+always+"`   [n] no (Enter)   or type what to do instead")
 	} else {
-		s.out.line(ansiDim, "  [y] yes   [n] no")
+		s.out.line(ansiDim, "  [y] yes   [n] no (Enter)   or type what to do instead")
 	}
-	for {
-		s.out.bare(ansiBold, "  > ")
-		select {
-		case <-ctx.Done():
-			return false, false
-		case <-s.in.closed:
-			return false, false
-		case line := <-s.in.lines:
-			switch strings.ToLower(strings.TrimSpace(line)) {
-			case "y", "yes":
-				return true, true
-			case "n", "no", "":
-				return false, true
-			case "a", "always":
-				if canAlways {
-					s.always[t.Name()+"\x00"+always] = true
-					return true, true
-				}
+	s.out.bare(ansiBold, "  > ")
+	select {
+	case <-ctx.Done():
+		return false, false, ""
+	case <-s.in.closed:
+		return false, false, ""
+	case line := <-s.in.lines:
+		reply := strings.TrimSpace(line)
+		switch strings.ToLower(reply) {
+		case "y", "yes":
+			return true, true, ""
+		case "a", "always":
+			if canAlways {
+				s.always[t.Name()+"\x00"+always] = true
 			}
-			s.out.line(ansiDim, "answer y or n")
+			// Where there is no "always" to give, the one call in front of
+			// them is the least of what was agreed to.
+			return true, true, ""
+		case "n", "no", "":
+			return false, true, ""
 		}
+		return false, true, reply
 	}
 }
 

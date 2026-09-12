@@ -301,7 +301,7 @@ func TestChatAsksOnceWhenAToolCanBeApprovedForGood(t *testing.T) {
 	if tool.ran() != 2 {
 		t.Errorf("the tool ran %d times, want both calls", tool.ran())
 	}
-	if !strings.Contains(out, "always for go test") {
+	if !strings.Contains(out, "always for `go test`") {
 		t.Errorf("the offer to agree for good was not made:\n%s", out)
 	}
 }
