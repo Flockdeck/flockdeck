@@ -15,7 +15,8 @@ On macOS the bindings are the same, with <kbd>Ctrl</kbd> rather than
 
 Panes are focused by clicking, resized by dragging the divider between them,
 moved by dragging their header, and closed, restarted or zoomed from the
-buttons in their header. Double-click a tab to rename it.
+buttons in their header. Double-click a tab to rename it; an empty name gives
+it back the title it gives itself.
 
 A divider can be resized from the keyboard too: reach it with <kbd>Tab</kbd>,
 then the arrow keys move it and <kbd>Home</kbd> shares the room equally. In the

@@ -1247,15 +1247,46 @@
     node.attn = attn;
   }
 
+  /** renameTab asks for a tab's new name in a dialog of its own. The browser's
+   *  prompt had room for a name and nothing else, and a tab named once kept
+   *  that name for good: nothing offered its automatic title back, or said
+   *  that an emptied name would give it. */
   function renameTab(id) {
     const tab = (state ? state.tabs : []).find((t) => t.id === id);
     if (!tab) return;
-    const name = window.prompt("Rename tab", tab.title || "");
-    // Every answer but Cancel goes, and the server says what it made of it.
-    // An emptied name was dropped here, so OK on it did nothing and said
-    // nothing - while one of spaces reached the server and was told a tab
-    // needs a name.
-    if (name !== null && name !== undefined) send({ cmd: "renameTab", id, text: name });
+    openOverlay("Rename tab", "panes");
+    dialog = "renameTab";
+    const body = $("overlay-body");
+    const form = el("div", "wt-form");
+    const field = el("input");
+    field.id = "tab-name";
+    field.value = tab.title || "";
+    field.placeholder = "Leave it empty for the automatic title";
+    field.setAttribute("aria-label", "Tab name");
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    // Every answer goes, and the server says what it made of it. An emptied
+    // name gives the tab its automatic title back, which is what the button
+    // below sends too.
+    const done = (text) => { send({ cmd: "renameTab", id, text }); closeOverlay(); };
+    field.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); done(field.value); } };
+    const ok = el("button", "chip primary", "Rename");
+    ok.onclick = () => done(field.value);
+    form.append(field, ok);
+    // Offered only where there is a name to give up: on a tab that already
+    // names itself it would do nothing.
+    if (tab.named) {
+      const auto = el("button", "chip", "Use the automatic title");
+      auto.id = "tab-auto-title";
+      describe(auto, "Drop this name and call the tab what it would be called had it never been renamed");
+      auto.onclick = () => done("");
+      form.append(auto);
+    }
+    body.append(form, el("div", "wt-hint", tab.named
+      ? "You named this tab, so nothing renames it. An empty name, or Use the automatic title, gives it back the title it gives itself from the first thing its agent is asked."
+      : "This tab names itself after the first thing its agent is asked. A name you give it here stays until you empty it again."));
+    field.focus();
+    field.select();
   }
 
   /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
