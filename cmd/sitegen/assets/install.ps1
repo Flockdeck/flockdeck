@@ -130,11 +130,22 @@ function Install-Flockdeck {
             if ($fields.Count -ge 2 -and $fields[1] -eq $archive) { $want = $fields[0] }
         }
         if (-not $want) { throw "flockdeck: checksums.txt for $version does not list $archive" }
-        $got = (Get-FileHash -Algorithm SHA256 (Join-Path $tmp $archive)).Hash
+        # The archive is hashed and opened with .NET rather than Get-FileHash
+        # and Expand-Archive. Those two live in script modules that PowerShell
+        # loads on first use, from PSModulePath. A Windows PowerShell started
+        # from PowerShell 7 inherits a PSModulePath that finds PowerShell 7's
+        # copies of those modules first, which it cannot load, and then the
+        # command is simply not found: GitHub's Windows runner is exactly that.
+        $stream = [IO.File]::OpenRead((Join-Path $tmp $archive))
+        try { $sum = [Security.Cryptography.SHA256]::Create().ComputeHash($stream) } finally { $stream.Dispose() }
+        $got = -join ($sum | ForEach-Object { $_.ToString('x2') })
         if ($got -ne $want) { throw "flockdeck: $archive does not match its published checksum; nothing was installed" }
 
         $unpacked = Join-Path $tmp 'unpacked'
-        Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $unpacked -Force
+        # Windows PowerShell has to be told to load the assembly ZipFile is in;
+        # PowerShell 7 has it already, and may not know it by this name.
+        try { Add-Type -AssemblyName System.IO.Compression.FileSystem } catch { }
+        [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $tmp $archive), $unpacked)
         if (-not (Test-Path (Join-Path $unpacked 'flockdeck.exe'))) { throw "flockdeck: $archive has no flockdeck.exe in it" }
 
         New-Item -ItemType Directory -Force -Path $dir | Out-Null

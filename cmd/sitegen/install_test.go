@@ -305,3 +305,29 @@ func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
 		})
 	}
 }
+
+// install.ps1 calls nothing that PowerShell loads from a script module on
+// first use. Windows PowerShell looks those up on PSModulePath, and one started
+// from PowerShell 7 inherits a PSModulePath that finds PowerShell 7's copies
+// first, which it cannot load: the command is then not found at all. GitHub's
+// Windows runner is exactly that, and v0.2.10-rc.1 stopped there on
+// Get-FileHash. The script hashes and unpacks with .NET instead. This holds on
+// every platform, with no PowerShell needed to check it.
+func TestInstallPs1NeedsNoScriptModules(t *testing.T) {
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, line := range strings.Split(string(shipped), "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "#") {
+			continue
+		}
+		for _, command := range []string{"Get-FileHash", "Expand-Archive", "Compress-Archive"} {
+			if strings.Contains(strings.ToLower(code), strings.ToLower(command)) {
+				t.Errorf("install.ps1:%d calls %s, which Windows PowerShell may not find when started from PowerShell 7: %s", i+1, command, code)
+			}
+		}
+	}
+}
