@@ -148,6 +148,20 @@
   // Slow in, instant out - and out for anything that means the question has
   // stopped being asked: the pointer leaving the window, a click, a scroll
   // moving the target out from under the bubble, Escape.
+  // Arriving from the keyboard counts as asking too. The bubble was the only
+  // place most of the glyph buttons - ⑂, ⇉, ⟳, ⤢ - say what they do, and it
+  // came only for a pointer: a screen reader has their names, but somebody
+  // who can see and is tabbing through the window was told nothing at all.
+  // Only for keyboard focus, so a click does not leave a bubble behind it.
+  document.addEventListener("focusin", (e) => {
+    let keyboard = true;
+    try { keyboard = e.target.matches(":focus-visible"); } catch { /* no such selector here */ }
+    const node = keyboard ? tipFind(e.target) : null;
+    if (node && node === tipFor) return;
+    hideTip();
+    if (node) tipTimer = setTimeout(() => showTip(node), TIP_DELAY);
+  }, true);
+  document.addEventListener("focusout", hideTip, true);
   document.addEventListener("pointerout", (e) => { if (!e.relatedTarget) hideTip(); }, true);
   document.addEventListener("pointerdown", hideTip, true);
   document.addEventListener("scroll", hideTip, true);

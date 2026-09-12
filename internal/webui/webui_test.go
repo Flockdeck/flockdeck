@@ -3463,6 +3463,26 @@ assert.ok(!other.defaultPrevented);
 `)
 }
 
+// The tooltip is the only place most glyph buttons say what they do, and it
+// came only for a pointer: tabbing onto ⟳ or ⤢ told somebody who can see
+// nothing at all. Keyboard focus brings it too, and taking the focus away
+// takes it away.
+func TestKeyboardFocusShowsTheTooltip(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const zoom = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "⤢");
+zoom.focus();
+h.dispatch(zoom, new h.Ev("focusin", { target: zoom }));
+await h.sleep(320);
+const tip = h.doc.body.querySelector("div.tip");
+assert.ok(tip, "tabbing onto a glyph button showed nothing about what it does");
+assert.strictEqual(tip.textContent, zoom.dataset.tip);
+h.dispatch(zoom, new h.Ev("focusout", { target: zoom }));
+assert.ok(!h.doc.body.querySelector("div.tip"), "the bubble stayed after the focus left");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
