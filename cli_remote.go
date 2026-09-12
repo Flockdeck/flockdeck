@@ -452,10 +452,10 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		fmt.Fprintf(rio.out, "state:   could not ask the relay: %v\n", err)
 		return nil
 	}
-	online := false
+	online, at := false, ""
 	for _, h := range roster.Hosts {
 		if h.Self {
-			online = h.Online
+			online, at = h.Online, h.URL
 		}
 	}
 	switch {
@@ -465,6 +465,11 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "state:   not connected, though flockdeck is running; the Remote chip in its window says why")
 	default:
 		fmt.Fprintln(rio.out, "state:   not connected — flockdeck connects while it is running")
+	}
+	// Where a paired device opens this machine, for one that has lost its
+	// bookmark, or somebody asked where to point it.
+	if at != "" {
+		fmt.Fprintf(rio.out, "open at: %s\n", at)
 	}
 	if len(roster.Devices) == 0 {
 		fmt.Fprintln(rio.out, "devices: none paired — `flockdeck remote pair` pairs one")

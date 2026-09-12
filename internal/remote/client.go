@@ -101,13 +101,15 @@ type Device struct {
 	LastSeen time.Time `json:"lastSeen"`
 }
 
-// Host is a desktop enrolled in the account; Self marks this one.
+// Host is a desktop enrolled in the account; Self marks this one. URL is
+// where a paired device opens it, when the relay says.
 type Host struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
 	Online   bool      `json:"online"`
 	LastSeen time.Time `json:"lastSeen"`
 	Self     bool      `json:"self"`
+	URL      string    `json:"url,omitempty"`
 }
 
 // Roster is everything the account has paired and enrolled.

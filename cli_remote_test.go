@@ -72,7 +72,7 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "fdp_code", "url": url, "expiresAt": "2099-01-01T00:10:00Z"})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
 		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
-			`"hosts":[{"id":"h-desk","name":"desk","online":true,"self":true}]}`)
+			`"hosts":[{"id":"h-desk","name":"desk","online":true,"self":true,"url":"`+f.URL+`/h/h-desk/"}]}`)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/host/devices/") &&
 		!strings.Contains(devices, `"id":"`+strings.TrimPrefix(r.URL.Path, "/api/v1/host/devices/")+`"`):
 		w.WriteHeader(http.StatusNotFound)
@@ -220,6 +220,10 @@ func TestRemoteLifecycle(t *testing.T) {
 	out, _, err = runRemoteCmd(t, "status")
 	if err != nil || !strings.Contains(out, "connected") || !strings.Contains(out, "1 paired") {
 		t.Errorf("status = %q, %v", out, err)
+	}
+	// Where a paired device opens this machine is worth knowing without one.
+	if !strings.Contains(out, "open at: "+f.URL+"/h/h-desk/\n") {
+		t.Errorf("status does not say where a device opens this machine: %q", out)
 	}
 
 	out, _, err = runRemoteCmd(t, "revoke", "d1")
