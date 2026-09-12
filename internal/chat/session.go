@@ -527,6 +527,11 @@ func (s *session) sayWhyItStopped(err error) {
 		agent := firstNonEmpty(s.opts.Agent, "<agent>")
 		s.out.line(ansiRed, "the API refused the key: "+err.Error())
 		s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then /retry")
+	case outOfCredit(err):
+		// Not asked again, and not called busy: what fixes it is money or
+		// another key, and neither is in the pane.
+		s.out.line(ansiRed, "the account behind this key is out of credit: "+err.Error())
+		s.out.line(ansiDim, "(add credit with the vendor, or set another key with `flockdeck keys set "+keyAgent(s.opts)+"`, then /retry)")
 	case modelUnknown(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		if names := s.localModels(); len(names) > 0 {

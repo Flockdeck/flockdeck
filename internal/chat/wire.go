@@ -111,6 +111,20 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
 
+// outOfCredit reports whether err is the account behind the key having run out
+// of what it pays with, rather than the API being busy for a moment. OpenAI
+// says so with a 429, the status of a rate limit, and asking again gets the
+// same answer; Anthropic says so with a 400 about the credit balance.
+func outOfCredit(err error) bool {
+	var e *apiError
+	if !errors.As(err, &e) {
+		return false
+	}
+	msg := strings.ToLower(e.Msg)
+	return strings.Contains(msg, "exceeded your current quota") || strings.Contains(msg, "insufficient_quota") ||
+		strings.Contains(msg, "credit balance is too low")
+}
+
 // busyWords is a busy API said in words, for the line that says it is being
 // asked again. The status is what the server sent, and in the middle of a
 // stream it is the error's own type -- "overloaded_error" -- which is a name
@@ -143,7 +157,7 @@ func cutOff(err error) bool {
 // refusing the request.
 func busy(err error) (*apiError, bool) {
 	var e *apiError
-	if !errors.As(err, &e) {
+	if !errors.As(err, &e) || outOfCredit(err) {
 		return nil, false
 	}
 	switch e.Code {
