@@ -418,3 +418,23 @@ func TestKeysSetSaysWhenTheEnvironmentWins(t *testing.T) {
 		t.Errorf("a key was printed:\n%s", out)
 	}
 }
+
+// The listing says where an agent talks to, where that is not its vendor.
+func TestKeysListSaysWhereAnAgentTalksTo(t *testing.T) {
+	isolateKeys(t)
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "http://127.0.0.1:8080"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runKeysCmd(t, "", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "anthropic ") && !strings.Contains(line, "talks to http://127.0.0.1:8080") {
+			t.Errorf("anthropic is listed as %q", line)
+		}
+		if !strings.HasPrefix(line, "anthropic ") && strings.Contains(line, "talks to") {
+			t.Errorf("an agent on its vendor's endpoint is listed as %q", line)
+		}
+	}
+}

@@ -143,8 +143,19 @@ func keysList(out io.Writer) error {
 			width = len(s.Agent)
 		}
 	}
+	// Where an agent talks to somewhere other than its vendor, that is said
+	// beside its key: the two are what decide whether a pane can answer, and
+	// this listing is where somebody checking either one looks.
+	endpoints := map[string]string{}
+	for _, s := range specs {
+		endpoints[s.ID] = s.API.BaseURL
+	}
 	for _, s := range statuses {
-		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, s.Describe())
+		line := s.Describe()
+		if u := endpoints[s.Agent]; u != "" {
+			line += "; talks to " + redactURL(u)
+		}
+		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, line)
 	}
 	return nil
 }
