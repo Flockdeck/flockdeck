@@ -185,6 +185,26 @@ func TestRelayURL(t *testing.T) {
 	}
 }
 
+// An enrolment naming a relay off this machine without TLS is refused, not
+// used: the token would cross the network in the clear. Nothing Flockdeck
+// saves looks like this; only a hand edit does.
+func TestLoadRefusesARelayWithoutTLS(t *testing.T) {
+	isolate(t)
+	for relay, ok := range map[string]bool{
+		"http://relay.example":  false,
+		"http://127.0.0.1:9":    true, // a relay being developed, on this machine
+		"https://relay.example": true,
+	} {
+		if err := (&Config{Relay: relay, HostID: "h1", Token: "fdh_test"}).Save(); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load()
+		if ok != (err == nil) || (!ok && !strings.Contains(err.Error(), "without TLS")) {
+			t.Errorf("Load of an enrolment with the relay %s = %+v, %v; want ok=%v", relay, c, err, ok)
+		}
+	}
+}
+
 // fakeRelay is enough of a relay to carry requests down a tunnel.
 type fakeRelay struct {
 	*httptest.Server

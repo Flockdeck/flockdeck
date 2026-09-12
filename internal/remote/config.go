@@ -107,6 +107,15 @@ func Load() (*Config, error) {
 	if c.Relay == "" || c.HostID == "" || c.Token == "" {
 		return nil, fmt.Errorf("%s is missing the relay, the host or the token; delete it to start again", p)
 	}
+	// Nothing Flockdeck has ever saved names a relay off this machine
+	// without TLS, since enrolling has always refused one; a file that does
+	// was edited by hand, and used, it would send the token across the
+	// network in the clear. Only this rule of CheckRelay's is applied here:
+	// a later one about what an address looks like must not stop an
+	// enrolment already made from loading.
+	if u, err := url.Parse(c.Relay); err == nil && u.Scheme == "http" && !isLoopback(u.Hostname()) {
+		return nil, fmt.Errorf("%s names a relay at %s without TLS, which this machine's token would cross in the clear; put https:// in its place, or delete it to start again", p, u.Host)
+	}
 	return &c, nil
 }
 
