@@ -240,7 +240,7 @@ func Start(cfg Config) (*Session, error) {
 		pumped:      make(chan struct{}),
 	}
 
-	cmd := p.Command(exe, cfg.Argv[1:]...)
+	cmd := command(p, exe, cfg.Argv[1:])
 	cmd.Dir = cfg.Cwd
 	cmd.Env = cfg.Env
 	if cmd.Env == nil {
