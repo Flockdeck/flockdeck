@@ -335,10 +335,13 @@ func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {
 // all it printed.
 func TestRemoteSubcommandHelp(t *testing.T) {
 	for _, name := range []string{"enable", "pair", "status", "devices", "revoke", "disable"} {
-		fs := remoteFlags(name)
+		// Through remoteHelp, which is how it is asked for, so that the
+		// flags of enable, pair and disable are in it; a bare flag set of
+		// the same name has none to show.
 		var b bytes.Buffer
-		fs.SetOutput(&b)
-		fs.Usage()
+		if err := remoteHelp(name, remoteIO{out: &b}); err != nil {
+			t.Fatalf("remote help %s: %v", name, err)
+		}
 		lines := strings.Split(b.String(), "\n")
 		if !strings.HasPrefix(lines[0], "Usage: flockdeck remote "+name) || len(lines) < 3 || strings.TrimSpace(lines[2]) == "" {
 			t.Errorf("remote %s -h = %q, want its usage line and what it is for", name, b.String())
