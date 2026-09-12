@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 )
 
 // anthropicWire speaks the Messages API, streaming.
@@ -100,7 +102,8 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		return errors.New("the Anthropic API needs a model named: choose one with /model, for example /model claude-sonnet-5")
 	}
 	// This API refuses a request without a ceiling.
-	if req.MaxTokens <= 0 {
+	ceilingAsked := req.MaxTokens > 0
+	if !ceilingAsked {
 		req.MaxTokens = defaultMaxTokens
 	}
 	body := anthropicRequest{
@@ -133,7 +136,15 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		})
 	}
 
-	rc, err := post(ctx, endpoint(w.base, "https://api.anthropic.com", "v1", "/messages"), w.header(), body)
+	url := endpoint(w.base, "https://api.anthropic.com", "v1", "/messages")
+	rc, err := post(ctx, url, w.header(), body)
+	if n, ok := outputCeiling(err); ok && !ceilingAsked {
+		// The ceiling nobody asked for is higher than an older model takes,
+		// and the refusal says what it will take: asked again with that, the
+		// model answers, where every /retry would be refused the same way.
+		body.MaxTokens, req.MaxTokens = n, n
+		rc, err = post(ctx, url, w.header(), body)
+	}
 	if err != nil {
 		return err
 	}
@@ -272,6 +283,24 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	emit(Event{Kind: EventUsage, Usage: usage})
 	return nil
 }
+
+// outputCeiling is the most output a model takes, where err is the API
+// refusing a request for asking for more: "max_tokens: 32000 > 8192, which is
+// the maximum allowed number of output tokens for claude-3-5-haiku-...".
+func outputCeiling(err error) (int, bool) {
+	var e *apiError
+	if !errors.As(err, &e) || e.Code != http.StatusBadRequest {
+		return 0, false
+	}
+	m := outputCeilingRE.FindStringSubmatch(e.Msg)
+	if m == nil {
+		return 0, false
+	}
+	n, convErr := strconv.Atoi(m[1])
+	return n, convErr == nil && n > 0
+}
+
+var outputCeilingRE = regexp.MustCompile(`max_tokens: \d+ > (\d+)`)
 
 type anthropicUsage struct {
 	InputTokens  int `json:"input_tokens"`
