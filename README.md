@@ -1069,6 +1069,14 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
   by Gatekeeper or SmartScreen the first time it runs; the in-app help's
   troubleshooting page says how to let it through.
 
+## Sponsoring
+
+Flockdeck is free and open source, and sponsoring it is a way to say thank
+you: through [GitHub Sponsors](https://github.com/sponsors/jmwri), or the
+Sponsor button at the top of this repository. It buys no features, support or
+priority, and the app is the same for everyone. Sponsors who ask to be named
+are listed, by name and a link, on [the website](https://flockdeck.ai/#sponsor).
+
 ## Licence
 
 The desktop app in this repository is MIT — see [LICENSE](LICENSE). The relay,
