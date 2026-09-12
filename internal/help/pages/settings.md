@@ -51,6 +51,13 @@ set).
 - `session.json` — which projects are reopened on the next start.
 - `error.log` — why Flockdeck failed to start, when it had no terminal to say
   so in.
+- `instance.json` — the address of the Flockdeck that is running, so a second
+  launch joins it.
+- `updates` — a downloaded release waiting to go in when Flockdeck next quits.
+- `sessions` — the settings file written for each pane whose agent reports its
+  status.
+- `chats` — the built-in chat client's conversations.
+- `window` — the browser profile the window runs in.
 
 To uninstall Flockdeck, quit it and delete the `flockdeck` binary, then this
 directory; turn remote access off first if it is on, so the relay forgets the
