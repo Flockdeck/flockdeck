@@ -14,10 +14,11 @@ var ErrNotEnabled = errors.New("remote access is not enabled on this machine; ru
 // Manager is remote access as a running instance has it: the enrolment on
 // disk, and the tunnel that goes with it.
 //
-// The enrolment is written by `flockdeck remote`, from another process, and
-// the instance is told to look again. Reload is that looking: it brings the
-// tunnel in line with whatever the file now says — opened, reopened to a
-// different relay, or closed.
+// The enrolment is written by `flockdeck remote`, from another process that
+// then tells the instance to look again, or by Enable and Disable here on the
+// window's behalf. Reload is that looking: it brings the tunnel in line with
+// whatever the file now says — opened, reopened to a different relay, or
+// closed.
 type Manager struct {
 	version string
 	serve   func(net.Listener) error
