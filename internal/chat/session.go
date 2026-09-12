@@ -490,6 +490,11 @@ func (s *session) sayWhyItStopped(err error) {
 	case forbidden(err):
 		s.out.line(ansiRed, "the API would not do this with this key: "+err.Error())
 		s.out.line(ansiDim, "(the key was accepted, but the account behind it may not have this model; /model switches to another)")
+	case cutOff(err):
+		// What was written is the start of the answer and is kept; asking
+		// again throws it away and is cut off at the same length.
+		s.out.line(ansiRed, err.Error())
+		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
 	case contextFull(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(the conversation is longer than the model can read; /clear starts it over, and /history still shows what was said)")

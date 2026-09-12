@@ -110,6 +110,19 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
 
+// cutOffError is an answer that stopped because it reached a limit on its
+// length. What was written of it stands, and is the start of the answer rather
+// than a failed one: the way on is to ask for the rest, not to ask again.
+type cutOffError struct{ msg string }
+
+func (e *cutOffError) Error() string { return e.msg }
+
+// cutOff reports whether err is an answer cut off at its length limit.
+func cutOff(err error) bool {
+	var e *cutOffError
+	return errors.As(err, &e)
+}
+
 // busy reports whether err is the API being too busy to answer just now --
 // rate-limited, overloaded, or failing on its own side -- rather than
 // refusing the request.

@@ -249,7 +249,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		// A call whose arguments were still arriving is not one to run.
 		stopped = errors.New("the connection closed before the answer was finished")
 	case stopReason == "max_tokens":
-		stopped = fmt.Errorf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)
+		stopped = &cutOffError{fmt.Sprintf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)}
 	case stopReason == "refusal":
 		stopped = errors.New("the model declined to go on with this")
 	case stopReason == "model_context_window_exceeded":
