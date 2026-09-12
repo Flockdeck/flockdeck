@@ -480,6 +480,7 @@
     if (!devices.length && !roster.error) dev.append(el("div", "dir-empty", "Nothing is paired yet."));
     devices.forEach((d) => {
       const item = el("div", "wt-row");
+      item.dataset.key = "device:" + d.id;
       const main = el("div", "wt-main");
       const title = el("div", "wt-title");
       title.append(el("span", "wt-label", d.name || "Unnamed device"));
@@ -2084,8 +2085,14 @@
    *  which is how a person finds it again too. A control whose wording changes
    *  while it is working needs the id. */
   function identify(node) {
-    return node.id ? "#" + node.id
-      : [node.tagName, node.className, (node.textContent || "").trim()].join("|");
+    if (node.id) return "#" + node.id;
+    // A control repeated on every row - Clear, Unpair, a project's close - is
+    // told apart by the row it is on, where the row carries a key. By wording
+    // alone one row's is the next row's, and a redraw after clearing one key,
+    // which does not ask, left the keyboard on the next agent's Clear.
+    let row = node;
+    while (row && !(row.dataset && row.dataset.key)) row = row.parentElement;
+    return [row ? row.dataset.key : "", node.tagName, node.className, (node.textContent || "").trim()].join("|");
   }
 
   /** refreshDialog asks again for whatever the open dialog is showing. */
@@ -2383,6 +2390,7 @@
     const openSection = section("Open");
     open.forEach((p) => {
       const row = el("div", "proj-row" + (p.active ? " active" : ""));
+      row.dataset.key = "open:" + p.root;
       // The row's own action — switch to this project — is a real button
       // wrapping everything that describes it, rather than a click handler on
       // the row. A handler on a div cannot be tabbed to and does not answer
@@ -2453,6 +2461,7 @@
       const shown = recentsAll ? notOpen : notOpen.slice(0, 8);
       shown.forEach((r, i) => {
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
+        row.dataset.key = "recent:" + r.root;
         const main = el("span", "proj-main");
         main.append(el("span", "proj-name", r.name));
         main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
@@ -4138,6 +4147,7 @@
     const wrap = section(items.length === 1 ? "1 agent" : items.length + " agents");
     items.forEach((k) => {
       const row = el("div", "wt-row");
+      row.dataset.key = "key:" + k.agent;
       const main = el("div", "wt-main");
 
       const title = el("div", "wt-title");

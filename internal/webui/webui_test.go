@@ -3974,6 +3974,36 @@ assert.ok(!h.commands().slice(before).some((c) => c.cmd === "worktreeRemove"), "
 `)
 }
 
+// A redraw finds the control the keyboard was on by what it is and what it
+// says, and by wording alone one row's Clear is the next row's. Clearing one
+// stored API key, which does not ask, left the keyboard on the next agent's
+// Clear, and a second Enter cleared that key as well.
+func TestClearingOneKeyDoesNotAimAtTheNext(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+paletteRun("api keys");
+const keys = (aSet) => ({ type: "keys", items: [
+  { agent: "anthropic", name: "Anthropic API", set: aSet, source: aSet ? "store" : "", vars: ["ANTHROPIC_API_KEY"] },
+  { agent: "openai", name: "OpenAI API", set: true, source: "store", vars: ["OPENAI_API_KEY"] },
+] });
+h.recv(keys(true));
+const clears = () => h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Clear");
+const first = clears()[0];
+first.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "anthropic" });
+h.recv(keys(false));
+assert.ok(h.doc.activeElement !== clears()[0], "the keyboard landed on another agent's Clear");
+// The harness keeps the keyboard on the removed button where a browser would
+// put it on the page, so only the other agent's key is the question here.
+const before = h.commands().length;
+h.key({ key: "Enter" });
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "keyClear" && c.id === "openai"),
+  "a second Enter cleared another agent's key");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
