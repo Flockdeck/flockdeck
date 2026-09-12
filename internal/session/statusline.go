@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"maps"
@@ -53,6 +54,10 @@ type StatusLine struct {
 	Cwd string
 }
 
+// utf8BOM is the byte order mark some Windows editors put at the start of a
+// UTF-8 file.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 // userStatusLine finds the status line the user has set, where Claude Code
 // would: the project's local settings, then the project's, then the user's
 // own, the first to say anything winning. Managed settings outrank the pane's
@@ -74,6 +79,12 @@ func userStatusLine(cwd, home string) map[string]any {
 		if err != nil {
 			continue
 		}
+		// Claude Code takes a byte order mark off before it parses a settings
+		// file (2.1.270, read from its executable), and Notepad and Windows
+		// PowerShell both write one. Left on, the file does not parse here and
+		// was passed over, so the status line the user set in it was not the
+		// one carried.
+		data = bytes.TrimPrefix(data, utf8BOM)
 		var settings map[string]json.RawMessage
 		if json.Unmarshal(data, &settings) != nil {
 			continue
