@@ -534,10 +534,12 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 		"as it stands; a plan written as prose has to be rewritten before it can be, so write "+
 		"one that way when it is going to be handed to other agents.\n\n", how("fanout"))
 
-	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s mirrors what the user "+
-		"types into a set of panes — by default the agents on the current tab, adjusted with "+
-		"the `⇉` button in each pane header — and %s sends that set one composed message at "+
-		"once.\n\n", how("toggleBroadcast"), how("promptAll"))
+	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s decides where the "+
+		"prompt bar sends: while it is on, %s delivers one composed message to every pane in the "+
+		"broadcast set — by default the agents on the current tab, adjusted with the `⇉` button "+
+		"in each pane header — and while it is off, to the focused pane alone. What the user "+
+		"types into a pane's own terminal only ever reaches that pane.\n\n",
+		how("toggleBroadcast"), how("promptAll"))
 
 	fmt.Fprintf(b, "**Git has a home in the window.** %s shows the diff of the checkout this "+
 		"pane is working in, and commits, pushes, pulls and fetches it. Nothing is staged "+
