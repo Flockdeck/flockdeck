@@ -80,6 +80,34 @@ func TestAnNpmShimIsNotRunThroughCmd(t *testing.T) {
 	}
 }
 
+// TestOnlyAnNpmShimIsStartedAsNode covers a batch file that names a script
+// beside it without being npm's: one running it through Windows Script Host
+// must still be run as the batch file it is, not handed to node.
+func TestOnlyAnNpmShimIsStartedAsNode(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "tool.js"), []byte("WScript.Echo('hi')\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wsh := filepath.Join(dir, "tool.cmd")
+	if err := os.WriteFile(wsh, []byte("@cscript //nologo \"%~dp0\\tool.js\" %*\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := npmScript(wsh); ok {
+		t.Error("a batch file running its script through cscript was taken for an npm shim")
+	}
+
+	npm := filepath.Join(dir, "agent.cmd")
+	if err := os.WriteFile(npm, []byte("@IF EXIST \"%~dp0\\node.exe\" (\r\n  \"%~dp0\\node.exe\" \"%~dp0\\tool.js\" %*\r\n) ELSE (\r\n  node \"%~dp0\\tool.js\" %*\r\n)\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, script, ok := npmScript(npm); !ok || script != filepath.Join(dir, "tool.js") {
+		t.Errorf("npm's older shim form was not recognised: %q, %v", script, ok)
+	}
+}
+
 // printedArgs starts a batch file of the shape the helper answers through and
 // returns the arguments the program behind it parsed.
 func printedArgs(t *testing.T, args ...string) []string {

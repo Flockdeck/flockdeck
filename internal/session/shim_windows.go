@@ -3,6 +3,7 @@
 package session
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,9 +164,14 @@ var npmShimScript = regexp.MustCompile(`"%(?:~dp0|dp0%)\\([^"%]+\.[cm]?js)"`)
 // npmScript reports the node and the script an npm shim would run, or false
 // for a batch file that is not one, or whose script or node cannot be found.
 // A node.exe beside the shim is the one it prefers, as the shim itself does.
+//
+// A script beside a batch file is not proof of npm: `cscript "%~dp0\tool.js"`
+// runs one through Windows Script Host, and handing that to node would start
+// the wrong program. Every form npm writes names node, so a batch file that
+// does not is left to cmd.exe.
 func npmScript(shim string) (node, script string, ok bool) {
 	data, err := os.ReadFile(shim)
-	if err != nil || len(data) > 64<<10 {
+	if err != nil || len(data) > 64<<10 || !bytes.Contains(bytes.ToLower(data), []byte("node")) {
 		return "", "", false
 	}
 	m := npmShimScript.FindSubmatch(data)
