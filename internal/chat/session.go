@@ -126,13 +126,14 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	wire := o.wire
-	var key string
+	var key, keyFrom string
 	if wire == nil {
 		var err error
 		key, err = resolveKey(o)
 		if err != nil {
 			return err
 		}
+		_, keyFrom = lookupKey(o)
 		wire, err = NewWire(o.Wire, o.BaseURL, key)
 		if err != nil {
 			return err
@@ -161,6 +162,7 @@ func Run(ctx context.Context, o Options) error {
 		opts:      o,
 		wire:      wire,
 		key:       key,
+		keyFrom:   keyFrom,
 		log:       log,
 		out:       newPrinter(o.Out, o.Width, o.Colour),
 		in:        newInput(o.In, isConsole(o.In)),
@@ -195,9 +197,11 @@ type session struct {
 	wire Wire
 	// key is the one the wire was built with, so that a refused one can be
 	// told from a new one set since; refused are the keys the API has
-	// refused in this session, which are not tried again.
+	// refused in this session, which are not tried again. keyFrom is where
+	// the key came from, in the words /status says it in.
 	key      string
 	refused  map[string]bool
+	keyFrom  string
 	log      *Log
 	out      *printer
 	in       *input

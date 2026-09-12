@@ -128,22 +128,24 @@ func (s *session) rekey() bool {
 	// just refused -- however many times another is set: a key set since is
 	// in the store and only there. A key refused once is not tried again, so
 	// that the two cannot take turns being refused.
-	var candidates []string
-	if key, err := resolveKey(s.opts); err == nil {
-		candidates = append(candidates, key)
+	type candidate struct{ key, from string }
+	var candidates []candidate
+	if key, from := lookupKey(s.opts); key != "" {
+		candidates = append(candidates, candidate{key, from})
 	}
 	if KeyStore != nil {
-		candidates = append(candidates, strings.TrimSpace(KeyStore(keyAgent(s.opts))))
+		agent := keyAgent(s.opts)
+		candidates = append(candidates, candidate{strings.TrimSpace(KeyStore(agent)), "stored with `flockdeck keys set " + agent + "`"})
 	}
-	for _, key := range candidates {
-		if key == "" || s.refused[key] {
+	for _, c := range candidates {
+		if c.key == "" || s.refused[c.key] {
 			continue
 		}
-		wire, err := NewWire(s.opts.Wire, s.opts.BaseURL, key)
+		wire, err := NewWire(s.opts.Wire, s.opts.BaseURL, c.key)
 		if err != nil {
 			return false
 		}
-		s.wire, s.key = wire, key
+		s.wire, s.key, s.keyFrom = wire, c.key, c.from
 		return true
 	}
 	return false

@@ -26,6 +26,10 @@ func TestARefusedKeyGivesWayToOneStoredSince(t *testing.T) {
 	if s.key != "sk-set-since" {
 		t.Errorf("rekeyed to the wrong key")
 	}
+	// /status says where the key in use came from, not the refused one.
+	if s.keyFrom != "stored with `flockdeck keys set anthropic`" {
+		t.Errorf("keyFrom = %q", s.keyFrom)
+	}
 	// And a key that has not changed is not tried again as though it had.
 	if s.rekey() {
 		t.Error("rekeyed to the same key")
