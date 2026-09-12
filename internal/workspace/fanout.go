@@ -695,12 +695,19 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		title = filepath.Base(cwd)
 	}
 
+	// A worktree sits beside its repository, under no open project, and a
+	// helper working in one belongs to the agent that asked for it rather
+	// than to whichever project happens to be on screen.
+	home := w.activeRoot
+	if parent != nil {
+		home = w.rootOf(parentPaneID)
+	}
 	p := &Pane{
 		ID:      uuid.NewString(),
 		Kind:    o.Kind,
 		Cwd:     cwd,
 		Name:    filepath.Base(cwd),
-		Root:    w.projectFor(cwd),
+		Root:    w.projectForOr(cwd, home),
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,

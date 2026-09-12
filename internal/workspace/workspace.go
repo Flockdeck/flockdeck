@@ -1185,7 +1185,13 @@ func (w *Workspace) rootOf(paneID string) string {
 // one containing it, so a pane put into a worktree nested inside a project is
 // counted against that project rather than against whichever one happens to be
 // on screen. A directory under no open project belongs to the active one.
-func (w *Workspace) projectFor(cwd string) string {
+func (w *Workspace) projectFor(cwd string) string { return w.projectForOr(cwd, w.activeRoot) }
+
+// projectForOr is projectFor with the project a directory under none of them
+// belongs to named by the caller, for one that knows better than the screen
+// does: a helper spawned into a worktree beside its repository belongs to the
+// agent that spawned it, whichever project the user is looking at.
+func (w *Workspace) projectForOr(cwd, fallback string) string {
 	best := ""
 	for _, r := range w.openRoots {
 		if underDir(cwd, r) && len(r) > len(best) {
@@ -1193,7 +1199,7 @@ func (w *Workspace) projectFor(cwd string) string {
 		}
 	}
 	if best == "" {
-		return w.activeRoot
+		return fallback
 	}
 	return best
 }
