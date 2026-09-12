@@ -11,7 +11,9 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION         a release tag such as v0.1.1; the latest by default
+#   FLOCKDECK_VERSION         a release tag such as v0.1.1; the latest by default.
+#                             To stay on it, also set FLOCKDECK_UPDATE=off for
+#                             your user, or Flockdeck updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR     where flockdeck.exe goes
 #   FLOCKDECK_DOWNLOAD        where release files are fetched from, for a mirror
 #   FLOCKDECK_NO_MODIFY_PATH  set to 1 to leave PATH and the Start menu alone
@@ -102,6 +104,9 @@ function Install-Flockdeck {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
     Write-Host "flockdeck: installed $version to $dest"
+    if ($env:FLOCKDECK_VERSION) {
+        Write-Host "flockdeck: to stay on $version, set FLOCKDECK_UPDATE=off for your user; otherwise Flockdeck updates itself to the latest"
+    }
     # Starting it again while an older copy runs joins that copy instead.
     Write-Host 'flockdeck: if Flockdeck is already running, quit it before starting this version'
 

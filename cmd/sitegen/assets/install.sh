@@ -10,7 +10,9 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION      a release tag such as v0.1.1; the latest by default
+#   FLOCKDECK_VERSION      a release tag such as v0.1.1; the latest by default.
+#                          To stay on it, also set FLOCKDECK_UPDATE=off where
+#                          Flockdeck runs, or it updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
 #   FLOCKDECK_DOWNLOAD     where release files are fetched from, for a mirror
 #
@@ -114,6 +116,9 @@ main() {
 		mv -f "$dir/.flockdeck.new" "$dir/flockdeck" ||
 		{ rm -f "$dir/.flockdeck.new"; die "could not write $dir/flockdeck"; }
 	say "installed $version to $dir/flockdeck"
+	if [ -n "${FLOCKDECK_VERSION:-}" ]; then
+		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
+	fi
 
 	case ":$PATH:" in
 		*":$dir:"*) say "start it with: flockdeck" ;;

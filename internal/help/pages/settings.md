@@ -40,7 +40,7 @@ set).
 
 | Variable | Effect |
 | --- | --- |
-| `FLOCKDECK_UPDATE` | `off` stops the background check for new releases |
+| `FLOCKDECK_UPDATE` | `off` stops the background check for new releases — which is what keeps an older version you installed on purpose from updating itself to the latest |
 | `FLOCKDECK_BROWSER` | Which browser provides the window, by name or path |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | Keys for the API agents, used before anything in `keys.json` |
