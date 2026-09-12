@@ -3398,6 +3398,21 @@ assert.strictEqual(now.querySelector(".help-item-title").textContent, title, "th
 `)
 }
 
+// The page open in the help was marked in its contents by colour alone, so a
+// screen reader walking the list was told nothing about which one it was.
+func TestTheHelpSaysWhichPageIsOpen(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const items = h.$("overlay-body").querySelectorAll("button.help-item");
+const current = items.filter((b) => b.getAttribute("aria-current") === "page");
+assert.strictEqual(current.length, 1, "the contents do not say which page is open");
+assert.ok(current[0].classList.contains("sel"), "the page said to be open is not the one shown");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

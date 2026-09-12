@@ -4442,7 +4442,9 @@
       item.append(el("span", "help-item-sub", hit.snippet || hit.page.summary));
       item.onclick = () => { showHelpPage(hit.page.slug); };
       list.append(item);
-      if (hit.page.slug === helpSlug) sel = item;
+      // The colour was all that said which page is open; a screen reader was
+      // told nothing.
+      if (hit.page.slug === helpSlug) { sel = item; item.setAttribute("aria-current", "page"); }
     });
     // Rebuilding the list puts it back at the top, so walking it with the
     // arrow keys from the search box took the highlight past the bottom of
