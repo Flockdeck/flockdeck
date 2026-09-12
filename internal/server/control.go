@@ -635,19 +635,13 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, c)
-		// Only the windows on this machine count towards the last one going:
-		// see LocalClientCount for why a remote window neither keeps the
-		// application alive nor ends it.
-		remaining := 0
-		for other := range s.clients {
-			if !other.remote {
-				remaining++
-			}
-		}
 		s.mu.Unlock()
 		cancel()
 		_ = conn.CloseNow()
-		if !c.remote && remaining == 0 && s.OnLastClientGone != nil {
+		// Only the windows on this machine count towards the last one going:
+		// see LocalClientCount for why a remote window neither keeps the
+		// application alive nor ends it.
+		if !c.remote && s.LocalClientCount() == 0 && s.OnLastClientGone != nil {
 			s.OnLastClientGone()
 		}
 	}()
