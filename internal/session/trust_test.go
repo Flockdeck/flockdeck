@@ -291,6 +291,235 @@ func TestAWorktreeHasItsRepositorysTrust(t *testing.T) {
 	}
 }
 
+// farAway is a location on another machine that does not exist: .invalid is
+// never resolved, so a test that reaches for it by mistake fails rather than
+// talking to anybody.
+func farAway() string {
+	if runtime.GOOS == "windows" {
+		return `\\flockdeck.invalid\share`
+	}
+	return "/net/flockdeck.invalid/share"
+}
+
+// worktreeLayout lays down a trusted repository and a linked worktree of it
+// the way `git worktree add` does, and checks the worktree is trusted before
+// the test breaks something.
+func worktreeLayout(t *testing.T) (dir, repo, wt, admin string) {
+	t.Helper()
+	dir = t.TempDir()
+	repo = filepath.Join(dir, "repo")
+	admin = filepath.Join(repo, ".git", "worktrees", "wt")
+	wt = filepath.Join(dir, "wt")
+	mkdirs(t, admin, wt)
+	writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+admin+"\n")
+	writeFile(t, filepath.Join(admin, "commondir"), "../..\n")
+	writeFile(t, filepath.Join(admin, "gitdir"), filepath.Join(wt, ".git")+"\n")
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{claudeProjectKey(repo): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	if !IsTrusted(wt) {
+		t.Fatal("the intact worktree should be trusted, or the test proves nothing")
+	}
+	return dir, repo, wt, admin
+}
+
+// symlink makes a link, skipping the test where the system will not let it.
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot make links here: %v", err)
+	}
+}
+
+// TestTrustFailsSafe covers every way a worktree's links to its repository
+// can fail to hold. IsTrusted decides whether trust is written into Claude
+// Code's configuration, so each must leave the worktree judged on its own
+// answers alone -- and it has none.
+func TestTrustFailsSafe(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spoil func(t *testing.T, dir, wt, admin string)
+	}{
+		{"a .git file that names no gitdir", func(t *testing.T, dir, wt, admin string) {
+			writeFile(t, filepath.Join(wt, ".git"), "worktree of repo\n")
+		}},
+		{"an empty gitdir", func(t *testing.T, dir, wt, admin string) {
+			writeFile(t, filepath.Join(wt, ".git"), "gitdir:\n")
+		}},
+		{"an unreadable .git file", func(t *testing.T, dir, wt, admin string) {
+			if !lockAgainstReading(t, filepath.Join(wt, ".git")) {
+				t.Skip("nothing here can stop this user reading a file")
+			}
+		}},
+		{"a missing commondir", func(t *testing.T, dir, wt, admin string) {
+			os.Remove(filepath.Join(admin, "commondir"))
+		}},
+		{"a commondir naming another repository", func(t *testing.T, dir, wt, admin string) {
+			mkdirs(t, filepath.Join(dir, "other", ".git"))
+			writeFile(t, filepath.Join(admin, "commondir"), filepath.Join(dir, "other", ".git"))
+		}},
+		{"a missing back-pointer", func(t *testing.T, dir, wt, admin string) {
+			os.Remove(filepath.Join(admin, "gitdir"))
+		}},
+		{"a back-pointer to another worktree", func(t *testing.T, dir, wt, admin string) {
+			writeFile(t, filepath.Join(admin, "gitdir"), filepath.Join(dir, "elsewhere", ".git"))
+		}},
+		{"a gitdir on another machine", func(t *testing.T, dir, wt, admin string) {
+			writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+farAway()+"/repo/.git/worktrees/wt")
+		}},
+		{"a commondir on another machine", func(t *testing.T, dir, wt, admin string) {
+			writeFile(t, filepath.Join(admin, "commondir"), farAway()+"/repo/.git")
+		}},
+		{"a .git that is a link", func(t *testing.T, dir, wt, admin string) {
+			real := filepath.Join(dir, "pointer")
+			writeFile(t, real, "gitdir: "+admin)
+			os.Remove(filepath.Join(wt, ".git"))
+			symlink(t, real, filepath.Join(wt, ".git"))
+		}},
+		{"a commondir that is a link", func(t *testing.T, dir, wt, admin string) {
+			real := filepath.Join(dir, "commondir")
+			writeFile(t, real, "../..")
+			os.Remove(filepath.Join(admin, "commondir"))
+			symlink(t, real, filepath.Join(admin, "commondir"))
+		}},
+		{"a gitdir through a loop of links", func(t *testing.T, dir, wt, admin string) {
+			symlink(t, filepath.Join(dir, "loop-b"), filepath.Join(dir, "loop-a"))
+			symlink(t, filepath.Join(dir, "loop-a"), filepath.Join(dir, "loop-b"))
+			writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+filepath.Join(dir, "loop-a", "wt"))
+		}},
+		{"a gitdir through a link to another machine", func(t *testing.T, dir, wt, admin string) {
+			symlink(t, farAway(), filepath.Join(dir, "away"))
+			writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+filepath.Join(dir, "away", "repo", ".git", "worktrees", "wt"))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _, wt, admin := worktreeLayout(t)
+			tc.spoil(t, dir, wt, admin)
+			if IsTrusted(wt) || IsTrusted(filepath.Join(wt, "sub")) {
+				t.Error("the worktree borrowed its repository's trust through a link that does not hold")
+			}
+		})
+	}
+}
+
+// TestACraftedWorktreeCannotBorrowTrust covers a folder dressed up as a
+// worktree of a trusted repository: its .git file names that repository's
+// administrative folder for a real worktree, which does not point back at it.
+func TestACraftedWorktreeCannotBorrowTrust(t *testing.T) {
+	dir, _, _, admin := worktreeLayout(t)
+	crafted := filepath.Join(dir, "crafted")
+	mkdirs(t, crafted)
+	writeFile(t, filepath.Join(crafted, ".git"), "gitdir: "+admin+"\n")
+	if IsTrusted(crafted) {
+		t.Error("a folder claiming another worktree's administrative folder was trusted")
+	}
+}
+
+// TestTrustIsNotFetchedFromAnotherMachine covers a worktree whose .git file
+// reaches its repository over the network. The loopback share leads back to
+// this very disk, so everything would check out if it were followed: only the
+// refusal to follow it keeps the answer untrusted.
+func TestTrustIsNotFetchedFromAnotherMachine(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("UNC paths are a Windows form")
+	}
+	dir, repo, wt, admin := worktreeLayout(t)
+	vol := filepath.VolumeName(admin)
+	if len(vol) != 2 || vol[1] != ':' {
+		t.Skip("the temporary folder is not on a lettered drive")
+	}
+	share := `\\localhost\` + vol[:1] + "$"
+	writeFile(t, filepath.Join(wt, ".git"), "gitdir: "+share+admin[len(vol):])
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{
+			claudeProjectKey(repo):                    map[string]any{"hasTrustDialogAccepted": true},
+			claudeProjectKey(share + repo[len(vol):]): map[string]any{"hasTrustDialogAccepted": true},
+		},
+	})
+	if IsTrusted(wt) {
+		t.Error("trust was taken from a repository reached over the network")
+	}
+}
+
+// TestTrustStopsWhereClaudeStops covers the edges of the walk: a sibling with
+// a longer name, a path that climbs out with "..", another spelling of the
+// name, a folder above the repository, the top of the disk, and a directory
+// on another machine.
+func TestTrustStopsWhereClaudeStops(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	sibling := filepath.Join(dir, "repo-other")
+	outer := filepath.Join(dir, "outer")
+	inner := filepath.Join(outer, "inner")
+	mkdirs(t, filepath.Join(repo, ".git"), filepath.Join(repo, "sub"), sibling, filepath.Join(inner, ".git"))
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{
+			claudeProjectKey(repo):                   map[string]any{"hasTrustDialogAccepted": true},
+			claudeProjectKey(outer):                  map[string]any{"hasTrustDialogAccepted": true},
+			claudeProjectKey(farAway() + "/project"): map[string]any{"hasTrustDialogAccepted": true},
+		},
+	})
+
+	for _, c := range []struct {
+		dir  string
+		want bool
+	}{
+		{filepath.Join(repo, "sub", ".."), true},
+		{sibling, false},
+		{filepath.Join(repo, "..", "repo-other"), false},
+		{filepath.Join(repo, "sub", "..", "..", "repo-other"), false},
+		// Claude Code looks a project up by its exact spelling, so another
+		// spelling is another project -- even where the disk ignores case.
+		{filepath.Join(dir, "REPO"), false},
+		{filepath.Join(dir, "REPO", "sub"), false},
+		// An answer given above a repository does not reach into it.
+		{inner, false},
+		{filepath.Join(inner, "pkg"), false},
+		// A directory on another machine is not looked at at all.
+		{farAway() + "/project", false},
+		{"", false},
+	} {
+		if got := IsTrusted(c.dir); got != c.want {
+			t.Errorf("IsTrusted(%q) = %v, want %v", c.dir, got, c.want)
+		}
+	}
+
+	// Outside any repository the walk goes all the way up to the top of the
+	// disk, and stops there.
+	loose := filepath.Join(dir, "loose", "a", "b")
+	mkdirs(t, loose)
+	if repoRoot(loose) != "" {
+		t.Skip("the temporary folder is inside a repository")
+	}
+	top := filepath.VolumeName(loose) + string(filepath.Separator)
+	writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{claudeProjectKey(top): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	if !IsTrusted(loose) {
+		t.Errorf("the walk did not reach %s, the top of the disk", top)
+	}
+}
+
+// TestNetworkPaths pins down what counts as another machine.
+func TestNetworkPaths(t *testing.T) {
+	remote := []string{"/net/host/share", "/Network/Servers/host", "//x/../net/host"}
+	local := []string{"/home/user/net", "/netlify/site", "relative/net"}
+	if runtime.GOOS == "windows" {
+		remote = []string{`\\server\share`, `//server/share`, `\/server\share`, `\\?\C:\repo`, `\\.\pipe\x`}
+		local = []string{`C:\repo`, `C:\net\x`, `repo\sub`}
+	}
+	for _, p := range remote {
+		if !networkPath(p) {
+			t.Errorf("networkPath(%q) = false, want true", p)
+		}
+	}
+	for _, p := range local {
+		if networkPath(p) {
+			t.Errorf("networkPath(%q) = true, want false", p)
+		}
+	}
+}
+
 // TestIsTrustedWithoutAConfiguration covers a machine where Claude has not run.
 func TestIsTrustedWithoutAConfiguration(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "missing"))

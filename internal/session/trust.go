@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,7 +100,20 @@ func claudeProjectKey(dir string) string {
 // about the exact directory reported a subfolder of a trusted repository, and
 // every worktree of one, as untrusted, and fan-out then refused to carry over
 // an answer the user had in fact given.
+//
+// These rules were read from Claude Code 2.1.269: its trust check (nO), the
+// key it files a project under (Pb and Dqe) and its walk up the folders (DH
+// and NH). A later version that changes them changes what this has to do.
+//
+// This is the answer that decides whether InheritTrust writes trust into
+// Claude Code's configuration, so it fails safe: anything that cannot be read,
+// followed or matched exactly counts for nothing, which can only ever make a
+// directory less trusted than Claude Code would find it, never more. A
+// directory on another machine is reported untrusted without being looked at.
 func IsTrusted(dir string) bool {
+	if dir == "" || networkPath(dir) {
+		return false
+	}
 	cfg, err := readClaudeConfig()
 	if err != nil {
 		return false
@@ -119,7 +133,7 @@ func IsTrusted(dir string) bool {
 	}
 
 	dir, err = filepath.Abs(dir)
-	if err != nil {
+	if err != nil || !staysLocal(dir) {
 		return false
 	}
 	root := repoRoot(dir)
@@ -156,41 +170,45 @@ func repoRoot(dir string) string {
 
 // canonicalRoot is the project a repository root belongs to in Claude Code's
 // eyes. For a linked worktree that is the repository the worktree was made
-// from, which Claude Code finds by following the worktree's .git file to its
-// administrative folder and checking that the folder points back at it; any
-// step that does not hold leaves the worktree as its own project, as it does
-// there.
+// from, found by following the worktree's .git file to its administrative
+// folder and checking that the folder points back at it.
+//
+// Read from Claude Code 2.1.269 (Re and xt), and checked at least as strictly
+// as it checks: a .git, commondir or gitdir that is not a plain file, a path
+// that leads off the machine, and a comparison that is not exact all leave the
+// worktree as its own project -- which is what Claude Code does with a step
+// that fails -- so it is judged only on answers given for itself.
 func canonicalRoot(root string) string {
-	data, err := os.ReadFile(filepath.Join(root, ".git"))
-	if err != nil {
-		return root // a directory: an ordinary repository
+	dotGit := filepath.Join(root, ".git")
+	line, ok := readPointer(dotGit)
+	if !ok || !strings.HasPrefix(line, "gitdir:") {
+		return root // a .git folder: an ordinary repository
 	}
-	line := strings.TrimSpace(string(data))
-	if !strings.HasPrefix(line, "gitdir:") {
+	admin, ok := pointerTarget(root, strings.TrimSpace(strings.TrimPrefix(line, "gitdir:")))
+	if !ok {
 		return root
 	}
-	resolve := func(base, p string) string {
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(base, p)
-		}
-		return filepath.Clean(p)
-	}
-	admin := resolve(root, strings.TrimSpace(strings.TrimPrefix(line, "gitdir:")))
-	common, err := os.ReadFile(filepath.Join(admin, "commondir"))
-	if err != nil {
+	common, ok := readPointer(filepath.Join(admin, "commondir"))
+	if !ok {
 		return root
 	}
-	commonDir := resolve(admin, strings.TrimSpace(string(common)))
-	if filepath.Dir(admin) != filepath.Join(commonDir, "worktrees") {
+	commonDir, ok := pointerTarget(admin, common)
+	if !ok || filepath.Dir(admin) != filepath.Join(commonDir, "worktrees") {
 		return root
 	}
-	back, err := os.ReadFile(filepath.Join(admin, "gitdir"))
-	if err != nil || !samePath(resolve(admin, strings.TrimSpace(string(back))), filepath.Join(root, ".git")) {
+	back, ok := readPointer(filepath.Join(admin, "gitdir"))
+	if !ok {
+		return root
+	}
+	if backPath, ok := pointerTarget(admin, back); !ok || backPath != dotGit {
 		return root
 	}
 	if filepath.Base(commonDir) != ".git" {
 		// A bare repository: it is the project unless it has a .git of its own.
-		if _, err := os.Stat(filepath.Join(commonDir, ".git")); err == nil {
+		if !staysLocal(commonDir) {
+			return root
+		}
+		if _, err := os.Lstat(filepath.Join(commonDir, ".git")); err == nil {
 			return root
 		}
 		return commonDir
@@ -198,13 +216,108 @@ func canonicalRoot(root string) string {
 	return filepath.Dir(commonDir)
 }
 
-// samePath compares two cleaned paths the way the file system does, which on
-// Windows ignores case.
-func samePath(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
+// readPointer reads one of the small files git ties a worktree together with,
+// refusing anything that is not a plain file on this machine: a link could
+// send the read anywhere.
+func readPointer(path string) (string, bool) {
+	if !staysLocal(path) {
+		return "", false
 	}
-	return a == b
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		return "", false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 4<<10))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(data)), true
+}
+
+// pointerTarget resolves a path found in one of those files against the folder
+// it was found in. One that is empty, names another machine, or is only half
+// absolute -- "C:x" or "\x" on Windows, which git never writes -- is refused.
+func pointerTarget(base, p string) (string, bool) {
+	if p == "" || networkPath(p) {
+		return "", false
+	}
+	if !filepath.IsAbs(p) {
+		if filepath.VolumeName(p) != "" || os.IsPathSeparator(p[0]) {
+			return "", false
+		}
+		p = filepath.Join(base, p)
+	}
+	p = filepath.Clean(p)
+	return p, !networkPath(p)
+}
+
+// networkPath reports whether a path names a location on another machine,
+// where merely looking makes the system reach out to it -- on Windows, handing
+// that machine the user's credentials. That is a UNC or device path on Windows
+// (\\server\share, \\?\..., in either slash), and the automounted /net and
+// /Network folders elsewhere: the places Claude Code 2.1.269 refuses to follow
+// a worktree's links into (wl, Ire and xg).
+func networkPath(p string) bool {
+	if runtime.GOOS == "windows" {
+		return len(p) >= 2 && os.IsPathSeparator(p[0]) && os.IsPathSeparator(p[1])
+	}
+	if !strings.HasPrefix(p, "/") {
+		return false
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(filepath.Clean(p), "/"), "/")
+	return strings.EqualFold(first, "net") || strings.EqualFold(first, "network")
+}
+
+// staysLocal reports whether an absolute path can be followed without leaving
+// the machine. Each link met on the way is read, not followed, and the walk
+// goes on from where it points; a link to another machine, or a chain of links
+// too long to be anything but a loop, ends it. Claude Code walks a worktree's
+// paths the same way before it reads them (J, in 2.1.269).
+func staysLocal(p string) bool {
+	for hops := 0; hops < 40; hops++ {
+		if networkPath(p) || !filepath.IsAbs(p) {
+			return false
+		}
+		vol := filepath.VolumeName(p)
+		parts := strings.FieldsFunc(p[len(vol):], func(r rune) bool { return r < 128 && os.IsPathSeparator(byte(r)) })
+		cur := vol + string(filepath.Separator)
+		next := ""
+		for i, name := range parts {
+			cur = filepath.Join(cur, name)
+			fi, err := os.Lstat(cur)
+			if err != nil {
+				return true // nothing there to follow; reading it fails on its own
+			}
+			if fi.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			target, err := os.Readlink(cur)
+			if err != nil || target == "" || networkPath(target) {
+				return false
+			}
+			if !filepath.IsAbs(target) {
+				if filepath.VolumeName(target) != "" {
+					return false
+				}
+				if os.IsPathSeparator(target[0]) {
+					target = vol + target
+				} else {
+					target = filepath.Join(filepath.Dir(cur), target)
+				}
+			}
+			next = filepath.Join(append([]string{target}, parts[i+1:]...)...)
+			break
+		}
+		if next == "" {
+			return true
+		}
+		p = filepath.Clean(next)
+	}
+	return false
 }
 
 // InheritTrust records that a directory is trusted, given that another already
