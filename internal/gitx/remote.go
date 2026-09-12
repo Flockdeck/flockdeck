@@ -151,7 +151,18 @@ func Pull(dir string) (string, error) {
 	if UpstreamOf(dir) == "" {
 		return "", &gitError{"this branch does not track anything on the remote yet, so there is nothing to pull; push it first to set that up"}
 	}
-	out, err := runVerbose(dir, "pull", "--ff-only")
+	args := []string{"pull", "--ff-only"}
+	// A pull that brings in a teammate's bump of a submodule moves the commit
+	// recorded for it, and without this leaves the submodule's own checkout
+	// where it was. The file list then shows the submodule as changed, and
+	// the next Commit -- made for something else entirely -- staged the old
+	// checkout and quietly undid the bump. With it, the submodules are
+	// checked out at what was pulled; unless the user has said otherwise in
+	// submodule.recurse, which git then follows.
+	if _, cerr := run(dir, "config", "--get", "submodule.recurse"); cerr != nil {
+		args = append(args, "--recurse-submodules")
+	}
+	out, err := runVerbose(dir, args...)
 	if err != nil {
 		// Bringing the branch up to date writes the index, which an agent's
 		// own git may be holding at that moment; the fetch half is done by
@@ -160,7 +171,7 @@ func Pull(dir string) (string, error) {
 			if held {
 				return "", indexHeld(lock)
 			}
-			out, err = runVerbose(dir, "pull", "--ff-only")
+			out, err = runVerbose(dir, args...)
 		}
 	}
 	if err != nil {

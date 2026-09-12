@@ -1584,3 +1584,56 @@ func TestPushDoesNotPublishAnUnpushedSubmoduleCommit(t *testing.T) {
 		t.Errorf("with the submodule pushed, the push should go through: %v", err)
 	}
 }
+
+// TestPullThenCommitKeepsATeammatesSubmoduleBump: the pull moved the commit
+// recorded for the submodule and left its checkout where it was, so the
+// submodule showed as changed and the next commit -- for something else --
+// recorded the old one, undoing the bump.
+func TestPullThenCommitKeepsATeammatesSubmoduleBump(t *testing.T) {
+	bare := func() string {
+		dir := t.TempDir()
+		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("bare init failed: %v: %s", err, out)
+		}
+		return dir
+	}
+	subOrigin, outerOrigin := bare(), bare()
+	inner := newRepo(t)
+	gitRun(t, inner, "remote", "add", "origin", subOrigin)
+	gitRun(t, inner, "push", "-q", "-u", "origin", "main")
+
+	mine := newRepo(t)
+	gitRun(t, mine, "config", "protocol.file.allow", "always")
+	gitRun(t, mine, "remote", "add", "origin", outerOrigin)
+	gitRun(t, mine, "-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub")
+	gitRun(t, mine, "commit", "-qm", "add sub")
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+
+	theirs := t.TempDir()
+	cmd := exec.Command("git", "-c", "protocol.file.allow=always", "clone", "-q", "--recurse-submodules", outerOrigin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	tsub := filepath.Join(theirs, "sub")
+	gitRun(t, tsub, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "their bump")
+	gitRun(t, tsub, "push", "-q", "origin", "HEAD:main")
+	bump := strings.TrimSpace(gitRun(t, tsub, "rev-parse", "HEAD"))
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-qam", "bump sub")
+	gitRun(t, theirs, "push", "-q")
+
+	if _, err := Pull(mine); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if files, _ := Changes(mine); len(files) != 0 {
+		t.Errorf("after the pull, changes = %+v; want none, the submodule checked out at what was pulled", files)
+	}
+	write(t, mine, "notes.txt", "my own change\n")
+	if err := CommitAll(mine, "my change"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(gitRun(t, mine, "rev-parse", "HEAD:sub")); got != bump {
+		t.Errorf("the commit recorded submodule %s, want the teammate's bump %s", got, bump)
+	}
+}
