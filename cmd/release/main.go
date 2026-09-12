@@ -28,6 +28,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // platforms is what a release is built for. It matches the Makefile's list,
@@ -44,12 +46,17 @@ var platforms = []struct{ OS, Arch string }{
 
 const binary = "flockdeck"
 
-// chatBinary is the console twin of the Windows build: the same program,
-// linked as a console program rather than for the GUI subsystem. An API
-// agent's pane runs Flockdeck's own chat client as its process, and a pane
-// is a pseudo-console, which Windows attaches only to console programs:
-// started from the GUI build the pane stayed blank. The launcher runs this
-// one instead when it sits beside the program.
+// chatBinary is the console twin of the Windows build: the program with its
+// PE Subsystem set to console. An API agent's pane runs Flockdeck's own chat
+// client as its process, and a pane is a pseudo-console, which Windows
+// attaches only to console programs: started from the GUI build the pane
+// stayed blank. The launcher runs this one instead when it sits beside the
+// program.
+//
+// It is made from the program's own build rather than linked again, so it
+// holds exactly the bytes the program writes for itself when its twin is
+// missing or stale (selfupdate.EnsureChatTwin): one linked separately differs
+// throughout, and every installation would rewrite it at its first start.
 const chatBinary = "flockdeck-chat"
 
 func main() {
@@ -102,15 +109,23 @@ func run(version, out string) error {
 // beside the program.
 func packagePlatform(version, out, goos, goarch string) (string, error) {
 	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
-	if err := build(version, goos, goarch, built, true); err != nil {
+	if err := build(version, goos, goarch, built); err != nil {
 		return "", fmt.Errorf("build %s/%s: %w", goos, goarch, err)
 	}
 	files := []archived{{built, binary + ext(goos)}}
 
 	if goos == "windows" {
+		program, err := os.ReadFile(built)
+		if err != nil {
+			return "", err
+		}
+		data, ok := selfupdate.ConsoleTwin(program)
+		if !ok {
+			return "", fmt.Errorf("%s/%s: the build is not a GUI-subsystem program to make %s from", goos, goarch, chatBinary)
+		}
 		twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, goos, goarch, ext(goos)))
-		if err := build(version, goos, goarch, twin, false); err != nil {
-			return "", fmt.Errorf("build %s/%s's %s: %w", goos, goarch, chatBinary, err)
+		if err := os.WriteFile(twin, data, 0o755); err != nil {
+			return "", err
 		}
 		files = append(files, archived{twin, chatBinary + ext(goos)})
 	}
@@ -169,17 +184,15 @@ func archiveExt(goos string) string {
 	return ".tar.gz"
 }
 
-// build compiles one platform. gui asks for the GUI subsystem on Windows, and
-// means nothing elsewhere.
+// build compiles one platform.
 //
 // The Windows build asks for the GUI subsystem for the same reason the
 // Makefile does: started from a shortcut it should not flash a console window
 // behind the interface. A program linked that way is given no console, even
 // by a terminal, so the program borrows the terminal's itself (useConsole).
-// chatBinary is the one built without it.
-func build(version, goos, goarch, out string, gui bool) error {
+func build(version, goos, goarch, out string) error {
 	ldflags := "-s -w -X main.version=" + version
-	if goos == "windows" && gui {
+	if goos == "windows" {
 		ldflags += " -H=windowsgui"
 	}
 

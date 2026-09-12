@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // entry is one file read back out of an archive.
@@ -73,6 +75,7 @@ func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 		binary + ".exe":     pe.IMAGE_SUBSYSTEM_WINDOWS_GUI,
 		chatBinary + ".exe": pe.IMAGE_SUBSYSTEM_WINDOWS_CUI,
 	}
+	contents := map[string][]byte{}
 	for _, f := range zr.File {
 		sub, ok := want[f.Name]
 		if !ok {
@@ -88,6 +91,7 @@ func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		contents[f.Name] = data
 		pf, err := pe.NewFile(bytes.NewReader(data))
 		if err != nil {
 			t.Fatalf("%s: %v", f.Name, err)
@@ -102,6 +106,11 @@ func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 	}
 	for n := range want {
 		t.Errorf("the Windows archive has no %s", n)
+	}
+	// Exactly what the program makes of itself, so an installation never
+	// rewrites the twin it was shipped with.
+	if made, ok := selfupdate.ConsoleTwin(contents[binary+".exe"]); !ok || !bytes.Equal(made, contents[chatBinary+".exe"]) {
+		t.Error("the shipped twin is not the program with only its subsystem set to console")
 	}
 	// The loose programs went into the archive and are gone.
 	if entries, _ := os.ReadDir(out); len(entries) != 1 {
@@ -120,7 +129,7 @@ func TestReleaseBuildStampsTheVersion(t *testing.T) {
 	}
 	t.Chdir(filepath.Join("..", ".."))
 	exe := filepath.Join(t.TempDir(), binary+ext(runtime.GOOS))
-	if err := build("v9.9.9", runtime.GOOS, runtime.GOARCH, exe, true); err != nil {
+	if err := build("v9.9.9", runtime.GOOS, runtime.GOARCH, exe); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	out, err := exec.Command(exe, "-version").Output()
