@@ -151,14 +151,15 @@ func listItems(text string) ([]item, []int) {
 			continue
 		}
 		if entry, ok := listItem(body); ok {
-			// A heading written as a list entry with the steps nested under it —
-			// "- Next steps:" over indented bullets, or Codex's bullet in front
-			// of "Plan:" — announces the plan as the same words on a line of
-			// their own do. Kept as an entry it was the shallowest one, so the
-			// steps under it went as its detail and nothing was offered at all.
+			// A heading or lead-in written as a list entry with the steps nested
+			// under it — "- Next steps:" over indented bullets, or Codex's bullet
+			// in front of "Plan:" or "Here's the plan:" — announces the plan as
+			// the same words on a line of their own do. Kept as an entry it was
+			// the shallowest one, so the steps under it went as its detail, and
+			// the dialog offered nothing, or the lead-in itself as the one task.
 			// A heading beside the steps, at their own depth, heads nothing and
 			// stays an entry, to be dropped as one.
-			if last := len(items) - 1; last >= 0 && indent > items[last].indent && isPlanHeading(items[last].text) {
+			if last := len(items) - 1; last >= 0 && indent > items[last].indent && isPlanCue(items[last].text) {
 				heading := items[last].line
 				items = items[:last]
 				// Cues are read latest first, so the heading goes in by line.

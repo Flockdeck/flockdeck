@@ -167,6 +167,23 @@ func TestExtractTasksReadsAPlanUnderABulletedHeading(t *testing.T) {
 	}
 }
 
+// TestExtractTasksReadsAPlanUnderABulletedLeadIn is the same shape with a
+// sentence in place of the heading: Codex bullets "Here's the plan:" as it
+// bullets everything it says. The dialog offered that sentence as the one task
+// and none of the steps under it.
+func TestExtractTasksReadsAPlanUnderABulletedLeadIn(t *testing.T) {
+	steps := []string{"Split the router into its own package", "Add a timeout to the control socket"}
+	for name, plan := range map[string]string{
+		"here's the plan": "• Here's the plan:\n\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+		"split this into": "• I'll split this into two parts:\n  - Split the router into its own package\n  - Add a timeout to the control socket\n",
+		"after a survey":  "• I looked at the router and the socket code.\n\n• Here's what I'd do:\n  1. Split the router into its own package\n  2. Add a timeout to the control socket\n",
+	} {
+		if got := ExtractTasks(plan); !reflect.DeepEqual(got, steps) {
+			t.Errorf("%s: extracted %q, want %q", name, got, steps)
+		}
+	}
+}
+
 // TestExtractTasksIgnoresCodeBlocks covers a plan that shows its work: a list
 // inside a fence is sample text, not a set of jobs.
 func TestExtractTasksIgnoresCodeBlocks(t *testing.T) {
