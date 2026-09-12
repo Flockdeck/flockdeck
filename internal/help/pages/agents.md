@@ -67,6 +67,10 @@ each a list of phrases its output shows in that state — so that its status is
 read from what it prints as well. They are plain text, not expressions, and
 case does not matter; none of the built-ins has any yet.
 
+Aider is handed its opening task with `--message`, which Aider treats as a
+single message, so a pane started with a task (by a fan-out, say) may end when
+the task does.
+
 ## Keys, for the API agents
 
 A CLI agent uses the login it already has, and Flockdeck never sees it. An API
