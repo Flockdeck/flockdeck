@@ -32,40 +32,56 @@ type conversationsMsg struct {
 	Error string             `json:"error,omitempty"`
 }
 
-// listings remembers the newest conversation listing each window has asked
-// for.
+// newestAnswer lets only the newest of a window's requests of one kind answer
+// it. Work done off the workspace goroutine can finish in any order, and a
+// panel redraws itself from whichever reply arrived last -- so an older reply
+// landing after a newer one would leave the window looking at what it asked
+// about before.
+type newestAnswer struct {
+	sync.Mutex
+	seq map[*controlClient]uint64
+}
+
+func newNewestAnswer() *newestAnswer {
+	return &newestAnswer{seq: make(map[*controlClient]uint64)}
+}
+
+// asked records that a window has asked, and numbers the request.
+func (n *newestAnswer) asked(c *controlClient) uint64 {
+	n.Lock()
+	defer n.Unlock()
+	n.seq[c]++
+	return n.seq[c]
+}
+
+// answer reports whether a finished reply is still the one its window is
+// waiting for, and forgets the window when it is.
+func (n *newestAnswer) answer(c *controlClient, asked uint64) bool {
+	n.Lock()
+	defer n.Unlock()
+	if n.seq[c] != asked {
+		return false
+	}
+	delete(n.seq, c)
+	return true
+}
+
+// listings is the conversation listings each window has asked for.
 //
 // Reading a project's transcripts takes as long as the project is old, so two
 // answers can finish out of order: open the history of a project with years
-// behind it, close it, open a younger project's, and the first answer lands
-// on top of the second. The panel redraws itself from whichever message
-// arrived last, so the window would be left looking at another project's
-// conversations under this project's heading. Only the newest request a
-// window has made is allowed to answer it.
-var listings = struct {
-	sync.Mutex
-	seq map[*controlClient]uint64
-}{seq: make(map[*controlClient]uint64)}
+// behind it, close it, open a younger project's, and the first answer lands on
+// top of the second, leaving the window looking at another project's
+// conversations under this project's heading.
+var listings = newNewestAnswer()
 
-// askedForListing records that a window has asked, and numbers the request.
-func askedForListing(c *controlClient) uint64 {
-	listings.Lock()
-	defer listings.Unlock()
-	listings.seq[c]++
-	return listings.seq[c]
-}
+// askedForListing records that a window has asked for its conversations, and
+// numbers the request.
+func askedForListing(c *controlClient) uint64 { return listings.asked(c) }
 
 // answerListing reports whether a finished listing is still the one its
 // window is waiting for, and forgets the window when it is.
-func answerListing(c *controlClient, n uint64) bool {
-	listings.Lock()
-	defer listings.Unlock()
-	if listings.seq[c] != n {
-		return false
-	}
-	delete(listings.seq, c)
-	return true
-}
+func answerListing(c *controlClient, n uint64) bool { return listings.answer(c, n) }
 
 // allConversations reads every agent's stored conversations. It is a variable
 // so a test can have one agent's store fail beside another's that works, which
