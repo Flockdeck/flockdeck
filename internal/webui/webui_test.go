@@ -4975,28 +4975,81 @@ assert.ok(/1 other pane is hidden/.test(on[0].dataset.tip), on[0].dataset.tip);
 `)
 }
 
-// The prompt bar's field is one line, and a text field removes the breaks
-// from what is pasted into it outright: an instruction pasted in several
-// lines ran the end of each into the start of the next.
-func TestAPastedMultiLinePromptKeepsItsWordsApart(t *testing.T) {
+// The prompt bar's field was one line, and a pasted instruction of several
+// had its line breaks turned into spaces. The field holds lines now, and a
+// paste is left to keep them.
+func TestAPastedMultiLinePromptKeepsItsLines(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
 h.press("promptAll");
 const input = h.$("prompt-input");
-input.value = "go: ";
-const paste = (text) => {
-  const ev = new h.Ev("paste", { clipboardData: { getData: () => text } });
-  h.dispatch(input, ev);
-  return ev;
-};
-const ev = paste("1. add tests\r\n2. run them\n\n3. push\n");
-assert.ok(ev.defaultPrevented, "the browser was left to strip the breaks");
-assert.strictEqual(input.value, "go: 1. add tests 2. run them 3. push");
+assert.strictEqual(input.tagName, "TEXTAREA", "the prompt field holds one line");
+const ev = new h.Ev("paste", { clipboardData: { getData: () => "1. add tests\r\n2. run them" } });
+h.dispatch(input, ev);
+assert.ok(!ev.defaultPrevented, "a paste of several lines was taken over rather than kept as it is");
+`)
+}
 
-// One line is left to the browser.
-input.value = "";
-assert.ok(!paste("just this").defaultPrevented, "a paste of one line was taken over");
+// Enter sends what is in the prompt bar, so a prompt of several lines could
+// not be written there. Shift+Enter is left to the field, which starts a new
+// line with it, and Enter then sends every line as one message.
+func TestShiftEnterStartsANewLineInThePrompt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+const input = h.$("prompt-input");
+input.value = "add tests";
+const shifted = h.key({ key: "Enter", shiftKey: true });
+assert.ok(!shifted.defaultPrevented, "Shift+Enter was kept from the field, which starts a new line with it");
+assert.ok(!h.$("promptbar").hidden, "Shift+Enter sent the prompt");
+assert.ok(!h.commands().some((c) => c.cmd === "sendPrompt"), "Shift+Enter sent the prompt");
+input.value = "add tests\nrun them";
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "add tests\nrun them" });
+assert.ok(h.$("promptbar").hidden, "sending did not close the bar");
+`)
+}
+
+// A prompt field of one line's height showed one line of a prompt of five, and
+// the four above it went to every agent unread. It grows with its lines.
+func TestThePromptFieldGrowsWithItsLines(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+const input = h.$("prompt-input");
+input.clientHeight = 18; // the harness's offsetHeight is 20: 2px of border
+input.scrollHeight = 64;
+input.value = "one\ntwo\nthree";
+h.dispatch(input, new h.Ev("input", {}));
+assert.strictEqual(input.style.height, "66px", "the field did not grow to show every line");
+`)
+}
+
+// Up and Down recall the prompts sent before, and in a prompt of several lines
+// they are also how the caret moves between its lines. They recall only from
+// the first line and the last.
+func TestUpAndDownMoveBetweenAPromptsLines(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("prompt-input");
+h.press("promptAll");
+input.value = "run the tests";
+h.key({ key: "Enter" });
+h.press("promptAll");
+input.value = "one\ntwo";
+input.setSelectionRange(5, 5);
+assert.ok(!h.key({ key: "ArrowUp" }).defaultPrevented, "Up on the second line did not move to the first");
+assert.strictEqual(input.value, "one\ntwo", "Up on the second line recalled a prompt");
+input.setSelectionRange(1, 1);
+assert.ok(!h.key({ key: "ArrowDown" }).defaultPrevented, "Down on the first line did not move to the second");
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "run the tests", "Up on the first line did not recall the last prompt");
+h.key({ key: "ArrowDown" });
+assert.strictEqual(input.value, "one\ntwo", "Down did not come back to what was being written");
 `)
 }
 

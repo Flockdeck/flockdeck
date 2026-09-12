@@ -751,7 +751,10 @@ its test rather than misleading a reader.
 
 The prompt bar (`Ctrl+Shift+P`) composes one instruction and sends it as one
 submitted message, which is what you want for "run the tests and fix what
-breaks" across several worktrees. Broadcast decides who receives it: with it
+breaks" across several worktrees. `Enter` sends it and `Shift+Enter` starts a
+new line; a prompt of several lines is handed to each pane as a bracketed
+paste where its program has asked for one, so it still arrives as one
+message rather than one per line. Broadcast decides who receives it: with it
 off, the focused pane and any panes picked with the `⇉` button in their
 header; with it on, every pane in the broadcast set — by default every agent
 in the tab on screen. What you type into a pane still goes to that pane alone.

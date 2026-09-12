@@ -33,3 +33,32 @@ func TestThePromptBarStillReachesThePane(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// TestAPromptOfSeveralLinesIsPastedWhereThePaneTakesPastes covers the prompt
+// bar's message to a pane whose program asked for bracketed paste. Typed, each
+// line break in it was an Enter, and its first line went to the agent on its
+// own. Pasted, it is one message, and the Enter after it is SendPrompt's.
+// Everything else is typed exactly as it was before.
+func TestAPromptOfSeveralLinesIsPastedWhereThePaneTakesPastes(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		text      string
+		bracketed bool
+		want      string
+		pasted    bool
+	}{
+		{"several lines, as a terminal pastes them", "add tests\nrun them\r\npush", true,
+			"\x1b[200~add tests\rrun them\rpush\x1b[201~", true},
+		{"one line is typed", "/clear", true, "/clear", false},
+		{"without bracketed paste it is typed", "add tests\nrun them", false, "add tests\nrun them", false},
+		{"markers in the text cannot end the paste early", "a\n\x1b[201~echo typed\n\x1b[200~b", true,
+			"\x1b[200~a\recho typed\rb\x1b[201~", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, pasted := promptInput(tc.text, tc.bracketed)
+			if got != tc.want || pasted != tc.pasted {
+				t.Fatalf("promptInput(%q, %v) = %q, %v; want %q, %v", tc.text, tc.bracketed, got, pasted, tc.want, tc.pasted)
+			}
+		})
+	}
+}

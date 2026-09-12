@@ -2200,10 +2200,15 @@
 
   function promptKey(ev) {
     const input = $("prompt-input");
-    if (ev.key === "ArrowUp" && promptAt > 0) {
+    // A prompt can run to several lines, and Up and Down move between them.
+    // They recall a prompt only from the first line and the last, as a shell
+    // does with a command of several lines.
+    const from = input.selectionStart ?? input.value.length;
+    const to = input.selectionEnd ?? from;
+    if (ev.key === "ArrowUp" && promptAt > 0 && !input.value.slice(0, from).includes("\n")) {
       if (promptAt === promptHistory.length) promptDraft = input.value;
       input.value = promptHistory[--promptAt];
-    } else if (ev.key === "ArrowDown" && promptAt < promptHistory.length) {
+    } else if (ev.key === "ArrowDown" && promptAt < promptHistory.length && !input.value.slice(to).includes("\n")) {
       promptAt++;
       input.value = promptAt === promptHistory.length ? promptDraft : promptHistory[promptAt];
     } else {
@@ -2211,6 +2216,20 @@
     }
     ev.preventDefault();
     input.setSelectionRange(input.value.length, input.value.length);
+    fitPrompt();
+  }
+
+  /** fitPrompt makes the prompt field as tall as the lines in it, up to the
+   *  height the stylesheet allows, after which it scrolls. A field of fixed
+   *  height showed one line of a prompt of five, and the four above it went
+   *  to every agent unread. */
+  function fitPrompt() {
+    const input = $("prompt-input");
+    input.style.height = "";
+    if (!input.scrollHeight) return;
+    // scrollHeight leaves out the border, which a border-box height includes.
+    const border = (input.offsetHeight - input.clientHeight) || 0;
+    input.style.height = input.scrollHeight + border + "px";
   }
 
   /** labelPrompt says how many panes the prompt bar's message will reach.
@@ -2234,6 +2253,7 @@
     const input = $("prompt-input");
     input.value = promptUnsent;
     input.focus();
+    fitPrompt();
   }
   function closePrompt() {
     promptUnsent = $("prompt-input").value;
@@ -5702,7 +5722,9 @@
     // never reaching the agent, while every other binding did nothing at all.
     if (!$("promptbar").hidden && $("promptbar").contains(document.activeElement)) {
       if (e.key === "Escape") { e.preventDefault(); closePrompt(); }
-      else if (e.key === "Enter" && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
+      // Enter sends. Shift+Enter is left to the field, which starts a new
+      // line with it, so a prompt of several lines can be written here.
+      else if (e.key === "Enter" && !e.shiftKey && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
       return;
     }
 
@@ -5760,21 +5782,11 @@
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;
   $("prompt-input").onkeydown = promptKey;
-  // A text field removes line breaks outright, so an instruction pasted in
-  // several lines - "1. add tests", "2. run them" - arrived as "1. add
-  // tests2. run them". The breaks become spaces. The field stays one line:
-  // the prompt reaches each agent as typed, and a break would press Enter.
-  $("prompt-input").addEventListener("paste", (ev) => {
-    const text = ev.clipboardData ? ev.clipboardData.getData("text") : "";
-    if (!/[\r\n]/.test(text)) return;
-    ev.preventDefault();
-    const input = $("prompt-input");
-    const flat = text.replace(/\s*[\r\n]+\s*/g, " ").trim();
-    const from = input.selectionStart ?? input.value.length;
-    const to = input.selectionEnd ?? from;
-    input.value = input.value.slice(0, from) + flat + input.value.slice(to);
-    input.setSelectionRange(from + flat.length, from + flat.length);
-  });
+  // The field holds several lines, so an instruction pasted in several -
+  // "1. add tests", "2. run them" - keeps them, and the field grows to show
+  // them. A pane whose program takes pasted text receives them as one
+  // message; see SendPrompt.
+  $("prompt-input").addEventListener("input", fitPrompt);
   $("prompt-cancel").onclick = closePrompt;
   $("retry").onclick = connectControl;
   $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
