@@ -913,6 +913,15 @@ func TestProbe(t *testing.T) {
 	if err := Probe(context.Background(), up.URL); err != nil {
 		t.Errorf("Probe of a relay = %v, want nil", err)
 	}
+	// An address as typed is checked as any relay address is: a trailing
+	// slash is no reason to miss the relay, and one of its codes is refused
+	// as one, not looked up as a host.
+	if err := Probe(context.Background(), up.URL+"/"); err != nil {
+		t.Errorf("Probe of a relay given with a trailing slash = %v, want nil", err)
+	}
+	if err := Probe(context.Background(), "fdp_0123456789abcdefghijkl"); err == nil || !strings.Contains(err.Error(), "one of the relay's codes") {
+		t.Errorf("Probe of a code = %v, want it refused as one", err)
+	}
 	other := httptest.NewServer(http.NotFoundHandler())
 	defer other.Close()
 	if err := Probe(context.Background(), other.URL); err == nil || !strings.Contains(err.Error(), "not what a Flockdeck relay answers") {

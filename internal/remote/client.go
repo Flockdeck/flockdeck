@@ -157,6 +157,14 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 // mistyped or unreachable address is best found out before the first step,
 // while the machine still has a relay to be on.
 func Probe(ctx context.Context, relay string) error {
+	// The address may come as typed, into the dialog's field say, and is
+	// checked as every relay address here is: given a scheme and no trailing
+	// slash, and refused, without being sent anywhere, when it is one of the
+	// relay's codes, which asked after as a host would go to the resolver.
+	relay, err := CheckRelay(relay)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, relay+"/healthz", nil)
