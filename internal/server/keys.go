@@ -62,10 +62,26 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 		if err != nil {
 			c.notify("could not save the key: "+err.Error(), true)
 		} else {
-			c.notify("saved the key for "+agentID, false)
+			c.notify(s.savedKeyNotice(agentID), false)
 		}
 		s.keysChanged(c)
 	}()
+}
+
+// savedKeyNotice says that a key was saved, and whether it is the one used.
+//
+// A key already in flockdeck's environment comes first (creds.Resolve), so one
+// saved over it is kept for later and does nothing while the variable is set.
+// The dialog offers Replace… for both kinds alike, and "saved" on its own read
+// as though the key just typed was now in use.
+func (s *Server) savedKeyNotice(agentID string) string {
+	text := "saved the key for " + agentID
+	if spec, ok := s.ws.Catalog().Find(agentID); ok {
+		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
+			text += ", but " + st.Env + " in flockdeck's environment is what is used while it is set"
+		}
+	}
+	return text
 }
 
 // clearKey forgets a stored key.

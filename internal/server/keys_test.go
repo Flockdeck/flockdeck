@@ -109,3 +109,28 @@ func TestKeysDialogIsAnswered(t *testing.T) {
 		t.Fatalf("after clearing the key the dialog shows %+v", st)
 	}
 }
+
+// TestAKeySavedUnderAnExportedOneSaysSo covers Replace… on a key that comes
+// from flockdeck's environment. The environment wins, so the key typed in is
+// kept but not used while the variable is set, and "saved the key" alone read
+// as though it now was.
+func TestAKeySavedUnderAnExportedOneSaysSo(t *testing.T) {
+	srv, ws := newTestServer(t)
+	spec, ok := ws.Catalog().Find("anthropic")
+	if !ok || len(spec.API.KeyEnv) == 0 {
+		t.Skip("no built-in anthropic agent with a key variable")
+	}
+	for _, v := range spec.API.KeyEnv {
+		t.Setenv(v, "")
+	}
+	exported := spec.API.KeyEnv[0]
+	t.Setenv(exported, "sk-from-the-environment")
+
+	conn := dialControl(t, srv)
+	sendCmd(t, conn, command{Cmd: "keySet", ID: spec.ID, Text: "sk-typed-into-the-dialog"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if note.Error || !strings.Contains(note.Text, exported) {
+		t.Fatalf("saving a key under an exported one said %+v; want it to name %s, which is what is used", note, exported)
+	}
+}
