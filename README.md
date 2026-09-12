@@ -94,7 +94,8 @@ Both read a few settings from the environment:
 - `FLOCKDECK_INSTALL_DIR` — another directory to install into.
 - `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from instead,
   laid out as `<mirror>/<version>/<file>`. The latest is read from
-  `<mirror>/latest.json`, or asked of GitHub when the mirror has none.
+  `<mirror>/latest.json`, which names it as `{"version":"v1.2.3"}`, or asked
+  of GitHub when the mirror has none.
 - `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
   alone.
 
@@ -132,12 +133,17 @@ console, which is what an API agent's pane runs there.
 
 ### Staying up to date
 
-Every release is published at `https://dl.flockdeck.ai` as one archive per
-platform — a `.zip` for Windows, a `.tar.gz` elsewhere — with a
-`checksums.txt` beside them, and `latest.json` naming the latest release.
-`checksums.txt` and `latest.json` are signed with the release's Ed25519 key,
-whose public half is built into Flockdeck. GitHub carries every release as
-well, as a mirror. Tagging a commit `v1.2.3` is the whole of cutting one: the
+Every release is published at `https://dl.flockdeck.ai` under its version, as
+one archive per platform — a `.zip` for Windows, a `.tar.gz` elsewhere — with
+a `checksums.txt` and a `manifest.json` describing them. Both are signed with
+the release's Ed25519 key, whose public half is built into Flockdeck, and
+nothing under a version changes once it is published. `latest.json` names
+the latest release, `{"version":"v1.2.3"}`, and nothing more. It is not
+signed, and is not purged from the CDN when it moves, because it needs
+neither: all it can do is point at a release whose own manifest is signed. An
+old or forged one can hold an update back for as long as it is cached, and
+can never have anything unsigned or older installed. GitHub carries every
+release as well, as a mirror. Tagging a commit `v1.2.3` is the whole of cutting one: the
 workflow vets, tests, cross-builds all six, publishes them on GitHub, signs
 them and uploads them to `dl.flockdeck.ai` (`scripts/publish-downloads.sh`). A
 tag with a suffix, `v1.2.3-rc.1`, is a pre-release: it is published under its

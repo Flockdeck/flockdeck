@@ -99,7 +99,7 @@ type Release struct {
 	// A release read from the site (latestFromSite) has these as well, and
 	// one read from GitHub's API has none of them.
 	sumsSig string            // checksums.txt.sig, which checksums.txt must pass
-	sums    map[string]string // each file's SHA-256, from the signed latest.json
+	sums    map[string]string // each file's SHA-256, from the signed manifest
 	mirror  *Release          // the same release on GitHub, if the site fails
 }
 
@@ -213,7 +213,7 @@ func (r *Release) checksums() (Asset, bool) {
 //
 // A release read from the site is downloaded from there, and from GitHub when
 // that fails for any reason, the reason logged. Either way the archive has to
-// match the SHA-256 the signed latest.json gave for it.
+// match the SHA-256 the release's signed manifest gave for it.
 func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	p, err := stage(ctx, rel, dir)
 	if err == nil || rel.mirror == nil || ctx.Err() != nil || errors.Is(err, ErrNoAsset) {
@@ -312,7 +312,7 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 // fetchSum reads checksums.txt and returns the hash recorded for one file.
 //
 // For a release from the site, checksums.txt has to carry the release key's
-// signature, and the hash it gives has to be the one the signed latest.json
+// signature, and the hash it gives has to be the one the signed manifest
 // gave; from GitHub's mirror of that release, only the second. A release read
 // from GitHub's API has neither, and its checksums.txt is taken as it is.
 func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error) {
@@ -334,7 +334,7 @@ func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error
 		return "", err
 	}
 	if signed, ok := r.sums[name]; ok && signed != sum {
-		return "", checksumError{fmt.Sprintf("checksums.txt gives %s a SHA-256 other than the signed latest.json does", name)}
+		return "", mismatchError{fmt.Sprintf("checksums.txt gives %s a SHA-256 other than the signed manifest does", name)}
 	}
 	return sum, nil
 }
@@ -381,7 +381,7 @@ func download(ctx context.Context, url, dest, want string) error {
 
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
 		os.Remove(dest)
-		return checksumError{fmt.Sprintf("download does not match its published checksum (got %s, want %s)", got[:12], want[:12])}
+		return mismatchError{fmt.Sprintf("download does not match its published checksum (got %s, want %s)", got[:12], want[:12])}
 	}
 	return nil
 }

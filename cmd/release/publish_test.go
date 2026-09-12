@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,12 +62,11 @@ type publishing struct {
 	store   string
 	logPath string
 	site    *httptest.Server
+	signing signing // how dist was signed, so a test can sign it again
 
-	mu        sync.Mutex
-	listable  bool // the site answers a listing of the bucket
-	unserved  bool // the site serves nothing
-	purges    []string
-	authority []string
+	mu       sync.Mutex
+	listable bool // the site answers a listing of the bucket
+	unserved bool // the site serves nothing
 }
 
 func newPublishing(t *testing.T, version string) *publishing {
@@ -89,8 +86,8 @@ func newPublishing(t *testing.T, version string) *publishing {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := signing{version: version, out: p.dist, base: "https://dl.example.invalid", key: selfupdate.EncodeSigningKey(key), anyKey: true, now: time.Now()}
-	if err := runSign(s); err != nil {
+	p.signing = signing{version: version, out: p.dist, base: "https://dl.example.invalid", key: selfupdate.EncodeSigningKey(key), anyKey: true, now: time.Now()}
+	if err := runSign(p.signing); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,17 +96,6 @@ func newPublishing(t *testing.T, version string) *publishing {
 		listable, unserved := p.listable, p.unserved
 		p.mu.Unlock()
 		switch {
-		case strings.HasPrefix(r.URL.Path, "/v2/cdn/endpoints/"):
-			body, _ := io.ReadAll(r.Body)
-			p.mu.Lock()
-			p.purges = append(p.purges, r.Method+" "+r.URL.Path+" "+string(body))
-			p.authority = append(p.authority, r.Header.Get("Authorization"))
-			p.mu.Unlock()
-			p.log("purge " + string(body))
-			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/v2/cdn/endpoints":
-			u, _ := url.Parse(p.site.URL)
-			fmt.Fprintf(w, `{"endpoints":[{"id":"other","custom_domain":"elsewhere.example"},{"id":"cdn-1","custom_domain":%q}]}`, u.Host)
 		case r.URL.Path == "/":
 			if !listable {
 				http.Error(w, "AccessDenied", http.StatusForbidden)
@@ -125,13 +111,6 @@ func newPublishing(t *testing.T, version string) *publishing {
 	}))
 	t.Cleanup(p.site.Close)
 	return p
-}
-
-// purged is every purge the fake API was asked for.
-func (p *publishing) purged() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.purges...)
 }
 
 // spoil changes how the fake site answers.
@@ -152,7 +131,8 @@ func (p *publishing) log(line string) {
 }
 
 // run runs the script for version with the settings given on top of a full
-// set, where a setting of "" leaves it out.
+// set, where a setting of "" leaves it out. The full set holds no
+// DigitalOcean API token: nothing is purged, so none is needed.
 func (p *publishing) run(version string, settings map[string]string) (string, error) {
 	p.t.Helper()
 	bin := p.t.TempDir()
@@ -162,13 +142,8 @@ func (p *publishing) run(version string, settings map[string]string) (string, er
 	env := map[string]string{
 		"DO_SPACES_KEY": "the-key", "DO_SPACES_SECRET": "the-secret", "DO_SPACES_BUCKET": "downloads",
 		"DO_SPACES_REGION": "lon1", "DO_SPACES_ENDPOINT": "https://s3.example.invalid",
-		"FLOCKDECK_DL_URL": p.site.URL, "DO_API_TOKEN": "the-token", "DO_API_URL": p.site.URL,
-		"FLOCKDECK_CHECK_WAIT": "0", "AWS_STUB_LOG": p.logPath, "AWS_STUB_STORE": p.store,
-	}
-	// The endpoint is looked up with jq where there is one, and given where
-	// there is not.
-	if _, err := exec.LookPath("jq"); err != nil {
-		env["DO_CDN_ENDPOINT_ID"] = "cdn-1"
+		"FLOCKDECK_DL_URL": p.site.URL, "FLOCKDECK_CHECK_WAIT": "0",
+		"AWS_STUB_LOG": p.logPath, "AWS_STUB_STORE": p.store,
 	}
 	for k, v := range settings {
 		env[k] = v
@@ -221,21 +196,22 @@ func index(events []string, prefix string) int {
 }
 
 // A release goes up in the order that makes it switch over in one step: its
-// own files under its version, one read back through the public address, the
-// unversioned copies for the site's buttons, latest.json's signature, and
-// latest.json last; then the CDN forgets what moved. Everything is public to
-// read, and cached for a year or for five minutes depending on whether it can
-// ever change.
+// own files under its version, its signed manifest among them, one read back
+// through the public address, the unversioned copies for the site's buttons,
+// and latest.json last, naming the version. Everything is public to read, and
+// cached for a year or for five minutes depending on whether it can ever
+// change. Nothing is purged.
 func TestPublishScriptOrder(t *testing.T) {
 	p := newPublishing(t, "v9.9.9")
-	if out, err := p.run("v9.9.9", nil); err != nil {
+	out, err := p.run("v9.9.9", nil)
+	if err != nil {
 		t.Fatalf("publish: %v\n%s", err, out)
 	}
 	ev := p.events()
 	keys, how := p.puts()
 
-	if len(keys) == 0 || keys[len(keys)-1] != "latest.json" || keys[len(keys)-2] != "latest.json.sig" {
-		t.Errorf("uploaded %v; want latest.json last, just after its signature", keys)
+	if len(keys) == 0 || keys[len(keys)-1] != "latest.json" {
+		t.Errorf("uploaded %v; want latest.json last", keys)
 	}
 	served := index(ev, "served v9.9.9/checksums.txt")
 	firstLatest := index(ev, "put latest/")
@@ -248,8 +224,16 @@ func TestPublishScriptOrder(t *testing.T) {
 	if !(lastVersioned >= 0 && lastVersioned < served && served < firstLatest) {
 		t.Errorf("events %v: want every versioned file, then the check through the site, then /latest/", ev)
 	}
-	if purge := index(ev, "purge "); purge < index(ev, "put latest.json|") {
-		t.Errorf("events %v: want the purge after latest.json", ev)
+	for _, k := range []string{"v9.9.9/manifest.json", "v9.9.9/manifest.json.sig"} {
+		if _, ok := how[k]; !ok {
+			t.Errorf("%s was not uploaded: %v", k, keys)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(p.store, "latest.json")); string(got) != `{"version":"v9.9.9"}`+"\n" {
+		t.Errorf("latest.json is %q, want it to name v9.9.9", got)
+	}
+	if strings.Contains(out, "purg") {
+		t.Errorf("the script spoke of purging:\n%s", out)
 	}
 
 	var archives int
@@ -284,25 +268,16 @@ func TestPublishScriptOrder(t *testing.T) {
 			t.Errorf("%s has %q, want %q", k, meta, wantMeta)
 		}
 	}
-	if want := 2*archives + 4; len(keys) != want {
+	if want := 2*archives + 5; len(keys) != want {
 		t.Errorf("uploaded %d files, want %d: %v", len(keys), want, keys)
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if len(p.purges) != 1 || p.purges[0] != `DELETE /v2/cdn/endpoints/cdn-1/cache {"files":["latest.json","latest.json.sig","latest/*"]}` {
-		t.Errorf("purges = %q", p.purges)
-	}
-	if len(p.authority) != 1 || p.authority[0] != "Bearer the-token" {
-		t.Errorf("the purge was authorised with %q", p.authority)
 	}
 }
 
-// A pre-release goes up under its version and nothing else moves: it is never
-// the latest, and nothing needs purging.
+// A pre-release goes up under its version, signed manifest and all, and
+// nothing else moves: it is never the latest.
 func TestPublishScriptLeavesLatestAloneForAPreRelease(t *testing.T) {
 	p := newPublishing(t, "v9.9.9-rc.1")
-	out, err := p.run("v9.9.9-rc.1", map[string]string{"DO_API_TOKEN": ""})
+	out, err := p.run("v9.9.9-rc.1", nil)
 	if err != nil {
 		t.Fatalf("publish: %v\n%s", err, out)
 	}
@@ -312,11 +287,8 @@ func TestPublishScriptLeavesLatestAloneForAPreRelease(t *testing.T) {
 			t.Errorf("a pre-release uploaded %s", k)
 		}
 	}
-	if len(keys) != len(platforms)+2 {
-		t.Errorf("uploaded %v, want the archives and the signed checksums", keys)
-	}
-	if purges := p.purged(); len(purges) != 0 {
-		t.Errorf("a pre-release purged %v", purges)
+	if len(keys) != len(platforms)+4 {
+		t.Errorf("uploaded %v, want the archives, the signed checksums and the signed manifest", keys)
 	}
 	if !strings.Contains(out, "pre-release") {
 		t.Errorf("output %q does not say latest.json was left alone", out)
@@ -327,11 +299,11 @@ func TestPublishScriptLeavesLatestAloneForAPreRelease(t *testing.T) {
 // uploaded.
 func TestPublishScriptNamesWhatIsMissing(t *testing.T) {
 	p := newPublishing(t, "v9.9.9")
-	out, err := p.run("v9.9.9", map[string]string{"DO_SPACES_SECRET": "", "DO_API_TOKEN": ""})
+	out, err := p.run("v9.9.9", map[string]string{"DO_SPACES_SECRET": "", "DO_SPACES_BUCKET": ""})
 	if err == nil {
 		t.Fatal("publish succeeded without its secrets")
 	}
-	if !strings.Contains(out, "not set: DO_SPACES_SECRET DO_API_TOKEN") {
+	if !strings.Contains(out, "not set: DO_SPACES_SECRET DO_SPACES_BUCKET") {
 		t.Errorf("output %q, want both missing settings named", out)
 	}
 	if keys, _ := p.puts(); len(keys) > 0 {
@@ -341,7 +313,8 @@ func TestPublishScriptNamesWhatIsMissing(t *testing.T) {
 
 // Nothing is switched over to a release the site does not serve, nor while
 // anyone can list the bucket; and a version already published with other
-// files is not written over.
+// files is not written over, since nothing would purge the copies of them
+// the CDN's edges hold.
 func TestPublishScriptStopsBeforeTheSwitch(t *testing.T) {
 	cases := map[string]func(p *publishing){
 		"the site serves nothing":  func(p *publishing) { p.spoil(func() { p.unserved = true }) },
@@ -365,9 +338,50 @@ func TestPublishScriptStopsBeforeTheSwitch(t *testing.T) {
 					t.Errorf("uploaded %s all the same", k)
 				}
 			}
-			if purges := p.purged(); len(purges) != 0 {
-				t.Errorf("purged %v", purges)
-			}
 		})
+	}
+}
+
+// A version published again from the same build uploads its files again,
+// which changes nothing, but keeps the manifest it was first published with:
+// signed again, it carries another date, and an edge holding the first
+// manifest.json beside the second's signature would fail it for a year.
+func TestPublishScriptKeepsAVersionsFirstManifest(t *testing.T) {
+	p := newPublishing(t, "v9.9.9")
+	if out, err := p.run("v9.9.9", nil); err != nil {
+		t.Fatalf("publish: %v\n%s", err, out)
+	}
+	first, err := os.ReadFile(filepath.Join(p.store, "v9.9.9", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.signing.now = p.signing.now.Add(time.Hour)
+	if err := runSign(p.signing); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(filepath.Join(p.dist, "manifest.json")); bytes.Equal(again, first) {
+		t.Fatal("signing again wrote the same manifest, so this tests nothing")
+	}
+	os.Remove(p.logPath)
+	out, err := p.run("v9.9.9", nil)
+	if err != nil {
+		t.Fatalf("publish again: %v\n%s", err, out)
+	}
+
+	keys, _ := p.puts()
+	for _, k := range keys {
+		if strings.HasPrefix(k, "v9.9.9/manifest.json") {
+			t.Errorf("uploaded %s again", k)
+		}
+	}
+	if len(keys) == 0 || keys[len(keys)-1] != "latest.json" {
+		t.Errorf("uploaded %v; want the release switched over to all the same", keys)
+	}
+	if kept, _ := os.ReadFile(filepath.Join(p.store, "v9.9.9", "manifest.json")); !bytes.Equal(kept, first) {
+		t.Error("the published manifest was replaced")
+	}
+	if !strings.Contains(out, "as they were first published") {
+		t.Errorf("output %q does not say the manifest was kept", out)
 	}
 }

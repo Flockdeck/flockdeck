@@ -67,9 +67,9 @@ func main() {
 		version = flag.String("version", "dev", "version to stamp into the binaries and the file names")
 		out     = flag.String("out", "dist", "directory to write the archives to")
 		keygen  = flag.String("keygen", "", "write a new release signing key to this `file`, print its public key, and stop")
-		sign    = flag.Bool("sign", false, "sign the release already built in -out with the key in "+signingKeyEnv+", and write latest.json")
-		base    = flag.String("base", selfupdate.Site, "where the download site serves releases, for the URLs in latest.json")
-		notes   = flag.String("notes", "", "a `file` of release notes to put in latest.json")
+		sign    = flag.Bool("sign", false, "sign the release already built in -out with the key in "+signingKeyEnv+", and write its manifest and latest.json")
+		base    = flag.String("base", selfupdate.Site, "where the download site serves releases, for the URLs in the manifest")
+		notes   = flag.String("notes", "", "a `file` of release notes to put in the manifest")
 		testKey = flag.Bool("test-key", false, "with -sign, accept a key the updater does not trust, to try the upload against a store of your own; never for a release")
 	)
 	flag.Parse()
@@ -183,15 +183,15 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 // clearOldArchives removes what an earlier run wrote to out. Archives of
 // another version would otherwise sit beside this run's, missing from its
 // checksums.txt, and uploading the directory as it stands would publish them
-// with the release; signatures and a latest.json left by -sign would describe
-// a build that is no longer there. Only the names this command writes are
-// touched.
+// with the release; signatures, a manifest and a latest.json left by -sign
+// would describe a build that is no longer there. Only the names this command
+// writes are touched.
 func clearOldArchives(out string) error {
 	old, err := filepath.Glob(filepath.Join(out, binary+"_*"))
 	if err != nil {
 		return err
 	}
-	for _, n := range []string{"checksums.txt", "checksums.txt.sig", "latest.json", "latest.json.sig"} {
+	for _, n := range []string{"checksums.txt", "checksums.txt.sig", "manifest.json", "manifest.json.sig", "latest.json"} {
 		old = append(old, filepath.Join(out, n))
 	}
 	for _, f := range old {

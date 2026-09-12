@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,10 +95,11 @@ func testSigning(t *testing.T, out string) (signing, ed25519.PublicKey) {
 	}, pub
 }
 
-// What -sign writes is exactly what the updater accepts: a latest.json
-// signed by the key, listing every archive, checksums.txt and its signature
-// with the site's URL, SHA-256 and size of each, and a checksums.txt.sig that
-// is the key's signature of checksums.txt as built.
+// What -sign writes is exactly what the updater accepts: a manifest signed by
+// the key, listing every archive, checksums.txt and its signature with the
+// site's URL, SHA-256 and size of each; a checksums.txt.sig that is the key's
+// signature of checksums.txt as built; and a latest.json naming the version
+// and nothing else.
 func TestSignWritesWhatTheUpdaterAccepts(t *testing.T) {
 	out := fakeRelease(t, "v9.9.9")
 	notes := filepath.Join(t.TempDir(), "notes.md")
@@ -120,16 +123,19 @@ func TestSignWritesWhatTheUpdaterAccepts(t *testing.T) {
 	if err := selfupdate.Verify(pub, read("checksums.txt"), read("checksums.txt.sig")); err != nil {
 		t.Errorf("checksums.txt.sig: %v", err)
 	}
-	m, err := selfupdate.CheckManifest(pub, read("latest.json"), read("latest.json.sig"))
+	m, err := selfupdate.CheckManifest(pub, read("manifest.json"), read("manifest.json.sig"))
 	if err != nil {
-		t.Fatalf("the updater refuses latest.json: %v", err)
+		t.Fatalf("the updater refuses the manifest: %v", err)
 	}
 	if m.Version != "v9.9.9" || m.NotesURL != "https://github.com/jmwri/flockdeck/releases/tag/v9.9.9" ||
 		m.Notes != "## What changed\n\n- things" || !m.Date.Equal(time.Date(2026, 9, 12, 9, 30, 0, 0, time.UTC)) {
-		t.Errorf("latest.json = %+v", m)
+		t.Errorf("manifest.json = %+v", m)
 	}
 	if len(m.Files) != len(platforms)+2 {
-		t.Errorf("latest.json lists %d files, want every archive, checksums.txt and its signature", len(m.Files))
+		t.Errorf("manifest.json lists %d files, want every archive, checksums.txt and its signature", len(m.Files))
+	}
+	if got := string(read("latest.json")); got != `{"version":"v9.9.9"}`+"\n" {
+		t.Errorf("latest.json = %q, want it to name v9.9.9 and nothing else", got)
 	}
 	for _, f := range m.Files {
 		data := read(f.Name)
@@ -152,8 +158,32 @@ func TestSignRefusesAKeyTheUpdaterDoesNotHold(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "releasekey.go") {
 		t.Fatalf("runSign with a stranger's key = %v, want it refused for want of the key in releasekey.go", err)
 	}
-	if _, err := os.Stat(filepath.Join(s.out, "latest.json")); err == nil {
-		t.Error("latest.json was written all the same")
+	if _, err := os.Stat(filepath.Join(s.out, "manifest.json")); err == nil {
+		t.Error("manifest.json was written all the same")
+	}
+}
+
+// The key as Terraform writes it into the secret, a PKCS#8 PEM, signs just as
+// the seed -keygen writes does.
+func TestSignTakesTheKeyAsTerraformWritesIt(t *testing.T) {
+	out := fakeRelease(t, "v9.9.9")
+	s, _ := testSigning(t, out)
+	pub, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.key = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	if err := runSign(s); err != nil {
+		t.Fatalf("runSign with Terraform's key: %v", err)
+	}
+	sums, _ := os.ReadFile(filepath.Join(out, "checksums.txt"))
+	sig, _ := os.ReadFile(filepath.Join(out, "checksums.txt.sig"))
+	if err := selfupdate.Verify(pub, sums, sig); err != nil {
+		t.Errorf("checksums.txt.sig is not Terraform's key's signature: %v", err)
 	}
 }
 
@@ -204,8 +234,8 @@ func TestSignRefusesAReleaseThatIsNotAsBuilt(t *testing.T) {
 			if err := runSign(s); err == nil {
 				t.Fatal("runSign signed it")
 			}
-			if _, err := os.Stat(filepath.Join(out, "latest.json")); err == nil {
-				t.Error("latest.json was written")
+			if _, err := os.Stat(filepath.Join(out, "manifest.json")); err == nil {
+				t.Error("manifest.json was written")
 			}
 		})
 	}

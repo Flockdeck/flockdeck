@@ -113,7 +113,8 @@ jobs:
       # only missing from the site.
       #
       # Every secret the rest needs is checked before any of it runs, and all
-      # the missing ones are named at once.
+      # the missing ones are named at once. Terraform writes every one of them
+      # (svc/flockdeck-site/release.tf in terrawost).
       - name: Check the download site's secrets
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -122,22 +123,21 @@ jobs:
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
           DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
-          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
         run: |
           missing=""
-          for name in FLOCKDECK_SIGNING_KEY DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION DO_API_TOKEN; do
+          for name in FLOCKDECK_SIGNING_KEY DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
             [ -n "$(printenv "$name" || true)" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
-            echo "::error::$TAG is published on GitHub, but cannot go to dl.flockdeck.ai until these repository secrets are set:$missing"
+            echo "::error::$TAG is published on GitHub, but cannot go to dl.flockdeck.ai until these repository secrets are set:$missing. Terraform writes them: apply terrawost's svc/flockdeck-site/release.tf"
             exit 1
           fi
 
-      # checksums.txt and latest.json are signed with the release key, whose
-      # public half every build carries, so that what the site serves can be
-      # trusted without trusting the site. The notes GitHub generated go into
-      # latest.json, so the update chip shows them as it did when the updater
-      # read them from GitHub.
+      # checksums.txt and the release's manifest are signed with the release
+      # key, whose public half every build carries, so that what the site
+      # serves can be trusted without trusting the site. The notes GitHub
+      # generated go into the manifest, so the update chip shows them as it did
+      # when the updater read them from GitHub.
       - name: Sign
         env:
           GH_TOKEN: ${{ github.token }}
@@ -157,5 +157,4 @@ jobs:
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
           DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
-          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
         run: sh scripts/publish-downloads.sh "$TAG" dist

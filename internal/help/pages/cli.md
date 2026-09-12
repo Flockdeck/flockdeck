@@ -110,6 +110,11 @@ downloads from GitHub instead and says why in its log. The download is checked
 against its published SHA-256 before anything is replaced, and a download that
 does not match is thrown away rather than installed.
 
+Which release is the latest comes from `latest.json` on `dl.flockdeck.ai`,
+which only names a version; Flockdeck then reads that version's own signed
+manifest. So an out-of-date `latest.json` can hold an update back for a few
+minutes, but it can never have anything unsigned or older installed.
+
 Replacing the binary does not disturb an instance that is already running: it
 is running from an image the operating system already holds, so the new version
 is simply what starts next time. The old file is moved aside and swept up by
