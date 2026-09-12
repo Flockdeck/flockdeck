@@ -132,20 +132,25 @@ func stateDir(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
-	t.Setenv("HOME", dir)            // macOS, under Library/Application Support
 	t.Setenv("HOME", dir)            // macOS and fallback
 	return dir
 }
 
-// writeAgents puts an agents.json where the catalog will find it.
+// writeAgents puts an agents.json where the catalog will find it: asked of
+// the catalog rather than worked out here, since on macOS the state directory
+// is under Library/Application Support, and a file written beside it was
+// never read.
 func writeAgents(t *testing.T, body string) {
 	t.Helper()
-	dir := stateDir(t)
-	path := filepath.Join(dir, "flockdeck")
-	if err := os.MkdirAll(path, 0o700); err != nil {
+	stateDir(t)
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatalf("locate %s: %v", agent.ConfigName, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("make the state directory: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(path, agent.ConfigName), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", agent.ConfigName, err)
 	}
 }
