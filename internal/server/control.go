@@ -950,6 +950,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "cursorBlink":
 		s.setCursorSteady(cmd.Kind == "off")
 		return
+	case "cursorStyle":
+		s.setCursorStyle(cmd.Text)
+		return
 	case "fontFamily":
 		s.setFontFamily(cmd.Text)
 		return

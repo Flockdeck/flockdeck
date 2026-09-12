@@ -3306,29 +3306,35 @@ assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard wh
 `)
 }
 
-// mediaBlock returns the body of the first @media rule whose condition matches
-// cond, braces balanced, so a test can look for what the style sheet does in
-// that case and nowhere else.
+// mediaBlock returns the bodies of every @media rule whose condition matches
+// cond, braces balanced and joined, so a test can look for what the style
+// sheet does in that case and nowhere else. The rail and the dialogs each
+// keep their narrow rules beside their other rules, so there are several.
 func mediaBlock(t *testing.T, css, cond string) string {
 	t.Helper()
-	loc := regexp.MustCompile(`@media\s*` + cond + `\s*\{`).FindStringIndex(css)
-	if loc == nil {
-		t.Fatalf("app.css has no @media %s rule", cond)
-	}
-	depth := 1
-	for i := loc[1]; i < len(css); i++ {
-		switch css[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return css[loc[1]:i]
+	var out strings.Builder
+	for _, loc := range regexp.MustCompile(`@media\s*`+cond+`\s*\{`).FindAllStringIndex(css, -1) {
+		depth := 1
+		for i := loc[1]; i < len(css) && depth > 0; i++ {
+			switch css[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					out.WriteString(css[loc[1]:i])
+					out.WriteString("\n")
+				}
 			}
 		}
+		if depth != 0 {
+			t.Fatalf("an @media %s rule in app.css is not closed", cond)
+		}
 	}
-	t.Fatalf("the @media %s rule in app.css is not closed", cond)
-	return ""
+	if out.Len() == 0 {
+		t.Fatalf("app.css has no @media %s rule", cond)
+	}
+	return out.String()
 }
 
 // This page is opened on phones through the relay. At 400px a column of icons
@@ -3478,12 +3484,13 @@ func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
 const keys = h.hello();
 h.recv(fixture());
 for (const id of ["project-btn", "new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
-  "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-palette", "rail-open"]) {
+  "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-settings", "btn-palette", "rail-open"]) {
   assert.ok(h.$(id), id + " is gone");
 }
 const rail = h.$("rail");
 const tools = { "btn-broadcast": "toggleBroadcast", "btn-changes": "changes", "btn-history": "history",
-  "btn-worktrees": "worktrees", "btn-help": "help", "rail-open": "projects", "btn-palette": "palette" };
+  "btn-worktrees": "worktrees", "btn-help": "help", "btn-settings": "settings", "rail-open": "projects",
+  "btn-palette": "palette" };
 for (const [id, action] of Object.entries(tools)) {
   const k = keys.find((x) => x.id === action);
   const b = h.$(id);
@@ -3521,6 +3528,181 @@ h.key({ key: "Escape" });
 h.click(h.$("rail-open"));
 assert.ok(!h.$("overlay").hidden, "Open a project did not open the projects");
 assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not put the keyboard on the folder");
+`)
+}
+
+// Settings opens from the rail, from the palette and with its key - Ctrl+,,
+// which nothing else answers to - and each way shows the one dialog: the
+// sections on the left, walked with the arrows and narrowed by typing, and the
+// section chosen on the right, where it was left last time.
+func TestTheSettingsOpenEveryWay(t *testing.T) {
+	runFrontEnd(t, `
+const keys = h.hello();
+h.recv(fixture());
+const k = keys.find((x) => x.id === "settings");
+assert.ok(k && k.keys, "the action table has no key for the settings");
+assert.strictEqual(keys.filter((x) => x.keys === k.keys).length, 1, k.keys + " runs something else as well");
+const shown = () => !h.$("overlay").hidden && h.$("overlay-title").textContent === "Settings";
+const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
+
+h.click(h.$("btn-settings"));
+assert.ok(shown(), "the rail's Settings button did not open the settings");
+assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "Account & plan"]);
+assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
+assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
+assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape left the settings open");
+
+h.press("settings");
+assert.ok(shown(), k.keys + " did not open the settings");
+h.key({ key: "ArrowDown" });
+assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
+assert.ok(h.doc.activeElement === h.$("settings-tab-terminal"), "the keyboard did not follow the arrows");
+assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the section reached is not the one shown");
+h.key({ key: "Escape" });
+
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "settings";
+input.oninput();
+const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
+assert.ok(row, "the palette has no Settings");
+h.click(row);
+assert.ok(shown(), "the palette's Settings did not open the settings");
+assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
+
+const find = h.$("settings-find");
+find.value = "relay";
+find.oninput();
+assert.deepStrictEqual(sections(), ["Remote access", "Account & plan"], "Find a setting did not narrow the sections");
+assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "the first section found is not shown");
+`)
+}
+
+// Every control in the settings changes the real setting, through the command
+// the palette and the keys send; it takes effect at once; and it shows what
+// the palette, the keys or another window changed, so there is one state
+// however it is changed. A key is never shown, and the plan invents no price.
+func TestEachSettingReachesItsSetting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-settings"));
+const pane = h.$("settings-pane");
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+
+// General.
+assert.ok(on("set-notifications"), "notifications are on and the switch says otherwise");
+h.click(h.$("set-notifications"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" });
+assert.ok(!on("set-notifications"), "the switch did not turn off at once");
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"], fontSize: 13 } });
+assert.ok(on("set-notifications"), "the switch did not follow notifications turned back on in another window");
+h.click(h.$("set-updates"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
+h.press("palette");
+const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(labels.includes("Turn update checks on"), "the palette does not know the settings turned update checks off");
+h.key({ key: "Escape" });
+assert.ok(h.$("set-install"), "the update already downloaded is not offered");
+h.click(h.$("set-tips"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
+assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
+
+// Terminal.
+h.click(h.$("settings-tab-terminal"));
+h.click(h.$("set-font-up"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
+assert.strictEqual(h.$("set-font-size").textContent, "14 px");
+assert.ok(h.terms.every((t) => t.options.fontSize === 14), "the terminals did not take the size");
+h.press("fontDown");
+assert.strictEqual(h.$("set-font-size").textContent, "13 px", "the key and the settings show different sizes");
+assert.strictEqual(h.$("set-preview").style.fontSize, "13px", "the preview is not drawn at the terminals' size");
+const font = h.$("set-font-family");
+font.value = "Fira Code";
+h.dispatch(font, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "Fira Code" });
+assert.ok(h.terms[0].options.fontFamily.startsWith("Fira Code"), "the terminals did not take the font");
+assert.ok(h.$("set-preview").style.fontFamily.startsWith("Fira Code"), "the preview did not take the font");
+const lines = h.$("set-scrollback");
+lines.value = "50000";
+h.dispatch(lines, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 50000 });
+assert.strictEqual(h.terms[0].options.scrollback, 50000, "the terminals did not take the scrollback");
+h.click(h.$("set-cursor-bar"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorStyle", text: "bar" });
+assert.strictEqual(h.terms[0].options.cursorStyle, "bar", "the terminals did not take the cursor's shape");
+assert.ok(on("set-cursor-bar") && !on("set-cursor-block"), "the shapes do not say which is chosen");
+assert.ok(h.$("set-preview").querySelector(".pv-cursor").classList.contains("bar"), "the preview's cursor is not a bar");
+h.$("set-cursor-bar").focus();
+h.key({ key: "ArrowRight" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorStyle", text: "underline" });
+assert.ok(h.doc.activeElement === h.$("set-cursor-underline"), "the arrows did not move to the shape they chose");
+h.click(h.$("set-cursor-blink"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursors still blink");
+
+// Agents.
+h.click(h.$("settings-tab-agents"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "refreshAgents" });
+const all = h.$("set-agent-all");
+all.value = "claude\nopus";
+h.dispatch(all, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "claude", model: "opus", kind: "all" });
+const mine = h.$("set-agent-project");
+mine.value = "claude\nsonnet";
+h.dispatch(mine, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "claude", model: "sonnet" });
+h.recv(fixture({ agents: catalog({ project: { agent: "claude", model: "sonnet" } }) }));
+assert.strictEqual(h.$("set-agent-project").value, "claude\nsonnet", "the project's own choice is not shown");
+h.$("set-agent-project").value = "";
+h.dispatch(h.$("set-agent-project"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "", model: "" });
+
+// API keys: the keys dialog's own list, drawn here.
+h.click(h.$("settings-tab-keys"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
+h.recv({ type: "keys", items: [{ agent: "anthropic", name: "Anthropic", set: true, source: "store", vars: ["ANTHROPIC_API_KEY"] }] });
+assert.ok(pane.textContent.includes("Anthropic"), "the keys are not listed in the settings");
+const button = (text) => pane.querySelectorAll("button").find((b) => b.textContent === text);
+h.click(button("Clear"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "anthropic" });
+h.click(button("Replace…"));
+const field = pane.querySelectorAll("input")[0];
+assert.ok(field, "there is nowhere to type the key");
+field.value = "sk-secret";
+field.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keySet", id: "anthropic", text: "sk-secret" });
+assert.ok(!pane.textContent.includes("sk-secret") && !pane.querySelectorAll("input").length, "the key was left on screen");
+
+// Remote access: the remote dialog's own parts, drawn here.
+h.click(h.$("settings-tab-remote"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" });
+h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
+assert.ok(pane.contains(h.$("remote-relay")) && pane.contains(h.$("remote-name")), "the relay and the machine's name are not asked for");
+h.$("remote-relay").value = "relay.example";
+h.$("remote-name").value = "desk";
+h.click(h.$("remote-enable"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteEnable", relay: "relay.example", name: "desk", join: "", invite: "" });
+h.recv({ type: "remoteOutcome", action: "enable" });
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 1, since: "2030-01-01T00:00:00Z" } }));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+assert.ok(pane.textContent.includes("phone") && pane.textContent.includes("desk"), "the paired devices and this machine are not listed");
+assert.ok(pane.textContent.includes("relay.example"), "the relay is not named");
+assert.ok(pane.contains(h.$("remote-disable")), "remote access cannot be turned off from the settings");
+
+// Account & plan.
+h.click(h.$("settings-tab-plan"));
+const text = pane.textContent;
+assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
+assert.ok(text.includes("Private relays") && text.includes("Coming soon") && text.includes("as a paid plan"), "private relays are not announced");
+assert.ok(text.includes("The shared relay stays free"), "it does not say the shared relay stays free");
+assert.ok(!/[$£€]\s?\d/.test(text), "a price was invented: " + text);
+assert.ok(h.$("set-plan-link").getAttribute("href").endsWith("#private-relays"), "the link does not go to the site's private relays");
 `)
 }
 

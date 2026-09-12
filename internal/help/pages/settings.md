@@ -1,32 +1,52 @@
 # Settings
 
-Flockdeck has no settings screen: each thing you can change is changed where it
-is used, and kept in one of a handful of files. This page lists every one of
-them, how to change it, and where it is kept.
+[[key:settings]], or **Settings** at the foot of the rail, opens the settings:
+the sections on the left and the one you are in on the right. Every control
+changes its setting at once, and it is the same setting the command palette and
+the keys change, so whichever you use, the others show it.
 
-## In the window
+- **General** — desktop notifications, and whether Flockdeck checks for new
+  releases. **Show them again** brings back every hint you sent away.
+- **Terminal** — the font size, the font, how many lines each pane keeps to
+  scroll back through, and the cursor's shape and whether it blinks, with a
+  preview. The size is also [[key:fontUp]], [[key:fontDown]] and
+  [[key:fontReset]].
+- **Agents** — the agent and model a pane starts when nobody chooses: for every
+  project, and for the project on screen, which can go back to **Same as every
+  project**.
+- **API keys** — set, replace or clear the key each API agent uses. A key is
+  never shown once it is set.
+- **Remote access** — turn it on or off, the relay it goes through, this
+  machine's name, and the paired devices.
+- **Account & plan** — the free plan you are on, and private relays, coming as
+  a paid plan; the shared relay stays free.
+
+Type into **Find a setting** to narrow the sections to the ones that mention a
+word. On a narrow screen the sections go across the top.
+
+## Elsewhere in the window
 
 - **The agent and model a pane runs** — [[action:splitRightChoose]] or
   [[action:newAgentTabChoose]]. Kept with the layout.
-- **Which agent and model a project starts** — **Set as default for this
-  project**, at the foot of the picker. To go back to the default for every
-  project, remove the project's entry under `projects` in `agents.json`. Kept
-  in `agents.json`.
-- **An API agent's key** — [[action:apiKeys]], or `flockdeck keys set <agent>`.
-  Kept in `keys.json`.
+- **Which agent and model a project starts** — **Agents** in the settings, or
+  **Set as default for this project** at the foot of the picker. Kept in
+  `agents.json`.
+- **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
+  `flockdeck keys set <agent>`. Kept in `keys.json`.
 - **A tab's name** — double-click the tab, or **Rename this tab…** in the
   command palette. An empty name, or **Use the automatic title** there, goes
   back to the title the tab gives itself. Kept with the layout.
 - **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
   button in each pane header; [Broadcast and the prompt bar](#broadcast) has the
   rest. Kept until Flockdeck stops.
-- **Terminal font size** — [[key:fontUp]], [[key:fontDown]], [[key:fontReset]].
-  Kept until Flockdeck is next started.
+- **The terminal's font, size, scrollback and cursor** — **Terminal** in the
+  settings, or the palette's entries for each. Kept in `prefs.json`.
 - **Paired devices** — [[action:remote]]: **Pair a device** and **Unpair**.
   Kept on the relay; [Remote access](#remote) has the rest.
-- **Desktop notifications** — allow them when the window first asks. The
-  browser keeps the answer for that run only: each run has an address of its
-  own, so the question comes back on the next start.
+- **Desktop notifications** — **General** in the settings, or **Turn desktop
+  notifications off** in the palette; kept in `prefs.json`. The browser also
+  asks once whether this window may show them, and keeps the answer for that
+  run only: each run has an address of its own.
 - **Hints under the tab bar** — their close button sends one away for good.
   Kept in `prefs.json`.
 - **Theme** — there is only the one, dark. It does not follow the system's
@@ -47,9 +67,10 @@ set).
   environment is used first.
 - `remote.json` — this machine's enrolment with the relay.
   `flockdeck remote disable` removes it.
-- `prefs.json` — whether the help has been opened, and which hints were
-  dismissed. Delete it while Flockdeck is not running to have the help open on
-  the next start and every hint back.
+- `prefs.json` — the settings under General and Terminal, whether the help has
+  been opened, and which hints were dismissed. Delete it while Flockdeck is not
+  running to have the help open on the next start, every hint back, and every
+  one of those settings as it first was.
 - `layout-….json` — one per project: its tabs, splits and panes.
   `flockdeck -new` starts without it.
 - `projects.json` — the recent projects the picker offers.
@@ -77,8 +98,9 @@ These are read when Flockdeck starts, so set one where it will be seen then —
 `setx NAME value` on Windows, or an `export` line in your shell's profile
 elsewhere — and start Flockdeck again.
 
-- `FLOCKDECK_UPDATE` — `off` stops updating in the background: no checks for
-  new releases, and nothing already downloaded is put in place. That is what
+- `FLOCKDECK_UPDATE` — `off` stops updating in the background, whatever
+  **Check for updates** in the settings says: no checks for new releases, and
+  nothing already downloaded is put in place. That is what
   keeps an older version you installed on purpose from updating itself to the
   latest.
 - `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
