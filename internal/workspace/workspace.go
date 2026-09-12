@@ -873,6 +873,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	}
 
 	var argv, env []string
+	// spec is the agent the pane runs, and stays empty for a shell. The session
+	// is handed it as well as the command line: an agent that reports nothing
+	// of its own lifecycle is watched through the lines its Spec says mean
+	// waiting and idle, and a session never given it watches for none.
+	var spec agent.Spec
 	if !p.IsAgent() {
 		argv = session.ShellArgs()
 		env = w.environ(w.paneEnv(p, "", "")...)
@@ -883,7 +888,8 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// choose still restores, and how a project that has settled on another
 		// agent gets it without every pane having to record the name.
 		agentID := p.Agent
-		spec, ok := w.specFor(agentID)
+		var ok bool
+		spec, ok = w.specFor(agentID)
 		if !ok {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
@@ -976,6 +982,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	s, err := session.Start(session.Config{
 		ID:   p.ID,
 		Kind: p.Kind,
+		Spec: spec,
 		Name: p.Name,
 		Cwd:  p.Cwd,
 		Argv: argv,
