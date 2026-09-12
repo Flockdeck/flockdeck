@@ -34,15 +34,29 @@ func (s *Server) do(fn func()) {
 }
 
 // ask runs fn on the workspace goroutine and returns what it produced. ok is
-// false when the server closed first: do drops work once it is shutting down,
-// so no answer is coming, and a caller left waiting for one would strand the
-// connection or request it is serving.
+// false when no answer is coming: the server closed first -- do drops work once
+// it is shutting down -- or fn panicked. A caller left waiting for an answer
+// that never comes strands the connection or request it is serving, and many
+// ask from a window's own read loop, so that window would go on looking
+// connected while ignoring everything it was sent.
 func ask[T any](s *Server, fn func() T) (v T, ok bool) {
 	done := make(chan T, 1)
-	s.do(func() { done <- fn() })
+	failed := make(chan struct{})
+	s.do(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				close(failed)
+				// guard reports it to every window, as it always has.
+				panic(r)
+			}
+		}()
+		done <- fn()
+	})
 	select {
 	case v = <-done:
 		return v, true
+	case <-failed:
+		return v, false
 	case <-s.closed:
 		return v, false
 	}
