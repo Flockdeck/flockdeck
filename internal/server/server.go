@@ -460,12 +460,21 @@ func compressible(name string) bool {
 	return false
 }
 
-// acceptsGzip reports whether a request says it can take a gzipped reply.
+// acceptsGzip reports whether a request says it can take a gzipped reply. A
+// coding given a quality of zero -- "gzip;q=0" -- is one the client refuses.
 func acceptsGzip(r *http.Request) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
-		if name, _, _ := strings.Cut(strings.TrimSpace(part), ";"); strings.EqualFold(name, "gzip") {
-			return true
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
 		}
+		for _, p := range strings.Split(params, ";") {
+			k, v, _ := strings.Cut(strings.TrimSpace(p), "=")
+			if q, err := strconv.ParseFloat(strings.TrimSpace(v), 64); strings.EqualFold(k, "q") && err == nil && q == 0 {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
