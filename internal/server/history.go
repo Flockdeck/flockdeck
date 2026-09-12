@@ -142,7 +142,7 @@ func (s *Server) resumeConversation(c *controlClient, id, cwd, title string) {
 			c.notify(err.Error(), true)
 			return
 		}
-		s.Wake()
+		s.wakeAsked()
 	})
 }
 

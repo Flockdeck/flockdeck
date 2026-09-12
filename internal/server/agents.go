@@ -99,7 +99,7 @@ func (s *Server) revealPane(root, tabID, paneID string) {
 			s.ws.SelectTab(tabID)
 		}
 		s.ws.FocusPane(paneID)
-		s.Wake()
+		s.wakeAsked()
 	})
 }
 

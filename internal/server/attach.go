@@ -152,7 +152,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	case s.cmds <- func() {
 		err := s.ws.OpenProject(path)
 		if err == nil {
-			s.Wake()
+			s.wakeAsked()
 		}
 		errc <- err
 	}:
