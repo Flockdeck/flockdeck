@@ -141,6 +141,8 @@ func ruleProblem(r *RoutingRule) string {
 			}
 		}
 	}
+	// Case is forgiven, as it is for a tier: "Fanout" skipped the whole rule.
+	r.When.Kind = strings.ToLower(strings.TrimSpace(r.When.Kind))
 	switch r.When.Kind {
 	case "", "fanout", "spawn", "turn":
 	default:
