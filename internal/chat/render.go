@@ -393,19 +393,26 @@ func (p *printer) endMessage() {
 // line writes one whole line in a style of its own: a label, a notice, a
 // question.
 //
-// A notice -- dim or red, one line of our own words -- is wrapped at spaces to
-// the pane, its continuation lines indented as far as it was: left to the
-// terminal, a long one is broken mid-word, and a pane narrower than the
-// notice is the usual thing with several side by side. Anything else is drawn
-// as it is, tool output above all, which is shown as it came.
+// A notice or a question -- dim, red or bold, our own words -- has its first
+// line wrapped at spaces to the pane, continuation lines indented as far as it
+// was: left to the terminal, a long one is broken mid-word, and a pane
+// narrower than it is the usual thing with several side by side. The lines
+// after the first are left as they are, since under a question they are the
+// code it is asking about. Anything else is drawn as it is, tool output above
+// all, which is shown as it came.
 func (p *printer) line(st, s string) {
 	if p.started {
 		p.put("\n")
 		p.col, p.started = 0, false
 	}
-	if (st == ansiDim || st == ansiRed) && !strings.Contains(s, "\n") && utf8.RuneCountInString(s) > p.width {
-		for _, part := range wrapNotice(s, p.width) {
+	if first, rest, more := strings.Cut(s, "\n"); (st == ansiDim || st == ansiRed || st == ansiBold) &&
+		utf8.RuneCountInString(first) > p.width {
+		for _, part := range wrapNotice(first, p.width) {
 			p.put(p.style(st, part))
+			p.put("\n")
+		}
+		if more {
+			p.put(p.style(st, rest))
 			p.put("\n")
 		}
 		p.blank = false
