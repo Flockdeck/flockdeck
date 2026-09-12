@@ -17,12 +17,10 @@ import (
 // `flockdeck remote` enrols this machine with a relay, and manages what is
 // paired with it.
 //
-// Enrolling is done here rather than from the window because it is the one
-// step that decides where the traffic goes: which relay, under what name, into
-// whose account. That is worth a deliberate command, and a terminal is where a
-// relay address and an invitation code are pasted anyway. Everything after it
-// — pairing a device, seeing what is paired, unpairing one — can be done from
-// either.
+// The window's Remote access dialog does the same jobs. The work of enrolling
+// and of taking the machine off again is remote.Enable and remote.Disable,
+// which both use; what is here is the command line's wording of it, which can
+// point at flags the window does not have.
 
 // remoteIO is where the subcommand writes, and how it reaches a running
 // instance, gathered so a test can drive it without one.
