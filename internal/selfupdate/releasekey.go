@@ -19,16 +19,18 @@ package selfupdate
 // manifest, or its checksums.txt, from dl.flockdeck.ai only when it carries a
 // signature this key checks.
 //
-// PLACEHOLDER, to be replaced before the next release: set releaseKey to that
-// public key, in place of releaseKeyPlaceholder. Until then a release build
-// fails its tests (TestReleaseKeyIsInPlace), `cmd/release -sign` refuses to
-// sign, and a build that somehow shipped with it would never trust
-// dl.flockdeck.ai and would go on updating from GitHub.
+// This is Flockdeck's release key, made by Terraform on 12 September 2026. A
+// new key means a release carrying its public half here, shipped before the
+// old one stops signing: copies that never got it would go on updating from
+// GitHub, which is safe, but never from dl.flockdeck.ai again.
 //
 // The key is compiled in rather than fetched because a key fetched from where
 // the release is would vouch for nothing: whoever could replace the release
 // could replace the key beside it.
-const releaseKey = releaseKeyPlaceholder
+const releaseKey = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEApz2sDY7Kt1XaOwrrH/NdCkChEMoBty1B1bXB5J4ROc4=
+-----END PUBLIC KEY-----
+`
 
 // releaseKeyPlaceholder is what releaseKey holds until the production key has
 // been made. It is not a key, so nothing can ever be signed for it.
