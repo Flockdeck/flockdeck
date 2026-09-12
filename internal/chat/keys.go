@@ -53,7 +53,11 @@ var keyPoll = 2 * time.Second
 // processes started after it, not this one. The key comes back without being
 // shown, and where it came from is said instead.
 func waitForKey(ctx context.Context, o Options) (string, error) {
-	fmt.Fprintf(o.Out, "%s in any terminal; this waits for it (Ctrl+C leaves)\n", noKey(o))
+	// Wrapped here, since nothing that draws is running yet: left to the
+	// terminal, a line this long breaks in the middle of a word.
+	for _, line := range wrapNotice(noKey(o)+" in any terminal; this waits for it (Ctrl+C leaves)", o.Width) {
+		fmt.Fprintln(o.Out, line)
+	}
 	// Waiting on the user is what turns a pane amber, the same as a tool's
 	// question does: of a dozen panes, this is the one they have to look at.
 	newReporter(o.API, o.Token, o.Session, o.Cwd).notification("")

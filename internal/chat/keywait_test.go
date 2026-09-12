@@ -33,10 +33,17 @@ func TestAChatWithNoKeyWaitsForOneToBeStored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	said := strings.Join(strings.Fields(out.String()), " ")
 	for _, want := range []string{"flockdeck keys set anthropic` in any terminal; this waits for it",
 		"(found a key stored with `flockdeck keys set anthropic`; carrying on)"} {
-		if !strings.Contains(out.String(), want) {
+		if !strings.Contains(said, want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+	// Wrapped to the pane, rather than left to the terminal to break mid-word.
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "waits for it") && len([]rune(line)) > 90 {
+			t.Errorf("a line wider than the pane: %q", line)
 		}
 	}
 	if strings.Contains(out.String(), "sk-stored-meanwhile") {
