@@ -18,6 +18,10 @@ on:
         description: "what to check out; empty is the commit the run is for"
         type: string
         default: ""
+      release:
+        description: "also hold the code to what only a release needs, such as carrying the release key"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,7 +61,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # A release's run also fails while the release key is still the
+      # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
+      # unable to check what it downloads. Other runs have no key to hold.
       - name: Test
+        env:
+          FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: go test ./...
 
       # The workspace is reached from many goroutines through one owner, and a

@@ -79,8 +79,9 @@ curl -fsSL https://flockdeck.ai/install.sh | sh   # macOS and Linux
 irm https://flockdeck.ai/install.ps1 | iex        # Windows, in PowerShell
 ```
 
-Either one downloads the latest release for the machine, checks it against the
-release's checksums and puts it in a directory you own — `~/.local/bin`, or
+Either one downloads the latest release for the machine from
+`dl.flockdeck.ai`, or from GitHub when that cannot be reached, checks it
+against the release's checksums and puts it in a directory you own — `~/.local/bin`, or
 `%LOCALAPPDATA%\Programs\flockdeck` with a Start menu shortcut on Windows — so
 neither installing nor updating ever asks for admin rights. The scripts are in
 `cmd/sitegen/assets`, beside the page that serves them.
@@ -91,7 +92,9 @@ Both read a few settings from the environment:
   stay on it, also set `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it
   updates itself.
 - `FLOCKDECK_INSTALL_DIR` — another directory to install into.
-- `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from.
+- `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from instead,
+  laid out as `<mirror>/<version>/<file>`. The latest is read from
+  `<mirror>/latest.json`, or asked of GitHub when the mirror has none.
 - `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
   alone.
 
@@ -129,13 +132,23 @@ console, which is what an API agent's pane runs there.
 
 ### Staying up to date
 
-Every release is published on GitHub as one archive per platform — a `.zip` for
-Windows, a `.tar.gz` elsewhere — with a `checksums.txt` beside them. Tagging a
-commit `v1.2.3` is the whole of cutting one: the workflow vets, tests,
-cross-builds all six and publishes them.
+Every release is published at `https://dl.flockdeck.ai` as one archive per
+platform — a `.zip` for Windows, a `.tar.gz` elsewhere — with a
+`checksums.txt` beside them, and `latest.json` naming the latest release.
+`checksums.txt` and `latest.json` are signed with the release's Ed25519 key,
+whose public half is built into Flockdeck. GitHub carries every release as
+well, as a mirror. Tagging a commit `v1.2.3` is the whole of cutting one: the
+workflow vets, tests, cross-builds all six, publishes them on GitHub, signs
+them and uploads them to `dl.flockdeck.ai` (`scripts/publish-downloads.sh`). A
+tag with a suffix, `v1.2.3-rc.1`, is a pre-release: it is published under its
+version and never becomes the latest.
 
 A running Flockdeck watches for releases and downloads anything newer in the
-background, checking it against its published SHA-256. Nothing is replaced
+background. It asks `dl.flockdeck.ai` first, and trusts only what carries the
+release key's signature; when the site cannot be reached, answers with
+something else, or fails a signature, it goes to GitHub instead and logs why.
+Either way the download is checked against its published SHA-256, and the
+request carries nothing that tells one installation from another. Nothing is replaced
 while you are working. When a release is ready a chip appears in the top bar,
 and installing it now is a restart you ask for: the layout is saved and
 reopened, though the agents running in panes are stopped, which is why it is

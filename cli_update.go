@@ -169,18 +169,20 @@ func upToDate(running, latest string) string {
 	return fmt.Sprintf("flockdeck %s is the latest release.", running)
 }
 
-// explainUnreachable says in words what a failure to reach GitHub at all
-// means, while doing what the words in doing describe. Left alone it was Go's
-// own error — `Get "https://api.github.com/…": dial tcp: lookup
-// api.github.com: no such host` — naming a URL and a system call rather than
-// the problem and what to do about it. An answer GitHub did give, such as a
-// rate limit, already says what it is and is passed on.
+// explainUnreachable says in words what a failure to reach anywhere releases
+// are published means, while doing what the words in doing describe. Left
+// alone it was Go's own error — `Get "https://api.github.com/…": dial tcp:
+// lookup api.github.com: no such host` — naming a URL and a system call rather
+// than the problem and what to do about it. The updater tries dl.flockdeck.ai
+// first and GitHub after it, so by the time this is reached neither answered.
+// An answer GitHub did give, such as a rate limit, already says what it is and
+// is passed on.
 func explainUnreachable(err error, doing string) error {
 	var unreachable *url.Error
 	if !errors.As(err, &unreachable) {
 		return err
 	}
-	return fmt.Errorf("could not reach GitHub to %s; check the connection and try again (%v)", doing, unreachable.Err)
+	return fmt.Errorf("could not reach dl.flockdeck.ai or GitHub to %s; check the connection and try again (%v)", doing, unreachable.Err)
 }
 
 // parseUpdate reads the command line of `flockdeck update` into the flag set's
@@ -456,8 +458,9 @@ func updateFlagSet(f *updateFlags) *flag.FlagSet {
 	fs.Usage = func() {
 		out := fs.Output()
 		fmt.Fprintf(out, "Usage: flockdeck update [-check]\n\n")
-		fmt.Fprintf(out, "Downloads the latest release from GitHub, checks it against the\n")
-		fmt.Fprintf(out, "published SHA-256 and puts it in place. A running instance keeps\n")
+		fmt.Fprintf(out, "Downloads the latest release from dl.flockdeck.ai, or from GitHub when\n")
+		fmt.Fprintf(out, "that cannot be used, checks it against its published SHA-256, signed\n")
+		fmt.Fprintf(out, "by the release key, and puts it in place. A running instance keeps\n")
 		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(out, "\nA running Flockdeck also downloads new releases in the background and\n")
