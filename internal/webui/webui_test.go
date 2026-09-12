@@ -2537,6 +2537,27 @@ assert.strictEqual(h.terms[0].options.fontSize, 12, "a size chosen in another wi
 `)
 }
 
+// A dialog is drawn again from each answer, and emptying it to do so put its
+// scroll back at the top: a list scrolled down to the worktree being removed,
+// or the agent being looked for, jumped back to the start when the answer came.
+func TestADialogKeepsItsPlaceWhenItIsRedrawn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+const agents = { type: "agents", items: [] };
+for (let i = 0; i < 30; i++) {
+  agents.items.push({ paneId: "p" + i, tabId: "t1", root: "C:/repo", tab: "tab " + i, name: "agent " + i,
+    project: "repo", status: "idle" });
+}
+h.recv(agents);
+const body = h.$("overlay-body");
+body.scrollTop = 480;
+h.recv(agents);
+assert.strictEqual(body.scrollTop, 480, "the list jumped back to the top when it was drawn again");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
@@ -2668,6 +2689,9 @@ class Element {
   get textContent() { return this.childNodes.map((n) => n.textContent).join(""); }
   set textContent(v) {
     this.childNodes.slice().forEach((k) => this.removeChild(k));
+    // Emptied, an element has nothing to be scrolled through, and a browser
+    // puts it back at the top.
+    if (this.scrollTop) this.scrollTop = 0;
     if (v !== "" && v !== null && v !== undefined) this.append(new TextNode(v));
   }
 

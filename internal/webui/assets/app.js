@@ -1878,7 +1878,12 @@
     const was = document.activeElement;
     const key = was && body.contains(was) ? identify(was) : "";
     const at = was && was.selectionStart;
+    // Emptying the body to draw it again takes its scroll position with it, so
+    // a list scrolled to its twentieth worktree jumped back to the first when
+    // one was removed, or when a refresh came back.
+    const top = body.scrollTop;
     draw();
+    body.scrollTop = top;
     if (!key) return;
     for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
       if (identify(node) !== key) continue;
