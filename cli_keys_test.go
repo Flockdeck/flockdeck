@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -334,5 +337,63 @@ func TestKeysUsage(t *testing.T) {
 	// The bare command answers the question it is usually typed to ask.
 	if out, _ := runKeysCmd(t, ""); !strings.Contains(out, "anthropic") || !strings.Contains(out, "not set") {
 		t.Errorf("the bare command does not say which agents have a key:\n%s", out)
+	}
+}
+
+// An agent is pointed at another address without agents.json being opened,
+// and only the address changes: the wire, the names its key arrives in, and
+// whatever else the file holds are left as they were.
+func TestKeysEndpointChangesOnlyTheAddress(t *testing.T) {
+	isolateKeys(t)
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"theme":"dark","agents":[`+
+		`{"id":"anthropic","name":"Mine"},`+
+		`{"id":"custom","name":"Custom","api":{"wire":"openai","baseURL":"http://10.0.0.1/v1"}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := keysAgent(t, "anthropic")
+
+	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "http://127.0.0.1:8080"); err != nil {
+		t.Fatalf("keys endpoint: %v\n%s", err, out)
+	}
+	after := keysAgent(t, "anthropic")
+	if after.API.BaseURL != "http://127.0.0.1:8080" || after.API.Wire != before.API.Wire ||
+		!slices.Equal(after.API.KeyEnv, before.API.KeyEnv) || after.Name != "Mine" {
+		t.Errorf("anthropic is now %+v (was %+v)", after, before)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"theme"`) || !strings.Contains(string(data), "http://10.0.0.1/v1") {
+		t.Errorf("the rest of agents.json was not kept:\n%s", data)
+	}
+	if out, _ := runKeysCmd(t, "", "endpoint", "anthropic"); !strings.Contains(out, "http://127.0.0.1:8080") {
+		t.Errorf("the address is not shown: %q", out)
+	}
+
+	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "default"); err != nil {
+		t.Fatalf("keys endpoint default: %v\n%s", err, out)
+	}
+	if got := keysAgent(t, "anthropic").API.BaseURL; got != before.API.BaseURL {
+		t.Errorf("default left the address at %q, want %q", got, before.API.BaseURL)
+	}
+
+	for _, args := range [][]string{
+		{"endpoint", "nosuch", "http://127.0.0.1"},
+		{"endpoint", "anthropic", "ftp://127.0.0.1"},
+		{"endpoint", "anthropic", "127.0.0.1:8080"},
+		{"endpoint", "custom", "default"},
+	} {
+		if out, err := runKeysCmd(t, "", args...); err == nil {
+			t.Errorf("keys %v succeeded: %q", args, out)
+		}
+	}
+	// A password in the address is refused without being repeated.
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "https://me:hunter2@example.com"); err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("an address with a password in it: %v", err)
 	}
 }

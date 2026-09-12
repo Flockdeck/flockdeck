@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -79,6 +82,15 @@ func keysCmd(args []string, kio keysIO) error {
 			return fmt.Errorf("usage: flockdeck keys clear <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysClear(args[1], kio.out)
+	case "endpoint", "url":
+		if len(args) != 2 && len(args) != 3 {
+			keysUsage(kio.out)
+			return fmt.Errorf("usage: flockdeck keys endpoint <agent> [<url> | default], where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
+		}
+		if len(args) == 2 {
+			return keysShowEndpoint(args[1], kio.out)
+		}
+		return keysSetEndpoint(args[1], args[2], kio.out)
 	case "-h", "--help", "help":
 		keysUsage(kio.out)
 		return nil
@@ -92,7 +104,10 @@ func keysUsage(out io.Writer) {
 	fmt.Fprintf(out, "Commands:\n")
 	fmt.Fprintf(out, "  list           show which agents have a key, and where it came from\n")
 	fmt.Fprintf(out, "  set <agent>    read a key from standard input and store it\n")
-	fmt.Fprintf(out, "  clear <agent>  forget a stored key\n\n")
+	fmt.Fprintf(out, "  clear <agent>  forget a stored key\n")
+	fmt.Fprintf(out, "  endpoint <agent> [<url> | default]\n")
+	fmt.Fprintf(out, "                 show the address an agent talks to, or change it: a local\n")
+	fmt.Fprintf(out, "                 model server, a gateway; default goes back to the vendor's\n\n")
 	fmt.Fprintf(out, "The key is read from standard input so it stays out of your shell history.\n")
 	fmt.Fprintf(out, "An agent whose key is already exported in the environment needs none of this.\n")
 }
@@ -231,6 +246,147 @@ func keysClear(agentID string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "forgot the stored key for %s\n", agentID)
 	return nil
+}
+
+// keysShowEndpoint says which address an agent talks to.
+func keysShowEndpoint(agentID string, out io.Writer) error {
+	spec, err := keyAgentSpec(agentID)
+	if err != nil {
+		return err
+	}
+	if spec.API.BaseURL == "" {
+		fmt.Fprintf(out, "%s talks to the vendor's own endpoint\n", agentID)
+		return nil
+	}
+	fmt.Fprintf(out, "%s talks to %s\n", agentID, redactURL(spec.API.BaseURL))
+	return nil
+}
+
+// keysSetEndpoint changes the address an agent talks to, in agents.json.
+//
+// Pointing an agent at a local model server or a gateway is one address, and
+// it was the one setting of an API agent that could only be changed by opening
+// agents.json and knowing that it goes under api.baseURL in an entry with the
+// agent's id. Only that field is touched: whatever else the entry and the file
+// hold is written back as it was.
+func keysSetEndpoint(agentID, address string, out io.Writer) error {
+	if _, err := keyAgentSpec(agentID); err != nil {
+		return err
+	}
+	builtin := false
+	for _, s := range agent.Builtins() {
+		builtin = builtin || s.ID == agentID
+	}
+	if address == "default" {
+		if !builtin {
+			// An agent of the user's own is the address it was given; without
+			// one it would be talking to whichever vendor its wire names.
+			return fmt.Errorf("%s is an agent of your own, and has no default address to go back to; give it another one instead", agentID)
+		}
+		address = ""
+	} else {
+		u, err := url.Parse(address)
+		switch {
+		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+			return fmt.Errorf("give the address as http://host:port/... or https://..., for example http://127.0.0.1:11434/v1")
+		case u.User != nil:
+			// Said without repeating the address, which has a secret in it.
+			return fmt.Errorf("the address has a name or password in it; store the key with `flockdeck keys set %s` and give the address without it", agentID)
+		}
+	}
+	path, err := agent.ConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := setAgentEndpoint(filepath.Dir(path), agentID, address); err != nil {
+		return err
+	}
+	if address == "" {
+		fmt.Fprintf(out, "%s talks to the vendor's own endpoint again\n", agentID)
+	} else {
+		fmt.Fprintf(out, "%s now talks to %s\n", agentID, address)
+	}
+	fmt.Fprintf(out, "new panes use it; one already running keeps the address it started with until it is restarted\n")
+	return nil
+}
+
+// setAgentEndpoint writes an agent's api.baseURL into agents.json in dir, or
+// takes it out where address is "". The agent's last entry is the one changed,
+// since a later entry is merged over an earlier one; an agent with no entry
+// gets one holding the address alone, which is merged over the built-in.
+func setAgentEndpoint(dir, agentID, address string) error {
+	f, err := agent.ReadConfig(dir)
+	if err != nil {
+		// A file that cannot be read is not written over: it holds the only
+		// copy of the user's own agents.
+		return err
+	}
+	var entry map[string]json.RawMessage
+	at := -1
+	for i, raw := range f.Agents {
+		var head struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(raw, &head) == nil && head.ID == agentID {
+			entry, at = nil, i
+			if err := json.Unmarshal(raw, &entry); err != nil {
+				return fmt.Errorf("%s: the entry for %s: %w", agent.ConfigName, agentID, err)
+			}
+		}
+	}
+	if entry == nil {
+		id, _ := json.Marshal(agentID)
+		entry = map[string]json.RawMessage{"id": id}
+	}
+	api := map[string]json.RawMessage{}
+	if raw, ok := entry["api"]; ok {
+		if err := json.Unmarshal(raw, &api); err != nil {
+			return fmt.Errorf("%s: the api of %s: %w", agent.ConfigName, agentID, err)
+		}
+	}
+	if address == "" {
+		delete(api, "baseURL")
+	} else {
+		api["baseURL"], _ = json.Marshal(address)
+	}
+	if len(api) == 0 {
+		delete(entry, "api")
+	} else {
+		entry["api"], _ = json.Marshal(api)
+	}
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	if at >= 0 {
+		f.Agents[at] = raw
+	} else {
+		f.Agents = append(f.Agents, raw)
+	}
+	return agent.WriteConfig(dir, f)
+}
+
+// keyAgentSpec is the catalog's entry for an agent that takes a key, or an
+// error naming the ones there are.
+func keyAgentSpec(agentID string) (agent.Spec, error) {
+	ids := keyAgentIDs()
+	if slices.Contains(ids, agentID) {
+		for _, s := range keysAgents() {
+			if s.ID == agentID {
+				return s, nil
+			}
+		}
+	}
+	return agent.Spec{}, fmt.Errorf("no agent called %s talks to an API: the ones that do are %s", agentID, strings.Join(ids, ", "))
+}
+
+// redactURL is an address as it can be shown: without a password in it, where
+// one was written into agents.json by hand.
+func redactURL(s string) string {
+	if u, err := url.Parse(s); err == nil {
+		return u.Redacted()
+	}
+	return s
 }
 
 // readKeyLine reads the first line of input and nothing after it.
