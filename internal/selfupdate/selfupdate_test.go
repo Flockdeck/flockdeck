@@ -236,6 +236,37 @@ func TestStageKeepsTheStagedUpdateWhenANewerOneFails(t *testing.T) {
 	}
 }
 
+// If the record of what is staged cannot be written, the staging directory
+// already holds the new release; the old record must not survive to name it,
+// or the next exit installs one release under another's version. On Windows a
+// record another process is reading cannot be replaced, which is how it fails.
+func TestStageNeverLeavesARecordForAnotherRelease(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to replace a file another handle has open")
+	}
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+	dir := t.TempDir()
+	old := fetchRelease(t, srv.URL+"/release")
+	old.Version = "v9.9.8"
+	if _, err := Stage(context.Background(), old, dir); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	held, err := os.Open(pendingPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err == nil {
+		t.Fatal("Stage replaced a record another handle held open")
+	}
+	if p, ok := Load(dir); ok {
+		t.Errorf("Load = %s staged, over a staging directory that now holds another release", p.Version)
+	}
+}
+
 // A checksums file whose entry is not a SHA-256 at all has to be refused, not
 // compared. Comparing it panicked, in the background watcher, which ends the
 // whole application.

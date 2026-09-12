@@ -37,6 +37,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Repo is the repository releases are read from, as owner/name.
@@ -236,6 +238,10 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		Staged:  time.Now().UTC(),
 	}
 	if err := save(dir, p); err != nil {
+		// The staging directory holds this release now, and a record still
+		// naming the one before would have it installed under that one's
+		// version. Nothing staged is better than that.
+		Discard(dir)
 		return nil, err
 	}
 	return p, nil
@@ -380,16 +386,16 @@ func writeBinary(dest string, r io.Reader) error {
 
 func pendingPath(dir string) string { return filepath.Join(dir, "pending.json") }
 
+// save records what is staged. It goes through store.WriteAtomic rather than a
+// temporary file of its own: two instances staging at once each get a
+// temporary of their own there, and on Windows a read of pending.json by the
+// other at that moment is waited out instead of failing the rename.
 func save(dir string, p *Pending) error {
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := pendingPath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, pendingPath(dir))
+	return store.WriteAtomic(pendingPath(dir), data)
 }
 
 // Load returns the update waiting to be applied, if there is one.
