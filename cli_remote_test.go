@@ -742,6 +742,8 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		check(running, "devices")
 	}
+	// revoke's confirmation names the device it unpaired, name and id.
+	check(false, "revoke", "meqf4vmfersvxg4q")
 }
 
 // The general usage is read in a terminal, which is often 80 columns wide, as

@@ -707,7 +707,7 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	if name != "" {
 		id = name + " (" + id + ")"
 	}
-	fmt.Fprintf(rio.out, "unpaired %s; any window it had open has been closed\n", id)
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("unpaired %s; any window it had open has been closed", id)))
 	return nil
 }
 
