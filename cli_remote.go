@@ -587,7 +587,21 @@ func reloadRunningRemote() (bool, error) {
 	if inst == nil {
 		return false, nil
 	}
-	return true, server.RequestRemoteReload(base, inst.Token)
+	if err := server.RequestRemoteReload(base, inst.Token); err != nil {
+		// A request that got no answer comes back naming its URL, with the
+		// local server's token in it, and this is printed where a remote
+		// window can show it.
+		return true, errors.New(redactToken(err.Error(), inst.Token))
+	}
+	return true, nil
+}
+
+// redactToken takes a token out of a message that is about to be shown.
+func redactToken(msg, token string) string {
+	if token == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, token, "…")
 }
 
 // describeExpiry says when a pairing code stops working, as a clock time and

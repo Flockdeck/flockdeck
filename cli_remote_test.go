@@ -464,6 +464,24 @@ func TestRelayToJoin(t *testing.T) {
 	}
 }
 
+// A reload that got no answer comes back naming its URL, the local
+// server's token in it, and what is printed keeps the reason but not the
+// token.
+func TestRedactToken(t *testing.T) {
+	const token = "47e24fd0a26dbd27fa21525c7ae2add3"
+	msg := `Post "http://127.0.0.1:63149/remote/reload?t=` + token + `": dial tcp 127.0.0.1:63149: connection refused`
+	got := redactToken(msg, token)
+	if strings.Contains(got, token) || !strings.Contains(got, "/remote/reload?t=…") || !strings.HasSuffix(got, "connection refused") {
+		t.Errorf("redactToken = %q, want the token gone and the rest kept", got)
+	}
+	if got := redactToken(msg, ""); got != msg {
+		t.Errorf("redactToken with no token = %q, want the message as it was", got)
+	}
+	if got := redactToken("reload remote access: 500 Internal Server Error", token); got != "reload remote access: 500 Internal Server Error" {
+		t.Errorf("redactToken of a message without the token = %q", got)
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
