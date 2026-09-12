@@ -457,10 +457,10 @@ func (c *capture) String() string {
 	// the gap -- would fail to encode at all, losing the whole result rather
 	// than the byte.
 	if omitted == 0 {
-		return strings.ToValidUTF8(string(c.head)+string(tail), "")
+		return asText(append(c.head[:len(c.head):len(c.head)], tail...))
 	}
 	return fmt.Sprintf("%s\n[... %s of output omitted ...]\n%s",
-		strings.ToValidUTF8(string(c.head), ""), humanBytes(omitted), strings.ToValidUTF8(string(tail), ""))
+		asText(c.head), humanBytes(omitted), asText(tail))
 }
 
 // clipOutput is what capture makes of s.

@@ -3,7 +3,42 @@ package tool
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
+
+// asText is a command's output as text. Output in UTF-8 is taken as it is;
+// output that is not -- a Windows console program writing the console's own
+// code page into the pipe -- is decoded from that code page where the system
+// can. What cannot be decoded is dropped byte by byte rather than failing the
+// whole result on the wire.
+//
+// A rune cut in two where long output was clipped leaves a few bytes that are
+// not UTF-8 at either end of a piece; they are no reason to read the rest as
+// another encoding, so they are left out of the question.
+func asText(b []byte) string {
+	if !utf8.Valid(trimCutRunes(b)) {
+		if s, ok := oemText(b); ok {
+			return s
+		}
+	}
+	return strings.ToValidUTF8(string(b), "")
+}
+
+// trimCutRunes is b without a rune cut off at its start or its end.
+func trimCutRunes(b []byte) []byte {
+	for i := 0; i < 3 && len(b) > 0 && !utf8.RuneStart(b[0]); i++ {
+		b = b[1:]
+	}
+	for i := 1; i <= 3 && i <= len(b); i++ {
+		if utf8.RuneStart(b[len(b)-i]) {
+			if !utf8.FullRune(b[len(b)-i:]) {
+				b = b[:len(b)-i]
+			}
+			break
+		}
+	}
+	return b
+}
 
 // escapeSequence matches what a program writes to a terminal besides text: a
 // CSI sequence -- a colour, a cursor move, a line cleared -- and an OSC one --
