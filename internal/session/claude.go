@@ -93,16 +93,42 @@ var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopF
 // laterHooksSince is the first Claude Code known to have laterHookEvents.
 var laterHooksSince = [3]int{2, 1, 269}
 
-// claudeVersion is what `claude --version` says, asked once per run. It is a
-// variable so a test can say instead.
-var claudeVersion = sync.OnceValue(installedClaudeVersion)
+// claudeVersion is what a Claude Code program says its version is, asked once
+// per program per run: the one a pane runs is the one whose events matter, and
+// a catalog entry can name a different one from the claude on PATH. An empty
+// program is the claude on PATH. It is a variable so a test can say instead.
+var claudeVersion = cachedClaudeVersion
 
-// installedClaudeVersion asks the installed Claude Code what version it is,
-// which takes it some tens of milliseconds, and gives up after three seconds.
+var claudeVersions struct {
+	sync.Mutex
+	byExe map[string]string
+}
+
+func cachedClaudeVersion(exe string) string {
+	claudeVersions.Lock()
+	defer claudeVersions.Unlock()
+	if v, ok := claudeVersions.byExe[exe]; ok {
+		return v
+	}
+	v := installedClaudeVersion(exe)
+	if claudeVersions.byExe == nil {
+		claudeVersions.byExe = map[string]string{}
+	}
+	claudeVersions.byExe[exe] = v
+	return v
+}
+
+// installedClaudeVersion asks a Claude Code program what version it is, which
+// takes it some tens of milliseconds, and gives up after three seconds.
 // Anything that goes wrong is an unknown version, which subscribes to what
 // every Claude Code has.
-func installedClaudeVersion() string {
-	exe, err := LookClaude()
+func installedClaudeVersion(exe string) string {
+	var err error
+	if exe == "" {
+		exe, err = LookClaude()
+	} else {
+		exe, err = exec.LookPath(exe)
+	}
 	if err != nil {
 		return ""
 	}
@@ -177,13 +203,24 @@ type hookSpec struct {
 // The hook command re-invokes this same binary in `hook` mode, so there is no
 // dependency on node, python or a shell script living next to the binary. The
 // settings are additive: the user's own settings and hooks still load.
+//
+// Which events it subscribes to depends on the Claude Code that will read it,
+// and this asks the claude on PATH; WriteHookSettingsFor asks the program the
+// pane will actually run.
 func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string, error) {
+	return WriteHookSettingsFor("", dir, sessionID, selfExe, endpoint, token)
+}
+
+// WriteHookSettingsFor is WriteHookSettings for a pane running a given Claude
+// Code program -- the one its Spec names -- which is the one asked what
+// events it has. An empty program is the claude on PATH.
+func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create settings dir: %w", err)
 	}
 	path := filepath.Join(dir, sessionID+".settings.json")
 
-	events := hookEventsFor(claudeVersion())
+	events := hookEventsFor(claudeVersion(exe))
 	hooks := make(map[string][]hookMatcher, len(events))
 	for _, ev := range events {
 		cmd := fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",

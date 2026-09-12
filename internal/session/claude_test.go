@@ -150,7 +150,7 @@ func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
 	was := claudeVersion
 	t.Cleanup(func() { claudeVersion = was })
 	for version, want := range map[string]bool{"2.1.269 (Claude Code)": true, "2.0.0 (Claude Code)": false} {
-		claudeVersion = func() string { return version }
+		claudeVersion = func(string) string { return version }
 		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
 		if err != nil {
 			t.Fatalf("write settings: %v", err)
@@ -166,6 +166,23 @@ func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
 		if _, ok := got.Hooks["PermissionRequest"]; ok != want {
 			t.Errorf("%s: PermissionRequest subscribed = %v, want %v", version, ok, want)
 		}
+	}
+
+	// A pane runs the program its Spec names, which a catalog entry can pin
+	// somewhere other than the claude on PATH: that is the one asked.
+	var asked []string
+	claudeVersion = func(exe string) string {
+		asked = append(asked, exe)
+		return "2.0.0 (Claude Code)"
+	}
+	spec := claudeLaunchSpec()
+	spec.Exe = filepath.Join(t.TempDir(), "pinned", "claude")
+	path, err := Settings(spec, t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+	if err != nil || path == "" {
+		t.Fatalf("settings: %q, %v", path, err)
+	}
+	if len(asked) != 1 || asked[0] != spec.Exe {
+		t.Errorf("asked %q for its version, want the pane's own program %q", asked, spec.Exe)
 	}
 }
 

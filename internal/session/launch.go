@@ -207,7 +207,7 @@ func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint, token string) 
 	if !spec.Caps.Hooks || endpoint == "" || !wantsSettings(spec) {
 		return "", nil
 	}
-	return WriteHookSettings(dir, sessionID, selfExe, endpoint, token)
+	return WriteHookSettingsFor(spec.Exe, dir, sessionID, selfExe, endpoint, token)
 }
 
 // wantsSettings reports whether an agent's arguments ever refer to a settings
