@@ -6,7 +6,10 @@ without a window at all.
 
 ## On the next run
 
-Layouts are saved per project. Tabs, splits, proportions and working
+Layouts are saved per project — when the window closes or reloads, when you
+detach, restart or quit, and when a project is closed, rather than as you work,
+so if Flockdeck is killed or crashes the changes since then are lost. Tabs,
+splits, proportions and working
 directories come back, **every project you had open is reopened**, each pane
 starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
