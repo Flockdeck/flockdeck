@@ -163,8 +163,9 @@ func (l *Log) Append(e Entry) error {
 		e.Agent = l.agent
 	}
 	// Code is most of what a transcript holds, and encoding/json would write
-	// every < > and & in it as < and the like; the file is read by people
-	// as well as by programs. Encode ends the entry with its newline.
+	// every < > and & in it as a six-character Unicode escape; the file is
+	// read by people as well as by programs. Encode ends the entry with its
+	// newline.
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
