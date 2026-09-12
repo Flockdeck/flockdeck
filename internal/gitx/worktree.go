@@ -392,12 +392,20 @@ func Remove(repoDir, path string, force bool) error {
 	if strings.TrimSpace(path) == "" {
 		return &gitError{"which worktree? no path was given"}
 	}
-	known, err := isWorktree(repoDir, path)
+	wt, known, err := findWorktree(repoDir, path)
 	if err != nil {
 		return err
 	}
 	if !known {
 		return &gitError{path + " is not a worktree of this repository"}
+	}
+	// git refuses a locked worktree even when forced, and says to run
+	// "remove -f -f", which is nothing a person pressing a button can do.
+	// A lock is somebody saying on purpose that this one stays, so undoing
+	// it is left to them, with the command that does it.
+	if wt.Locked && !wt.Prunable {
+		return &gitError{fmt.Sprintf("%s is locked, so it is kept; unlock it first with: git worktree unlock %q",
+			wt.Label(), wt.Path)}
 	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		_, err := Prune(repoDir)
@@ -412,19 +420,19 @@ func Remove(repoDir, path string, force bool) error {
 	return err
 }
 
-// isWorktree reports whether path is one of the repository's registered
-// worktrees.
-func isWorktree(repoDir, path string) (bool, error) {
+// findWorktree returns the repository's record of the worktree at path, and
+// whether it has one.
+func findWorktree(repoDir, path string) (Worktree, bool, error) {
 	wts, err := List(repoDir)
 	if err != nil {
-		return false, err
+		return Worktree{}, false, err
 	}
 	for _, wt := range wts {
 		if samePath(wt.Path, path) {
-			return true, nil
+			return wt, true, nil
 		}
 	}
-	return false, nil
+	return Worktree{}, false, nil
 }
 
 // samePath compares two paths as the file system would.

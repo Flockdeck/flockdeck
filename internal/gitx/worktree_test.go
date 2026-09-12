@@ -634,3 +634,21 @@ func TestDeletedWorktreeIsReportedAsPrunable(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoveOfALockedWorktreeSaysHowToUnlockIt: git told the panel to run
+// "remove -f -f", which no button does.
+func TestRemoveOfALockedWorktreeSaysHowToUnlockIt(t *testing.T) {
+	repo := newRepo(t)
+	wt := filepath.Join(t.TempDir(), "kept")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "kept", wt)
+	gitRun(t, repo, "worktree", "lock", wt)
+	for _, force := range []bool{false, true} {
+		err := Remove(repo, wt, force)
+		if err == nil || !strings.Contains(err.Error(), "git worktree unlock") || strings.Contains(err.Error(), "-f -f") {
+			t.Errorf("force=%v: err = %v, want it to say how to unlock", force, err)
+		}
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("a locked worktree should be left where it is: %v", err)
+	}
+}
