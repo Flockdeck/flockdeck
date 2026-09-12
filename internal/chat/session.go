@@ -462,6 +462,12 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 		if step >= maxToolSteps {
 			s.out.line(ansiRed, fmt.Sprintf("stopping: the model has asked for tools %d times in one turn", step))
 			s.decline(calls, "not run: the turn reached its limit of tool calls")
+			// A long piece of work reaches the limit honestly -- twenty files
+			// edited and the tests run -- and whoever is watching decides
+			// whether it goes on, with one word rather than a prompt that
+			// explains where it had got to.
+			s.out.line(ansiDim, "(/retry lets it carry on for as many again)")
+			s.unfinished = true
 			break
 		}
 		if stop := s.runCalls(turnCtx, calls); stop {

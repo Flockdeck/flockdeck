@@ -21,7 +21,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 			"/model        the models to choose from; /model 2, /model opus or /model <id>",
 			"/output [n]   all of the last tool's output, or of the nth last",
 			"/history [n]  the conversation so far, or its last n entries",
-			"/retry        carry on a turn that failed or was interrupted",
+			"/retry        carry on a turn that failed, was interrupted or hit its limit",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
