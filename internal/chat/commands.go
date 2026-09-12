@@ -18,7 +18,7 @@ func (s *session) command(line string) bool {
 		for _, l := range []string{
 			"/model        the models to choose from; /model 2 or /model <id> switches",
 			"/output [n]   all of the last tool's output, or of the nth last",
-			"/history      the whole conversation so far, for when scrollback ends",
+			"/history [n]  the conversation so far, or its last n entries",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
@@ -33,7 +33,7 @@ func (s *session) command(line string) bool {
 	case "output":
 		s.showOutput(rest)
 	case "history":
-		s.history()
+		s.history(rest)
 	case "clear":
 		s.messages = nil
 		// The transcript is marked rather than truncated: what was said was
@@ -157,8 +157,19 @@ func (s *session) replay() {
 
 // history is /history: the conversation since it was last started over, drawn
 // the way it looked as it happened, for a pane whose scrollback does not reach
-// back that far -- one that was resumed, or has been going all day.
-func (s *session) history() {
+// back that far -- one that was resumed, or has been going all day. With a
+// number it draws only that many of the latest entries, because the whole of
+// a day's conversation scrolls away the part somebody wanted to see.
+func (s *session) history(arg string) {
+	last := 0
+	if arg != "" {
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 {
+			s.out.line(ansiDim, "/history takes a number: /history 10 draws the last ten entries")
+			return
+		}
+		last = n
+	}
 	entries, err := ReadEntries(s.log.Path())
 	if err != nil {
 		s.out.line(ansiRed, "could not read the transcript: "+err.Error())
@@ -168,6 +179,10 @@ func (s *session) history() {
 	if len(entries) == 0 {
 		s.out.line(ansiDim, "(nothing has been said yet)")
 		return
+	}
+	if last > 0 && len(entries) > last {
+		s.out.line(ansiDim, fmt.Sprintf("(%d earlier entries; /history alone draws them all)", len(entries)-last))
+		entries = entries[len(entries)-last:]
 	}
 	s.drawEntries(entries)
 }
