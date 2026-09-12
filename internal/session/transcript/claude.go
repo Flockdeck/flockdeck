@@ -39,6 +39,10 @@ func (Claude) Conversations(spec agent.Spec, cwd string) ([]Conversation, error)
 	return label(spec.ID, found), err
 }
 
+// ClaudeHome returns the directory Claude Code keeps its state in: its
+// settings, and the login whose limits every Claude pane shares.
+func ClaudeHome() string { return claudeHome() }
+
 // claudeHome returns the directory Claude Code keeps its state in.
 func claudeHome() string {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {

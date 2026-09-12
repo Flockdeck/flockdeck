@@ -188,6 +188,10 @@ func versionAtLeast(version string, min [3]int) bool {
 // settingsFile is the shape of the JSON handed to `claude --settings`.
 type settingsFile struct {
 	Hooks map[string][]hookMatcher `json:"hooks"`
+	// StatusLine routes the pane's status line through Flockdeck, which is
+	// how a subscription's usage windows reach the pane header. See
+	// statusline.go for when it is set and why.
+	StatusLine map[string]any `json:"statusLine,omitempty"`
 }
 
 type hookMatcher struct {
@@ -235,6 +239,12 @@ func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string,
 // Code program -- the one its Spec names -- which is the one asked what
 // events it has. An empty program is the claude on PATH.
 func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) (string, error) {
+	return WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, token, StatusLine{Mode: StatusLineOff})
+}
+
+// WriteHookSettingsWith is WriteHookSettingsFor with the pane's status line
+// routed through Flockdeck as sl says.
+func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, token string, sl StatusLine) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create settings dir: %w", err)
 	}
@@ -256,7 +266,8 @@ func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) 
 		hooks[ev] = []hookMatcher{{Hooks: []hookSpec{spec}}}
 	}
 
-	data, err := json.MarshalIndent(settingsFile{Hooks: hooks}, "", "  ")
+	settings := settingsFile{Hooks: hooks, StatusLine: statusLineSetting(sl, sessionID, selfExe, token)}
+	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("encode settings: %w", err)
 	}
