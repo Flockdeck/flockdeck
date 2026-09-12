@@ -266,11 +266,12 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 
 // TestFinishedNotificationsAreNotReported covers the Notifications that say
 // something is done rather than waiting: every Notification turns a pane
-// amber, and a login that succeeded or an MCP question just answered is the
+// amber, and a login that succeeded, an MCP question just answered, a
+// background agent that has finished or a turn done with the computer is the
 // opposite of an agent needing you.
 func TestFinishedNotificationsAreNotReported(t *testing.T) {
 	srv, r := newServer(t)
-	for _, kind := range []string{"auth_success", "elicitation_complete", "elicitation_response"} {
+	for _, kind := range []string{"auth_success", "elicitation_complete", "elicitation_response", "agent_completed", "computer_use_exit"} {
 		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
 		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
 			t.Fatalf("emit %s: %v", kind, err)
@@ -284,7 +285,7 @@ func TestFinishedNotificationsAreNotReported(t *testing.T) {
 
 	// The ones that do mean the user is wanted still arrive, and so does one
 	// from a Claude Code too old to say what it is about.
-	for _, kind := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog", ""} {
+	for _, kind := range []string{"permission_prompt", "idle_prompt", "elicitation_dialog", "agent_needs_input", "push_notification", ""} {
 		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
 		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
 			t.Fatalf("emit %q: %v", kind, err)

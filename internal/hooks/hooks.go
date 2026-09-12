@@ -78,10 +78,19 @@ type claudePayload struct {
 // an MCP server's question that has just been answered. Every Notification
 // turns a pane amber, so passing these on put a pane back in the count of
 // agents waiting on you the moment the user had dealt with it.
+//
+// Claude Code 2.1.269, read from its executable, sends two more through the
+// same hook: "agent_completed" when a background agent it is keeping an eye
+// on finishes or fails, and "computer_use_exit" -- "Claude is done using your
+// computer" -- when a turn that used the computer ends. Both are news of
+// something over. "agent_needs_input" and a push notification the model asks
+// for itself are left to turn the pane amber: somebody is waiting on the user.
 var finishedNotifications = map[string]bool{
 	"auth_success":         true,
 	"elicitation_complete": true,
 	"elicitation_response": true,
+	"agent_completed":      true,
+	"computer_use_exit":    true,
 }
 
 // Server receives hook events on the loopback interface.
