@@ -96,6 +96,11 @@ func statusLine(model string, u Usage, spent spend) string {
 		// answering. Saying that is honest; naming a model would not be.
 		parts = []string{"default model"}
 	}
+	if u == (Usage{}) {
+		// Nothing has been asked yet, and "0 in · 0 out" in front of the
+		// first prompt is a reading of nothing.
+		return parts[0]
+	}
 	in := tokens(u.In) + " in"
 	if u.CacheRead > 0 {
 		in += " (" + tokens(u.CacheRead) + " cached)"

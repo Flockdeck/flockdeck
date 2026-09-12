@@ -52,6 +52,12 @@ func TestCostIsOnlyClaimedWhenItIsKnown(t *testing.T) {
 	}
 }
 
+func TestStatusLineSaysNothingOfTokensBeforeAny(t *testing.T) {
+	if got := statusLine("claude-opus-5", Usage{}, spend{}); got != "claude-opus-5" {
+		t.Errorf("status line before anything was asked = %q", got)
+	}
+}
+
 // spendOf is what one turn cost, as the loop adds it up.
 func spendOf(model string, u Usage) spend {
 	var s spend
