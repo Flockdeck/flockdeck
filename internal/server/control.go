@@ -1027,6 +1027,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			_ = ws.SaveAll()
 			c.sendJSON(map[string]any{"type": "detached"})
 		case "quit":
+			// Quitting stops every agent on this machine, and the instance
+			// cannot be started again from a remote window -- which is why the
+			// help promises that a remote window cannot quit it. /quit keeps
+			// that promise by wanting the token; this is the other way in.
+			if c.remote {
+				c.notify("a window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
+				return
+			}
 			_ = ws.SaveAll()
 			go s.requestQuit()
 		case "restart":
