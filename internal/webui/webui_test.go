@@ -2936,6 +2936,28 @@ assert.ok(h.doc.activeElement === help, "a status push took the keyboard off the
 `)
 }
 
+// The commit message is the last thing written before committing, and a box
+// like it commits on Ctrl+Enter nearly everywhere else. Here it took the
+// pointer, or tabbing past the box to the button.
+func TestCtrlEnterCommitsFromTheMessage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+const box = h.$("commit-message");
+box.value = "webui: something";
+box.oninput();
+box.focus();
+const plain = h.key({ key: "Enter" });
+assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the message");
+const ev = h.key({ key: "Enter", ctrlKey: true });
+assert.ok(ev.defaultPrevented);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

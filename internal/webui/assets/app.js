@@ -3186,7 +3186,7 @@
       const commit = el("div", "rev-commit");
       const box = el("textarea");
       box.id = "commit-message";
-      box.placeholder = "Commit message";
+      box.placeholder = "Commit message (Ctrl+Enter commits)";
       box.value = commitDraft;
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
@@ -3200,6 +3200,14 @@
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
       c1.id = "rev-commit";
       c1.onclick = () => doCommit(c1, false);
+      // The message is the last thing written, and a box like this commits on
+      // Ctrl+Enter nearly everywhere else; here it took the pointer, or Tab
+      // past the box to the button.
+      box.onkeydown = (ev) => {
+        if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+        ev.preventDefault();
+        doCommit(c1, false);
+      };
       buttons.append(c1);
       if (m.hasRemote) {
         const c2 = el("button", "chip", "Commit and push");
