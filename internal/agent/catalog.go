@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -83,6 +85,7 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %d has no id", n+1))
 			continue
 		}
+		problems = append(problems, unknownFields(head.ID, raw)...)
 		if i, known := index[head.ID]; known {
 			builtin := c.Specs[i]
 			merged := builtin
@@ -121,6 +124,51 @@ func Merge(f *File) *Catalog {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}
 	return c
+}
+
+// unknownFields names the keys of an entry that no agent has.
+//
+// The decoder passes over them without a word, so a field written in the wrong
+// place did nothing and said nothing: a "baseURL" beside the id rather than
+// inside "api" left the endpoint greyed out in the picker with no clue why. The
+// entry is still used -- a key this build does not know may be one a later
+// build wrote -- but the notice says which keys went unread.
+func unknownFields(id string, raw json.RawMessage) []string {
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(raw, &keys) != nil {
+		return nil // not an object; decoding it properly reports that
+	}
+	var problems []string
+	for key := range keys {
+		if specFields[key] {
+			continue
+		}
+		msg := fmt.Sprintf("agent %q: %q is not something an agent has", id, key)
+		if apiFields[key] {
+			msg = fmt.Sprintf("agent %q: %q belongs inside \"api\"", id, key)
+		}
+		problems = append(problems, msg)
+	}
+	sort.Strings(problems)
+	return problems
+}
+
+var (
+	specFields = jsonFields(reflect.TypeFor[Spec]())
+	apiFields  = jsonFields(reflect.TypeFor[APISpec]())
+)
+
+// jsonFields is the set of keys a struct decodes, read from its own tags so
+// the two cannot drift apart.
+func jsonFields(t reflect.Type) map[string]bool {
+	out := map[string]bool{}
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 // orBuiltin is the list an entry set, or the built-in's where it set none.

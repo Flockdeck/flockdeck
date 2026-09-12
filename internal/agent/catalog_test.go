@@ -466,3 +466,25 @@ func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
 		}
 	}
 }
+
+// TestUnknownAgentFieldsAreNamed: a key in the wrong place used to do nothing
+// and say nothing, which left an endpoint greyed out with no clue why.
+func TestUnknownAgentFieldsAreNamed(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "openai-compatible", "baseURL": "http://gw/v1", "modles": []}`),
+		json.RawMessage(`{"id": "claude", "defaultModel": "sonnet", "api": {"baseURL": "http://x"}}`),
+	}})
+	for _, want := range []string{`"baseURL" belongs inside "api"`, `"modles" is not something an agent has`} {
+		if !strings.Contains(c.Notice, want) {
+			t.Errorf("notice %q should say %s", c.Notice, want)
+		}
+	}
+	if strings.Contains(c.Notice, "defaultModel") || strings.Contains(c.Notice, `"api" is`) {
+		t.Errorf("a field an agent has was reported: %q", c.Notice)
+	}
+	// The entry is still used: a key this build does not know may be one a
+	// later build wrote.
+	if claude, _ := c.Find("claude"); claude.DefaultModel != "sonnet" {
+		t.Errorf("the rest of the entry should still apply, got default model %q", claude.DefaultModel)
+	}
+}
