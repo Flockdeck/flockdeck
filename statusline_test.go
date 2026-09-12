@@ -105,6 +105,21 @@ func TestStatuslineIsNotHeldUpByTheUsersCommand(t *testing.T) {
 	}
 }
 
+// A command that does not decode is not run, not even the part that did:
+// DecodeString hands that part back beside its error, and it used to be run.
+func TestStatuslineRunsNothingOfACommandThatDoesNotDecode(t *testing.T) {
+	// Nine bytes are twelve characters of base64, every one of them decoded
+	// before the one that is not base64 at all.
+	var out, errs bytes.Buffer
+	statusline([]string{"--then", then("echo ran;") + "!"}, strings.NewReader(statusJSON), &out, &errs)
+	if strings.Contains(out.String(), "ran") {
+		t.Errorf("printed %q: the part of the command that decoded was run", out.String())
+	}
+	if !strings.Contains(errs.String(), "does not decode") {
+		t.Errorf("said %q, want it to say the command does not decode", errs.String())
+	}
+}
+
 // An application that has gone costs the user's line nothing.
 func TestStatuslineWithNoApplicationStillPrintsTheUsersLine(t *testing.T) {
 	srv, _ := usageServer(t)

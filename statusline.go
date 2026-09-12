@@ -65,11 +65,15 @@ func statusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	var user string
 	if *then != "" {
-		b, err := base64.RawURLEncoding.DecodeString(*then)
-		if err != nil {
-			fmt.Fprintln(stderr, "flockdeck statusline: the status line command it was given does not decode:", err)
+		// DecodeString hands back what it decoded before the fault as well as
+		// the fault, and that part was run: a value cut short, or edited by
+		// hand, ran the start of somebody's command -- `rm -rf ~/tmp/x` as far
+		// as `rm -rf ~/`. A command that does not decode is not run at all.
+		if b, err := base64.RawURLEncoding.DecodeString(*then); err != nil {
+			fmt.Fprintln(stderr, "flockdeck statusline: the status line command it was given does not decode, so it is not run:", err)
+		} else {
+			user = string(b)
 		}
-		user = string(b)
 	}
 
 	posted := make(chan struct{})
