@@ -172,7 +172,13 @@ func main() {
 	server.Version = version
 
 	if c.quit {
-		if err := quitRunning(); err != nil {
+		// Nothing running is nothing to do rather than a failure: it used to
+		// exit 1, append to error.log and, on Windows, put up an error box,
+		// all for a request that had already got what it asked for.
+		switch err := quitRunning(); {
+		case errors.Is(err, errNoneRunning):
+			fmt.Println("flockdeck: nothing is running, so there is nothing to stop")
+		case err != nil:
 			fail("Flockdeck could not stop the running instance.", err)
 		}
 		return
