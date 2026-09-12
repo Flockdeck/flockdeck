@@ -194,8 +194,10 @@ type session struct {
 	opts Options
 	wire Wire
 	// key is the one the wire was built with, so that a refused one can be
-	// told from a new one set since.
+	// told from a new one set since; refused are the keys the API has
+	// refused in this session, which are not tried again.
 	key      string
+	refused  map[string]bool
 	log      *Log
 	out      *printer
 	in       *input

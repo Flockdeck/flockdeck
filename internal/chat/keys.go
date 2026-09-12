@@ -118,16 +118,35 @@ func (s *session) rekey() bool {
 	if s.opts.wire != nil {
 		return false
 	}
-	key, err := resolveKey(s.opts)
-	if err != nil || key == s.key {
-		return false
+	if s.refused == nil {
+		s.refused = map[string]bool{}
 	}
-	wire, err := NewWire(s.opts.Wire, s.opts.BaseURL, key)
-	if err != nil {
-		return false
+	s.refused[s.key] = true
+	// The key found the usual way first, then the stored one. A pane is handed
+	// its stored key in its environment when it starts, and the environment is
+	// looked at first, so the usual way goes on finding that key -- the one
+	// just refused -- however many times another is set: a key set since is
+	// in the store and only there. A key refused once is not tried again, so
+	// that the two cannot take turns being refused.
+	var candidates []string
+	if key, err := resolveKey(s.opts); err == nil {
+		candidates = append(candidates, key)
 	}
-	s.wire, s.key = wire, key
-	return true
+	if KeyStore != nil {
+		candidates = append(candidates, strings.TrimSpace(KeyStore(keyAgent(s.opts))))
+	}
+	for _, key := range candidates {
+		if key == "" || s.refused[key] {
+			continue
+		}
+		wire, err := NewWire(s.opts.Wire, s.opts.BaseURL, key)
+		if err != nil {
+			return false
+		}
+		s.wire, s.key = wire, key
+		return true
+	}
+	return false
 }
 
 // defaultKeyEnv is the conventional variable for a wire, used when the agent's
