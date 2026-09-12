@@ -5,6 +5,9 @@ been using. The **Review** button on each worktree opens the same panel for
 that checkout, which is usually how you get here: see which agent produced
 something, then look at what it did.
 
+The panel always shows the whole repository the pane is in, even when the pane
+was started in a folder inside it, and a commit takes all of it.
+
 ## What it shows
 
 - The branch and where it stands against its upstream.
