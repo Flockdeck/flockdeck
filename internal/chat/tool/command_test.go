@@ -162,8 +162,8 @@ func TestRunCommand(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(got, "killed after") {
-			t.Errorf("got:\n%s", got)
+		if !strings.Contains(got, "killed after") || !strings.Contains(got, "timeout_seconds") {
+			t.Errorf("the kill should be reported with how to ask for longer:\n%s", got)
 		}
 	})
 

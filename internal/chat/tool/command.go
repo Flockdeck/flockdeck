@@ -181,7 +181,10 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		fmt.Fprintf(&b, "[killed after %s]\n", timeout)
+		// Said with how to get longer: told only that it was killed, a model
+		// runs the same command again and is killed at the same point.
+		fmt.Fprintf(&b, "[killed after %s; a longer run can be asked for with timeout_seconds, up to %d]\n",
+			timeout, int(commandMaxTimeout/time.Second))
 	case runErr == nil:
 		b.WriteString("[exit status 0]\n")
 	case errors.Is(runErr, exec.ErrWaitDelay):
