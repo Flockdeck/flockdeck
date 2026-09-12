@@ -361,6 +361,28 @@ func TestRemotePairWhileNotRunning(t *testing.T) {
 	}
 }
 
+// devices says why this machine is offline when the reason is here to see:
+// flockdeck is not running.
+func TestRemoteDevicesWhileNotRunning(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"devices":[],"hosts":[{"id":"h1","name":"desk","online":false,"self":true}]}`)
+	}))
+	defer srv.Close()
+	if err := (&remote.Config{Relay: srv.URL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	for running, want := range map[bool]bool{false: true, true: false} {
+		var out bytes.Buffer
+		if err := remoteCmd([]string{"devices"}, remoteIO{out: &out, running: func() bool { return running }}); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "desk (this one) — offline — flockdeck is not running here"); got != want {
+			t.Errorf("devices with flockdeck running=%v said why it is offline: %v, want %v\n%s", running, got, want, out.String())
+		}
+	}
+}
+
 // A relay that answers with an error was reached; status says it could not
 // be asked, rather than that it could not be reached.
 func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {

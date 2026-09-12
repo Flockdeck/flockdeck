@@ -500,13 +500,14 @@ func remoteDevicesCmd(args []string, rio remoteIO) error {
 	if err != nil {
 		return relayRefusal(err)
 	}
-	printRoster(rio.out, roster, time.Now())
+	printRoster(rio.out, roster, time.Now(), rio.running != nil && !rio.running())
 	return nil
 }
 
 // printRoster lists what the account has: the devices first, since they are
-// what `revoke` takes, with the id it takes them by.
-func printRoster(out io.Writer, r *remote.Roster, now time.Time) {
+// what `revoke` takes, with the id it takes them by. idle is flockdeck not
+// running here, which is why this machine is offline when it is.
+func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 	if len(r.Devices) == 0 {
 		fmt.Fprintln(out, "No devices are paired. `flockdeck remote pair` pairs one.")
 	} else {
@@ -523,8 +524,13 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time) {
 		fmt.Fprintln(out, "\nMachines:")
 		for _, h := range r.Hosts {
 			state := "offline, last seen " + ago(h.LastSeen, now)
-			if h.Online {
+			switch {
+			case h.Online:
 				state = "online"
+			case h.Self && idle:
+				// The one reason this side knows for itself, and the one
+				// thing to do about it.
+				state = "offline — flockdeck is not running here"
 			}
 			self := ""
 			if h.Self {
