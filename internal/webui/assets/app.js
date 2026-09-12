@@ -1039,6 +1039,16 @@
       target.style.flexBasis = "0";
     }
     (node.children || []).forEach(walkWeights);
+    // The separators say how each pair shares the space, which is how a
+    // screen reader learns it. Written only by a drag or an arrow key, a
+    // split restored with the layout had no value at all, and one resized
+    // from another window kept the old one.
+    if (!node.pane && target) {
+      const kids = target.children;
+      for (let i = 1; i < kids.length - 1; i++) {
+        if (kids[i].classList.contains("divider")) sayShare(kids[i], kids[i - 1], kids[i + 1]);
+      }
+    }
   }
   /** The split containers by node id, recorded as they are built. Weights are
    *  applied on every state push, and every push arrives while agents are
@@ -1075,7 +1085,8 @@
   function sayShare(d, a, b) {
     const aGrow = parseFloat(a.style.flexGrow) || 1;
     const bGrow = parseFloat(b.style.flexGrow) || 1;
-    d.setAttribute("aria-valuenow", String(Math.round((aGrow / (aGrow + bGrow)) * 100)));
+    const now = String(Math.round((aGrow / (aGrow + bGrow)) * 100));
+    if (d.getAttribute("aria-valuenow") !== now) d.setAttribute("aria-valuenow", now);
   }
 
   /** One press of an arrow key moves this much of the pair across. */

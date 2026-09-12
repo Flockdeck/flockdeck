@@ -91,3 +91,21 @@ push({ status: "idle" });
 assert.ok(!cover(), "a pane running again is still covered");
 `)
 }
+
+// A divider is a separator with a value, which is how a screen reader says
+// how the space is shared. The value was written only once a divider had
+// been dragged or arrowed, so every split a layout was restored with, or
+// resized from another window, had none, or a stale one.
+func TestADividerSaysHowTheSpaceIsShared(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = (a, b) => ({ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: { id: "s1", dir: "h", weight: 1, children: [
+    { id: "n1", pane: "p1", weight: a }, { id: "n2", pane: "p2", weight: b }] } });
+h.recv(fixture({ tabs: [tab(3, 1)] }));
+const d = h.$("workspace").querySelector(".divider");
+assert.strictEqual(d.getAttribute("aria-valuenow"), "75", "a restored split does not say how it is shared");
+h.recv(fixture({ tabs: [tab(1, 1)] }));
+assert.strictEqual(d.getAttribute("aria-valuenow"), "50", "the value did not follow the weights");
+`)
+}
