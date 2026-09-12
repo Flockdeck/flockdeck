@@ -723,8 +723,8 @@ every pane, until the application is next started.
 ### Help
 
 `F1` opens the help: a page per feature, searchable across all of them, beside
-a contents list. Every dialog carries a `?` that opens the page explaining what
-is in it, and a dismissible hint appears under the tab bar for the gestures the
+a contents list. Almost every dialog carries a `?` that opens the page
+explaining what is in it, and a dismissible hint appears under the tab bar for the gestures the
 interface cannot advertise for itself — dragging a pane, what an amber dot
 means. The first run opens it once, unasked, and never again.
 
