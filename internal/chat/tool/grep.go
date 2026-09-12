@@ -2,6 +2,7 @@ package tool
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -179,19 +181,27 @@ func matchFile(abs string, re *regexp.Regexp, filesOnly bool, room int) ([]strin
 		return nil, nil
 	}
 	var hits []string
+	var spare []byte
 	for n := 1; ; n++ {
 		// Only so much of a line is searched. One line of a minified bundle or
 		// a log can be as long as the file, and read whole it would be held in
 		// memory whole, however large.
-		text, _, err := nextLine(r, grepScanLine)
-		if err != nil && (err != io.EOF || text == "") {
+		var line []byte
+		line, spare, err = lineBytes(r, grepScanLine, spare)
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			return hits, nil
 		}
-		if re.MatchString(text) {
+		// Bytes that are not UTF-8 are left out before matching, as they
+		// always were, so that a pattern matches across them. It is rare, and
+		// only such a line pays for a copy.
+		if !utf8.Valid(line) {
+			line = []byte(strings.ToValidUTF8(string(line), ""))
+		}
+		if re.Match(line) {
 			if filesOnly {
 				return []string{""}, nil
 			}
-			hits = append(hits, fmt.Sprintf("%d: %s", n, clip(text)))
+			hits = append(hits, fmt.Sprintf("%d: %s", n, clip(string(line))))
 			if len(hits) >= room {
 				return hits, nil
 			}
@@ -200,6 +210,35 @@ func matchFile(abs string, re *regexp.Regexp, filesOnly bool, room int) ([]strin
 			return hits, nil
 		}
 	}
+}
+
+// lineBytes reads one line without its ending, keeping at most max bytes of
+// it, for a caller that is done with each line before it asks for the next.
+//
+// A search reads every line of every file and matches nearly none of them, and
+// made into a string each line cost two allocations, which were most of what a
+// search of a large tree did: a hundred files of five thousand lines took a
+// million allocations and 71 MB. A line that fits in the reader's buffer is
+// handed back in place; a longer one is gathered into spare, which the caller
+// passes back to be used again. What comes back is good until the next call.
+func lineBytes(r *bufio.Reader, max int, spare []byte) (line, next []byte, err error) {
+	chunk, err := r.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		return bytes.TrimRight(chunk, "\r\n"), spare, err
+	}
+	kept := append(spare[:0], chunk[:min(len(chunk), max)]...)
+	for err == bufio.ErrBufferFull {
+		chunk, err = r.ReadSlice('\n')
+		if err != bufio.ErrBufferFull {
+			chunk = bytes.TrimRight(chunk, "\r\n")
+		}
+		if room := max - len(kept); room > 0 {
+			kept = append(kept, chunk[:min(room, len(chunk))]...)
+		}
+	}
+	// A CRLF split across two reads leaves its carriage return here.
+	kept = bytes.TrimRight(kept, "\r")
+	return kept, kept, err
 }
 
 // clip shortens a matching line to something a terminal can show on one row.
