@@ -74,6 +74,11 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	if err != nil {
 		return "", fmt.Errorf("pattern is not a valid regular expression: %w", err)
 	}
+	if a.Glob != "" {
+		if err := validGlob(a.Glob); err != nil {
+			return "", err
+		}
+	}
 	base, err := t.root.Resolve(a.Path)
 	if err != nil {
 		return "", err

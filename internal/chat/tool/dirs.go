@@ -138,6 +138,9 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	if strings.TrimSpace(a.Pattern) == "" {
 		return "", fmt.Errorf("pattern is required")
 	}
+	if err := validGlob(a.Pattern); err != nil {
+		return "", err
+	}
 	base, err := t.root.Resolve(a.Path)
 	if err != nil {
 		return "", err
@@ -181,6 +184,23 @@ func matchGlob(pattern, name string) bool {
 	pattern = strings.TrimPrefix(filepath.ToSlash(pattern), "./")
 	name = strings.TrimPrefix(filepath.ToSlash(name), "./")
 	return matchSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
+}
+
+// validGlob refuses a pattern that cannot match anything because it is not a
+// pattern at all -- an unclosed [, a stray escape. Matched as it stands it
+// matches nothing and says nothing, and the model told "no files match" goes
+// looking for files that are there under a pattern it wrote wrongly.
+func validGlob(pattern string) error {
+	for _, seg := range strings.Split(filepath.ToSlash(pattern), "/") {
+		if seg == "**" {
+			continue
+		}
+		// Match checks the whole of a pattern before it says no.
+		if _, err := path.Match(seg, ""); err != nil {
+			return fmt.Errorf("%q is not a valid glob (%v): check its [ and ] and backslashes", pattern, err)
+		}
+	}
+	return nil
 }
 
 func matchSegments(pat, name []string) bool {
