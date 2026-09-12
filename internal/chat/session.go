@@ -111,7 +111,10 @@ func Run(ctx context.Context, o Options) error {
 	if o.Out == nil {
 		o.Out = os.Stdout
 	}
-	if o.Width <= 0 {
+	// A width the caller gave is kept; otherwise it is asked for again before
+	// each answer, so a pane that has been resized is wrapped to its new size.
+	autoWidth := o.Width <= 0
+	if autoWidth {
 		o.Width = resolveWidth()
 	}
 	if o.Cwd == "" {
@@ -158,9 +161,10 @@ func Run(ctx context.Context, o Options) error {
 		out:      newPrinter(o.Out, o.Width, o.Colour),
 		in:       newInput(o.In, isConsole(o.In)),
 		reporter: newReporter(o.API, o.Token, o.Session, o.Cwd),
-		model:    o.Model,
-		tools:    map[string]Tool{},
-		always:   map[string]bool{},
+		model:     o.Model,
+		tools:     map[string]Tool{},
+		always:    map[string]bool{},
+		autoWidth: autoWidth,
 	}
 	for _, t := range o.Tools {
 		s.tools[t.Name()] = t
@@ -203,6 +207,8 @@ type session struct {
 	// interrupted is set from the goroutine watching for interrupts and read
 	// back once the turn has ended, so nothing is drawn from two goroutines.
 	interrupted atomic.Bool
+	// autoWidth is set when the width is the terminal's rather than given.
+	autoWidth bool
 }
 
 // systemPrompt is what the model is told about where it is before anything
@@ -450,6 +456,10 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 		MaxTokens: s.opts.MaxTokens,
 	}
 
+	if s.autoWidth {
+		s.opts.Width = resolveWidth()
+		s.out.width = s.opts.Width
+	}
 	var said strings.Builder
 	var calls []ToolCall
 	var thoughts []Thinking

@@ -31,17 +31,30 @@ const defaultWidth = 80
 
 // resolveWidth works out how wide to wrap.
 //
-// Asking the terminal itself needs an ioctl, and the standard library has no way
-// to make one; since this must build with nothing but the standard library, the
-// environment is what there is. COLUMNS is the long-standing name for it, so a
-// pane can be told its own width without inventing a convention.
+// FLOCKDECK_COLUMNS says outright; then the terminal itself is asked, which is
+// the only answer that follows a pane being resized; then COLUMNS, which a
+// shell sets once and never updates. Nothing sets FLOCKDECK_COLUMNS for a pane,
+// so without asking the terminal every answer was wrapped at eighty columns,
+// and in a pane narrower than that every line was wrapped a second time by the
+// terminal into a line and a fragment.
 func resolveWidth() int {
-	for _, name := range []string{"FLOCKDECK_COLUMNS", "COLUMNS"} {
-		if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= 20 {
-			return n
-		}
+	if n := envWidth("FLOCKDECK_COLUMNS"); n > 0 {
+		return n
+	}
+	if n := terminalWidth(); n >= 20 {
+		return n
+	}
+	if n := envWidth("COLUMNS"); n > 0 {
+		return n
 	}
 	return defaultWidth
+}
+
+func envWidth(name string) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= 20 {
+		return n
+	}
+	return 0
 }
 
 // colourWanted reports whether to write escape sequences at all, honouring the
