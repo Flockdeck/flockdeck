@@ -1,7 +1,9 @@
-// Package gitx wraps the few git commands the worktree manager needs.
-//
-// Worktrees are what let several agents work in parallel without fighting over
-// one checkout: each pane gets its own directory and branch.
+// Package gitx is Flockdeck's use of git: the status a pane header shows, the
+// review panel's file list, diffs and commit (changes.go, commit.go), push,
+// pull and fetch (remote.go), and the worktrees that let several agents work
+// in parallel without fighting over one checkout (worktree.go). Every command
+// goes through run.go, which gives it a deadline and shapes what it says when
+// it fails.
 package gitx
 
 import (
