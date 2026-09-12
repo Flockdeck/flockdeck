@@ -678,3 +678,21 @@ func TestBaseURLVariablesAreExpanded(t *testing.T) {
 		t.Errorf("argv %q does not carry the address", argv)
 	}
 }
+
+// TestAnIdDifferingOnlyInCaseIsPointedOut: "Claude" was taken, in silence, as
+// a new agent beside the built-in it was surely meant to change.
+func TestAnIdDifferingOnlyInCaseIsPointedOut(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "Claude", "defaultModel": "opus"}`),
+		json.RawMessage(`{"id": "mine", "exe": "mine"}`),
+	}})
+	if !strings.Contains(c.Notice, `"Claude" is a new agent, not "claude"`) {
+		t.Errorf("notice = %q, want the built-in it probably meant named", c.Notice)
+	}
+	if strings.Contains(c.Notice, `"mine"`) {
+		t.Errorf("an agent of its own was reported: %q", c.Notice)
+	}
+	if s, _ := c.Find("claude"); s.DefaultModel != "" {
+		t.Error("ids are still matched exactly")
+	}
+}

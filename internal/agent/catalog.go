@@ -126,6 +126,16 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %q: %v", head.ID, err))
 			continue
 		}
+		// Ids are matched exactly, as they are everywhere else -- a layout
+		// records them -- so "Claude" is a new agent, not the built-in. On
+		// Windows its program is found as the same claude.exe, and the picker
+		// showed two Claudes while the entry changed neither.
+		for known := range index {
+			if strings.EqualFold(known, head.ID) {
+				problems = append(problems, fmt.Sprintf("agent %q is a new agent, not %q: ids are matched exactly", head.ID, known))
+				break
+			}
+		}
 		problems = append(problems, checkRunner(&fresh)...)
 		problems = append(problems, checkTokens(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
