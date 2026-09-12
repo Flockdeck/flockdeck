@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // Claude Code runs a hook or a status line written as one command line through
@@ -70,26 +72,34 @@ func fileExists(p string) bool {
 // ClaudeShellCommand is a command line run the way Claude Code runs a hook or a
 // status line written as one: through the same shell, with the same flags and
 // the same rewriting of the line for that shell.
+//
+// Its window is hidden, as Claude Code hides the shell it starts: the output
+// goes back to Claude Code through the bridge, and a console window would only
+// flash up on every refresh.
 func ClaudeShellCommand(line string) *exec.Cmd {
-	if runtime.GOOS != "windows" {
-		return exec.Command("/bin/sh", "-c", line)
+	var cmd *exec.Cmd
+	switch bash := GitBash(); {
+	case runtime.GOOS != "windows":
+		cmd = exec.Command("/bin/sh", "-c", line)
+	case bash != "":
+		cmd = exec.Command(bash, "-c", forGitBash(line))
+	default:
+		ps := "powershell"
+		// Claude Code asks for pwsh first, the PowerShell a person has chosen
+		// to install, and falls back to the one Windows comes with.
+		if p, err := exec.LookPath("pwsh"); err == nil {
+			ps = p
+		} else if p, err := exec.LookPath("powershell"); err == nil {
+			ps = p
+		}
+		args := []string{"-NoProfile", "-NonInteractive"}
+		if os.Getenv("CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY") == "" {
+			args = append(args, "-ExecutionPolicy", "Bypass")
+		}
+		cmd = exec.Command(ps, append(args, "-Command", forPowerShell(line))...)
 	}
-	if bash := GitBash(); bash != "" {
-		return exec.Command(bash, "-c", forGitBash(line))
-	}
-	ps := "powershell"
-	// Claude Code asks for pwsh first, the PowerShell a person has chosen to
-	// install, and falls back to the one Windows comes with.
-	if p, err := exec.LookPath("pwsh"); err == nil {
-		ps = p
-	} else if p, err := exec.LookPath("powershell"); err == nil {
-		ps = p
-	}
-	args := []string{"-NoProfile", "-NonInteractive"}
-	if os.Getenv("CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY") == "" {
-		args = append(args, "-ExecutionPolicy", "Bypass")
-	}
-	return exec.Command(ps, append(args, "-Command", forPowerShell(line))...)
+	sysproc.NoWindow(cmd)
+	return cmd
 }
 
 // forGitBash is how Claude Code rewrites a command line for Git Bash: a line
