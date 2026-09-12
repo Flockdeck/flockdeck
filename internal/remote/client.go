@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -258,10 +259,11 @@ func decodeError(status int, data []byte) error {
 // transportError says why a relay could not be reached. It drops the
 // "Get \"https://…\":" prefix net/http puts on every transport error, since
 // the caller has already said which relay it was, and the same URL twice in
-// one line is the part people stop reading at. Two failures are said in
+// one line is the part people stop reading at. Three failures are said in
 // words rather than the library's: a certificate this machine does not
 // trust, which retrying will not mend, with the verifier's reason after it;
-// and a name that cannot be looked up, which is how no network looks.
+// a name that cannot be looked up, which is how no network looks; and a
+// connection refused, which is nothing listening at the address.
 func transportError(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
@@ -281,6 +283,18 @@ func transportError(err error) error {
 		return fmt.Errorf("%s could not be found; check the address, and that this machine is online", dns.Name)
 	case errors.As(err, &dns) && dns.IsTimeout:
 		return fmt.Errorf("looking up %s took too long; check that this machine is online", dns.Name)
+	case refused(err):
+		// On Windows the system's own words are "connectex: No connection
+		// could be made because the target machine actively refused it."
+		return errors.New("nothing is answering there (the connection was refused); check the address, and that the relay is running")
 	}
 	return err
+}
+
+// refused reports whether err is a connection refused: nothing listening at
+// the address. syscall.ECONNREFUSED is Unix's; on Windows the socket error is
+// WSAECONNREFUSED, 10061, which Go neither is nor relates to it.
+func refused(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && (errno == syscall.ECONNREFUSED || errno == 10061)
 }

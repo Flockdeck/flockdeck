@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -808,6 +809,26 @@ func TestLookupFailureIsSaidInWords(t *testing.T) {
 		if got := transportError(tc.err); got == nil || got.Error() != tc.want {
 			t.Errorf("transportError(%v) = %v, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+// A relay with nothing listening at its address is said in words, however
+// the system spells the refusal: Windows' socket error is not Unix's.
+func TestRefusedConnectionIsSaidInWords(t *testing.T) {
+	const want = "nothing is answering there (the connection was refused); check the address, and that the relay is running"
+	for _, errno := range []syscall.Errno{10061, syscall.ECONNREFUSED} {
+		err := &url.Error{Op: "Get", URL: "https://relay.example/api/v1/host/devices",
+			Err: &net.OpError{Op: "dial", Net: "tcp", Err: &os.SyscallError{Syscall: "connect", Err: errno}}}
+		if got := transportError(err); got == nil || got.Error() != want {
+			t.Errorf("transportError of errno %d = %v, want %q", uintptr(errno), got, want)
+		}
+	}
+	// And a real one: an address that was listening a moment ago.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	relay := srv.URL
+	srv.Close()
+	if _, err := NewClient(&Config{Relay: relay, Token: "fdh_test"}, "v").Devices(context.Background()); err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("Devices from a relay with nothing listening = %v, want it to end %q", err, want)
 	}
 }
 
