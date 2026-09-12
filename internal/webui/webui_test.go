@@ -4760,6 +4760,25 @@ assert.ok(!paste("just this").defaultPrevented, "a paste of one line was taken o
 `)
 }
 
+// The prompt bar says how many panes its message will reach, and said it once,
+// when it opened: a pane leaving the set while it was open left it promising
+// agents the message would not reach.
+func TestThePromptBarKeepsCountOfWhoItReaches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const two = (member) => fixture({ tabs: [{ id: "t1", title: "pair", focus: "p1", root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1"), p2: pane("p2", { broadcast: member }) } });
+h.recv(two(true));
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes");
+h.recv(two(false));
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt", "the bar still counts a pane that left the set");
+h.recv(two(true));
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt → 2 panes", "the bar does not count a pane added to the set");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

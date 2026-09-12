@@ -585,6 +585,7 @@
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
+    if (!$("promptbar").hidden) labelPrompt(s);
     prunePanes(s);
     notifyAttention(s);
     renderHints();
@@ -1987,17 +1988,24 @@
     input.setSelectionRange(input.value.length, input.value.length);
   }
 
+  /** labelPrompt says how many panes the prompt bar's message will reach.
+   *  Whether or not broadcast is on: the message goes to the focused pane and
+   *  every pane in the set, and a pane picked by hand with ⇉ stays in the set
+   *  with broadcast off. Counting only while it was on said "Prompt" over a
+   *  message about to reach three agents. Kept current while the bar is open,
+   *  since the set changes under it - a pane added with ⇉, a member closed. */
+  function labelPrompt(s) {
+    const n = s ? countBroadcast(s) : 1;
+    const text = n > 1 ? `Prompt → ${n} panes` : "Prompt";
+    if ($("prompt-label").textContent !== text) $("prompt-label").textContent = text;
+  }
+
   function openPrompt() {
     const bar = $("promptbar");
     bar.hidden = false;
     promptAt = promptHistory.length;
     promptDraft = "";
-    // Whether or not broadcast is on: the message goes to the focused pane and
-    // every pane in the set, and a pane picked by hand with ⇉ stays in the set
-    // with broadcast off. Counting only while it was on said "Prompt" over a
-    // message about to reach three agents.
-    const n = state ? countBroadcast(state) : 1;
-    $("prompt-label").textContent = n > 1 ? `Prompt → ${n} panes` : "Prompt";
+    labelPrompt(state);
     const input = $("prompt-input");
     input.value = promptUnsent;
     input.focus();
