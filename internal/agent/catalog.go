@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -304,6 +305,7 @@ func normalize(s *Spec) {
 			// pane with no program in it at all.
 			s.Exe = s.ID
 		}
+		s.Exe = expandExe(s.Exe)
 		return
 	}
 	// An API entry is `flockdeck chat` whatever else it says, so an entry that
@@ -332,6 +334,35 @@ func normalize(s *Spec) {
 		s.DefaultModel = s.Models[0].ID
 	}
 }
+
+// expandExe reads a program path the way the shell somebody copied it from
+// would have: a leading "~" is their home, and "$NAME", "${NAME}" or "%NAME%"
+// is that variable. It was looked up on PATH as written, so an entry saying
+// "~/bin/mycli" or "%LOCALAPPDATA%\Tools\mycli.exe" was never found. Only a
+// variable that is set is replaced, so a path that merely contains a "$" or
+// a "%" keeps it.
+func expandExe(exe string) string {
+	if exe == "~" || strings.HasPrefix(exe, "~/") || strings.HasPrefix(exe, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil {
+			exe = home + exe[1:]
+		}
+	}
+	exe = percentVar.ReplaceAllStringFunc(exe, func(m string) string {
+		if v, ok := os.LookupEnv(strings.Trim(m, "%")); ok {
+			return v
+		}
+		return m
+	})
+	return os.Expand(exe, func(name string) string {
+		if v, ok := os.LookupEnv(name); ok {
+			return v
+		}
+		return "${" + name + "}"
+	})
+}
+
+// percentVar matches a Windows %NAME% reference.
+var percentVar = regexp.MustCompile(`%[A-Za-z_][A-Za-z0-9_()]*%`)
 
 // Find returns the spec with an id.
 func (c *Catalog) Find(id string) (Spec, bool) {

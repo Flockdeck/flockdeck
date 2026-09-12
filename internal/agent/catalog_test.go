@@ -574,3 +574,30 @@ func TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt(t *testing.T) {
 		t.Errorf("default model = %q, want the endpoint's own choice kept", s.DefaultModel)
 	}
 }
+
+// TestExeIsExpandedLikeAShellWould: a program path copied from a shell was
+// looked up on PATH as written, so "~/bin/mycli" was never found.
+func TestExeIsExpandedLikeAShellWould(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	t.Setenv("FLOCKDECK_TEST_TOOLS", filepath.Join("C:", "tools"))
+	for exe, want := range map[string]string{
+		"~/bin/mycli":                     home + "/bin/mycli",
+		"%FLOCKDECK_TEST_TOOLS%/mycli":    filepath.Join("C:", "tools") + "/mycli",
+		"$FLOCKDECK_TEST_TOOLS/mycli":     filepath.Join("C:", "tools") + "/mycli",
+		"${FLOCKDECK_TEST_TOOLS}/mycli":   filepath.Join("C:", "tools") + "/mycli",
+		"100%/mycli":                      "100%/mycli",
+		"$FLOCKDECK_TEST_UNSET_VAR/mycli": "${FLOCKDECK_TEST_UNSET_VAR}/mycli",
+		"mycli":                           "mycli",
+	} {
+		if got := expandExe(exe); got != want {
+			t.Errorf("expandExe(%q) = %q, want %q", exe, got, want)
+		}
+	}
+	c := Merge(&File{Agents: []json.RawMessage{json.RawMessage(`{"id": "mine", "exe": "~/bin/mycli"}`)}})
+	if s, _ := c.Find("mine"); s.Exe != home+"/bin/mycli" {
+		t.Errorf("exe = %q, want it expanded", s.Exe)
+	}
+}
