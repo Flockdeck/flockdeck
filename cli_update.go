@@ -321,10 +321,19 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		return
 	}
 
+	// The badge rides on the state the window is sent, and setting it sends
+	// nothing by itself: with the agents idle and the trees unchanged, a
+	// release staged a moment after the window opened, or one withdrawn
+	// since, would not show until something else happened to change.
+	offer := func(u *server.UpdateView) {
+		srv.SetUpdate(u)
+		srv.Wake()
+	}
+
 	// An update staged by an earlier run is still waiting, and the badge
 	// should be there in the first frame rather than after the first check.
 	if p, ok := stagedUpdate(dir, version); ok {
-		srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+		offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 	}
 
 	for {
@@ -338,11 +347,11 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 			discard, fetch := updateSteps(latest.Version, staged, version)
 			if discard {
 				selfupdate.Discard(dir)
-				srv.SetUpdate(nil)
+				offer(nil)
 			}
 			if fetch {
 				if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
-					srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+					offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 				}
 			}
 		}
