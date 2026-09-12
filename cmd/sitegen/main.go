@@ -103,14 +103,19 @@ func run(out, repo, module, url string) error {
 		"site.css":    css,
 		"favicon.svg": icon,
 	}
-	// The scripts are run straight off the wire, and a checkout on Windows can
-	// hand them over with CRLF endings, which sh takes as part of every
-	// command. They are written out with LF whatever the working tree had.
 	for _, name := range []string{"install.sh", "install.ps1"} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			return err
 		}
+		files[name] = body
+	}
+	// Every text file is written with LF whatever the working tree had. A
+	// Windows checkout hands the assets over with CRLF, which sh takes as part
+	// of every command in install.sh; and the site should be the same bytes
+	// whichever machine generates it, or regenerating it from another checkout
+	// rewrites every line of the site's repository.
+	for name, body := range files {
 		files[name] = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 	}
 	// The screenshots are served beside the page, not from a folder of their own.

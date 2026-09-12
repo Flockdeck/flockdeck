@@ -65,6 +65,30 @@ func TestPageReferencesResolve(t *testing.T) {
 	}
 }
 
+// The site is the same bytes whichever checkout generates it: a Windows
+// working tree holds the assets with CRLF, and writing them out that way would
+// rewrite every line of the site's repository the next time a Linux machine
+// regenerated it.
+func TestTextFilesUseLF(t *testing.T) {
+	dir, _ := generate(t)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".png") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "\r\n") {
+			t.Errorf("%s is written with CRLF line endings", e.Name())
+		}
+	}
+}
+
 // An address given with a trailing slash must not put a doubled one into the
 // lines a visitor pastes into a terminal.
 func TestTrailingSlashIsNotDoubled(t *testing.T) {
