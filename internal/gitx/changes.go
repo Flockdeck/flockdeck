@@ -632,17 +632,28 @@ func (e *gitError) Error() string { return e.msg }
 func Push(dir string) (string, error) {
 	branch := CurrentBranch(dir)
 	if branch == "" {
-		return "", &gitError{"cannot push a detached HEAD"}
+		return "", errDetached
 	}
+	args := []string{"push"}
 	if UpstreamOf(dir) == "" {
 		remote, err := pushRemote(dir)
 		if err != nil {
 			return "", err
 		}
-		return runVerbose(dir, "push", "--set-upstream", remote, branch)
+		args = append(args, "--set-upstream", remote, branch)
 	}
-	return runVerbose(dir, "push")
+	out, err := runVerbose(dir, args...)
+	// git's own explanation of a rejected push is the part cut from a toast,
+	// leaving "failed to push some refs" and nothing about what to do. The
+	// "[rejected]" beside the ref is git's marker for it rather than prose.
+	if err != nil && strings.Contains(err.Error(), "[rejected]") {
+		return "", &gitError{"push rejected: the remote has commits this branch does not. Pull them in, then push again."}
+	}
+	return out, err
 }
+
+// errDetached is what pushing or pulling without a branch checked out says.
+var errDetached = &gitError{"no branch is checked out here (a detached HEAD), so there is nothing to push or pull; check out a branch first"}
 
 // UpstreamOf names the remote branch the checked-out branch tracks, or "" when
 // it tracks nothing.
@@ -682,8 +693,27 @@ func pushRemote(dir string) (string, error) {
 
 // Pull fast-forwards from the upstream. A merge that cannot fast-forward is
 // left for the user to resolve deliberately rather than started here.
+//
+// The two ways that commonly fails are told apart by asking the repository
+// rather than by reading git's words, which change with its language: a branch
+// with no upstream has nothing to pull from, and one that has moved on as well
+// as fallen behind cannot be fast-forwarded. Both used to arrive as git's
+// advice, cut down to the lines that did not say what to do.
 func Pull(dir string) (string, error) {
-	return runVerbose(dir, "pull", "--ff-only")
+	if CurrentBranch(dir) == "" {
+		return "", errDetached
+	}
+	if UpstreamOf(dir) == "" {
+		return "", &gitError{"this branch does not track anything on the remote yet, so there is nothing to pull; push it first to set that up"}
+	}
+	out, err := runVerbose(dir, "pull", "--ff-only")
+	if err != nil {
+		if st := StatusOf(dir); st.Ahead > 0 && st.Behind > 0 {
+			return "", &gitError{fmt.Sprintf("this branch and %s have both moved on (%d commits here, %d there), "+
+				"so pulling cannot simply catch up: merge or rebase them in a terminal, then push", st.Upstream, st.Ahead, st.Behind)}
+		}
+	}
+	return out, err
 }
 
 // Fetch updates the remote-tracking branches.

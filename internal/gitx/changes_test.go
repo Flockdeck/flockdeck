@@ -956,6 +956,8 @@ func TestRemoteCommandsGetTheLongerDeadline(t *testing.T) {
 		t.Skipf("bare init failed: %v: %s", err, out)
 	}
 	gitRun(t, repo, "remote", "add", "origin", origin)
+	// With an upstream, so that pull gets as far as asking the remote.
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
 
 	if networkTimeout <= commandTimeout {
 		t.Errorf("network deadline %s is no longer than the local one %s",
@@ -1110,5 +1112,41 @@ func TestDiffOfANestedRepositorySaysWhatItIs(t *testing.T) {
 	}
 	if !strings.Contains(diff, "separate git repository") {
 		t.Errorf("diff = %q, want it to say what the entry is", diff)
+	}
+}
+
+// TestRemoteFailuresSayWhatToDoNext covers the three ways the panel's push and
+// pull commonly fail. Each arrived as git's advice cut down to the lines that
+// did not say what to do about it.
+func TestRemoteFailuresSayWhatToDoNext(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	mine := newRepo(t)
+	gitRun(t, mine, "remote", "add", "origin", origin)
+
+	if _, err := Pull(mine); err == nil || !strings.Contains(err.Error(), "push it first") {
+		t.Errorf("pull with no upstream: %v", err)
+	}
+	gitRun(t, mine, "push", "-q", "-u", "origin", "main")
+
+	// Someone else pushes, and this checkout commits without pulling.
+	theirs := t.TempDir()
+	cmd = exec.Command("git", "clone", "-q", origin, theirs)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v: %s", err, out)
+	}
+	gitRun(t, theirs, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "--allow-empty", "-m", "theirs")
+	gitRun(t, theirs, "push", "-q")
+	gitRun(t, mine, "commit", "-q", "--allow-empty", "-m", "mine")
+
+	if _, err := Push(mine); err == nil || !strings.Contains(err.Error(), "Pull them in, then push again") {
+		t.Errorf("rejected push: %v", err)
+	}
+	if _, err := Pull(mine); err == nil || !strings.Contains(err.Error(), "merge or rebase") {
+		t.Errorf("pull of diverged branches: %v", err)
 	}
 }
