@@ -9,8 +9,8 @@ picker is how you reach anything else.
 The plain [[key:newAgentTab]] and [[key:splitRight]] stay one keystroke and
 take the default agent, because that is what you want almost every time. To
 choose deliberately, use [[action:newAgentTabChoose]] or
-[[action:splitRightChoose]] — the same picker opens when you hold the split
-button in a pane header, or click the caret beside **New tab**.
+[[action:splitRightChoose]] from the command palette, or click the `▾` beside
+the `+` that opens a new tab.
 
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than

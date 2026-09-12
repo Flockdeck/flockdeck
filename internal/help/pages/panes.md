@@ -14,10 +14,9 @@ and a tab can hold one or several, split however you like.
 | [[action:splitRightShell]] | A shell beside the focused pane |
 
 Each of those takes the project's default agent, which keeps making a pane one
-keystroke. To choose a different agent or a different model, hold the split
-button in a pane header, click the caret beside **New tab**, or take the two
-picker entries out of the command palette; **Agents and models** is the page
-for all of it. The pane header then names what it got, beside the branch.
+keystroke. To choose a different agent or a different model, click the `▾`
+beside the `+` that opens a new tab, or take the two picker entries out of the
+command palette; **Agents and models** is the page for all of it. The pane header then names what it got, beside the branch.
 
 A shell pane is an ordinary terminal in the same directory. It is there for
 the `git`, `npm` or `go` command you want to run yourself while the agents

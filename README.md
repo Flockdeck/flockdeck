@@ -282,9 +282,9 @@ which model. Both are made per pane, defaulted per project, and remembered with
 the layout.
 
 The plain split and new-tab keystrokes take the project's default and stay one
-keystroke, because that is what you want almost every time. The picker — held
-split button, the caret beside **New tab**, or the command palette — is for
-choosing deliberately. It lists agents as **installed** and **not installed**,
+keystroke, because that is what you want almost every time. The picker — the
+caret beside **New tab**, or the command palette — is for choosing
+deliberately. It lists agents as **installed** and **not installed**,
 each expanding to its models with the default marked, and offers *set as
 default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
