@@ -170,7 +170,9 @@ h.recv({ type: "remoteDevices", enabled: true, current: "d2",
 const body = h.$("overlay-body");
 assert.ok(body.textContent.includes("phone"), "the devices are listed");
 assert.ok(body.textContent.includes("this device"), "the device this window is on is marked");
-assert.ok(body.textContent.includes("private relays"), "an enrolled machine is told private relays are coming");
+assert.ok(body.textContent.includes("Coming soon, for companies: run the relay on your own infrastructure, under licence."),
+  "an enrolled machine is not told the self-hosted relay is coming: " + body.textContent);
+assert.ok(!/private relay/i.test(body.textContent), "an enrolled machine is still told of private relays");
 
 h.click(h.$("remote-pair"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "device" });
@@ -272,7 +274,8 @@ h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
 const relay = h.$("remote-relay");
 assert.ok(relay, "a machine that is not enrolled is offered the form, not a command to type");
 assert.ok(h.$("overlay-body").textContent.includes("go on listing this machine"), "a relay left untold is still said");
-assert.ok(h.$("overlay-body").textContent.includes("private relays"), "a machine not enrolled is told private relays are coming");
+assert.ok(h.$("overlay-body").textContent.includes("Coming soon, for companies"), "a machine not enrolled is not told the self-hosted relay is coming");
+assert.ok(!/private relay/i.test(h.$("overlay-body").textContent), "a machine not enrolled is still told of private relays");
 relay.value = "relay.example";
 h.$("remote-name").value = "desk";
 h.click(h.$("remote-enable"));
@@ -3568,7 +3571,7 @@ assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not pu
 // section chosen on the right, where it was left last time.
 // The account's section ends with whose Flockdeck is, under what licence, and
 // the way to the site's privacy policy, terms and licences, opened in the
-// browser as the private relays link is rather than in place of the app.
+// browser as the self-hosted relay's link is rather than in place of the app.
 func TestThePlanSaysWhoseItIsAndLinksThePolicies(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -3757,11 +3760,17 @@ assert.ok(pane.contains(h.$("remote-disable")), "remote access cannot be turned 
 h.click(h.$("settings-tab-plan"));
 const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
-assert.ok(text.includes("Private relays") && text.includes("Coming soon") && text.includes("as a paid plan"), "private relays are not announced");
+// The self-hosted relay is for companies, under licence, and not here yet:
+// individuals keep the shared relay, and nothing offers them a relay.
+assert.ok(text.includes("Self-hosted relay") && text.includes("Coming soon"), "the self-hosted relay is not announced");
+assert.ok(text.includes("For companies: run the relay on your own infrastructure, under licence, with support."),
+  "the self-hosted relay is not said to be for companies, under licence: " + text);
 assert.ok(text.includes("The shared relay stays free"), "it does not say the shared relay stays free");
+assert.ok(!/private relay/i.test(text), "the plan still announces private relays: " + text);
 assert.ok(!text.includes("of your own"), "the plan offers a relay of your own: " + text);
 assert.ok(!/[$£€]\s?\d/.test(text), "a price was invented: " + text);
-assert.ok(h.$("set-plan-link").getAttribute("href").endsWith("#private-relays"), "the link does not go to the site's private relays");
+assert.strictEqual(h.$("set-plan-link").textContent, "Read about self-hosting");
+assert.strictEqual(h.$("set-plan-link").getAttribute("href"), "https://flockdeck.ai/#self-hosted", "the link does not go to the site's self-hosted relay");
 `)
 }
 
