@@ -662,6 +662,40 @@ func BenchmarkPublish(b *testing.B) {
 	}
 }
 
+// TestAWaitingPaneKeepsTheToolItIsAskingAbout covers a permission prompt: the
+// tool is named by the PreToolUse before it, and the Notification that turns
+// the pane amber names nothing, which left the pane saying nothing about what
+// it wanted.
+func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
+	s := claudePane()
+	report := func(event, tool string) {
+		st, detail, ok := StatusForEvent(event, tool)
+		if ok {
+			s.SetStatus(st, detail)
+		}
+	}
+
+	report("PreToolUse", "Bash")
+	report("Notification", "")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "Bash" {
+		t.Errorf("status = %v %q; the pane should say it is waiting on Bash", st, detail)
+	}
+
+	// An idle nudge arrives with nothing running, and names nothing.
+	report("Stop", "")
+	report("Notification", "")
+	if st, detail := s.Status(); st != StatusWaiting || detail != "" {
+		t.Errorf("status = %v %q after an idle nudge, want waiting on nothing", st, detail)
+	}
+
+	// Flockdeck's chat client names the tool it is asking about.
+	report("Stop", "")
+	report("Notification", "run_command")
+	if _, detail := s.Status(); detail != "run_command" {
+		t.Errorf("detail = %q, want the tool the chat client named", detail)
+	}
+}
+
 // TestARepeatedEventIsNotReported covers the lifecycle events that say what a
 // pane already said: Claude nudges about the same unanswered question, and
 // every report rebuilds and sends the whole workspace.

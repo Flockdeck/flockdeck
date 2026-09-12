@@ -161,7 +161,9 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 		return StatusWorking, "", true
 	case "Notification":
 		// Fired when Claude needs permission or has been idle waiting on input.
-		return StatusWaiting, "", true
+		// Claude's names no tool; Flockdeck's own chat client names the one it
+		// is asking permission for.
+		return StatusWaiting, tool, true
 	case "Stop":
 		return StatusIdle, "", true
 	case "SessionEnd":

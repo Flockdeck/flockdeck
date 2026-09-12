@@ -638,6 +638,13 @@ func (s *Session) WriteString(text string) error {
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
 	s.mu.Lock()
+	// A waiting status that names nothing is about whatever the pane was
+	// running when it arrived: Claude asks permission for a tool in a
+	// Notification that follows the PreToolUse naming it, and puts no name in
+	// it. Keeping the tool's is what lets the pane say what it is asking.
+	if st == StatusWaiting && detail == "" && s.status == StatusWorking {
+		detail = s.detail
+	}
 	// An exited pane stays exited, and an event that changes nothing is not
 	// reported: every report rebuilds and sends the whole workspace, and
 	// Claude repeats itself -- the same nudge about the same unanswered
