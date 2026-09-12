@@ -447,52 +447,54 @@ func Save(root string, s *State) error {
 	return nil
 }
 
-// unreadSuffix marks a layout this run could not read, moved out of the way of
-// the save that replaced it. Like damagedSuffix it is neither ".json" nor
-// ".tmp", so nothing looks for it again and nothing sweeps it away.
+// unreadSuffix marks a state file this run could not read, moved out of the
+// way of the save that replaced it. Like damagedSuffix it is neither ".json"
+// nor ".tmp", so nothing looks for it again and nothing sweeps it away.
 const unreadSuffix = ".unread"
 
-// unreadLayouts holds the layout files this run looked for and could not read,
-// for a reason other than their not being there.
+// unreadFiles holds the state files this run looked for and could not read,
+// for a reason other than their not being there: layouts, the list of open
+// projects, and the preferences.
 //
-// A layout that cannot be read is a project that opens with no tabs, or with
-// the one fresh tab the caller gives it, and the save on the way out used to
-// write that over the file nobody had been able to read: the tabs the user
-// had saved were lost to a moment's trouble reading them — a file held past
-// the retry budget, a drive that was slow to wake, a permission put right by
-// the next run. The file is still the user's layout, so it is moved aside
-// before it is written over, and kept.
-var unreadLayouts = struct {
+// A file that cannot be read is taken as empty — a project that opens with no
+// tabs or with the one fresh tab the caller gives it, a start that reopens no
+// other project, the default preferences — and the next save used to write
+// that over the file nobody had been able to read. What the user had saved was
+// lost to a moment's trouble reading it: a file held past the retry budget, a
+// drive that was slow to wake, a permission put right by the next run. The
+// file is still theirs, so it is moved aside before it is written over, and
+// kept.
+var unreadFiles = struct {
 	sync.Mutex
 	paths map[string]bool
 }{paths: map[string]bool{}}
 
-// noteRead records how reading a layout file went. A file read, or found not
+// noteRead records how reading a state file went. A file read, or found not
 // to be there, has nothing left to keep.
 func noteRead(p string, err error) {
-	unreadLayouts.Lock()
-	defer unreadLayouts.Unlock()
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		unreadLayouts.paths[p] = true
+		unreadFiles.paths[p] = true
 		return
 	}
-	delete(unreadLayouts.paths, p)
+	delete(unreadFiles.paths, p)
 }
 
-// keepUnread moves a layout this run could not read aside, ahead of the save
+// keepUnread moves a file this run could not read aside, ahead of the save
 // about to replace it. Where it cannot be moved either, the save is refused:
-// the tabs on screen are lost with it, but they are the ones the user has
-// just seen, and the layout that could not be read is the one they have not.
+// what is lost with it is what the user has just seen, and the file that
+// could not be read is what they have not.
 func keepUnread(p string) error {
-	unreadLayouts.Lock()
-	defer unreadLayouts.Unlock()
-	if !unreadLayouts.paths[p] {
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
+	if !unreadFiles.paths[p] {
 		return nil
 	}
 	if err := renameWithRetry(p, p+unreadSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("the layout saved before could not be read when the project was opened, and could not be moved aside, so it was left as it was rather than written over: %w", err)
+		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
 	}
-	delete(unreadLayouts.paths, p)
+	delete(unreadFiles.paths, p)
 	return nil
 }
 
@@ -1030,6 +1032,7 @@ func LoadSession() (*Session, error) {
 		return nil, err
 	}
 	data, err := readState(filepath.Join(dir, sessionFile))
+	noteRead(filepath.Join(dir, sessionFile), err)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -1122,6 +1125,9 @@ func SaveSession(s *Session) error {
 	data, err := json.MarshalIndent(tidySession(s), "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
+	}
+	if err := keepUnread(filepath.Join(dir, sessionFile)); err != nil {
+		return fmt.Errorf("write session: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {
 		return fmt.Errorf("write session: %w", err)

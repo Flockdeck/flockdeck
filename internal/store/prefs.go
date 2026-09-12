@@ -82,7 +82,12 @@ func LoadPrefs() Prefs {
 	if err != nil {
 		return Prefs{}
 	}
-	data, err := readState(filepath.Join(dir, prefsFile))
+	file := filepath.Join(dir, prefsFile)
+	data, err := readState(file)
+	// Read or not, the defaults are what this run goes on with; one that could
+	// not be read is kept from the next save, which would otherwise write
+	// those defaults over every preference the user had set.
+	noteRead(file, err)
 	if err != nil {
 		return Prefs{}
 	}
@@ -106,6 +111,9 @@ func SavePrefs(p Prefs) error {
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode prefs: %w", err)
+	}
+	if err := keepUnread(filepath.Join(dir, prefsFile)); err != nil {
+		return fmt.Errorf("write prefs: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, prefsFile), data); err != nil {
 		return fmt.Errorf("write prefs: %w", err)
