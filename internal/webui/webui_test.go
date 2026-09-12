@@ -3180,6 +3180,37 @@ assert.deepStrictEqual(sent.tasks, ["Add a health endpoint", "Write tests"]);
 `)
 }
 
+// The prompt bar is how one instruction reaches every agent, and sending it
+// again, or a variation on it, meant typing it out in full. Up recalls what
+// was sent, as it does at a prompt, and Down comes back to what was being
+// typed.
+func TestThePromptBarRemembersWhatWasSent(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const input = h.$("prompt-input");
+for (const text of ["run the tests", "commit what you have"]) {
+  h.press("promptAll");
+  input.value = text;
+  h.key({ key: "Enter" });
+}
+h.press("promptAll");
+input.value = "half typ";
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "commit what you have", "Up did not recall the last prompt sent");
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "run the tests");
+h.key({ key: "ArrowUp" });
+assert.strictEqual(input.value, "run the tests", "Up walked past the first prompt sent");
+h.key({ key: "ArrowDown" });
+h.key({ key: "ArrowDown" });
+assert.strictEqual(input.value, "half typ", "Down did not come back to what was being typed");
+h.key({ key: "ArrowUp" });
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "commit what you have" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

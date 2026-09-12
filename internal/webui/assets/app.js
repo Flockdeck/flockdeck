@@ -1770,9 +1770,34 @@
 
   // -------------------------------------------------------------- prompt bar
 
+  /** What has been sent from the prompt bar this session, oldest first, and
+   *  where Up and Down have got to in it. The bar is how one instruction
+   *  reaches every agent, and sending it again, or a variation on it, meant
+   *  typing it out again in full; Up recalls it, as it does at a prompt. */
+  const promptHistory = [];
+  let promptAt = 0;
+  let promptDraft = "";
+
+  function promptKey(ev) {
+    const input = $("prompt-input");
+    if (ev.key === "ArrowUp" && promptAt > 0) {
+      if (promptAt === promptHistory.length) promptDraft = input.value;
+      input.value = promptHistory[--promptAt];
+    } else if (ev.key === "ArrowDown" && promptAt < promptHistory.length) {
+      promptAt++;
+      input.value = promptAt === promptHistory.length ? promptDraft : promptHistory[promptAt];
+    } else {
+      return;
+    }
+    ev.preventDefault();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
   function openPrompt() {
     const bar = $("promptbar");
     bar.hidden = false;
+    promptAt = promptHistory.length;
+    promptDraft = "";
     const n = state ? countBroadcast(state) : 1;
     $("prompt-label").textContent = state && state.broadcast && n > 1 ? `Prompt → ${n} panes` : "Prompt";
     const input = $("prompt-input");
@@ -1785,7 +1810,11 @@
   }
   function submitPrompt() {
     const text = $("prompt-input").value;
-    if (text.trim()) send({ cmd: "sendPrompt", text });
+    if (text.trim()) {
+      send({ cmd: "sendPrompt", text });
+      if (promptHistory[promptHistory.length - 1] !== text) promptHistory.push(text);
+      if (promptHistory.length > 50) promptHistory.shift();
+    }
     closePrompt();
   }
   function countBroadcast(s) {
@@ -4589,6 +4618,7 @@
   $("overlay-close").onclick = closeOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;
+  $("prompt-input").onkeydown = promptKey;
   $("prompt-cancel").onclick = closePrompt;
   $("retry").onclick = connectControl;
   $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
