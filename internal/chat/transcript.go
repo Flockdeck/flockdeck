@@ -33,9 +33,13 @@ type Entry struct {
 	// Tool names the tool a "tool" entry is the output of, and Call is what
 	// the call acted on as it was drawn -- "read_file src/a.go" -- without
 	// which the history could say what a tool returned but not what of.
-	Tool  string `json:"tool,omitempty"`
-	Call  string `json:"call,omitempty"`
-	Cwd   string `json:"cwd,omitempty"`
+	Tool string `json:"tool,omitempty"`
+	Call string `json:"call,omitempty"`
+	Cwd  string `json:"cwd,omitempty"`
+	// Agent is the catalog id the conversation was held with. Every API
+	// agent keeps its chats in the one folder, so without it a chat with one
+	// agent reopens as another.
+	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
 	In    int    `json:"in,omitempty"`
 	Out   int    `json:"out,omitempty"`
@@ -122,10 +126,11 @@ func Path(session string) string {
 // read it while the pane is still running, and an answer still sitting in a
 // buffer is an answer they cannot see.
 type Log struct {
-	mu   sync.Mutex
-	f    *os.File
-	cwd  string
-	when func() time.Time
+	mu    sync.Mutex
+	f     *os.File
+	cwd   string
+	agent string
+	when  func() time.Time
 }
 
 // OpenLog opens a session's transcript for appending, creating it if need be.
@@ -153,6 +158,9 @@ func (l *Log) Append(e Entry) error {
 	}
 	if e.Cwd == "" {
 		e.Cwd = l.cwd
+	}
+	if e.Agent == "" {
+		e.Agent = l.agent
 	}
 	// Code is most of what a transcript holds, and encoding/json would write
 	// every < > and & in it as < and the like; the file is read by people

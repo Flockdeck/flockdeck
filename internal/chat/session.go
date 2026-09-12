@@ -153,6 +153,10 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer log.Close()
+	// Every entry says which agent it was written by: the chats of every API
+	// agent share one folder, and one reopened with no agent recorded is
+	// reopened as whichever API agent comes first.
+	log.agent = o.Agent
 
 	s := &session{
 		opts:      o,
