@@ -658,8 +658,8 @@ background, so you can see the state of every agent's tree at a glance.
 
 ### Finding your way around
 
-`Ctrl+Shift+K` opens a command palette listing every action, including
-switching to any open project or tab by name. `Ctrl+Shift+F` searches the
+`Ctrl+Shift+K` opens a command palette listing every action but the
+tab-switching keys, and switching to any open project or tab by name. `Ctrl+Shift+F` searches the
 focused terminal. `Ctrl+=` and `Ctrl+-` change the terminal font size for
 every pane, until the application is next started.
 
