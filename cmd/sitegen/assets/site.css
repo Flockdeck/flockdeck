@@ -501,6 +501,23 @@ pre.has-copy { padding-right: 78px; }
    uncapped, an answer ran to about 110 across the 760px card. */
 .faq details p { margin: 0 0 18px; color: var(--muted); font-size: 15px; line-height: 1.65; max-width: 62ch; }
 
+/* --------------------------------------------------------------- sponsor */
+
+/* Sponsors are names, each a link where they gave one, set as plainly as the
+   agents Flockdeck works with: no logos, and nothing to make one sponsor's
+   line louder than another's. */
+#sponsor h3 {
+  font-family: var(--display); font-size: 16.5px; font-weight: 650;
+  letter-spacing: -.012em; margin: 34px 0 12px;
+}
+.sponsors { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0 0 22px; }
+.sponsors li {
+  font-size: 14.5px; color: var(--text);
+  border: 1px solid var(--edge-soft); background: var(--raised);
+  border-radius: 999px; padding: 5px 14px;
+}
+.sponsors a { color: var(--text); text-decoration-color: var(--edge-hard); }
+
 .foot-note { font-size: 13px; }
 
 /* ---------------------------------------------------------------- footer */

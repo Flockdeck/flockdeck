@@ -98,6 +98,11 @@ const (
 	// section's download buttons link to: scripts/publish-downloads.sh puts
 	// the latest release's archives under /latest/ there.
 	downloadsURL = "https://dl.flockdeck.ai"
+
+	// sponsorURL is where the #sponsor section sends somebody who wants to
+	// give something back: the GitHub Sponsors account .github/FUNDING.yml
+	// names, which a test keeps this and the app's own link level with.
+	sponsorURL = "https://github.com/sponsors/jmwri"
 )
 
 func main() {
@@ -122,6 +127,10 @@ type site struct {
 	URL string
 	// Downloads is where the release archives are published.
 	Downloads string
+	// Sponsor is where a visitor can sponsor Flockdeck, and Sponsors are
+	// those who asked to be named for it, from assets/sponsors.txt.
+	Sponsor  string
+	Sponsors []sponsor
 }
 
 // pages are the site's pages: the file each is written to, the template that
@@ -198,7 +207,12 @@ func run(out, repo, module, url string) error {
 	// "@latest" to the module path, so a slash given at the end of any of them
 	// would print a doubled one into an install line, or a go install line go
 	// does not accept.
-	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL}
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL, Sponsor: sponsorURL}
+	sponsors, err := loadSponsors()
+	if err != nil {
+		return err
+	}
+	s.Sponsors = sponsors
 
 	files, err := render(s)
 	if err != nil {
