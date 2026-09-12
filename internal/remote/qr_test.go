@@ -18,8 +18,8 @@ func TestQRCodesDrawEveryModule(t *testing.T) {
 		"https://relay.example.com/some/longer/base/path/pair#fdp_0123456789abcdefghijklmnopqrstuvwxyz",
 	} {
 		// In a terminal the light modules are drawn, two rows to a line,
-		// inside a margin of two.
-		code, err := qr.Encode(link, qr.L)
+		// inside a margin of two, from a code at level M, as the window's.
+		code, err := qr.Encode(link, qr.M)
 		if err != nil {
 			t.Fatal(err)
 		}
