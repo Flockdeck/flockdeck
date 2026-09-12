@@ -12,11 +12,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// TestTrustIsCarriedOnlyForAgentsThatAsk covers a fan-out split between agents.
+// Carrying folder trust over writes Claude Code's configuration, and a row run
+// by an agent with no such question has nothing to carry.
+func TestTrustIsCarriedOnlyForAgentsThatAsk(t *testing.T) {
+	asks := &fanoutJob{task: "refactor", agent: "claude"}
+	silent := &fanoutJob{task: "rename", agent: "codex"}
+	spec := func(id string) (agent.Spec, error) {
+		return agent.Spec{ID: id, Caps: agent.Caps{Trust: id == "claude"}}, nil
+	}
+	got := jobsAskingTrust([]*fanoutJob{asks, silent}, spec)
+	if len(got) != 1 || got[0] != asks {
+		t.Fatalf("trust would be carried for %+v, want only the claude row", got)
+	}
+}
 
 // TestRefusedSpawnCutsNoWorktree covers `flockdeck spawn --worktree` asking for
 // an agent this machine cannot start. The refusal used to come after git had

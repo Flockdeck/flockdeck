@@ -269,7 +269,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				return s.ws.PrepareWorktree(baseCwd, branch)
 			})
 			if req.Trust {
-				inheritTrust(jobs, baseCwd, session.InheritTrust,
+				inheritTrust(jobsAskingTrust(jobs, s.ws.AgentSpec), baseCwd, session.InheritTrust,
 					func(text string) { c.notify(text, true) })
 			}
 		}
@@ -656,6 +656,24 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 			return
 		}
 	}
+}
+
+// jobsAskingTrust keeps the jobs whose agent asks whether a folder is trusted.
+//
+// Only those have an answer to carry over, and carrying it means writing into
+// Claude Code's own configuration, the one agent whose question Flockdeck knows
+// how to answer. A fan-out whose rows run Codex was having trust recorded in
+// Claude's file for the worktrees Codex would work in -- answering a question
+// nobody asked, in a file that is not Codex's. This is what InheritTrustFor
+// does for one spec, applied to a run whose rows may each be a different one.
+func jobsAskingTrust(jobs []*fanoutJob, spec func(id string) (agent.Spec, error)) []*fanoutJob {
+	var out []*fanoutJob
+	for _, j := range jobs {
+		if sp, err := spec(j.agent); err == nil && sp.Caps.Trust {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 // contextDeadline bounds how long a pane's SessionStart hook waits for its
