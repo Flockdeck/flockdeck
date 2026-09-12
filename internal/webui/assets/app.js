@@ -3562,7 +3562,9 @@
   function chooseAgent(title, onPick) {
     picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "" };
     dialog = "agentPicker";
-    openOverlay(title, "panes");
+    // Its ? is the page on agents and models, which is what this chooses
+    // between; it opened the page on panes.
+    openOverlay(title, "agents");
     // The probe behind `available` is a few seconds old at most, but an agent
     // installed while this window was open is exactly what somebody opening
     // this dialog is about to look for.

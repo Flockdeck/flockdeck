@@ -3290,6 +3290,19 @@ assert.ok(trustRow().hidden, "the id was trusted over what the server said");
 `)
 }
 
+// The agent picker's ? opened the help page on panes, not the one on agents
+// and models, which is what the picker chooses between.
+func TestThePickersHelpIsTheAgentsPage(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("new-tab-pick"));
+h.click(h.$("overlay-help"));
+await h.sleep(30);
+assert.strictEqual(h.$("help-content").dataset.slug, "agents", "the picker's ? opened another page");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
