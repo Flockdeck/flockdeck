@@ -52,7 +52,7 @@ model id and an expired login both look like this from outside.
 A worktree is a directory the agent has never seen, and some agents — Claude
 Code among them — ask before working in one. Answer it once and it will not ask
 again for that directory; to avoid it entirely when fanning out, use the trust
-checkbox in the fan-out dialog, which carries over the answer already given for
+checkbox in the [Fan out](#fanout) dialog, which carries over the answer already given for
 the project. It carries Claude Code's "Allow external CLAUDE.md file imports?"
 answer too, if the project was ever asked it.
 

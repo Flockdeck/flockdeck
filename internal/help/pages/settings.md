@@ -16,11 +16,12 @@ them, how to change it, and where it is kept.
   Kept in `keys.json`.
 - **A tab's name** — double-click the tab. Kept with the layout.
 - **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
-  button in each pane header. Kept until Flockdeck stops.
+  button in each pane header; [Broadcast and the prompt bar](#broadcast) has the
+  rest. Kept until Flockdeck stops.
 - **Terminal font size** — [[key:fontUp]], [[key:fontDown]], [[key:fontReset]].
   Kept until Flockdeck is next started.
 - **Paired devices** — [[action:remote]]: **Pair a device** and **Unpair**.
-  Kept on the relay.
+  Kept on the relay; [Remote access](#remote) has the rest.
 - **Desktop notifications** — allow them when the window first asks. The
   browser keeps the answer for that run only: each run has an address of its
   own, so the question comes back on the next start.

@@ -27,7 +27,8 @@ These choices go with it:
   and the cheap one that is good enough for the six renames.
 - **Give each agent its own git worktree.** On by default in a repository.
   Each child gets a branch named after its task, so they work in parallel
-  without touching each other's files.
+  without touching each other's files. [Git worktrees](#worktrees) covers what
+  you can do with them afterwards.
 - **Put them in this tab, beside the agent that planned them.** Off, the
   children get a new tab of their own, called **Fan out** — or named after the
   task, when there is only one. Either way they end
