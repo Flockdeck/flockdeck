@@ -147,6 +147,12 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, f.URL+"/pair#fdp_code") || !strings.Contains(out, "█") {
 		t.Errorf("pair = %q, %v; want the link and a QR code", out, err)
 	}
+	// The code comes last, so a terminal too short for everything pair says
+	// still shows all of it at the bottom, and the link before it.
+	if lines := strings.Split(strings.TrimRight(out, "\n"), "\n"); !strings.ContainsAny(lines[len(lines)-1], "█▀▄") ||
+		strings.Index(out, "/pair#fdp_code") > strings.Index(out, "█") {
+		t.Errorf("pair does not end with the code, after the link: %q", out)
+	}
 	// A light terminal draws the code inverted, so it says where one that
 	// scans can be had.
 	if !strings.Contains(out, "Remote access… in the window shows it dark on white") {

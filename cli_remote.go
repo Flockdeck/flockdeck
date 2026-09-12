@@ -274,10 +274,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	if p.URL == "" {
 		return errors.New("the relay sent a pairing code but no link to open it with")
 	}
-	if code, err := remote.QRTerminal(p.URL); err == nil {
-		fmt.Fprintln(rio.out, code)
-	}
-	fmt.Fprintf(rio.out, "Scan the code, or open this link on the device you want to pair:\n\n  %s\n\n", p.URL)
+	fmt.Fprintf(rio.out, "Open this link on the device you want to pair, or scan the code below:\n\n  %s\n\n", p.URL)
 	fmt.Fprintf(rio.out, "It works once, %s.\n", until)
 	fmt.Fprintf(rio.out, "Whoever opens it can drive every agent here, so treat it like a password\nuntil then.\n")
 	// The device pairs whether or not anything is running here, and would
@@ -289,6 +286,12 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	// background comes out inverted, and a phone's camera is not reliably
 	// able to read that. The window draws it dark on white whatever the theme.
 	fmt.Fprintf(rio.out, "If the code will not scan, Remote access… in the window shows it dark on white.\n")
+	// The code comes last: all of this is taller than a 24-row terminal, and
+	// what is printed last is what stays in view, at the bottom, to be scanned.
+	if code, err := remote.QRTerminal(p.URL); err == nil {
+		fmt.Fprintln(rio.out)
+		fmt.Fprint(rio.out, code)
+	}
 	return nil
 }
 
