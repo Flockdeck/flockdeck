@@ -105,6 +105,40 @@ func runRemoteCmd(t *testing.T, args ...string) (string, int, error) {
 	return out.String(), reloads, err
 }
 
+// A value status cannot know until it prints it is broken to fit 80 columns,
+// carrying on under the value, with every word kept and in order.
+func TestLabelled(t *testing.T) {
+	const long = "could not ask the relay: reach the relay at http://127.0.0.1:60421: nothing is answering there (the connection was refused); check the address, and that the relay is running"
+	for _, c := range []struct{ label, value, first string }{
+		{"state:", long, "state:   could not ask the relay:"},
+		{"machine:", "desk (h1)", "machine: desk (h1)"},
+		{"relay:", strings.Repeat("x", 90), "relay:   " + strings.Repeat("x", 90)},
+	} {
+		got := labelled(c.label, c.value)
+		lines := strings.Split(got, "\n")
+		if !strings.HasPrefix(lines[0], c.first) {
+			t.Errorf("labelled(%q, …) begins %q, want %q", c.label, lines[0], c.first)
+		}
+		for i, l := range lines {
+			// A line may run over only when it holds one word of the value,
+			// too long to break; the label is not one of them.
+			value := l
+			if i == 0 {
+				value = strings.TrimPrefix(l, c.label)
+			}
+			if n := len([]rune(l)); n > 80 && len(strings.Fields(value)) > 1 {
+				t.Errorf("labelled(%q, …) line %d is %d wide: %q", c.label, i, n, l)
+			}
+			if i > 0 && !strings.HasPrefix(l, strings.Repeat(" ", 9)) {
+				t.Errorf("labelled(%q, …) line %d does not carry on under the value: %q", c.label, i, l)
+			}
+		}
+		if words := strings.Fields(got)[1:]; strings.Join(words, " ") != strings.Join(strings.Fields(c.value), " ") {
+			t.Errorf("labelled(%q, …) lost or moved words: %q", c.label, got)
+		}
+	}
+}
+
 // status names the paired devices, as many as fit, and says how many more.
 func TestPairedSummary(t *testing.T) {
 	devices := func(names ...string) []remote.Device {
@@ -655,6 +689,22 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 		check(running, "status")
 		check(running, "devices")
 	}
+	// A relay that cannot be reached at all, whose reason is a sentence of
+	// its own after status's label.
+	gone := httptest.NewServer(http.NotFoundHandler())
+	goneURL := gone.URL
+	gone.Close()
+	if err := (&remote.Config{Relay: goneURL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	check(false, "status")
+	// And, with nothing enrolled, a relay in the environment that cannot be
+	// used, whose refusal status gives in place of the relay it would use.
+	if err := remote.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(remote.RelayEnv, "http://relay.example")
+	check(false, "status")
 }
 
 // The general usage is read in a terminal, which is often 80 columns wide, as

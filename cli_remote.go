@@ -479,7 +479,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		relay, err := remote.RelayURL("")
 		switch {
 		case err != nil:
-			fmt.Fprintf(rio.out, "relay:   %v\n", err)
+			fmt.Fprintln(rio.out, labelled("relay:", err.Error()))
 		case strings.TrimSpace(os.Getenv(remote.RelayEnv)) != "":
 			fmt.Fprintf(rio.out, "relay:   %s, from %s\n", relay, remote.RelayEnv)
 		default:
@@ -490,7 +490,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		return nil
 	}
 	fmt.Fprintf(rio.out, "relay:   %s\n", cfg.Relay)
-	fmt.Fprintf(rio.out, "machine: %s (%s)\n", cfg.Name, cfg.HostID)
+	fmt.Fprintln(rio.out, labelled("machine:", fmt.Sprintf("%s (%s)", cfg.Name, cfg.HostID)))
 	roster, err := remote.NewClient(cfg, version).Devices(context.Background())
 	switch {
 	case remote.IsRevoked(err):
@@ -499,7 +499,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	case err != nil:
 		// A relay that answered with an error was reached, so this says only
 		// that it could not be asked, which is true either way.
-		fmt.Fprintf(rio.out, "state:   could not ask the relay: %v\n", err)
+		fmt.Fprintln(rio.out, labelled("state:", "could not ask the relay: "+err.Error()))
 		return nil
 	}
 	online, at := false, ""
@@ -555,6 +555,33 @@ func pairedSummary(ds []remote.Device, width int) string {
 		s = next
 	}
 	return s
+}
+
+// labelled is one of status's lines whose value is not known until it is
+// printed, a relay's refusal or a machine's name: the label, padded to the
+// values' column, and the value broken at spaces to fit 80 columns, carrying
+// on under the value, as the lines written out whole do. A word longer than
+// a line is left whole on one of its own.
+func labelled(label, value string) string {
+	const col = len("machine: ")
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-*s", col, label)
+	at := col
+	for i, word := range strings.Fields(value) {
+		w := len([]rune(word))
+		if i > 0 {
+			if at+1+w > 80 {
+				b.WriteString("\n" + strings.Repeat(" ", col))
+				at = col
+			} else {
+				b.WriteByte(' ')
+				at++
+			}
+		}
+		b.WriteString(word)
+		at += w
+	}
+	return b.String()
 }
 
 func remoteDevicesCmd(args []string, rio remoteIO) error {
