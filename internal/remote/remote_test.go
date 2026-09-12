@@ -853,6 +853,26 @@ func TestPlainHTTPRelayIsSaidInWords(t *testing.T) {
 	}
 }
 
+// A pairing code's expiry is given by this machine's clock, however far the
+// relay's is from it, so that how long it has left is said truly.
+func TestPairingExpiryIsByThisMachinesClock(t *testing.T) {
+	relayNow := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", relayNow.UTC().Format(http.TimeFormat))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": "fdp_code", "url": "x", "expiresAt": relayNow.Add(10 * time.Minute)})
+	}))
+	defer srv.Close()
+	p, err := NewClient(&Config{Relay: srv.URL, Token: "fdh_test"}, "v").Pair(context.Background(), KindDevice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := time.Until(p.ExpiresAt); left < 9*time.Minute || left > 11*time.Minute {
+		t.Errorf("a code the relay gives 10 minutes, by a clock 30 minutes behind this one, is due here in %v", left.Round(time.Second))
+	}
+}
+
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	quick(t)
 	srv := httptest.NewTLSServer(http.NotFoundHandler())

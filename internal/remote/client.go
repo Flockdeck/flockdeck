@@ -100,6 +100,7 @@ type Registration struct {
 }
 
 // Pairing is a one-time code, and for a device the link that redeems it.
+// ExpiresAt is by this machine's clock, however far the relay's is from it.
 type Pairing struct {
 	Code      string    `json:"code"`
 	URL       string    `json:"url"`
@@ -154,11 +155,20 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 // Pair asks for a one-time pairing code of the given kind.
 func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 	var out Pairing
-	if err := c.call(ctx, http.MethodPost, "/api/v1/host/pairings", map[string]string{"kind": kind}, &out); err != nil {
+	var relayNow time.Time
+	date := func(h http.Header) { relayNow, _ = http.ParseTime(h.Get("Date")) }
+	if err := c.call(ctx, http.MethodPost, "/api/v1/host/pairings", map[string]string{"kind": kind}, &out, date); err != nil {
 		return nil, err
 	}
 	if out.Code == "" {
 		return nil, errors.New("the relay sent back no pairing code")
+	}
+	// The expiry is by the relay's clock, and this machine's may not agree —
+	// a dual-booted PC's can be an hour out until it next syncs — so it is
+	// given back by this machine's, as long after its now as it is after the
+	// relay's, which the relay's Date header gives.
+	if !relayNow.IsZero() && !out.ExpiresAt.IsZero() {
+		out.ExpiresAt = time.Now().Add(out.ExpiresAt.Sub(relayNow))
 	}
 	return &out, nil
 }
@@ -190,7 +200,8 @@ func (c *Client) Unregister(ctx context.Context) error {
 }
 
 // call makes one request and decodes the answer into out, if there is one.
-func (c *Client) call(ctx context.Context, method, path string, in, out any) error {
+// seen, if given, is shown a successful answer's headers.
+func (c *Client) call(ctx context.Context, method, path string, in, out any, seen ...func(http.Header)) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
@@ -232,6 +243,9 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 	}
 	if resp.StatusCode >= 300 {
 		return decodeError(resp.StatusCode, data)
+	}
+	for _, f := range seen {
+		f(resp.Header)
 	}
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
