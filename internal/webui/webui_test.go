@@ -4128,6 +4128,25 @@ assert.ok(!/waiting/.test(h.$("project-btn").dataset.tip), "the tooltip kept say
 `)
 }
 
+// The hint explaining the amber dot came up whenever anything was waiting,
+// and the waiting count is every project's: an agent waiting in a project not
+// on screen had the hint explaining a dot that was nowhere to be seen.
+func TestTheWaitingHintNeedsADotToPointAt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ dismissedTips: ["palette", "drag-panes"] });
+h.recv(fixture({ waiting: 1, projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+assert.ok(h.$("hints").hidden || !/amber dot/.test(h.$("hints").textContent),
+  "the hint explained an amber dot that is not on screen");
+
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.ok(!h.$("hints").hidden && /amber dot/.test(h.$("hints").textContent),
+  "the hint no longer shows when a waiting pane is on screen");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

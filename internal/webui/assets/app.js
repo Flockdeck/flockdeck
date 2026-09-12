@@ -4629,7 +4629,10 @@
       id: "waiting",
       text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
       page: "status",
-      when: (s) => s.waiting > 0,
+      // Only with an amber dot on screen to point at. The waiting count is
+      // every project's, and an agent waiting in one not shown had this
+      // explaining a dot that was nowhere to be seen.
+      when: (s) => Object.values(s.panes || {}).some((v) => v.status === "waiting"),
     },
     {
       id: "worktrees",
