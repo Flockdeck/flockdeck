@@ -581,6 +581,9 @@ textarea:focus-visible {
 .fan-tasks:focus { outline: none; border-color: var(--accent); }
 .fan-opts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; align-items: center; }
 .fan-opt { display: flex; align-items: center; gap: 7px; color: var(--fg-dim); cursor: pointer; }
+/* The trust option is hidden while none of the agents chosen asks for it,
+ * and the display above would otherwise keep it on screen. */
+.fan-opt[hidden] { display: none; }
 .fan-opt input { accent-color: var(--accent); }
 .fan-go { display: flex; align-items: center; gap: 10px; }
 .fan-count { color: var(--fg-dim); font-size: 12px; }

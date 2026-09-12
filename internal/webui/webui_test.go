@@ -4571,12 +4571,19 @@ assert.ok(on === body.querySelectorAll("button.proj-go")[1],
 `)
 }
 
-// The filter hides the conversations it leaves out, and the harness has no
-// style sheet: in a browser the row's own display kept them on screen.
-func TestHiddenConversationsLeaveTheScreen(t *testing.T) {
+// The harness has no style sheet, so an element the front end hides is
+// hidden in every test - while in a browser a display set on its class
+// beats the hidden attribute and keeps it on screen. These are the classes
+// app.js hides whose rules set a display.
+func TestWhatTheFrontEndHidesLeavesTheScreen(t *testing.T) {
 	css := readAsset(t, "app.css")
-	if !regexp.MustCompile(`\.conv-row\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
-		t.Error("app.css gives .conv-row a display and nothing puts a hidden one back to none, so the filter hides nothing on screen")
+	for cls, what := range map[string]string{
+		"conv-row": "the conversations a filter leaves out stay on screen",
+		"fan-opt":  "the fan-out's trust option stays on screen while no agent chosen asks for it",
+	} {
+		if !regexp.MustCompile(`\.` + cls + `\[hidden\]\s*\{\s*display:\s*none`).MatchString(css) {
+			t.Errorf("app.css gives .%s a display and nothing puts a hidden one back to none, so %s", cls, what)
+		}
 	}
 }
 
