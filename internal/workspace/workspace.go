@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -195,7 +196,10 @@ type Workspace struct {
 	// catalog's defaults and is outranked by a pane that names one itself.
 	runAgent string
 
-	onWake func()
+	// onWake is swapped rather than assigned. The server installs itself once
+	// the workspace is built, by which time the panes restored with it are
+	// already running and calling it from their readers.
+	onWake atomic.Pointer[func()]
 }
 
 // Options configures a new workspace.
@@ -235,8 +239,8 @@ func New(opts Options) (*Workspace, error) {
 		activeRoot:   root,
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
-		onWake:       opts.OnWake,
 	}
+	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 
 	// Clear out settings files orphaned by runs that were killed rather than
@@ -263,7 +267,7 @@ func (w *Workspace) HookServer() *hooks.Server { return w.hookSrv }
 
 // SetWake installs the refresh callback. It exists so the server, which needs
 // the workspace to construct, can register itself afterwards.
-func (w *Workspace) SetWake(fn func()) { w.onWake = fn }
+func (w *Workspace) SetWake(fn func()) { w.onWake.Store(&fn) }
 
 // ActiveRoot returns the project currently being shown.
 func (w *Workspace) ActiveRoot() string { return w.activeRoot }
@@ -272,8 +276,8 @@ func (w *Workspace) ActiveRoot() string { return w.activeRoot }
 func (w *Workspace) ClaudeAvailable() bool { return w.claudeExe != "" }
 
 func (w *Workspace) wake() {
-	if w.onWake != nil {
-		w.onWake()
+	if fn := w.onWake.Load(); fn != nil && *fn != nil {
+		(*fn)()
 	}
 }
 
@@ -1023,6 +1027,8 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		Env:  env,
 		Cols: cols,
 		Rows: rows,
+		// Installed by Start, before the reader that calls it is running.
+		OnChange: w.wake,
 	})
 	if err != nil {
 		// This is shown in the pane in place of a terminal, so it has to name
@@ -1031,7 +1037,6 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		p.Err = fmt.Errorf("%w (working directory %s)", err, p.Cwd)
 		return
 	}
-	s.OnChange = w.wake
 	// Lifecycle hooks read this field from the hook server's goroutine, so it
 	// is only ever swapped under the lock.
 	w.mu.Lock()
