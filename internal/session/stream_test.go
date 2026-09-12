@@ -377,6 +377,20 @@ func TestReplayPutsBackModesItNoLongerHolds(t *testing.T) {
 	}
 }
 
+// TestModesSwitchedTogetherAreAllKept covers a program switching several modes
+// in one sequence, which is how mouse reporting and its encodings are often
+// turned on together.
+func TestModesSwitchedTogetherAreAllKept(t *testing.T) {
+	var b bellScanner
+	b.scan([]byte("\x1b[?1000;1002;1003;1006;2004;1004h"))
+	got := string(b.modes.restore(1))
+	for _, want := range []string{"?1000h", "?1002h", "?1003h", "?1006h", "?2004h", "?1004h"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("restore = %q, missing %s", got, want)
+		}
+	}
+}
+
 // BenchmarkBellScan measures the scan every byte of every pane's output goes
 // through on the way from the process to the screen, over the three shapes
 // terminal output comes in.

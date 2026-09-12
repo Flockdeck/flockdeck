@@ -115,18 +115,23 @@ type bellScanner struct {
 	// pos is how many bytes were scanned before the current chunk, and escAt
 	// where the escape that began the current sequence was.
 	pos, escAt int64
-	// param and params hold the numbers of a DEC private sequence, CSI ?.
+	// param is the number being read in a DEC private sequence, CSI ?, and
+	// pending the tracked modes among the ones already read, as bits of
+	// trackedModes: which way they go is only known at the end.
 	param   int
-	params  [4]int
-	nparams int
+	pending uint16
 	modes   termModes
 }
 
-// push ends a control sequence parameter.
+// push ends a control sequence parameter, noting it if it is a tracked mode.
+// A sequence can switch any number of modes at once, and only the tracked ones
+// are kept.
 func (b *bellScanner) push() {
-	if b.nparams < len(b.params) {
-		b.params[b.nparams] = b.param
-		b.nparams++
+	for i, t := range trackedModes {
+		if t.mode == b.param {
+			b.pending |= 1 << i
+			break
+		}
 	}
 	b.param = 0
 }
@@ -181,18 +186,19 @@ type termModes struct {
 	at      [len(trackedModes)]int64
 }
 
-// set records a mode switched on or off by the sequence beginning at offset at.
-func (m *termModes) set(mode int, on bool, at int64) {
+// apply records the modes in bits, as bits of trackedModes, switched on or
+// off by the sequence beginning at offset at.
+func (m *termModes) apply(bits uint16, on bool, at int64) {
 	for i, t := range trackedModes {
-		if t.mode == mode {
-			if on != t.onByDefault {
-				m.changed |= 1 << i
-			} else {
-				m.changed &^= 1 << i
-			}
-			m.at[i] = at
-			return
+		if bits&(1<<i) == 0 {
+			continue
 		}
+		if on != t.onByDefault {
+			m.changed |= 1 << i
+		} else {
+			m.changed &^= 1 << i
+		}
+		m.at[i] = at
 	}
 }
 
@@ -285,7 +291,7 @@ func (b *bellScanner) scan(p []byte) bool {
 				rang = b.control(c, i) || rang
 			case c == '?' && b.state == scanCSIEntry:
 				b.state = scanCSIPrivate
-				b.param, b.nparams = 0, 0
+				b.param, b.pending = 0, 0
 			default:
 				b.state = scanCSI
 			}
@@ -298,9 +304,7 @@ func (b *bellScanner) scan(p []byte) bool {
 			case c >= 0x40 && c <= 0x7e:
 				if c == 'h' || c == 'l' {
 					b.push()
-					for _, mode := range b.params[:b.nparams] {
-						b.modes.set(mode, c == 'h', b.escAt)
-					}
+					b.modes.apply(b.pending, c == 'h', b.escAt)
 				}
 				b.state = scanNormal
 			case c < 0x20:
