@@ -242,12 +242,19 @@ func parseRemote(fs *flag.FlagSet, args []string) error {
 func enrolled() (*remote.Config, error) {
 	cfg, err := remote.Load()
 	if err != nil {
-		return nil, err
+		return nil, loadAdvice(err)
 	}
 	if cfg == nil {
 		return nil, remote.ErrNotEnabled
 	}
 	return cfg, nil
+}
+
+// loadAdvice adds, to an enrolment that cannot be read or used, the command
+// here that clears it, which is less to do than finding the file that
+// remote.Load's words say to delete.
+func loadAdvice(err error) error {
+	return fmt.Errorf("%w (`flockdeck remote disable -force` removes it)", err)
 }
 
 // The subcommands' flag sets are built by functions of their own, like the
@@ -431,7 +438,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	}
 	cfg, err := remote.Load()
 	if err != nil {
-		return err
+		return loadAdvice(err)
 	}
 	if cfg == nil {
 		fmt.Fprintln(rio.out, "remote access is not enabled; `flockdeck remote enable` turns it on")

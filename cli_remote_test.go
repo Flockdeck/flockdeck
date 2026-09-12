@@ -417,6 +417,22 @@ func TestRemoteDevicesWhileNotRunning(t *testing.T) {
 	}
 }
 
+// An enrolment that cannot be used stops every command that needs it, and
+// each says that disable -force clears it, which is less to do than finding
+// the file to delete.
+func TestRemoteCommandsOnAnUnusableEnrolment(t *testing.T) {
+	isolateKeys(t)
+	// One Load refuses (195): a relay off this machine without TLS.
+	if err := (&remote.Config{Relay: "http://relay.example", HostID: "h1", Token: "fdh_desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"status"}, {"pair"}, {"devices"}, {"revoke", "d1"}} {
+		if _, _, err := runRemoteCmd(t, args...); err == nil || !strings.HasSuffix(err.Error(), "(`flockdeck remote disable -force` removes it)") {
+			t.Errorf("remote %v on an unusable enrolment = %v, want it to say disable -force removes it", args, err)
+		}
+	}
+}
+
 // disable -force with nothing enrolled has nothing to turn off, and says so
 // rather than that remote access has been disabled.
 func TestRemoteDisableForceWithNothingEnrolled(t *testing.T) {
