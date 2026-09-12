@@ -2818,6 +2818,23 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/re
 `)
 }
 
+// The new-worktree form created the worktree on Enter in the branch field and
+// not in the base field beside it, which is the one filled in last.
+func TestEnterInEitherWorktreeFieldCreatesIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items: [] });
+h.$("wt-branch").value = "fix-auth";
+const base = h.$("wt-base");
+base.value = "develop";
+base.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "develop" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

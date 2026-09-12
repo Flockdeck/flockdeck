@@ -2119,7 +2119,9 @@
       wtDraft.branch = "";
     };
     go.onclick = submit;
-    branch.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
+    // From either field: the base is the one filled in last, and Enter there
+    // did nothing at all.
+    branch.onkeydown = base.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
     form.append(branch, base, go, bases);
     create.append(form);
     create.append(el("div", "wt-hint",
