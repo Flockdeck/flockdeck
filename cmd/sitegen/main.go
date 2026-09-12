@@ -102,10 +102,6 @@ func run(out, repo, module, url string) error {
 		"index.html":  page,
 		"site.css":    css,
 		"favicon.svg": icon,
-		// Pages runs what it is given through Jekyll unless it is told not to,
-		// and Jekyll hides every path beginning with an underscore. There is
-		// nothing here for it to do.
-		".nojekyll": nil,
 	}
 	// The scripts are run straight off the wire, and a checkout on Windows can
 	// hand them over with CRLF endings, which sh takes as part of every
