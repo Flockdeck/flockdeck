@@ -3234,6 +3234,20 @@ assert.deepStrictEqual(reached, ["x"], "an ordinary key no longer reaches the te
 `)
 }
 
+// Ctrl++ makes the text bigger in anything with a font size, and the key table
+// says Ctrl+= does it here. On a US or UK keyboard + is Shift and =, so Ctrl++
+// arrived with Shift held and matched nothing.
+func TestCtrlPlusMakesTheTextBigger(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.key({ key: "+", code: "Equal", ctrlKey: true, shiftKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 }, "Ctrl++ did not make the text bigger");
+h.key({ key: "+", code: "NumpadAdd", ctrlKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 15 }, "Ctrl and the keypad's + did not either");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

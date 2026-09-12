@@ -2838,8 +2838,11 @@
   /** actionFor reports which action a keydown is, if it is one. */
   function actionFor(e) {
     let key = (e.key || "").toLowerCase();
-    // Ctrl+= and Ctrl++ are the same gesture on most layouts.
-    if (key === "+") key = "=";
+    let shift = e.shiftKey;
+    // Ctrl+= and Ctrl++ are the same gesture on most layouts. On a US or UK
+    // keyboard + is Shift and =, so it arrives with Shift held, and matched
+    // nothing until the Shift was let go of here as well.
+    if (key === "+") { key = "="; shift = false; }
     // A layout that does not type Latin letters - Russian, Greek, Hebrew -
     // reports the key marked D as "в", so every Ctrl+Shift binding was dead
     // on it. There the binding can only mean the physical key.
@@ -2847,7 +2850,7 @@
       const m = /^Key([A-Z])$/.exec(e.code || "");
       if (m) key = m[1].toLowerCase();
     }
-    return bindings.get(signature(e.ctrlKey, e.shiftKey, e.altKey, key)) || "";
+    return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
   }
 
   // -------------------------------------------------------- command palette
