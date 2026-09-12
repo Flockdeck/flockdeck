@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/url"
@@ -188,6 +189,10 @@ func keyIsSet(s Spec) bool {
 	if err != nil {
 		return false
 	}
+	// A store saved by Notepad starts with a byte-order mark, which creds
+	// reads past and the decoder does not: the key was used to start the
+	// pane while the picker greyed the agent out for having none.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var keys map[string]string
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return false

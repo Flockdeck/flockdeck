@@ -210,3 +210,16 @@ func TestAvailableFromTheChatClientsFallbacks(t *testing.T) {
 		t.Error("FLOCKDECK_API_KEY should count for a built-in API agent")
 	}
 }
+
+// A key store saved by Notepad starts with a byte-order mark. creds reads the
+// key past it, so the pane would start; the picker has to agree that it can.
+func TestAKeyStoreWithAByteOrderMarkStillHasItsKeys(t *testing.T) {
+	keys := filepath.Join(t.TempDir(), KeysName)
+	if err := os.WriteFile(keys, []byte("\xef\xbb\xbf{\"openai\":\"sk-test\"}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stubProbes(t, nil, keys)
+	if !Available(Spec{ID: "openai", Runner: RunnerAPI, API: APISpec{Wire: "openai"}}) {
+		t.Error("an agent whose key is stored after a byte-order mark is not available")
+	}
+}
