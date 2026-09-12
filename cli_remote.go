@@ -688,6 +688,17 @@ func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
 	}
 	switch len(named) {
 	case 0:
+		// Not a device, but perhaps one of the account's machines, which is
+		// what somebody tidying away a lost desktop from the list would try;
+		// sent as a device's id it would come back "no such device".
+		for _, h := range r.Hosts {
+			if want != "" && (h.ID == arg || strings.EqualFold(h.ID, want) || strings.EqualFold(strings.TrimSpace(h.Name), want)) {
+				if h.Self {
+					return "", "", errors.New("that is this machine, not a device; `flockdeck remote disable` takes it off the relay")
+				}
+				return "", "", fmt.Errorf("%q is another of the account's machines, not a device, and only it can take itself off: run `flockdeck remote disable` on it", orUnnamed(strings.TrimSpace(h.Name)))
+			}
+		}
 		return arg, "", nil
 	case 1:
 		return named[0].ID, strings.TrimSpace(named[0].Name), nil

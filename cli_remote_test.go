@@ -160,6 +160,29 @@ func TestPickDevice(t *testing.T) {
 	}
 }
 
+// revoke given one of the account's machines, by name or id, says what it is
+// and what takes a machine off, rather than sending it as a device; a device
+// with the same name as a machine is still the device.
+func TestPickDeviceRefusesAMachine(t *testing.T) {
+	r := &remote.Roster{
+		Devices: []remote.Device{{ID: "d1", Name: "phone"}, {ID: "d2", Name: "study"}},
+		Hosts:   []remote.Host{{ID: "h1", Name: "desk", Self: true}, {ID: "h2", Name: "old laptop"}, {ID: "h3", Name: "study"}},
+	}
+	for arg, want := range map[string]string{
+		"desk":       "that is this machine, not a device; `flockdeck remote disable` takes it off the relay",
+		"H1":         "that is this machine, not a device",
+		"Old Laptop": `"old laptop" is another of the account's machines, not a device, and only it can take itself off: run ` + "`flockdeck remote disable`" + ` on it`,
+		"h2":         `"old laptop" is another of the account's machines`,
+	} {
+		if _, _, err := pickDevice(r, arg); err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Errorf("pickDevice(%q) = %v, want it to begin %q", arg, err, want)
+		}
+	}
+	if id, _, err := pickDevice(r, "study"); id != "d2" || err != nil {
+		t.Errorf("pickDevice(study), a device and a machine's name = %q, %v; want the device, d2", id, err)
+	}
+}
+
 // The whole life of an enrolment, from the command line.
 func TestRemoteLifecycle(t *testing.T) {
 	isolateKeys(t)
