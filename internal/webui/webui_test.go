@@ -2558,6 +2558,47 @@ assert.strictEqual(body.scrollTop, 480, "the list jumped back to the top when it
 `)
 }
 
+// Reading a review file by file took Tab and Enter for every file. The lists
+// answer the arrow keys as lists do, and in the review arriving at a file shows
+// its diff; in the agents list, where Enter leaves the dialog, they only move.
+func TestTheArrowKeysWalkTheReviewAndAgentLists(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [
+  { path: "a.go", label: "M", added: 1, removed: 0 },
+  { path: "b.go", label: "M", added: 1, removed: 0 },
+  { path: "c.go", label: "A", added: 1, removed: 0 },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+rows[0].focus();
+const down = h.key({ key: "ArrowDown" });
+assert.ok(down.defaultPrevented, "Down scrolled the dialog instead");
+assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next file");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "b.go" });
+h.key({ key: "End" });
+assert.ok(h.doc.activeElement === rows[2], "End did not reach the last file");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "c.go" });
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === rows[2], "Down walked off the end of the list");
+
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle" },
+  { paneId: "p2", tabId: "t2", root: "C:/repo", project: "repo", tab: "two", name: "b", status: "waiting" },
+] });
+const agents = h.$("overlay-body").querySelectorAll("div.agent-row");
+agents[0].focus();
+const before = h.commands().length;
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === agents[1], "Down did not move to the next agent");
+assert.strictEqual(h.commands().length, before, "moving through the agents went to one");
+assert.ok(!h.$("overlay").hidden);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -2226,15 +2226,25 @@
    *  mouse. A div carrying an onclick cannot be reached with Tab and does not
    *  answer Enter, so a list built out of them is a list only a pointer can
    *  use — and these lists are how the file an agent changed gets read and how
-   *  the agent that is blocked gets found. */
-  function rowAction(row, fn) {
+   *  the agent that is blocked gets found.
+   *
+   *  The arrow keys, Home and End walk the list the row is in, as they do any
+   *  list. Where the choice has nothing to undo - which file's diff is shown -
+   *  `follow` makes arriving at a row choose it, so a review is read by
+   *  pressing Down rather than by Tab and Enter for every file. */
+  function rowAction(row, fn, follow) {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.onclick = fn;
     row.onkeydown = (ev) => {
-      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(ev); return; }
+      const rows = [...row.parentElement.children].filter((n) => n.getAttribute("role") === "button");
+      const at = rows.indexOf(row);
+      const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[ev.key];
+      if (to === undefined || !rows[to]) return;
       ev.preventDefault();
-      fn(ev);
+      rows[to].focus();
+      if (follow) rows[to].onclick(ev);
     };
     return row;
   }
@@ -3009,7 +3019,7 @@
           n.setAttribute("aria-label", f.removed + (f.removed === 1 ? " line removed" : " lines removed"));
           row.append(describe(n, "Lines removed from this file since the last commit."));
         }
-        rowAction(row, () => selectChangedFile(f.path, m.cwd));
+        rowAction(row, () => selectChangedFile(f.path, m.cwd), true);
         rows.set(f.path, row);
         list.append(row);
       });
