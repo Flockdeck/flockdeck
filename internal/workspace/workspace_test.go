@@ -800,8 +800,11 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 			wantIsAgent: true,
 		},
 		{
-			name:        "an agent chosen by neither name falls to the defaults",
+			// Recorded as what it resolved to, so that the header can say what
+			// it runs and a default changed later cannot move its conversation.
+			name:        "an agent chosen by neither name records the defaults it runs",
 			choice:      Choice{Kind: session.KindClaude},
+			wantAgent:   agent.DefaultAgentID,
 			wantIsAgent: true,
 		},
 	}

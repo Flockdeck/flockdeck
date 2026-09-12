@@ -1039,14 +1039,42 @@ func (w *Workspace) UseAgent(id string) {
 }
 
 // defaultAgent is the agent a pane with nothing recorded on it runs.
-func (w *Workspace) defaultAgent() string {
+func (w *Workspace) defaultAgent() string { return w.defaultAgentFor(w.activeRoot) }
+
+// defaultAgentFor is the agent a new pane in project root runs when it asks
+// for none.
+func (w *Workspace) defaultAgentFor(root string) string {
 	w.catalogMu.RLock()
 	run := w.runAgent
 	w.catalogMu.RUnlock()
 	if run != "" {
 		return run
 	}
-	return w.agents().DefaultsFor(w.activeRoot).Agent
+	return w.agents().DefaultsFor(root).Agent
+}
+
+// resolveChoice settles the agent and model a new pane in project root runs,
+// from what it asked for and that project's defaults, so that what is recorded
+// on the pane is what it runs.
+//
+// Leaving both empty to mean "the default" cost three things. Only the agent
+// was ever looked up, so the model a project was set to was never applied; it
+// was looked up for the project on screen, which is not the pane's when it is
+// split into another project; and a pane restored after the default had
+// changed came back as a different agent on top of the old conversation.
+//
+// An agent the catalog has no entry for is left as asked, so that starting it
+// reports the problem in the pane rather than quietly running something else.
+func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) {
+	if agentID == "" {
+		agentID = w.defaultAgentFor(root)
+	}
+	c := w.agents()
+	if _, ok := c.Find(agentID); !ok {
+		return agentID, model
+	}
+	spec, model, _ := c.Resolve(root, agentID, model)
+	return spec.ID, model
 }
 
 // ReloadAgents reads agents.json again, so that an edit made by hand takes
@@ -1189,7 +1217,7 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	// an agent that disagreed would be written to the layout and read back as
 	// a pane that is somehow both.
 	if p.IsAgent() {
-		p.Agent, p.Model = c.Agent, c.Model
+		p.Agent, p.Model = w.resolveChoice(root, c.Agent, c.Model)
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p

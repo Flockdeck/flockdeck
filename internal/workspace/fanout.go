@@ -587,13 +587,6 @@ func (w *Workspace) agentAvailable(spec agent.Spec) bool {
 	return agent.Available(spec)
 }
 
-// setPaneAgent records on the pane which agent and model it was started with,
-// so that a restart and a saved layout both come back as the same agent rather
-// than as whatever the default has since become.
-func setPaneAgent(p *Pane, agentID, model string) {
-	p.Agent, p.Model = agentID, model
-}
-
 // SpawnOptions describes a child agent to start.
 type SpawnOptions struct {
 	// Task is given to the agent as its opening prompt.
@@ -679,7 +672,9 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		initial: o.Task,
 		Task:    o.Task,
 	}
-	setPaneAgent(p, o.Agent, o.Model)
+	if p.IsAgent() {
+		p.Agent, p.Model = w.resolveChoice(p.Root, o.Agent, o.Model)
+	}
 	w.mu.Lock()
 	w.panes[p.ID] = p
 	w.mu.Unlock()
