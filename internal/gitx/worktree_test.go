@@ -823,3 +823,33 @@ func TestRemovingAWorktreeThatChangedSinceSaysSo(t *testing.T) {
 		t.Errorf("an unforced removal should leave the work where it is: %v", err)
 	}
 }
+
+// TestABranchStartedFromARemoteOneDoesNotTrackIt: started from origin/main,
+// the new branch tracked it, so its header named origin/main as its upstream
+// and Push was refused for the names not matching.
+func TestABranchStartedFromARemoteOneDoesNotTrackIt(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+
+	wt := filepath.Join(t.TempDir(), "fx")
+	if err := AddFrom(repo, wt, "feature-x", "origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := UpstreamOf(wt); got != "" {
+		t.Errorf("upstream = %q, want none until the branch is pushed", got)
+	}
+	gitRun(t, wt, "commit", "-q", "--allow-empty", "-m", "work")
+	if _, err := Push(wt); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if got := UpstreamOf(wt); got != "origin/feature-x" {
+		t.Errorf("upstream after the push = %q, want origin/feature-x", got)
+	}
+}

@@ -425,7 +425,13 @@ func AddFrom(repoDir, path, branch, base string) error {
 			}
 			return &gitError{msg}
 		}
-		args = append(args, "-b", branch, "--", path)
+		// --no-track, because a branch started from a remote one -- a base of
+		// "origin/main" -- would otherwise track it: the header said the new
+		// branch was "tracking origin/main", and Push, finding an upstream,
+		// pushed plainly and was refused for the names not matching. With
+		// none, the first push sets up one of its own name, as it does for a
+		// branch started anywhere else.
+		args = append(args, "-b", branch, "--no-track", "--", path)
 		if base != "" {
 			args = append(args, base)
 		}
