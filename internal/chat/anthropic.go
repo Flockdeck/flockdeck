@@ -17,6 +17,16 @@ type anthropicWire struct {
 
 func (w *anthropicWire) Name() string { return "anthropic" }
 
+// header is what every request to the API carries.
+func (w *anthropicWire) header() http.Header {
+	h := http.Header{}
+	h.Set("anthropic-version", anthropicVersion)
+	if w.key != "" {
+		h.Set("x-api-key", w.key)
+	}
+	return h
+}
+
 // anthropicVersion is the API version header every request must carry. It is
 // not the model's version and does not move when models do.
 const anthropicVersion = "2023-06-01"
@@ -123,12 +133,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		})
 	}
 
-	h := http.Header{}
-	h.Set("anthropic-version", anthropicVersion)
-	if w.key != "" {
-		h.Set("x-api-key", w.key)
-	}
-	rc, err := post(ctx, endpoint(w.base, "https://api.anthropic.com", "v1", "/messages"), h, body)
+	rc, err := post(ctx, endpoint(w.base, "https://api.anthropic.com", "v1", "/messages"), w.header(), body)
 	if err != nil {
 		return err
 	}

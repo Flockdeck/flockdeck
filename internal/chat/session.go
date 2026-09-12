@@ -217,6 +217,9 @@ type session struct {
 	// ahead are lines the user typed while the model was working, kept for
 	// the prompt they were meant for.
 	ahead []string
+	// listed are the models the endpoint said it offers, for an agent whose
+	// catalog entry lists none.
+	listed []ModelChoice
 }
 
 // systemPrompt is what the model is told about where it is before anything

@@ -23,6 +23,15 @@ type geminiWire struct {
 
 func (w *geminiWire) Name() string { return "gemini" }
 
+// header is what every request to the API carries.
+func (w *geminiWire) header() http.Header {
+	h := http.Header{}
+	if w.key != "" {
+		h.Set("x-goog-api-key", w.key)
+	}
+	return h
+}
+
 type geminiPart struct {
 	Text         string            `json:"text,omitempty"`
 	FunctionCall *geminiCall       `json:"functionCall,omitempty"`
@@ -94,10 +103,7 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		body.Tools = []geminiToolset{{FunctionDeclarations: fns}}
 	}
 
-	h := http.Header{}
-	if w.key != "" {
-		h.Set("x-goog-api-key", w.key)
-	}
+	h := w.header()
 	// alt=sse asks for the answer as an event stream; without it the same
 	// endpoint streams a JSON array, which cannot be read a piece at a time.
 	//

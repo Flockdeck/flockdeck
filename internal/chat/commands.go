@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // command runs a slash command, and returns true when the client should leave.
@@ -31,7 +32,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 			s.out.line(ansiDim, "  "+l)
 		}
 	case "model":
-		s.chooseModel(rest)
+		s.chooseModel(ctx, rest)
 	case "output":
 		s.showOutput(rest)
 	case "history":
@@ -81,14 +82,21 @@ func (s *session) retry(ctx context.Context) {
 // to choose from and which one is answering, because switching is otherwise a
 // matter of already knowing the exact id; with a number, it takes the model at
 // that place in the list; with anything else, it takes that as the id.
-func (s *session) chooseModel(arg string) {
+//
+// Where the catalog lists no models, the endpoint is asked which it offers: an
+// agent of the user's own, or a local model server, is otherwise one whose
+// models have to be named by an exact tag nobody remembers.
+func (s *session) chooseModel(ctx context.Context, arg string) {
 	if arg == "" {
 		s.out.line(ansiDim, "answering with "+firstNonEmpty(s.model, "whatever the endpoint is set to"))
 		if len(s.opts.Models) == 0 {
+			s.listModels(ctx)
+		}
+		if len(s.choices()) == 0 {
 			s.out.line(ansiDim, "switch with /model <id>")
 			return
 		}
-		for i, m := range s.opts.Models {
+		for i, m := range s.choices() {
 			mark := " "
 			if m.ID == s.model {
 				mark = "*"
@@ -106,14 +114,43 @@ func (s *session) chooseModel(arg string) {
 		return
 	}
 	if n, err := strconv.Atoi(arg); err == nil {
-		if n < 1 || n > len(s.opts.Models) {
+		if n < 1 || n > len(s.choices()) {
 			s.out.line(ansiRed, fmt.Sprintf("there is no model %d in the list; /model shows it", n))
 			return
 		}
-		arg = s.opts.Models[n-1].ID
+		arg = s.choices()[n-1].ID
 	}
 	s.model = arg
 	s.out.line(ansiDim, "answering with "+arg+" from here on")
+}
+
+// choices are the models /model offers: the catalog's, or failing those, the
+// ones the endpoint said it has.
+func (s *session) choices() []ModelChoice {
+	if len(s.opts.Models) > 0 {
+		return s.opts.Models
+	}
+	return s.listed
+}
+
+// listModels asks the endpoint which models it offers, for a moment, and keeps
+// the answer for /model to choose from.
+func (s *session) listModels(ctx context.Context) {
+	lister, ok := s.wire.(modelLister)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ids, err := lister.ListModels(ctx)
+	if err != nil {
+		s.out.line(ansiDim, "(the endpoint could not say which models it has: "+err.Error()+")")
+		return
+	}
+	s.listed = s.listed[:0]
+	for _, id := range ids {
+		s.listed = append(s.listed, ModelChoice{ID: id})
+	}
 }
 
 // showOutput is /output: the whole of what a tool returned, of which the pane

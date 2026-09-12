@@ -22,6 +22,15 @@ type openaiWire struct {
 
 func (w *openaiWire) Name() string { return "openai" }
 
+// header is what every request to the endpoint carries.
+func (w *openaiWire) header() http.Header {
+	h := http.Header{}
+	if w.key != "" {
+		h.Set("Authorization", "Bearer "+w.key)
+	}
+	return h
+}
+
 type openaiToolCall struct {
 	Index    int    `json:"index,omitempty"`
 	ID       string `json:"id,omitempty"`
@@ -105,10 +114,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		body.Tools = append(body.Tools, ot)
 	}
 
-	h := http.Header{}
-	if w.key != "" {
-		h.Set("Authorization", "Bearer "+w.key)
-	}
+	h := w.header()
 	url := endpoint(w.base, "https://api.openai.com", "v1", "/chat/completions")
 	rc, err := post(ctx, url, h, body)
 	if refusedStreamOptions(err) {
