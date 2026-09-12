@@ -4735,6 +4735,31 @@ assert.ok(/1 other pane is hidden/.test(on[0].dataset.tip), on[0].dataset.tip);
 `)
 }
 
+// The prompt bar's field is one line, and a text field removes the breaks
+// from what is pasted into it outright: an instruction pasted in several
+// lines ran the end of each into the start of the next.
+func TestAPastedMultiLinePromptKeepsItsWordsApart(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+const input = h.$("prompt-input");
+input.value = "go: ";
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: () => text } });
+  h.dispatch(input, ev);
+  return ev;
+};
+const ev = paste("1. add tests\r\n2. run them\n\n3. push\n");
+assert.ok(ev.defaultPrevented, "the browser was left to strip the breaks");
+assert.strictEqual(input.value, "go: 1. add tests 2. run them 3. push");
+
+// One line is left to the browser.
+input.value = "";
+assert.ok(!paste("just this").defaultPrevented, "a paste of one line was taken over");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

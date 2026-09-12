@@ -5302,6 +5302,21 @@
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
   $("prompt-send").onclick = submitPrompt;
   $("prompt-input").onkeydown = promptKey;
+  // A text field removes line breaks outright, so an instruction pasted in
+  // several lines - "1. add tests", "2. run them" - arrived as "1. add
+  // tests2. run them". The breaks become spaces. The field stays one line:
+  // the prompt reaches each agent as typed, and a break would press Enter.
+  $("prompt-input").addEventListener("paste", (ev) => {
+    const text = ev.clipboardData ? ev.clipboardData.getData("text") : "";
+    if (!/[\r\n]/.test(text)) return;
+    ev.preventDefault();
+    const input = $("prompt-input");
+    const flat = text.replace(/\s*[\r\n]+\s*/g, " ").trim();
+    const from = input.selectionStart ?? input.value.length;
+    const to = input.selectionEnd ?? from;
+    input.value = input.value.slice(0, from) + flat + input.value.slice(to);
+    input.setSelectionRange(from + flat.length, from + flat.length);
+  });
   $("prompt-cancel").onclick = closePrompt;
   $("retry").onclick = connectControl;
   $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
