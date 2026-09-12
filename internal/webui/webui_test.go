@@ -3645,6 +3645,50 @@ for (const [id, text, page] of [
 `)
 }
 
+// Sponsoring is one quiet line under the plans, and nowhere else in the app:
+// a link to GitHub Sponsors that opens in the browser and does nothing more.
+// It is not a plan, so it is kept out of the cards; it counts nothing, asks
+// nothing, and says that sponsoring buys nothing.
+func TestTheSponsorLineOnlyLinks(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const url = "https://github.com/sponsors/jmwri";
+const links = () => h.doc.querySelectorAll("a").filter((a) => a.getAttribute("href") === url);
+assert.strictEqual(links().length, 0, "the app offers sponsoring before Settings › Account & plan is opened");
+
+h.click(h.$("btn-settings"));
+assert.ok(!h.$("set-sponsor"), "the sponsor line is drawn in a section other than Account & plan");
+const find = h.$("settings-find");
+find.value = "sponsor";
+find.oninput();
+assert.deepStrictEqual(h.$("settings-tabs").children.map((b) => b.textContent), ["Account & plan"],
+  "Find a setting does not lead to the sponsor line");
+find.value = "";
+find.oninput();
+h.click(h.$("settings-tab-plan"));
+
+const line = h.$("set-sponsor"), a = h.$("set-sponsor-link");
+assert.ok(line && h.$("settings-pane").contains(line), "Account & plan has no sponsor line");
+assert.ok(!line.closest(".plan-card"), "the sponsor line is drawn as part of a plan");
+assert.strictEqual(links().length, 1, "sponsoring is offered more than once");
+assert.ok(a && line.contains(a) && a.tagName === "A", "the sponsor line is not a link");
+assert.strictEqual(a.textContent, "Sponsor Flockdeck");
+assert.strictEqual(a.target, "_blank", "the sponsor link would open in place of the app");
+assert.ok(/noopener/.test(a.rel), "the sponsor page could reach back into the app: " + a.rel);
+assert.ok(!line.querySelector("button"), "the sponsor line has a button");
+assert.ok(!/\d/.test(line.textContent), "the sponsor line counts something: " + line.textContent);
+assert.ok(line.textContent.includes("buys nothing"), "the sponsor line does not say sponsoring buys nothing: " + line.textContent);
+const sent = h.commands().length;
+h.click(a);
+assert.strictEqual(h.commands().length, sent, "following the sponsor link told the app something");
+
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden && links().every((l) => h.$("overlay").contains(l)),
+  "the sponsor line stayed on screen when the settings closed");
+`)
+}
+
 func TestTheSettingsOpenEveryWay(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();
