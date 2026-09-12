@@ -88,7 +88,8 @@ same loopback address.
 
 The browser asks for permission on your first interaction with the window. If
 it was refused, grant it in the browser's site settings for the address in the
-title bar. Notifications are only raised while the window is *not* in front.
+title bar — for this run only: the address changes each time Flockdeck starts,
+and the question comes back with it. Notifications are only raised while the window is *not* in front.
 
 ## An agent seems to think it is a child of another session
 
