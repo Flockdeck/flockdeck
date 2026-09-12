@@ -109,3 +109,33 @@ h.recv(fixture({ tabs: [tab(1, 1)] }));
 assert.strictEqual(d.getAttribute("aria-valuenow"), "50", "the value did not follow the weights");
 `)
 }
+
+// Every row a list is walked by from the keyboard has to show where the
+// keyboard is. The conversations were walked with the arrows and showed
+// nothing at all: the style sheet's focus ring left them out.
+func TestEveryRowTheKeyboardWalksShowsItsFocus(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const css = h.css();
+const check = (what) => {
+  const rows = h.$("overlay-body").querySelectorAll("[tabindex]").filter((n) => n.getAttribute("role") === "button");
+  assert.ok(rows.length, "no rows to walk in " + what);
+  for (const r of rows) {
+    const cls = r.className.split(" ")[0];
+    assert.ok(new RegExp("\\." + cls + ":focus-visible").test(css), "." + cls + " in " + what + " has no focus ring");
+  }
+};
+h.click(h.$("btn-history"));
+h.recv({ type: "conversations", cwd: "C:/repo", items: [
+  { id: "0123456789", summary: "fix the parser", ago: "1h ago", messages: 4, kb: 2, open: false }] });
+check("the conversations");
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+check("the review");
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [{ paneId: "p1", tabId: "t1", root: "C:/repo", tab: "one", name: "agent p1",
+  project: "repo", status: "idle" }] });
+check("the agents");
+`)
+}

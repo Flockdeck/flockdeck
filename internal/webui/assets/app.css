@@ -304,6 +304,7 @@ body { flex-direction: row; }
 .help-item:focus-visible,
 .rev-file:focus-visible,
 .agent-row:focus-visible,
+.conv-row:focus-visible,
 .proj-go:focus-visible,
 .dir-into:focus-visible,
 .places button:focus-visible,
