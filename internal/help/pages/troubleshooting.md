@@ -72,10 +72,11 @@ built to be watched.
 ## The window looks like a browser tab
 
 The interface is a local web page shown in a chromeless application window,
-provided by whichever Chromium-based browser is found first — Chrome, Edge,
-Brave or Chromium. If none is installed it opens as an ordinary tab instead,
-which works but looks less like an application. `FLOCKDECK_BROWSER` forces
-a particular one.
+provided by whichever Chromium-based browser is found first — Chrome, Edge or
+Brave, and on Linux Chromium or Vivaldi as well. If none is installed it opens
+as an ordinary tab instead, which works but looks less like an application.
+`FLOCKDECK_BROWSER` forces a particular one, by name or path; if that one
+cannot be found, the window does not open at all.
 
 ## Nothing is exposed to the network
 
