@@ -12,14 +12,23 @@
 # as well as in the workflow: against a local MinIO to try it, or to finish a
 # release whose workflow stopped part way.
 #
-# The order is the point of it. The versioned files go up first, under a path
-# nothing refers to yet, and one is read back through the public address. Then
-# /latest/, for the site's download buttons; then latest.json.sig, and last
-# latest.json, the one file every updater asks for, so that a release switches
-# over in one step and never names files that are not there yet. Last of all
-# the CDN is told to forget its copies of what moved. A pre-release, such as
+# The order is the point of it. A release's files go up first, under its
+# version, a path nothing refers to yet: the archives, checksums.txt and its
+# signature, and the signed manifest.json the updater reads. One is read back
+# through the public address. Then /latest/, for the site's download buttons,
+# and last latest.json, which names the latest version and is the one file
+# every updater asks for first, so that a release switches over in one step
+# and never names files that are not there yet. A pre-release, such as
 # v1.4.0-rc.1, goes up under its version and moves nothing: it is never the
 # latest, here or on GitHub.
+#
+# Nothing is purged from the CDN, so this needs no DigitalOcean API token.
+# What is under a version never changes, and is cached for a year. latest.json
+# and /latest/ are cached for five minutes, so for that long an edge may go on
+# naming the release before. That holds an update back and does no harm:
+# latest.json is not signed, and needs neither a signature nor a purge,
+# because all it does is name a version, whose own signed manifest the
+# updater checks before believing any of it.
 #
 # Read from the environment:
 #
@@ -30,13 +39,6 @@
 #                                    https://$DO_SPACES_REGION.digitaloceanspaces.com
 #   FLOCKDECK_DL_URL                 where the bucket is served to everyone;
 #                                    https://dl.flockdeck.ai by default
-#   DO_API_TOKEN                     a DigitalOcean token with cdn:read and
-#                                    cdn:delete, for the purge
-#   DO_CDN_ENDPOINT_ID               the CDN endpoint to purge, which is
-#                                    otherwise looked up (with jq) by its domain
-#   FLOCKDECK_PURGE=off              no purge, for a store with no CDN in front
-#   FLOCKDECK_REPUBLISH=1            replace a version already published with
-#                                    other files (see below)
 #   FLOCKDECK_CHECK_WAIT             seconds between tries at reading a file
 #                                    back through the public address; 5
 
@@ -57,16 +59,10 @@ pre=
 case "$version" in *-*) pre=1 ;; esac
 
 # Everything missing is named at once, so one run says all there is to set.
-purge=1
-[ "${FLOCKDECK_PURGE:-}" = off ] && purge=
 missing=
 for name in DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
 	[ -n "$(printenv "$name" || true)" ] || missing="$missing $name"
 done
-# A pre-release moves nothing, so it has nothing to purge.
-if [ -n "$purge" ] && [ -z "$pre" ] && [ -z "${DO_API_TOKEN:-}" ]; then
-	missing="$missing DO_API_TOKEN"
-fi
 [ -z "$missing" ] || die "not set:$missing"
 for tool in aws curl; do
 	command -v "$tool" >/dev/null 2>&1 || die "publishing needs $tool, which is not installed"
@@ -86,7 +82,7 @@ sha256() {
 # first: the archives, once uploaded, are cached for a year.
 set -- "$dist"/flockdeck_"$version"_*
 [ -e "$1" ] || die "$dist holds no archives of $version; build them with: go run ./cmd/release -version $version -out $dist"
-for f in checksums.txt checksums.txt.sig latest.json latest.json.sig; do
+for f in checksums.txt checksums.txt.sig manifest.json manifest.json.sig latest.json; do
 	[ -f "$dist/$f" ] || die "$dist/$f is missing; sign the release with: go run ./cmd/release -sign -version $version -out $dist"
 done
 for f in "$@"; do
@@ -95,8 +91,10 @@ for f in "$@"; do
 	[ -n "$want" ] || die "checksums.txt does not list $name"
 	[ "$(sha256 "$f")" = "$want" ] || die "$name does not match checksums.txt; build and sign the release again"
 done
-grep -q "\"version\": \"$version\"" "$dist/latest.json" ||
-	die "$dist/latest.json is not for $version; sign the release again"
+grep -qF "\"version\": \"$version\"" "$dist/manifest.json" ||
+	die "$dist/manifest.json is not for $version; sign the release again"
+grep -qF "\"version\":\"$version\"" "$dist/latest.json" ||
+	die "$dist/latest.json does not name $version; sign the release again"
 
 bucket=$DO_SPACES_BUCKET
 endpoint=${DO_SPACES_ENDPOINT:-"https://$DO_SPACES_REGION.digitaloceanspaces.com"}
@@ -118,19 +116,25 @@ tmp=$(mktemp -d 2>/dev/null || mktemp -d -t publish-downloads)
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' INT TERM
 
+# fetch copies one file of the bucket to $tmp, and fails if it is not there.
+fetch() {
+	aws s3 cp "s3://$bucket/$1" "$tmp/$2" --endpoint-url "$endpoint" --only-show-errors >/dev/null 2>&1
+}
+
 # A version's files are cached for a year and never change, so one already
-# published with other files is refused. Built again from the same tag the
-# files are the same, and uploading them again changes nothing.
-republished=
-if aws s3 cp "s3://$bucket/$version/checksums.txt" "$tmp/published.txt" \
-	--endpoint-url "$endpoint" --only-show-errors >/dev/null 2>&1; then
-	if cmp -s "$tmp/published.txt" "$dist/checksums.txt"; then
-		say "$version is already published with these same files"
-	elif [ "${FLOCKDECK_REPUBLISH:-}" = 1 ]; then
-		say "$version is already published with other files, which FLOCKDECK_REPUBLISH=1 replaces"
-		republished=1
-	else
-		die "$version is already published with other files. Its files are cached for a year, so replacing them leaves copies that disagree; tag a new version, or set FLOCKDECK_REPUBLISH=1 to replace them and purge the CDN's copies"
+# published with other files is refused: replacing them would leave the CDN's
+# edges serving copies that disagree with the bucket for as long, and nothing
+# purges them. Built again from the same tag the archives are the same, and
+# uploading them again changes nothing. The manifest is kept as it was first
+# published, though. Signed again it carries another date, and an edge
+# holding the first manifest.json beside the second's signature would fail it.
+keep_manifest=
+if fetch "$version/checksums.txt" published.txt; then
+	cmp -s "$tmp/published.txt" "$dist/checksums.txt" ||
+		die "$version is already published with other files. Its files are cached for a year and are never purged, so replacing them would leave copies that disagree; tag a new version"
+	say "$version is already published with these same files"
+	if fetch "$version/manifest.json" manifest.json && fetch "$version/manifest.json.sig" manifest.json.sig; then
+		keep_manifest=1
 	fi
 fi
 
@@ -156,52 +160,17 @@ put() { # file key max-age cache-control
 forever() { put "$1" "$2" 31536000 'public, max-age=31536000, immutable'; }
 briefly() { put "$1" "$2" 300 'public, max-age=300'; }
 
-# api calls DigitalOcean's API. The token reaches curl on its standard input
-# rather than its command line, where anything else on the machine could
-# read it.
-api() { # method url [body]
-	if [ $# -ge 3 ]; then
-		printf 'header = "Authorization: Bearer %s"\n' "$DO_API_TOKEN" |
-			curl -fsS --connect-timeout 10 --max-time 60 --config - -X "$1" \
-				-H 'Content-Type: application/json' --data "$3" "$2"
-	else
-		printf 'header = "Authorization: Bearer %s"\n' "$DO_API_TOKEN" |
-			curl -fsS --connect-timeout 10 --max-time 60 --config - -X "$1" "$2"
-	fi
-}
-
-# purge has the CDN drop its copies of the paths given, as a JSON list.
-purge() {
-	if [ -z "$purge" ]; then
-		say "not purging the CDN (FLOCKDECK_PURGE=off)"
-		return
-	fi
-	[ -n "${DO_API_TOKEN:-}" ] || die "not set: DO_API_TOKEN, which purging $1 from the CDN needs"
-	base=${DO_API_URL:-https://api.digitalocean.com}
-	id=${DO_CDN_ENDPOINT_ID:-}
-	if [ -z "$id" ]; then
-		command -v jq >/dev/null 2>&1 || die "finding the CDN endpoint needs jq; install it, or set DO_CDN_ENDPOINT_ID"
-		host=${public#*://}
-		host=${host%%/*}
-		list=$(api GET "$base/v2/cdn/endpoints?per_page=200") ||
-			die "could not list the CDN endpoints; DO_API_TOKEN needs cdn:read, or set DO_CDN_ENDPOINT_ID"
-		id=$(printf '%s' "$list" | jq -r --arg host "$host" \
-			'.endpoints[] | select(.custom_domain == $host or .endpoint == $host) | .id' | head -n 1)
-		[ -n "$id" ] || die "no CDN endpoint serves $host; set DO_CDN_ENDPOINT_ID"
-	fi
-	say "purging $1 from the CDN"
-	api DELETE "$base/v2/cdn/endpoints/$id/cache" "{\"files\":$1}" >/dev/null ||
-		die "the purge failed; DO_API_TOKEN needs cdn:delete. Everything is uploaded, and the CDN serves the new files once its copies expire"
-}
-
 # 1. The version's own files.
 for f in "$@"; do
 	forever "$f" "$version/${f##*/}"
 done
 forever "$dist/checksums.txt" "$version/checksums.txt"
 forever "$dist/checksums.txt.sig" "$version/checksums.txt.sig"
-if [ -n "$republished" ]; then
-	purge "[\"$version/*\"]"
+if [ -n "$keep_manifest" ]; then
+	say "keeping $version/manifest.json and its signature as they were first published"
+else
+	forever "$dist/manifest.json.sig" "$version/manifest.json.sig"
+	forever "$dist/manifest.json" "$version/manifest.json"
 fi
 
 # 2. Read one back through the public address, as a person would, before
@@ -231,10 +200,6 @@ for f in "$@"; do
 	briefly "$f" "latest/flockdeck_${name#flockdeck_"$version"_}"
 done
 
-# 4. The switch: latest.json last, its signature just before it.
-briefly "$dist/latest.json.sig" latest.json.sig
+# 4. The switch, last of all.
 briefly "$dist/latest.json" latest.json
-
-# 5. What moved, gone from the CDN's edges.
-purge '["latest.json","latest.json.sig","latest/*"]'
 say "$version is the latest at $public/latest.json"

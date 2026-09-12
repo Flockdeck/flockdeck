@@ -185,7 +185,7 @@ func TestNoticesNameEveryLinkedModule(t *testing.T) {
 func TestClearOldArchivesTakesOnlyItsOwn(t *testing.T) {
 	out := t.TempDir()
 	names := []string{"flockdeck_v0.9.0_linux_amd64.tar.gz", "flockdeck_v0.9.0_windows_amd64.zip", "checksums.txt",
-		"checksums.txt.sig", "latest.json", "latest.json.sig", "notes.md"}
+		"checksums.txt.sig", "manifest.json", "manifest.json.sig", "latest.json", "notes.md"}
 	for _, n := range names {
 		if err := os.WriteFile(filepath.Join(out, n), []byte("old"), 0o644); err != nil {
 			t.Fatal(err)
