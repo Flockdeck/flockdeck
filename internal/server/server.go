@@ -141,6 +141,12 @@ type Server struct {
 	// struct that is edited.
 	update atomic.Pointer[UpdateView]
 
+	// paneLookup and usageRefresh are the package variables of the same names,
+	// read once as the server is made. A test shortens them for the server it
+	// makes, and a goroutine an earlier test's server left running would
+	// otherwise be reading them while the next test writes them.
+	paneLookup, usageRefresh time.Duration
+
 	// mux is every route the window uses. It is kept so that the same routes
 	// can be served a second time, to windows reached through the relay.
 	mux *http.ServeMux
@@ -193,6 +199,9 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		asked:   make(chan struct{}, 1),
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
+
+		paneLookup:   paneLookup,
+		usageRefresh: usageRefresh,
 	}
 
 	mux := http.NewServeMux()
@@ -385,7 +394,7 @@ var usageRefresh = 5 * time.Second
 // comparison every few seconds, and sends only what a window would draw
 // differently.
 func (s *Server) usageLoop() {
-	tick := time.NewTicker(usageRefresh)
+	tick := time.NewTicker(s.usageRefresh)
 	defer tick.Stop()
 	for {
 		select {

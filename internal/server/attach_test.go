@@ -428,14 +428,20 @@ func TestOpenIsAcceptedWhileTheWorkspaceIsSlow(t *testing.T) {
 	}
 
 	stop()
+	// Counted on the workspace goroutine, which is opening the project while
+	// this looks: reading the workspace from here would race the open.
+	projects := func() int {
+		n, _ := ask(srv, func() int { return len(ws.Projects()) })
+		return n
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(ws.Projects()) == 2 {
+		if projects() == 2 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Errorf("projects = %d, want the accepted one to have opened", len(ws.Projects()))
+	t.Errorf("projects = %d, want the accepted one to have opened", projects())
 }
 
 // TestOpenSaysSoWhenItCannotBeTakenAtAll separates the two ways a busy
