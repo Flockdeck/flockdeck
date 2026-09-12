@@ -62,6 +62,10 @@ word. On a narrow screen the sections go across the top.
 - **This machine's name and paired devices** — **Remote access** in the
   settings, or [[action:remote]]. Use **Pair a device**, **Rename** and
   **Unpair**. Kept on the relay; [Remote access](#remote) has the rest.
+- **Notifications on paired devices** — **Remote access** in the settings:
+  whether the relay tells the paired devices that asked for them when an agent
+  has been waiting, after how long, and whether they name the pane. Kept in
+  `prefs.json`; [Remote access](#remote) has the rest.
 - **Desktop notifications** — **General** in the settings, or **Turn desktop
   notifications off** in the palette; kept in `prefs.json`. The browser also
   asks once whether this window may show them, and keeps the answer for that
