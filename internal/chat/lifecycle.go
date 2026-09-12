@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
+	spending "github.com/jmwri/flockdeck/internal/spend"
 )
 
 // The lifecycle events flockdeck chat reports. They are Claude Code's own event
@@ -34,6 +36,10 @@ type reporter struct {
 	// emit is the client half, kept as a field so a test can watch what would
 	// have been sent without a server to send it to.
 	emit func(stdin io.Reader, endpoint, token, session, event string) (string, error)
+	// usageEndpoint is where each call's spending goes, beside the lifecycle
+	// events, and report the client half that sends it.
+	usageEndpoint string
+	report        func(endpoint, token string, r spending.Report, timeout time.Duration) error
 }
 
 func newReporter(api, token, session, cwd string) *reporter {
@@ -41,7 +47,48 @@ func newReporter(api, token, session, cwd string) *reporter {
 	if endpoint != "" && !strings.HasSuffix(endpoint, "/hook") {
 		endpoint += "/hook"
 	}
-	return &reporter{endpoint: endpoint, token: token, session: session, cwd: cwd, emit: hooks.Emit}
+	var usage string
+	if base := strings.TrimSuffix(endpoint, "/hook"); base != "" {
+		usage = base + "/usage"
+	}
+	return &reporter{endpoint: endpoint, token: token, session: session, cwd: cwd, emit: hooks.Emit,
+		usageEndpoint: usage, report: hooks.Report}
+}
+
+// pricesChecked is the date the rates in price.go were read from the vendor's
+// page. It goes with every figure priced from them, so the pane header can say
+// how old the price is rather than state it as fact.
+const pricesChecked = "2026-06-24"
+
+// usageTimeout bounds one usage report. It is sent between a call's answer and
+// whatever comes next, over loopback, so a second is far more than it takes
+// and little enough that a Flockdeck which has stopped answering costs a turn
+// no more than that.
+const usageTimeout = time.Second
+
+// usage reports what one call read and wrote, and what that cost where the
+// model has a price here. It is sent a call at a time, not a turn at a time,
+// because a turn that uses tools makes many calls and the pane header should
+// move with each of them.
+//
+// Like every other report it is swallowed when it fails: a figure lost is a
+// figure lost, and never the turn.
+func (r *reporter) usage(model string, u Usage) {
+	if r == nil || r.usageEndpoint == "" || r.session == "" || r.report == nil || u == (Usage{}) {
+		return
+	}
+	rep := spending.Report{
+		Pane:  r.session,
+		Model: model,
+		Tokens: spending.Tokens{
+			In: int64(u.In), Out: int64(u.Out),
+			CacheRead: int64(u.CacheRead), CacheWrite5m: int64(u.CacheWrite),
+		},
+	}
+	if usd, ok := cost(model, u); ok {
+		rep.Cost = spending.Cost{USD: usd, Known: true, Source: "table", Checked: pricesChecked}
+	}
+	_ = r.report(r.usageEndpoint, r.token, rep, usageTimeout)
 }
 
 // hookInput is the JSON a lifecycle hook is fed on its standard input.
