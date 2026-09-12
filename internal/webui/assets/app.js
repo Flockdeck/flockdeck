@@ -538,6 +538,7 @@
     showActiveTab(s, rebuilt);
     renderTabs(s);
     renderSummary(s);
+    followAgents(s);
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
@@ -3344,6 +3345,18 @@
 
   let agents = null;
 
+  /** The overview is where you look to see which agent needs you, and it was
+   *  a picture taken when it opened: an agent that stopped to wait while it
+   *  was up went on being listed as working. It is asked for again whenever a
+   *  push shows the counts it lists moving, in any project. */
+  let agentsKey = "";
+  function followAgents(s) {
+    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs).join("|");
+    if (key === agentsKey) return;
+    agentsKey = key;
+    if (dialog === "agents") send({ cmd: "agents" });
+  }
+
   /** openAgents lists every pane in every open project. The tab bar only shows
    *  the active project, so this is what answers "where is the one that needs
    *  me" once several are open. */
@@ -3371,6 +3384,10 @@
     const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
     items.forEach((a) => {
       const row = el("div", "agent-row" + (a.active ? " active" : ""));
+      // By the pane, because the list is drawn again as the agents change
+      // what they are doing, and a row found again by its wording would lose
+      // the keyboard the moment its status did.
+      row.id = "agent-" + a.paneId;
       const main = el("div", "agent-main");
 
       const title = el("div", "agent-title");

@@ -3027,6 +3027,34 @@ assert.strictEqual(list().scrollTop, 400, "the file list went back to its top wh
 `)
 }
 
+// The agents overview is where you look to see who needs you, and it was a
+// picture taken when it opened: an agent that stopped to wait while it was up
+// went on being listed as working.
+func TestTheAgentsOverviewFollowsTheAgents(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+const list = (status) => ({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: status } ] });
+h.recv(list("working"));
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const before = asked();
+
+// A push that changes nothing the overview lists does not ask again.
+h.recv(fixture({ panes: { p1: pane("p1", { detail: "Reading" }), p2: pane("p2") } }));
+assert.strictEqual(asked(), before, "the overview was asked for again when nothing it lists had moved");
+
+h.$("agent-p1").focus();
+h.recv(fixture({ waiting: 1, projects: [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 }],
+  panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+assert.strictEqual(asked(), before + 1, "an agent stopping to wait did not bring the overview up to date");
+h.recv(list("waiting"));
+assert.ok(h.$("overlay-body").textContent.includes("waiting"), "the overview still says the agent is working");
+assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard when its status changed");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
