@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -58,7 +59,7 @@ func runUpdate(args []string) error {
 
 	rel, err := selfupdate.Check(ctx, version)
 	if err != nil {
-		return err
+		return explainUnreachable(err)
 	}
 	if rel == nil {
 		fmt.Printf("flockdeck %s is the latest release.\n", version)
@@ -117,6 +118,19 @@ func runUpdate(args []string) error {
 		fmt.Println("Flockdeck is running now: quit it and start it again to switch to the new version.")
 	}
 	return nil
+}
+
+// explainUnreachable says in words what a failure to reach GitHub at all
+// means. Left alone it was Go's own error — `Get "https://api.github.com/…":
+// dial tcp: lookup api.github.com: no such host` — naming a URL and a system
+// call rather than the problem and what to do about it. An answer GitHub did
+// give, such as a rate limit, already says what it is and is passed on.
+func explainUnreachable(err error) error {
+	var unreachable *url.Error
+	if !errors.As(err, &unreachable) {
+		return err
+	}
+	return fmt.Errorf("could not reach GitHub to look for a newer release; check the connection and try again (%v)", unreachable.Err)
 }
 
 // parseUpdate reads the command line of `flockdeck update` into the flag set's

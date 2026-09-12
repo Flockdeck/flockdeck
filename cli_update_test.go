@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +64,20 @@ func TestUpdateRefusesAStrayWord(t *testing.T) {
 	var f updateFlags
 	if err := parseUpdate(updateFlagSet(&f), []string{"-check"}); err != nil || !f.check {
 		t.Errorf("update -check = %v, check = %v; want it read", err, f.check)
+	}
+}
+
+// Not reaching GitHub at all is explained in words; an answer GitHub gave is
+// passed on as it is, since it already says what happened.
+func TestExplainUnreachable(t *testing.T) {
+	offline := &url.Error{Op: "Get", URL: "https://api.github.com/x", Err: errors.New("dial tcp: lookup api.github.com: no such host")}
+	got := explainUnreachable(fmt.Errorf("wrapped: %w", offline)).Error()
+	if !strings.Contains(got, "could not reach GitHub") || !strings.Contains(got, "no such host") || strings.Contains(got, "api.github.com/x") {
+		t.Errorf("unreachable: %q, want it explained, with the cause but not the URL", got)
+	}
+	limited := errors.New("GitHub is limiting how often this address may ask for releases; try again later")
+	if got := explainUnreachable(limited); got != limited {
+		t.Errorf("an answer from GitHub became %q", got)
 	}
 }
 
