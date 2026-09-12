@@ -3160,6 +3160,26 @@ assert.ok(h.doc.activeElement === h.$("recent-8"), "the keyboard did not land on
 `)
 }
 
+// The fan-out's tasks go one to a line, so Enter is a new line there and
+// starting the agents took the pointer, or Tab past every option to the
+// button. Ctrl+Enter starts them.
+func TestCtrlEnterStartsTheFanOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["Add a health endpoint", "Write tests"], isRepo: false, cwd: "C:/repo" });
+const box = h.$("overlay-body").querySelector("textarea.fan-tasks");
+box.focus();
+const plain = h.key({ key: "Enter" });
+assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the task list");
+h.key({ key: "Enter", ctrlKey: true });
+const sent = h.commands().pop();
+assert.strictEqual(sent.cmd, "fanout", "Ctrl+Enter did not start the agents");
+assert.deepStrictEqual(sent.tasks, ["Add a health endpoint", "Write tests"]);
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

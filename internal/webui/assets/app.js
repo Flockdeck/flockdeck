@@ -4018,7 +4018,7 @@
 
     const box = el("textarea", "fan-tasks");
     box.value = (m.tasks || []).join("\n");
-    box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser";
+    box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter starts them.";
     body.append(box);
 
     // Which agent each line gets, where it is not the one chosen for the run.
@@ -4150,6 +4150,13 @@
       closeOverlay();
     };
     box.oninput = () => { if (choosable) renderRows(); updateCount(); };
+    // Enter is a new line here - the tasks go one to a line - so starting
+    // them took the pointer, or Tab past every option to the button.
+    box.onkeydown = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault();
+      start.onclick();
+    };
     if (choosable) {
       runSel.onchange = updateCount;
       renderRows();
