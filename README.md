@@ -563,9 +563,9 @@ question of its own — Claude Code has one — would stop and ask whether the
 folder is trusted before doing any work, once per child. If the project you are
 fanning out from is already trusted, the dialog offers to carry that same
 answer over to the worktrees it creates. It is a checkbox, it says what it
-does, it is not offered for an agent that has nothing to ask, and it will not
-invent trust: inheriting is refused unless the source directory is genuinely
-trusted already.
+does, and it will not invent trust: inheriting is refused unless the source
+directory is genuinely trusted already. The answer it carries is Claude Code's,
+so it does nothing for another agent.
 
 #### An agent starting its own helpers
 
