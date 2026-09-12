@@ -142,6 +142,14 @@ func TestStripANSIRecoversText(t *testing.T) {
 		{"a redrawn line keeps only its last state", "50%\r100%\ndone", "100%\ndone"},
 		{"repeated redraws", "a\rb\rc", "c"},
 		{"a redraw after a real line break", "first\nhalf\rwhole", "first\nwhole"},
+		// A carriage return moves the cursor and nothing else: the line stays
+		// on screen until something is written over it. A line that already
+		// ended "\r\n" reaches the screen as "\r\r\n" through a Unix terminal.
+		{"a line ended twice over is kept", "hello\r\r\nworld\r\r\n", "hello\nworld\n"},
+		{"a carriage return at the end keeps the line", "kept\r", "kept"},
+		{"erasing from the start of the line drops it", "stale\r\x1b[K\nfresh", "\nfresh"},
+		{"backspace at the start of the line goes nowhere", "ab\r\bc", "c"},
+		{"a column move after a carriage return keeps what is before it", "abcdef\r\x1b[3Gxy", "abxy"},
 		{"bell", "ding\x07dong", "dingdong"},
 		// A charset designator carries the set it selects in the byte after
 		// the escape; leaving that behind puts a stray letter in the prose.

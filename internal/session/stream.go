@@ -345,9 +345,19 @@ func stripANSI(p []byte) string {
 	// lineStart is where the line currently being written began, which is
 	// where a carriage return goes back to.
 	lineStart := 0
+	// cr records a carriage return that nothing has been written over yet. It
+	// takes the cursor back to the start of the line, but a terminal leaves
+	// the line on screen until something takes its place, and a line break or
+	// the end of the output may come first: "text\r\r\n" is what a line that
+	// already ended "\r\n" -- a Windows file, a script printing one -- becomes
+	// on its way through a Unix terminal, whose ONLCR turns its "\n" into
+	// "\r\n" as well, and every such line was read back as empty. What was
+	// there makes way at the moment something is written over it.
+	cr := false
 	breakLine := func() {
 		out = append(out, '\n')
 		lineStart = len(out)
+		cr = false
 	}
 	// back moves the write position left, which is what the moves that rub
 	// characters out amount to where text is appended rather than laid out.
@@ -390,22 +400,28 @@ func stripANSI(p []byte) string {
 				// A backspace is how a program takes back what it has just
 				// printed -- a spinner frame, a character being erased --
 				// and dropping it leaves both the character and the one that
-				// replaced it in the text.
-				back(1)
+				// replaced it in the text. At the start of the line, where a
+				// carriage return left the cursor, it goes nowhere.
+				if !cr {
+					back(1)
+				}
 			case c == '\r':
 				// Before a newline a carriage return is only part of the line
 				// break. On its own it rewinds to the start of the line and
-				// what follows takes the place of what was there, which is
-				// how a progress line redraws itself; keeping both is how the
-				// screen's "100%" is read back as "50%100%".
+				// what is written next takes the place of what was there,
+				// which is how a progress line redraws itself; keeping both is
+				// how the screen's "100%" is read back as "50%100%".
 				if i+1 < len(p) && p[i+1] == '\n' {
 					break
 				}
-				out = out[:lineStart]
+				cr = true
 			case c == '\n':
 				breakLine()
 			case c < 0x20 && c != '\t':
 			default:
+				if cr {
+					out, cr = out[:lineStart], false
+				}
 				out = append(out, c)
 			}
 		case scanEsc:
@@ -450,6 +466,7 @@ func stripANSI(p []byte) string {
 			case c == 'A' || c == 'F':
 				lineStart = lineAbove(out, lineStart, csiCount(params))
 				out = out[:lineStart]
+				cr = false
 			// A terminal application often moves the cursor to the next
 			// line rather than printing a newline, so dropping these
 			// outright would run separate lines together. Treat the
@@ -463,6 +480,9 @@ func stripANSI(p []byte) string {
 			// on either side of it together, which is how a sentence ends up
 			// here as onelongword.
 			case c == 'C':
+				if cr {
+					out, cr = out[:lineStart], false
+				}
 				for n := csiCount(params); n > 0; n-- {
 					out = append(out, ' ')
 				}
@@ -470,7 +490,9 @@ func stripANSI(p []byte) string {
 			// rightward move left the text of a redraw standing in front of
 			// whatever redrew it.
 			case c == 'D':
-				back(csiCount(params))
+				if !cr {
+					back(csiCount(params))
+				}
 			// Moving to a column is the other way of saying what a carriage
 			// return says, and the way Claude Code's own interface says it:
 			// go back to the start of the line and draw it again. Without
@@ -494,11 +516,15 @@ func stripANSI(p []byte) string {
 					}
 				}
 				out = out[:target]
+				cr = false
 			// Erasing the line is the rest of that idiom. Only erasing all of
 			// it has anything to undo where text is appended rather than laid
-			// out: the other forms erase what has not been written yet.
-			case c == 'K' && csiCount(params) == 2:
+			// out: the other forms erase what has not been written yet --
+			// except from the start of the line, where a carriage return left
+			// the cursor, where erasing to the end is erasing all of it too.
+			case c == 'K' && (csiCount(params) == 2 || cr && (len(params) == 0 || string(params) == "0")):
 				out = out[:lineStart]
+				cr = false
 			}
 		case scanOSC:
 			if c == 0x07 {
