@@ -18,6 +18,12 @@
 // Staging is recorded on disk, so an update downloaded in one run is still
 // there to be applied by the next, and a half-finished download is never
 // mistaken for a finished one.
+//
+// On Windows the program has a console twin beside it (chatName), the same
+// program with its PE Subsystem set to console, which an API agent's pane
+// runs. Stage and Apply carry it with the program when a release has one,
+// and EnsureChatTwin keeps it exactly in step with the program at every start
+// however the program was put there.
 package selfupdate
 
 import (
@@ -177,7 +183,8 @@ func (r *Release) checksums() (Asset, bool) {
 	return Asset{}, false
 }
 
-// Stage downloads the release, checks it and unpacks the binary under dir.
+// Stage downloads the release, checks it and unpacks the binary under dir,
+// with the console twin beside it when the release has one.
 //
 // The download is hashed as it is written rather than read back afterwards, so
 // a file that does not match is never on disk in a state anything could mistake
@@ -567,9 +574,11 @@ func replace(src, target string) (undo func() error, err error) {
 	}, nil
 }
 
-// Sweep removes the files previous Applies moved aside. It is called at
-// startup, by which time nothing holds the old program open — or, for one an
-// instance still running is using, fails to and leaves it for next time.
+// Sweep removes the files previous Applies moved aside, the console twin's as
+// well as the program's, and what an interrupted EnsureChatTwin left. It is
+// called at startup, by which time nothing holds the old program open — or,
+// for one an instance still running is using, fails to and leaves it for next
+// time.
 func Sweep(exePath string) {
 	if exePath == "" {
 		return
