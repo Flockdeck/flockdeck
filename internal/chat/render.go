@@ -58,12 +58,15 @@ func envWidth(name string) int {
 }
 
 // colourWanted reports whether to write escape sequences at all, honouring the
-// two conventions for saying no.
+// two conventions for saying no -- and a third that needs no saying: output
+// sent to a file or a pipe is read by something other than a terminal, and
+// `flockdeck chat "task" > answer.md` should leave an answer in the file
+// rather than the answer wrapped in escape codes.
 func colourWanted() bool {
-	if os.Getenv("NO_COLOR") != "" {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
 	}
-	return os.Getenv("TERM") != "dumb"
+	return isConsole(os.Stdout)
 }
 
 // printer draws a streamed answer: wrapped to the terminal, with headings, code
