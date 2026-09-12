@@ -170,6 +170,9 @@ func (w *Workspace) restoreProject(root string) int {
 		if tree == nil {
 			continue
 		}
+		// A layout saved by an older build can nest a row in a row, which
+		// looks like one row and splits and resizes like two.
+		tree.Flatten()
 		tab := &Tab{
 			ID:    uuid.NewString(),
 			Root:  root,

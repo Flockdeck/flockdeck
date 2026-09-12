@@ -818,6 +818,41 @@ func (root *Node) Remove(pane string) bool {
 	return true
 }
 
+// Flatten splices every split nested in a split along its own axis into that
+// split, sharing out the room the nested one held among its children so that
+// every pane keeps the size it had.
+//
+// No operation here builds that shape, but a tree read back from a saved
+// layout can hold it: builds before Remove spliced a collapsed split into its
+// parent left one behind every time, and a layout carries it from run to run
+// for as long as nothing rewrites that part of it. A row nested in a row looks
+// like one row and does not behave like one — a pane split beside one of its
+// panes shares that pane's group rather than the row, coming out a fraction of
+// the width its neighbours have, and the divider between the groups moves
+// several panes at once.
+func (n *Node) Flatten() {
+	if n == nil || n.IsLeaf() {
+		return
+	}
+	out := make([]*Node, 0, len(n.Children))
+	for _, c := range n.Children {
+		c.Flatten()
+		if c.IsLeaf() || c.Dir != n.Dir {
+			out = append(out, c)
+			continue
+		}
+		total := 0.0
+		for _, g := range c.Children {
+			total += g.weight()
+		}
+		for _, g := range c.Children {
+			g.Weight = g.weight() * c.weight() / total
+			out = append(out, g)
+		}
+	}
+	n.Children = out
+}
+
 // Count returns the number of panes in the tree.
 func (n *Node) Count() int {
 	count := 0
