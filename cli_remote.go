@@ -239,6 +239,11 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	fmt.Fprintf(rio.out, "Scan the code, or open this link on the device you want to pair:\n\n  %s\n\n", p.URL)
 	fmt.Fprintf(rio.out, "It works once, %s.\n", until)
 	fmt.Fprintf(rio.out, "Whoever opens it can drive every agent here, so treat it like a password\nuntil then.\n")
+	// The device pairs whether or not anything is running here, and would
+	// then find the machine offline with nothing to say why.
+	if rio.running != nil && !rio.running() {
+		fmt.Fprintln(rio.out, "flockdeck is not running here, so this machine is offline until it starts.")
+	}
 	// The code is drawn in the terminal's own colours, which on a light
 	// background comes out inverted, and a phone's camera is not reliably
 	// able to read that. The window draws it dark on white whatever the theme.

@@ -273,6 +273,25 @@ func TestRemoteStatusWhenTheRelayDoesNotSeeThisMachine(t *testing.T) {
 	}
 }
 
+// A device paired while flockdeck is not running here finds the machine
+// offline, so pair says so before the link is opened.
+func TestRemotePairWhileNotRunning(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	for running, want := range map[bool]bool{false: true, true: false} {
+		var out bytes.Buffer
+		if err := remoteCmd([]string{"pair"}, remoteIO{out: &out, running: func() bool { return running }}); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "this machine is offline until it starts"); got != want {
+			t.Errorf("pair with flockdeck running=%v said it is offline: %v, want %v", running, got, want)
+		}
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
