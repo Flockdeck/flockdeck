@@ -745,6 +745,38 @@ func TestManagerEnablesAndDisables(t *testing.T) {
 	}
 }
 
+// Two requests to enable at once, a double click say, enrol the machine once:
+// the second finds the first's enrolment rather than orphaning it.
+func TestManagerEnablesOnceAtATime(t *testing.T) {
+	isolate(t)
+	quick(t)
+	f := newFakeRelay(t)
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	defer m.Close()
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := m.Enable(context.Background(), EnableRequest{Relay: f.URL, Name: "desk"})
+			errs <- err
+		}()
+	}
+	refused := 0
+	for range 2 {
+		var already *AlreadyEnabledError
+		if err := <-errs; errors.As(err, &already) {
+			refused++
+		} else if err != nil {
+			t.Errorf("Enable: %v", err)
+		}
+	}
+	f.mu.Lock()
+	registered := strings.Count(strings.Join(f.calls, "\n"), "POST /api/v1/hosts")
+	f.mu.Unlock()
+	if registered != 1 || refused != 1 {
+		t.Errorf("the relay saw %d registrations and %d of 2 enables were refused; want 1 and 1", registered, refused)
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {
