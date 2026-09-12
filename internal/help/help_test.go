@@ -202,13 +202,18 @@ func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
 // The help is shown inside the application window, so a link out of it has to
 // open somewhere else rather than replace the interface.
 func TestExternalLinksOpenElsewhere(t *testing.T) {
-	got, err := toHTML("See [Claude Code](https://claude.com/claude-code).")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `<a href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">`
-	if !strings.Contains(got, want) {
-		t.Errorf("got %s, want it to contain %s", got, want)
+	for _, src := range []string{
+		"See [Claude Code](https://claude.com/claude-code).",
+		"See <https://claude.com/claude-code>.",
+	} {
+		got, err := toHTML(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `<a href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">`
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: got %s, want it to contain %s", src, got, want)
+		}
 	}
 	pages, err := Pages()
 	if err != nil {

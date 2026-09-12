@@ -30,14 +30,21 @@ var md = goldmark.New(
 // points at, with no address bar to come back by.
 type externalLinks struct{}
 
-func (externalLinks) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+func (externalLinks) Transform(doc *ast.Document, reader text.Reader, _ parser.Context) {
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if l, ok := n.(*ast.Link); ok && entering {
-			dest := string(l.Destination)
-			if strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://") {
-				l.SetAttributeString("target", []byte("_blank"))
-				l.SetAttributeString("rel", []byte("noopener noreferrer"))
-			}
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		var dest string
+		switch l := n.(type) {
+		case *ast.Link:
+			dest = string(l.Destination)
+		case *ast.AutoLink:
+			dest = string(l.URL(reader.Source()))
+		}
+		if strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://") {
+			n.SetAttributeString("target", []byte("_blank"))
+			n.SetAttributeString("rel", []byte("noopener noreferrer"))
 		}
 		return ast.WalkContinue, nil
 	})
