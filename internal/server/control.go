@@ -273,7 +273,9 @@ func (s *Server) snapshot() stateMsg {
 	// down instead of showing its empty state.
 	projects := ws.Projects()
 	msg.Projects = make([]projectView, 0, len(projects))
+	names := make(map[string]string, len(projects))
 	for _, p := range projects {
+		names[p.Root] = p.Name
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
@@ -329,7 +331,7 @@ func (s *Server) snapshot() stateMsg {
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
 				!strings.EqualFold(filepath.Clean(paneRoot), tabRoot) {
-				pv.Project = filepath.Base(paneRoot)
+				pv.Project = projectLabel(names, paneRoot)
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -346,6 +348,20 @@ func (s *Server) snapshot() stateMsg {
 		}
 	}
 	return msg
+}
+
+// projectLabel names a project the way the project switcher does, given the
+// names the open projects go by, falling back to its folder's name.
+//
+// The switcher's names tell two checkouts called the same thing apart, and a
+// pane's own project is shown exactly where that matters: on a tab holding
+// agents from two projects, and in the list of every agent there is. Naming
+// both "app" there left nothing to tell them apart by.
+func projectLabel(names map[string]string, root string) string {
+	if n := names[root]; n != "" {
+		return n
+	}
+	return filepath.Base(root)
 }
 
 // usageOf reads what a pane's process tree is costing the machine. It is a

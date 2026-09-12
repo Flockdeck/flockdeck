@@ -43,6 +43,10 @@ func (s *Server) listAgents(c *controlClient) {
 		if t := s.ws.CurrentTab(); t != nil {
 			focused = t.Focus
 		}
+		names := map[string]string{}
+		for _, pr := range s.ws.Projects() {
+			names[pr.Root] = pr.Name
+		}
 
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
@@ -60,7 +64,7 @@ func (s *Server) listAgents(c *controlClient) {
 					// project the agent is actually working in. They differ
 					// for a pane borrowed onto another project's tab.
 					Root:    t.Root,
-					Project: filepath.Base(s.ws.RootOf(p.ID)),
+					Project: projectLabel(names, s.ws.RootOf(p.ID)),
 					Name:    p.Name,
 					Branch:  p.Branch,
 					Kind:    kindName(p.Kind),
