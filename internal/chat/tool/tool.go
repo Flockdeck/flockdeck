@@ -119,6 +119,18 @@ func (s *Set) Tools() []Tool {
 	return out
 }
 
+// HideEnv keeps the named variables out of the environment of every command
+// run_command runs. It is for the key Flockdeck handed the pane: that is in the
+// chat's own environment for the chat to use, and a model that runs `env` has
+// no business printing it into the conversation.
+func (s *Set) HideEnv(names ...string) {
+	for _, t := range s.tools {
+		if rc, ok := t.(*runCommand); ok {
+			rc.hide = append(rc.hide, names...)
+		}
+	}
+}
+
 // Lookup finds a tool by the name the model called.
 func (s *Set) Lookup(name string) (Tool, bool) {
 	t, ok := s.byName[name]

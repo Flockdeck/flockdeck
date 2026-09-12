@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/chat"
@@ -32,7 +33,7 @@ func runChat(args []string) error {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
 	}
-	opts.Tools = chatTools(opts.Cwd)
+	opts.Tools = chatTools(opts.Cwd, storedKeyVars(opts.Agent))
 	opts.Models = catalogModels(opts.Agent)
 	chat.KeyStore = storedKey
 	return chat.Run(context.Background(), opts)
@@ -54,6 +55,28 @@ func catalogModels(agentID string) []chat.ModelChoice {
 	return nil
 }
 
+// storedKeyVars are the variables in this process's environment that carry the
+// key Flockdeck stored for an agent.
+//
+// A stored key reaches the pane in its environment, so that the chat can use
+// it; the promise is that it reaches that one process. Every command the model
+// runs would inherit it too, and `env` or `set` would print it into the
+// conversation and on to the vendor. A key the user exported themselves is
+// theirs to hand on and is not in the store, so it is not matched.
+func storedKeyVars(agentID string) []string {
+	key := storedKey(agentID)
+	if key == "" {
+		return nil
+	}
+	var names []string
+	for _, kv := range os.Environ() {
+		if name, v, ok := strings.Cut(kv, "="); ok && v == key {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // storedKey is the key `flockdeck keys set` stored for an agent, or "".
 //
 // A pane is handed its stored key in its environment, but a chat started by
@@ -72,12 +95,16 @@ func storedKey(agentID string) string {
 // The confinement every tool depends on is that resolved directory, so a tool
 // set built without one would be a tool set confined to nothing; a conversation
 // with no tools is a perfectly good thing for a pane to be, and it says so.
-func chatTools(cwd string) []chat.Tool {
+//
+// hide names the variables that carry a key Flockdeck handed the pane, which
+// no command the model runs should inherit.
+func chatTools(cwd string, hide []string) []chat.Tool {
 	set, err := tool.New(cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck chat: no tools in this pane:", err)
 		return nil
 	}
+	set.HideEnv(hide...)
 	tools := set.Tools()
 	out := make([]chat.Tool, 0, len(tools))
 	for _, t := range tools {

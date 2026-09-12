@@ -42,6 +42,8 @@ const (
 // shell, and the model is told to run the pieces itself instead.
 type runCommand struct {
 	root *Root
+	// hide names variables kept out of a command's environment.
+	hide []string
 }
 
 func (t *runCommand) Name() string { return "run_command" }
@@ -163,7 +165,7 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	// its output goes to the model. git asking for a username on a push waits
 	// for the whole timeout and then reports nothing useful; told there is no
 	// terminal, it fails at once and says why.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(t.environ(), "GIT_TERMINAL_PROMPT=0")
 	// Standard output and standard error are interleaved because that is the
 	// order they happened in, and a compiler's diagnostics are only useful
 	// beside the line of progress they interrupted. One writer for both is
@@ -196,6 +198,31 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 		}
 	}
 	return b.String(), nil
+}
+
+// environ is the environment a command runs with: this process's, less the
+// variables hidden from it. Names are compared the way the platform does,
+// which on Windows is without regard to case.
+func (t *runCommand) environ() []string {
+	env := os.Environ()
+	if len(t.hide) == 0 {
+		return env
+	}
+	out := env[:0:0]
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		hidden := false
+		for _, h := range t.hide {
+			if name == h || (runtime.GOOS == "windows" && strings.EqualFold(name, h)) {
+				hidden = true
+				break
+			}
+		}
+		if !hidden {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // notFoundHint says what to do about a program that could not be found, where

@@ -282,6 +282,25 @@ func TestKeysSetSaysWhenTheKeyIsUsed(t *testing.T) {
 	}
 }
 
+// A stored key reaches the pane in its environment; the variable carrying it
+// is found so that commands the model runs do not inherit it. A key the user
+// exported themselves, and nothing stored, is left alone.
+func TestTheVariableCarryingAStoredKeyIsFound(t *testing.T) {
+	isolateKeys(t)
+	if got := storedKeyVars("anthropic"); got != nil {
+		t.Errorf("found %q with nothing stored", got)
+	}
+	if err := creds.Set("anthropic", "sk-stored"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "sk-stored")
+	t.Setenv("OPENAI_API_KEY", "sk-users-own")
+	got := strings.Join(storedKeyVars("anthropic"), " ")
+	if !strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "OPENAI_API_KEY") {
+		t.Errorf("storedKeyVars = %q, want the variable carrying the stored key and no other", got)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {
