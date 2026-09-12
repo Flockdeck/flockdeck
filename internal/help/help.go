@@ -39,6 +39,7 @@ var order = []string{
 	"projects",
 	"persistence",
 	"remote",
+	"settings",
 	"shortcuts",
 	"cli",
 	"troubleshooting",
