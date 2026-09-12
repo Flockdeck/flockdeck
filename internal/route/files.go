@@ -40,8 +40,14 @@ func anyFileMatches(globs, files []string) bool {
 // matched against the path's last part, so "*.sql" finds db/0003.sql as well
 // as 0003.sql. Case is not compared, since the same path is written both ways
 // on Windows and macOS.
+//
+// A glob is read with forward slashes, and from the project root without a
+// leading "./", as the paths it is matched against already are: one written
+// the way Windows writes a path, "db\migrations\**", or "./migrations/**",
+// matched nothing at all and said nothing about it.
 func MatchGlob(glob, name string) bool {
-	glob, name = strings.ToLower(glob), strings.ToLower(name)
+	glob = strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(glob), `\`, "/"), "./")
+	name = strings.ToLower(name)
 	if !strings.Contains(glob, "/") {
 		name = path.Base(name)
 	}

@@ -211,6 +211,8 @@ func TestMatchGlob(t *testing.T) {
 		{"**/migrations/**", "db/migration.go", false},
 		{"internal/*/route.go", "internal/route/route.go", true},
 		{"internal/*/route.go", "internal/a/b/route.go", false},
+		{`db\migrations\**`, "db/migrations/0003.sql", true},
+		{"./migrations/**", "migrations/0003.sql", true},
 	}
 	for _, tc := range tests {
 		if got := MatchGlob(tc.glob, tc.name); got != tc.want {
