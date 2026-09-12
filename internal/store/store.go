@@ -730,7 +730,8 @@ func sweepDir(dir string, cutoff time.Time, match func(name string) bool) (int, 
 // profiles roam Windows copies the roaming folder to and from the network at
 // every logon, or keeps it on a network share where it is redirected; Chrome
 // and Edge keep their own profiles out of it for the same reason. A profile
-// an earlier build left in the roaming folder is moved across once.
+// an earlier build left in the roaming folder is moved across, or deleted
+// once there is one here.
 func BrowserProfileDir() (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -752,21 +753,37 @@ func BrowserProfileDir() (string, error) {
 }
 
 // adoptProfile moves a window profile from where an earlier build kept it to
-// dir, when there is one there and nothing at dir yet. A move that cannot be
-// made — across volumes, where the roaming folder is on a network share —
-// leaves the old one where it is and the window starts a fresh profile, which
-// loses nothing it could keep: each run is a new origin to the browser.
+// dir, when there is one there and nothing at dir yet.
+//
+// Otherwise the old one is deleted. A move can fail, across volumes where the
+// roaming folder is on a network share or while an earlier build's window
+// still has the profile open, and once the window has started a fresh profile
+// at dir the old one was left for good: a couple of hundred megabytes that
+// hold nothing the window could use, since each run is a new origin to the
+// browser. It is renamed aside before it is deleted, because Windows refuses
+// that rename while a browser has files in it open, so a profile in use is
+// left for a later start rather than half deleted under the browser.
 func adoptProfile(old, dir string) {
-	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+	aside := old + ".removing"
+	_ = os.RemoveAll(aside) // what an interrupted deletion left
+	oi, err := os.Stat(old)
+	if err != nil || !oi.IsDir() {
 		return
 	}
-	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
+	switch di, err := os.Stat(dir); {
+	case errors.Is(err, fs.ErrNotExist):
+		if os.MkdirAll(filepath.Dir(dir), 0o700) == nil && os.Rename(old, dir) == nil {
+			return
+		}
+	case err != nil, os.SameFile(oi, di):
+		// Unreadable, or the two are one folder, as when both application
+		// data folders are pointed at the same place: that is the profile in
+		// use, not a copy of it.
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
-		return
+	if os.Rename(old, aside) == nil {
+		_ = os.RemoveAll(aside)
 	}
-	_ = os.Rename(old, dir)
 }
 
 // Project is a directory the user has opened.
