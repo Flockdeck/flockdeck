@@ -2,12 +2,16 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -323,7 +327,23 @@ func staysLocal(p string) bool {
 // InheritTrust records that a directory is trusted, given that another already
 // is. It refuses when the source is not itself trusted, so this can only ever
 // carry an answer the user has already given.
+//
+// The file is read, changed and written back whole, and Claude Code saves it
+// too -- busily so while a fan-out is starting agents -- so all of that happens
+// under the lock Claude Code takes for its own saves. Without it a save landing
+// between the read and the write here was thrown away by the write: another
+// project's settings, the user's history.
 func InheritTrust(from, to string) error {
+	path := configPath()
+	if path == "" {
+		return fmt.Errorf("cannot locate the Claude Code configuration")
+	}
+	release, err := lockClaudeConfig(path)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	if !IsTrusted(from) {
 		return fmt.Errorf("%s is not itself trusted", filepath.Base(from))
 	}
@@ -364,6 +384,52 @@ func InheritTrust(from, to string) error {
 	projects[key] = entry
 
 	return writeClaudeConfig(cfg)
+}
+
+// Claude Code 2.1.269, read from its executable, saves its configuration under
+// a lock: saveConfigWithLock makes a directory beside the file, "<file>.lock",
+// with the proper-lockfile library, re-reads the file under it, writes, and
+// removes the directory. A lock directory nobody has touched for ten seconds
+// is stale -- its holder refreshes it every five while it lives -- and is taken
+// over. Taking the same lock the same way is what keeps one of its saves from
+// landing between a read here and the write that follows.
+var (
+	configLockStale = 10 * time.Second
+	// configLockWait bounds how long a carry-over waits for Claude Code to
+	// finish a save. Claude Code itself waits longer for its own -- backing off
+	// 200ms, 400ms and on to 4s, some fifteen seconds in all -- but a fan-out
+	// that is starting agents should give up sooner and say so. It is a
+	// variable so a test can shorten it.
+	configLockWait = 5 * time.Second
+)
+
+// errConfigBusy is what a carry-over reports when Claude Code held its lock
+// for longer than it would wait. Nothing is written without the lock.
+var errConfigBusy = errors.New("Claude Code was saving its configuration and did not finish in time, so trust was not carried over")
+
+// lockClaudeConfig takes Claude Code's lock on its configuration at path, and
+// returns what releases it.
+func lockClaudeConfig(path string) (release func(), err error) {
+	lock := path + ".lock"
+	deadline := time.Now().Add(configLockWait)
+	for delay := 50 * time.Millisecond; ; delay = min(delay*2, 500*time.Millisecond) {
+		err := os.Mkdir(lock, 0o755)
+		if err == nil {
+			return func() { os.Remove(lock) }, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, fmt.Errorf("lock the Claude Code configuration: %w", err)
+		}
+		if fi, err := os.Stat(lock); err == nil && time.Since(fi.ModTime()) > configLockStale {
+			// Left by a Claude Code that stopped while it held the lock.
+			os.Remove(lock)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, errConfigBusy
+		}
+		time.Sleep(delay/2 + rand.N(delay/2+1))
+	}
 }
 
 func readClaudeConfig() (map[string]any, error) {

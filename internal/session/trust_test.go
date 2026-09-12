@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 // writeConfig lays down a Claude Code configuration for the test to work on.
@@ -211,6 +212,122 @@ func TestInheritTrustIsIdempotent(t *testing.T) {
 	}
 	if !IsTrusted(target) {
 		t.Error("the worktree should be trusted")
+	}
+}
+
+// readJSON reads a configuration file back.
+func readJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// TestInheritTrustDoesNotLoseClaudeCodesSave covers a Claude Code saving its
+// configuration while a fan-out carries trust over. Claude Code reads the file
+// under its lock, changes it and writes it back; a carry-over that ignored the
+// lock read the file in between and wrote it after, so one of the two writes
+// was thrown away. Here Claude Code has read the file and holds the lock, and
+// writes its change a moment later.
+func TestInheritTrustDoesNotLoseClaudeCodesSave(t *testing.T) {
+	dir := t.TempDir()
+	trusted := filepath.Join(dir, "repo")
+	path := writeConfig(t, dir, map[string]any{
+		"numStartups": 7,
+		"projects":    map[string]any{claudeProjectKey(trusted): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	lock := path + ".lock"
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeRead := readJSON(t, path)
+	saved := make(chan struct{})
+	go func() {
+		defer close(saved)
+		time.Sleep(200 * time.Millisecond)
+		claudeRead["numStartups"] = 8
+		data, _ := json.Marshal(claudeRead)
+		_ = os.WriteFile(path, data, 0o600)
+		_ = os.Remove(lock)
+	}()
+
+	target := filepath.Join(dir, "wt")
+	if err := InheritTrust(trusted, target); err != nil {
+		t.Fatalf("inherit: %v", err)
+	}
+	<-saved
+	if got := readJSON(t, path)["numStartups"]; got != float64(8) {
+		t.Errorf("numStartups = %v: Claude Code's save was thrown away", got)
+	}
+	if !IsTrusted(target) {
+		t.Error("the carried-over trust was thrown away by Claude Code's save")
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Errorf("the lock was left behind: %v", err)
+	}
+}
+
+// TestInheritTrustTakesOverAStaleLock covers a Claude Code that stopped while
+// holding its lock: nobody has touched the lock for longer than the stale
+// threshold, so it is taken over, as Claude Code's own library does.
+func TestInheritTrustTakesOverAStaleLock(t *testing.T) {
+	dir := t.TempDir()
+	trusted := filepath.Join(dir, "repo")
+	path := writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{claudeProjectKey(trusted): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	lock := path + ".lock"
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "wt")
+	if err := InheritTrust(trusted, target); err != nil {
+		t.Fatalf("inherit: %v", err)
+	}
+	if !IsTrusted(target) {
+		t.Error("the worktree should be trusted")
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Errorf("the lock was left behind: %v", err)
+	}
+}
+
+// TestInheritTrustWaitsForTheLockOnlySoLong covers a lock held for longer than
+// a carry-over will wait: nothing is written, and the holder's lock is left
+// where it is.
+func TestInheritTrustWaitsForTheLockOnlySoLong(t *testing.T) {
+	wait := configLockWait
+	configLockWait = 150 * time.Millisecond
+	t.Cleanup(func() { configLockWait = wait })
+
+	dir := t.TempDir()
+	trusted := filepath.Join(dir, "repo")
+	path := writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{claudeProjectKey(trusted): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	lock := path + ".lock"
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "wt")
+	if err := InheritTrust(trusted, target); err == nil {
+		t.Fatal("expected a carry-over to give up while Claude Code holds the lock")
+	}
+	if IsTrusted(target) {
+		t.Error("something was written without the lock")
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Errorf("the holder's lock was removed: %v", err)
 	}
 }
 
