@@ -139,7 +139,10 @@ func main() {
 	// leave the user believing `flockdeck quit` had done something.
 	if fs.NArg() > 0 {
 		arg := fs.Arg(0)
-		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument %q\n", arg)
+		// Between plain quotes rather than %q, which would double every
+		// backslash of a Windows path and show a different one from the
+		// one typed.
+		fmt.Fprintf(os.Stderr, "flockdeck: unrecognised argument \"%s\"\n", arg)
 		switch fi, statErr := os.Stat(arg); {
 		case statErr == nil && fi.IsDir():
 			// Quoted when it would otherwise split, so the line can be copied
