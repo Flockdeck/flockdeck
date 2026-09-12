@@ -47,7 +47,9 @@ func (s *session) command(ctx context.Context, line string) bool {
 		s.record(Entry{Type: entryClear})
 		s.reporter.sessionEnd()
 		s.system = compose(systemPrompt, s.reporter.sessionStart("clear"))
-		s.out.line(ansiDim, "(cleared)")
+		// Said in full, because "cleared" alone leaves somebody wondering
+		// whether what was said is gone.
+		s.out.line(ansiDim, "(cleared: the model starts afresh; the transcript keeps what was said)")
 	case "status":
 		s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
 		// The two settings behind a pane that is failing, and where each is
