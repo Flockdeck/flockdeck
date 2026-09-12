@@ -524,3 +524,25 @@ func TestADefaultNamingNoAgentIsReported(t *testing.T) {
 		t.Errorf("a default naming a real agent was reported: %q", c.Notice)
 	}
 }
+
+// TestUnknownTokensAreNamed: a token with no value takes its group with it,
+// and a misspelt one never has a value, so `"if": "modle"` dropped the
+// --model flag in silence.
+func TestUnknownTokensAreNamed(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "x", "args": [{"if": "modle", "args": [{"value": "--model"}, {"value": "{{ modle }}"}]}, {"value": "{{prompt}}"}]}`),
+	}})
+	if !strings.Contains(c.Notice, `"modle" is not a token`) {
+		t.Errorf("notice = %q, want the misspelt token named", c.Notice)
+	}
+	if strings.Count(c.Notice, "modle") != 1 {
+		t.Errorf("notice = %q, want the token named once", c.Notice)
+	}
+	if strings.Contains(c.Notice, "prompt\" is not") {
+		t.Errorf("a real token was reported: %q", c.Notice)
+	}
+	// The built-ins use only real tokens.
+	if c := Merge(nil); c.Notice != "" {
+		t.Errorf("built-ins alone gave notice %q", c.Notice)
+	}
+}

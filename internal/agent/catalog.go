@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -115,6 +116,7 @@ func Merge(f *File) *Catalog {
 			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
 			problems = append(problems, checkRunner(&merged)...)
+			problems = append(problems, checkTokens(&merged)...)
 			c.Specs[i] = merged
 			continue
 		}
@@ -124,6 +126,7 @@ func Merge(f *File) *Catalog {
 			continue
 		}
 		problems = append(problems, checkRunner(&fresh)...)
+		problems = append(problems, checkTokens(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
 		c.Specs = append(c.Specs, fresh)
 	}
@@ -207,6 +210,44 @@ func (c *Catalog) missingDefaults() []string {
 	}
 	return problems
 }
+
+// checkTokens names every token an entry's arguments refer to that is not one.
+//
+// A token with no value takes its group out of the command line, and an
+// unknown one never has a value: an `"if": "modle"` quietly dropped the
+// --model flag with it, and a "{{modle}}" in a value went through as written.
+func checkTokens(s *Spec) []string {
+	seen := map[string]bool{}
+	var problems []string
+	note := func(name string) {
+		if name == "" || seen[name] || knownToken(name) {
+			return
+		}
+		seen[name] = true
+		problems = append(problems, fmt.Sprintf("agent %q: %q is not a token; the tokens are %s", s.ID, name, tokenNames))
+	}
+	var walk func([]Arg)
+	walk = func(args []Arg) {
+		for _, a := range args {
+			if a.If != "" {
+				note(strings.TrimSpace(strings.Trim(a.If, "{}")))
+			}
+			for _, m := range anyToken.FindAllStringSubmatch(a.Value, -1) {
+				note(m[1])
+			}
+			walk(a.Args)
+		}
+	}
+	walk(s.Args)
+	walk(s.ResumeArgs)
+	return problems
+}
+
+// anyToken matches anything written as a token, known or not.
+var anyToken = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
+
+// tokenNames lists the tokens for a notice that has to name them.
+const tokenNames = "session, model, settings, prompt, cwd and pane"
 
 // checkRunner settles a runner written by hand into one of the two there are.
 //

@@ -166,6 +166,15 @@ func (t Tokens) Value(name string) string {
 	return ""
 }
 
+// knownToken reports whether name is one of the tokens Value answers for.
+func knownToken(name string) bool {
+	switch name {
+	case "session", "model", "settings", "prompt", "cwd", "pane":
+		return true
+	}
+	return false
+}
+
 // Expand replaces every {{token}} in s with its value.
 //
 // It is one pass, so a value is never read for tokens of its own. Replacing
