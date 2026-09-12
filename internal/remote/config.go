@@ -121,8 +121,8 @@ func Clear() error {
 	return nil
 }
 
-// RelayURL decides which relay is meant: the one named on the command line,
-// else the one in the environment, else the default. It is checked and
+// RelayURL decides which relay is meant: the one named, with -relay or in the
+// window, else the one in the environment, else the default. It is checked and
 // normalised on the way out, so that everything downstream can join paths on
 // to it without thinking.
 func RelayURL(named string) (string, error) {

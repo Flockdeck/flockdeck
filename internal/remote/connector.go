@@ -42,7 +42,8 @@ const (
 	StateError      State = "error"
 )
 
-// Status is what the window and the command line are told about the tunnel.
+// Status is what the window is told about the tunnel. The command line asks
+// the relay instead, since the tunnel belongs to a process it is not.
 type Status struct {
 	State  State     `json:"state"`
 	Detail string    `json:"detail,omitempty"`
