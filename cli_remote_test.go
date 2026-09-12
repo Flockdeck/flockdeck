@@ -565,6 +565,16 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || !strings.Contains(out, "-force") {
 		t.Errorf("remote help disable = %q, %v; want disable's own help", out, err)
 	}
+	// Each says what the command shows and takes now: status the address and
+	// the devices' names (172, 193), devices that revoke takes names (157).
+	for cmd, want := range map[string]string{
+		"status":  "the address a paired device opens it at, and which devices are paired",
+		"devices": "with the ids and names revoke takes",
+	} {
+		if out, _, err := runRemoteCmd(t, "help", cmd); err != nil || !strings.Contains(strings.ReplaceAll(out, "\n", " "), want) {
+			t.Errorf("remote help %s = %q, %v; want it to say %q", cmd, out, err, want)
+		}
+	}
 	if _, _, err := runRemoteCmd(t, "help", "nonsense"); err == nil {
 		t.Error("help for an unknown command was accepted")
 	}
