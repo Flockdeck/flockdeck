@@ -209,9 +209,6 @@ func writeZip(archive, binPath, nameInArchive string) error {
 		return err
 	}
 	for _, e := range extras {
-		if _, err := os.Stat(e); err != nil {
-			continue
-		}
 		if err := zipOne(zw, e, filepath.Base(e), 0o644); err != nil {
 			return err
 		}
@@ -253,9 +250,6 @@ func writeTarGz(archive, binPath, nameInArchive string) error {
 		return err
 	}
 	for _, e := range extras {
-		if _, err := os.Stat(e); err != nil {
-			continue
-		}
 		if err := tarOne(tw, e, filepath.Base(e), 0o644); err != nil {
 			return err
 		}
