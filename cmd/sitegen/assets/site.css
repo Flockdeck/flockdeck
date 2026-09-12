@@ -406,6 +406,11 @@ kbd {
 }
 .os-tabs button:hover { color: var(--text); border-color: var(--edge-hard); }
 .os-tabs button[aria-selected="true"] { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+/* High Contrast replaces the accent fill with the plain ground, which left the
+   chosen tab looking like the other one; the system highlight pair survives. */
+@media (forced-colors: active) {
+  .os-tabs button[aria-selected="true"] { color: HighlightText; background: Highlight; border-color: Highlight; }
+}
 .os > p { color: var(--muted); margin: 0 0 12px; font-size: 16.5px; }
 .has-os-tabs .os-label { display: none; }
 
