@@ -18,10 +18,22 @@ import (
 // Site is where releases are downloaded from first: a DigitalOcean Space
 // behind DigitalOcean's CDN, laid out as
 //
-//	/latest.json, /latest.json.sig         the latest release, signed
-//	/<version>/<archive>                    each release's files, never changed
+//	/latest.json                            {"version":"v1.2.3"}: which release is the latest
+//	/<version>/manifest.json(.sig)          that release's files and their SHA-256s, signed
+//	/<version>/<archive>                    each release's files
 //	/<version>/checksums.txt(.sig)          and their SHA-256s, signed
 //	/latest/<archive without the version>   for the site's download buttons
+//
+// Everything under /<version>/ is written once, when the release is published,
+// and never changes, so it is cached for a year. latest.json is the one file
+// that moves, and it is neither signed nor purged from the CDN's edges when
+// it does; it needs to be neither. All it can do is name a version, and the
+// updater trusts nothing until that version's own manifest has passed the
+// release key's signature and names the same version. So a stale latest.json,
+// or a forged one, can only name another signed release: an older one, which
+// Newer never moves to, or a pre-release, which latestFromSite refuses. The
+// most it can do is hold an update back for as long as it is cached; it can
+// never have anything unsigned installed, nor anything older.
 //
 // GitHub carries every release as well and is where the updater goes when the
 // site cannot be reached, answers with something it cannot use, or fails a
@@ -43,9 +55,10 @@ var (
 // The application sends the standard logger to its terminal, when it has one.
 var logf = log.Printf
 
-// Manifest is latest.json: the latest release, and every file of it the site
-// holds, with the SHA-256 and size of each. cmd/release writes it and the
-// updater reads it, through this one type.
+// Manifest is one release as the site holds it, <version>/manifest.json:
+// every file of it, with the SHA-256 and size of each, and its notes. It is
+// signed, in manifest.json.sig, and never changes once published. cmd/release
+// writes it and the updater reads it, through this one type.
 type Manifest struct {
 	Version  string         `json:"version"`
 	Date     time.Time      `json:"date"`
@@ -62,41 +75,65 @@ type ManifestFile struct {
 	Size   int64  `json:"size"`
 }
 
-// sumsName and sigExt name the files every release carries besides its
-// archives.
+// Pointer is latest.json, the one file on the site that changes: it names the
+// latest release and says nothing else about it. It is not signed; Site says
+// why it need not be. cmd/release writes it and the updater reads it, through
+// this one type.
+type Pointer struct {
+	Version string `json:"version"`
+}
+
+// The files every release carries besides its archives, and the one that
+// names the latest.
 const (
-	sumsName = "checksums.txt"
-	sigExt   = ".sig"
+	sumsName     = "checksums.txt"
+	manifestName = "manifest.json"
+	pointerName  = "latest.json"
+	sigExt       = ".sig"
 )
 
-// CheckManifest reads latest.json once its signature, the content of
-// latest.json.sig, has been checked against key, and refuses a manifest the
-// updater could not act on. cmd/release reads back what it wrote through this,
-// so a release is never published with a manifest the updater would refuse.
+// CheckPointer reads latest.json and returns the version it names, refusing
+// anything that does not name one.
+func CheckPointer(data []byte) (string, error) {
+	var p Pointer
+	if err := json.Unmarshal(data, &p); err != nil {
+		return "", fmt.Errorf("%s does not name a release: %w", pointerName, err)
+	}
+	if !Parseable(p.Version) {
+		return "", fmt.Errorf("%s names %q, which is not a version", pointerName, p.Version)
+	}
+	return p.Version, nil
+}
+
+// CheckManifest reads a release's manifest.json once its signature, the
+// content of manifest.json.sig, has been checked against key, and refuses a
+// manifest the updater could not act on. cmd/release reads back what it wrote
+// through this, so a release is never published with a manifest the updater
+// would refuse.
 func CheckManifest(key ed25519.PublicKey, data, sig []byte) (*Manifest, error) {
 	if err := Verify(key, data, sig); err != nil {
-		return nil, signatureError{"latest.json", err}
+		return nil, signatureError{manifestName, err}
 	}
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("latest.json is not a manifest: %w", err)
+		return nil, fmt.Errorf("%s is not a manifest: %w", manifestName, err)
 	}
 	if !Parseable(m.Version) {
-		return nil, fmt.Errorf("latest.json names %q, which is not a version", m.Version)
+		return nil, fmt.Errorf("%s names %q, which is not a version", manifestName, m.Version)
 	}
 	have := map[string]bool{}
 	for _, f := range m.Files {
 		if f.Name == "" || f.URL == "" || strings.ContainsAny(f.Name, `/\`) {
-			return nil, fmt.Errorf("latest.json lists a file without a plain name and a URL")
+			return nil, fmt.Errorf("%s lists a file without a plain name and a URL", manifestName)
 		}
 		if !isSHA256(f.SHA256) {
-			return nil, fmt.Errorf("latest.json lists %s without a SHA-256", f.Name)
+			return nil, fmt.Errorf("%s lists %s without a SHA-256", manifestName, f.Name)
 		}
 		have[f.Name] = true
 	}
 	for _, n := range []string{sumsName, sumsName + sigExt} {
 		if !have[n] {
-			return nil, fmt.Errorf("latest.json does not list %s", n)
+			return nil, fmt.Errorf("%s does not list %s", manifestName, n)
 		}
 	}
 	return &m, nil
@@ -118,19 +155,28 @@ func (e signatureError) Error() string {
 // warnings, since they are the case somebody should look into.
 func suspicious(err error) bool {
 	var sig signatureError
-	var mismatch checksumError
+	var mismatch mismatchError
 	return errors.As(err, &sig) || errors.As(err, &mismatch)
 }
 
-// checksumError is a download, or a checksums.txt, that disagrees with what
-// was signed for it.
-type checksumError struct{ msg string }
+// mismatchError is something the site served that disagrees with what was
+// signed for it: a download, or a checksums.txt, that does not match the
+// manifest, or a manifest signed for another version than the one it was
+// served as.
+type mismatchError struct{ msg string }
 
-func (e checksumError) Error() string { return e.msg }
+func (e mismatchError) Error() string { return e.msg }
 
 func isSHA256(s string) bool {
 	_, err := hex.DecodeString(s)
 	return err == nil && len(s) == 2*sha256.Size
+}
+
+// prerelease reports whether v, a version Parseable accepts, is a candidate
+// such as v1.4.0-rc.1 rather than a release.
+func prerelease(v string) bool {
+	pv, _ := parseVersion(v)
+	return pv.pre != ""
 }
 
 // siteHost is the site as a person would name it in a message.
@@ -141,8 +187,14 @@ func siteHost() string {
 	return siteURL
 }
 
-// latestFromSite reads the latest release from the site, trusting it only
-// once its signature has been checked against the compiled-in key.
+// latestFromSite reads the latest release from the site: its version from
+// latest.json, and then that version's manifest, trusted only once its
+// signature has checked against the compiled-in key and it names the version
+// latest.json did.
+//
+// A pre-release is refused. Every release's manifest is signed and published,
+// a candidate's as well, but a candidate is never the latest, just as GitHub's
+// latest release never is one.
 //
 // The release it returns downloads from the site, checks checksums.txt's own
 // signature before believing it, and carries the same release on GitHub for
@@ -151,17 +203,32 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 	if trustedKey == nil {
 		return nil, errNoKey
 	}
-	data, err := fetchSmall(ctx, siteURL+"/latest.json", 1<<20)
+	data, err := fetchSmall(ctx, siteURL+"/"+pointerName, 1<<10)
 	if err != nil {
 		return nil, err
 	}
-	sig, err := fetchSmall(ctx, siteURL+"/latest.json"+sigExt, 1<<10)
+	version, err := CheckPointer(data)
+	if err != nil {
+		return nil, err
+	}
+	if prerelease(version) {
+		return nil, fmt.Errorf("%s names %s, a pre-release, which is never the latest", pointerName, version)
+	}
+	at := siteURL + "/" + url.PathEscape(version) + "/" + manifestName
+	data, err = fetchSmall(ctx, at, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := fetchSmall(ctx, at+sigExt, 1<<10)
 	if err != nil {
 		return nil, err
 	}
 	m, err := CheckManifest(trustedKey, data, sig)
 	if err != nil {
 		return nil, err
+	}
+	if m.Version != version {
+		return nil, mismatchError{fmt.Sprintf("the manifest %s serves as %s's is signed for %s", siteHost(), version, m.Version)}
 	}
 
 	rel := &Release{Version: m.Version, Notes: m.Notes, URL: m.NotesURL, sums: map[string]string{}}

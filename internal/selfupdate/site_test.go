@@ -111,7 +111,8 @@ func (p *place) asked(prefix string) bool {
 }
 
 // release is v9.9.9 published the way the release workflow publishes it: on
-// the site, signed, and on GitHub, unsigned.
+// the site, with its manifest signed and latest.json naming it, and on
+// GitHub, unsigned.
 type release struct {
 	dl, gh   *place
 	key      ed25519.PrivateKey
@@ -154,6 +155,7 @@ func published(t *testing.T, body string) *release {
 	r.manifest.NotesURL = "https://github.com/" + Repo + "/releases/tag/v9.9.9"
 	r.manifest.Notes = "what changed"
 	r.sign()
+	r.point("v9.9.9")
 
 	api, _ := json.Marshal(map[string]any{
 		"tag_name": "v9.9.9", "body": "what changed on GitHub", "html_url": r.manifest.NotesURL,
@@ -166,14 +168,29 @@ func published(t *testing.T, body string) *release {
 	return r
 }
 
-// sign puts the manifest as it stands on the site, with its signature.
-func (r *release) sign() {
+// sign puts the manifest as it stands on the site, with its signature, where
+// v9.9.9's belongs.
+func (r *release) sign() { r.signAt("v9.9.9") }
+
+// signAt puts the manifest as it stands on the site, with its signature, where
+// version's belongs.
+func (r *release) signAt(version string) {
 	data, err := json.MarshalIndent(r.manifest, "", "  ")
 	if err != nil {
 		panic(err) // a struct of strings, numbers and a time always marshals
 	}
-	r.dl.set("/latest.json", data)
-	r.dl.set("/latest.json.sig", Sign(r.key, data))
+	r.dl.set("/"+version+"/manifest.json", data)
+	r.dl.set("/"+version+"/manifest.json.sig", Sign(r.key, data))
+}
+
+// point has the site's latest.json name version, as the publish script
+// writes it.
+func (r *release) point(version string) {
+	data, err := json.Marshal(Pointer{Version: version})
+	if err != nil {
+		panic(err)
+	}
+	r.dl.set("/latest.json", append(data, '\n'))
 }
 
 func sha(b []byte) string {
@@ -210,9 +227,9 @@ func staged(t *testing.T, p *Pending) string {
 	return string(got)
 }
 
-// The site is asked first, its manifest is believed once its signature
-// checks, and the archive comes from it too: GitHub is not asked anything, and
-// nothing is logged.
+// The site is asked first: latest.json for the version, then that version's
+// manifest, believed once its signature checks. The archive comes from the
+// site too: GitHub is not asked anything, and nothing is logged.
 func TestLatestAndStageUseTheSignedSite(t *testing.T) {
 	r := published(t, "the new program")
 	log := logged(t)
@@ -222,10 +239,15 @@ func TestLatestAndStageUseTheSignedSite(t *testing.T) {
 		t.Fatalf("Latest: %v", err)
 	}
 	if rel.Version != "v9.9.9" || rel.Notes != "what changed" || rel.URL != r.manifest.NotesURL {
-		t.Errorf("Latest = %s %q %s; want the release latest.json describes", rel.Version, rel.Notes, rel.URL)
+		t.Errorf("Latest = %s %q %s; want the release its manifest describes", rel.Version, rel.Notes, rel.URL)
 	}
 	if got := rel.DownloadSize(); got != int64(len(r.archive)) {
-		t.Errorf("DownloadSize = %d, want the size latest.json gives, %d", got, len(r.archive))
+		t.Errorf("DownloadSize = %d, want the size the manifest gives, %d", got, len(r.archive))
+	}
+	for _, path := range []string{"/latest.json", "/v9.9.9/manifest.json", "/v9.9.9/manifest.json.sig"} {
+		if !r.dl.asked(path) {
+			t.Errorf("%s was not read from the site", path)
+		}
 	}
 	p, err := Stage(context.Background(), rel, t.TempDir())
 	if err != nil {
@@ -247,8 +269,9 @@ func TestLatestAndStageUseTheSignedSite(t *testing.T) {
 
 // Whatever keeps the site's answer from being used, the updater goes to
 // GitHub as every release before the site did, and says why. A signature that
-// does not check is a warning: the site served something that was not
-// released.
+// does not check, or a signed manifest served as another version's, is a
+// warning: the site served something that was not released. latest.json is not
+// signed, so a latest.json the updater cannot use is only a note.
 func TestLatestFallsBackToGitHub(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -258,17 +281,32 @@ func TestLatestFallsBackToGitHub(t *testing.T) {
 	}{
 		{"out of reach", func(r *release) { r.dl.breakAll() }, "could not read the latest release", false},
 		{"an error", func(r *release) { r.dl.fail("/latest.json", http.StatusServiceUnavailable) }, "503", false},
-		{"no signature", func(r *release) { r.dl.remove("/latest.json.sig") }, "404", false},
-		{"a page that is not the manifest", func(r *release) {
+		{"no latest.json", func(r *release) { r.dl.remove("/latest.json") }, "404", false},
+		{"a latest.json that is a page", func(r *release) {
 			r.dl.set("/latest.json", []byte("<html>maintenance</html>"))
+		}, "latest.json does not name a release", false},
+		{"a latest.json naming no version", func(r *release) { r.point("latest") }, "not a version", false},
+		{"a latest.json naming a pre-release", func(r *release) {
+			r.manifest.Version = "v9.9.10-rc.1"
+			r.signAt("v9.9.10-rc.1")
+			r.point("v9.9.10-rc.1")
+		}, "a pre-release", false},
+		{"a latest.json naming a release the site does not have", func(r *release) { r.point("v9.9.10") }, "404", false},
+		{"no signature", func(r *release) { r.dl.remove("/v9.9.9/manifest.json.sig") }, "404", false},
+		{"a manifest that is a page", func(r *release) {
+			r.dl.set("/v9.9.9/manifest.json", []byte("<html>maintenance</html>"))
 		}, "not signed by the release key", true},
 		{"a manifest changed after signing", func(r *release) {
-			r.dl.set("/latest.json", []byte(strings.Replace(string(r.dl.get("/latest.json")), "v9.9.9", "v9.9.8", 1)))
+			r.dl.set("/v9.9.9/manifest.json", []byte(strings.Replace(string(r.dl.get("/v9.9.9/manifest.json")), "what changed", "what did not", 1)))
 		}, "not signed by the release key", true},
 		{"signed by another key", func(r *release) {
 			_, other, _ := ed25519.GenerateKey(nil)
-			r.dl.set("/latest.json.sig", Sign(other, r.dl.get("/latest.json")))
+			r.dl.set("/v9.9.9/manifest.json.sig", Sign(other, r.dl.get("/v9.9.9/manifest.json")))
 		}, "not signed by the release key", true},
+		{"another version's signed manifest", func(r *release) {
+			r.manifest.Version = "v9.9.8"
+			r.sign()
+		}, "signed for v9.9.8", true},
 		{"a signed manifest naming no version", func(r *release) {
 			r.manifest.Version = "latest"
 			r.sign()
@@ -360,6 +398,41 @@ func TestStageFallsBackToGitHub(t *testing.T) {
 				t.Errorf("Load = %+v, %v", p, ok)
 			}
 		})
+	}
+}
+
+// latest.json is not signed, and a stale one, or a forged one, can only name
+// another signed release. Named an older one, the updater reads that release's
+// own signed manifest, finds nothing wrong, and Newer declines to move to it:
+// the update is held back, and nothing unsigned or older is ever installed.
+func TestAStaleLatestJSONOnlyHoldsAnUpdateBack(t *testing.T) {
+	r := published(t, "the new program")
+	log := logged(t)
+	r.manifest.Version = "v9.9.8"
+	r.signAt("v9.9.8")
+	r.point("v9.9.8")
+
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if rel.Version != "v9.9.8" {
+		t.Errorf("Latest = %s, want the older release latest.json names", rel.Version)
+	}
+	if Newer(rel.Version, "v9.9.9") {
+		t.Error("an older release is offered as an update to v9.9.9")
+	}
+	if reqs := r.gh.requests(); len(reqs) > 0 {
+		t.Errorf("GitHub was asked for %s", reqs[0].URL.Path)
+	}
+	if l := log(); l != "" {
+		t.Errorf("logged %q for a release that is signed", l)
+	}
+
+	// Named a version whose manifest is not signed, it is not believed.
+	r.dl.remove("/v9.9.8/manifest.json.sig")
+	if rel, err := Latest(context.Background()); err != nil || rel.Notes != "what changed on GitHub" {
+		t.Errorf("Latest = %+v, %v; want GitHub's release", rel, err)
 	}
 }
 
