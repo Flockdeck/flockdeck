@@ -449,6 +449,14 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 			break
 		}
 		if len(calls) == 0 {
+			if len(s.messages) == before {
+				// Nothing came back but the end of the answer -- a model that
+				// only thought, or a local one that stopped at once -- and the
+				// pane went back to the prompt with nothing on the screen to
+				// say whether it had been answered at all.
+				s.out.line(ansiDim, "(the model answered with nothing; /retry asks again)")
+				s.unfinished = true
+			}
 			break
 		}
 		if step >= maxToolSteps {
