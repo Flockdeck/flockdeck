@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -270,7 +271,7 @@ type options struct {
 
 // quitRunning stops an instance that is already going.
 func quitRunning() error {
-	inst, base, err := runningInstance()
+	inst, err := store.LoadInstance()
 	// A record that cannot be read is not the same as there being nothing to
 	// stop: reporting it as "none found" sends the user looking for a process
 	// that is very likely still running.
@@ -278,19 +279,34 @@ func quitRunning() error {
 		return fmt.Errorf("read the record of the running instance: %w", err)
 	}
 	if inst == nil {
-		return fmt.Errorf("no running flockdeck found")
+		return errNoneRunning
 	}
+	// The instance is asked outright rather than probed first. One whose
+	// workspace has wedged answers the probe as too busy, which read as
+	// nothing running at all — and a wedged instance is exactly the one
+	// somebody reaches for -quit to stop, while the request to quit needs
+	// nothing from the workspace. Only a request that cannot even connect
+	// means the record was left by an instance that has gone.
+	//
 	// RequestQuit returns only once the instance has stopped answering, not
 	// when it has taken the request: saving every project and stopping the
 	// agents comes after, with the instance still listening, and a
 	// `flockdeck -quit && flockdeck` would otherwise attach to one on its way
 	// out. So "stopped" below is true when it is printed.
-	if err := server.RequestQuit(base, inst.Token); err != nil {
-		return fmt.Errorf("ask the instance at %s to stop: %w", base, err)
+	if err := server.RequestQuit(inst.URL, inst.Token); err != nil {
+		var dial *net.OpError
+		if errors.As(err, &dial) && dial.Op == "dial" {
+			_ = store.ClearInstance()
+			return errNoneRunning
+		}
+		return fmt.Errorf("ask the instance at %s to stop: %w", inst.URL, err)
 	}
 	fmt.Println("flockdeck: stopped")
 	return nil
 }
+
+// errNoneRunning is what -quit reports when there is nothing to stop.
+var errNoneRunning = errors.New("no running flockdeck found")
 
 // runningInstance returns the recorded instance if it is alive and answering.
 func runningInstance() (*store.Instance, string, error) {
