@@ -172,6 +172,13 @@ func CheckRelay(raw string) (string, error) {
 	if u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("a relay address has no query or fragment: %q", raw)
 	}
+	// A relay is reached with this machine's own token, never a password, and
+	// one written into the address would be saved with it and printed back by
+	// status, pair -desktop and the window. So it is refused, without being
+	// repeated here.
+	if u.User != nil {
+		return "", fmt.Errorf("a relay address has no user or password in it; give it as %s://%s", u.Scheme, u.Host)
+	}
 	// One relay is one address however it was typed, so that naming the relay
 	// this machine is already on is not taken for asking to move to another.
 	u.Host = strings.ToLower(u.Host)

@@ -135,6 +135,11 @@ func TestRelayURL(t *testing.T) {
 	if got, _ := CheckRelay("https://relay.example/base/"); got != "https://relay.example/base" {
 		t.Errorf("CheckRelay kept the trailing slash: %q", got)
 	}
+	// A password in the address would be saved and printed back wherever the
+	// relay is named, so it is refused, and the refusal does not repeat it.
+	if _, err := CheckRelay("https://someone:hunter2@relay.example"); err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("CheckRelay of an address with a password = %v, want it refused without repeating the password", err)
+	}
 	if got, _ := CheckRelay("relay.example.com:8443"); got != "https://relay.example.com:8443" {
 		t.Errorf("CheckRelay of an address with no scheme = %q, want it taken as https://", got)
 	}
