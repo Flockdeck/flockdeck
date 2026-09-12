@@ -357,6 +357,22 @@ func TestGetExplainsARateLimit(t *testing.T) {
 	}
 }
 
+// What `flockdeck update` says it is about to download is this platform's
+// archive, not whichever asset came first.
+func TestDownloadSizeIsThisPlatformsArchive(t *testing.T) {
+	rel := &Release{Assets: []Asset{
+		{Name: "flockdeck_v9.9.9_plan9_mips.tar.gz", Size: 1},
+		{Name: "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".zip", Size: 7 << 20},
+		{Name: "checksums.txt", Size: 2},
+	}}
+	if got := rel.DownloadSize(); got != 7<<20 {
+		t.Errorf("DownloadSize = %d, want this platform's archive", got)
+	}
+	if got := (&Release{}).DownloadSize(); got != 0 {
+		t.Errorf("DownloadSize of a release with nothing for this platform = %d, want 0", got)
+	}
+}
+
 func TestCheckIgnoresAnUntaggedLocalBuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{Version: "v9.9.9"})

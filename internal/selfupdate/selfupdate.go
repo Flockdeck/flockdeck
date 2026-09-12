@@ -158,6 +158,13 @@ func (r *Release) assetFor(goos, goarch string) (Asset, bool) {
 	return Asset{}, false
 }
 
+// DownloadSize is the size in bytes of the archive Stage would fetch for this
+// platform, or 0 when the release has none or does not say.
+func (r *Release) DownloadSize() int64 {
+	a, _ := r.assetFor(runtime.GOOS, runtime.GOARCH)
+	return a.Size
+}
+
 func (r *Release) checksums() (Asset, bool) {
 	for _, a := range r.Assets {
 		if a.Name == "checksums.txt" {

@@ -84,7 +84,13 @@ func runUpdate(args []string) error {
 	// user waiting for a file that is already here.
 	staged, ok := stagedUpdate(dir, version)
 	if !ok || staged.Version != rel.Version {
-		fmt.Println("Downloading…")
+		// Nothing else is printed until the archive has arrived, so how much
+		// is coming is worth saying first.
+		if size := rel.DownloadSize(); size > 0 {
+			fmt.Printf("Downloading %.1f MB…\n", float64(size)/(1<<20))
+		} else {
+			fmt.Println("Downloading…")
+		}
 		staged, err = selfupdate.Stage(ctx, rel, dir)
 		if err != nil {
 			if errors.Is(err, selfupdate.ErrNoAsset) {
