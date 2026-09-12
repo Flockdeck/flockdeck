@@ -178,8 +178,19 @@
     tipFor = node;
   }
 
+  /** tipSays returns the element whose tooltip a pointer or the keyboard
+   *  arriving at node asks for, or null. In the rail folded into a menu every
+   *  button already shows its words beside its icon, so a bubble there says
+   *  nothing new - and the one the menu's first focus raised lay over the tiles
+   *  below it, hiding the projects the menu had just been opened to show. */
+  function tipSays(node) {
+    const found = tipFind(node);
+    if (found && railMenuOpen() && found.closest("#rail")) return null;
+    return found;
+  }
+
   document.addEventListener("pointerover", (e) => {
-    const node = tipFind(e.target);
+    const node = tipSays(e.target);
     if (node && node === tipFor) return; // already up for this element
     hideTip();
     // Touch has no hover to read the delay from, and a long press there is the
@@ -198,7 +209,7 @@
   document.addEventListener("focusin", (e) => {
     let keyboard = true;
     try { keyboard = e.target.matches(":focus-visible"); } catch { /* no such selector here */ }
-    const node = keyboard ? tipFind(e.target) : null;
+    const node = keyboard ? tipSays(e.target) : null;
     if (node && node === tipFor) return;
     hideTip();
     if (node) tipTimer = setTimeout(() => showTip(node), TIP_DELAY);
