@@ -125,8 +125,8 @@ flockdeck update -check   # say whether there is one, and stop
 ```
 
 Replacing the binary leaves a running instance alone — it is already loaded —
-so the new version is what starts next time. A build you made yourself is
-stamped `dev` and is never replaced by a release. `FLOCKDECK_UPDATE=off` turns
+so the new version is what starts next time. A build made with plain
+`go build` or `go install` is stamped `dev` and is never replaced by a release. `FLOCKDECK_UPDATE=off` turns
 the background check off; the subcommand still works.
 
 ## Running it
