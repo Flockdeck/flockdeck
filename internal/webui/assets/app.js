@@ -2829,6 +2829,14 @@
         notice(quiet ? "Desktop notifications are on" : "Desktop notifications are off", false);
       },
     });
+    // A hint sent away stays away, which is the point, but there was no way
+    // back for one dismissed by mistake short of editing prefs.json.
+    if ((prefs.dismissedTips || []).length) {
+      cmds.push({
+        label: "Show the tips again",
+        run: () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
+      });
+    }
     // The background check for a new release could be turned off only with
     // an environment variable set before the application started.
     const noUpdates = !!prefs.updatesOff;

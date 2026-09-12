@@ -798,6 +798,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "updates":
 		s.setUpdates(cmd.Kind == "off")
 		return
+	case "resetTips":
+		s.resetTips()
+		return
 	case "forgetRecent":
 		if err := store.ForgetRecent(cmd.Root); err != nil {
 			// The list is about to be sent again with the project still on

@@ -138,6 +138,18 @@ func (s *Server) setUpdates(off bool) {
 	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.UpdatesOff, off) })
 }
 
+// resetTips brings back every inline hint that was dismissed, which could
+// otherwise only be done by editing prefs.json.
+func (s *Server) resetTips() {
+	s.updatePrefs(func(p *store.Prefs) bool {
+		if len(p.DismissedTips) == 0 {
+			return false
+		}
+		p.DismissedTips = nil
+		return true
+	})
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

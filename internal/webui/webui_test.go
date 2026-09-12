@@ -3098,6 +3098,24 @@ func TestAClippedUsageFigureSaysItIsClipped(t *testing.T) {
 	}
 }
 
+// A hint sent away stays away, and there was no way back for one dismissed by
+// mistake short of editing prefs.json. The palette offers one while any is
+// dismissed, and not otherwise.
+func TestDismissedTipsCanBeBroughtBackFromThePalette(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const labels = () => h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(!labels().includes("Show the tips again"), "offered to bring back tips when none were dismissed");
+h.key({ key: "Escape" });
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"] } });
+paletteRun("tips again");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
