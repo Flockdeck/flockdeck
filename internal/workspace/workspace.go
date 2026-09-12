@@ -1447,18 +1447,10 @@ func (w *Workspace) ClosePane() {
 		w.CloseTab(t.ID)
 		return
 	}
-	// Choose the pane to focus next before mutating the tree.
-	next := paneBesideTheGap(t, id)
-
-	t.Tree.Remove(id)
+	// Closing a pane is taking it out of its tab, which a move does too, focus
+	// on the pane beside the gap and all; only ending its process is extra.
+	w.detachPane(id)
 	w.destroyPane(id)
-	if next == "" {
-		if panes := t.Tree.Panes(); len(panes) > 0 {
-			next = panes[0]
-		}
-	}
-	t.Focus = next
-	t.Zoom = false
 }
 
 // RestartPane relaunches the focused pane's process. Claude panes resume the
