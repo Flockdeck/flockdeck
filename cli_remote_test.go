@@ -330,6 +330,18 @@ func TestRemoteSubcommandHelp(t *testing.T) {
 	}
 }
 
+// Every flag of enable names what it takes, as -relay URL and -join code do,
+// rather than leaving flag to print the type.
+func TestRemoteEnableFlagsNameWhatTheyTake(t *testing.T) {
+	var b bytes.Buffer
+	fs := remoteEnableFlagSet(&remoteEnableFlags{})
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	if strings.Contains(b.String(), " string\n") || !strings.Contains(b.String(), "-name name") {
+		t.Errorf("enable's flags = %q, want each to name what it takes", b.String())
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
