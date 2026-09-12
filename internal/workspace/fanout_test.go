@@ -923,6 +923,24 @@ func TestExtractTasksStillRefusesASingleWord(t *testing.T) {
 	}
 }
 
+// A reply reporting progress lists what is done and then what is left, and
+// only what is left is work to hand out. With nothing to say where that began,
+// the finished items were offered as tasks alongside the rest.
+func TestExtractTasksTakesOnlyWhatRemains(t *testing.T) {
+	plan := "Done:\n- ✅ Split the router into its own package\n- ✅ Add a timeout to every outbound request\n\n" +
+		"Remaining:\n- Write the docs for the new flags\n- Add a metrics endpoint for the proxy\n"
+	want := []string{"Write the docs for the new flags", "Add a metrics endpoint for the proxy"}
+	if got := ExtractTasks(plan); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("ExtractTasks = %q, want only what remains, %q", got, want)
+	}
+	// Only a heading on its own announces the list; a line that mentions what
+	// remains is still prose, and the tasks around it all count.
+	prose := "Remaining issues are small.\n- Write the docs for the new flags\n- Add a metrics endpoint for the proxy\n"
+	if got := ExtractTasks(prose); len(got) != 2 {
+		t.Errorf("ExtractTasks = %q, want both tasks", got)
+	}
+}
+
 // A longer plan is often written as numbered headings, a paragraph under each,
 // or as numbered lines in bold. Neither began with a list marker, so the
 // extractor offered nothing for a plan it could have run as it stood.

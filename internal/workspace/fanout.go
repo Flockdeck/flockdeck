@@ -222,6 +222,10 @@ func countFences(lines []string) int {
 var planHeadings = []string{
 	"plan", "the plan", "tasks", "the tasks", "work", "the work",
 	"next steps", "steps", "proposed work", "what i would do", "what i'd do",
+	// A reply that reports progress lists what is done before what is not,
+	// and only the second list is work to hand out.
+	"remaining", "remaining work", "remaining tasks", "what's left",
+	"still to do", "left to do", "to do", "todo",
 }
 
 // planPhrases announce a plan in the middle of a sentence, so they are looked
