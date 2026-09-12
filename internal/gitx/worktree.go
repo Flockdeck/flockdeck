@@ -183,7 +183,7 @@ func runTo(parent context.Context, timeout time.Duration, dir string, out output
 	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("git %s: gave up after %s", strings.Join(args, " "), timeout)
+			return "", fmt.Errorf("%s: gave up after %s", gitLabel(args), timeout)
 		}
 		if parent.Err() != nil {
 			return "", parent.Err()
@@ -198,9 +198,24 @@ func runTo(parent context.Context, timeout time.Duration, dir string, out output
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), firstLines(withoutHints(msg), 5))
+		return "", fmt.Errorf("%s: %s", gitLabel(args), firstLines(withoutHints(msg), 5))
 	}
 	return errb.String(), nil
+}
+
+// gitLabel names a command for an error message by its subcommand -- "git
+// worktree add", "git push" -- rather than by its whole argument list. The
+// arguments carry absolute paths and whole commit messages, and in a toast
+// they came before, and crowded out, what git had actually said.
+func gitLabel(args []string) string {
+	words := []string{"git"}
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") || len(words) == 3 {
+			break
+		}
+		words = append(words, a)
+	}
+	return strings.Join(words, " ")
 }
 
 // withoutHints drops git's advice when there is anything else to say.
@@ -209,11 +224,14 @@ func runTo(parent context.Context, timeout time.Duration, dir string, out output
 // of it: a pull that could not fast-forward was reported as four lines of
 // "hint:", with the "fatal: Not possible to fast-forward" that said what had
 // happened cut off below them.
+//
+// git's "fatal: " goes too. The toast is already an error, and the word only
+// stands between the reader and what went wrong.
 func withoutHints(msg string) string {
 	var kept []string
 	for _, line := range strings.Split(msg, "\n") {
 		if !strings.HasPrefix(line, "hint:") {
-			kept = append(kept, line)
+			kept = append(kept, strings.TrimPrefix(line, "fatal: "))
 		}
 	}
 	if len(kept) == 0 {

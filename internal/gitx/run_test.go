@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestErrorsKeepTheLineThatSaysWhatHappened(t *testing.T) {
 		"hint:\nhint: \tgit merge --no-ff\nhint:\nhint: or:\nhint:\nhint: \tgit rebase\n" +
 		"hint:\nhint: Disable this message with \"git config set advice.diverging false\"\n" +
 		"fatal: Not possible to fast-forward, aborting."
-	if got := firstLines(withoutHints(pull), 5); got != "fatal: Not possible to fast-forward, aborting." {
+	if got := firstLines(withoutHints(pull), 5); got != "Not possible to fast-forward, aborting." {
 		t.Errorf("pull failure reads %q", got)
 	}
 	if only := "hint: nothing but advice"; withoutHints(only) != only {
@@ -62,5 +63,31 @@ func TestHeadWriterKeepsOnlyWhatIsShown(t *testing.T) {
 	}
 	if w.String() != "0123456789" || w.total != 16000 || cap(w.head) > 64 {
 		t.Errorf("kept %q (cap %d) of %d bytes; want the first 10 of 16000", w.String(), cap(w.head), w.total)
+	}
+}
+
+// TestErrorsNameTheCommandNotItsArguments: a toast led with the whole
+// argument list, absolute paths and all, before what git said was wrong.
+func TestErrorsNameTheCommandNotItsArguments(t *testing.T) {
+	repo := newRepo(t)
+	err := AddFrom(repo, filepath.Join(t.TempDir(), "wt"), "topic", "no-such-base")
+	if err == nil {
+		t.Fatal("a base that does not exist should fail")
+	}
+	if got := err.Error(); got != "git worktree add: invalid reference: no-such-base" {
+		t.Errorf("error = %q", got)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"commit", "-m", "a long message"}, "git commit"},
+		{[]string{"worktree", "remove", "--force", "--", "/some/path"}, "git worktree remove"},
+		{[]string{"push", "--set-upstream", "origin", "main"}, "git push"},
+		{[]string{"-c", "k=v", "status"}, "git"},
+	} {
+		if got := gitLabel(tc.args); got != tc.want {
+			t.Errorf("gitLabel(%q) = %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }
