@@ -272,7 +272,11 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	default:
 		fmt.Fprintln(rio.out, "state:   not connected — flockdeck connects while it is running")
 	}
-	fmt.Fprintf(rio.out, "devices: %d paired\n", len(roster.Devices))
+	if len(roster.Devices) == 0 {
+		fmt.Fprintln(rio.out, "devices: none paired — `flockdeck remote pair` pairs one")
+	} else {
+		fmt.Fprintf(rio.out, "devices: %d paired\n", len(roster.Devices))
+	}
 	return nil
 }
 

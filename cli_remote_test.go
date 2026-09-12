@@ -246,6 +246,10 @@ func TestRemoteStatusWhenTheRelayDoesNotSeeThisMachine(t *testing.T) {
 		if err != nil || !strings.Contains(out.String(), want) {
 			t.Errorf("status with flockdeck running=%v = %q, %v; want it to say %q", running, out.String(), err, want)
 		}
+		// Nothing is paired, so the next step is pairing something.
+		if !strings.Contains(out.String(), "`flockdeck remote pair` pairs one") {
+			t.Errorf("status with nothing paired does not say how to pair: %q", out.String())
+		}
 	}
 }
 
