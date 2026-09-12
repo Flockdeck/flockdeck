@@ -44,6 +44,13 @@ func (w Worktree) Label() string {
 	if w.Branch != "" {
 		return w.Branch
 	}
+	// A rebase detaches HEAD while it replays, and git's list says only that;
+	// the status ListDetailed fills in knows which branch it is. The panel
+	// called a worktree stopped on a conflict "detached@74a430f" while its
+	// pane header, reading the same status, called it by its branch.
+	if w.Status.Branch != "" {
+		return w.Status.Branch + " (rebasing)"
+	}
 	if w.Detached && len(w.Head) >= 7 {
 		return "detached@" + w.Head[:7]
 	}

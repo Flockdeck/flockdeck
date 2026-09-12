@@ -769,3 +769,39 @@ func TestABranchNameGitRefusesSaysWhyAndOffersOne(t *testing.T) {
 		t.Errorf("a valid name was refused: %v", err)
 	}
 }
+
+// TestAWorktreeMidRebaseIsLabelledByItsBranch: git's list says only that HEAD
+// is detached, and the panel called the worktree "detached@<sha>" while its
+// pane header called it by its branch.
+func TestAWorktreeMidRebaseIsLabelledByItsBranch(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "f.txt", "base\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-qm", "base")
+	wt := filepath.Join(t.TempDir(), "topic")
+	gitRun(t, repo, "worktree", "add", "-q", "-b", "topic", wt)
+	write(t, wt, "f.txt", "topic\n")
+	gitRun(t, wt, "commit", "-qam", "topic")
+	write(t, repo, "f.txt", "main\n")
+	gitRun(t, repo, "commit", "-qam", "main")
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = wt
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected the rebase to stop on a conflict: %s", out)
+	}
+	t.Cleanup(func() {
+		abort := exec.Command("git", "rebase", "--abort")
+		abort.Dir = wt
+		_ = abort.Run()
+	})
+
+	wts, err := ListDetailed(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range wts {
+		if samePath(w.Path, wt) && w.Label() != "topic (rebasing)" {
+			t.Errorf("label = %q, want the branch being rebased", w.Label())
+		}
+	}
+}
