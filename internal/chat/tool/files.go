@@ -197,7 +197,8 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 		old, _ := os.ReadFile(abs)
 		q := fmt.Sprintf("Overwrite %s (%s, %s) with %s, %s?", rel,
 			humanBytes(info.Size()), linesOf(string(old)), newSize, linesOf(a.Content))
-		if at := firstChange(string(old), a.Content); at == 0 {
+		// A byte-order mark is kept by the write, so it is not a change.
+		if at := firstChange(strings.TrimPrefix(string(old), utf8BOM), strings.TrimPrefix(a.Content, utf8BOM)); at == 0 {
 			q += "\n  (it is the same as what the file holds now)"
 		} else {
 			q += fmt.Sprintf("\n  the first change is at line %d:\n%s", at, excerpt(a.Content, at))
@@ -260,8 +261,17 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	// Windows line endings is rewritten with bare newlines, and every one of
 	// its lines would then show as changed. A rewrite keeps the file's own
 	// endings, as an edit does.
-	if old, err := os.ReadFile(abs); err == nil && bytes.Contains(old, []byte("\r\n")) {
-		a.Content = withCRLF(a.Content)
+	if old, err := os.ReadFile(abs); err == nil {
+		if bytes.Contains(old, []byte("\r\n")) {
+			a.Content = withCRLF(a.Content)
+		}
+		// So is a byte-order mark at its start, which a model writing the file
+		// out again leaves off: a script PowerShell 5.1 then read in the
+		// system's code page rather than as UTF-8, its accented text garbled,
+		// and a first line shown as changed that was not.
+		if bytes.HasPrefix(old, []byte(utf8BOM)) && !strings.HasPrefix(a.Content, utf8BOM) {
+			a.Content = utf8BOM + a.Content
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return "", t.root.explain(err)
@@ -271,6 +281,9 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	}
 	return fmt.Sprintf("Wrote %s (%s, %s).", t.root.Rel(abs), linesOf(a.Content), humanBytes(int64(len(a.Content)))), nil
 }
+
+// utf8BOM is the byte-order mark a UTF-8 file may start with.
+const utf8BOM = "\xef\xbb\xbf"
 
 // firstMissingDir is the outermost directory on the way to dir that does not
 // exist yet, or "" when dir is there already.
