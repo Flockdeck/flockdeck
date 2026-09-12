@@ -57,7 +57,7 @@ func TestListDir(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(got), "\n")
 	// The first line names the directory, then the directories, then the files.
-	want := []string{".:", "empty/", "sub/", "b.txt  5 B"}
+	want := []string{"the working directory: 2 directories, 1 file", "empty/", "sub/", "b.txt  5 B"}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(want), got)
 	}

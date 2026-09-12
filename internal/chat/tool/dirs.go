@@ -88,8 +88,16 @@ func (t *listDir) Run(_ context.Context, args json.RawMessage) (string, error) {
 		files = append(files, e.Name()+size)
 	}
 
+	// The first line names the directory and says what is in it. It is the
+	// line drawn under the call in the pane, where ".:" -- the root by its
+	// relative name -- told the user nothing at all.
+	name := t.root.Rel(abs) + "/"
+	if name == "./" {
+		name = "the working directory"
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s:\n", t.root.Rel(abs))
+	fmt.Fprintf(&b, "%s: %d %s, %d %s\n", name, len(dirs), plural(len(dirs), "directory", "directories"),
+		len(files), plural(len(files), "file", "files"))
 	shown := 0
 	for _, line := range append(sortedStrings(dirs), sortedStrings(files)...) {
 		if shown == maxListed {
