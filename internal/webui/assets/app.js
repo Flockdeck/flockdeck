@@ -2791,6 +2791,28 @@
     }
   }
 
+  /** fontMissing is whether this machine has none of the fonts named: text
+   *  measured in them, with each generic family behind, comes out exactly as
+   *  wide as in the generic family alone. Three generics, so a font that is
+   *  itself the machine's monospace is not taken for missing. Where nothing
+   *  can be measured the fonts are taken to be there. */
+  function fontMissing(family) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext && canvas.getContext("2d");
+    if (!ctx) return false;
+    // A generic family is always there, and quoted would name a font called
+    // "monospace", which nobody has.
+    if (/^(ui-)?(monospace|serif|sans-serif)$|^system-ui$/i.test(family)) return false;
+    const named = /[,"']/.test(family) ? family : '"' + family + '"';
+    const sample = "mmmmmmmmmmlli0O@#WW";
+    return ["monospace", "serif", "sans-serif"].every((generic) => {
+      ctx.font = "32px " + generic;
+      const plain = ctx.measureText(sample).width;
+      ctx.font = "32px " + named + ", " + generic;
+      return ctx.measureText(sample).width === plain;
+    });
+  }
+
   /** askFontFamily asks which typeface the terminals should use. It was
    *  fixed in the source, and a terminal's font is among the first things
    *  anybody who works in one sets to their own. */
@@ -2798,6 +2820,14 @@
     const answer = window.prompt("Which font should the terminals use? Leave it empty for the default.", prefs.fontFamily || "");
     if (answer === null || answer === undefined) return;
     const family = String(answer).trim();
+    // A name this machine has no font for was taken, announced as the
+    // terminals' font, and drawn in the fallback: nothing changed on screen,
+    // and nothing said why - a misspelling looked like the setting not working.
+    if (family && fontMissing(family)) {
+      notice("No font called " + family + " was found on this machine, so the terminals keep " +
+        (prefs.fontFamily || "the default font"), true);
+      return;
+    }
     prefs.fontFamily = family;
     applyFontFamily();
     send({ cmd: "fontFamily", text: family });

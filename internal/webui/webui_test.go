@@ -3883,6 +3883,39 @@ assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer 
 `)
 }
 
+// A font name the machine has no font for was saved and announced, and the
+// terminals were drawn in the fallback: nothing changed, and nothing said why.
+func TestAFontTheMachineLacksIsRefused(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+// A canvas on which only "Real Mono" is installed: any other name measures
+// exactly as its generic family does.
+const make = h.doc.createElement.bind(h.doc);
+h.doc.createElement = (tag) => tag !== "canvas" ? make(tag) : { getContext: () => ({
+  font: "",
+  measureText() { return { width: /Real Mono/.test(this.font) ? 999 : (/sans-serif/.test(this.font) ? 300 : /serif/.test(this.font) ? 500 : 400) }; },
+}) };
+h.hello({ fontFamily: "Real Mono" });
+h.recv(fixture());
+const sent = () => h.commands().filter((c) => c.cmd === "fontFamily").length;
+
+h.win._prompt = "Fira Cod";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 0, "a font the machine does not have was saved");
+assert.strictEqual(h.terms[0].options.fontFamily, "Real Mono, monospace", "the terminals were given a font the machine does not have");
+
+// One that is there, alone or first in a list, is taken.
+h.win._prompt = "Fira Cod, Real Mono";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 1, "a list with an installed font in it was refused");
+h.win._prompt = "";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 2, "going back to the default was refused");
+h.win._prompt = "monospace";
+paletteRun("terminal font");
+assert.strictEqual(sent(), 3, "a generic family was refused as a font the machine does not have");
+`)
+}
+
 // The disconnected panel said the connection was lost and offered a button,
 // and nothing about the window already trying again every couple of seconds,
 // or about what to do if flockdeck had stopped - so nobody could tell whether
