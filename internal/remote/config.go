@@ -44,10 +44,7 @@ const oldDefaultRelay = "https://relay.flockdeck.ai"
 func SameRelay(a, b string) bool {
 	canonical := func(s string) string {
 		if c, err := CheckRelay(s); err == nil {
-			s = c
-		}
-		if s == oldDefaultRelay {
-			return DefaultRelay
+			return c
 		}
 		return s
 	}
@@ -206,7 +203,12 @@ func CheckRelay(raw string) (string, error) {
 		u.Host = strings.TrimSuffix(u.Host, ":"+p)
 	}
 	u.Path = strings.TrimRight(u.Path, "/")
-	return u.String(), nil
+	// The hosted relay's old name is the same relay, and a machine enrolled
+	// now is given the current one, whichever was typed.
+	if s := u.String(); s != oldDefaultRelay {
+		return s, nil
+	}
+	return DefaultRelay, nil
 }
 
 func isLoopback(host string) bool {

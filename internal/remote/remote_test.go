@@ -147,6 +147,7 @@ func TestRelayURL(t *testing.T) {
 	// machine is on would read as asking to move to another.
 	for raw, want := range map[string]string{
 		"https://Remote.Flockdeck.AI:443/": "https://remote.flockdeck.ai",
+		"https://relay.flockdeck.ai":       DefaultRelay, // its old name, as a new enrolment types it
 		"http://LOCALHOST:80":              "http://localhost",
 		"https://relay.example:8443":       "https://relay.example:8443",
 	} {
