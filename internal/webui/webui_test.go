@@ -3483,6 +3483,31 @@ assert.ok(!h.doc.body.querySelector("div.tip"), "the bubble stayed after the foc
 `)
 }
 
+// Each worktree row carried four or five buttons, each a Tab stop of its own,
+// so with ten worktrees the form for a new one was fifty presses of Tab away.
+// A row is one stop, walked with the arrow keys, as a pane's header is.
+func TestAWorktreeRowIsOneStop(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const items = [{ label: "main", path: "C:/repo", main: true }];
+for (let i = 0; i < 3; i++) items.push({ label: "wt" + i, path: "C:/repo-wt" + i, dirty: 0, untracked: 0 });
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const bars = h.$("overlay-body").querySelectorAll("div.wt-actions");
+assert.strictEqual(bars.length, 4);
+for (const bar of bars) {
+  assert.strictEqual(bar.getAttribute("role"), "toolbar");
+  const stops = bar.children.filter((b) => b.getAttribute("tabindex") === "0");
+  assert.strictEqual(stops.length, 1, "a worktree row is still one Tab stop per button");
+}
+const first = bars[1].children[0];
+first.focus();
+h.key({ key: "ArrowRight" });
+assert.ok(h.doc.activeElement === bars[1].children[1], "the arrows do not walk a worktree's buttons");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

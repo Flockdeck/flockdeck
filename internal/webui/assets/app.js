@@ -1383,7 +1383,7 @@
       zoomBtn,
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
-    makeToolbar(actions);
+    makeToolbar(actions, "What to do with this pane");
     header.append(dot, project, name, branch, agent, git, detail, usage, cast, actions);
 
     const body = el("div", "pane-body");
@@ -1472,9 +1472,9 @@
    *  sit between the top bar and the terminals, so reaching a terminal from the
    *  keyboard meant pressing Tab past every one of them. A toolbar is the shape
    *  this already is; it just did not say so. */
-  function makeToolbar(bar) {
+  function makeToolbar(bar, label) {
     bar.setAttribute("role", "toolbar");
-    bar.setAttribute("aria-label", "What to do with this pane");
+    bar.setAttribute("aria-label", label);
     const buttons = [...bar.children];
     buttons.forEach((b, i) => { b.tabIndex = i === 0 ? 0 : -1; });
     bar.addEventListener("keydown", (ev) => {
@@ -2152,6 +2152,10 @@
         };
         actions.append(rm);
       }
+      // One stop per worktree, walked with the arrows, as a pane's header
+      // is. Four or five stops a row put the new-worktree form fifty presses
+      // of Tab past a list of ten.
+      makeToolbar(actions, "What to do with " + wt.label);
       row.append(actions);
       list.append(row);
     });
