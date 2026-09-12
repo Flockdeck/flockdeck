@@ -282,7 +282,9 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "state:   the relay no longer accepts this machine; `flockdeck remote enable` enrols it again")
 		return nil
 	case err != nil:
-		fmt.Fprintf(rio.out, "state:   could not reach the relay: %v\n", err)
+		// A relay that answered with an error was reached, so this says only
+		// that it could not be asked, which is true either way.
+		fmt.Fprintf(rio.out, "state:   could not ask the relay: %v\n", err)
 		return nil
 	}
 	online := false

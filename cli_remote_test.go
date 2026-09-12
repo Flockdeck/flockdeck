@@ -292,6 +292,23 @@ func TestRemotePairWhileNotRunning(t *testing.T) {
 	}
 }
 
+// A relay that answers with an error was reached; status says it could not
+// be asked, rather than that it could not be reached.
+func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {
+	isolateKeys(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	if err := (&remote.Config{Relay: srv.URL, HostID: "h1", Token: "fdh_desk", Name: "desk"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runRemoteCmd(t, "status")
+	if err != nil || !strings.Contains(out, "state:   could not ask the relay: the relay answered 503") {
+		t.Errorf("status with the relay answering 503 = %q, %v", out, err)
+	}
+}
+
 func TestRemoteCommandsNeedAnEnrolment(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{{"pair"}, {"devices"}, {"revoke", "d1"}} {
