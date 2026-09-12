@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -158,6 +159,11 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	// nothing they could use. On Windows it would otherwise open one for every
 	// call, and another for each console program the command starts in turn.
 	sysproc.NoWindow(cmd)
+	// Nobody can answer a prompt the command puts up: its input is empty and
+	// its output goes to the model. git asking for a username on a push waits
+	// for the whole timeout and then reports nothing useful; told there is no
+	// terminal, it fails at once and says why.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	// Standard output and standard error are interleaved because that is the
 	// order they happened in, and a compiler's diagnostics are only useful
 	// beside the line of progress they interrupted. One writer for both is

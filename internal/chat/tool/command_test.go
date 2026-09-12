@@ -42,6 +42,8 @@ func TestToolHelperProcess(t *testing.T) {
 			os.Stdout.WriteString(line)
 		}
 		fmt.Println("END")
+	case "env":
+		fmt.Println(args[1] + "=" + os.Getenv(args[1]))
 	case "cwd":
 		dir, err := os.Getwd()
 		if err != nil {
