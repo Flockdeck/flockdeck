@@ -391,14 +391,28 @@ func readClaudeConfig() (map[string]any, error) {
 // writeClaudeConfig writes the file back, preserving every field it did not
 // touch. Claude Code owns this file, so the whole document is rewritten from
 // what was read rather than assembled from a partial view of it.
+//
+// It is written the way Claude Code 2.1.269 writes it, read from its
+// executable: a temporary file renamed into place, through a symbolic link
+// rather than over it, keeping the file's permissions (0600 for a new one).
+// Renaming over the link replaced it with a plain file, and a configuration
+// kept elsewhere and linked into place -- a dotfiles checkout, say -- quietly
+// stopped being the one in use.
 func writeClaudeConfig(cfg map[string]any) error {
 	path := configPath()
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	mode := os.FileMode(0o600)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode Claude configuration: %w", err)
 	}
 	tmp := path + ".flockdeck.tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := os.WriteFile(tmp, data, mode); err != nil {
 		return fmt.Errorf("write Claude configuration: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

@@ -520,6 +520,47 @@ func TestNetworkPaths(t *testing.T) {
 	}
 }
 
+// TestInheritTrustWritesThroughALinkedConfiguration covers a configuration kept
+// elsewhere and linked into place, as a dotfiles checkout does. Claude Code
+// writes through the link; renaming over it replaced the link with a plain
+// file, and the configuration in the checkout stopped being the one in use.
+func TestInheritTrustWritesThroughALinkedConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "dotfiles")
+	cfgDir := filepath.Join(dir, "home")
+	mkdirs(t, realDir, cfgDir)
+	trusted := filepath.Join(dir, "repo")
+	realPath := filepath.Join(realDir, ".claude.json")
+	data, err := json.Marshal(map[string]any{
+		"projects": map[string]any{claudeProjectKey(trusted): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realPath, data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(cfgDir, ".claude.json")
+	symlink(t, realPath, link)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+
+	target := filepath.Join(dir, "wt")
+	if err := InheritTrust(trusted, target); err != nil {
+		t.Fatalf("inherit: %v", err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link to the configuration was replaced by a file (%v, %v)", fi, err)
+	}
+	if !IsTrusted(target) {
+		t.Error("the answer was not written to the file the link points at")
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(realPath); err != nil || fi.Mode().Perm() != 0o640 {
+			t.Errorf("the configuration's permissions were not kept (%v, %v)", fi, err)
+		}
+	}
+}
+
 // TestIsTrustedWithoutAConfiguration covers a machine where Claude has not run.
 func TestIsTrustedWithoutAConfiguration(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "missing"))
