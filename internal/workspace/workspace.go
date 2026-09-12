@@ -126,6 +126,18 @@ type Tab struct {
 	// given automatically, so the first prompt may replace it. Renaming a tab
 	// by hand clears it and the title is then left alone.
 	AutoTitle bool
+	// Named is set while the tab carries a name chosen by hand. The title it
+	// would otherwise have goes on being kept behind that name, in auto and
+	// autoOpen, so that giving the name up puts back what the tab would be
+	// called had it never been renamed: renaming used to clear AutoTitle for
+	// good, and a tab named once could never go back.
+	Named bool
+	// auto is that title while Named is set, and autoOpen says whether it is
+	// still the directory name waiting for the first prompt to replace it —
+	// AutoTitle, for a title that is not on show. An empty auto is not known,
+	// which is a tab named in a layout written before it was kept.
+	auto     string
+	autoOpen bool
 }
 
 // Project is an open project and a summary of what is happening inside it.
@@ -752,14 +764,82 @@ func (w *Workspace) applyPendingTitles() {
 
 	for paneID, title := range pending {
 		for _, t := range w.Tabs {
-			if !t.AutoTitle || t.Tree.Find(paneID) == nil {
+			if t.Tree.Find(paneID) == nil {
 				continue
 			}
-			t.Title = title
-			t.AutoTitle = false
+			switch {
+			case t.AutoTitle:
+				t.Title = title
+				t.AutoTitle = false
+			case t.Named && t.autoOpen:
+				// A tab named by hand before its first prompt keeps its name,
+				// but the title it would have had follows the prompt behind
+				// it, for as long as the name is kept.
+				t.auto = title
+				t.autoOpen = false
+			}
 			break
 		}
 	}
+}
+
+// NameTab gives a tab a name chosen by hand, which no prompt replaces. The
+// title the tab had been giving itself is kept, for UseAutoTitle to put back.
+func (w *Workspace) NameTab(id, name string) {
+	t := w.Tab(id)
+	if t == nil {
+		return
+	}
+	if !t.Named {
+		t.Named = true
+		t.auto, t.autoOpen = t.Title, t.AutoTitle
+	}
+	t.Title = name
+	t.AutoTitle = false
+}
+
+// UseAutoTitle gives up a name chosen by hand, and gives the tab the title it
+// would have now had it never been renamed: the directory name, still waiting
+// for the first prompt to replace it, or what the first prompt made of it. It
+// reports whether anything changed, which it does not for a tab that already
+// has its automatic title.
+func (w *Workspace) UseAutoTitle(id string) bool {
+	t := w.Tab(id)
+	if t == nil || !t.Named {
+		return false
+	}
+	if t.auto != "" {
+		t.Title, t.AutoTitle = t.auto, t.autoOpen
+	} else {
+		t.Title, t.AutoTitle = w.freshTitle(t)
+	}
+	t.Named = false
+	t.auto, t.autoOpen = "", false
+	return true
+}
+
+// freshTitle is the title a tab holding t's panes would be given if it were
+// opened now, for a tab whose own automatic title is not known. A tab is named
+// after the pane it was opened with, and that is not recorded either, so the
+// first agent stands in for it: an agent is what a tab is named after.
+func (w *Workspace) freshTitle(t *Tab) (title string, auto bool) {
+	var first *Pane
+	for _, id := range t.Tree.Panes() {
+		p := w.Pane(id)
+		if p == nil {
+			continue
+		}
+		if p.IsAgent() {
+			return paneTabTitle(p)
+		}
+		if first == nil {
+			first = p
+		}
+	}
+	if first != nil {
+		return paneTabTitle(first)
+	}
+	return filepath.Base(t.Root), false
 }
 
 // summarisePrompt reduces a prompt to something that fits in a tab.
