@@ -1352,6 +1352,10 @@
     if (p) return p;
 
     const wrap = el("div", "pane");
+    // A group named after the pane. Every terminal announces itself alike,
+    // and the header beside it names nothing, so in a tab of six agents a
+    // screen reader landing in one was not told whose it was.
+    wrap.setAttribute("role", "group");
     const header = el("div", "pane-header");
     const dot = el("span", "dot");
     const name = el("span", "pane-name");
@@ -1622,7 +1626,12 @@
       }
       // The name is cut short with an ellipsis in a narrow pane, and names
       // taken from an agent's task are long; the bubble has the whole of it.
-      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; describe(p.name, v.name); }
+      if (was.name !== v.name) {
+        was.name = v.name;
+        p.name.textContent = v.name;
+        describe(p.name, v.name);
+        p.wrap.setAttribute("aria-label", v.name);
+      }
 
       const project = v.project || "";
       if (was.project !== project) { was.project = project; renderPaneProject(p, v); }

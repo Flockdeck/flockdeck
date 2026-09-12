@@ -3829,6 +3829,22 @@ assert.ok(/start it again/.test(text), "the panel does not say what to do if flo
 `)
 }
 
+// Every terminal announces itself alike and the header beside it names
+// nothing, so a screen reader landing in one of six agents' terminals was not
+// told whose it was. Each pane is a group named after the pane, and the name
+// follows a rename.
+func TestAPaneIsNamedForAScreenReader(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const wrap = h.terms[0].host.parentElement.parentElement;
+assert.strictEqual(wrap.getAttribute("role"), "group", "a pane is not a group a screen reader can name");
+assert.strictEqual(wrap.getAttribute("aria-label"), "agent p1", "a pane does not say whose it is");
+h.recv(fixture({ panes: { p1: pane("p1", { name: "api" }), p2: pane("p2") } }));
+assert.strictEqual(wrap.getAttribute("aria-label"), "api", "the pane's name did not follow a rename");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
