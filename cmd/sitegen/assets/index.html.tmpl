@@ -281,11 +281,21 @@
          route it, so remote access is not end-to-end encrypted.</p>
     </div>
   </div>
-  <p>Turn it on from any terminal, then pair your phone:</p>
+  <p>Turn it on from <em>Remote access…</em> in the command palette, or from any
+     terminal, then pair your phone:</p>
   <pre><code>flockdeck remote enable
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
   <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
      turn it on. Turn it off and your desktop is removed from the relay.</p>
+  <!-- Announced, not shipped: it says what is coming and that it will be paid,
+       and nothing about price or date, which are not settled. -->
+  <div class="card soon" id="private-relays">
+    <span class="g">coming soon · paid plan</span>
+    <h3>Private relays</h3>
+    <p>A relay run for you alone, so your agents' traffic goes through a server
+       that carries nobody else's. It will be a paid plan. The shared relay
+       stays free, and the relay is open source if you'd rather run your own.</p>
+  </div>
 </section>
 <section class="band shot">
   <p class="eyebrow">Built in</p>
@@ -353,6 +363,12 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details open>
       <summary>Is Flockdeck free?</summary>
       <p>Yes. Flockdeck is free and open source under the MIT licence.</p>
+    </details>
+    <details>
+      <summary>Is there a paid version?</summary>
+      <p>Not yet. <a href="#private-relays">Private relays</a>, a relay run for
+         you alone, are coming as a paid plan. Flockdeck itself and the shared
+         relay stay free.</p>
     </details>
     <details>
       <summary>Which agents does it work with?</summary>

@@ -162,6 +162,7 @@ h.recv({ type: "remoteDevices", enabled: true, current: "d2",
 const body = h.$("overlay-body");
 assert.ok(body.textContent.includes("phone"), "the devices are listed");
 assert.ok(body.textContent.includes("this device"), "the device this window is on is marked");
+assert.ok(body.textContent.includes("private relays"), "an enrolled machine is told private relays are coming");
 
 h.click(h.$("remote-pair"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "device" });
@@ -226,6 +227,7 @@ h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
 const relay = h.$("remote-relay");
 assert.ok(relay, "a machine that is not enrolled is offered the form, not a command to type");
 assert.ok(h.$("overlay-body").textContent.includes("go on listing this machine"), "a relay left untold is still said");
+assert.ok(h.$("overlay-body").textContent.includes("private relays"), "a machine not enrolled is told private relays are coming");
 relay.value = "relay.example";
 h.$("remote-name").value = "desk";
 h.click(h.$("remote-enable"));

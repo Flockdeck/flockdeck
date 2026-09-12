@@ -283,6 +283,10 @@ h2 {
 }
 .card p { margin: 0; color: var(--muted); font-size: 14.6px; line-height: 1.62; }
 .card .g { font-family: var(--mono); font-size: 12px; color: var(--accent); display: block; margin-bottom: 11px; }
+/* Something announced rather than shipped: set apart in the accent's tint, so
+   it is not read as one of the features beside it. */
+.card.soon { margin-top: 22px; background: var(--accent-subtle); border-color: var(--accent-edge); }
+.card.soon .g { color: var(--accent-strong); }
 
 /* ------------------------------------------------------------- fan-out */
 

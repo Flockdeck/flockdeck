@@ -611,7 +611,16 @@
     if (o && o.action === "enable" && o.error) box.append(el("p", "remote-error", o.error));
     if (o && o.warning) box.append(el("p", "remote-error", o.warning));
     box.append(el("p", "fan-hint", "The same from a terminal: flockdeck remote enable."));
+    box.append(privateRelaysNote());
     return box;
+  }
+
+  /** privateRelaysNote announces private relays, which are not here yet. It
+   *  says what they will be and that they will be paid, and no more: price
+   *  and date are not settled, and the dialog should not promise either. */
+  function privateRelaysNote() {
+    return el("p", "fan-hint", "Coming soon: private relays, run for you alone, as a paid plan. " +
+      "The shared relay stays free, and you can always name a relay of your own.");
   }
 
   /** remoteMachineSection is this machine's own place on the relay: trying
@@ -672,6 +681,7 @@
       again.append(retry, forget);
       box.append(again);
     }
+    box.append(privateRelaysNote());
     return box;
   }
 

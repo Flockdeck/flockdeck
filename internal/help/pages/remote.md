@@ -62,6 +62,14 @@ through it. The relay never sees this machine's local token or your API keys;
 what it holds for this machine is a credential of its own, kept here in
 `remote.json` in the state directory and readable only by you.
 
+## Private relays (coming soon)
+
+A private relay is one run for you alone: your agents' traffic goes through a
+server that carries nobody else's. It is coming as a paid plan. The shared
+relay stays free, and the relay is open source, so you can run your own now
+and point this machine at it with `flockdeck remote enable -relay <address>`,
+or by naming it in the Remote access dialog.
+
 ## Leaving the agents running for it
 
 A remote window only works while Flockdeck is running here. Closing the window
