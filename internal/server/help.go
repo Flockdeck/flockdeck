@@ -197,6 +197,20 @@ func (s *Server) setFontFamily(family string) {
 	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
 }
 
+// setStatusLine records when a Claude pane's status line is routed through
+// Flockdeck. It takes effect for a pane when it next starts, which is when
+// its settings are written; a mode the panes do not know is refused.
+func (s *Server) setStatusLine(mode string) {
+	switch mode {
+	case "auto":
+		mode = ""
+	case "", "on", "off":
+	default:
+		return
+	}
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
+}
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {

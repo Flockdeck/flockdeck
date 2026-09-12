@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/webui"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -152,6 +153,9 @@ type Server struct {
 	mux *http.ServeMux
 	// remote is remote access, when this instance has any. See remote.go.
 	remote atomic.Pointer[remoteHolder]
+
+	// book is what the panes' agents have said they spent. See spend.go.
+	book *spend.Book
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -202,6 +206,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 
 		paneLookup:   paneLookup,
 		usageRefresh: usageRefresh,
+		book:         spend.NewBook(),
 	}
 
 	mux := http.NewServeMux()
@@ -224,6 +229,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.usageLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
+	s.installUsageHandler()
 
 	return s, nil
 }
