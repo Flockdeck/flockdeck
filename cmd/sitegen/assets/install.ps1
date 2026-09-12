@@ -13,7 +13,7 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION         a release tag such as v0.1.1; the latest by default.
+#   FLOCKDECK_VERSION         a release tag such as v0.2.8; the latest by default.
 #                             To stay on it, also set FLOCKDECK_UPDATE=off for
 #                             your user, or Flockdeck updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR     where flockdeck.exe goes
