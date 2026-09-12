@@ -44,6 +44,20 @@ var version = "dev"
 const windowGrace = 3 * time.Second
 
 func main() {
+	// `help` is what somebody who has never run the program types first, and
+	// they were told it was an unrecognised argument, with exit status 2,
+	// before being shown the usage -h would have printed. `help <subcommand>`
+	// is asking for that subcommand's usage, so it is handed on as `<subcommand>
+	// -h` to the dispatch below, rather than answered with the top-level one.
+	if len(os.Args) > 1 && os.Args[1] == "help" {
+		args, top := helpArgs(os.Args[2:])
+		if top {
+			flockdeckFlagSet(&cliFlags{}).Usage()
+			return
+		}
+		os.Args = append(os.Args[:1], args...)
+	}
+
 	// `hook` is how panes report their lifecycle back to a running instance.
 	// It is a hidden subcommand rather than a separate binary so there is only
 	// ever one artifact to ship.
@@ -116,14 +130,6 @@ func main() {
 		return
 	}
 
-	// `help` is what somebody who has never run the program types first, and
-	// they were told it was an unrecognised argument, with exit status 2,
-	// before being shown the usage -h would have printed.
-	if len(os.Args) > 1 && os.Args[1] == "help" {
-		flockdeckFlagSet(&cliFlags{}).Usage()
-		return
-	}
-
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
@@ -188,6 +194,20 @@ func main() {
 	if err := run(c.options); err != nil {
 		fail("Flockdeck could not start.", err)
 	}
+}
+
+// helpArgs turns what followed `flockdeck help` into the arguments to run
+// instead: `<subcommand> -h` for a subcommand the usage lists, each of which
+// prints its own usage for -h. top is true when the top-level usage is the
+// answer — for `help` alone, and for anything that is not a subcommand.
+func helpArgs(rest []string) (args []string, top bool) {
+	switch {
+	case len(rest) == 0:
+		return nil, true
+	case map[string]bool{"spawn": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+		return []string{rest[0], "-h"}, false
+	}
+	return nil, true
 }
 
 // cliFlags are the top-level flags and where their values land. The two that

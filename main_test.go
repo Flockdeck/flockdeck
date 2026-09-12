@@ -117,6 +117,30 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
+// `flockdeck help update` is asking for update's usage, the way `git help
+// commit` is; `help` alone, or followed by something that is not a
+// subcommand, gets the top-level usage.
+func TestHelpArgs(t *testing.T) {
+	cases := []struct {
+		rest    []string
+		want    []string
+		wantTop bool
+	}{
+		{nil, nil, true},
+		{[]string{"update"}, []string{"update", "-h"}, false},
+		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
+		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
+		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
+		{[]string{"nonsense"}, nil, true},
+	}
+	for _, c := range cases {
+		got, top := helpArgs(c.rest)
+		if top != c.wantTop || strings.Join(got, " ") != strings.Join(c.want, " ") {
+			t.Errorf("helpArgs(%q) = %q, %v; want %q, %v", c.rest, got, top, c.want, c.wantTop)
+		}
+	}
+}
+
 // `spawn -h` is a request for the usage it has just been given, not a failure.
 func TestSpawnHelpSucceeds(t *testing.T) {
 	if err := runSpawn([]string{"-h"}); err != nil {
