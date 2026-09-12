@@ -350,13 +350,24 @@ func Diff(dir, path string) (string, error) {
 		return "", &gitError{"not a path inside the working tree: " + path}
 	}
 	full := filepath.Join(dir, path)
+	// Two questions are asked of every click -- is this something git does
+	// not track, and what is its diff against the last commit -- and they are
+	// asked at once. Each is a process, and one after the other they were most
+	// of the wait: 282ms a click in BenchmarkDiff on Windows. The diff is
+	// thrown away for a new file, which costs that click nothing it did not
+	// already wait for.
+	//
 	// Lstat, so a symlink is seen as a symlink rather than as whatever it
 	// points at. A directory is only ever asked about with a slash on the end,
 	// which is how status names a repository sitting inside this one.
-	if fi, err := os.Lstat(full); err == nil && (!fi.IsDir() || strings.HasSuffix(path, "/")) && untracked(dir, path) {
-		if text, ok, err := newFileDiff(path, full, fi); ok || err != nil {
-			return text, err
-		}
+	fi, lerr := os.Lstat(full)
+	var (
+		isNew bool
+		wg    sync.WaitGroup
+	)
+	if lerr == nil && (!fi.IsDir() || strings.HasSuffix(path, "/")) {
+		wg.Add(1)
+		go func() { defer wg.Done(); isNew = untracked(dir, path) }()
 	}
 
 	// HEAD covers staged and unstaged changes together, which is what someone
@@ -370,6 +381,12 @@ func Diff(dir, path string) (string, error) {
 	// worth reporting, since a missing HEAD is not what went wrong.
 	against := "HEAD"
 	out, err := gitDiff(dir, against, "--", pathspec(path))
+	wg.Wait()
+	if isNew {
+		if text, ok, nerr := newFileDiff(path, full, fi); ok || nerr != nil {
+			return text, nerr
+		}
+	}
 	if err != nil {
 		against = "--cached"
 		staged, stagedErr := gitDiff(dir, against, "--", pathspec(path))
