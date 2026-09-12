@@ -50,6 +50,13 @@ func (s *session) command(ctx context.Context, line string) bool {
 		s.out.line(ansiDim, "(cleared)")
 	case "status":
 		s.out.line(ansiDim, statusLine(s.model, s.total, s.spent))
+		// The two settings behind a pane that is failing, and where each is
+		// changed, since neither is anywhere else on the screen.
+		if s.opts.wire == nil {
+			_, from := lookupKey(s.opts)
+			s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; its address is baseURL in agents.json")
+			s.out.line(ansiDim, "key "+firstNonEmpty(from, "none")+"; `flockdeck keys set "+firstNonEmpty(s.opts.Agent, "<agent>")+"` changes it")
+		}
 		s.out.line(ansiDim, "session "+s.opts.Session)
 		s.out.line(ansiDim, "transcript "+s.log.Path())
 	default:

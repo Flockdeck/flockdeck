@@ -22,30 +22,9 @@ var KeyStore func(agent string) string
 // looked for, because an error is the one string in a program that gets pasted
 // into a bug report.
 func resolveKey(o Options) (string, error) {
-	// The spec usually names the conventional variable itself, and an error
-	// that tells somebody to set X or X is one they read twice.
-	var names []string
-	seen := map[string]bool{}
-	for _, name := range append(append(append([]string{}, o.KeyEnv...), defaultKeyEnv(o.Wire)...), "FLOCKDECK_API_KEY") {
-		if !seen[name] {
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	for _, name := range names {
-		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-			return v, nil
-		}
-	}
-	if KeyStore != nil {
-		if v := strings.TrimSpace(KeyStore(o.Agent)); v != "" {
-			return v, nil
-		}
-	}
-	// An endpoint on this machine is usually a local model, which wants no key
-	// at all; refusing to start would be refusing over nothing.
-	if isLoopback(o.BaseURL) {
-		return "", nil
+	key, from := lookupKey(o)
+	if key != "" || from != "" {
+		return key, nil
 	}
 	// The chat cannot start without one, so the error ends it -- and a pane
 	// that has ended does not pick a key up later: it has to be started again,
@@ -55,8 +34,63 @@ func resolveKey(o Options) (string, error) {
 		then = "then restart this pane (Restart pane, in the command palette)"
 	}
 	return "", fmt.Errorf("no API key for %s: set %s, or run `flockdeck keys set %s`; %s",
-		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(names, " or "),
+		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(keyNames(o), " or "),
 		firstNonEmpty(o.Agent, o.Wire, "<agent>"), then)
+}
+
+// lookupKey finds the key and says where it came from, in words that name the
+// place and never the key. A key is "" with a place when none is needed.
+//
+// It is one lookup for starting the chat and for /status, so that what /status
+// says is where the key the chat is using came from.
+func lookupKey(o Options) (key, from string) {
+	for _, name := range keyNames(o) {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			return v, "from " + name
+		}
+	}
+	if KeyStore != nil {
+		if v := strings.TrimSpace(KeyStore(o.Agent)); v != "" {
+			return v, "stored with `flockdeck keys set " + o.Agent + "`"
+		}
+	}
+	// An endpoint on this machine is usually a local model, which wants no key
+	// at all; refusing to start would be refusing over nothing.
+	if isLoopback(o.BaseURL) {
+		return "", "none, which a local endpoint does not need"
+	}
+	return "", ""
+}
+
+// keyNames are the environment variables a key is looked for in, in order: the
+// agent's own, the wire's conventional one, and Flockdeck's. The spec usually
+// names the conventional variable itself, and an error that tells somebody to
+// set X or X is one they read twice.
+func keyNames(o Options) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, name := range append(append(append([]string{}, o.KeyEnv...), defaultKeyEnv(o.Wire)...), "FLOCKDECK_API_KEY") {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// endpointOf is the address the chat talks to, as /status names it.
+func endpointOf(o Options) string {
+	if o.BaseURL != "" {
+		return o.BaseURL
+	}
+	switch strings.ToLower(strings.TrimSpace(o.Wire)) {
+	case "openai", "openai-compatible":
+		return "https://api.openai.com (the vendor's own)"
+	case "gemini", "google":
+		return "https://generativelanguage.googleapis.com (the vendor's own)"
+	default:
+		return "https://api.anthropic.com (the vendor's own)"
+	}
 }
 
 // rekey looks for the key again and, where a different one is set now than the
