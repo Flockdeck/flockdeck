@@ -30,6 +30,9 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ github.event.inputs.tag || github.ref }}
+      # A release is also held to what only a release needs, such as
+      # carrying the key its signatures are checked with.
+      release: true
 
   release:
     needs: test
@@ -101,3 +104,58 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "$TAG" --generate-notes $pre
           fi
+
+      # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
+      # behind DigitalOcean's CDN that the updater, the install scripts and the
+      # site download from first. GitHub is published above, first, on
+      # purpose: every copy installed before the site knows only GitHub, so a
+      # run that stops anywhere below has still made a release, one that is
+      # only missing from the site.
+      #
+      # Every secret the rest needs is checked before any of it runs, and all
+      # the missing ones are named at once.
+      - name: Check the download site's secrets
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
+          DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
+          DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
+          DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
+          DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+        run: |
+          missing=""
+          for name in FLOCKDECK_SIGNING_KEY DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION DO_API_TOKEN; do
+            [ -n "$(printenv "$name" || true)" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::$TAG is published on GitHub, but cannot go to dl.flockdeck.ai until these repository secrets are set:$missing"
+            exit 1
+          fi
+
+      # checksums.txt and latest.json are signed with the release key, whose
+      # public half every build carries, so that what the site serves can be
+      # trusted without trusting the site. The notes GitHub generated go into
+      # latest.json, so the update chip shows them as it did when the updater
+      # read them from GitHub.
+      - name: Sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
+        run: |
+          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+          go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
+
+      # The script says why the order is what it is. It is kept in the
+      # repository so that it can be run by hand, and tried against any
+      # S3-compatible store. The aws CLI is already on the runner.
+      - name: Publish to dl.flockdeck.ai
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
+          DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
+          DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
+          DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+        run: sh scripts/publish-downloads.sh "$TAG" dist
