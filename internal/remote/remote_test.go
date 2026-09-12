@@ -131,6 +131,17 @@ func TestRelayURL(t *testing.T) {
 	if got, _ := CheckRelay("relay.example.com:8443"); got != "https://relay.example.com:8443" {
 		t.Errorf("CheckRelay of an address with no scheme = %q, want it taken as https://", got)
 	}
+	// One relay is one address however it is typed, or naming the relay this
+	// machine is on would read as asking to move to another.
+	for raw, want := range map[string]string{
+		"https://Remote.Flockdeck.AI:443/": "https://remote.flockdeck.ai",
+		"http://LOCALHOST:80":              "http://localhost",
+		"https://relay.example:8443":       "https://relay.example:8443",
+	} {
+		if got, err := CheckRelay(raw); err != nil || got != want {
+			t.Errorf("CheckRelay(%q) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
 }
 
 // fakeRelay is enough of a relay to carry requests down a tunnel.

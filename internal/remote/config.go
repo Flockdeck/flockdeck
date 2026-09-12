@@ -166,6 +166,12 @@ func CheckRelay(raw string) (string, error) {
 	if u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("a relay address has no query or fragment: %q", raw)
 	}
+	// One relay is one address however it was typed, so that naming the relay
+	// this machine is already on is not taken for asking to move to another.
+	u.Host = strings.ToLower(u.Host)
+	if p := u.Port(); (u.Scheme == "https" && p == "443") || (u.Scheme == "http" && p == "80") {
+		u.Host = strings.TrimSuffix(u.Host, ":"+p)
+	}
 	u.Path = strings.TrimRight(u.Path, "/")
 	return u.String(), nil
 }
