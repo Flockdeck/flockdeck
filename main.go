@@ -170,13 +170,13 @@ func main() {
 
 	if c.quit {
 		if err := quitRunning(); err != nil {
-			fail(err)
+			fail("Flockdeck could not stop the running instance.", err)
 		}
 		return
 	}
 
 	if err := run(c.options); err != nil {
-		fail(err)
+		fail("Flockdeck could not start.", err)
 	}
 }
 
@@ -238,12 +238,13 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
 
-// fail reports a startup error. When the process was started from a desktop
-// shortcut there is no console to print to, so the message is also written to
-// a log file the user can be pointed at.
-func fail(err error) {
+// fail reports an error that ends the run, under heading, which says what was
+// being attempted. When the process was started from a desktop shortcut there
+// is no console to print to, so the message is also written to a log file the
+// user can be pointed at.
+func fail(heading string, err error) {
 	fmt.Fprintln(os.Stderr, "flockdeck:", err)
-	text := "Flockdeck could not start.\n\n" + err.Error()
+	text := heading + "\n\n" + err.Error()
 	if dir, dirErr := store.Dir(); dirErr == nil {
 		path := filepath.Join(dir, "error.log")
 		stamp := time.Now().Format(time.RFC3339)
