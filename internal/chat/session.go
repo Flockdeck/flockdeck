@@ -259,7 +259,8 @@ func (s *session) run(ctx context.Context) error {
 //
 // The whole conversation goes into the request, because that is what resuming
 // means; only the tail is drawn, because a pane restored with a thousand lines
-// of scrollback in front of the prompt is a pane nobody can see the prompt in.
+// of scrollback in front of the prompt is a pane nobody can see the prompt in,
+// and /history is there for the rest.
 func (s *session) replay() {
 	// The log's own file rather than a lookup, so that what is replayed is
 	// exactly what is being appended to.
@@ -273,26 +274,69 @@ func (s *session) replay() {
 		s.out.line(ansiDim, "(nothing recorded for this conversation yet)")
 		return
 	}
-	const shown = 8
-	from := 0
-	if len(s.messages) > shown {
-		from = len(s.messages) - shown
-		s.out.line(ansiDim, fmt.Sprintf("(%d earlier messages)", from))
+	shown := sinceClear(entries)
+	const tail = 12
+	if len(shown) > tail {
+		s.out.line(ansiDim, fmt.Sprintf("(%d earlier entries; /history shows the whole conversation)", len(shown)-tail))
+		shown = shown[len(shown)-tail:]
 	}
-	for _, m := range s.messages[from:] {
-		s.out.blankLine()
-		if m.Role == RoleUser {
+	s.drawEntries(shown)
+	s.out.blankLine()
+}
+
+// history is /history: the conversation since it was last started over, drawn
+// the way it looked as it happened, for a pane whose scrollback does not reach
+// back that far -- one that was resumed, or has been going all day.
+func (s *session) history() {
+	entries, err := ReadEntries(s.log.Path())
+	if err != nil {
+		s.out.line(ansiRed, "could not read the transcript: "+err.Error())
+		return
+	}
+	entries = sinceClear(entries)
+	if len(entries) == 0 {
+		s.out.line(ansiDim, "(nothing has been said yet)")
+		return
+	}
+	s.drawEntries(entries)
+}
+
+// drawEntries draws stored entries the way they looked when they were new: the
+// user's prompts dimmed under "you", the answers as answers, and each tool's
+// output as the one line it was drawn as then, not the whole of it.
+func (s *session) drawEntries(entries []Entry) {
+	for _, e := range entries {
+		switch e.Type {
+		case string(RoleUser):
+			s.out.blankLine()
 			s.out.line(ansiDim, "you")
 			s.out.setDim(true)
-			s.out.text(m.Text)
+			s.out.text(e.Text)
 			s.out.endMessage()
 			s.out.setDim(false)
-			continue
+		case string(RoleAssistant):
+			s.out.blankLine()
+			s.out.text(e.Text)
+			s.out.endMessage()
+		case string(RoleTool):
+			summary := clipTo(firstLine(e.Text, 400), s.opts.Width-16)
+			if n := strings.Count(strings.TrimRight(e.Text, "\n"), "\n") + 1; n > 1 {
+				summary += fmt.Sprintf(" (%d lines)", n)
+			}
+			s.out.line(ansiDim, "  · "+firstNonEmpty(e.Tool, "tool")+"  "+summary)
 		}
-		s.out.text(m.Text)
-		s.out.endMessage()
 	}
-	s.out.blankLine()
+}
+
+// sinceClear is the entries after the last /clear: the conversation the model
+// is still being shown.
+func sinceClear(entries []Entry) []Entry {
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Type == entryClear {
+			return entries[i+1:]
+		}
+	}
+	return entries
 }
 
 // readPrompt draws the status line and waits for what the user types.
@@ -625,6 +669,7 @@ func (s *session) command(line string) bool {
 		for _, l := range []string{
 			"/model        the models to choose from; /model 2 or /model <id> switches",
 			"/output [n]   all of the last tool's output, or of the nth last",
+			"/history      the whole conversation so far, for when scrollback ends",
 			"/clear        start the conversation over, keeping the pane",
 			"/status       what has been spent, and where the transcript is",
 			"/exit         leave; the pane's own conversation ends with it",
@@ -638,6 +683,8 @@ func (s *session) command(line string) bool {
 		s.chooseModel(rest)
 	case "output":
 		s.showOutput(rest)
+	case "history":
+		s.history()
 	case "clear":
 		s.messages = nil
 		// The transcript is marked rather than truncated: what was said was
