@@ -272,3 +272,40 @@ func TestAParseErrorSaysWhereInTheFile(t *testing.T) {
 		}
 	}
 }
+
+// TestSetBaseURLGivesAnEndpointItsAddress: the OpenAI-compatible entry needs
+// an address before it can be used, and it could be given only by editing
+// agents.json by hand.
+func TestSetBaseURLGivesAnEndpointItsAddress(t *testing.T) {
+	dir := t.TempDir()
+	if err := SetBaseURL(dir, "openai-compatible", "http://127.0.0.1:11434/v1"); err != nil {
+		t.Fatal(err)
+	}
+	c := LoadFrom(dir)
+	if s, _ := c.Find("openai-compatible"); s.API.BaseURL != "http://127.0.0.1:11434/v1" || !NeedsNoKey(s) || c.Notice != "" {
+		t.Errorf("spec = %+v, notice %q; want the address recorded and usable", s.API, c.Notice)
+	}
+
+	// An entry that is already there keeps everything else it says.
+	src := `{"agents": [{"id": "local", "name": "Local llama", "api": {"wire": "openai", "baseURL": "http://old/v1"}, "models": [{"id": "qwen3-coder"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetBaseURL(dir, "local", "http://127.0.0.1:1234/v1"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := LoadFrom(dir).Find("local")
+	if s.API.BaseURL != "http://127.0.0.1:1234/v1" || s.Name != "Local llama" || s.API.Wire != "openai" || len(s.Models) != 1 {
+		t.Errorf("spec = %+v; want the address changed and the rest kept", s)
+	}
+
+	if err := SetBaseURL(dir, "local", "localhost:1234"); err == nil || !strings.Contains(err.Error(), "http://") {
+		t.Errorf("an address with no scheme: %v", err)
+	}
+	if err := SetBaseURL(dir, "local", ""); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := LoadFrom(dir).Find("local"); s.API.BaseURL != "" || s.Name != "Local llama" {
+		t.Errorf("spec = %+v; want the address taken away and the rest kept", s)
+	}
+}

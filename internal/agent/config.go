@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -283,5 +285,61 @@ func SetDefaults(dir, project string, d Defaults) error {
 			f.Projects[project] = d
 		}
 	}
+	return writeConfig(dir, f)
+}
+
+// SetBaseURL records the address of an API agent's endpoint in agents.json.
+//
+// It is the one thing the OpenAI-compatible entry needs before it can be used
+// -- a local model's address -- and it could be given only by editing the
+// file by hand. An entry for the agent is changed in place, keeping everything
+// else it says; one is added when there is none. An empty address takes the
+// one recorded away.
+func SetBaseURL(dir, id, baseURL string) error {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL != "" {
+		u, err := url.Parse(baseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("%q is not an address an endpoint can have: it begins http:// or https://, as in http://127.0.0.1:11434/v1", baseURL)
+		}
+	}
+	configMu.Lock()
+	defer configMu.Unlock()
+	f, err := readConfig(dir)
+	if err != nil {
+		// As with a default: a file that cannot be read is not written over.
+		return err
+	}
+	for i, raw := range f.Agents {
+		var entry map[string]json.RawMessage
+		var got string
+		if json.Unmarshal(raw, &entry) != nil || json.Unmarshal(entry["id"], &got) != nil || got != id {
+			continue
+		}
+		api := map[string]json.RawMessage{}
+		if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
+			return fmt.Errorf("agent %q in %s: its \"api\" is not an object, so the address was not written", id, ConfigName)
+		}
+		if baseURL == "" {
+			delete(api, "baseURL")
+		} else if api["baseURL"], err = marshalUnescaped(baseURL); err != nil {
+			return err
+		}
+		if entry["api"], err = marshalUnescaped(api); err != nil {
+			return err
+		}
+		if f.Agents[i], err = marshalUnescaped(entry); err != nil {
+			return err
+		}
+		return writeConfig(dir, f)
+	}
+	if baseURL == "" {
+		return nil
+	}
+	entry, err := marshalUnescaped(map[string]any{"id": id, "api": map[string]string{"baseURL": baseURL}})
+	if err != nil {
+		return err
+	}
+	f.Agents = append(f.Agents, entry)
 	return writeConfig(dir, f)
 }
