@@ -76,6 +76,11 @@ detect_arch() {
 main() {
 	os=$(detect_os)
 	arch=$(detect_arch "$os")
+	# Run from a service or under env -i there may be no HOME, and set -u
+	# would stop on it with nothing to say what to do instead.
+	if [ -z "${FLOCKDECK_INSTALL_DIR:-}" ] && [ -z "${HOME:-}" ]; then
+		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
+	fi
 	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
 	base=${FLOCKDECK_DOWNLOAD:-"https://github.com/$REPO/releases/download"}
 
