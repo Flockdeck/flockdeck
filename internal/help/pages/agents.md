@@ -34,7 +34,7 @@ whose command is not on your `PATH` is the greyed kind.
 **API agents** talk to a model API directly. There is no wrapper CLI, no node
 and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
 a real terminal chat client — streamed answers, a status line carrying the
-model and the running cost, and tools for reading files, editing them and
+model, its token counts and, for Anthropic's models, the running cost, and tools for reading files, editing them and
 running commands; the ones that write a file or run a command ask before they
 act. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how

@@ -352,7 +352,8 @@ There are two ways an agent gets run:
   Google, and any OpenAI-compatible endpoint, which is how a local Ollama, LM
   Studio or vLLM — or a gateway — becomes an agent. No wrapper CLI, no node, no
   Python; one binary. It streams, it renders code and tool calls, it carries the
-  model and the running cost on a status line, and it has the file and command
+  model and its token counts on a status line (and the running cost for
+  Anthropic's models, the only prices it knows), and it has the file and command
   tools an agent needs, each confined to the pane's working directory and each
   asking before it writes or runs anything. That ask is reported as a
   lifecycle event, so the pane turns amber and the user is told which pane
