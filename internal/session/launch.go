@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -113,12 +114,38 @@ func (l Launch) argv() ([]string, error) {
 		if l.SelfExe == "" {
 			return nil, fmt.Errorf("agent %s talks to an API, which needs Flockdeck's own binary to run", l.Spec.ID)
 		}
-		argv = append([]string{l.SelfExe, "chat"}, argv...)
+		argv = append([]string{ChatExe(l.SelfExe), "chat"}, argv...)
 	}
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("agent %s has no command to run", l.Spec.ID)
 	}
 	return argv, nil
+}
+
+// chatTwin is the console build of Flockdeck that a Windows release ships
+// beside flockdeck.exe, for API agents' panes to run.
+const chatTwin = "flockdeck-chat.exe"
+
+// ChatExe returns the program an API agent's pane runs: Flockdeck's own
+// binary, or on Windows the console build shipped beside it.
+//
+// A release for Windows is linked as a GUI program (-H=windowsgui), so that
+// starting it opens no console window, and Windows attaches no console to a
+// GUI program even inside a pseudo-console: `flockdeck.exe chat` in a pane
+// printed nothing and read nothing. A build without the twin -- a plain `go
+// build` makes a console program -- runs itself as before.
+func ChatExe(selfExe string) string { return chatExeFor(runtime.GOOS, selfExe) }
+
+// chatExeFor is ChatExe for a given platform.
+func chatExeFor(goos, selfExe string) string {
+	if goos != "windows" || selfExe == "" {
+		return selfExe
+	}
+	twin := filepath.Join(filepath.Dir(selfExe), chatTwin)
+	if fi, err := os.Stat(twin); err == nil && fi.Mode().IsRegular() {
+		return twin
+	}
+	return selfExe
 }
 
 // model is the model the pane runs on: the one it was asked for, or the Spec's
