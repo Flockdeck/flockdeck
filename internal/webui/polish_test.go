@@ -184,3 +184,21 @@ assert.ok(!name().includes("waiting") && !name().includes("working"), "the name 
 assert.ok(name().length > 0, "an idle summary has no name at all");
 `)
 }
+
+// The window's title is what the taskbar shows of it behind other windows,
+// and it went on saying agents were waiting in a Flockdeck that had stopped.
+// It says the window is disconnected, and goes back to the counts after.
+func TestTheTitleSaysTheWindowIsDisconnected(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const waiting = () => fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } });
+h.recv(waiting());
+assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
+h.control.close();
+assert.ok(/disconnected/i.test(h.doc.title), "the title still counts agents in a window that lost them: " + h.doc.title);
+h.click(h.$("retry"));
+h.open();
+h.recv(waiting());
+assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck", "the title went on saying the window was disconnected");
+`)
+}

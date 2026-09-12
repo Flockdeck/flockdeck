@@ -371,6 +371,9 @@
       // after it find the panel already up with the keyboard on its button.
       if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
       $("disconnected").hidden = false;
+      // The title is what the taskbar shows of a window behind others, and it
+      // went on counting agents waiting in a Flockdeck that had stopped.
+      document.title = "Disconnected · flockdeck";
       // Nothing behind this can be used and the terminal it is covering has
       // the keyboard, so typing would go nowhere until the pointer was used.
       $("retry").focus();
@@ -1503,11 +1506,14 @@
       const name = [counts, actionTip("agents")].filter(Boolean).join(" — ");
       if (name) box.setAttribute("aria-label", name);
       else box.removeAttribute("aria-label");
-      document.title = s.waiting > 0
-        ? `▲ ${s.waiting} waiting · flockdeck`
-        : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
       setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
     }
+    // Outside the counts' own check, so a window that said it was
+    // disconnected says what it holds again with the first push after.
+    const title = s.waiting > 0
+      ? `▲ ${s.waiting} waiting · flockdeck`
+      : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
+    if (document.title !== title) document.title = title;
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
     renderProjectChip(s);
