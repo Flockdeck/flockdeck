@@ -339,6 +339,11 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// A join code is asking for another account, which this machine can
 		// be in only after leaving the one it is in.
 		return fmt.Errorf("%v; to join that account instead, run `flockdeck remote disable` first, which unpairs this machine's devices if it is its account's only machine, then run this again", err)
+	case errors.As(err, &already) && already.Err == nil && renaming(f.name):
+		// A new name is something to do, but the relay has no way to rename
+		// a machine: nothing takes a name but registering. So it takes
+		// enrolling again, and that costs what it costs.
+		return fmt.Errorf("%v, and the relay cannot rename a machine; to take a new name, run `flockdeck remote disable` first, which unpairs its devices if it is the account's only machine, then run this again", err)
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
@@ -377,6 +382,16 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		return fmt.Errorf("%v; running `flockdeck remote disable` on one of that account's machines does that", err)
 	}
 	return err
+}
+
+// renaming reports whether name, given to enable on a machine already
+// enrolled, is not the name it is enrolled under.
+func renaming(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	cfg, err := remote.Load()
+	return err == nil && cfg != nil && strings.TrimSpace(name) != cfg.Name
 }
 
 // relayRefusal adds what to do to the relay refusing this machine, which on

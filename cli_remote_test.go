@@ -729,6 +729,23 @@ func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
 	}
 }
 
+// A new name given to an enrolled machine is something to do that the relay
+// cannot do, and the refusal says what it takes instead; the name it already
+// has is nothing to do.
+func TestRemoteEnableWithANewName(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "the relay cannot rename a machine; to take a new name, run `flockdeck remote disable` first") {
+		t.Errorf("enable with a new name = %v, want it to say the relay cannot rename and what it takes", err)
+	}
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "desk"); err == nil || !strings.Contains(err.Error(), "nothing to do") || strings.Contains(err.Error(), "rename") {
+		t.Errorf("enable with the name it has = %v, want nothing to do", err)
+	}
+}
+
 // Enabling with a join code says the machine has joined the other's account,
 // which is what the code was for; enabling without one does not.
 func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
