@@ -194,7 +194,10 @@ func lineCounts(ctx context.Context, dir string) map[string]lineCount {
 // otherwise a quoted name never matches, and a rename is keyed under
 // "old => new", which matches nothing at all and left it counted as 0/0.
 func numstat(ctx context.Context, dir string, against ...string) (map[string]lineCount, error) {
-	args := append([]string{"diff", "--numstat", "-z"}, against...)
+	// --find-renames pins what is paired to renames, whatever diff.renames
+	// says: with "copies" set there, a copied file was counted against the
+	// file it came from, 0/0, though the commit adds all of it.
+	args := append([]string{"diff", "--numstat", "-z", "--find-renames"}, against...)
 	out, err := runUntil(ctx, dir, args...)
 	if err != nil {
 		return nil, err
@@ -244,7 +247,9 @@ func statusLabel(code string) string {
 		return "deleted"
 	case strings.ContainsAny(code, "R"):
 		return "renamed"
-	case strings.ContainsAny(code, "A"):
+	case strings.ContainsAny(code, "AC"):
+		// A copy -- reported only with status.renames set to "copies" -- is a
+		// new file, and was labelled "modified".
 		return "added"
 	case strings.ContainsAny(code, "U"):
 		return "conflict"
@@ -531,6 +536,11 @@ func renameSource(dir, path string) string {
 		}
 		// The name it came from follows as its own record.
 		i++
+		// A copy is a new file; its source is still there with a row of its
+		// own. Paired with it, the copy's diff carried the source's edits too.
+		if entry[0] == 'C' {
+			continue
+		}
 		if i >= len(records) {
 			break
 		}

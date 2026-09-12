@@ -1319,3 +1319,34 @@ func TestPushWithNoRemoteToChooseSaysHow(t *testing.T) {
 		t.Errorf("push with two remotes and no origin: %v", err)
 	}
 }
+
+// TestACopiedFileIsShownAsTheNewFileItIs: with copy detection turned on in
+// the user's config, a copy was labelled "modified", counted 0/0 against its
+// source, and its diff carried the source's own edits.
+func TestACopiedFileIsShownAsTheNewFileItIs(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "status.renames", "copies")
+	gitRun(t, repo, "config", "diff.renames", "copies")
+	write(t, repo, "README.md", "one\ntwo\nthree\nfour\n")
+	gitRun(t, repo, "commit", "-qam", "longer")
+	write(t, repo, "COPY.md", "one\ntwo\nthree\nfour\n")
+	write(t, repo, "README.md", "one\ntwo\nthree\nfour\nfive\n")
+	gitRun(t, repo, "add", "-A")
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f.Path == "COPY.md" && (f.Label != "added" || f.Added != 4) {
+			t.Errorf("copy = %+v, want added with its 4 lines", f)
+		}
+	}
+	diff, err := Diff(repo, "COPY.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(diff, "README.md") {
+		t.Errorf("the copy's diff carried its source's edits:\n%s", diff)
+	}
+}
