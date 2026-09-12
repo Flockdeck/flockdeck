@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
@@ -64,8 +65,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("settings:", settingsPath(p.ID))
-	dumpSettings(p.ID)
+	if path, err := settingsPath(p.ID); err != nil {
+		fmt.Println("settings:", err)
+	} else {
+		fmt.Println("settings:", path)
+		dumpSettings(path)
+	}
 
 	// Let Claude finish drawing its prompt before typing.
 	time.Sleep(6 * time.Second)
@@ -126,16 +131,19 @@ func report(seen map[session.Status]bool) {
 	fmt.Println("RESULT: did not observe a working -> idle cycle")
 }
 
-func settingsPath(id string) string {
+// settingsPath is where the pane's generated settings are. The directory's own
+// error is returned rather than an empty path, which only ever surfaced as a
+// failure to open "".
+func settingsPath(id string) (string, error) {
 	dir, err := store.SessionsDir()
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return dir + string(os.PathSeparator) + id + ".settings.json"
+	return filepath.Join(dir, id+".settings.json"), nil
 }
 
-func dumpSettings(id string) {
-	data, err := os.ReadFile(settingsPath(id))
+func dumpSettings(path string) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Println("could not read settings:", err)
 		return
