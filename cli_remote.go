@@ -520,7 +520,7 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		}
 		return errReported
 	}
-	if fs.NArg() != 1 {
+	if fs.NArg() == 0 {
 		// Whoever typed revoke knows the command and missed its argument, so
 		// its own usage is the answer, not a screen of every command's.
 		fs.Usage()
@@ -531,10 +531,17 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 		return err
 	}
 	// The roster turns a name into the id the relay takes, and an id into the
-	// name that says the right device went.
-	id, name, err := pickDevice(rosterBriefly(cfg), fs.Arg(0))
+	// name that says the right device went. A name of several words, typed
+	// without quotes as "Chrome on Windows" is, arrives as several arguments,
+	// and is taken whole if it names a device; anything else of several
+	// words is not one device, and is answered with the usage.
+	id, name, err := pickDevice(rosterBriefly(cfg), strings.Join(fs.Args(), " "))
 	if err != nil {
 		return err
+	}
+	if fs.NArg() > 1 && name == "" {
+		fs.Usage()
+		return errReported
 	}
 	if err := remote.NewClient(cfg, version).Revoke(context.Background(), id); err != nil {
 		return relayRefusal(err)

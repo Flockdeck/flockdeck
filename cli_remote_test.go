@@ -23,6 +23,9 @@ type fakeRelayAPI struct {
 	// revoked makes every authenticated call answer as if the host had been
 	// removed.
 	revoked bool
+	// devices, when set, is the roster's devices, as JSON, in place of the
+	// one phone.
+	devices string
 }
 
 func newFakeRelayAPI(t *testing.T) *fakeRelayAPI {
@@ -37,7 +40,11 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 	revoked := f.revoked
+	devices := f.devices
 	f.mu.Unlock()
+	if devices == "" {
+		devices = `[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:00:00Z"}]`
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/hosts" {
 		var req remote.RegisterRequest
@@ -64,7 +71,7 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "fdp_code", "url": url, "expiresAt": "2099-01-01T00:10:00Z"})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
-		_, _ = io.WriteString(w, `{"devices":[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:00:00Z"}],`+
+		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
 			`"hosts":[{"id":"h-desk","name":"desk","online":true,"self":true}]}`)
 	case r.Method == http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent)
@@ -465,6 +472,27 @@ func TestRemoteHelpForOneCommand(t *testing.T) {
 	}
 	if _, _, err := runRemoteCmd(t, "help", "nonsense"); err == nil {
 		t.Error("help for an unknown command was accepted")
+	}
+}
+
+// A device's name of several words, typed without quotes, is taken whole when
+// it names a device; several words that do not are answered with the usage.
+func TestRemoteRevokeANameOfSeveralWords(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	f.devices = `[{"id":"d7","name":"Chrome on Windows"}]`
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runRemoteCmd(t, "revoke", "chrome", "on", "windows")
+	if err != nil || !f.saw("DELETE /api/v1/host/devices/d7") || !strings.Contains(out, "unpaired Chrome on Windows (d7)") {
+		t.Errorf("revoke chrome on windows = %q, %v; relay saw it: %v", out, err, f.saw("DELETE /api/v1/host/devices/d7"))
+	}
+	if _, _, err := runRemoteCmd(t, "revoke", "d7", "d8"); err == nil {
+		t.Error("revoke of two ids was accepted")
+	}
+	if f.saw("DELETE /api/v1/host/devices/d7 d8") {
+		t.Error("two ids were sent to the relay as one")
 	}
 }
 
