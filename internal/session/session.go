@@ -559,6 +559,24 @@ func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start 
 // still does across Flockdeck itself being restarted.
 func (s *Session) Epoch() int64 { return s.startedAt.UnixMicro() }
 
+// AltScreen reports whether the pane's program has switched to the alternate
+// screen -- a full-screen program: vim, htop, an agent's own full-screen view
+// -- and not back. The replay of one is its screen as it was drawn, a piece at
+// a time, so a window starting afresh on it has to have it redrawn.
+func (s *Session) AltScreen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, t := range trackedModes {
+		switch t.mode {
+		case 1049, 1047, 47:
+			if s.modes.changed&(1<<i) != 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Unsubscribe removes a viewer.
 func (s *Session) Unsubscribe(id int) {
 	s.mu.Lock()

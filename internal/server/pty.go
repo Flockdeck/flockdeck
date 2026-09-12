@@ -131,7 +131,10 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	var live atomic.Pointer[session.Session]
 	live.Store(sess)
 	measured := make(chan struct{}, 1)
-	go s.applyResizes(ctx, id, measured)
+	// Armed when a stream starts afresh on a full-screen program; see
+	// armRepaint.
+	var repaint atomic.Bool
+	go s.applyResizes(ctx, id, measured, &repaint)
 	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
 	go keepalive(ctx, cancel, conn)
 
@@ -142,10 +145,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				replay []byte
 				out    <-chan []byte
 			)
+			fresh := true
 			if resume {
 				var start int64
 				var resumed bool
 				subID, replay, start, resumed, out = sess.SubscribeFrom(epoch, from)
+				fresh = !resumed
 				// Only the run the window was watching can be carried on from.
 				// One that replaces it after a restart starts from nothing.
 				from = -1
@@ -159,6 +164,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			} else {
 				subID, replay, out = sess.Subscribe()
 			}
+			s.armRepaint(&repaint, id, viewer, sess, fresh)
 			ended := streamOutput(ctx, conn, replay, out)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
@@ -315,14 +321,20 @@ func isTerminalReply(p []byte) bool {
 }
 
 // applyResizes takes what this window has measured to the goroutine that owns
-// the workspace.
-func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan struct{}) {
+// the workspace -- and, the first time after a stream has started afresh on a
+// full-screen program, has the pane redraw for it (armRepaint).
+func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan struct{}, repaint *atomic.Bool) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-measured:
-			s.do(func() { s.fitPane(id) })
+			s.do(func() {
+				s.fitPane(id)
+				if repaint.CompareAndSwap(true, false) {
+					s.repaintPane(id)
+				}
+			})
 		}
 	}
 }
@@ -346,6 +358,60 @@ func (s *Server) fitPane(id string) {
 	if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
 		s.ws.ResizePaneTerminal(id, cols, rows)
 	}
+}
+
+// altScreen reports whether a pane's program is on the alternate screen. It is
+// a variable so a test need not run a full-screen program to be on one.
+var altScreen = (*session.Session).AltScreen
+
+// repaintResize applies one step of a repaint. It is a variable so a test can
+// see the steps without a program there to redraw.
+var repaintResize = func(s *Server, id string, cols, rows int) {
+	s.ws.ResizePaneTerminal(id, cols, rows)
+}
+
+// repaintGap is how long a pane is left a row short before it is put back, so
+// its program sees a change rather than two that cancel out.
+var repaintGap = 100 * time.Millisecond
+
+// armRepaint readies a repaint for a stream that has just started afresh on a
+// full-screen program.
+//
+// A window attaching to a pane that shows vim, htop or an agent's own
+// full-screen view is sent the replay with the terminal modes put back -- and
+// the replay of a full-screen program is its screen as it happened to be drawn,
+// a piece at a time, so the window shows garbage until the program next
+// redraws of its own accord. A program redraws when its terminal changes size,
+// so once this window's size is known the pane is made a row shorter and put
+// back. A stream that resumes keeps the screen it had and needs none, and nor
+// does a program on the ordinary screen, whose replay is simply its output.
+//
+// It happens once, from whichever comes second: this, or the window's first
+// size being applied (applyResizes).
+func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
+	repaint.Store(fresh && altScreen(sess))
+	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
+		go s.do(func() { s.repaintPane(id) })
+	}
+}
+
+// repaintPane makes a pane a row shorter and, a moment later, puts it back. It
+// must run on the workspace goroutine.
+func (s *Server) repaintPane(id string) {
+	cols, rows := viewers.size(id)
+	if cols <= 0 || rows < 2 {
+		return
+	}
+	repaintResize(s, id, cols, rows-1)
+	time.AfterFunc(repaintGap, func() {
+		s.do(func() {
+			// Whatever size is right by then, in case a window has changed
+			// shape in the meantime.
+			if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
+				repaintResize(s, id, cols, rows)
+			}
+		})
+	})
 }
 
 // waitForRestart waits for the pane to be given a new process. It returns nil
@@ -666,6 +732,14 @@ func (v *viewerSizes) drop(pane string, viewer int64) bool {
 		return false
 	}
 	return true
+}
+
+// sized reports whether one window has said what size it is.
+func (v *viewerSizes) sized(pane string, viewer int64) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	st := v.panes[pane][viewer]
+	return st.cols > 0 && st.rows > 0
 }
 
 // size is the size the pane should be: the window last used's, or, until one
