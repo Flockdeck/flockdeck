@@ -305,10 +305,10 @@ func Messages(entries []Entry) []Message {
 		case string(RoleAssistant):
 			add(RoleAssistant, e.Text)
 		case string(RoleTool):
-			label := e.Tool
-			if label == "" {
-				label = "tool"
-			}
+			// Labelled with what the call acted on, where the entry says:
+			// "[read_file]" over a file's contents does not tell the model,
+			// picking a conversation back up, which file it is looking at.
+			label := firstNonEmpty(e.Call, e.Tool, "tool")
 			add(RoleUser, "["+label+"]\n"+e.Text)
 		}
 	}
