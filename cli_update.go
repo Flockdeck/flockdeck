@@ -110,6 +110,12 @@ func runUpdate(args []string) error {
 	}
 
 	fmt.Printf("Updated to %s. It will be in use from the next start.\n", staged.Version)
+	// A Flockdeck already running goes on as the old version until it is
+	// started again, and that is the one step left to the user, so it is
+	// worth saying when there is one.
+	if inst, _, err := runningInstance(); err == nil && inst != nil {
+		fmt.Println("Flockdeck is running now: quit it and start it again to switch to the new version.")
+	}
 	return nil
 }
 
