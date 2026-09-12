@@ -2,10 +2,15 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -415,7 +420,7 @@ func TestUpdateRequestsCarryNothingIdentifying(t *testing.T) {
 // with it would quietly never trust the site.
 func TestReleaseKeyIsThePlaceholderOrAKey(t *testing.T) {
 	if _, ok := ReleaseKey(); !ok && releaseKey != releaseKeyPlaceholder {
-		t.Errorf("releaseKey is %q, which is neither the placeholder nor a key `cmd/release -keygen` printed", releaseKey)
+		t.Errorf("releaseKey is %q, which is neither the placeholder nor an Ed25519 public key in PEM or base64", releaseKey)
 	}
 }
 
@@ -428,8 +433,8 @@ func TestReleaseKeyIsInPlace(t *testing.T) {
 		t.Skip("only a release build must carry the release key")
 	}
 	if _, ok := ReleaseKey(); !ok {
-		t.Fatal("internal/selfupdate/releasekey.go still holds the placeholder: generate the key with " +
-			"`go run ./cmd/release -keygen <file>` and put the public key it prints in releaseKey")
+		t.Fatal("internal/selfupdate/releasekey.go still holds the placeholder: put the public key " +
+			"`terraform output -raw flockdeck_release_public_key` prints in releaseKey")
 	}
 }
 
@@ -469,4 +474,66 @@ func TestSignAndVerify(t *testing.T) {
 	if _, err := ParseSigningKey("not a key"); err == nil || strings.Contains(err.Error(), "not a key") {
 		t.Errorf("ParseSigningKey of junk = %v; want an error that does not quote the secret", err)
 	}
+}
+
+// Terraform makes the release key and gives each half as PEM: the private
+// half as PKCS#8, the public half as its SubjectPublicKeyInfo. Each reads back
+// as the key it came from, pasted as it is: with Windows line endings, or with
+// what `terraform output` prints around it. A PEM holding any other kind of
+// key, or the other half, is refused, and never quoted back.
+func TestKeysReadAsTerraformGivesThem(t *testing.T) {
+	pub, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privPEM := pemOf(t, "PRIVATE KEY", must(x509.MarshalPKCS8PrivateKey(key)))
+	pubPEM := pemOf(t, "PUBLIC KEY", must(x509.MarshalPKIXPublicKey(pub)))
+	crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
+
+	for name, s := range map[string]string{"as given": privPEM, "with Windows line endings": crlf(privPEM)} {
+		if got, err := ParseSigningKey(s); err != nil || !got.Equal(key) {
+			t.Errorf("ParseSigningKey of Terraform's key %s = %v", name, err)
+		}
+	}
+	for name, s := range map[string]string{
+		"as given":                      pubPEM,
+		"with Windows line endings":     crlf(pubPEM),
+		"as terraform output prints it": "<<EOT\n" + pubPEM + "EOT\n",
+	} {
+		if got := parsePublicKey(s); !got.Equal(pub) {
+			t.Errorf("parsePublicKey of Terraform's public key %s = %v", name, got)
+		}
+	}
+
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecPEM := pemOf(t, "PRIVATE KEY", must(x509.MarshalPKCS8PrivateKey(ec)))
+	body := strings.Split(ecPEM, "\n")[1]
+	for name, s := range map[string]string{"an ECDSA key": ecPEM, "the public half": pubPEM} {
+		if _, err := ParseSigningKey(s); err == nil || strings.Contains(err.Error(), body) || strings.Contains(err.Error(), strings.Split(s, "\n")[1]) {
+			t.Errorf("ParseSigningKey of %s = %v; want it refused without quoting it", name, err)
+		}
+	}
+	for name, s := range map[string]string{
+		"an ECDSA public key": pemOf(t, "PUBLIC KEY", must(x509.MarshalPKIXPublicKey(&ec.PublicKey))),
+		"the private half":    privPEM,
+	} {
+		if got := parsePublicKey(s); got != nil {
+			t.Errorf("parsePublicKey of %s = %v, want nothing", name, got)
+		}
+	}
+}
+
+func pemOf(t *testing.T, kind string, der []byte) string {
+	t.Helper()
+	return string(pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}))
+}
+
+func must(b []byte, err error) []byte {
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
