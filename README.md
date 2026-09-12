@@ -877,6 +877,10 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 - The window needs a browser engine present. Every supported platform ships one
   or has one in practice, but on a bare Linux install with no browser at all
   there is nothing to display the interface in.
+- Release binaries are not signed. The install scripts are unaffected, but a
+  copy downloaded from the releases page in a browser can be stopped by
+  Gatekeeper or SmartScreen the first time it runs; the in-app help's
+  troubleshooting page says how to let it through.
 
 ## Licence
 
