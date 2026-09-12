@@ -12,7 +12,9 @@ was started in a folder inside it, and a commit takes all of it.
 
 - The branch and where it stands against its upstream.
 - Every changed file, what happened to it, and how many lines moved.
-- A coloured diff of whichever file you select.
+- A coloured diff of whichever file you select. A diff longer than 3,000 lines
+  draws the first 3,000, with **Show them** for the rest, and the list of files
+  stops at 2,000.
 
 ## What you can do
 
