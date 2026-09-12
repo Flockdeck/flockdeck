@@ -163,20 +163,7 @@ func TakesAddress(s Spec) bool {
 // the key store. It reads nothing out -- the answer is set or not set, which is
 // all availability, and all the interface, is ever told.
 func keyIsSet(s Spec) bool {
-	// The names are the ones the chat client tries, in its order: the entry's
-	// own, then the vendor's usual one for the wire, then Flockdeck's own. Asking
-	// only the first left an entry naming none of its own -- a gateway given
-	// just a baseURL, with OPENAI_API_KEY exported -- greyed out in the picker
-	// while it would have started perfectly well.
-	//
-	// An entry with neither an endpoint nor a variable of its own is the
-	// OpenAI-compatible one as it ships, with no address filled in yet; a key
-	// exported for OpenAI proper is not a reason to offer it.
-	names := s.API.KeyEnv
-	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
-		names = append(append(append([]string{}, names...), wireKeyEnv(s.API.Wire)...), "FLOCKDECK_API_KEY")
-	}
-	for _, name := range names {
+	for _, name := range KeyNames(s) {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
 			return true
 		}
@@ -198,6 +185,25 @@ func keyIsSet(s Spec) bool {
 		return false
 	}
 	return strings.TrimSpace(keys[s.ID]) != ""
+}
+
+// KeyNames are the environment variables an API agent's key is looked for in,
+// in the order the chat client tries them: the entry's own, then the vendor's
+// usual one for the wire, then Flockdeck's own. Asking only the first left an
+// entry naming none of its own -- a gateway given just a baseURL, with
+// OPENAI_API_KEY exported -- greyed out in the picker while it would have
+// started perfectly well.
+//
+// An entry with neither an endpoint nor a variable of its own is the
+// OpenAI-compatible one as it ships, with no address filled in yet; a key
+// exported for OpenAI proper is not a reason to offer it, so it has only its
+// own names, which are none.
+func KeyNames(s Spec) []string {
+	names := append([]string{}, s.API.KeyEnv...)
+	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
+		names = append(append(names, wireKeyEnv(s.API.Wire)...), "FLOCKDECK_API_KEY")
+	}
+	return names
 }
 
 // wireKeyEnv is the variable each vendor's own tools read a key from, which the
