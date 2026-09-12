@@ -14,7 +14,9 @@ them, how to change it, and where it is kept.
   in `agents.json`.
 - **An API agent's key** — [[action:apiKeys]], or `flockdeck keys set <agent>`.
   Kept in `keys.json`.
-- **A tab's name** — double-click the tab. Kept with the layout.
+- **A tab's name** — double-click the tab, or **Rename this tab…** in the
+  command palette. An empty name, or **Use the automatic title** there, goes
+  back to the title the tab gives itself. Kept with the layout.
 - **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
   button in each pane header; [Broadcast and the prompt bar](#broadcast) has the
   rest. Kept until Flockdeck stops.

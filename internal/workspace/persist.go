@@ -38,7 +38,7 @@ func (w *Workspace) SaveAll() error {
 // are restored independently of one another.
 func (w *Workspace) SaveProject(root string) error {
 	tabs := w.tabsOf(root)
-	st := &store.State{}
+	st := &store.State{HandNames: true}
 	onScreen, leftOn := -1, -1
 	for i, t := range tabs {
 		if t.ID == w.activeTab {
@@ -51,6 +51,8 @@ func (w *Workspace) SaveProject(root string) error {
 			Title: t.Title,
 			Focus: t.Focus,
 			Root:  w.encodeNode(t.Tree, t.Root),
+			Named: t.Named,
+			Auto:  t.auto,
 		})
 	}
 	// A project that is not on screen is saved on the tab it was last left on,
@@ -181,7 +183,7 @@ func (w *Workspace) restoreProject(root string) int {
 		if tab.Title == "" {
 			tab.Title = filepath.Base(root)
 		}
-		tab.AutoTitle = w.stillAutoTitled(tab)
+		w.restoreTitle(tab, t, st.HandNames)
 		w.Tabs = append(w.Tabs, tab)
 		if firstTab == "" {
 			firstTab = tab.ID
@@ -219,6 +221,32 @@ func (w *Workspace) restoreProject(root string) int {
 	return added
 }
 
+// restoreTitle says who chose a restored tab's title, and so whether a prompt
+// may still rename it and what giving up a name chosen by hand puts back.
+//
+// A layout written before names chosen by hand were marked (handNames absent)
+// cannot say whether a title was typed or came from a prompt. A title that is
+// not the one the tab would be given now is taken for a name, with the title
+// behind it not known: giving it up then gives the tab the title it would be
+// given if it were opened now. Taking it for automatic instead would have left
+// a tab named by hand before the upgrade with no way back to naming itself.
+func (w *Workspace) restoreTitle(tab *Tab, saved store.Tab, marked bool) {
+	switch {
+	case saved.Named:
+		tab.Named = true
+		tab.auto = saved.Auto
+		tab.autoOpen = saved.Auto != "" && w.isOpenAutoTitle(tab, saved.Auto)
+	case marked:
+		tab.AutoTitle = w.stillAutoTitled(tab)
+	default:
+		tab.AutoTitle = w.stillAutoTitled(tab)
+		if !tab.AutoTitle {
+			fresh, _ := w.freshTitle(tab)
+			tab.Named = tab.Title != fresh
+		}
+	}
+}
+
 // stillAutoTitled reports whether a restored tab should go on renaming itself
 // after the first thing its agent is asked.
 //
@@ -233,7 +261,11 @@ func (w *Workspace) restoreProject(root string) int {
 //
 // A tab the user deliberately named after its own directory loses nothing much
 // by being renamed once more; a tab named after a prompt keeps that name.
-func (w *Workspace) stillAutoTitled(t *Tab) bool {
+func (w *Workspace) stillAutoTitled(t *Tab) bool { return w.isOpenAutoTitle(t, t.Title) }
+
+// isOpenAutoTitle is stillAutoTitled for any title of t's, which for a tab
+// named by hand is the automatic title kept behind the name.
+func (w *Workspace) isOpenAutoTitle(t *Tab, title string) bool {
 	// Only an agent pane reports the prompts a rename would come from.
 	agents := false
 	for _, id := range t.Tree.Panes() {
@@ -241,12 +273,12 @@ func (w *Workspace) stillAutoTitled(t *Tab) bool {
 		if p == nil || !p.IsAgent() {
 			continue
 		}
-		if t.Title == p.Name {
+		if title == p.Name {
 			return true
 		}
 		agents = true
 	}
-	return agents && t.Title == filepath.Base(t.Root)
+	return agents && title == filepath.Base(t.Root)
 }
 
 // ensureProjectOpen opens the project a restored pane belongs to, so a tab

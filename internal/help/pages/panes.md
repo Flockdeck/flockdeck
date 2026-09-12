@@ -40,7 +40,16 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   pane in it.
 
 The buttons in a pane header do the same things: fan out, include in
-broadcast, restart, zoom, close. Double-click a tab to rename it.
+broadcast, restart, zoom, close.
+
+## Naming a tab
+
+A tab names itself after the first thing its agent is asked. To call it
+something else, double-click it, or choose **Rename this tab…** in the command
+palette; a name you give it stays, whatever the agent is asked next. To go
+back, rename it to an empty name or choose **Use the automatic title** in the
+same dialog: the tab takes the title it would have had if it had never been
+renamed. Either way the name is kept with the layout.
 
 ## Restarting
 

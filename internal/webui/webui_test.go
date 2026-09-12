@@ -2941,9 +2941,16 @@ func TestATabCanBeRenamedFromThePalette(t *testing.T) {
 	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture());
-h.win._prompt = "api work";
 paletteRun("rename");
+assert.ok(!h.$("overlay").hidden, "the rename dialog did not open");
+const field = h.$("tab-name");
+assert.ok(h.doc.activeElement === field, "the name field does not have the keyboard");
+assert.strictEqual(field.selectionEnd - field.selectionStart, field.value.length,
+  "the old name is not selected, so typing adds to it");
+field.value = "api work";
+h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "renameTab", id: "t1", text: "api work" });
+assert.ok(h.$("overlay").hidden, "the dialog stayed open once the tab was renamed");
 `)
 }
 
@@ -4600,21 +4607,46 @@ assert.ok(!after.defaultPrevented, "F3 was taken with the find bar closed");
 `)
 }
 
-// Renaming a tab to nothing did nothing and said nothing: the empty answer
-// was dropped before the server, which says a tab needs a name, could say so.
-func TestAnEmptiedTabNameIsAnswered(t *testing.T) {
+// A tab renamed by hand could never go back to naming itself, and nothing
+// said how it might. The rename dialog sends an emptied name, which is the way
+// back, offers "Use the automatic title" on a tab that has a name to give up,
+// and says which of the two the tab is.
+func TestARenamedTabCanGoBackToItsAutomaticTitle(t *testing.T) {
 	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture());
 const renames = () => h.commands().filter((c) => c.cmd === "renameTab");
-h.win._prompt = "";
+
+// A tab that names itself has nothing to give up.
 paletteRun("rename this tab");
+assert.ok(!h.$("tab-auto-title"), "a tab that already names itself was offered its automatic title");
+assert.ok(/names itself/.test(h.$("overlay-body").textContent), "the dialog does not say the tab names itself");
+assert.ok(/empty/.test(h.$("tab-name").placeholder), "the field does not say what an empty name does");
+h.$("tab-name").value = "";
+h.key({ key: "Enter" });
 assert.deepStrictEqual(renames().pop(), { cmd: "renameTab", id: "t1", text: "" },
   "an emptied name went nowhere, so nothing said why the tab kept its old one");
-h.win._prompt = null;
+
+// A tab named by hand is offered the way back, from a double-click as much
+// as from the palette.
+const named = fixture();
+named.tabs[0].named = true;
+h.recv(named);
+h.$("tabs").children[0].ondblclick();
+assert.ok(h.doc.activeElement === h.$("tab-name"), "the name field does not have the keyboard");
+const back = h.$("tab-auto-title");
+assert.ok(back, "a tab named by hand was not offered its automatic title");
+assert.ok(/You named this tab/.test(h.$("overlay-body").textContent), "the dialog does not say the tab was named by hand");
+h.click(back);
+assert.deepStrictEqual(renames().pop(), { cmd: "renameTab", id: "t1", text: "" });
+assert.ok(h.$("overlay").hidden, "the dialog stayed open once the automatic title was chosen");
+
+// Escape leaves the name as it was.
 const before = renames().length;
 paletteRun("rename this tab");
-assert.strictEqual(renames().length, before, "Cancel renamed the tab");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape did not close the rename dialog");
+assert.strictEqual(renames().length, before, "closing the dialog renamed the tab");
 `)
 }
 

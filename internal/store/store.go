@@ -36,6 +36,11 @@ type State struct {
 	Tabs    []Tab  `json:"tabs"`
 	Active  int    `json:"active"`
 	Root    string `json:"root,omitempty"` // directory the workspace was opened on
+	// HandNames is set by every layout that says, tab by tab, whether a title
+	// was chosen by hand. A layout without it was written before that was
+	// kept, and a tab's title there may be either; Named being absent means
+	// something only where this is set.
+	HandNames bool `json:"handNames,omitempty"`
 }
 
 // Tab is one tab and its pane tree.
@@ -43,6 +48,11 @@ type Tab struct {
 	Title string `json:"title,omitempty"`
 	Focus string `json:"focus,omitempty"`
 	Root  *Node  `json:"root"`
+	// Named is set when Title was chosen by hand, and Auto is then the title
+	// the tab would have had otherwise, which giving up the name puts back.
+	// An empty Auto is not known.
+	Named bool   `json:"named,omitempty"`
+	Auto  string `json:"auto,omitempty"`
 }
 
 // Node mirrors layout.Node in a form that survives a round trip through JSON.

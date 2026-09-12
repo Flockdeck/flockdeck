@@ -173,6 +173,9 @@ type tabView struct {
 	Zoom      bool      `json:"zoom"`
 	Attention bool      `json:"attention"`
 	Root      *nodeView `json:"root"`
+	// Named says the title was chosen by hand, which is when the rename
+	// dialog offers to go back to the automatic one.
+	Named bool `json:"named,omitempty"`
 }
 
 type nodeView struct {
@@ -341,6 +344,7 @@ func (s *Server) snapshot() stateMsg {
 			Focus:     t.Focus,
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
+			Named:     t.Named,
 			Root:      root,
 		})
 		// Cleaning the tab's directory once rather than once per pane: it is
@@ -970,18 +974,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "prevTab":
 			ws.PrevTab()
 		case "renameTab":
-			t := ws.Tab(cmd.ID)
-			if t == nil {
+			if ws.Tab(cmd.ID) == nil {
 				return
 			}
-			title := tabTitle(cmd.Text)
-			if title == "" {
-				c.notify("a tab name is required", true)
-				return
+			// An emptied name is how a tab goes back to naming itself: it
+			// is what someone tries first, and the rename dialog's "Use the
+			// automatic title" sends the same. Refusing it, as this did,
+			// left a tab named once with no way back at all.
+			if title := tabTitle(cmd.Text); title != "" {
+				ws.NameTab(cmd.ID, title)
+			} else if !ws.UseAutoTitle(cmd.ID) {
+				c.notify("this tab already has its automatic title", false)
 			}
-			t.Title = title
-			// A title chosen by hand is not replaced by a later prompt.
-			t.AutoTitle = false
 		case "openProject":
 			// A path that is not absolute is resolved against the directory
 			// flockdeck was launched from, which the window knows nothing about
