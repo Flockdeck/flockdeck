@@ -180,7 +180,10 @@ func remoteEnable(args []string, rio remoteIO) error {
 	}
 	switch {
 	case errors.As(err, &already) && already.Err == nil:
-		return fmt.Errorf("%v; run `flockdeck remote disable` first to enrol this machine again", err)
+		// Whoever runs enable twice most likely forgot the first; the way to
+		// enrol again costs the account's devices if this is its only
+		// machine, so that is said before anybody takes it.
+		return fmt.Errorf("%v, so there is nothing to do; to enrol this machine again, run `flockdeck remote disable` first, which unpairs its devices if it is the account's only machine", err)
 	case errors.As(err, &already):
 		return fmt.Errorf("%v; run `flockdeck remote disable -force` to start again", err)
 	case err != nil:

@@ -127,6 +127,8 @@ func TestRemoteLifecycle(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "other"); err == nil ||
 		!strings.Contains(err.Error(), "already enabled") {
 		t.Errorf("enabling twice = %v, want it refused", err)
+	} else if !strings.Contains(err.Error(), "unpairs its devices if it is the account's only machine") {
+		t.Errorf("enabling twice = %v, want it to say what enrolling again costs", err)
 	}
 	// Naming another relay is asking to move there, and the refusal says how.
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", "https://other.example"); err == nil ||
