@@ -33,26 +33,24 @@ func Changes(dir string) ([]FileChange, error) { return changes(dir, maxCounted)
 // changes is Changes with the counting limit given, so a test can reach it
 // without writing a thousand files.
 func changes(dir string, limit int) ([]FileChange, error) {
-	// None of the three calls needs an answer from the others, and each one is
-	// a process: run concurrently they cost one wait rather than three, which
-	// is what the panel notices on a checkout with a lot of changes in it.
+	// Neither call needs an answer from the other, and each one is a process:
+	// run concurrently they cost one wait rather than two, which is what the
+	// panel notices on a checkout with a lot of changes in it.
 	//
-	// The numstats are cancellable because they are the expensive pair. git has
-	// to read and diff every changed file to produce them, which took 20s over
-	// a 10,000-file diff against 139ms for the status call that lists the same
-	// files. Once status has come back and said there are more files than
-	// anyone is going to read a "+12" beside, the two are killed where they
-	// stand rather than left to finish work that is about to be thrown away.
+	// The line counts are cancellable because they are the expensive call. git
+	// has to read and diff every changed file to produce them, which took 20s
+	// over a 10,000-file diff against 139ms for the status call that lists the
+	// same files. Once status has come back and said there are more files than
+	// anyone is going to read a "+12" beside, the count is killed where it
+	// stands rather than left to finish work that is about to be thrown away.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var (
-		staged, unstaged map[string]lineCount
-		wg               sync.WaitGroup
+		counts map[string]lineCount
+		wg     sync.WaitGroup
 	)
-	wg.Add(2)
-	// Line counts come from numstat, which status does not provide.
-	go func() { defer wg.Done(); staged = numstat(ctx, dir, true) }()
-	go func() { defer wg.Done(); unstaged = numstat(ctx, dir, false) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); counts = lineCounts(ctx, dir) }()
 	// -z is what makes the names trustworthy: without it git quotes anything
 	// with a space, a quote or a non-ASCII character and escapes the bytes, so
 	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
@@ -71,10 +69,10 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		return nil, err
 	}
 	if tooMany {
-		// A numstat small enough to have finished before the cancel reached it
+		// A count small enough to have finished before the cancel reached it
 		// is thrown away all the same, so being over the limit means one thing
 		// however that race came out.
-		staged, unstaged = nil, nil
+		counts = nil
 	}
 
 	var files []FileChange
@@ -104,12 +102,8 @@ func changes(dir string, limit int) ([]FileChange, error) {
 			Unstaged:  code[1] != ' ' && code[1] != '?',
 			Untracked: code == "??",
 		}
-		if n, ok := staged[path]; ok {
+		if n, ok := counts[path]; ok {
 			fc.Added, fc.Removed = n.added, n.removed
-		}
-		if n, ok := unstaged[path]; ok {
-			fc.Added += n.added
-			fc.Removed += n.removed
 		}
 		files = append(files, fc)
 	}
@@ -168,19 +162,42 @@ const maxCounted = 1000
 
 type lineCount struct{ added, removed int }
 
-// numstat reads per-file line counts for the staged or unstaged diff.
+// lineCounts reads how many lines each changed file adds and removes against
+// the last commit: the comparison the panel's diff shows, and the one the
+// commit button takes.
+//
+// It was the staged and the unstaged diff counted apart and added up, which
+// is a different sum. A line staged and then taken out again counted +1 -1
+// beside a file the commit would not touch, and a staged line edited again
+// was counted twice. Before the first commit there is no HEAD to compare with,
+// so there the two are still added up.
+func lineCounts(ctx context.Context, dir string) map[string]lineCount {
+	counts, err := numstat(ctx, dir, "HEAD")
+	if err == nil || ctx.Err() != nil {
+		return counts
+	}
+	staged, _ := numstat(ctx, dir, "--cached")
+	unstaged, _ := numstat(ctx, dir)
+	sum := map[string]lineCount{}
+	for _, part := range []map[string]lineCount{staged, unstaged} {
+		for path, n := range part {
+			s := sum[path]
+			sum[path] = lineCount{added: s.added + n.added, removed: s.removed + n.removed}
+		}
+	}
+	return sum
+}
+
+// numstat reads per-file line counts for one diff, named by against.
 //
 // The keys have to match the names Changes reports, so this reads -z as well:
 // otherwise a quoted name never matches, and a rename is keyed under
 // "old => new", which matches nothing at all and left it counted as 0/0.
-func numstat(ctx context.Context, dir string, cached bool) map[string]lineCount {
-	args := []string{"diff", "--numstat", "-z"}
-	if cached {
-		args = append(args, "--cached")
-	}
+func numstat(ctx context.Context, dir string, against ...string) (map[string]lineCount, error) {
+	args := append([]string{"diff", "--numstat", "-z"}, against...)
 	out, err := runUntil(ctx, dir, args...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	counts := map[string]lineCount{}
 	records := strings.Split(out, "\x00")
@@ -204,7 +221,7 @@ func numstat(ctx context.Context, dir string, cached bool) map[string]lineCount 
 		}
 		counts[path] = lineCount{added: a, removed: r}
 	}
-	return counts
+	return counts, nil
 }
 
 // unmerged holds the porcelain codes git uses for a conflicted file. Several

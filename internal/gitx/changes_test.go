@@ -1203,3 +1203,43 @@ func TestCommitRefusesAMergeWithMarkersInIt(t *testing.T) {
 		t.Fatalf("a resolved merge should commit: %v", err)
 	}
 }
+
+// TestLineCountsAreAgainstTheLastCommit: the counts were the staged and the
+// unstaged diff added up, which is not what the diff beside them shows or
+// what a commit takes.
+func TestLineCountsAreAgainstTheLastCommit(t *testing.T) {
+	repo := newRepo(t)
+	count := func() (int, int) {
+		t.Helper()
+		files, err := Changes(repo)
+		if err != nil || len(files) != 1 {
+			t.Fatalf("changes = %+v, %v; want README.md alone", files, err)
+		}
+		return files[0].Added, files[0].Removed
+	}
+
+	// Staged, then taken out again: the file is as the last commit has it.
+	write(t, repo, "README.md", "hello\nstaged\n")
+	gitRun(t, repo, "add", "README.md")
+	write(t, repo, "README.md", "hello\n")
+	if a, r := count(); a != 0 || r != 0 {
+		t.Errorf("staged and taken out again = +%d -%d, want +0 -0", a, r)
+	}
+
+	// Staged, then the same line edited: one line added, not two.
+	write(t, repo, "README.md", "hello\nedited\n")
+	if a, r := count(); a != 1 || r != 0 {
+		t.Errorf("staged and edited again = +%d -%d, want +1 -0", a, r)
+	}
+
+	// Before the first commit the two are still counted.
+	fresh := t.TempDir()
+	gitRun(t, fresh, "init", "-q")
+	write(t, fresh, "a.txt", "one\n")
+	gitRun(t, fresh, "add", "a.txt")
+	write(t, fresh, "a.txt", "one\ntwo\n")
+	files, err := Changes(fresh)
+	if err != nil || len(files) != 1 || files[0].Added == 0 {
+		t.Errorf("counts before the first commit = %+v, %v; want them counted", files, err)
+	}
+}
