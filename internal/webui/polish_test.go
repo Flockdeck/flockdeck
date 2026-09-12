@@ -312,3 +312,29 @@ assert.strictEqual(link.selectionEnd, link.value.length, "the link is not select
 assert.ok(h.$("notice").classList.contains("error"), "nothing said the copy failed");
 `)
 }
+
+// Narrowed to nothing, the conversations simply went blank, which reads the
+// same as a project with none or a list still being read. It says so.
+func TestTheConversationsSayWhenNothingMatches(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-history"));
+const conv = (id, summary) => ({ id, summary, ago: "1h", messages: 3, open: false });
+const list = { type: "conversations", cwd: "C:/repo", items: [conv("aaaa1111", "Fix the login bug"), conv("bbbb2222", "Write docs")] };
+h.recv(list);
+const field = h.$("history-filter");
+const none = () => h.$("history-none");
+assert.ok(!none() || none().hidden, "the list says nothing matches while it shows conversations");
+field.value = "zebra";
+field.oninput();
+assert.ok(none() && !none().hidden, "a filter that matches nothing leaves the list blank with nothing said");
+field.value = "docs";
+field.oninput();
+assert.ok(none().hidden, "the note outlived the filter");
+field.value = "zebra";
+field.oninput();
+h.recv(list);
+assert.ok(!h.$("history-none").hidden, "a refresh forgot that nothing matches");
+`)
+}

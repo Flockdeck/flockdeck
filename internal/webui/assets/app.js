@@ -4556,6 +4556,7 @@
     field.oninput = () => {
       historyQuery = field.value;
       for (const row of wrap.querySelectorAll("div.conv-row")) row.hidden = !holds(row.dataset.hay);
+      sayNone();
     };
     field.onkeydown = (ev) => {
       if (ev.key !== "ArrowDown") return;
@@ -4607,6 +4608,13 @@
       }
       wrap.append(row);
     });
+    // Narrowed to nothing, the list simply went blank, which reads the same
+    // as a project with no conversations or a list still being read.
+    const none = el("div", "dir-empty", "No conversation matches that.");
+    none.id = "history-none";
+    const sayNone = () => { none.hidden = wrap.querySelectorAll("div.conv-row").some((r) => !r.hidden); };
+    wrap.append(none);
+    sayNone();
     body.append(wrap);
 
     const tools = el("div", "wt-tools");
