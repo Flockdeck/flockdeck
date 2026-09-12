@@ -3652,6 +3652,37 @@ assert.strictEqual(summary.dataset.tip, long, "the whole summary cannot be read 
 `)
 }
 
+// Names and paths are cut short with an ellipsis wherever there is not room
+// for them - a pane's name in its header, a tab's title in the agents
+// overview, a worktree's or a project's path - and paths differ at the end,
+// which is the part cut. Each can be read whole in its tooltip.
+func TestCutNamesAndPathsCanBeReadWhole(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const longName = "Identify and fix every bug in the desktop front end, one per commit";
+h.recv(fixture({ panes: { p1: pane("p1", { name: longName }), p2: pane("p2") } }));
+const name = h.$("workspace").querySelector("span.pane-name");
+assert.strictEqual(name.dataset.tip, longName, "a pane's whole name cannot be read");
+h.recv(fixture({ panes: { p1: pane("p1", { name: "renamed" }), p2: pane("p2") } }));
+assert.strictEqual(name.dataset.tip, "renamed", "the pane's name tip kept its old name");
+
+h.click(h.$("btn-worktrees"));
+const path = "C:/Users/someone/code/flockdeck-worktrees/fix-the-parser-for-long-branch-names";
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [],
+  items: [{ label: "fix-the-parser", path: path, dirty: 0, untracked: 0 }] });
+assert.strictEqual(h.$("overlay-body").querySelector("div.wt-path").dataset.tip, path, "a worktree's whole path cannot be read");
+
+h.key({ key: "Escape" });
+h.press("projects");
+assert.strictEqual(h.$("overlay-body").querySelector("span.proj-path").dataset.tip, "C:/repo", "a project's whole path cannot be read");
+
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [{ paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: longName, name: "a", status: "idle" }] });
+assert.strictEqual(h.$("overlay-body").querySelector("span.agent-tab").dataset.tip, longName, "a tab's whole title cannot be read in the overview");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -1620,7 +1620,9 @@
         p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
         describe(p.dot, TIPS[v.status] || v.status);
       }
-      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; }
+      // The name is cut short with an ellipsis in a narrow pane, and names
+      // taken from an agent's task are long; the bubble has the whole of it.
+      if (was.name !== v.name) { was.name = v.name; p.name.textContent = v.name; describe(p.name, v.name); }
 
       const project = v.project || "";
       if (was.project !== project) { was.project = project; renderPaneProject(p, v); }
@@ -2147,7 +2149,8 @@
       if (wt.head) meta.append(describe(el("span", "wt-head", wt.head),
         "The commit this worktree has checked out."));
       main.append(meta);
-      main.append(el("div", "wt-path", wt.path));
+      // Cut from the end with an ellipsis, and paths differ at the end.
+      main.append(describe(el("div", "wt-path", wt.path), wt.path));
       row.append(main);
 
       const actions = el("div", "wt-actions");
@@ -2307,7 +2310,8 @@
       const go = el("button", "proj-go");
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
-      main.append(el("span", "proj-path", p.root));
+      // Cut from the end with an ellipsis, and paths differ at the end.
+      main.append(describe(el("span", "proj-path", p.root), p.root));
       go.append(main);
 
       const badge = el("span", "proj-badge");
@@ -2370,7 +2374,7 @@
         const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
         const main = el("span", "proj-main");
         main.append(el("span", "proj-name", r.name));
-        main.append(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"));
+        main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
         // A project whose folder has gone cannot be opened, so it stays text
         // rather than becoming a button that does nothing when it is pressed.
         if (r.exists) {
@@ -3574,7 +3578,8 @@
       const dot = el("span", "dot " + a.status);
       dot.setAttribute("aria-hidden", "true");
       title.append(describe(dot, TIPS[a.status] || a.status));
-      title.append(el("span", "agent-tab", a.tab || a.name));
+      // Cut short with an ellipsis, like the tab it names; the bubble has it all.
+      title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
       title.append(el("span", "agent-project", a.project));
       main.append(title);
 
