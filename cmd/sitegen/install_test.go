@@ -307,6 +307,57 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 	}
 }
 
+// With neither curl nor wget, the first fetch's complaint was thrown away with
+// the rest of what an unreachable site says: the script said the site could
+// not be reached and that it was going to GitHub instead, before saying what
+// was missing.
+func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReleases(t)
+	script := pointAt(t, string(shipped), r, map[string]string{
+		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
+		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
+	})
+	home := t.TempDir()
+	path := filepath.Join(home, "install.sh")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Every program the script uses, but neither of the two that download.
+	tools := filepath.Join(home, "tools")
+	if err := os.Mkdir(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
+		"tar", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"} {
+		if p, err := exec.LookPath(name); err == nil {
+			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	cmd := exec.Command(sh, path)
+	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+filepath.Join(home, "bin"), "PATH="+tools)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the script succeeded with nothing to download with:\n%s", out)
+	}
+	if !strings.Contains(string(out), "needs curl or wget") || strings.Contains(string(out), "could not reach") {
+		t.Errorf("with neither curl nor wget the script said:\n%s", out)
+	}
+	for _, p := range []string{"dl", "gh", "api"} {
+		if asked := r.askedOf(p); len(asked) > 0 {
+			t.Errorf("asked %v of %s", asked, p)
+		}
+	}
+}
+
 // install.ps1 does as install.sh does, reading latest.json with
 // ConvertFrom-Json. It runs where Windows PowerShell does, installing into a
 // temporary directory and leaving PATH and the Start menu alone.

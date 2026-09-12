@@ -116,6 +116,13 @@ download() {
 main() {
 	os=$(detect_os)
 	arch=$(detect_arch "$os")
+	# Asked once, here, rather than by the first fetch: that one's complaint
+	# is thrown away with the rest of what an unreachable site says, and the
+	# reader was told the site could not be reached, and that GitHub was being
+	# tried instead, before hearing what was actually missing.
+	if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+		die "downloading the release needs curl or wget, and neither is installed; install one and run this again"
+	fi
 	# Run from a service or under env -i there may be no HOME, and set -u
 	# would stop on it with nothing to say what to do instead.
 	if [ -z "${FLOCKDECK_INSTALL_DIR:-}" ] && [ -z "${HOME:-}" ]; then
