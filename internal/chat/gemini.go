@@ -136,6 +136,10 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				// The reasoning a thinking model did is billed as output
 				// but counted apart from the answer.
 				ThoughtsTokenCount int `json:"thoughtsTokenCount"`
+				// The part of the prompt Gemini read from its cache, which it
+				// applies unasked to a long prompt and bills at a tenth of the
+				// price.
+				CachedContentTokenCount int `json:"cachedContentTokenCount"`
 			} `json:"usageMetadata"`
 			Error struct {
 				Message string `json:"message"`
@@ -152,7 +156,8 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		if chunk.UsageMetadata.PromptTokenCount > 0 || chunk.UsageMetadata.CandidatesTokenCount > 0 {
 			usage = Usage{
 				In:  chunk.UsageMetadata.PromptTokenCount,
-				Out: chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
+				Out:       chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
+				CacheRead: chunk.UsageMetadata.CachedContentTokenCount,
 			}
 		}
 		if chunk.PromptFeedback.BlockReason != "" {
