@@ -260,7 +260,15 @@
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
       else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); }
-      else if (msg.type === "worktrees") keepFocus(() => renderWorktrees(msg));
+      // A button that went with its worktree leaves the keyboard on the list
+      // - the first row's first button, which removes nothing - rather than
+      // out of the dialog.
+      else if (msg.type === "worktrees") {
+        keepFocus(() => renderWorktrees(msg), (body) => {
+          const bar = body.querySelector("div.wt-actions");
+          return bar && bar.querySelector("button");
+        });
+      }
       else if (msg.type === "recents") { recents = msg.items || []; if (dialog === "projects") keepFocus(renderProjects); }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
@@ -2066,7 +2074,8 @@
     // The control went with what it acted on - the folder gone into, say - so
     // the keyboard goes to where the answer put things, where the caller has
     // named such a place, rather than falling out of the dialog altogether.
-    const next = fallback && body.querySelector(fallback);
+    // The place is a selector, or a function finding it in the body.
+    const next = typeof fallback === "function" ? fallback(body) : fallback && body.querySelector(fallback);
     if (next) next.focus();
   }
 
@@ -2214,9 +2223,17 @@
       review.title = "See what changed here, commit and push";
       review.onclick = () => openChanges(wt.path);
       actions.append(agent, shell, split, review);
+      // Named by the worktree they act on. A redraw finds the control the
+      // keyboard was on by what it is, and by wording alone "Remove" in one
+      // row is "Remove" in the next: removing a clean worktree - which does
+      // not ask - left the keyboard on the next one's Remove, and a second
+      // Enter removed that as well.
+      const key = "wt-" + encodeURIComponent(wt.path) + "-";
+      agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
 
       if (!wt.main) {
         const rm = el("button", "chip danger", "Remove");
+        rm.id = key + "remove";
         const unsafe = wt.dirty || wt.untracked;
         rm.title = unsafe ? "This worktree has uncommitted work" : "Remove this worktree";
         rm.onclick = () => {

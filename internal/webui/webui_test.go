@@ -3945,6 +3945,35 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path:
 `)
 }
 
+// A redraw finds the control the keyboard was on by what it is, and by
+// wording alone one row's Remove is the next row's. Removing a clean worktree,
+// which does not ask, left the keyboard on the next one's Remove, and a second
+// Enter removed that one too.
+func TestRemovingAWorktreeDoesNotAimAtTheNext(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const main = { label: "main", path: "C:/repo", main: true };
+const a = { label: "a", path: "C:/repo-a", dirty: 0, untracked: 0 };
+const b = { label: "b", path: "C:/repo-b", dirty: 0, untracked: 0 };
+h.recv(list([main, a, b]));
+const removeA = h.$("overlay-body").querySelectorAll("button").filter((x) => x.textContent === "Remove")[0];
+removeA.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-a", force: false });
+
+h.recv(list([main, b]));
+const now = h.doc.activeElement;
+assert.ok(now.textContent !== "Remove", "the keyboard landed on another worktree's Remove button");
+assert.ok(h.$("overlay-body").contains(now), "the keyboard fell out of the dialog");
+const before = h.commands().length;
+h.key({ key: "Enter" });
+assert.ok(!h.commands().slice(before).some((c) => c.cmd === "worktreeRemove"), "a second Enter removed another worktree");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
