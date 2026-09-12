@@ -14,7 +14,7 @@ import (
 // project nobody was looking at.
 func TestAWorktreeListingDoesNotLandOnTopOfANewerOne(t *testing.T) {
 	srv, ws := newTestServer(t)
-	first, second := ws.ActiveRoot(), t.TempDir()
+	first, second := srv.activeRoot(), t.TempDir()
 	if _, ok := ask(srv, func() bool {
 		if err := ws.OpenProject(second); err != nil {
 			t.Error(err)

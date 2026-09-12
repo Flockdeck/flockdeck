@@ -10,7 +10,7 @@ import "testing"
 // other project's agent. The default has to be the one read when the run began.
 func TestFanoutTrustKeepsItsProjectsDefault(t *testing.T) {
 	srv, ws := newTestServer(t)
-	first := ws.ActiveRoot()
+	first := srv.activeRoot()
 	second := t.TempDir()
 	if _, ok := ws.Catalog().Find("anthropic"); !ok {
 		t.Skip("no built-in anthropic agent to give the second project")

@@ -12,9 +12,10 @@ import (
 // loopback server, the answer is built on the goroutine that owns the
 // workspace, and the description of that pane comes back for Claude to read.
 func TestSessionStartHookAnswersWithPaneContext(t *testing.T) {
-	_, ws := newTestServer(t)
+	srv, ws := newTestServer(t)
 
-	pane := ws.CurrentTab().Focus
+	pane := srv.firstPaneID(t)
+	root := srv.activeRoot()
 	hookSrv := ws.HookServer()
 	if hookSrv == nil {
 		t.Fatal("the workspace has no hook server")
@@ -27,8 +28,8 @@ func TestSessionStartHookAnswersWithPaneContext(t *testing.T) {
 	if !strings.Contains(ctx, "Flockdeck") {
 		t.Errorf("context does not describe the application:\n%s", ctx)
 	}
-	if !strings.Contains(ctx, ws.ActiveRoot()) {
-		t.Errorf("context does not mention the pane's directory %q:\n%s", ws.ActiveRoot(), ctx)
+	if !strings.Contains(ctx, root) {
+		t.Errorf("context does not mention the pane's directory %q:\n%s", root, ctx)
 	}
 }
 

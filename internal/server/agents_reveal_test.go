@@ -29,7 +29,7 @@ func TestRevealFindsThePaneWhereItIsNow(t *testing.T) {
 	// The list puts the pane in the other tab, as it would once the pane had
 	// moved out of there.
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.revealPane(c, ws.ActiveRoot(), other, first.pane)
+	srv.revealPane(c, srv.activeRoot(), other, first.pane)
 
 	if got := where(); got != first {
 		t.Fatalf("revealing the pane left the window on tab %s focused on %s; want its own tab %s focused on it",

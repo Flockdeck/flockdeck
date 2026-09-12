@@ -39,11 +39,11 @@ func listen(t *testing.T, c *controlClient, kind string) conversationsMsg {
 // the rows it draws, and the mark that says a conversation is already in a
 // pane and must not be opened twice.
 func TestListConversationsAnswersTheWindow(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
 
-	root := ws.ActiveRoot()
+	root := srv.activeRoot()
 	dir := filepath.Join(home, "projects", slugFor(root))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -113,10 +113,10 @@ func TestListConversationsAnswersTheWindow(t *testing.T) {
 // model spoken to directly -- and which agent a row belongs to decides what
 // opening it does.
 func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
-	root := ws.ActiveRoot()
+	root := srv.activeRoot()
 
 	claudeDir := filepath.Join(home, "projects", slugFor(root))
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
@@ -171,8 +171,8 @@ func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
 // list, so an error sent with the listing hid every conversation the other
 // agents had. It goes beside the list, as a notice, instead.
 func TestOneUnreadableStoreDoesNotHideTheRest(t *testing.T) {
-	srv, ws := newTestServer(t)
-	root := ws.ActiveRoot()
+	srv, _ := newTestServer(t)
+	root := srv.activeRoot()
 
 	// Claude's store has a conversation; the chat client's cannot be read.
 	was := allConversations
@@ -240,8 +240,8 @@ func TestOnlyTheNewestListingAnswersAWindow(t *testing.T) {
 // for good. It waits on the goroutine reading that window's socket, so a
 // window left there cannot be closed and the shutdown does not finish.
 func TestListConversationsGivesUpWhenTheServerCloses(t *testing.T) {
-	srv, ws := newTestServer(t)
-	root := ws.ActiveRoot()
+	srv, _ := newTestServer(t)
+	root := srv.activeRoot()
 	if err := srv.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -268,12 +268,12 @@ func TestListConversationsGivesUpWhenTheServerCloses(t *testing.T) {
 // and the window has to be told why rather than left watching for a pane
 // that never arrives.
 func TestResumeAConversationThatIsNoLongerStored(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	before := len(srv.openConversationIDs())
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.resumeConversation(c, "12345678-0000-0000-0000-000000000000", ws.ActiveRoot(), "gone", "")
+	srv.resumeConversation(c, "12345678-0000-0000-0000-000000000000", srv.activeRoot(), "gone", "")
 
 	var notice struct {
 		Type  string `json:"type"`

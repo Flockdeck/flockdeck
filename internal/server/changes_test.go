@@ -164,14 +164,12 @@ func TestChangesOutsideARepository(t *testing.T) {
 
 // TestAgentsListsEveryPane covers the cross-project overview.
 func TestAgentsListsEveryPane(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
 
 	other := t.TempDir()
-	if err := ws.OpenProject(other); err != nil {
-		t.Fatalf("open project: %v", err)
-	}
+	srv.openProjectOnOwner(t, other)
 	nextState(t, conn, func(s stateMsg) bool { return len(s.Projects) == 2 })
 
 	var ag agentsMsg
@@ -197,18 +195,16 @@ func TestAgentsListsEveryPane(t *testing.T) {
 
 // TestRevealPaneSwitchesProjectAndTab covers clicking a row in the overview.
 func TestRevealPaneSwitchesProjectAndTab(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	st := nextState(t, conn, nil)
 
 	first := st.Tabs[0]
 	firstPane := first.Root.Pane
-	firstRoot := ws.ActiveRoot()
+	firstRoot := srv.activeRoot()
 
 	other := t.TempDir()
-	if err := ws.OpenProject(other); err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	srv.openProjectOnOwner(t, other)
 	nextState(t, conn, func(s stateMsg) bool { return s.Root == other })
 
 	// Jump back to the pane in the first project.
@@ -274,7 +270,7 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 	if err := os.MkdirAll(inner, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ws.NewTab(session.KindShell, inner, "feature")
+	ask(srv, func() bool { ws.NewTab(session.KindShell, inner, "feature"); return true })
 
 	counts, _ := srv.panesPerPath([]string{repo, inner})
 	if counts[inner] != 1 {

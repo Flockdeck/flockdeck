@@ -13,7 +13,7 @@ import (
 // nothing, and a panic nothing recovers ends the process: every agent in every
 // project, over one listing.
 func TestAReplyThatPanicsLeavesTheInstanceRunning(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	was := allConversations
 	t.Cleanup(func() { allConversations = was })
 	allConversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
@@ -22,7 +22,7 @@ func TestAReplyThatPanicsLeavesTheInstanceRunning(t *testing.T) {
 
 	conn := dialControl(t, srv)
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.listConversations(c, ws.ActiveRoot())
+	srv.listConversations(c, srv.activeRoot())
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
 	if !note.Error {

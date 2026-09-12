@@ -1055,6 +1055,21 @@ func TestAPanicTellsTheWindow(t *testing.T) {
 	}
 }
 
+// openProjectOnOwner opens a project the way a window's command does, on the
+// workspace goroutine. The workspace is not safe for concurrent use and the
+// server's run loop reads it for every snapshot, so opening one from the test's
+// own goroutine raced whichever snapshot the open itself had woken.
+func (s *Server) openProjectOnOwner(t *testing.T, dir string) {
+	t.Helper()
+	err, ok := ask(s, func() error { return s.ws.OpenProject(dir) })
+	if !ok {
+		t.Fatal("the server closed before the project opened")
+	}
+	if err != nil {
+		t.Fatalf("open project: %v", err)
+	}
+}
+
 // projectRoots reads the open project list.
 func (s *Server) projectRoots(t *testing.T) []string {
 	t.Helper()
