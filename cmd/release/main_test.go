@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"debug/pe"
 	"io"
@@ -49,38 +50,62 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 }
 
 // A pane is a console, and Windows gives one only to a console program, so
-// the program an API agent's pane runs is built without the GUI subsystem
-// the one that opens the window has.
-func TestWindowsBuildsAConsoleTwin(t *testing.T) {
+// the Windows archive carries, beside the GUI program that opens the window,
+// a console twin for an API agent's pane to run. The archive a release
+// publishes is made here and read back, the programs' PE subsystems with it.
+func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the program twice")
 	}
 	t.Chdir(filepath.Join("..", ".."))
-	dir := t.TempDir()
-	for _, c := range []struct {
-		what string
-		gui  bool
-		want uint16
-	}{
-		{binary + ".exe", true, pe.IMAGE_SUBSYSTEM_WINDOWS_GUI},
-		{chatBinary + ".exe", false, pe.IMAGE_SUBSYSTEM_WINDOWS_CUI},
-	} {
-		out := filepath.Join(dir, c.what)
-		if err := build("v9.9.9", "windows", "amd64", out, c.gui); err != nil {
-			t.Fatalf("build %s: %v", c.what, err)
+	out := t.TempDir()
+	name, err := packagePlatform("v9.9.9", out, "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zr, err := zip.OpenReader(filepath.Join(out, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	want := map[string]uint16{
+		binary + ".exe":     pe.IMAGE_SUBSYSTEM_WINDOWS_GUI,
+		chatBinary + ".exe": pe.IMAGE_SUBSYSTEM_WINDOWS_CUI,
+	}
+	for _, f := range zr.File {
+		sub, ok := want[f.Name]
+		if !ok {
+			continue
 		}
-		f, err := pe.Open(out)
+		delete(want, f.Name)
+		rc, err := f.Open()
 		if err != nil {
 			t.Fatal(err)
 		}
-		oh, ok := f.OptionalHeader.(*pe.OptionalHeader64)
-		f.Close()
-		if !ok {
-			t.Fatalf("%s is not a 64-bit Windows program", c.what)
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatal(err)
 		}
-		if oh.Subsystem != c.want {
-			t.Errorf("%s is linked for subsystem %d, want %d", c.what, oh.Subsystem, c.want)
+		pf, err := pe.NewFile(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("%s: %v", f.Name, err)
 		}
+		oh, ok := pf.OptionalHeader.(*pe.OptionalHeader64)
+		switch {
+		case !ok:
+			t.Errorf("%s is not a 64-bit Windows program", f.Name)
+		case oh.Subsystem != sub:
+			t.Errorf("%s is linked for subsystem %d, want %d", f.Name, oh.Subsystem, sub)
+		}
+	}
+	for n := range want {
+		t.Errorf("the Windows archive has no %s", n)
+	}
+	// The loose programs went into the archive and are gone.
+	if entries, _ := os.ReadDir(out); len(entries) != 1 {
+		t.Errorf("beside the archive: %v, want nothing else", entries)
 	}
 }
 

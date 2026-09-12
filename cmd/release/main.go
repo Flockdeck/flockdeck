@@ -81,42 +81,12 @@ func run(version, out string) error {
 	sums := map[string]string{}
 
 	for _, p := range platforms {
-		built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, p.OS, p.Arch, ext(p.OS)))
-		if err := build(version, p.OS, p.Arch, built, true); err != nil {
-			return fmt.Errorf("build %s/%s: %w", p.OS, p.Arch, err)
-		}
-		files := []archived{{built, binary + ext(p.OS)}}
-
-		if p.OS == "windows" {
-			twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, p.OS, p.Arch, ext(p.OS)))
-			if err := build(version, p.OS, p.Arch, twin, false); err != nil {
-				return fmt.Errorf("build %s/%s's %s: %w", p.OS, p.Arch, chatBinary, err)
-			}
-			files = append(files, archived{twin, chatBinary + ext(p.OS)})
-		}
-
-		name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, p.OS, p.Arch, archiveExt(p.OS))
-		archive := filepath.Join(out, name)
-
-		var err error
-		if p.OS == "windows" {
-			err = writeZip(archive, files)
-		} else {
-			err = writeTarGz(archive, files)
-		}
+		name, err := packagePlatform(version, out, p.OS, p.Arch)
 		if err != nil {
-			return fmt.Errorf("package %s: %w", name, err)
+			return err
 		}
 
-		// The loose binaries have been folded into the archive and would only
-		// confuse a release page that is meant to offer one file per platform.
-		for _, f := range files {
-			if err := os.Remove(f.path); err != nil {
-				return err
-			}
-		}
-
-		sum, err := sha256File(archive)
+		sum, err := sha256File(filepath.Join(out, name))
 		if err != nil {
 			return err
 		}
@@ -125,6 +95,47 @@ func run(version, out string) error {
 	}
 
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
+}
+
+// packagePlatform builds one platform and writes its archive to out, and
+// returns the archive's name. Windows gets the console twin (chatBinary)
+// beside the program.
+func packagePlatform(version, out, goos, goarch string) (string, error) {
+	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
+	if err := build(version, goos, goarch, built, true); err != nil {
+		return "", fmt.Errorf("build %s/%s: %w", goos, goarch, err)
+	}
+	files := []archived{{built, binary + ext(goos)}}
+
+	if goos == "windows" {
+		twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, goos, goarch, ext(goos)))
+		if err := build(version, goos, goarch, twin, false); err != nil {
+			return "", fmt.Errorf("build %s/%s's %s: %w", goos, goarch, chatBinary, err)
+		}
+		files = append(files, archived{twin, chatBinary + ext(goos)})
+	}
+
+	name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, goos, goarch, archiveExt(goos))
+	archive := filepath.Join(out, name)
+
+	var err error
+	if goos == "windows" {
+		err = writeZip(archive, files)
+	} else {
+		err = writeTarGz(archive, files)
+	}
+	if err != nil {
+		return "", fmt.Errorf("package %s: %w", name, err)
+	}
+
+	// The loose binaries have been folded into the archive and would only
+	// confuse a release page that is meant to offer one file per platform.
+	for _, f := range files {
+		if err := os.Remove(f.path); err != nil {
+			return "", err
+		}
+	}
+	return name, nil
 }
 
 // clearOldArchives removes what an earlier run wrote to out. Archives of
