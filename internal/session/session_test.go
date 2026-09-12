@@ -937,6 +937,43 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 }
 
+// TestScrollingIsNotAnswering covers a pane whose program asked for mouse
+// reports, as full-screen agents do: turning the wheel to read back over the
+// question arrives exactly like typing, and is no answer to it.
+func TestScrollingIsNotAnswering(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.sawInput = true
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+
+	s.publish([]byte("may I run this?\x07"))
+	for _, report := range []string{
+		"\x1b[<64;10;5M",               // wheel up, SGR encoding
+		"\x1b[<65;10;5M\x1b[<65;10;5M", // wheel down, twice in one read
+		"\x1b[<35;12;7M",               // the pointer moving with no button held
+		"\x1b[M`*%",                    // wheel up, the older X10 encoding
+	} {
+		if err := s.WriteString(report); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if st, _ := s.Status(); st != StatusWaiting {
+			t.Fatalf("status = %v after %q; scrolling answers nothing", st, report)
+		}
+	}
+
+	// A click is left alone: in a program drawn for the mouse, clicking an
+	// option is how the question is answered.
+	if err := s.WriteString("\x1b[<0;10;5M"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after a click, want working", st)
+	}
+}
+
 // TestClosingAPaneRacesEverythingElse closes a pane while every other thing
 // that can happen to one is happening: the reader publishing, the layout
 // resizing, a viewer arriving and leaving, keystrokes, and lifecycle hooks.

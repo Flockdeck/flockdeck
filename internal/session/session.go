@@ -1,9 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -557,10 +559,12 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("pane %s has exited; nothing is listening for input", s.ID)
 	}
-	// A terminal reports focus coming and going on its own, to an application
-	// that asked, and that arrives here exactly like typing does. Clicking into
-	// a pane, or the window coming to the front, is not an answer to anything.
-	typed := !focusReport(p)
+	// A terminal reports some things on its own, to a program that asked for
+	// them -- focus coming and going, the mouse wheel turning -- and they
+	// arrive here exactly like typing does. Clicking into a pane, the window
+	// coming to the front, or scrolling back to read the question is not an
+	// answer to it.
+	typed := !terminalReport(p)
 	if typed {
 		s.sawInput = true
 	}
@@ -587,14 +591,39 @@ func (s *Session) Write(p []byte) (int, error) {
 	return s.pty.Write(p)
 }
 
-// focusReport reports whether input is nothing but focus-in and focus-out
-// reports, CSI I and CSI O, which no key produces.
-func focusReport(p []byte) bool {
+// terminalReport reports whether input is nothing but reports a terminal makes
+// on its own account, none of which any key produces: focus in and out (CSI I,
+// CSI O), and the wheel turning or the pointer moving, in the SGR (CSI <) and
+// X10 (CSI M) mouse encodings. A click is not one of them: in a program drawn
+// for the mouse, clicking an option is how a question gets answered.
+func terminalReport(p []byte) bool {
+	// passive is a mouse report's button code saying the wheel or a movement.
+	passive := func(button int) bool { return button&(64|32) != 0 }
 	for len(p) > 0 {
-		if len(p) < 3 || p[0] != 0x1b || p[1] != '[' || (p[2] != 'I' && p[2] != 'O') {
+		if len(p) < 3 || p[0] != 0x1b || p[1] != '[' {
 			return false
 		}
-		p = p[3:]
+		switch p[2] {
+		case 'I', 'O':
+			p = p[3:]
+		case 'M':
+			if len(p) < 6 || !passive(int(p[3])-32) {
+				return false
+			}
+			p = p[6:]
+		case '<':
+			end := bytes.IndexAny(p[3:], "Mm")
+			if end < 0 {
+				return false
+			}
+			button, _, _ := bytes.Cut(p[3:3+end], []byte{';'})
+			if n, err := strconv.Atoi(string(button)); err != nil || !passive(n) {
+				return false
+			}
+			p = p[3+end+1:]
+		default:
+			return false
+		}
 	}
 	return true
 }
