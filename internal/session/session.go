@@ -51,6 +51,11 @@ const (
 	// report end of output when the process it is attached to goes away, so
 	// this is a grace period rather than something to wait on indefinitely.
 	drainGrace = 500 * time.Millisecond
+
+	// closeGrace bounds how long Close waits for a process it has killed to be
+	// gone. Killing only starts the end of a process on Windows, and until it
+	// is over the process still holds its working directory open.
+	closeGrace = 3 * time.Second
 	// quietBeforeIdle is how long a pane with no lifecycle hooks reporting for
 	// it must print nothing before it is called idle again. It has to bridge
 	// the pauses inside one piece of work -- a compiler between files, a test
@@ -188,6 +193,8 @@ type Session struct {
 
 	// pumped is closed once the PTY reader has seen the end of the output.
 	pumped chan struct{}
+	// reaped is closed once the process has exited and been waited for.
+	reaped chan struct{}
 
 	bell bellScanner
 }
@@ -242,6 +249,7 @@ func Start(cfg Config) (*Session, error) {
 		history:     newRing(replayBytes),
 		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
+		reaped:      make(chan struct{}),
 	}
 
 	cmd := command(p, exe, cfg.Argv[1:])
@@ -456,6 +464,7 @@ func (s *Session) settleIdle() {
 // wait reaps the process and records its exit status.
 func (s *Session) wait() {
 	err := s.cmd.Wait()
+	close(s.reaped)
 
 	// The process is gone, but what it printed on the way out -- a shell's
 	// goodbye, a crash message, the last frame Claude drew -- may still be
@@ -784,9 +793,21 @@ func (s *Session) Size() (cols, rows int) {
 
 // Close terminates the process and releases the PTY. It is safe to call on a
 // pane that has already exited, which releases the PTY on its own.
+//
+// It returns once the process is gone, or after closeGrace. On Windows killing
+// a process only begins its end, and until that is over it holds its working
+// directory open: removing a pane's folder straight after closing the pane --
+// a worktree, a temporary checkout -- failed as "being used by another
+// process" in four runs out of ten.
 func (s *Session) Close() error {
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
+		if s.reaped != nil {
+			select {
+			case <-s.reaped:
+			case <-time.After(closeGrace):
+			}
+		}
 	}
 	return s.releasePTY()
 }

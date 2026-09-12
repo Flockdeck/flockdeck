@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +71,37 @@ func TestSessionEchoesInput(t *testing.T) {
 	got, ok := collect(t, out, replay, "flockdeck_marker_ok", 20*time.Second)
 	if !ok {
 		t.Fatalf("input was not echoed back; saw:\n%s", got)
+	}
+}
+
+// TestAClosedPaneLetsGoOfItsFolder covers removing a pane's folder straight
+// after closing the pane. On Windows killing a process only begins its end,
+// and until that is over it keeps its working directory open: a Claude pane
+// closed and its folder removed at once failed as "being used by another
+// process" in four runs out of ten. A shell ends too quickly to lose that race
+// here, so what is checked is what prevents it: Close does not return until
+// the process has been reaped.
+func TestAClosedPaneLetsGoOfItsFolder(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		dir := filepath.Join(t.TempDir(), "pane-folder")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Start(Config{ID: "folder", Kind: KindShell, Cwd: dir, Argv: ShellArgs(), Env: Env(), Cols: 80, Rows: 24})
+		if err != nil {
+			t.Skipf("cannot start a shell in this environment: %v", err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		select {
+		case <-s.reaped:
+		default:
+			t.Fatalf("run %d: Close returned while the process was still ending", i+1)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("run %d: the folder of a closed pane could not be removed: %v", i+1, err)
+		}
 	}
 }
 
