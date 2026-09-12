@@ -99,6 +99,10 @@ type printer struct {
 
 	lead int // spaces the current line began with, which is how a list nests
 	hang int // the column a wrapped line goes on from: under a list item's text
+
+	// raw is set for the rest of a table row, which is drawn as written: a
+	// row wrapped like prose is a table nobody can read down.
+	raw bool
 }
 
 func newPrinter(w io.Writer, width int, colour bool) *printer {
@@ -133,6 +137,11 @@ func (p *printer) text(s string) {
 			}
 		case p.code:
 			p.codeRune(r)
+		case p.raw && r != '\n':
+			if r != '\r' {
+				p.put(string(r))
+				p.col++
+			}
 		case r == '\n':
 			p.endLine()
 			// A fence recognised by this very newline has nothing left of its
@@ -151,6 +160,13 @@ func (p *printer) text(s string) {
 				continue
 			}
 			p.flushWord()
+			if p.raw {
+				// The word that began a table row has just been placed, and
+				// this space is the first of the row's own spacing.
+				p.put(string(r))
+				p.col++
+				continue
+			}
 			if p.started {
 				p.space = true
 			}
@@ -199,6 +215,15 @@ func (p *printer) codeStyle() string {
 	return ansiCyan
 }
 
+// rowStyle is how the start of a table row is drawn: plain, or dimmed with
+// the rest of a background conversation.
+func (p *printer) rowStyle() string {
+	if p.dim {
+		return ansiDim
+	}
+	return ""
+}
+
 // flushWord places the word that has been gathered, wrapping where it will not
 // fit.
 func (p *printer) flushWord() {
@@ -238,6 +263,15 @@ func (p *printer) flushWord() {
 		p.hang = p.lead
 		if isListMarker(word) {
 			p.hang = p.lead + utf8.RuneCountInString(word) + 1
+		}
+		if strings.HasPrefix(word, "|") {
+			// A table row: drawn as written from here to the end of the line,
+			// its spacing and all, however wide.
+			p.raw = true
+			p.put(p.style(p.rowStyle(), word))
+			p.col += utf8.RuneCountInString(word)
+			p.started, p.space, p.blank = true, false, false
+			return
 		}
 	}
 
@@ -320,7 +354,7 @@ func (p *printer) newline() {
 // reader's, and are collapsed.
 func (p *printer) endLine() {
 	p.flushWord()
-	p.lead, p.hang = 0, 0
+	p.lead, p.hang, p.raw = 0, 0, false
 	if p.started {
 		p.put("\n")
 		p.col, p.started, p.space, p.blank = 0, false, false, false
@@ -352,7 +386,7 @@ func (p *printer) endMessage() {
 	p.col, p.started, p.space = 0, false, false
 	p.heading, p.bold, p.mono, p.swallow = false, false, false, false
 	p.blank = false
-	p.lead, p.hang = 0, 0
+	p.lead, p.hang, p.raw = 0, 0, false
 	p.w.Flush()
 }
 
