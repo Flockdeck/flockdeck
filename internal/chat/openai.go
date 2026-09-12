@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -109,6 +110,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	defer rc.Close()
 
 	var usage Usage
+	var finish string
 	calls := map[int]*callBuffer{}
 	err = readSSE(rc, func(event, data string) error {
 		// The end of the stream is a sentinel rather than the end of the body,
@@ -123,6 +125,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 					Reasoning string           `json:"reasoning_content"`
 					ToolCalls []openaiToolCall `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage struct {
 				PromptTokens     int `json:"prompt_tokens"`
@@ -142,6 +145,9 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens}
 		}
 		for _, ch := range chunk.Choices {
+			if ch.FinishReason != "" {
+				finish = ch.FinishReason
+			}
 			if ch.Delta.Content != "" {
 				emit(Event{Kind: EventText, Text: ch.Delta.Content})
 			}
@@ -169,6 +175,17 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	})
 	if err != nil {
 		return err
+	}
+	// An answer that stopped short says why in its last choice. Read as
+	// finished, it would be half a reply shown as the whole of one, and a call
+	// whose arguments were still arriving would be run with them missing.
+	switch finish {
+	case "length":
+		emit(Event{Kind: EventUsage, Usage: usage})
+		return errors.New("the answer reached the model's limit on its length and was cut off there")
+	case "content_filter":
+		emit(Event{Kind: EventUsage, Usage: usage})
+		return errors.New("the endpoint's content filter stopped the answer")
 	}
 	for _, i := range sortedKeys(calls) {
 		if calls[i].name == "" {
