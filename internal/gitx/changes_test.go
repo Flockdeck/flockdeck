@@ -1547,3 +1547,40 @@ func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
 		t.Errorf("clean tree: %v", err)
 	}
 }
+
+// TestPushDoesNotPublishAnUnpushedSubmoduleCommit: the push went through and
+// recorded a submodule commit its remote did not have, which nobody fetching
+// the result could then get.
+func TestPushDoesNotPublishAnUnpushedSubmoduleCommit(t *testing.T) {
+	bare := func() string {
+		dir := t.TempDir()
+		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("bare init failed: %v: %s", err, out)
+		}
+		return dir
+	}
+	subOrigin, outerOrigin := bare(), bare()
+	inner := newRepo(t)
+	gitRun(t, inner, "remote", "add", "origin", subOrigin)
+	gitRun(t, inner, "push", "-q", "-u", "origin", "main")
+	outer := newRepo(t)
+	gitRun(t, outer, "remote", "add", "origin", outerOrigin)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", subOrigin, "sub")
+	gitRun(t, outer, "commit", "-qm", "add sub")
+	gitRun(t, outer, "push", "-q", "-u", "origin", "main")
+
+	sub := filepath.Join(outer, "sub")
+	gitRun(t, sub, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "not pushed")
+	if err := CommitAll(outer, "record sub"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(outer); err == nil || !strings.Contains(err.Error(), "Push the submodule first") {
+		t.Errorf("push = %v, want it refused until the submodule's commit is on its remote", err)
+	}
+	gitRun(t, sub, "push", "-q", "origin", "HEAD:main")
+	if _, err := Push(outer); err != nil {
+		t.Errorf("with the submodule pushed, the push should go through: %v", err)
+	}
+}

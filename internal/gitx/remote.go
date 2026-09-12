@@ -27,7 +27,19 @@ func Push(dir string) (string, error) {
 		}
 		args = append(args, "--set-upstream", remote, branch)
 	}
+	// A commit that records a submodule's new commit, pushed while that
+	// commit is on no remote of the submodule's, points everyone who fetches
+	// it at a commit they cannot get. git checks for that only when asked,
+	// so it is asked -- unless the user has said what they want in
+	// push.recurseSubmodules themselves.
+	if _, cerr := run(dir, "config", "--get", "push.recurseSubmodules"); cerr != nil {
+		args = append(args, "--recurse-submodules=check")
+	}
 	out, err := runVerbose(dir, args...)
+	if err != nil && strings.Contains(err.Error(), "not be found on any remote") {
+		return "", &gitError{"this push records a submodule's commits that are not on the submodule's own remote yet, " +
+			"so nobody fetching it could get them. Push the submodule first -- from its own folder -- then push here."}
+	}
 	// git's own explanation of a rejected push is the part cut from a toast,
 	// leaving "failed to push some refs" and nothing about what to do. The
 	// "[rejected]" beside the ref is git's marker for it rather than prose.
