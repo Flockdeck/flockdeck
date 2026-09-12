@@ -19,7 +19,8 @@ func Push(dir string) (string, error) {
 	}
 	args := []string{"push"}
 	var remote string
-	if UpstreamOf(dir) == "" {
+	upstream := UpstreamOf(dir)
+	if upstream == "" {
 		var err error
 		if remote, err = pushRemote(dir, branch); err != nil {
 			return "", err
@@ -41,7 +42,30 @@ func Push(dir string) (string, error) {
 		}
 		return "", &gitError{"push rejected: the remote has commits this branch does not. Pull them in, then push again."}
 	}
+	// A branch tracking an upstream of another name -- set up in a terminal,
+	// or started from origin/main before new branches stopped tracking their
+	// base -- is refused by the default push.default, and git's explanation
+	// was cut off before the line saying what to do. Asked only once git has
+	// refused, so a setting that pushes to the upstream anyway is left alone.
+	if err != nil && upstream != "" {
+		if r, name := splitUpstream(dir, upstream); name != "" && name != branch {
+			return "", &gitError{fmt.Sprintf("%s tracks %s, a branch of another name, so git will not push to it here. "+
+				"Give it one of its own by pushing once from a terminal: git push -u %s %s", branch, upstream, r, branch)}
+		}
+	}
 	return out, err
+}
+
+// splitUpstream parts "origin/feature/x" into its remote and its branch, by the
+// remotes the repository has -- a branch name is free to hold a slash, so the
+// first one is not the place to cut. name is "" when no remote matches.
+func splitUpstream(dir, upstream string) (remote, name string) {
+	for _, r := range Remotes(dir) {
+		if rest, ok := strings.CutPrefix(upstream, r+"/"); ok && len(r) > len(remote) {
+			remote, name = r, rest
+		}
+	}
+	return remote, name
 }
 
 // errDetached is what pushing or pulling without a branch checked out says.

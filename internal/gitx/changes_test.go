@@ -1421,3 +1421,27 @@ func TestPullWaitsOutAnotherGitsLock(t *testing.T) {
 		t.Errorf("behind = %d after the pull, want 0", st.Behind)
 	}
 }
+
+// TestPushToAnUpstreamOfAnotherNameSaysHow: a branch tracking a remote branch
+// of another name is refused by the default push.default, and git's account
+// of it was cut off before the line saying what to do.
+func TestPushToAnUpstreamOfAnotherNameSaysHow(t *testing.T) {
+	origin := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
+	cmd.Dir = origin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("bare init failed: %v: %s", err, out)
+	}
+	repo := newRepo(t)
+	gitRun(t, repo, "config", "push.default", "simple")
+	gitRun(t, repo, "remote", "add", "origin", origin)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	gitRun(t, repo, "checkout", "-q", "-b", "feature-x")
+	gitRun(t, repo, "branch", "--set-upstream-to", "origin/main")
+	gitRun(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+
+	_, err := Push(repo)
+	if err == nil || !strings.Contains(err.Error(), "tracks origin/main") || !strings.Contains(err.Error(), "git push -u origin feature-x") {
+		t.Errorf("err = %v, want it to name the upstream and the way out", err)
+	}
+}
