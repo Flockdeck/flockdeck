@@ -1170,6 +1170,12 @@ kbd {
   font-size: 10px; font-weight: 600; letter-spacing: .02em;
   padding: 1px 5px; border-radius: 3px; color: var(--fg); background: var(--line-strong);
 }
+/* A model's tier: quieter than the default mark, since most models have one. */
+.pick-tier {
+  font-size: 10px; letter-spacing: .02em; white-space: nowrap;
+  padding: 0 5px; border-radius: 3px; color: var(--fg-dim); border: 1px solid var(--line-strong);
+}
+.pick-row.sel .pick-tier { color: #06101f; border-color: currentColor; opacity: .8; }
 .pick-foot {
   display: flex; align-items: center; gap: 10px; margin-top: 12px;
   padding-top: 10px; border-top: 1px solid var(--line);

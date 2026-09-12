@@ -2016,6 +2016,46 @@ assert.ok(h.$("overlay").hidden, "the picker stayed open after choosing");
 `)
 }
 
+// Choosing a model by hand is better informed for knowing how capable each is
+// and, where it means something, what it costs: each model row carries its
+// tier, and an API agent's model its price with the day it was read.
+func TestThePickerShowsTiersAndDatedPrices(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const checked = "2026-09-12";
+h.recv(fixture({ agents: catalog({ items: [
+  { id: "anthropic", name: "Claude API", runner: "api", available: true, defaultModel: "claude-opus-5",
+    models: [{ id: "claude-opus-5", name: "Opus 5", tier: "top", price: { in: 5, out: 25, checked } },
+             { id: "claude-haiku-4-5", name: "Haiku 4.5", tier: "small", price: { in: 1, out: 5, checked } },
+             { id: "odd", name: "Unpriced" }] },
+] }) }));
+h.click(h.$("new-tab-pick"));
+h.key({ key: "ArrowRight" });
+const rows = h.$("agent-list").querySelectorAll("div.pick-row.model");
+assert.strictEqual(rows.length, 3, "the models did not appear");
+const tier = rows[0].querySelector("span.pick-tier");
+assert.ok(tier && tier.textContent === "top", "the model's tier is not shown: " + rows[0].textContent);
+assert.ok(tier.dataset.tip, "the tier chip does not say what a tier is");
+assert.ok(rows[1].textContent.includes("$1 / $5 per M tokens, checked 2026-09-12"),
+  "the price, or the day it was read, is not shown: " + rows[1].textContent);
+assert.ok(!rows[2].querySelector("span.pick-tier") && !rows[2].textContent.includes("$"),
+  "a model with no tier or price was given one: " + rows[2].textContent);
+
+// The fan-out's selects have no room for chips, so they say the same in words.
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["one"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
+  agents: [{ id: "anthropic", name: "Claude API", default: "claude-sonnet-5", models: [
+    { id: "claude-sonnet-5", name: "Sonnet 5", note: "the everyday one", tier: "mid", price: { in: 2, out: 10, checked } },
+    { id: "claude-haiku-4-5", name: "Haiku 4.5", tier: "small" },
+    { id: "odd", name: "Unpriced" }] }] });
+const opts = h.$("overlay-body").querySelector("select.fan-agent-sel").querySelectorAll("option").map((o) => o.textContent);
+assert.ok(opts.includes("Sonnet 5 — the everyday one (mid, $2/$10)"), "got: " + JSON.stringify(opts));
+assert.ok(opts.includes("Haiku 4.5 (small)"), "got: " + JSON.stringify(opts));
+assert.ok(opts.includes("Unpriced"), "got: " + JSON.stringify(opts));
+`)
+}
+
 // The two fast paths must stay fast: the plus and the split binding start the
 // agent this project runs by default and say nothing about which that is, so
 // somebody who only ever runs Claude presses what they always pressed.

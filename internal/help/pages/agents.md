@@ -15,7 +15,12 @@ the `+` that opens a new tab.
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than
 hidden: somebody who has never installed Codex should still learn that Flockdeck
-would run it. Expand an agent for its models, with its default marked. At the
+would run it. Expand an agent for its models, with its default marked. Each
+model carries its tier — **small**, **mid** or **top**, how capable and so how
+costly it is among that agent's own — and a model of an API agent its published
+price per million tokens, in and out, with the day it was read. A command-line
+agent's models show no price: the same model may be billed per token or
+covered by a subscription, and only you know which. At the
 foot of the picker, **Set as default for** makes the choice stick, either for
 this project or for every project, so the one-keystroke split keeps doing the
 right thing. **Use the default for every project** removes this project's own
@@ -157,7 +162,9 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
 Entries are matched to the built-ins by `id` and merged field by field: the
 `claude` entry above changes its default model and leaves everything else
 alone. An `id` matching no built-in is an agent of your own. `"hidden": true`
-takes one out of the picker without removing it.
+takes one out of the picker without removing it. A model's `"tier"` —
+`"small"`, `"mid"` or `"top"` — is set or corrected the same way; anything else
+is named in the notice and ignored.
 
 The file is read fresh every time the picker opens, so editing it by hand takes
 effect without a restart. A file that does not parse is a notice in the

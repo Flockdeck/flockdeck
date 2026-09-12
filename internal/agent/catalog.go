@@ -114,6 +114,7 @@ func Merge(f *File) *Catalog {
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
 			problems = append(problems, checkRunner(&merged)...)
 			problems = append(problems, checkTokens(&merged)...)
+			problems = append(problems, checkTiers(&merged)...)
 			c.Specs[i] = merged
 			continue
 		}
@@ -134,6 +135,7 @@ func Merge(f *File) *Catalog {
 		}
 		problems = append(problems, checkRunner(&fresh)...)
 		problems = append(problems, checkTokens(&fresh)...)
+		problems = append(problems, checkTiers(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
 		c.Specs = append(c.Specs, fresh)
 	}

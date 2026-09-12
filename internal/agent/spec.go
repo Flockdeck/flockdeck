@@ -42,6 +42,32 @@ type Model struct {
 	ID   string `json:"id"`             // what the CLI or the API is given
 	Name string `json:"name,omitempty"` // what the picker shows
 	Note string `json:"note,omitempty"` // a few words on when to reach for it
+	// Tier is how capable, and so how costly, this model is among the agent's
+	// own: "small", "mid" or "top". Routing speaks in tiers rather than model
+	// ids, so one rule serves every agent, and a model whose tier is not known
+	// is never routed to or away from.
+	Tier string `json:"tier,omitempty"`
+}
+
+// The tiers a model can be in, from the least capable to the most.
+const (
+	TierSmall = "small"
+	TierMid   = "mid"
+	TierTop   = "top"
+)
+
+// TierRank orders the tiers: 1 for small, 2 for mid and 3 for top. Anything
+// else is 0, a model whose tier is not known.
+func TierRank(tier string) int {
+	switch tier {
+	case TierSmall:
+		return 1
+	case TierMid:
+		return 2
+	case TierTop:
+		return 3
+	}
+	return 0
 }
 
 // Caps says which of Flockdeck's facilities an agent supports. Everything Flockdeck
@@ -118,6 +144,14 @@ type Spec struct {
 	// whatever it was configured with.
 	Models       []Model `json:"models,omitempty"`
 	DefaultModel string  `json:"defaultModel,omitempty"`
+	// Switch is the command, typed into the agent itself, that changes the
+	// model of the session already running: "/model {{model}}". It is set only
+	// where the agent documents that command as changing the model for that
+	// session alone. Empty means the model is changed by restarting the pane
+	// on the new one and resuming the conversation, which works for any agent
+	// that can resume. Claude Code has none: its /model saves what it is given
+	// as the default for every later session, inside Flockdeck or not.
+	Switch string `json:"switch,omitempty"`
 	// Env is added to the pane's environment; StripEnv is removed from it,
 	// which is how the markers of the session Flockdeck was launched from are kept
 	// from making every pane look like a nested child of it.

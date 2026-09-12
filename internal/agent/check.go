@@ -116,6 +116,29 @@ func checkTokens(s *Spec) []string {
 	}
 	walk(s.Args)
 	walk(s.ResumeArgs)
+	for _, m := range anyToken.FindAllStringSubmatch(s.Switch, -1) {
+		note(m[1])
+	}
+	return problems
+}
+
+// checkTiers settles each model's tier into one of the three there are.
+//
+// Case is forgiven, as it is for a runner. Anything else is named in the
+// notice and taken out, which leaves the model's tier unknown: a model routing
+// never moves work to or from. Left in, a "large" would have read as unknown
+// all the same, and nothing would have said why routing never chose it.
+func checkTiers(s *Spec) []string {
+	var problems []string
+	for i, m := range s.Models {
+		tier := strings.ToLower(strings.TrimSpace(m.Tier))
+		if tier == "" || TierRank(tier) > 0 {
+			s.Models[i].Tier = tier
+			continue
+		}
+		s.Models[i].Tier = ""
+		problems = append(problems, fmt.Sprintf("agent %q: model %q has tier %q; the tiers are small, mid and top", s.ID, m.ID, m.Tier))
+	}
 	return problems
 }
 

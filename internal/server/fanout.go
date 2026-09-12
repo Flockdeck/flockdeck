@@ -42,9 +42,9 @@ type fanoutPreviewMsg struct {
 // fanoutAgentView is one agent the dialog can offer, for the whole run or for
 // a single row of it.
 type fanoutAgentView struct {
-	ID     string        `json:"id"`
-	Name   string        `json:"name"`
-	Models []agent.Model `json:"models,omitempty"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Models []modelView `json:"models,omitempty"`
 	// Default is the model this agent is asked for when nothing chooses one.
 	Default string `json:"default,omitempty"`
 	// Unavailable is why this agent cannot be started on this machine, and
@@ -79,7 +79,7 @@ func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 			continue
 		}
 		view := fanoutAgentView{
-			ID: spec.ID, Name: spec.Name, Models: spec.Models,
+			ID: spec.ID, Name: spec.Name, Models: modelViews(spec),
 			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
 		if _, err := s.ws.AgentSpec(spec.ID); err != nil {

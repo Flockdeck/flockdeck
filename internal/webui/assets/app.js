@@ -5150,11 +5150,32 @@
     if (at >= 0) { picker.index = at; markPickerRow(); }
   }
 
+  /** What each tier means, for the chip that names it. */
+  const TIER_TIPS = {
+    small: "Small: the least capable of this agent's models, and the cheapest. Enough for mechanical work.",
+    mid: "Mid: this agent's everyday model.",
+    top: "Top: the most capable of this agent's models, and the dearest.",
+  };
+
+  /** dollars writes a price per million tokens the way the providers do. */
+  function dollars(v) { return "$" + (Number.isInteger(v) ? String(v) : v.toFixed(2)); }
+
+  /** priceText is a model's price as the picker shows it, with the day it was
+   *  read: a price is only ever true of the day somebody looked. */
+  function priceText(p) {
+    return dollars(p.in) + " / " + dollars(p.out) + " per M tokens, checked " + p.checked;
+  }
+
   function pickerModelRow(a, m) {
     const row = el("div", "pick-row model");
     row.append(el("span", "pick-name", m.name || m.id || "Default"));
     if (markedModel(a, m)) row.append(el("span", "pick-mark", "default"));
+    if (m.tier) row.append(describe(el("span", "pick-tier", m.tier), TIER_TIPS[m.tier] || m.tier));
     if (m.note) row.append(el("span", "pick-note", m.note));
+    if (m.price) {
+      row.append(describe(el("span", "pick-note pick-price", priceText(m.price)),
+        "Input and output, per million tokens, as the provider published it. What you pay may differ."));
+    }
     return row;
   }
 
@@ -5927,8 +5948,7 @@
       // as a single entry asking for whatever model it is already set to.
       const models = a.models && a.models.length ? a.models : [{ id: a.default || "" }];
       models.forEach((mo) => {
-        const name = mo.name || mo.id || "Default";
-        const o = agentOption(mo.note ? name + " — " + mo.note : name, a.id + "\n" + (mo.id || ""));
+        const o = agentOption(modelLabel(mo), a.id + "\n" + (mo.id || ""));
         o.disabled = !!a.unavailable;
         group.append(o);
       });
@@ -5940,6 +5960,15 @@
     // than as one whose agent has gone.
     if (sel.selectedIndex < 0) sel.selectedIndex = 0;
     return sel;
+  }
+
+  /** modelLabel is a model as one line of a select: its name and note, then in
+   *  brackets its tier and price where they are known. A select has no room
+   *  for the picker's chips, and choosing is exactly when they help. */
+  function modelLabel(mo) {
+    const name = mo.name || mo.id || "Default";
+    const extra = [mo.tier, mo.price && dollars(mo.price.in) + "/" + dollars(mo.price.out)].filter(Boolean);
+    return name + (mo.note ? " — " + mo.note : "") + (extra.length ? " (" + extra.join(", ") + ")" : "");
   }
 
   /** pickParts splits an agentSelect value back into its agent and its model. */
