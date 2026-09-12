@@ -328,12 +328,20 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 	}
 
 	for {
-		// One question to GitHub a round. A release newer than this build is
-		// fetched unless it is the one already staged; a failed check leaves
-		// whatever is staged alone.
-		if rel, err := selfupdate.Check(ctx, version); err == nil && rel != nil {
-			if p, ok := stagedUpdate(dir, version); !ok || selfupdate.Newer(rel.Version, p.Version) {
-				if p, err := selfupdate.Stage(ctx, rel, dir); err == nil {
+		// One question to GitHub a round, and its answer decides the round;
+		// a failed check leaves whatever is staged alone.
+		if latest, err := selfupdate.Latest(ctx); err == nil && latest != nil && !latest.Draft {
+			staged := ""
+			if p, ok := stagedUpdate(dir, version); ok {
+				staged = p.Version
+			}
+			discard, fetch := updateSteps(latest.Version, staged, version)
+			if discard {
+				selfupdate.Discard(dir)
+				srv.SetUpdate(nil)
+			}
+			if fetch {
+				if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
 					srv.SetUpdate(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 				}
 			}
@@ -344,6 +352,23 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		case <-time.After(updateInterval):
 		}
 	}
+}
+
+// updateSteps decides one round of the watcher from the newest published
+// release, the version staged ("" for none) and the one running: whether to
+// throw the staged release away, and whether to fetch the newest.
+//
+// A staged release newer than anything published has been withdrawn, taken
+// down because something was wrong with it. It used to go on being offered,
+// and be put in place at the next exit, because nothing looked back at a
+// release once it had been downloaded.
+func updateSteps(latest, staged, running string) (discard, fetch bool) {
+	discard = staged != "" && selfupdate.Newer(staged, latest)
+	if discard {
+		staged = ""
+	}
+	fetch = selfupdate.Newer(latest, running) && (staged == "" || selfupdate.Newer(latest, staged))
+	return discard, fetch
 }
 
 // updateFlags are the flags of `flockdeck update` and where their values land.

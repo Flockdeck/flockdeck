@@ -67,6 +67,32 @@ func TestUpdateRefusesAStrayWord(t *testing.T) {
 	}
 }
 
+// Each round of the watcher: fetch what moves this build forward, keep what is
+// already staged, and throw away a staged release that has since been
+// withdrawn, which is one newer than anything still published.
+func TestUpdateSteps(t *testing.T) {
+	cases := []struct {
+		name                     string
+		latest, staged, running  string
+		wantDiscard, wantFetched bool
+	}{
+		{"a new release, nothing staged", "v1.5.0", "", "v1.4.0", false, true},
+		{"the new release already staged", "v1.5.0", "v1.5.0", "v1.4.0", false, false},
+		{"a newer one than the staged", "v1.6.0", "v1.5.0", "v1.4.0", false, true},
+		{"nothing newer than this build", "v1.4.0", "", "v1.4.0", false, false},
+		{"the staged one withdrawn, an older one still new", "v1.4.0", "v1.5.0", "v1.3.0", true, true},
+		{"the staged one withdrawn, nothing new left", "v1.4.0", "v1.5.0", "v1.4.0", true, false},
+		{"an answer that is not a version", "", "v1.5.0", "v1.4.0", false, false},
+	}
+	for _, c := range cases {
+		discard, fetch := updateSteps(c.latest, c.staged, c.running)
+		if discard != c.wantDiscard || fetch != c.wantFetched {
+			t.Errorf("%s: updateSteps(%q, %q, %q) = discard %v, fetch %v; want %v, %v",
+				c.name, c.latest, c.staged, c.running, discard, fetch, c.wantDiscard, c.wantFetched)
+		}
+	}
+}
+
 // Not reaching GitHub at all is explained in words; an answer GitHub gave is
 // passed on as it is, since it already says what happened.
 func TestExplainUnreachable(t *testing.T) {
