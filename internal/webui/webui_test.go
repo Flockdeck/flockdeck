@@ -2898,6 +2898,22 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "on" });
 `)
 }
 
+// The help's contents are walked with the arrow keys from its search box, and
+// each step rebuilds the list, which puts it back at the top: the highlight
+// went past the bottom of the box and out of sight.
+func TestWalkingTheHelpKeepsItsPlaceInView(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+for (let i = 0; i < 8; i++) h.key({ key: "ArrowDown" });
+const sel = h.$("overlay-body").querySelector("button.sel");
+assert.ok(sel, "no page is picked out in the contents");
+assert.ok(sel.scrolledTo > 0, "the page picked out was never brought into view");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

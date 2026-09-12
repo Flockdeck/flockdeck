@@ -4241,13 +4241,20 @@
       list.append(el("div", "help-none", "Nothing here matches."));
       return;
     }
+    let sel = null;
     hits.forEach((hit) => {
       const item = el("button", "help-item" + (hit.page.slug === helpSlug ? " sel" : ""));
       item.append(el("span", "help-item-title", hit.page.title));
       item.append(el("span", "help-item-sub", hit.snippet || hit.page.summary));
       item.onclick = () => { showHelpPage(hit.page.slug); };
       list.append(item);
+      if (hit.page.slug === helpSlug) sel = item;
     });
+    // Rebuilding the list puts it back at the top, so walking it with the
+    // arrow keys from the search box took the highlight past the bottom of
+    // the box and out of sight; the page it named was shown, and nothing said
+    // where in the list it was.
+    if (sel) sel.scrollIntoView({ block: "nearest" });
   }
 
   function renderHelpContent() {
