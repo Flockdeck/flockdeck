@@ -21,6 +21,14 @@ func (w *anthropicWire) Name() string { return "anthropic" }
 // not the model's version and does not move when models do.
 const anthropicVersion = "2023-06-01"
 
+// streamErrorCodes are the statuses the API answers with for the errors it can
+// also send part-way through a stream.
+var streamErrorCodes = map[string]int{
+	"overloaded_error": 529,
+	"api_error":        http.StatusInternalServerError,
+	"rate_limit_error": http.StatusTooManyRequests,
+}
+
 // anthropicBlock is one piece of content, in the request and in the reply. The
 // three shapes -- text, a tool call, a tool's answer -- share a struct because
 // the wire tells them apart by their type field.
@@ -166,7 +174,15 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		}
 		switch ev.Type {
 		case "error":
-			return fmt.Errorf("%s", firstNonEmpty(ev.Error.Message, ev.Error.Type, "the stream reported an error"))
+			msg := firstNonEmpty(ev.Error.Message, ev.Error.Type, "the stream reported an error")
+			// An error sent in the stream is the same failure the API sends
+			// as a status before one starts -- overloaded, rate-limited,
+			// failing on its own side -- and is kept in the same shape, so
+			// that the loop can ask again when nothing of the answer came.
+			if code := streamErrorCodes[ev.Error.Type]; code != 0 {
+				return &apiError{Code: code, Status: ev.Error.Type, Msg: msg}
+			}
+			return fmt.Errorf("%s", msg)
 		case "message_start":
 			counts = ev.Message.Usage
 		case "content_block_start":

@@ -370,10 +370,13 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 
 	rekeyed, retries := false, 0
 	for step := 0; ; step++ {
+		before := len(s.messages)
 		calls, err := s.stream(turnCtx)
-		if e, ok := busy(err); ok && retries < len(busyBackoff) {
+		if e, ok := busy(err); ok && retries < len(busyBackoff) && len(s.messages) == before {
 			// Nothing of an answer arrived, so asking again repeats nothing;
-			// and a busy API is the one failure that asking again fixes.
+			// and a busy API is the one failure that asking again fixes. An
+			// answer the API gave up on part-way is not asked for again: what
+			// was drawn of it would be drawn twice.
 			wait := busyBackoff[retries]
 			if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
 				wait = e.RetryAfter
