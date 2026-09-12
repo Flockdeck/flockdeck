@@ -2676,6 +2676,40 @@ assert.strictEqual(h.terms[1].options.scrollback, 90000, "a scrollback chosen in
 `)
 }
 
+// The palette and the agent picker moved one row per arrow and answered no
+// other key, so the last of the palette's forty-odd commands was forty presses
+// away. Page Up and Page Down move a boxful, and Home and End go to the ends
+// while nothing has been typed.
+func TestTheListsPageAndJumpToTheirEnds(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("palette");
+const rows = () => h.$("palette-list").children;
+const sel = () => rows().findIndex((r) => r.classList.contains("sel"));
+h.key({ key: "PageDown" });
+assert.strictEqual(sel(), 8, "Page Down did not move a boxful");
+h.key({ key: "End" });
+assert.strictEqual(sel(), rows().length - 1, "End did not reach the last command");
+h.key({ key: "PageUp" });
+assert.strictEqual(sel(), rows().length - 9);
+h.key({ key: "Home" });
+assert.strictEqual(sel(), 0, "Home did not go back to the first command");
+
+// With something typed, Home and End are the caret's.
+h.$("palette-input").value = "tab";
+h.$("palette-input").oninput();
+const home = h.key({ key: "Home" });
+assert.ok(!home.defaultPrevented, "Home was taken from the caret in a field with text in it");
+
+h.key({ key: "Escape" });
+h.click(h.$("new-tab-pick"));
+const picks = h.$("agent-list").querySelectorAll("div.pick-row");
+h.key({ key: "End" });
+assert.ok(picks[picks.length - 1].classList.contains("sel"), "End did not reach the last agent");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

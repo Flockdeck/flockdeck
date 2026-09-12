@@ -2853,10 +2853,31 @@
     // brought along or arrowing down walks it off the bottom and out of sight.
     sel.scrollIntoView({ block: "nearest" });
   }
+  /** listStep is where a key moves the highlight of a list walked from the
+   *  field above it, or null for a key that is not the list's. The arrows
+   *  move one row and Page Up and Page Down a boxful; Home and End go to the
+   *  ends while the field is empty, and move its caret once there is text.
+   *  With only the arrows, the last of the palette's forty-odd commands was
+   *  forty presses away. */
+  const LIST_PAGE = 8;
+  function listStep(e, at, count, empty) {
+    if (!count) return null;
+    const last = count - 1;
+    switch (e.key) {
+      case "ArrowDown": return Math.min(at + 1, last);
+      case "ArrowUp": return Math.max(at - 1, 0);
+      case "PageDown": return Math.min(at + LIST_PAGE, last);
+      case "PageUp": return Math.max(at - LIST_PAGE, 0);
+      case "Home": return empty ? 0 : null;
+      case "End": return empty ? last : null;
+      default: return null;
+    }
+  }
+
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); selectPaletteRow(Math.min(palIndex + 1, palRows.length - 1)); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); selectPaletteRow(Math.max(palIndex - 1, 0)); return; }
+    const to = listStep(e, palIndex, palRows.length, !$("palette-input").value);
+    if (to !== null) { e.preventDefault(); selectPaletteRow(to); return; }
     if (e.key === "Enter") {
       e.preventDefault();
       const c = palItems[palIndex];
@@ -3549,8 +3570,8 @@
 
   function pickerKey(e) {
     if (!picker) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); selectPickerRow(Math.min(picker.index + 1, pickRows.length - 1)); return; }
-    if (e.key === "ArrowUp") { e.preventDefault(); selectPickerRow(Math.max(picker.index - 1, 0)); return; }
+    const to = listStep(e, picker.index, pickRows.length, !picker.query);
+    if (to !== null) { e.preventDefault(); selectPickerRow(to); return; }
     const row = pickRows[picker.index];
     const item = row && row.item;
     // Left and right open and close an agent — but only while nothing has been
