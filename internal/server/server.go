@@ -150,8 +150,16 @@ type UpdateView struct {
 }
 
 // SetUpdate records that a release has been staged and is ready to be applied
-// by a restart, so the next snapshot tells the windows about it.
-func (s *Server) SetUpdate(u *UpdateView) { s.update.Store(u) }
+// by a restart, and has the windows told.
+//
+// Nothing else would tell them. A snapshot goes out when something changes,
+// and a release is staged in the background, hours into a run, most likely
+// while the agents sit waiting and nobody is touching the window -- which is
+// then not told until something unrelated happens.
+func (s *Server) SetUpdate(u *UpdateView) {
+	s.update.Store(u)
+	s.Wake()
+}
 
 // Update returns the staged release, or nil when there is none.
 func (s *Server) Update() *UpdateView { return s.update.Load() }
