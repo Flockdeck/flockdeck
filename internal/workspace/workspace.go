@@ -579,12 +579,21 @@ func (w *Workspace) SelectProject(root string) {
 // CloseProject saves a project's layout, closes its tabs and removes it. The
 // last open project cannot be closed, since the window would have nothing to
 // show.
-func (w *Workspace) CloseProject(root string) {
+//
+// A layout that cannot be saved does not keep the project open: closing it is
+// what was asked for, and its agents are stopped either way. It is reported
+// instead. The save was the one record of what the project had open, and
+// dropped without a word the project simply came back as it was the time
+// before, with nothing to say why.
+func (w *Workspace) CloseProject(root string) error {
 	root, ok := w.openRootFor(root)
 	if !ok || len(w.openRoots) <= 1 {
-		return
+		return nil
 	}
-	_ = w.SaveProject(root)
+	var saveErr error
+	if err := w.SaveProject(root); err != nil {
+		saveErr = fmt.Errorf("%s was closed, but its layout could not be saved, so it will not open as it was left: %w", filepath.Base(root), err)
+	}
 
 	kept := make([]*Tab, 0, len(w.Tabs))
 	// Tabs made to hold agents that were being shown here but belong to a
@@ -673,6 +682,7 @@ func (w *Workspace) CloseProject(root string) {
 	}
 	w.focusFirstTabOf(w.activeRoot)
 	w.wake()
+	return saveErr
 }
 
 func (w *Workspace) isOpen(root string) bool {
