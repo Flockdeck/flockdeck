@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -73,6 +74,20 @@ func trustKeys(dir string) []string {
 	return keys
 }
 
+// claudeProjectKey is the key Claude Code looks a directory up under in its
+// projects, which on Windows is written with forward slashes: its own
+// normaliser is `if(M()==="windows")return n.replaceAll("\\","/")`. An
+// answer recorded under the backslashed path is one Claude Code never reads,
+// so a worktree given the project's trust that way still stopped on the
+// trust question.
+func claudeProjectKey(dir string) string {
+	key := filepath.Clean(dir)
+	if runtime.GOOS == "windows" {
+		key = filepath.ToSlash(key)
+	}
+	return key
+}
+
 // IsTrusted reports whether Claude Code has been told this directory is
 // trusted.
 func IsTrusted(dir string) bool {
@@ -117,7 +132,7 @@ func InheritTrust(from, to string) error {
 		cfg["projects"] = projects
 	}
 
-	key := filepath.Clean(to)
+	key := claudeProjectKey(to)
 	entry, _ := projects[key].(map[string]any)
 	if entry == nil {
 		entry = map[string]any{}

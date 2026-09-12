@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -110,6 +111,39 @@ func TestInheritTrustPreservesTheRestOfTheFile(t *testing.T) {
 	}
 	if _, ok := orig["mcpServers"]; !ok {
 		t.Error("unrelated project fields were dropped")
+	}
+}
+
+// TestInheritedTrustIsWhereClaudeLooks covers Windows, where Claude Code keys
+// its projects by the path with forward slashes. An answer written under the
+// backslashed path is never read, and every child of a fan-out stopped on the
+// trust question the dialog had offered to answer for it.
+func TestInheritedTrustIsWhereClaudeLooks(t *testing.T) {
+	dir := t.TempDir()
+	trusted := filepath.Clean(filepath.Join(dir, "repo"))
+	target := filepath.Clean(filepath.Join(dir, "repo-wt"))
+	path := writeConfig(t, dir, map[string]any{
+		"projects": map[string]any{filepath.ToSlash(trusted): map[string]any{"hasTrustDialogAccepted": true}},
+	})
+
+	if err := InheritTrust(trusted, target); err != nil {
+		t.Fatalf("inherit: %v", err)
+	}
+	var got map[string]any
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := target
+	if runtime.GOOS == "windows" {
+		want = filepath.ToSlash(target)
+	}
+	entry, _ := got["projects"].(map[string]any)[want].(map[string]any)
+	if ok, _ := entry["hasTrustDialogAccepted"].(bool); !ok {
+		t.Errorf("no trust recorded under %q, where Claude Code looks; projects = %v", want, got["projects"])
 	}
 }
 
