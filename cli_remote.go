@@ -258,7 +258,10 @@ func remoteEnable(args []string, rio remoteIO) error {
 		// machine, so that is said before anybody takes it.
 		return fmt.Errorf("%v, so there is nothing to do; to enrol this machine again, run `flockdeck remote disable` first, which unpairs its devices if it is the account's only machine", err)
 	case errors.As(err, &already):
-		return fmt.Errorf("%v; run `flockdeck remote disable -force` to start again", err)
+		// A relay out of reach is most often a network that is down for now,
+		// when trying again is the answer. -force is for a relay that is gone
+		// for good, and it costs a listing there that nothing can take off.
+		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run `flockdeck remote disable -force` to start again, which leaves this machine listed on it", err)
 	case f.invite == "" && err != nil && strings.Contains(err.Error(), "needs an invite code"):
 		// The relay's words name an invite code but not the flag that takes
 		// one. They are matched rather than its 403, which a relay closed to

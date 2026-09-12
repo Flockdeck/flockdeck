@@ -481,6 +481,12 @@ func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 	if want := "run `flockdeck remote disable -force`, then `flockdeck remote enable -relay https://other.example`"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("moving off a relay that is gone = %v, want it to say %q", err, want)
 	}
+	// Enabling again, with the relay out of reach, is most often a network
+	// down for now: trying again comes first, and -force with what it costs.
+	_, _, err = runRemoteCmd(t, "enable")
+	if err == nil || !strings.Contains(err.Error(), "try again once the relay can be reached") || !strings.Contains(err.Error(), "leaves this machine listed on it") {
+		t.Errorf("enabling again with the relay out of reach = %v, want it to say to try again, and what -force costs", err)
+	}
 }
 
 // A machine enrolled under the hosted relay's old name tells a machine
