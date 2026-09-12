@@ -28,9 +28,16 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 ## The desktop app
 
 The app runs entirely on your computer. It keeps its settings, layouts,
-conversations with built-in API agents, and any API keys you give it in
-Flockdeck's configuration folder on your computer. Nothing there is sent
-anywhere by Flockdeck.
+conversations with built-in API agents, any API keys you give it, and a
+record of which models routing chose for a fan-out's tasks (the rules' names
+and the models, never the tasks) in Flockdeck's configuration folder on your
+computer. Nothing there is sent anywhere by Flockdeck.
+
+To show what each agent has spent, the app reads what the agents report about
+their own usage on your computer: the tokens, cost estimate and usage limits
+Claude Code hands its status line, and the token counts of the built-in API
+agents. It keeps those figures in memory only, and sends none of them
+anywhere.
 
 The app makes these network connections of its own.
 
