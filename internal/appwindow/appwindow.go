@@ -156,12 +156,8 @@ func candidates() []string {
 		return append(out, "chrome.exe", "msedge.exe")
 
 	case "darwin":
-		return []string{
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-		}
+		home, _ := os.UserHomeDir()
+		return darwinCandidates(home)
 
 	default:
 		return []string{
@@ -169,6 +165,28 @@ func candidates() []string {
 			"microsoft-edge", "brave-browser", "vivaldi",
 		}
 	}
+}
+
+// darwinCandidates lists the macOS browsers in preference order, each in the
+// system's Applications folder and then in the user's own. A browser installed
+// by somebody without an administrator's rights goes in ~/Applications, and
+// looking only in /Applications gave them an ordinary tab instead of the
+// application window.
+func darwinCandidates(home string) []string {
+	bundles := []string{
+		"Google Chrome.app/Contents/MacOS/Google Chrome",
+		"Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		"Brave Browser.app/Contents/MacOS/Brave Browser",
+		"Chromium.app/Contents/MacOS/Chromium",
+	}
+	var out []string
+	for _, b := range bundles {
+		out = append(out, "/Applications/"+b)
+		if home != "" {
+			out = append(out, home+"/Applications/"+b)
+		}
+	}
+	return out
 }
 
 // findBrowser returns the first available browser, or "".

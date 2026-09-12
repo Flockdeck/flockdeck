@@ -22,6 +22,25 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// A Mac browser installed without an administrator's rights lives in the
+// user's own Applications folder, and has to be found there too — after the
+// system's copy, so the machine-wide install still wins.
+func TestDarwinCandidatesLookInTheUsersApplications(t *testing.T) {
+	got := darwinCandidates("/Users/sam")
+	sys := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+	own := "/Users/sam/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+	at := map[string]int{}
+	for i, c := range got {
+		at[c] = i + 1
+	}
+	if at[sys] == 0 || at[own] == 0 || at[own] < at[sys] {
+		t.Errorf("candidates = %q, want %q and then %q", got, sys, own)
+	}
+	if len(darwinCandidates("")) != 4 {
+		t.Errorf("with no home directory known, want the four system paths only")
+	}
+}
+
 // A path with spaces is written in quotes in cmd.exe, and `set` keeps them in
 // the value, so the pinned browser has to be read without them.
 func TestPinnedBrowserDropsQuotes(t *testing.T) {
