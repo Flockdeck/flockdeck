@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // Options are what one run of the chat client needs. Everything here is either
@@ -653,10 +654,20 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 	}
 	s.out.blankLine()
 	s.out.line(ansiBold, question)
+	answers := []string{"[y] yes", "[n] no (Enter)", "or type what to do instead"}
 	if canAlways {
-		s.out.line(ansiDim, "  [y] yes, once   [a] always for `"+always+"`   [n] no (Enter)   or type what to do instead")
+		answers = []string{"[y] yes, once", "[a] always for `" + always + "`", "[n] no (Enter)", "or type what to do instead"}
+	}
+	// One line where it fits. In a narrow pane -- the usual thing with
+	// several side by side -- the terminal would break that line mid-word,
+	// in the one place the user is reading to choose, so each answer gets a
+	// line of its own instead.
+	if all := "  " + strings.Join(answers, "   "); utf8.RuneCountInString(all) <= s.opts.Width {
+		s.out.line(ansiDim, all)
 	} else {
-		s.out.line(ansiDim, "  [y] yes   [n] no (Enter)   or type what to do instead")
+		for _, a := range answers {
+			s.out.line(ansiDim, "  "+a)
+		}
 	}
 	s.out.bare(ansiBold, "  > ")
 	select {
