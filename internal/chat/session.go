@@ -129,8 +129,10 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	wire := o.wire
+	var key string
 	if wire == nil {
-		key, err := resolveKey(o)
+		var err error
+		key, err = resolveKey(o)
 		if err != nil {
 			return err
 		}
@@ -157,6 +159,7 @@ func Run(ctx context.Context, o Options) error {
 	s := &session{
 		opts:      o,
 		wire:      wire,
+		key:       key,
 		log:       log,
 		out:       newPrinter(o.Out, o.Width, o.Colour),
 		in:        newInput(o.In, isConsole(o.In)),
@@ -187,8 +190,11 @@ func Run(ctx context.Context, o Options) error {
 
 // session is one conversation in progress.
 type session struct {
-	opts     Options
-	wire     Wire
+	opts Options
+	wire Wire
+	// key is the one the wire was built with, so that a refused one can be
+	// told from a new one set since.
+	key      string
 	log      *Log
 	out      *printer
 	in       *input
@@ -418,12 +424,25 @@ func (s *session) turn(ctx context.Context, prompt string) {
 	}()
 	defer close(watching)
 
+	rekeyed := false
 	for step := 0; ; step++ {
 		calls, err := s.stream(turnCtx)
+		if err != nil && refusedKey(err) && !rekeyed && s.rekey() {
+			// Somebody who has just set a new key should not have to restart
+			// the pane for it, or type the prompt again.
+			rekeyed = true
+			s.out.line(ansiDim, "(the key was refused; trying again with the one now set)")
+			continue
+		}
 		if err != nil {
-			if s.interrupted.Load() || errors.Is(err, context.Canceled) {
+			switch {
+			case s.interrupted.Load() || errors.Is(err, context.Canceled):
 				s.out.line(ansiDim, "(interrupted)")
-			} else {
+			case refusedKey(err):
+				agent := firstNonEmpty(s.opts.Agent, "<agent>")
+				s.out.line(ansiRed, "the API refused the key: "+err.Error())
+				s.out.line(ansiDim, "set another with `flockdeck keys set "+agent+"` in any terminal, then send the prompt again")
+			default:
 				s.out.line(ansiRed, "the model could not answer: "+err.Error())
 			}
 			break
@@ -584,6 +603,24 @@ func (s *session) answer(c ToolCall, text string) {
 	}
 	s.messages = append(s.messages, Message{Role: RoleTool, Text: text, Call: c})
 	s.record(Entry{Type: string(RoleTool), Tool: c.Name, Text: text})
+}
+
+// rekey looks for the key again and, where a different one is set now than the
+// wire was built with, builds the wire again with it. It reports whether it did.
+func (s *session) rekey() bool {
+	if s.opts.wire != nil {
+		return false
+	}
+	key, err := resolveKey(s.opts)
+	if err != nil || key == s.key {
+		return false
+	}
+	wire, err := NewWire(s.opts.Wire, s.opts.BaseURL, key)
+	if err != nil {
+		return false
+	}
+	s.wire, s.key = wire, key
+	return true
 }
 
 // decline answers calls that will not be run.

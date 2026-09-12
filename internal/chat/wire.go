@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,9 +78,26 @@ func post(ctx context.Context, url string, header http.Header, body any) (io.Rea
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		resp.Body.Close()
-		return nil, fmt.Errorf("%s: %s", resp.Status, apiMessage(msg))
+		return nil, &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
 	}
 	return resp.Body, nil
+}
+
+// apiError is a request the API answered with a failure, kept whole rather
+// than flattened into a string so that the loop can tell a refused key --
+// which the user can fix without leaving the pane -- from everything else.
+type apiError struct {
+	Code   int
+	Status string
+	Msg    string
+}
+
+func (e *apiError) Error() string { return e.Status + ": " + e.Msg }
+
+// refusedKey reports whether err is the API refusing the key it was given.
+func refusedKey(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && (e.Code == http.StatusUnauthorized || e.Code == http.StatusForbidden)
 }
 
 // apiMessage digs the human half out of an error body.
