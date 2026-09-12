@@ -2975,6 +2975,33 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "focusPane", id: "p2" });
 `)
 }
 
+// Closing a project stops every agent in every tab of it, and the small cross
+// in the projects dialog did it on one click. It asks first when an agent
+// there has something under way, as Quit does.
+func TestClosingABusyProjectAsksFirst(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 3, waiting: 1, working: 2 },
+  { root: "C:/docs", name: "docs", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+h.press("projects");
+const closes = h.$("overlay-body").querySelectorAll("button").filter((b) => (b.dataset.tip || "").startsWith("Close this project"));
+let asked = "";
+h.win.confirm = (q) => { asked = q; return false; };
+const before = h.commands().length;
+h.click(closes[1]);
+assert.ok(/3 agents are still working/.test(asked), "a project with agents at work was closed without asking");
+assert.strictEqual(h.commands().length, before, "the project was closed although the answer was no");
+
+asked = "";
+h.click(closes[2]);
+assert.strictEqual(asked, "", "a project with every agent idle was asked about");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeProject", root: "C:/docs" });
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

@@ -2247,7 +2247,16 @@
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
         describe(close, "Close this project. The agents running in it stop.");
-        close.onclick = () => send({ cmd: "closeProject", root: p.root });
+        close.onclick = () => {
+          // Every agent in every tab of it stops, on one click of a small
+          // cross - the one other thing that stops work on that scale, Quit,
+          // asks first. Only agents with something under way are worth the
+          // question; a project where every agent is idle closes at once.
+          const busy = (p.working || 0) + (p.waiting || 0);
+          if (busy && !window.confirm("Close " + p.name + "? " + (busy === 1 ? "1 agent is" : busy + " agents are") +
+            " still working or waiting on you there, and every agent in it stops.")) return;
+          send({ cmd: "closeProject", root: p.root });
+        };
         row.append(close);
       }
       openSection.append(row);
