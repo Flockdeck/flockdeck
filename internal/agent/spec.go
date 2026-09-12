@@ -6,7 +6,10 @@
 // second agent is a table entry rather than another branch.
 package agent
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Runner is how a Spec is started.
 type Runner string
@@ -146,7 +149,7 @@ type Tokens struct {
 
 // Value returns the token named by an `if`, or by "{{name}}".
 func (t Tokens) Value(name string) string {
-	switch strings.Trim(name, "{} ") {
+	switch strings.TrimSpace(strings.Trim(name, "{}")) {
 	case "session":
 		return t.Session
 	case "model":
@@ -169,15 +172,26 @@ func (t Tokens) Value(name string) string {
 // them one name after another did exactly that to the opening task, which
 // comes before "cwd" and "pane": a task about a Handlebars template reached
 // the agent with its "{{pane}}" swapped for the pane's id.
+//
+// Space inside the braces is allowed, as Value already allowed it in an `if`:
+// "{{ model }}" is how anyone used to a template language writes it, and it
+// went through untouched -- the CLI was handed a model called "{{ model }}",
+// and a task written "{{ prompt }}" never reached the agent at all.
 func (t Tokens) Expand(s string) string {
-	return strings.NewReplacer(
-		"{{session}}", t.Session,
-		"{{model}}", t.Model,
-		"{{settings}}", t.Settings,
-		"{{prompt}}", t.Prompt,
-		"{{cwd}}", t.Cwd,
-		"{{pane}}", t.Pane,
-	).Replace(s)
+	return tokenPattern.ReplaceAllStringFunc(s, func(tok string) string {
+		return t.Value(tok)
+	})
+}
+
+// tokenPattern matches one token, space inside its braces or not.
+var tokenPattern = regexp.MustCompile(`\{\{\s*(session|model|settings|prompt|cwd|pane)\s*\}\}`)
+
+// onlyToken names the token s consists of, or "" when it is anything else.
+func onlyToken(s string) string {
+	if m := tokenPattern.FindStringSubmatch(s); m != nil && m[0] == s {
+		return m[1]
+	}
+	return ""
 }
 
 // BuildArgv turns a Spec into the argv for one pane. The first element is the
@@ -218,7 +232,7 @@ func appendArgs(out []string, args []Arg, s Spec, t Tokens) []string {
 		if v == "" {
 			continue
 		}
-		if a.Value == "{{prompt}}" && !s.NoDashDash && strings.HasPrefix(v, "-") {
+		if onlyToken(a.Value) == "prompt" && !s.NoDashDash && strings.HasPrefix(v, "-") {
 			out = append(out, "--")
 		}
 		out = append(out, v)

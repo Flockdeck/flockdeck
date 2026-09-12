@@ -218,3 +218,23 @@ func TestExpandLeavesTokensInValuesAlone(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestTokensMayHaveSpaceInsideTheirBraces: "{{ model }}" went through as it
+// was written, handing the CLI a model called "{{ model }}" and never passing
+// on a task written "{{ prompt }}".
+func TestTokensMayHaveSpaceInsideTheirBraces(t *testing.T) {
+	spec := Spec{ID: "x", Exe: "x", Runner: RunnerCLI, Args: []Arg{
+		{If: "{{ model }}", Args: []Arg{{Value: "--model"}, {Value: "{{ model }}"}}},
+		{Value: "--dir={{\tcwd }}"},
+		{Value: "{{ prompt }}"},
+	}}
+	got := BuildArgv(spec, false, Tokens{Model: "opus", Cwd: "/work", Prompt: "-v is wrong"})
+	want := []string{"x", "--model", "opus", "--dir=/work", "--", "-v is wrong"}
+	if !slices.Equal(got, want) {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	// The task's own text is still left as it was written.
+	if got := (Tokens{Prompt: "fix {{ pane }}", Pane: "p1"}).Expand("{{ prompt }}"); got != "fix {{ pane }}" {
+		t.Errorf("prompt expanded to %q", got)
+	}
+}
