@@ -426,6 +426,30 @@ func joinRunning(lookup func() (*store.Instance, string, error), warn func(strin
 	return inst, base
 }
 
+// startLockWait is how long a launch waits for one already starting to put
+// itself on record. Restoring a large layout takes seconds; a start that takes
+// longer than this is stuck, and starting anyway is the lesser evil.
+const startLockWait = 30 * time.Second
+
+// holdStartLock takes the start lock, waiting up to wait for a launch that
+// holds it, and returns what lets it go. A lock that cannot be had at all is
+// done without, as every launch did before there was one; one held past wait
+// is done without too, and said so through warn.
+func holdStartLock(wait time.Duration, warn func(string)) (release func()) {
+	for deadline := time.Now().Add(wait); ; time.Sleep(50 * time.Millisecond) {
+		release, err := store.TryLockStart()
+		switch {
+		case err == nil:
+			return release
+		case !errors.Is(err, store.ErrStartLocked):
+			return func() {}
+		case time.Now().After(deadline):
+			warn(fmt.Sprintf("another flockdeck has been starting for %s without finishing, so starting anyway", wait))
+			return func() {}
+		}
+	}
+}
+
 // startupOnlyFlags lists the flags that describe a fresh start, and so mean
 // nothing when the launch turns into attaching to a running instance.
 func startupOnlyFlags(opts options) []string {
@@ -506,6 +530,14 @@ func run(opts options) error {
 	case !fi.IsDir():
 		return fmt.Errorf("%s is not a directory", root)
 	}
+
+	// Held from looking for a running instance until this one is on record,
+	// so that a launch close behind this one waits and joins it rather than
+	// finding nothing on record and starting a rival.
+	releaseStart := holdStartLock(startLockWait, func(text string) {
+		fmt.Fprintln(os.Stderr, "flockdeck:", text)
+	})
+	defer releaseStart()
 
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
@@ -646,6 +678,7 @@ func run(opts options) error {
 		}
 		defer store.ClearInstance()
 	}
+	releaseStart()
 
 	// Watching for releases runs for the life of the server and stops with it,
 	// so a check in flight cannot hold the shutdown open.
