@@ -244,8 +244,10 @@ func keysSet(agentID string, kio keysIO) error {
 			return nil
 		}
 	}
-	if kio.prompt != nil {
-		checkKey(agentID, key, kio.out)
+	// A key the API has just refused is not one new panes should be told
+	// they will use: the refusal says what to do instead.
+	if kio.prompt != nil && checkKey(agentID, key, kio.out) {
+		return nil
 	}
 	fmt.Fprintf(kio.out, "new panes use it; one already running picks it up when its old key is refused, or when it is restarted\n")
 	return nil
@@ -256,10 +258,12 @@ func keysSet(agentID string, kio keysIO) error {
 // missing, or the wrong one of two, was otherwise found out at the first prompt
 // of a pane. The key is stored whatever the answer: an endpoint that cannot be
 // reached now says nothing about the key. A script is not sent anywhere.
-func checkKey(agentID, key string, out io.Writer) {
+//
+// It reports whether the key was refused.
+func checkKey(agentID, key string, out io.Writer) (refused bool) {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -268,9 +272,11 @@ func checkKey(agentID, key string, out io.Writer) {
 		fmt.Fprintf(out, "checked: the API accepted it\n")
 	case errors.Is(err, chat.ErrKeyRefused):
 		fmt.Fprintf(out, "but %v: check it was copied whole, and run this again to replace it\n", err)
+		return true
 	default:
 		fmt.Fprintf(out, "could not check it just now: %v\n", err)
 	}
+	return false
 }
 
 // keyAgentIDs are the ids of the agents that take a key, in catalog order.

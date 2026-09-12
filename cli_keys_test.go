@@ -483,6 +483,10 @@ func TestKeysSetChecksTheKeyWithTheEndpoint(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("%s: the check was not said:\n%s", key, out.String())
 		}
+		// New panes are said to use a key only where the API did not refuse it.
+		if refused, says := key == "sk-bad-key", strings.Contains(out.String(), "new panes use it"); refused == says {
+			t.Errorf("%s: 'new panes use it' said: %v, after the API %s it:\n%s", key, says, want, out.String())
+		}
 		if strings.Contains(out.String()+prompt.String(), key) {
 			t.Errorf("%s: the key was printed:\n%s", key, out.String())
 		}
