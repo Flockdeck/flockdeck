@@ -44,6 +44,14 @@ var platforms = []struct{ OS, Arch string }{
 
 const binary = "flockdeck"
 
+// chatBinary is the console twin of the Windows build: the same program,
+// linked as a console program rather than for the GUI subsystem. An API
+// agent's pane runs Flockdeck's own chat client as its process, and a pane
+// is a pseudo-console, which Windows attaches only to console programs:
+// started from the GUI build the pane stayed blank. The launcher runs this
+// one instead when it sits beside the program.
+const chatBinary = "flockdeck-chat"
+
 func main() {
 	var (
 		version = flag.String("version", "dev", "version to stamp into the binaries and the file names")
@@ -73,14 +81,18 @@ func run(version, out string) error {
 	sums := map[string]string{}
 
 	for _, p := range platforms {
-		exe := binary
-		if p.OS == "windows" {
-			exe += ".exe"
-		}
 		built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, p.OS, p.Arch, ext(p.OS)))
-
-		if err := build(version, p.OS, p.Arch, built); err != nil {
+		if err := build(version, p.OS, p.Arch, built, true); err != nil {
 			return fmt.Errorf("build %s/%s: %w", p.OS, p.Arch, err)
+		}
+		files := []archived{{built, binary + ext(p.OS)}}
+
+		if p.OS == "windows" {
+			twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, p.OS, p.Arch, ext(p.OS)))
+			if err := build(version, p.OS, p.Arch, twin, false); err != nil {
+				return fmt.Errorf("build %s/%s's %s: %w", p.OS, p.Arch, chatBinary, err)
+			}
+			files = append(files, archived{twin, chatBinary + ext(p.OS)})
 		}
 
 		name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, p.OS, p.Arch, archiveExt(p.OS))
@@ -88,18 +100,20 @@ func run(version, out string) error {
 
 		var err error
 		if p.OS == "windows" {
-			err = writeZip(archive, built, exe)
+			err = writeZip(archive, files)
 		} else {
-			err = writeTarGz(archive, built, exe)
+			err = writeTarGz(archive, files)
 		}
 		if err != nil {
 			return fmt.Errorf("package %s: %w", name, err)
 		}
 
-		// The loose binary has been folded into the archive and would only
+		// The loose binaries have been folded into the archive and would only
 		// confuse a release page that is meant to offer one file per platform.
-		if err := os.Remove(built); err != nil {
-			return err
+		for _, f := range files {
+			if err := os.Remove(f.path); err != nil {
+				return err
+			}
 		}
 
 		sum, err := sha256File(archive)
@@ -144,15 +158,17 @@ func archiveExt(goos string) string {
 	return ".tar.gz"
 }
 
-// build compiles one platform.
+// build compiles one platform. gui asks for the GUI subsystem on Windows, and
+// means nothing elsewhere.
 //
 // The Windows build asks for the GUI subsystem for the same reason the
 // Makefile does: started from a shortcut it should not flash a console window
 // behind the interface. A program linked that way is given no console, even
 // by a terminal, so the program borrows the terminal's itself (useConsole).
-func build(version, goos, goarch, out string) error {
+// chatBinary is the one built without it.
+func build(version, goos, goarch, out string, gui bool) error {
 	ldflags := "-s -w -X main.version=" + version
-	if goos == "windows" {
+	if goos == "windows" && gui {
 		ldflags += " -H=windowsgui"
 	}
 
@@ -197,7 +213,10 @@ func checkExtras() error {
 	return nil
 }
 
-func writeZip(archive, binPath, nameInArchive string) error {
+// archived is a program built for an archive, and the name it has there.
+type archived struct{ path, name string }
+
+func writeZip(archive string, programs []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -205,8 +224,10 @@ func writeZip(archive, binPath, nameInArchive string) error {
 	defer f.Close()
 
 	zw := zip.NewWriter(f)
-	if err := zipOne(zw, binPath, nameInArchive, 0o755); err != nil {
-		return err
+	for _, p := range programs {
+		if err := zipOne(zw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
 	}
 	for _, e := range extras {
 		if err := zipOne(zw, e, filepath.Base(e), 0o644); err != nil {
@@ -236,7 +257,7 @@ func zipOne(zw *zip.Writer, path, name string, mode os.FileMode) error {
 	return err
 }
 
-func writeTarGz(archive, binPath, nameInArchive string) error {
+func writeTarGz(archive string, programs []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -246,8 +267,10 @@ func writeTarGz(archive, binPath, nameInArchive string) error {
 	gz := gzip.NewWriter(f)
 	tw := tar.NewWriter(gz)
 
-	if err := tarOne(tw, binPath, nameInArchive, 0o755); err != nil {
-		return err
+	for _, p := range programs {
+		if err := tarOne(tw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
 	}
 	for _, e := range extras {
 		if err := tarOne(tw, e, filepath.Base(e), 0o644); err != nil {

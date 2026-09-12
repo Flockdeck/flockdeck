@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"debug/pe"
 	"io"
 	"os"
 	"os/exec"
@@ -34,16 +35,53 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 	}
 
 	tgz := filepath.Join(dir, "flockdeck.tar.gz")
-	if err := writeTarGz(tgz, built, "flockdeck"); err != nil {
+	if err := writeTarGz(tgz, []archived{{built, "flockdeck"}}); err != nil {
 		t.Fatal(err)
 	}
 	checkArchive(t, "tar.gz", readTarGz(t, tgz), "flockdeck")
 
+	// The Windows archive carries the console twin an API agent's pane runs.
 	zp := filepath.Join(dir, "flockdeck.zip")
-	if err := writeZip(zp, built, "flockdeck.exe"); err != nil {
+	if err := writeZip(zp, []archived{{built, "flockdeck.exe"}, {built, "flockdeck-chat.exe"}}); err != nil {
 		t.Fatal(err)
 	}
-	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe")
+	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe", "flockdeck-chat.exe")
+}
+
+// A pane is a console, and Windows gives one only to a console program, so
+// the program an API agent's pane runs is built without the GUI subsystem
+// the one that opens the window has.
+func TestWindowsBuildsAConsoleTwin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the program twice")
+	}
+	t.Chdir(filepath.Join("..", ".."))
+	dir := t.TempDir()
+	for _, c := range []struct {
+		what string
+		gui  bool
+		want uint16
+	}{
+		{binary + ".exe", true, pe.IMAGE_SUBSYSTEM_WINDOWS_GUI},
+		{chatBinary + ".exe", false, pe.IMAGE_SUBSYSTEM_WINDOWS_CUI},
+	} {
+		out := filepath.Join(dir, c.what)
+		if err := build("v9.9.9", "windows", "amd64", out, c.gui); err != nil {
+			t.Fatalf("build %s: %v", c.what, err)
+		}
+		f, err := pe.Open(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		oh, ok := f.OptionalHeader.(*pe.OptionalHeader64)
+		f.Close()
+		if !ok {
+			t.Fatalf("%s is not a 64-bit Windows program", c.what)
+		}
+		if oh.Subsystem != c.want {
+			t.Errorf("%s is linked for subsystem %d, want %d", c.what, oh.Subsystem, c.want)
+		}
+	}
 }
 
 // A release is stamped with -X main.version, and the linker ignores an -X
@@ -57,7 +95,7 @@ func TestReleaseBuildStampsTheVersion(t *testing.T) {
 	}
 	t.Chdir(filepath.Join("..", ".."))
 	exe := filepath.Join(t.TempDir(), binary+ext(runtime.GOOS))
-	if err := build("v9.9.9", runtime.GOOS, runtime.GOARCH, exe); err != nil {
+	if err := build("v9.9.9", runtime.GOOS, runtime.GOARCH, exe, true); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	out, err := exec.Command(exe, "-version").Output()
@@ -132,18 +170,20 @@ func TestClearOldArchivesTakesOnlyItsOwn(t *testing.T) {
 	}
 }
 
-func checkArchive(t *testing.T, kind string, got map[string]entry, binary string) {
+func checkArchive(t *testing.T, kind string, got map[string]entry, programs ...string) {
 	t.Helper()
-	bin, ok := got[binary]
-	switch {
-	case !ok:
-		t.Errorf("%s: no %s in %v", kind, binary, got)
-	case !bin.regular:
-		t.Errorf("%s: %s is not a regular file, so the updater skips it", kind, binary)
-	case bin.mode&0o111 == 0:
-		t.Errorf("%s: %s is mode %v, which will not run", kind, binary, bin.mode)
-	case bin.body != "the program":
-		t.Errorf("%s: %s holds %q", kind, binary, bin.body)
+	for _, p := range programs {
+		bin, ok := got[p]
+		switch {
+		case !ok:
+			t.Errorf("%s: no %s in %v", kind, p, got)
+		case !bin.regular:
+			t.Errorf("%s: %s is not a regular file, so the updater skips it", kind, p)
+		case bin.mode&0o111 == 0:
+			t.Errorf("%s: %s is mode %v, which will not run", kind, p, bin.mode)
+		case bin.body != "the program":
+			t.Errorf("%s: %s holds %q", kind, p, bin.body)
+		}
 	}
 	for _, e := range extras {
 		if _, ok := got[e]; !ok {
