@@ -145,8 +145,8 @@
   <p class="eyebrow">In the app</p>
   <h2>Every agent in one window.</h2>
   <figure class="figure">
-    <img src="deck.png" srcset="deck-1584.png 1584w, deck.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
-    <figcaption class="caption">Four agents on four branches. The amber pane is asking for approval.</figcaption>
+    <img src="deck.png" srcset="deck-1584.png 1584w, deck.png 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid, and a rail down the left listing four open projects, two of them badged amber because an agent in each is waiting. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration.">
+    <figcaption class="caption">Four agents on four branches. Amber marks the pane, and the project, waiting on you.</figcaption>
   </figure>
 </section>
 
@@ -254,6 +254,10 @@
       <span class="t">your agents keep running here</span>
     </div>
   </div>
+  <!-- A phone paired through the relay, answering the agent the deck shows
+       waiting: what remote access is for, in one picture. It stands beside
+       the cards, being tall and narrow, and under them on a small screen. -->
+  <div class="remote-phone">
   <div class="grid">
     <div class="card">
       <span class="g">outbound only</span>
@@ -281,6 +285,11 @@
          route it, so remote access is not end-to-end encrypted.</p>
     </div>
   </div>
+  <figure class="figure phone">
+    <img src="remote-choices.png" srcset="remote-choices-585.png 585w, remote-choices.png 1170w" sizes="(max-width: 880px) 300px, 280px" width="390" height="844" loading="lazy" alt="Flockdeck's web client on a phone, open on the shopfront-payments pane, where Claude Code is waiting on you. Over the terminal it repeats the question, Do you want to proceed?, and the command asking to run, go run ./cmd/migrate up, then offers the three answers as big buttons to tap: Yes; Yes, and don't ask again for go run; and No, and tell Claude what to do, with Escape under them and the row of keys below. A banner above says billing-service is waiting on you too.">
+    <figcaption class="caption">An agent's question, answered from your phone with a tap.</figcaption>
+  </figure>
+  </div>
   <p>Turn it on from <em>Remote access…</em> in the command palette, or from any
      terminal, then pair your phone:</p>
   <pre><code>flockdeck remote enable
@@ -288,13 +297,21 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
      turn it on. Turn it off and your desktop is removed from the relay.</p>
   <!-- Announced, not shipped: it says what is coming and that it will be paid,
-       and nothing about price or date, which are not settled. -->
-  <div class="card soon" id="private-relays">
-    <span class="g">coming soon · paid plan</span>
-    <h3>Private relays</h3>
-    <p>A relay run for you alone, so your agents' traffic goes through a server
-       that carries nobody else's. It will be a paid plan. The shared relay
-       stays free, and the relay is open source if you'd rather run your own.</p>
+       and nothing about price or date, which are not settled. The app's own
+       Settings say the same beside it, which is where somebody using it will
+       meet the plan. -->
+  <div class="pair plan">
+    <div class="card soon" id="private-relays">
+      <span class="g">coming soon · paid plan</span>
+      <h3>Private relays</h3>
+      <p>A relay run for you alone, so your agents' traffic goes through a server
+         that carries nobody else's. It will be a paid plan. The shared relay
+         stays free, and the relay is open source if you'd rather run your own.</p>
+    </div>
+    <figure class="figure">
+      <img src="settings.png" srcset="settings-1584.png 1584w, settings.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section, with General, Terminal, Agents, API keys and Remote access listed beside it. Free is marked as the current plan, covering every part of the desktop app and remote access through the shared relay. Private relays, run for you alone as a paid plan, are marked coming soon, with a link to read about them.">
+      <figcaption class="caption">Settings say which plan you're on, and what is coming.</figcaption>
+    </figure>
   </div>
 </section>
 <section class="band shot">
@@ -302,11 +319,11 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <h2>Pick any agent. See every branch.</h2>
   <div class="pair">
     <figure class="figure">
-      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The agent picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up.">
+      <img src="agent-picker.png" srcset="agent-picker-1584.png 1584w, agent-picker.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The agent picker open over a window of running agents. Claude Code, Codex and Gemini CLI are listed as installed with their models; Aider, opencode, Cursor Agent and the API agents are listed below them, each with how to set it up, and the OpenAI-compatible endpoint offers to take its address there and then.">
       <figcaption class="caption">Pick an agent and model for each pane.</figcaption>
     </figure>
     <figure class="figure">
-      <img src="worktrees.png" srcset="worktrees-1584.png 1584w, worktrees.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and three feature branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there.">
+      <img src="worktrees.png" srcset="worktrees-1584.png 1584w, worktrees.png 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Worktrees panel listing main and four other branches, each with its git status, the agents working in it, and buttons to open an agent, a shell or a review there. One checkout's folder has been deleted, so it is marked folder gone and offers only Prune.">
       <figcaption class="caption">Every checkout, its branch and the agents in it.</figcaption>
     </figure>
   </div>

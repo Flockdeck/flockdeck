@@ -1,10 +1,12 @@
 package main
 
 import (
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -127,6 +129,83 @@ func TestImagesHaveTextAndSize(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Every screenshot is offered at two sizes, and the page has to describe them
+// truthfully: a srcset width that is not the file's own has the browser choose
+// the wrong one, and a width and height out of proportion to the picture
+// reserve the wrong space for it while it loads. Every capture shipped is on
+// the page, bar the social card, which is the page's metadata rather than a
+// picture on it.
+func TestShotsAreOfferedAtBothSizes(t *testing.T) {
+	dir, page := generate(t)
+	offered := map[string]bool{}
+	for _, img := range imgTag.FindAllString(page, -1) {
+		set := srcsetAttr.FindStringSubmatch(img)
+		if set == nil {
+			continue
+		}
+		for _, attr := range []string{` sizes="`, ` loading="lazy"`} {
+			if !strings.Contains(img, attr) {
+				t.Errorf("%s has no%s", img, strings.TrimSuffix(attr, `"`))
+			}
+		}
+		w, h := intAttr(img, widthAttr), intAttr(img, heightAttr)
+		cands := strings.Split(set[1], ",")
+		if len(cands) < 2 {
+			t.Errorf("%s offers only one size", img)
+		}
+		for _, cand := range cands {
+			f := strings.Fields(cand)
+			if len(f) != 2 || !strings.HasSuffix(f[1], "w") {
+				t.Errorf("srcset candidate %q is not a file and a width", cand)
+				continue
+			}
+			offered[f[0]] = true
+			want, _ := strconv.Atoi(strings.TrimSuffix(f[1], "w"))
+			file, err := os.Open(filepath.Join(dir, f[0]))
+			if err != nil {
+				continue // TestPageReferencesResolve says so
+			}
+			cfg, err := png.DecodeConfig(file)
+			file.Close()
+			if err != nil {
+				t.Errorf("%s: %v", f[0], err)
+				continue
+			}
+			if cfg.Width != want {
+				t.Errorf("%s is %dpx wide, but the srcset calls it %dw", f[0], cfg.Width, want)
+			}
+			// The same shape as the width and height given, to a pixel.
+			if d := cfg.Height*w - cfg.Width*h; d > w || d < -w {
+				t.Errorf("%s is %dx%d, out of proportion to the width %d and height %d given for it", f[0], cfg.Width, cfg.Height, w, h)
+			}
+		}
+	}
+	shots, err := assets.ReadDir("assets/shots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range shots {
+		if e.Name() != "og.png" && !offered[e.Name()] {
+			t.Errorf("assets/shots/%s is shipped, but no picture on the page offers it", e.Name())
+		}
+	}
+}
+
+var (
+	widthAttr  = regexp.MustCompile(`\swidth="(\d+)"`)
+	heightAttr = regexp.MustCompile(`\sheight="(\d+)"`)
+)
+
+// intAttr is the number an attribute holds, or 0.
+func intAttr(tag string, attr *regexp.Regexp) int {
+	m := attr.FindStringSubmatch(tag)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // The installers are what a visitor pipes straight into a shell, so a syntax

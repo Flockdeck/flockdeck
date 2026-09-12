@@ -340,6 +340,16 @@ h2 {
 @media (min-width: 661px) {
   #remote .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* The phone beside the four cards: a capture taken on a phone is tall and
+   narrow, and on a row of its own it left most of the band empty. Under the
+   cards on a small screen, no wider than a phone would show it. */
+.remote-phone { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; align-items: start; margin-bottom: 26px; }
+#remote .remote-phone .grid { margin-bottom: 0; }
+.figure.phone img { border-radius: 24px; }
+@media (max-width: 880px) {
+  .remote-phone { grid-template-columns: 1fr; }
+  .figure.phone { width: 100%; max-width: 300px; margin: 0 auto; }
+}
 
 /* ------------------------------------------------------------------ shot */
 
@@ -355,6 +365,10 @@ h2 {
 }
 .fan + .figure { margin-top: 34px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: start; }
+/* The private-relays card beside the plan as Settings shows it: the row keeps
+   the space the card had above it, and the card its tint. */
+.pair.plan { margin-top: 22px; }
+.pair.plan .card.soon { margin-top: 0; }
 @media (max-width: 880px) {
   .pair { grid-template-columns: 1fr; }
 }
