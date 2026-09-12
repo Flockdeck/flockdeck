@@ -23,7 +23,7 @@ func (s *session) command(ctx context.Context, line string) bool {
 			"/history [n]  the conversation so far, or its last n entries",
 			"/retry        carry on a turn that failed, was interrupted or hit its limit",
 			"/clear        start the conversation over, keeping the pane",
-			"/status       what has been spent, and where the transcript is",
+			"/status       what has been spent, the endpoint, the key, the transcript",
 			"/exit         leave; the pane's own conversation ends with it",
 			"",
 			"A line ending in a backslash is continued on the next one.",
