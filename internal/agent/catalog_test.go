@@ -546,3 +546,31 @@ func TestUnknownTokensAreNamed(t *testing.T) {
 		t.Errorf("built-ins alone gave notice %q", c.Notice)
 	}
 }
+
+// TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst: an API has no model it is
+// already set to, and the help page's own example lists models without a
+// default, so its panes were started asking for none.
+func TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "local", "name": "Local llama", "runner": "api", "api": {"wire": "openai", "baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}, {"id": "llama3"}]}`),
+		json.RawMessage(`{"id": "mycli", "exe": "mycli", "models": [{"id": "big"}]}`),
+	}})
+	if s, _ := c.Find("local"); s.DefaultModel != "qwen3-coder" {
+		t.Errorf("default model = %q, want the first listed", s.DefaultModel)
+	}
+	// A command-line agent's empty default means whatever it is set to.
+	if s, _ := c.Find("mycli"); s.DefaultModel != "" {
+		t.Errorf("a CLI agent's default model = %q, want it left to the CLI", s.DefaultModel)
+	}
+}
+
+// TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt: a model of empty id
+// is how an entry asks for whatever the endpoint defaults to.
+func TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "gw", "api": {"baseURL": "https://gw.example/v1"}, "models": [{"id": "", "name": "Default"}, {"id": "big"}]}`),
+	}})
+	if s, _ := c.Find("gw"); s.DefaultModel != "" {
+		t.Errorf("default model = %q, want the endpoint's own choice kept", s.DefaultModel)
+	}
+}

@@ -323,6 +323,14 @@ func normalize(s *Spec) {
 	if s.Caps == (Caps{}) {
 		s.Caps = chatCaps()
 	}
+	// An entry that lists its models and names no default -- the help page's
+	// own example does exactly that -- started its panes asking for none,
+	// which most endpoints refuse. The first model it lists is the one taken.
+	// An entry that wants the endpoint's own choice says so the way Claude's
+	// list does, with a model of empty id first, and keeps it.
+	if s.DefaultModel == "" && len(s.Models) > 0 {
+		s.DefaultModel = s.Models[0].ID
+	}
 }
 
 // Find returns the spec with an id.
