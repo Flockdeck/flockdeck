@@ -162,6 +162,10 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !strings.Contains(out, "-join fdp_code") || strings.Contains(out, "█") {
 		t.Errorf("pair -desktop = %q, %v; want the enable command to run elsewhere", out, err)
 	}
+	// What joining does is said before the code goes anywhere.
+	if !strings.Contains(out, "a device paired with either reaches both") {
+		t.Errorf("pair -desktop does not say what joining does: %q", out)
+	}
 
 	out, _, err = runRemoteCmd(t, "devices")
 	if err != nil || !strings.Contains(out, "d1") || !strings.Contains(out, "phone") || !strings.Contains(out, "(this one)") {

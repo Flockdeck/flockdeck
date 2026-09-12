@@ -265,6 +265,9 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	until := describeExpiry(p.ExpiresAt, time.Now())
 	if f.desktop {
 		fmt.Fprintf(rio.out, "On the other machine, run:\n\n  flockdeck remote enable -relay %s -join %s\n\n", cfg.Relay, p.Code)
+		// What joining does is the reason to do it, and worth knowing before
+		// a code goes to a machine somebody else uses.
+		fmt.Fprintf(rio.out, "The two machines then share an account: a device paired with either reaches both.\n")
 		fmt.Fprintf(rio.out, "The code works once, %s.\n", until)
 		return nil
 	}
