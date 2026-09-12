@@ -80,11 +80,16 @@ func (m *Manager) Reload() error {
 	m.cfg, m.conn = cfg, next
 	m.mu.Unlock()
 
-	if old != nil {
-		old.Stop()
-	}
+	// The new tunnel is started before the old is stopped. Stopping the old
+	// tells the window to look, and what it reads by then is the new one,
+	// which should say connecting rather than, unstarted, not connected.
+	// Two at once is harmless: to different relays they do not meet, and to
+	// the same one the relay keeps the newer and drops the one going anyway.
 	if next != nil {
 		next.Start()
+	}
+	if old != nil {
+		old.Stop()
 	}
 	if m.changed != nil {
 		m.changed()

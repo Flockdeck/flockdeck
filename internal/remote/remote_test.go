@@ -1045,6 +1045,54 @@ func TestEnablingIsNeverShownAsOff(t *testing.T) {
 	}
 }
 
+// Moving to another relay while a tunnel is up is shown as connecting to the
+// new one, never as the new one not connected before it has been tried.
+func TestChangingRelayIsNeverShownAsOff(t *testing.T) {
+	quick(t)
+	f1, f2 := newFakeRelay(t), newFakeRelay(t)
+	var mu sync.Mutex
+	var seen []State
+	var cfg *Config
+	var m *Manager
+	m = NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, func() {
+		if st, ok := m.Status(); ok {
+			mu.Lock()
+			seen = append(seen, st.State)
+			mu.Unlock()
+		}
+	})
+	m.load = func() (*Config, error) { return cfg, nil }
+	defer m.Close()
+	c1 := f1.config()
+	cfg = &c1
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f1.session(t)
+	waitFor(t, "connected to the first relay", func() bool { st, _ := m.Status(); return st.State == StateConnected })
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
+	c2 := f2.config()
+	cfg = &c2
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	f2.session(t)
+	waitFor(t, "connected to the second relay", func() bool {
+		st, _ := m.Status()
+		return st.State == StateConnected && st.Relay == f2.URL
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range seen {
+		if s == StateOff {
+			t.Errorf("moving to another relay was shown as %v", seen)
+			break
+		}
+	}
+}
+
 func TestQRSVG(t *testing.T) {
 	svg, err := QRSVG("https://relay.example/pair#fdp_0123456789abcdefghijkl")
 	if err != nil {
