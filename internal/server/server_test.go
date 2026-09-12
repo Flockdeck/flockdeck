@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -23,6 +24,28 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
+// goTelemetryOff turns the go command's telemetry off in the configuration
+// folder a test has just made its own. Some tests start `go` as a stand-in
+// agent, because it is on PATH wherever the tests run, and go records
+// telemetry in that folder and leaves a child process behind to write more
+// after it has exited. The folder then could not always be removed when the
+// test ended, which failed it at random on every platform. With its mode file
+// saying "off", go writes nothing there and starts no child.
+func goTelemetryOff(tb testing.TB) {
+	tb.Helper()
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	mode := filepath.Join(dir, "go", "telemetry", "mode")
+	if err := os.MkdirAll(filepath.Dir(mode), 0o755); err != nil {
+		tb.Fatal(err)
+	}
+	if err := os.WriteFile(mode, []byte("off"), 0o644); err != nil {
+		tb.Fatal(err)
+	}
+}
+
 // newTestServer starts a workspace with one shell pane behind a server.
 func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	t.Helper()
@@ -30,6 +53,7 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	t.Setenv("APPDATA", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
+	goTelemetryOff(t)
 
 	ws, err := workspace.New(workspace.Options{Root: t.TempDir()})
 	if err != nil {
@@ -808,6 +832,7 @@ func benchServer(b *testing.B, panes int) *Server {
 	b.Setenv("APPDATA", dir)
 	b.Setenv("XDG_CONFIG_HOME", dir)
 	b.Setenv("HOME", dir)
+	goTelemetryOff(b)
 
 	ws, err := workspace.New(workspace.Options{Root: b.TempDir()})
 	if err != nil {

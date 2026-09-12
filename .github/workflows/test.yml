@@ -99,9 +99,12 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          log="$RUNNER_TEMP/go-test.log"
-          [ -f "$log" ] || exit 0
-          grep -E -A20 -- '--- FAIL|^panic:' "$log" | tr -d '\r' | head -c 30000 > "$RUNNER_TEMP/failures.txt" || true
+          : > "$RUNNER_TEMP/failures.txt"
+          for log in "$RUNNER_TEMP/go-test.log" "$RUNNER_TEMP/go-race.log"; do
+            [ -f "$log" ] || continue
+            grep -E -A20 -- '--- FAIL|^panic:|^WARNING: DATA RACE' "$log" | tr -d '\r' >> "$RUNNER_TEMP/failures.txt" || true
+          done
+          head -c 30000 "$RUNNER_TEMP/failures.txt" > "$RUNNER_TEMP/failures.cut" && mv "$RUNNER_TEMP/failures.cut" "$RUNNER_TEMP/failures.txt"
           [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
           body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
           echo "::error title=go test failed on ${{ runner.os }}::$body"
@@ -112,6 +115,9 @@ jobs:
       # the runner has one.
       - name: Race
         if: runner.os == 'Linux'
+        shell: bash
         env:
           CGO_ENABLED: "1"
-        run: go test -race ./...
+        run: |
+          set -o pipefail
+          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"

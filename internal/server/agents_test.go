@@ -223,6 +223,7 @@ func stateDir(t *testing.T) string {
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
 	t.Setenv("HOME", dir)            // macOS and fallback
+	goTelemetryOff(t)
 	return dir
 }
 

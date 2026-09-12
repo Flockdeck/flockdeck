@@ -27,6 +27,29 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
 	t.Setenv("HOME", dir)            // macOS and fallback
+	goTelemetryOff(t)
+}
+
+// goTelemetryOff turns the go command's telemetry off in the configuration
+// folder a test has just made its own. Some tests start `go` as a stand-in
+// agent, because it is on PATH wherever the tests run, and go records
+// telemetry in that folder and leaves a child process behind to write more
+// after it has exited. The folder then could not always be removed when the
+// test ended, which failed it at random on every platform. With its mode file
+// saying "off", go writes nothing there and starts no child.
+func goTelemetryOff(t *testing.T) {
+	t.Helper()
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := filepath.Join(dir, "go", "telemetry", "mode")
+	if err := os.MkdirAll(filepath.Dir(mode), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mode, []byte("off"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // newTestWorkspace builds a workspace rooted at a directory.

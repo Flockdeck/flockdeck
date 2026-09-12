@@ -23,6 +23,7 @@ func newRepoServer(t *testing.T) (*Server, *workspace.Workspace, string) {
 	t.Setenv("APPDATA", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
+	goTelemetryOff(t)
 
 	repo := t.TempDir()
 	for _, args := range [][]string{
