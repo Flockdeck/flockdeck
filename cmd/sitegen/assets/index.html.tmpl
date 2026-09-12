@@ -324,7 +324,9 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      and installs it to <code>~/.local/bin</code>. On Windows it goes to
      <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
      shortcut. No admin rights needed, now or when Flockdeck updates itself.
-     View the scripts: <a href="install.sh">install.sh</a> ·
+     To pick a release or a directory, set <code>FLOCKDECK_VERSION</code> or
+     <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
+     at the top. View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
