@@ -3208,10 +3208,9 @@
     const also = (id) => SETTINGS.has(id) ? SETTING : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
-    const lines = String(scrollback).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
-      scrollback: lines + " lines", fontFamily: prefs.fontFamily || "the default font",
+      scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
     };
     const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable
