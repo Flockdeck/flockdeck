@@ -155,12 +155,12 @@ func Run(ctx context.Context, o Options) error {
 	defer log.Close()
 
 	s := &session{
-		opts:     o,
-		wire:     wire,
-		log:      log,
-		out:      newPrinter(o.Out, o.Width, o.Colour),
-		in:       newInput(o.In, isConsole(o.In)),
-		reporter: newReporter(o.API, o.Token, o.Session, o.Cwd),
+		opts:      o,
+		wire:      wire,
+		log:       log,
+		out:       newPrinter(o.Out, o.Width, o.Colour),
+		in:        newInput(o.In, isConsole(o.In)),
+		reporter:  newReporter(o.API, o.Token, o.Session, o.Cwd),
 		model:     o.Model,
 		tools:     map[string]Tool{},
 		always:    map[string]bool{},
