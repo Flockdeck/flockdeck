@@ -54,6 +54,13 @@ an agent cannot report its own status, and how to add one of your own.
 
 ## Finding the rest of it
 
+The rail down the left of the window has a tile for each open project — one
+with an amber badge has an agent waiting on you — and under them the tools:
+broadcast, changes, history, worktrees, remote access, help and settings. Rest the
+pointer on one, or reach it with the keyboard, and it says what it is and the
+key that does the same. On a phone or a narrow window the rail folds into the
+menu at the left of the top bar.
+
 [[key:help]] brings this back from anywhere, and [[key:palette]] opens the
 command palette, which lists every action there is but switching tabs —
 including the ones with no shortcut of their own.

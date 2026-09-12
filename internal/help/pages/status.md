@@ -24,8 +24,10 @@ tells you what the agent is actually doing rather than only that it is busy.
 - **The tab** holding a waiting agent is marked `▲`.
 - **The window title** reports the count, so a waiting agent is visible in the
   taskbar with the window behind something else.
-- **The project chip**, at the left of the tab bar, turns amber when an agent
-  in a project you are *not* looking at starts waiting.
+- **The rail** down the left of the window has a tile for each open project,
+  and the tile of a project with an agent waiting on you carries an amber
+  badge — so one that starts waiting in a project you are *not* looking at is
+  seen from the one you are.
 - **A desktop notification** is raised when an agent blocks while the window is
   not in front. It is not raised when you are already looking at the window —
   the tab marker is enough, and a toast would be noise.

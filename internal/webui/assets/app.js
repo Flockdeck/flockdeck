@@ -16,6 +16,46 @@
     return n;
   };
 
+  /** ICON_PATHS is the drawing for each icon in the rail, the top bar and the
+   *  settings, on a 16-unit grid and stroked in the text colour. A glyph in a
+   *  font is drawn however that font draws it, and several of these had no
+   *  glyph that said the thing at all. */
+  const ICON_PATHS = {
+    broadcast: '<circle cx="8" cy="8" r="1.4"></circle><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.1 3.1a7 7 0 0 0 0 9.8M12.9 3.1a7 7 0 0 1 0 9.8"></path>',
+    changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
+    history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
+    worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
+    help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
+    settings: '<path d="M2.5 4.5h6.5M12.5 4.5h1M2.5 11.5h1.5M7.5 11.5h6"></path><circle cx="10.7" cy="4.5" r="1.6"></circle><circle cx="5.7" cy="11.5" r="1.6"></circle>',
+    update: '<path d="M8 2.5v7.5M4.8 7 8 10.2 11.2 7M3.5 13.3h9"></path>',
+    plus: '<path d="M8 3.2v9.6M3.2 8h9.6"></path>',
+    minus: '<path d="M3.5 8h9"></path>',
+    chev: '<path d="M4.8 6.4 8 9.6l3.2-3.2"></path>',
+    search: '<circle cx="7" cy="7" r="4.2"></circle><path d="M10.2 10.2 13.3 13.3"></path>',
+    folderplus: '<path d="M8 4.5v7M4.5 8h7"></path>',
+    ext: '<path d="M6.5 3.5h-3v9h9v-3M9.5 2.5h4v4M13.5 2.5 8 8"></path>',
+    menu: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path>',
+  };
+
+  /** iconSVG is the markup for one icon. It goes in as markup because a node
+   *  made in the SVG namespace needs createElementNS for every part of it. */
+  function iconSVG(name, size) {
+    const s = size || 16;
+    return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false">' +
+      (ICON_PATHS[name] || "") + "</svg>";
+  }
+
+  /** iconEl is an icon as an element, hidden from a screen reader: whatever
+   *  it sits in carries the words. */
+  function iconEl(name, size) {
+    const n = el("span", "ico");
+    n.setAttribute("aria-hidden", "true");
+    n.innerHTML = iconSVG(name, size);
+    return n;
+  }
+
   // ------------------------------------------------------------------ tips
 
   /* Native title tooltips are wrong here twice over: they wait about a second,
@@ -261,7 +301,7 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); settingsChanged(); }
       // A button that went with its worktree leaves the keyboard on the list
       // - the first row's first button, which removes nothing - rather than
       // out of the dialog.
@@ -287,15 +327,15 @@
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
       else if (msg.type === "agentAddress") addressAnswered(msg);
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (dialog === "remote") keepFocus(renderRemote); }
-      else if (msg.type === "remotePair") { remotePairing = msg; if (dialog === "remote") keepFocus(renderRemote); }
+      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote); }
+      else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
         remoteOutcome = msg;
         // A machine that has just been enrolled starts from an empty form the
         // next time it is turned off and on, not from the codes used once.
         if (msg.action === "enable" && !msg.error) remoteDraft = newRemoteDraft();
-        if (dialog === "remote") keepFocus(renderRemote);
+        if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
@@ -329,8 +369,12 @@
     if (key === updateShown) return;
     updateShown = key;
     const b = $("btn-update");
+    // The settings say whether an update is waiting, beside the switch that
+    // decides whether one is looked for.
+    settingsChanged();
     if (!u) { b.hidden = true; return; }
-    b.textContent = "Update " + u.version;
+    b.textContent = "";
+    b.append(iconEl("update", 14), document.createTextNode("Update " + u.version));
     describe(b, "Version " + u.version + " has been downloaded and is ready to install");
     b.hidden = false;
   }
@@ -389,30 +433,40 @@
   let remoteBusy = "";
   let remoteOutcome = null;
 
-  /** renderRemoteChip shows the Remote chip on an enrolled machine, and keeps
-   *  the dialog's status line current while it is open. Like the update chip
-   *  it is keyed on what it shows, so a snapshot that says nothing new about
-   *  the tunnel does not rebuild it. */
+  /** renderRemoteChip keeps the rail's Remote button saying where the tunnel
+   *  stands, and the dialog's status line current while it is open. The
+   *  button is there whether or not remote access is on: hidden until the
+   *  machine was enrolled, it could only be found by somebody who already
+   *  knew to look in the palette. Like the update pill it is keyed on what it
+   *  shows, so a snapshot that says nothing new about the tunnel does not
+   *  rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
-    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "";
+    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
     const b = $("btn-remote");
-    if (!r) {
-      b.hidden = true;
-    } else {
-      // Amber only when it needs somebody, which is what amber means
-      // everywhere else here. A working tunnel is a plain chip, and the count
-      // says whether anybody is using it.
-      b.textContent = r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
-      b.classList.toggle("trouble", r.state === "error" || r.state === "revoked" || r.state === "replaced");
-      b.classList.toggle("pending", r.state === "connecting");
-      describe(b, remoteSummary(r));
-      b.hidden = false;
-    }
-    if (dialog === "remote") keepFocus(renderRemote);
+    // Amber only when it needs somebody, which is what amber means everywhere
+    // else here; green is a working tunnel, grey one still connecting, and
+    // no badge at all is remote access turned off.
+    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced");
+    const pending = !!r && r.state === "connecting";
+    b.classList.toggle("trouble", trouble);
+    b.classList.toggle("pending", pending);
+    const badge = b.querySelector(".rail-badge");
+    badge.classList.toggle("on", !!r && r.state === "connected");
+    badge.classList.toggle("pending", pending);
+    badge.classList.toggle("trouble", trouble);
+    // The count says whether anybody is using it, and is part of the name.
+    b.querySelector(".rail-label").textContent = r && r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
+    describe(b, r ? remoteSummary(r) : actionTip("remote",
+      "off. Turn it on to open this window from another device, such as a tablet or a phone"));
+    if (remoteShown()) keepFocus(renderRemote);
   }
+
+  /** remoteShown is whether remote access is on screen to be drawn: its own
+   *  dialog, or its section of the settings. */
+  function remoteShown() { return !!remoteHost(); }
 
   /** remoteSummary says in a sentence where the tunnel stands. */
   function remoteSummary(r) {
@@ -444,9 +498,17 @@
     send({ cmd: "remoteDevices" });
   }
 
+  /** remoteHost is where remote access is drawn, or null while it is not on
+   *  screen. */
+  function remoteHost() {
+    if (dialog === "remote") return $("overlay-body");
+    if (dialog === "settings" && settingsSection === "remote") return $("settings-host");
+    return null;
+  }
+
   function renderRemote() {
-    if (dialog !== "remote") return;
-    const body = $("overlay-body");
+    const body = remoteHost();
+    if (!body) return;
     body.textContent = "";
     const r = state && state.remote;
     // Enrolling decides where the traffic goes, so the form says which relay
@@ -636,12 +698,16 @@
     return box;
   }
 
-  /** privateRelaysNote announces private relays, which are not here yet. It
-   *  says what they will be and that they will be paid, and no more: price
-   *  and date are not settled, and the dialog should not promise either. */
+  /** What private relays will be, in the words the remote dialog and the
+   *  settings' plan both use. It says what they will be and that they will be
+   *  paid, and no more: price and date are not settled, and nothing here
+   *  should promise either. */
+  const PRIVATE_RELAYS_WHAT = "run for you alone, as a paid plan";
+  const PRIVATE_RELAYS_FREE = "The shared relay stays free, and you can always name a relay of your own.";
+
+  /** privateRelaysNote announces private relays, which are not here yet. */
   function privateRelaysNote() {
-    return el("p", "fan-hint", "Coming soon: private relays, run for you alone, as a paid plan. " +
-      "The shared relay stays free, and you can always name a relay of your own.");
+    return el("p", "fan-hint", "Coming soon: private relays, " + PRIVATE_RELAYS_WHAT + ". " + PRIVATE_RELAYS_FREE);
   }
 
   /** remoteMachineSection is this machine's own place on the relay: trying
@@ -762,12 +828,14 @@
         catalogKey = encoded;
         catalog = s.agents;
         if (dialog === "agentPicker") keepFocus(renderAgentPicker);
+        settingsChanged();
       }
     }
     const rebuilt = rebuildChangedTabs(s);
     applyWeights(s);
     showActiveTab(s, rebuilt);
     renderTabs(s);
+    renderRail(s);
     renderSummary(s);
     followAgents(s);
     followProjects(s);
@@ -1322,11 +1390,15 @@
     field.select();
   }
 
-  /** tally builds one "▲ 3 waiting" count: the glyph is decoration, the words
-   *  after it are the reading, and the tip explains the state being counted. */
-  function tally(cls, sym, n, tip) {
+  /** tally builds one "3 waiting" count: the dot is decoration in the status's
+   *  colour, the words after it are the reading, and the tip explains the
+   *  state being counted. The word is its own element so that a narrow
+   *  screen can keep it for a screen reader and show only the figure. */
+  function tally(cls, n, tip) {
     const span = el("span", cls);
-    span.append(glyph(sym), document.createTextNode(` ${n} ${cls}`));
+    const dot = el("span", "tally-dot");
+    dot.setAttribute("aria-hidden", "true");
+    span.append(dot, document.createTextNode(String(n)), el("span", "tally-word", " " + cls));
     return describe(span, tip);
   }
 
@@ -1371,23 +1443,36 @@
       // describeChrome; re-titling it here would put a stale binding back.
       // Each count says what its own glyph means: the button's tooltip explains
       // where clicking leads, which is not the same question.
-      if (s.waiting > 0) box.append(tally("waiting", "▲", s.waiting, TIPS.waiting));
-      if (s.waiting > 0 && s.working > 0) box.append(document.createTextNode("  ·  "));
-      if (s.working > 0) box.append(tally("working", "●", s.working, TIPS.working));
+      if (s.waiting > 0) box.append(tally("waiting", s.waiting, TIPS.waiting));
+      // The gap between the two is the eye's; a screen reader needs a pause.
+      if (s.waiting > 0 && s.working > 0) box.append(el("span", "sr-only", ", "));
+      if (s.working > 0) box.append(tally("working", s.working, TIPS.working));
       document.title = s.waiting > 0
         ? `▲ ${s.waiting} waiting · flockdeck`
         : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
       setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
     }
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
+    $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
     renderProjectChip(s);
   }
 
-  /** renderProjectChip labels the switcher with the active project. */
+  /** renderProjectChip labels the switcher with the active project, and the
+   *  branch its own checkout is on. */
   function renderProjectChip(s) {
     const active = (s.projects || []).find((p) => p.active);
     const name = active ? active.name : "project";
     if ($("project-name").textContent !== name) $("project-name").textContent = name;
+    // The branch of the project's own folder, read off a pane working there.
+    // A pane in a worktree is on a branch of its own and says so in its
+    // header; with no pane in the folder itself there is nothing to say.
+    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = norm(active ? active.root : s.root);
+    const home = Object.values(s.panes || {}).find((v) => v.branch && norm(v.cwd) === root);
+    const branch = home ? home.branch : "";
+    const bn = $("project-branch");
+    if (bn.textContent !== branch) bn.textContent = branch;
+    bn.hidden = !branch;
     // The path goes into the same bubble as what the button does and the key
     // that does it, rather than into a title of its own. A title is taken over
     // as the tooltip the first time an element is hovered, so writing one here
@@ -1403,6 +1488,187 @@
     if (btn.dataset.tip !== tip) describe(btn, tip);
     btn.classList.toggle("attention", elsewhere.length > 0);
   }
+
+  // ------------------------------------------------------------------- rail
+
+  /** The tile for each open project, by its folder, kept across the pushes
+   *  for the reason the tab buttons are: rebuilt on each, the keyboard and a
+   *  tooltip resting on one would go with it. */
+  const railTiles = new Map();
+  /** What the tiles were last drawn from, so a push that changes nothing they
+   *  show - which is nearly every push - is not drawn at all. */
+  let railShown = "";
+  /** The rail's one stop for Tab. The arrows move it. Until somebody does,
+   *  it is the project on screen, and follows it from project to project. */
+  let railStop = null;
+  let railStopChosen = false;
+
+  /** renderRail draws a tile for each open project: its monogram, which one
+   *  is on screen, and an amber badge where an agent is waiting on you. That
+   *  last is what the rail is for - a project with somebody blocked in it is
+   *  seen from any other without opening anything. */
+  function renderRail(s) {
+    const projects = s.projects || [];
+    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0]));
+    if (key === railShown) return;
+    railShown = key;
+    const box = $("rail-projects");
+    const monos = monograms(projects.map((p) => p.name));
+    projects.forEach((p, i) => {
+      let t = railTiles.get(p.root);
+      if (!t) { t = railTile(p.root); railTiles.set(p.root, t); }
+      t.mono.textContent = monos[i];
+      t.name.textContent = p.name;
+      t.btn.classList.toggle("current", !!p.active);
+      if (p.active) t.btn.setAttribute("aria-current", "true");
+      else t.btn.removeAttribute("aria-current");
+      t.badge.classList.toggle("waiting", (p.waiting || 0) > 0);
+      // Two letters say which project to somebody who already knows; the
+      // name and the folder say it to everybody else, and two checkouts of
+      // one repository have the same name and only the folder differs.
+      const waiting = p.waiting
+        ? ", " + (p.waiting === 1 ? "an agent is" : p.waiting + " agents are") + " waiting on you" : "";
+      const says = p.name + " — " + p.root + waiting;
+      t.btn.setAttribute("aria-label", says);
+      describe(t.btn, p.active ? says + ". The project on screen." : says);
+      if (box.children[i] !== t.btn) box.insertBefore(t.btn, box.children[i] || null);
+    });
+    for (const [root, t] of railTiles) {
+      if (projects.some((p) => p.root === root)) continue;
+      if (tipFor && t.btn.contains(tipFor)) hideTip();
+      t.btn.remove();
+      railTiles.delete(root);
+    }
+    placeRailStop();
+  }
+
+  /** railTile makes the button for one project, bound to its folder rather
+   *  than to the record it arrived in. */
+  function railTile(root) {
+    const btn = el("button", "rail-btn rail-tile");
+    btn.dataset.root = root;
+    const mono = el("span", "mono");
+    mono.setAttribute("aria-hidden", "true");
+    const badge = el("span", "rail-badge");
+    badge.setAttribute("aria-hidden", "true");
+    const name = el("span", "rail-label");
+    btn.append(mono, badge, name);
+    btn.onclick = () => {
+      closeRailMenu(false);
+      const p = ((state && state.projects) || []).find((x) => x.root === root);
+      // The project already on screen: the click was for its terminal.
+      if (p && p.active) focusTerminal();
+      else send({ cmd: "selectProject", root });
+    };
+    return { btn, mono, badge, name };
+  }
+
+  /** monograms gives each name two letters, and no two the same: the first
+   *  letter of the first word and of the last, and where that is taken, the
+   *  first with a later consonant of the last word - flockdeck-relay and
+   *  flockdeck-remote are FR and FM, not FR twice. A name of one word starts
+   *  from its first two letters. Taken in the order the projects were opened,
+   *  so a project keeps its letters while the ones after it come and go. */
+  function monograms(names) {
+    const taken = new Set();
+    return names.map((name) => {
+      const pick = monogramCandidates(name).find((c) => !taken.has(c)) || String(taken.size + 1);
+      taken.add(pick);
+      return pick;
+    });
+  }
+
+  function monogramCandidates(name) {
+    const words = String(name || "").replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, "$1 $2")
+      .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const out = [];
+    const add = (a, b) => {
+      const m = (a + (b || "")).toUpperCase();
+      if (a && !out.includes(m)) out.push(m);
+    };
+    if (!words.length) return ["?"];
+    const first = [...words[0]][0];
+    const last = [...words[words.length - 1]];
+    if (words.length > 1) {
+      add(first, last[0]);
+      last.slice(1).filter((c) => !/[aeiouy]/i.test(c)).forEach((c) => add(first, c));
+      words.slice(1, -1).forEach((w) => add(first, [...w][0]));
+    }
+    const letters = [...words.join("")];
+    if (letters.length === 1) add(first);
+    letters.slice(1).forEach((c) => add(first, c));
+    for (let d = 2; d <= 9; d++) add(first, String(d));
+    return out;
+  }
+
+  /** railButtons is every button in the rail, in the order the arrows walk. */
+  function railButtons() {
+    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled);
+  }
+
+  /** placeRailStop keeps exactly one of the rail's buttons as its stop for
+   *  Tab: the one last used, or the project on screen to begin with. Ten
+   *  projects and seven tools are otherwise seventeen presses of Tab between
+   *  the top bar and anything past the rail. */
+  function placeRailStop(to) {
+    const all = railButtons();
+    if (to) { railStop = to; railStopChosen = true; }
+    if (!railStopChosen || !railStop || !railStop.isConnected || !all.includes(railStop)) {
+      railStopChosen = false;
+      railStop = all.find((b) => b.classList.contains("current")) || all[0] || null;
+    }
+    all.forEach((b) => {
+      const stop = b === railStop ? 0 : -1;
+      if (b.getAttribute("tabindex") !== String(stop)) b.tabIndex = stop;
+    });
+  }
+
+  /** railKey walks the rail with the arrow keys, up and down as it stands, and
+   *  left and right as well for anybody who reaches for those. */
+  function railKey(ev) {
+    const all = railButtons();
+    const at = all.indexOf(document.activeElement);
+    if (at < 0) return;
+    let to;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowRight") to = (at + 1) % all.length;
+    else if (ev.key === "ArrowUp" || ev.key === "ArrowLeft") to = (at - 1 + all.length) % all.length;
+    else if (ev.key === "Home") to = 0;
+    else if (ev.key === "End") to = all.length - 1;
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    placeRailStop(all[to]);
+    all[to].focus();
+    all[to].scrollIntoView({ block: "nearest" });
+  }
+
+  /* On a narrow screen the rail is folded into a menu opened from the top bar
+   * (the style sheet decides where; this only opens and closes it). While it
+   * is open it holds the keyboard as a dialog does, and Escape, a tap beside
+   * it or choosing anything in it puts it away. */
+  function railMenuOpen() { return document.body.classList.contains("rail-open"); }
+
+  function openRailMenu() {
+    document.body.classList.add("rail-open");
+    $("rail-toggle").setAttribute("aria-expanded", "true");
+    // The menu opens on the project on screen: it is where the list of them
+    // is read from.
+    placeRailStop(railButtons().find((b) => b.classList.contains("current")));
+    if (railStop) railStop.focus();
+  }
+
+  /** closeRailMenu puts the menu away, and the keyboard back on the button
+   *  that opened it where nothing else is about to take it. */
+  function closeRailMenu(refocus) {
+    if (!railMenuOpen()) return;
+    document.body.classList.remove("rail-open");
+    $("rail-toggle").setAttribute("aria-expanded", "false");
+    if (refocus) $("rail-toggle").focus();
+  }
+
+  /** railFolded is whether the rail is a menu at the window's width now: the
+   *  button that opens it is only on screen while it is. */
+  function railFolded() { return $("rail-toggle").offsetParent !== null; }
 
   // ------------------------------------------------- rearranging the layout
 
@@ -1724,6 +1990,7 @@
     const term = new Terminal({
       allowProposedApi: true,
       cursorBlink: cursorBlinks(),
+      cursorStyle: cursorShape(),
       fontFamily: terminalFont(),
       fontSize: fontSize,
       lineHeight: 1.15,
@@ -1812,6 +2079,26 @@
   function cursorBlinks() { return !prefs.cursorSteady && !reducedMotion(); }
   function applyCursorBlink() {
     for (const p of panes.values()) p.term.options.cursorBlink = cursorBlinks();
+  }
+
+  /** cursorShape is the shape the terminal cursors are drawn in: a block
+   *  unless a bar or an underline has been chosen in the settings. */
+  function cursorShape() {
+    return prefs.cursorStyle === "bar" || prefs.cursorStyle === "underline" ? prefs.cursorStyle : "block";
+  }
+  function applyCursorStyle() {
+    const shape = cursorShape();
+    for (const p of panes.values()) {
+      if (p.term.options.cursorStyle !== shape) p.term.options.cursorStyle = shape;
+    }
+  }
+  /** chooseCursorStyle makes a shape every terminal's, here at once and in
+   *  every other window when the preference comes back round. */
+  function chooseCursorStyle(shape) {
+    prefs.cursorStyle = shape === "block" ? "" : shape;
+    applyCursorStyle();
+    send({ cmd: "cursorStyle", text: shape });
+    settingsChanged();
   }
   // The system setting can change while the window is open, and the
   // terminals already drawn follow it.
@@ -2333,6 +2620,7 @@
    * also moved the focus, and the answer must not depend on which won. */
   function dialogOpen() {
     if (typingInDialog()) return true;
+    if (railMenuOpen()) return true;
     return ["overlay", "palette", "promptbar", "searchbar"].some((id) => {
       const n = $(id);
       return n && !n.hidden;
@@ -2365,6 +2653,9 @@
     if (!$("disconnected").hidden) return $("disconnected").querySelector(".panel");
     if (!$("palette").hidden) return $("palette-box");
     if (!$("overlay").hidden) return $("overlay-panel");
+    // The rail folded into a menu covers the window's edge, with the panes
+    // dimmed behind it, and is left the way a dialog is.
+    if (railMenuOpen() && railFolded()) return $("rail");
     return null;
   }
 
@@ -2402,7 +2693,7 @@
   function openOverlay(title, page) {
     $("overlay-title").textContent = title;
     $("overlay-body").textContent = "";
-    $("overlay-panel").classList.remove("wide");
+    $("overlay-panel").classList.remove("wide", "settings-panel");
 
     const old = $("overlay-help");
     if (old) old.remove();
@@ -2438,8 +2729,13 @@
     // a list scrolled to its twentieth worktree jumped back to the first when
     // one was removed, or when a refresh came back.
     const top = body.scrollTop;
+    // The settings scroll their section rather than the whole body, and the
+    // section has to stay where it was read to as well.
+    const pane = $("settings-pane");
+    const paneTop = pane ? pane.scrollTop : 0;
     draw();
     body.scrollTop = top;
+    if (pane && pane.isConnected) pane.scrollTop = paneTop;
     if (!key) return;
     for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
       if (identify(node) !== key) continue;
@@ -2481,6 +2777,8 @@
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
+    else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
+    else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "projects") {
       send({ cmd: "recents" });
       send({ cmd: "browse", path: browseState ? browseState.path : "" });
@@ -2490,7 +2788,7 @@
   function closeOverlay() {
     picker = null;
     $("overlay").hidden = true;
-    $("overlay-panel").classList.remove("wide");
+    $("overlay-panel").classList.remove("wide", "settings-panel");
     dialog = null;
     focusTerminal();
   }
@@ -2817,7 +3115,10 @@
   /** The same for an open project whose × was last pressed. */
   let closedAt = -1;
 
-  function openProjects() {
+  /** openProjects opens the projects dialog. `browsing` is the rail's button
+   *  for opening a project, which puts the keyboard in the folder field: the
+   *  one question that button asks is which folder. */
+  function openProjects(browsing) {
     dialog = "projects";
     browseDraft = null;
     recentsAll = false;
@@ -2825,6 +3126,7 @@
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
     renderProjects();
+    if (browsing === true && $("browse-path")) $("browse-path").focus();
   }
 
   function renderProjects() {
@@ -3032,6 +3334,8 @@
     up.disabled = !b || !b.parent;
     up.onclick = () => send({ cmd: "browse", path: b.parent });
     const path = el("input");
+    path.id = "browse-path";
+    path.setAttribute("aria-label", "Folder");
     // A path being typed survives a redraw of the dialog — dropping a project
     // from the recent list redraws it — and gives way to wherever the browser
     // has actually been sent, which is what arriving somewhere new means.
@@ -3173,6 +3477,31 @@
     applyFontSize(px);
     send({ cmd: "fontSize", size: fontSize });
     notice("Font size " + fontSize + "px", false);
+    settingsChanged();
+  }
+
+  /** The preferences kept as "off", the command that changes each, and what
+   *  is said when it is turned on and off. The palette's entries and the
+   *  settings' switches both go through setOff, so they cannot say or do two
+   *  different things. */
+  const PREF_CMD = { notificationsOff: "notifications", cursorSteady: "cursorBlink", updatesOff: "updates" };
+  const PREF_SAYS = {
+    notificationsOff: ["Desktop notifications are on", "Desktop notifications are off"],
+    cursorSteady: ["The terminal cursor blinks", "The terminal cursor is steady"],
+    updatesOff: ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"],
+  };
+
+  /** setOff turns one of those preferences on or off. It takes effect here at
+   *  once rather than when the server's copy comes back, so a switch pressed
+   *  twice in quick succession reads what it was last set to. */
+  function setOff(field, off) {
+    prefs[field] = off;
+    send({ cmd: PREF_CMD[field], kind: off ? "off" : "on" });
+    notice(PREF_SAYS[field][off ? 1 : 0], false);
+    if (field === "cursorSteady") applyCursorBlink();
+    // Turned on in the window, the browser has to agree as well.
+    if (field === "notificationsOff" && !off) askForNotifications();
+    settingsChanged();
   }
 
   /** applyPrefs puts into effect the preferences that change how the
@@ -3182,6 +3511,7 @@
     applyFontSize(prefs.fontSize);
     applyScrollback(prefs.scrollback);
     applyCursorBlink();
+    applyCursorStyle();
     applyFontFamily();
   }
 
@@ -3232,19 +3562,27 @@
   function askFontFamily() {
     const answer = window.prompt("Which font should the terminals use? Leave it empty for the default.", prefs.fontFamily || "");
     if (answer === null || answer === undefined) return;
+    const why = chooseFontFamily(answer);
+    if (why) notice(why, true);
+    settingsChanged();
+  }
+
+  /** chooseFontFamily makes a typeface the terminals' own, or says why it
+   *  cannot. The palette's question and the settings' field both come here. */
+  function chooseFontFamily(answer) {
     const family = String(answer).trim();
     // A name this machine has no font for was taken, announced as the
     // terminals' font, and drawn in the fallback: nothing changed on screen,
     // and nothing said why - a misspelling looked like the setting not working.
     if (family && fontMissing(family)) {
-      notice("No font called " + family + " was found on this machine, so the terminals keep " +
-        (prefs.fontFamily || "the default font"), true);
-      return;
+      return "No font called " + family + " was found on this machine, so the terminals keep " +
+        (prefs.fontFamily || "the default font");
     }
     prefs.fontFamily = family;
     applyFontFamily();
     send({ cmd: "fontFamily", text: family });
     notice(family ? "The terminals now use " + family : "The terminals use the default font again", false);
+    return "";
   }
 
   /** How many lines a terminal keeps once they have scrolled off the top,
@@ -3270,9 +3608,16 @@
       notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
       return;
     }
+    chooseScrollback(n);
+  }
+
+  /** chooseScrollback is what the palette's question and the settings' list
+   *  both do with an answer. */
+  function chooseScrollback(n) {
     applyScrollback(n);
     send({ cmd: "scrollback", size: n });
     notice("Each terminal now keeps " + n.toLocaleString("en") + " lines", false);
+    settingsChanged();
   }
 
   /** applyFontSize draws every terminal at a size without announcing it,
@@ -3507,6 +3852,7 @@
     projects: () => openProjects(),
     help: () => openHelp(),
 
+    settings: () => openSettings(),
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
@@ -3550,11 +3896,19 @@
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
-    label("toggleBroadcast", $("btn-broadcast"));
+    label("toggleBroadcast", $("btn-broadcast"), "on while it is lit");
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("help", $("btn-help"));
+    label("settings", $("btn-settings"));
+    label("palette", $("btn-palette"), "every action there is, searchable");
+    label("projects", $("rail-open"), "open a folder as a project");
+    // The palette's key, drawn as keys on the button that opens it.
+    const k = keyTable.find((x) => x.id === "palette");
+    const keys = $("palette-keys");
+    keys.textContent = "";
+    if (k && k.keys) k.keys.split("+").forEach((part) => keys.append(el("kbd", null, part)));
   }
 
   /** actionTip is the copy for a control that runs an action: what it does and
@@ -3647,7 +4001,7 @@
     // The settings are commands like any other, and "settings" is the word
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
-    const SETTINGS = new Set(["fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
+    const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
     const also = (id) => SETTINGS.has(id) ? SETTING : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
@@ -3679,24 +4033,20 @@
       cmds.push({ label: label, hint: now(id), also: also(id), run: () => runAction(id) });
     });
     // A setting kept as "off": the entry turns it back on while it is off and
-    // off while it is on, and says which it did.
-    const toggle = (off, cmd, [turnOn, turnOff], [isOn, isOff]) => cmds.push({
-      label: off ? turnOn : turnOff,
-      also: SETTING,
-      run: () => { send({ cmd, kind: off ? "on" : "off" }); notice(off ? isOn : isOff, false); },
-    });
+    // off while it is on, and says which it did - through setOff, as the
+    // settings' switch for it does.
+    const toggle = (field, [turnOn, turnOff]) => {
+      const off = !!prefs[field];
+      cmds.push({ label: off ? turnOn : turnOff, also: SETTING, run: () => setOff(field, !off) });
+    };
     // Desktop notifications reach past the window, and the only way to stop
     // them was the browser's own permission - which belongs to the page's
     // origin, changes with the port on every run, and so was asked again, and
     // had to be refused again, every time the application started.
-    toggle(!!prefs.notificationsOff, "notifications",
-      ["Turn desktop notifications on", "Turn desktop notifications off"],
-      ["Desktop notifications are on", "Desktop notifications are off"]);
+    toggle("notificationsOff", ["Turn desktop notifications on", "Turn desktop notifications off"]);
     // The cursor's blink was fixed in the source, and one blinking cursor
     // among a tab of still terminals is a distraction some people want gone.
-    toggle(!!prefs.cursorSteady, "cursorBlink",
-      ["Make the terminal cursor blink", "Stop the terminal cursor blinking"],
-      ["The terminal cursor blinks", "The terminal cursor is steady"]);
+    toggle("cursorSteady", ["Make the terminal cursor blink", "Stop the terminal cursor blinking"]);
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
@@ -3708,9 +4058,7 @@
     }
     // The background check for a new release could be turned off only with
     // an environment variable set before the application started.
-    toggle(!!prefs.updatesOff, "updates",
-      ["Turn update checks on", "Turn update checks off"],
-      ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"]);
+    toggle("updatesOff", ["Turn update checks on", "Turn update checks off"]);
     (s.projects || []).forEach((p) => {
       if (p.active) return;
       // Whether anybody there is waiting on you is what decides where to go
@@ -4924,17 +5272,26 @@
     send({ cmd: "keys" });
   }
 
+  /** keysHost is where the keys are drawn: their own dialog, or their section
+   *  of the settings, or null while neither is on screen. */
+  function keysHost() {
+    if (dialog === "keys") return $("overlay-body");
+    if (dialog === "settings" && settingsSection === "keys") return $("settings-host");
+    return null;
+  }
+
   function renderKeys(msg) {
     if (msg) apiKeys = msg;
-    if (dialog !== "keys") return; // see openWorktrees
+    const body = keysHost();
+    if (!body) return; // see openWorktrees
     const items = (apiKeys && apiKeys.items) || [];
-    const body = $("overlay-body");
     body.textContent = "";
 
     body.append(el("div", "fan-hint",
       "Agents that talk to a model API need a key. One already exported in your " +
       "environment is used where it is; anything set here is kept in flockdeck's own " +
       "file, readable only by you, and reaches nothing but the pane that needs it."));
+    if (!apiKeys) { body.append(el("div", "dir-empty", "Loading…")); return; }
 
     if (!items.length) {
       body.append(el("div", "dir-empty", "None of the agents here use an API key."));
@@ -5029,6 +5386,458 @@
     no.onclick = cancel;
     form.append(field, ok, no);
     return form;
+  }
+
+  // --------------------------------------------------------------- settings
+
+  /* One dialog for the settings that were scattered across the palette, the
+   * keys and a prompt or two, and for two that had no home at all: the agent
+   * every project starts, and the plan. Every control sends the command the
+   * palette and the keys send and reads the preferences they change, so there
+   * is one state however it is changed, and the dialog follows a change made
+   * anywhere else - another window included - while it is open. The remote
+   * access and API key sections are those dialogs' own parts, drawn here. */
+
+  const SETTINGS_SECTIONS = [
+    { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
+    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview" },
+    { id: "agents", label: "Agents", words: "default agent model project" },
+    { id: "keys", label: "API keys", words: "api keys key token secret" },
+    { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
+    { id: "plan", label: "Account & plan", words: "account plan free private relays paid" },
+  ];
+  /** The section on show, kept from one opening to the next. */
+  let settingsSection = "general";
+  /** What has been typed into Find a setting. */
+  let settingsQuery = "";
+  /** A font typed and refused, kept in the field with the reason under it so
+   *  it can be put right rather than typed again. */
+  let fontDraft = null;
+  let fontError = "";
+
+  /** The site's section on private relays, where what they cost and when
+   *  they come will be said once it is settled. */
+  const PRIVATE_RELAYS_URL = "https://flockdeck.ai/#private-relays";
+
+  /** A few monospaced fonts to suggest; any other installed one can be typed. */
+  const FONT_SUGGESTIONS = ["Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", "Consolas",
+    "SF Mono", "Menlo", "Source Code Pro", "Ubuntu Mono", "DejaVu Sans Mono"];
+
+  function openSettings(section) {
+    dialog = "settings";
+    settingsQuery = "";
+    openOverlay("Settings", "settings");
+    $("overlay-panel").classList.add("settings-panel");
+    buildSettingsShell();
+    showSettingsSection(section || settingsSection, true);
+    // On the section list, so the arrows walk it from the start.
+    const tab = $("settings-tab-" + settingsSection);
+    if (tab) tab.focus();
+  }
+
+  /** settingsChanged draws the section on show again, for a setting that has
+   *  changed from here or from anywhere else. Not the keys or remote access,
+   *  which draw themselves from their own answers: drawn again for a font
+   *  size, the key half-typed into the one would go. */
+  function settingsChanged() {
+    if (dialog === "settings" && settingsSection !== "keys" && settingsSection !== "remote") keepFocus(renderSettings);
+  }
+
+  function buildSettingsShell() {
+    const body = $("overlay-body");
+    body.textContent = "";
+    const wrap = el("div", "settings");
+    const nav = el("div", "settings-nav");
+    const find = el("input", "settings-find");
+    find.id = "settings-find";
+    find.type = "search";
+    find.placeholder = "Find a setting";
+    find.autocomplete = "off";
+    find.spellcheck = false;
+    find.setAttribute("aria-label", "Find a setting");
+    find.oninput = () => {
+      settingsQuery = find.value;
+      const hits = matchingSections();
+      if (hits.length && !hits.some((s) => s.id === settingsSection)) showSettingsSection(hits[0].id);
+      else drawSettingsNav();
+    };
+    find.onkeydown = (ev) => {
+      if (ev.key !== "ArrowDown" && ev.key !== "Enter") return;
+      const tab = $("settings-tab-" + settingsSection);
+      if (tab && tab.isConnected) { ev.preventDefault(); tab.focus(); }
+    };
+    const tabs = el("div", "settings-tabs");
+    tabs.id = "settings-tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-orientation", "vertical");
+    tabs.setAttribute("aria-label", "Sections");
+    nav.append(find, tabs);
+    const pane = el("div", "settings-pane");
+    pane.id = "settings-pane";
+    pane.setAttribute("role", "tabpanel");
+    wrap.append(nav, pane);
+    body.append(wrap);
+  }
+
+  /** matchingSections is the sections holding every word typed into Find. */
+  function matchingSections() {
+    const words = settingsQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return SETTINGS_SECTIONS.filter((s) => words.every((w) => (s.label + " " + s.words).toLowerCase().includes(w)));
+  }
+
+  function drawSettingsNav() {
+    const list = $("settings-tabs");
+    if (!list) return;
+    const had = list.contains(document.activeElement);
+    list.textContent = "";
+    const hits = matchingSections();
+    if (!hits.length) list.append(el("div", "help-none", "No setting matches that."));
+    hits.forEach((s) => {
+      const on = s.id === settingsSection;
+      const b = el("button", "settings-tab" + (on ? " sel" : ""), s.label);
+      b.id = "settings-tab-" + s.id;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(on));
+      b.setAttribute("aria-controls", "settings-pane");
+      b.tabIndex = on ? 0 : -1;
+      b.onclick = () => showSettingsSection(s.id);
+      b.onkeydown = (ev) => settingsTabKey(ev, s.id);
+      list.append(b);
+    });
+    const tab = $("settings-tab-" + settingsSection);
+    if (tab && tab.isConnected) {
+      if (had) tab.focus();
+      // On a narrow screen the sections are a strip across the top that
+      // scrolls, and the one on show could be off its end.
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+
+  /** settingsTabKey walks the sections with the arrows, showing each as it is
+   *  reached: nothing is lost by passing one, as it is by passing an agent. */
+  function settingsTabKey(ev, id) {
+    const tabs = [...$("settings-tabs").querySelectorAll("button")];
+    const at = tabs.findIndex((b) => b.id === "settings-tab-" + id);
+    const to = rowStep(ev.key, at, tabs.length);
+    if (to === undefined || to < 0 || !tabs[to]) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const next = tabs[to].id.slice("settings-tab-".length);
+    showSettingsSection(next);
+    $("settings-tab-" + next).focus();
+  }
+
+  function showSettingsSection(id, fresh) {
+    if (!SETTINGS_SECTIONS.some((s) => s.id === id)) id = "general";
+    const moved = !!fresh || id !== settingsSection;
+    settingsSection = id;
+    drawSettingsNav();
+    if (moved) {
+      fontDraft = null;
+      fontError = "";
+      // What a section lists is asked for as it is shown, as its own dialog
+      // does on opening.
+      if (id === "keys") { apiKeys = null; keyEditing = null; send({ cmd: "keys" }); }
+      else if (id === "remote") {
+        remoteRoster = null; remotePairing = null; remoteOutcome = null; remoteBusy = "";
+        send({ cmd: "remoteDevices" });
+      } else if (id === "agents") send({ cmd: "refreshAgents" });
+    }
+    renderSettings();
+    const pane = $("settings-pane");
+    if (moved && pane) pane.scrollTop = 0;
+  }
+
+  function renderSettings() {
+    if (dialog !== "settings") return;
+    const pane = $("settings-pane");
+    if (!pane) return;
+    pane.setAttribute("aria-labelledby", "settings-tab-" + settingsSection);
+    pane.textContent = "";
+    SETTINGS_DRAW[settingsSection](pane);
+  }
+
+  /** settingsHost is the box the keys and remote access draw themselves into,
+   *  under the section's heading. */
+  function settingsHost(pane) {
+    const host = el("div", "settings-host");
+    host.id = "settings-host";
+    pane.append(host);
+  }
+
+  const SETTINGS_DRAW = {
+    general: settingsGeneral,
+    terminal: settingsTerminal,
+    agents: settingsAgents,
+    keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
+    remote: (pane) => { settingsHead(pane, "Remote access"); settingsHost(pane); renderRemote(); },
+    plan: settingsPlan,
+  };
+
+  function settingsHead(pane, title, lede) {
+    pane.append(el("h3", "set-title", title));
+    if (lede) pane.append(el("p", "set-lede", lede));
+  }
+
+  /** settingRow is one setting: what it is and what it does, and the control
+   *  that changes it, named by the first and described by the second. */
+  function settingRow(label, desc, control, extra) {
+    const row = el("div", "set-row");
+    const text = el("div", "set-text");
+    text.append(el("div", "set-label", label));
+    if (desc) {
+      const d = el("div", "set-desc", desc);
+      if (control.id) {
+        d.id = control.id + "-desc";
+        control.setAttribute("aria-describedby", d.id);
+      }
+      text.append(d);
+    }
+    if (extra) text.append(extra);
+    if (!control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
+    const box = el("div", "set-control");
+    box.append(control);
+    row.append(text, box);
+    return row;
+  }
+
+  /** switchControl is an on/off setting, pressed to change it. */
+  function switchControl(id, on, change) {
+    const b = el("button", "switch" + (on ? " on" : ""));
+    b.id = id;
+    b.setAttribute("role", "switch");
+    b.setAttribute("aria-checked", String(on));
+    b.append(el("span", "knob"));
+    b.onclick = () => change(!on);
+    return b;
+  }
+
+  /** keysFor is the binding the action table gives an action, or "". */
+  function keysFor(id) {
+    const k = keyTable.find((x) => x.id === id);
+    return k && k.keys ? k.keys : "";
+  }
+
+  /** notificationsNote says why notifications may not come although they are
+   *  on here: the browser has a say too. */
+  function notificationsNote() {
+    if (!("Notification" in window)) return " This browser does not offer them.";
+    if (Notification.permission === "denied") {
+      return " The browser has blocked them for this window: allow them in its site settings for this address.";
+    }
+    return "";
+  }
+
+  function settingsGeneral(pane) {
+    settingsHead(pane, "General", "How Flockdeck tells you things, and how it keeps itself up to date.");
+    pane.append(settingRow("Desktop notifications",
+      "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
+      switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
+
+    const u = state && state.update;
+    let install = null;
+    if (u) {
+      install = el("button", "chip primary", "Install " + u.version + "…");
+      install.id = "set-install";
+      install.style.marginTop = "8px";
+      install.onclick = openUpdate;
+    }
+    pane.append(settingRow("Check for updates",
+      "Looks for new releases in the background and downloads them, to go in when you choose to restart. " +
+      "FLOCKDECK_UPDATE=off in the environment stops it whatever this says.",
+      switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), install));
+
+    const dismissed = (prefs.dismissedTips || []).length;
+    const tips = el("button", "chip", "Show them again");
+    tips.id = "set-tips";
+    tips.disabled = !dismissed;
+    tips.onclick = () => {
+      prefs.dismissedTips = [];
+      send({ cmd: "resetTips" });
+      notice("The tips will show again where they apply", false);
+      renderHints();
+      settingsChanged();
+    };
+    pane.append(settingRow("Hints",
+      "One line under the tab bar for a gesture the window cannot show, each sent away for good with its ×. " +
+      (dismissed ? (dismissed === 1 ? "One has" : dismissed + " have") + " been sent away." : "None has been sent away."),
+      tips));
+  }
+
+  function settingsTerminal(pane) {
+    settingsHead(pane, "Terminal", "How every pane's terminal looks. Changes apply at once, to every pane.");
+
+    const step = el("div", "stepper");
+    step.setAttribute("role", "group");
+    const down = el("button", "step-btn");
+    down.id = "set-font-down";
+    down.setAttribute("aria-label", "Smaller");
+    down.append(iconEl("minus", 14));
+    down.disabled = fontSize <= 8;
+    down.onclick = () => runAction("fontDown");
+    const size = el("output", "step-value", fontSize + " px");
+    size.id = "set-font-size";
+    const up = el("button", "step-btn");
+    up.id = "set-font-up";
+    up.setAttribute("aria-label", "Larger");
+    up.append(iconEl("plus", 14));
+    up.disabled = fontSize >= 28;
+    up.onclick = () => runAction("fontUp");
+    step.append(down, size, up);
+    const [kUp, kDown, kReset] = ["fontUp", "fontDown", "fontReset"].map(keysFor);
+    pane.append(settingRow("Font size",
+      kUp && kDown && kReset ? "Also " + kUp + " and " + kDown + ", with " + kReset + " to go back." : "", step));
+
+    const font = el("input", "set-input");
+    font.id = "set-font-family";
+    font.type = "text";
+    font.placeholder = "Default";
+    font.autocomplete = "off";
+    font.spellcheck = false;
+    font.value = fontDraft !== null ? fontDraft : (prefs.fontFamily || "");
+    font.setAttribute("list", "set-fonts");
+    font.oninput = () => { fontDraft = font.value; };
+    const apply = () => {
+      // Enter and leaving the field both apply it, and both happen.
+      if (font.value.trim() === (prefs.fontFamily || "") && !fontError) { fontDraft = null; return; }
+      fontError = chooseFontFamily(font.value);
+      fontDraft = fontError ? font.value : null;
+      settingsChanged();
+    };
+    font.onchange = apply;
+    font.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); apply(); } };
+    let why = null;
+    if (fontError) {
+      why = el("div", "set-error", fontError);
+      why.setAttribute("role", "alert");
+      font.setAttribute("aria-invalid", "true");
+    }
+    const fonts = el("datalist");
+    fonts.id = "set-fonts";
+    FONT_SUGGESTIONS.forEach((f) => { const o = el("option"); o.value = f; fonts.append(o); });
+    pane.append(settingRow("Font", "Any monospaced font on this computer, by its name. Empty is the default.", font, why), fonts);
+
+    const lines = el("select", "set-select");
+    lines.id = "set-scrollback";
+    const counts = [1000, 5000, 10000, 25000, 50000, 100000, 200000];
+    if (!counts.includes(scrollback)) counts.push(scrollback);
+    counts.sort((a, b) => a - b).forEach((n) => lines.append(agentOption(n.toLocaleString("en") + " lines", String(n))));
+    lines.value = String(scrollback);
+    lines.onchange = () => chooseScrollback(Number(lines.value));
+    pane.append(settingRow("Scrollback", "Lines each pane keeps to scroll back through. More costs memory in every pane.", lines));
+
+    const shape = cursorShape();
+    const shapes = [["block", "Block"], ["bar", "Bar"], ["underline", "Underline"]];
+    const seg = el("div", "segmented");
+    seg.id = "set-cursor";
+    seg.setAttribute("role", "radiogroup");
+    shapes.forEach(([value, label], i) => {
+      const b = el("button", "seg" + (value === shape ? " on" : ""), label);
+      b.id = "set-cursor-" + value;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(value === shape));
+      b.tabIndex = value === shape ? 0 : -1;
+      b.onclick = () => chooseCursorStyle(value);
+      // A group of radio buttons is one stop, and the arrows choose within it.
+      b.onkeydown = (ev) => {
+        const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+        if (!by) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = shapes[(i + by + shapes.length) % shapes.length][0];
+        chooseCursorStyle(next);
+        const n = $("set-cursor-" + next);
+        if (n) n.focus();
+      };
+      seg.append(b);
+    });
+    pane.append(settingRow("Cursor", "The shape of the cursor in every terminal.", seg));
+    pane.append(settingRow("Blinking cursor",
+      reducedMotion() ? "Your system asks for less motion, so the cursors stay still whatever this says." : "",
+      switchControl("set-cursor-blink", !prefs.cursorSteady, (on) => setOff("cursorSteady", !on))));
+
+    // Drawn in the terminals' own font and size, with a cursor of the chosen
+    // shape, so a change is seen here before a pane is looked at.
+    pane.append(el("div", "set-sub", "Preview"));
+    const pv = el("div", "term-preview");
+    pv.id = "set-preview";
+    pv.setAttribute("aria-hidden", "true");
+    pv.style.fontFamily = terminalFont();
+    pv.style.fontSize = fontSize + "px";
+    const prompt = () => el("span", "dim", "~/project $ ");
+    pv.append(prompt(), document.createTextNode("go test ./...\nok   example.com/project   4.102s\n"), prompt(),
+      el("span", "pv-cursor " + shape + (cursorBlinks() ? " blink" : "")));
+    pane.append(pv);
+  }
+
+  function settingsAgents(pane) {
+    const choose = keyTable.find((x) => x.id === "newAgentTabChoose");
+    settingsHead(pane, "Agents", "The agent, and which of its models, a pane starts with when nobody chooses." +
+      (choose ? " To choose for one pane, use " + choose.label + " in the command palette." : ""));
+    // In the shape the agent control is drawn from, which is the fan-out's.
+    const items = (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
+      install: a.install, models: a.models, default: a.defaultModel }));
+    if (!items.length) {
+      pane.append(el("div", "dir-empty", catalog.err || "Reading the agents…"));
+      return;
+    }
+    const d = catalog.default || {};
+    const all = agentSelect(items, (d.agent || "") + "\n" + (d.model || ""));
+    all.className = "set-select";
+    all.id = "set-agent-all";
+    all.onchange = () => {
+      const [agent, model] = pickParts(all.value);
+      if (agent) send({ cmd: "setAgentDefault", agent, model, kind: "all" });
+    };
+    pane.append(settingRow("Every project", "What a project with no choice of its own starts. Kept in agents.json.", all));
+
+    const active = ((state && state.projects) || []).find((p) => p.active);
+    const own = catalog.project && (catalog.project.agent || catalog.project.model) ? catalog.project : null;
+    const mine = agentSelect(items, own ? own.agent + "\n" + (own.model || "") : "", "Same as every project");
+    mine.className = "set-select";
+    mine.id = "set-agent-project";
+    mine.disabled = !active;
+    // Empty is the project giving up its own choice, which the server takes
+    // as going back to what every project starts.
+    mine.onchange = () => {
+      const [agent, model] = pickParts(mine.value);
+      send({ cmd: "setAgentDefault", agent, model });
+    };
+    pane.append(settingRow(active ? "This project, " + active.name : "This project",
+      own ? "This project's own choice, which wins over the one for every project."
+        : "Starts what every project does until it is given an agent of its own.", mine));
+
+    const keys = el("button", "chip", "API keys…");
+    keys.id = "set-agent-keys";
+    keys.onclick = () => {
+      showSettingsSection("keys");
+      const tab = $("settings-tab-keys");
+      if (tab) tab.focus();
+    };
+    pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.", keys));
+  }
+
+  function settingsPlan(pane) {
+    settingsHead(pane, "Account & plan", "What you are on, and what is coming.");
+    const card = (name, pill, soon, text) => {
+      const c = el("div", "plan-card" + (soon ? "" : " current"));
+      const head = el("div", "plan-head");
+      head.append(el("span", "plan-name", name), el("span", "plan-pill" + (soon ? " soon" : ""), pill));
+      c.append(head, el("p", "plan-text", text));
+      return c;
+    };
+    pane.append(card("Free", "Current plan", false,
+      "Every part of the desktop app, and remote access to your panes through the shared relay."));
+    const what = PRIVATE_RELAYS_WHAT[0].toUpperCase() + PRIVATE_RELAYS_WHAT.slice(1);
+    const soon = card("Private relays", "Coming soon", true, what + ". " + PRIVATE_RELAYS_FREE);
+    const link = el("a", "plan-link");
+    link.id = "set-plan-link";
+    link.setAttribute("href", PRIVATE_RELAYS_URL);
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+    link.append(document.createTextNode("Read about private relays"), iconEl("ext", 13));
+    soon.append(link);
+    pane.append(soon);
   }
 
   // --------------------------------------------------------------- fan out
@@ -5704,6 +6513,7 @@
     }
     if (e.key === "Tab" && trapTab(e)) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
+    if (e.key === "Escape" && railMenuOpen() && $("overlay").hidden) { e.preventDefault(); closeRailMenu(true); return; }
     // Anywhere in the bar, not only in its field: after a click on one of its
     // arrows the keyboard is on that button, and Escape did nothing there.
     // F3 steps through the matches, as in nearly every Windows program, from
@@ -5720,7 +6530,7 @@
       // read or the dialog itself with it, when all that was wanted was to
       // start the search again.
       const f = e.target;
-      if (f && (f.id === "help-search" || f.id === "agent-filter" || f.id === "history-filter") && f.value) {
+      if (f && (f.id === "help-search" || f.id === "agent-filter" || f.id === "history-filter" || f.id === "settings-find") && f.value) {
         e.preventDefault();
         f.value = "";
         f.dispatchEvent(new Event("input"));
@@ -5779,6 +6589,32 @@
 
   // ------------------------------------------------------------------ wiring
 
+  document.querySelectorAll("[data-icon]").forEach((n) => {
+    n.innerHTML = iconSVG(n.dataset.icon, Number(n.dataset.size) || 16);
+  });
+  $("rail").addEventListener("keydown", railKey);
+  // Wherever the keyboard or a click lands in the rail becomes its stop, so
+  // Tab brings it back to the button last used.
+  $("rail").addEventListener("focusin", (e) => {
+    const b = e.target.closest && e.target.closest("button");
+    if (b && b !== railStop && railButtons().includes(b)) placeRailStop(b);
+  });
+  // Choosing anything in the menu is done with it. Each button's own handler
+  // has run by now, so the dialog it opened keeps the keyboard.
+  $("rail").addEventListener("click", (e) => {
+    if (e.target.closest && e.target.closest("button")) closeRailMenu(false);
+  });
+  $("rail-toggle").onclick = () => { if (railMenuOpen()) closeRailMenu(true); else openRailMenu(); };
+  describe($("rail-toggle"), "Projects, tools and settings");
+  $("rail-scrim").onclick = () => closeRailMenu(true);
+  // Widened past the point where the rail folds, an open menu would go on
+  // holding the keyboard with nothing on screen to say so.
+  try {
+    matchMedia("(max-width: 640px)").addEventListener("change", (e) => { if (!e.matches) closeRailMenu(false); });
+  } catch { /* no matchMedia, no folding */ }
+  placeRailStop();
+  $("rail-open").onclick = () => openProjects(true);
+  $("btn-palette").onclick = () => runAction("palette");
   $("new-tab").onclick = () => send({ cmd: "newTab", kind: "agent" });
   // Described here rather than only in describeChrome, which writes what the
   // action table says and can only do so once the table names this one.
@@ -5806,6 +6642,7 @@
   // Bound through a closure rather than passed straight in: the click event
   // would otherwise arrive as the page to open.
   $("btn-help").onclick = () => openHelp();
+  $("btn-settings").onclick = () => openSettings();
   $("btn-update").onclick = () => openUpdate();
   $("btn-remote").onclick = () => openRemote();
   $("overlay-close").onclick = closeOverlay;

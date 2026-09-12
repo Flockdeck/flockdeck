@@ -140,13 +140,21 @@ func TestRemoteAccessDialog(t *testing.T) {
 h.hello();
 h.recv(fixture());
 const chip = h.$("btn-remote");
-assert.ok(chip.hidden, "the chip is hidden on a machine that is not enrolled");
+const badge = chip.querySelector(".rail-badge");
+const badged = () => ["on", "pending", "trouble"].filter((c) => badge.classList.contains(c));
+// Found before it is turned on: the button stays in the rail, with no badge.
+assert.ok(!chip.hidden, "the button is hidden on a machine that is not enrolled, so remote access cannot be found");
+assert.deepStrictEqual(badged(), [], "remote access that is off wears a badge");
+assert.ok((chip.dataset.tip || "").includes("off"), "the button does not say remote access is off: " + chip.dataset.tip);
 
 const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example",
   hostId: "h1", viewers: 2, since: "2030-01-01T00:00:00Z" }, over || {});
+h.recv(fixture({ remote: remote({ state: "connecting" }) }));
+assert.deepStrictEqual(badged(), ["pending"], "a tunnel still connecting is not grey");
 h.recv(fixture({ remote: remote() }));
 assert.ok(!chip.hidden, "the chip shows once the machine is enrolled");
 assert.strictEqual(chip.textContent, "Remote · 2");
+assert.deepStrictEqual(badged(), ["on"], "a working tunnel is not green");
 assert.ok(!chip.classList.contains("trouble"), "a working tunnel is not amber");
 
 h.click(chip);
@@ -185,6 +193,7 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRevoke", id: "d1" });
 
 h.recv(fixture({ remote: remote({ state: "error", viewers: 0, detail: "lost the relay" }) }));
 assert.ok(chip.classList.contains("trouble"), "a tunnel that cannot connect is amber");
+assert.deepStrictEqual(badged(), ["trouble"], "a tunnel that cannot connect has no amber badge");
 assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialog's status line followed the state");
 `)
 }
@@ -3297,17 +3306,404 @@ assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard wh
 `)
 }
 
-// In a narrow window the chips on the right of the top bar took all the room.
-// Measured in Chrome: at 640px the tab strip was 23px wide and its one tab
-// unreadable, and at 480px the bar ran 129px past the edge, the help button
-// with it. The chips that open dialogs, which the palette and their keys also
-// reach, step aside there.
-func TestANarrowWindowKeepsTheTabsAndTheHelp(t *testing.T) {
-	css := readAsset(t, "app.css")
-	block := regexp.MustCompile(`@media\s*\(max-width:\s*(\d+)px\)\s*\{\s*#btn-changes,\s*#btn-history,\s*#btn-worktrees\s*\{\s*display:\s*none`).FindStringSubmatch(css)
-	if block == nil {
-		t.Fatal("the dialog chips keep their room in a narrow window, so the tabs and the help button are squeezed out")
+// mediaBlock returns the bodies of every @media rule whose condition matches
+// cond, braces balanced and joined, so a test can look for what the style
+// sheet does in that case and nowhere else. The rail and the dialogs each
+// keep their narrow rules beside their other rules, so there are several.
+func mediaBlock(t *testing.T, css, cond string) string {
+	t.Helper()
+	var out strings.Builder
+	for _, loc := range regexp.MustCompile(`@media\s*`+cond+`\s*\{`).FindAllStringIndex(css, -1) {
+		depth := 1
+		for i := loc[1]; i < len(css) && depth > 0; i++ {
+			switch css[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					out.WriteString(css[loc[1]:i])
+					out.WriteString("\n")
+				}
+			}
+		}
+		if depth != 0 {
+			t.Fatalf("an @media %s rule in app.css is not closed", cond)
+		}
 	}
+	if out.Len() == 0 {
+		t.Fatalf("app.css has no @media %s rule", cond)
+	}
+	return out.String()
+}
+
+// This page is opened on phones through the relay. At 400px a column of icons
+// down the left would take an eighth of the terminal's width, and the old bar
+// ran off the edge with the help button on it. There the rail folds into a
+// menu opened from the top bar, where each button says what it is - a touch
+// screen has no hover to show a tooltip - and the tabs get a row of their own;
+// on a touch screen every control in either is at least a fingertip wide.
+func TestANarrowScreenFoldsTheRailIntoAMenu(t *testing.T) {
+	css := readAsset(t, "app.css")
+	narrow := mediaBlock(t, css, `\(max-width:\s*640px\)`)
+	for _, want := range []string{
+		`#rail\s*\{[^}]*position:\s*fixed[^}]*transform:\s*translateX\(-100%\);\s*visibility:\s*hidden`,
+		`body\.rail-open #rail\s*\{[^}]*transform:\s*none;\s*visibility:\s*visible`,
+		`#rail-toggle\s*\{\s*display:\s*flex`,
+		`#topbar\s*\{[^}]*flex-wrap:\s*wrap`,
+		`#topbar > #tabbar\s*\{[^}]*flex:\s*1 1 100%`,
+		`\.rail-btn \.rail-label\s*\{[^}]*position:\s*static`,
+	} {
+		if !regexp.MustCompile(want).MatchString(narrow) {
+			t.Errorf("a narrow screen does not get %s", want)
+		}
+	}
+	coarse := mediaBlock(t, css, `\(pointer:\s*coarse\)`)
+	for _, want := range []string{
+		`\.rail-btn\s*\{\s*width:\s*44px;\s*height:\s*44px`,
+		`\.bar-btn, \.project, #summary, \.commands, \.update, \.tab\s*\{\s*min-height:\s*44px`,
+		`\.bar-btn, \.commands\s*\{\s*min-width:\s*44px`,
+		`\.tab \.close\s*\{\s*width:\s*44px;\s*height:\s*44px`,
+	} {
+		if !regexp.MustCompile(want).MatchString(coarse) {
+			t.Errorf("a touch screen does not get %s", want)
+		}
+	}
+
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+const toggle = h.$("rail-toggle");
+const open = () => h.doc.body.classList.contains("rail-open");
+assert.strictEqual(toggle.getAttribute("aria-controls"), "rail");
+assert.ok(toggle.getAttribute("aria-label"), "the menu button has no name");
+
+h.click(toggle);
+assert.ok(open(), "the menu did not open");
+assert.strictEqual(toggle.getAttribute("aria-expanded"), "true");
+const tiles = h.$("rail-projects").children;
+assert.ok(h.doc.activeElement === tiles[0], "the keyboard is not on the project on screen");
+h.key({ key: "Tab" });
+assert.ok(h.$("rail").contains(h.doc.activeElement), "Tab walked out of the open menu");
+h.key({ key: "Escape" });
+assert.ok(!open(), "Escape left the menu open");
+assert.strictEqual(toggle.getAttribute("aria-expanded"), "false");
+assert.ok(h.doc.activeElement === toggle, "the keyboard did not go back to the menu button");
+
+h.click(toggle);
+h.click(tiles[1]);
+assert.ok(!open(), "choosing a project left the menu open");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/api" });
+h.click(toggle);
+h.click(h.$("btn-help"));
+assert.ok(!open(), "opening a dialog from the menu left the menu open");
+assert.ok(!h.$("overlay").hidden, "Help did not open from the menu");
+h.key({ key: "Escape" });
+h.click(toggle);
+h.click(h.$("rail-scrim"));
+assert.ok(!open(), "a tap beside the menu left it open");
+`)
+}
+
+// The rail is the open projects, one tile each: two letters, the whole name
+// and folder in the tooltip and the accessible name, the project on screen
+// marked, and an amber badge where an agent is waiting on you - which is what
+// the rail is for, since it is seen from any project without opening
+// anything. A click switches; the tiles outlive the pushes, as the tabs do.
+func TestTheRailShowsTheOpenProjects(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = [
+  { root: "C:/code/agent-wrapper", name: "agent-wrapper", active: true, tabs: 2, waiting: 0, working: 1 },
+  { root: "C:/code/flockdeck-relay", name: "flockdeck-relay", active: false, tabs: 1, waiting: 0, working: 0 },
+  { root: "C:/code/flockdeck-remote", name: "flockdeck-remote", active: false, tabs: 1, waiting: 2, working: 0 },
+];
+h.recv(fixture({ root: "C:/code/agent-wrapper", projects,
+  panes: { p1: pane("p1", { cwd: "C:/code/agent-wrapper", branch: "main" }), p2: pane("p2", { cwd: "C:/wt/fix", branch: "fix" }) } }));
+const tiles = () => h.$("rail-projects").children;
+assert.strictEqual(tiles().length, 3, "one tile per open project");
+assert.deepStrictEqual(tiles().map((t) => t.querySelector(".mono").textContent), ["AW", "FR", "FM"]);
+const [aw, fr, fm] = tiles();
+assert.ok(aw.classList.contains("current") && aw.getAttribute("aria-current") === "true", "the project on screen is not marked");
+assert.ok(!fr.classList.contains("current") && !fr.hasAttribute("aria-current"), "a project not on screen is marked");
+const name = aw.getAttribute("aria-label");
+assert.ok(name.includes("agent-wrapper") && name.includes("C:/code/agent-wrapper"), "the tile's name lacks the project or its folder: " + name);
+assert.ok((aw.dataset.tip || "").includes("C:/code/agent-wrapper"), "the tooltip does not give the folder");
+const badged = (t) => t.querySelector(".rail-badge").classList.contains("waiting");
+assert.ok(badged(fm) && !badged(aw) && !badged(fr), "only the project with an agent waiting carries the badge");
+assert.ok(fm.getAttribute("aria-label").includes("2 agents are waiting on you"), "the badge is not in the tile's name");
+assert.strictEqual(h.$("project-name").textContent, "agent-wrapper");
+assert.strictEqual(h.$("project-branch").textContent, "main", "the top bar does not give the project's branch");
+assert.ok(!h.$("project-branch").hidden);
+
+h.click(fr);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/code/flockdeck-relay" });
+const before = h.commands().length;
+h.terms.forEach((t) => t.blur());
+h.click(aw);
+assert.strictEqual(h.commands().length, before, "clicking the project on screen sent something");
+assert.ok(h.terms.some((t) => t.focused), "clicking the project on screen did not hand the keyboard to its terminal");
+
+h.recv(fixture({ projects: [
+  Object.assign({}, projects[0], { active: false }),
+  Object.assign({}, projects[1], { active: true }),
+  Object.assign({}, projects[2], { waiting: 0 }),
+] }));
+assert.ok(tiles()[0] === aw && tiles()[1] === fr && tiles()[2] === fm, "a push rebuilt the tiles");
+assert.ok(fr.classList.contains("current") && !aw.classList.contains("current"), "the mark did not follow the switch");
+assert.ok(!badged(fm), "the badge stayed after the agent was answered");
+h.recv(fixture({ projects: [projects[0]] }));
+assert.strictEqual(tiles().length, 1, "a closed project kept its tile");
+`)
+}
+
+// Two letters are few, and projects are often named alike: flockdeck-relay and
+// flockdeck-remote, two checkouts of one repository. No two tiles may show the
+// same letters, or the rail stops saying which project is which.
+func TestTheRailsMonogramsStayDistinct(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const names = ["agent-wrapper", "flockdeck-relay", "flockdeck-remote", "flockdeck-site", "FlippingRS", "jmwri", "repos", "api", "api"];
+h.recv(fixture({ projects: names.map((name, i) =>
+  ({ root: "C:/p" + i + "/" + name, name, active: i === 0, tabs: 1, waiting: 0, working: 0 })) }));
+const monos = h.$("rail-projects").children.map((t) => t.querySelector(".mono").textContent);
+assert.deepStrictEqual(monos, ["AW", "FR", "FM", "FS", "FL", "JM", "RE", "AP", "AI"]);
+assert.strictEqual(new Set(monos).size, monos.length, "two projects share a monogram");
+`)
+}
+
+// Every control that moved into the rail kept its id and what it does, so the
+// keys, the palette and every test that presses one still reach it; each says
+// its name and its key; and the rail is one stop for Tab, walked with the
+// arrows, as the tab strip and the pane toolbars are.
+func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
+	runFrontEnd(t, `
+const keys = h.hello();
+h.recv(fixture());
+for (const id of ["project-btn", "new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
+  "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-settings", "btn-palette", "rail-open"]) {
+  assert.ok(h.$(id), id + " is gone");
+}
+const rail = h.$("rail");
+const tools = { "btn-broadcast": "toggleBroadcast", "btn-changes": "changes", "btn-history": "history",
+  "btn-worktrees": "worktrees", "btn-help": "help", "btn-settings": "settings", "rail-open": "projects",
+  "btn-palette": "palette" };
+for (const [id, action] of Object.entries(tools)) {
+  const k = keys.find((x) => x.id === action);
+  const b = h.$(id);
+  assert.strictEqual(rail.contains(b), id !== "btn-palette", id + " is not where the layout puts it");
+  assert.ok((b.dataset.tip || "").includes(k.keys), id + "'s tooltip does not give its key: " + b.dataset.tip);
+  assert.ok(b.textContent.trim() || b.getAttribute("aria-label"), id + " has no name");
+}
+
+// Commands shows the palette's key, from the table, and opens it.
+const pk = keys.find((x) => x.id === "palette");
+assert.deepStrictEqual(h.$("palette-keys").children.map((n) => n.textContent), pk.keys.split("+"));
+h.click(h.$("btn-palette"));
+assert.ok(!h.$("palette").hidden, "Commands did not open the palette");
+h.key({ key: "Escape" });
+
+h.recv(fixture({ broadcast: true }));
+assert.ok(h.$("btn-broadcast").classList.contains("on"), "broadcast is on and its button does not say so");
+assert.strictEqual(h.$("btn-broadcast").getAttribute("aria-pressed"), "true");
+
+const buttons = () => rail.querySelectorAll("button");
+const stops = buttons().filter((b) => b.getAttribute("tabindex") !== "-1");
+assert.strictEqual(stops.length, 1, "the rail is " + stops.length + " stops for Tab");
+stops[0].focus();
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement !== stops[0] && rail.contains(h.doc.activeElement), "ArrowDown did not move within the rail");
+assert.strictEqual(h.doc.activeElement.getAttribute("tabindex"), "0", "the stop for Tab did not follow the arrows");
+h.key({ key: "End" });
+assert.ok(h.doc.activeElement === buttons().pop(), "End did not reach the foot of the rail");
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === buttons()[0], "the arrows do not come round");
+
+h.click(h.$("btn-history"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "conversations" });
+h.key({ key: "Escape" });
+h.click(h.$("rail-open"));
+assert.ok(!h.$("overlay").hidden, "Open a project did not open the projects");
+assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not put the keyboard on the folder");
+`)
+}
+
+// Settings opens from the rail, from the palette and with its key - Ctrl+,,
+// which nothing else answers to - and each way shows the one dialog: the
+// sections on the left, walked with the arrows and narrowed by typing, and the
+// section chosen on the right, where it was left last time.
+func TestTheSettingsOpenEveryWay(t *testing.T) {
+	runFrontEnd(t, `
+const keys = h.hello();
+h.recv(fixture());
+const k = keys.find((x) => x.id === "settings");
+assert.ok(k && k.keys, "the action table has no key for the settings");
+assert.strictEqual(keys.filter((x) => x.keys === k.keys).length, 1, k.keys + " runs something else as well");
+const shown = () => !h.$("overlay").hidden && h.$("overlay-title").textContent === "Settings";
+const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
+
+h.click(h.$("btn-settings"));
+assert.ok(shown(), "the rail's Settings button did not open the settings");
+assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "Account & plan"]);
+assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
+assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
+assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape left the settings open");
+
+h.press("settings");
+assert.ok(shown(), k.keys + " did not open the settings");
+h.key({ key: "ArrowDown" });
+assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
+assert.ok(h.doc.activeElement === h.$("settings-tab-terminal"), "the keyboard did not follow the arrows");
+assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the section reached is not the one shown");
+h.key({ key: "Escape" });
+
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "settings";
+input.oninput();
+const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
+assert.ok(row, "the palette has no Settings");
+h.click(row);
+assert.ok(shown(), "the palette's Settings did not open the settings");
+assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
+
+const find = h.$("settings-find");
+find.value = "relay";
+find.oninput();
+assert.deepStrictEqual(sections(), ["Remote access", "Account & plan"], "Find a setting did not narrow the sections");
+assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "the first section found is not shown");
+`)
+}
+
+// Every control in the settings changes the real setting, through the command
+// the palette and the keys send; it takes effect at once; and it shows what
+// the palette, the keys or another window changed, so there is one state
+// however it is changed. A key is never shown, and the plan invents no price.
+func TestEachSettingReachesItsSetting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
+h.recv(fixture({ update: { version: "9.9.9" } }));
+h.click(h.$("btn-settings"));
+const pane = h.$("settings-pane");
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+
+// General.
+assert.ok(on("set-notifications"), "notifications are on and the switch says otherwise");
+h.click(h.$("set-notifications"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" });
+assert.ok(!on("set-notifications"), "the switch did not turn off at once");
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"], fontSize: 13 } });
+assert.ok(on("set-notifications"), "the switch did not follow notifications turned back on in another window");
+h.click(h.$("set-updates"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
+h.press("palette");
+const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(labels.includes("Turn update checks on"), "the palette does not know the settings turned update checks off");
+h.key({ key: "Escape" });
+assert.ok(h.$("set-install"), "the update already downloaded is not offered");
+h.click(h.$("set-tips"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
+assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
+
+// Terminal.
+h.click(h.$("settings-tab-terminal"));
+h.click(h.$("set-font-up"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
+assert.strictEqual(h.$("set-font-size").textContent, "14 px");
+assert.ok(h.terms.every((t) => t.options.fontSize === 14), "the terminals did not take the size");
+h.press("fontDown");
+assert.strictEqual(h.$("set-font-size").textContent, "13 px", "the key and the settings show different sizes");
+assert.strictEqual(h.$("set-preview").style.fontSize, "13px", "the preview is not drawn at the terminals' size");
+const font = h.$("set-font-family");
+font.value = "Fira Code";
+h.dispatch(font, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "Fira Code" });
+assert.ok(h.terms[0].options.fontFamily.startsWith("Fira Code"), "the terminals did not take the font");
+assert.ok(h.$("set-preview").style.fontFamily.startsWith("Fira Code"), "the preview did not take the font");
+const lines = h.$("set-scrollback");
+lines.value = "50000";
+h.dispatch(lines, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 50000 });
+assert.strictEqual(h.terms[0].options.scrollback, 50000, "the terminals did not take the scrollback");
+h.click(h.$("set-cursor-bar"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorStyle", text: "bar" });
+assert.strictEqual(h.terms[0].options.cursorStyle, "bar", "the terminals did not take the cursor's shape");
+assert.ok(on("set-cursor-bar") && !on("set-cursor-block"), "the shapes do not say which is chosen");
+assert.ok(h.$("set-preview").querySelector(".pv-cursor").classList.contains("bar"), "the preview's cursor is not a bar");
+h.$("set-cursor-bar").focus();
+h.key({ key: "ArrowRight" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorStyle", text: "underline" });
+assert.ok(h.doc.activeElement === h.$("set-cursor-underline"), "the arrows did not move to the shape they chose");
+h.click(h.$("set-cursor-blink"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
+assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursors still blink");
+
+// Agents.
+h.click(h.$("settings-tab-agents"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "refreshAgents" });
+const all = h.$("set-agent-all");
+all.value = "claude\nopus";
+h.dispatch(all, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "claude", model: "opus", kind: "all" });
+const mine = h.$("set-agent-project");
+mine.value = "claude\nsonnet";
+h.dispatch(mine, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "claude", model: "sonnet" });
+h.recv(fixture({ agents: catalog({ project: { agent: "claude", model: "sonnet" } }) }));
+assert.strictEqual(h.$("set-agent-project").value, "claude\nsonnet", "the project's own choice is not shown");
+h.$("set-agent-project").value = "";
+h.dispatch(h.$("set-agent-project"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setAgentDefault", agent: "", model: "" });
+
+// API keys: the keys dialog's own list, drawn here.
+h.click(h.$("settings-tab-keys"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
+h.recv({ type: "keys", items: [{ agent: "anthropic", name: "Anthropic", set: true, source: "store", vars: ["ANTHROPIC_API_KEY"] }] });
+assert.ok(pane.textContent.includes("Anthropic"), "the keys are not listed in the settings");
+const button = (text) => pane.querySelectorAll("button").find((b) => b.textContent === text);
+h.click(button("Clear"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "anthropic" });
+h.click(button("Replace…"));
+const field = pane.querySelectorAll("input")[0];
+assert.ok(field, "there is nowhere to type the key");
+field.value = "sk-secret";
+field.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keySet", id: "anthropic", text: "sk-secret" });
+assert.ok(!pane.textContent.includes("sk-secret") && !pane.querySelectorAll("input").length, "the key was left on screen");
+
+// Remote access: the remote dialog's own parts, drawn here.
+h.click(h.$("settings-tab-remote"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" });
+h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
+assert.ok(pane.contains(h.$("remote-relay")) && pane.contains(h.$("remote-name")), "the relay and the machine's name are not asked for");
+h.$("remote-relay").value = "relay.example";
+h.$("remote-name").value = "desk";
+h.click(h.$("remote-enable"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteEnable", relay: "relay.example", name: "desk", join: "", invite: "" });
+h.recv({ type: "remoteOutcome", action: "enable" });
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 1, since: "2030-01-01T00:00:00Z" } }));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+assert.ok(pane.textContent.includes("phone") && pane.textContent.includes("desk"), "the paired devices and this machine are not listed");
+assert.ok(pane.textContent.includes("relay.example"), "the relay is not named");
+assert.ok(pane.contains(h.$("remote-disable")), "remote access cannot be turned off from the settings");
+
+// Account & plan.
+h.click(h.$("settings-tab-plan"));
+const text = pane.textContent;
+assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
+assert.ok(text.includes("Private relays") && text.includes("Coming soon") && text.includes("as a paid plan"), "private relays are not announced");
+assert.ok(text.includes("The shared relay stays free"), "it does not say the shared relay stays free");
+assert.ok(!/[$£€]\s?\d/.test(text), "a price was invented: " + text);
+assert.ok(h.$("set-plan-link").getAttribute("href").endsWith("#private-relays"), "the link does not go to the site's private relays");
+`)
 }
 
 // Several commands are reached only from the palette - tiling, restarting a

@@ -172,6 +172,20 @@ func (s *Server) setCursorSteady(steady bool) {
 	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
 }
 
+// setCursorStyle records the shape of the terminal cursors. A block is the
+// default and is kept as nothing, so a file written before there was a choice
+// reads the same; a shape the terminals do not draw is refused.
+func (s *Server) setCursorStyle(style string) {
+	switch style {
+	case "block":
+		style = ""
+	case "", "bar", "underline":
+	default:
+		return
+	}
+	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorStyle, style) })
+}
+
 // setFontFamily records the typeface the terminals are drawn in; empty goes
 // back to the default. It arrives from a text field, so anything longer than
 // a font list could sensibly be is refused rather than kept.

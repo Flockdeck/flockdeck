@@ -44,8 +44,8 @@ dialog under **Joining an account, or invited?**, or as
 
 ## Pairing a device
 
-[[action:remote]] in the command palette — or the **Remote** chip in the top
-bar, which appears once the machine is enrolled — opens a dialog saying whether
+[[action:remote]] in the command palette — or the **Remote** button in the
+rail, which is there whether or not remote access is on — opens a dialog saying whether
 the relay is reachable and how many windows are open through it. **Pair a
 device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.

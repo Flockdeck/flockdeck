@@ -89,6 +89,9 @@ var Keys = []Key{
 	{ID: "help", Keys: "F1", Label: "Help", Section: "Finding your way", Page: "getting-started"},
 
 	// --- the window --------------------------------------------------------
+	// Ctrl+, is the settings key in most desktop applications, and nothing
+	// here used it: a terminal has no control code for a comma.
+	{ID: "settings", Keys: "Ctrl+,", Label: "Settings", Section: "The window", Page: "settings"},
 	{ID: "fontUp", Keys: "Ctrl+=", Label: "Increase font size", Section: "The window"},
 	{ID: "fontDown", Keys: "Ctrl+-", Label: "Decrease font size", Section: "The window"},
 	{ID: "fontReset", Keys: "Ctrl+0", Label: "Reset font size", Section: "The window"},

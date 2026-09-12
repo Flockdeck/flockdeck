@@ -308,6 +308,7 @@ which the command palette and the in-app help are also drawn from; run
 
 | Keys | Action |
 | --- | --- |
+| `Ctrl+,` | Settings |
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
@@ -682,9 +683,9 @@ rather than offered twice, because two panes on one transcript would fight.
 
 ### Projects
 
-The button on the left of the tab bar switches projects and opens new ones.
+The rail down the left of the window has a tile for each open project.
 Several projects stay open at once and **switching does not stop anything** —
-the other project's agents keep working, and its marker turns amber if one of
+the other project's agents keep working, and its tile turns amber if one of
 them starts waiting on you while you are elsewhere.
 
 Opening a folder does not need the command line. The picker offers the projects
@@ -787,8 +788,8 @@ it, so glancing from a phone leaves the desk's terminal alone, and typing on the
 phone fits it to the phone until you type at the desk again.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
-by **Remote access…** in the command palette (and the **Remote** chip in the
-top bar of an enrolled machine) or printed by `flockdeck remote pair`. The
+by **Remote access…** in the command palette (and the **Remote** button in the
+rail) or printed by `flockdeck remote pair`. The
 device that opens it can open this window until it is unpaired, from that
 dialog or from the command line, which ends its session at once.
 
