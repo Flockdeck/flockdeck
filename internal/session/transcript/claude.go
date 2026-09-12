@@ -193,6 +193,10 @@ type transcriptLine struct {
 // one whose transcripts record this directory, which is where a folder Claude
 // named differently turns up.
 func claudeConversations(cwd string) ([]Conversation, error) {
+	// A directory named with a separator on the end is the same directory,
+	// but it derives a folder name with a dash on the end, and the folders of
+	// the worktrees inside it no longer start with that name.
+	cwd = filepath.Clean(cwd)
 	home := claudeHome()
 	if home == "" {
 		return nil, nil

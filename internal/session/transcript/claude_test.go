@@ -25,6 +25,28 @@ func writeTranscript(t testing.TB, dir, id string, lines ...string) string {
 	return path
 }
 
+// TestConversationsWithATrailingSeparator covers a project named with a
+// separator on the end, which is the same directory but derives a folder name
+// with a dash on the end: the conversation stored under a worktree's folder
+// was no longer found.
+func TestConversationsWithATrailingSeparator(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(cwd)), "11111111-1111-1111-1111-111111111111",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"stored here"}}`)
+	writeTranscript(t, filepath.Join(home, "projects", projectSlug(cwd+"-wt")), "22222222-2222-2222-2222-222222222222",
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"stored under the worktree"}}`)
+
+	got, err := claudeConversations(cwd + string(filepath.Separator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("found %d conversations, want both: %+v", len(got), got)
+	}
+}
+
 // TestConversationsListsAndSummarises covers the history panel's data.
 func TestConversationsListsAndSummarises(t *testing.T) {
 	home := t.TempDir()
