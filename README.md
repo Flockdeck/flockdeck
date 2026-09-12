@@ -604,6 +604,11 @@ called **Fan out**. A tab each was the old behaviour and it was the wrong one:
 a dozen agents made a dozen tabs nobody could read, and a fan-out is exactly
 when you want to see them all at once.
 
+The fan-out then shows you what it started: its tab is selected and the first
+agent has the focus, or, in the tab the plan came from, the focus moves to the
+first new pane. If you have gone to another tab while the worktrees were being
+made, the window is left where you are.
+
 The dialog carries one agent-and-model control for the whole run and an
 override on each row, so twelve tasks can be split between two agents
 deliberately — the capable one for the refactor, the cheap one for the six

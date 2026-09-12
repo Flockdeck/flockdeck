@@ -222,6 +222,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			// active project, which only this goroutine may, so it is read
 			// here with the rest; see specOrDefault.
 			def string
+			// shown is the tab on screen as the run begins; see
+			// revealFirstChild.
+			shown string
 		}
 		in, ok := ask(s, func() start {
 			id := req.Parent
@@ -243,7 +246,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				tab = s.ws.TabIDOf(id)
 			}
 			_, def := s.ws.Agents()
-			return start{parent: id, cwd: cwd, tab: tab, def: def}
+			return start{parent: id, cwd: cwd, tab: tab, def: def, shown: s.ws.ActiveTabID()}
 		})
 		if !ok {
 			return
@@ -320,6 +323,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				failed++
 				continue
 			}
+			first := started == 0
 			r, ok := ask(s, func() spawned {
 				id, err := s.ws.Spawn(parent, workspace.SpawnOptions{
 					Task:  j.task,
@@ -331,6 +335,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 					Model: j.model,
 					Title: title,
 				})
+				if err == nil && first {
+					s.revealFirstChild(id, in.shown)
+				}
 				return spawned{tab: s.ws.TabIDOf(id), err: err}
 			})
 			if !ok {
@@ -354,6 +361,30 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 		c.notify(fanoutSummary(started, failed))
 		s.Wake()
 	}()
+}
+
+// revealFirstChild shows the person the first agent a fan-out started: its tab
+// selected and its pane focused, so that what they type next goes to it. That
+// is the tab the fan-out opened for its agents, or the tab it split into, where
+// the focus moves from the pane the fan-out was read from to the first of the
+// new ones. Left alone, a tab of a dozen agents opened unselected at the far
+// end of the tab bar, and the person who had just asked for them had to go and
+// find it.
+//
+// It does so only while the window still shows the tab the run began on.
+// Cutting a dozen worktrees takes seconds, and somebody who has gone to another
+// tab or project in the meantime is doing something there -- possibly typing
+// into a terminal, whose keystrokes would carry on into an agent they had not
+// chosen. The fan-out's tab still appears and its closing notice still counts
+// what started; it just does not take the window from them.
+//
+// It runs on the workspace goroutine.
+func (s *Server) revealFirstChild(id, shown string) {
+	if s.ws.ActiveTabID() != shown {
+		return
+	}
+	s.ws.RevealPane(id)
+	s.wakeAsked()
 }
 
 // runnable keeps the jobs whose agent can actually be started here, reports

@@ -56,6 +56,12 @@ three, twelve are three rows of four — and the grid is rebuilt as each one
 starts. A row of twelve wraps every line a terminal prints and a stack of
 twelve leaves four lines showing, so neither is a tab you can actually watch.
 
+As soon as the first child starts, the window goes to it: its tab is selected
+and its pane focused, so what you type next reaches it. In this tab, the focus
+moves off the agent that planned them onto the first new pane. If you have
+gone to another tab while the worktrees were being made, the window stays
+where you are, so nothing you are typing goes to an agent you did not pick.
+
 Rearrange them afterwards like any other pane: drag one onto another's edge,
 drag one onto the `+` in the tab bar for a tab of its own, or drag a divider.
 

@@ -1622,6 +1622,20 @@ func (w *Workspace) FocusPane(id string) {
 	}
 }
 
+// RevealPane selects the tab a pane is in, switching project if that tab
+// belongs to another, and focuses the pane there. FocusPane alone only works
+// in the tab on screen, which is no help for a pane that has just been put in
+// a tab of its own. A pane in no tab at all is left alone, and so is the
+// window.
+func (w *Workspace) RevealPane(id string) {
+	tab := w.TabIDOf(id)
+	if tab == "" {
+		return
+	}
+	w.SelectTab(tab)
+	w.FocusPane(id)
+}
+
 // ToggleZoom expands or restores the focused pane.
 func (w *Workspace) ToggleZoom() {
 	if t := w.CurrentTab(); t != nil {
