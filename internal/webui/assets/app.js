@@ -4858,6 +4858,9 @@
       prefs.dismissedTips = (prefs.dismissedTips || []).concat(hint.id);
       send({ cmd: "dismissTip", id: hint.id });
       renderHints();
+      // The button pressed went with the hint, and the keyboard with it, onto
+      // nothing: back to the terminal, where the work is.
+      if (!dialogOpen()) focusTerminal();
     };
     bar.append(close);
     bar.hidden = false;

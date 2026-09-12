@@ -4637,6 +4637,23 @@ assert.ok(!h.$("overlay").hidden, "Escape closed the dialog instead of emptying 
 `)
 }
 
+// Dismissing a hint took away the button pressed, and the keyboard with it:
+// it was left on nothing, and typing went nowhere until a terminal was
+// clicked.
+func TestDismissingAHintGivesTheKeyboardBackToTheTerminal(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const close = () => h.$("hints").querySelector("button.icon-btn");
+assert.ok(!h.$("hints").hidden && close(), "no hint is showing to dismiss");
+h.terms[0].blur();
+close().focus();
+h.click(close());
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "dismissTip").pop(), { cmd: "dismissTip", id: "palette" });
+assert.ok(h.terms[0].focused, "dismissing the hint left the keyboard on nothing");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
