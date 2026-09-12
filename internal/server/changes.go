@@ -51,22 +51,13 @@ func (s *Server) reviewDir(path string) string {
 	if path != "" {
 		return path
 	}
-	done := make(chan string, 1)
-	s.do(func() {
+	dir, _ := ask(s, func() string {
 		if p := s.ws.FocusedPane(); p != nil && p.Cwd != "" {
-			done <- p.Cwd
-			return
+			return p.Cwd
 		}
-		done <- s.ws.ActiveRoot()
+		return s.ws.ActiveRoot()
 	})
-	select {
-	case dir := <-done:
-		return dir
-	case <-s.closed:
-		// do drops the request once the server is shutting down, so waiting
-		// on the reply here would strand the connection goroutine.
-		return ""
-	}
+	return dir
 }
 
 // repoRoot resolves the top of the working tree dir belongs to, falling back

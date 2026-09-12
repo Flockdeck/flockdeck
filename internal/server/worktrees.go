@@ -129,8 +129,7 @@ func collectWorktrees(root string) worktreesMsg {
 
 // panesPerPath counts open panes working inside each of the given directories.
 func (s *Server) panesPerPath(paths []string) map[string]int {
-	done := make(chan map[string]int, 1)
-	s.do(func() {
+	counts, _ := ask(s, func() map[string]int {
 		counts := map[string]int{}
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
@@ -155,14 +154,9 @@ func (s *Server) panesPerPath(paths []string) map[string]int {
 				}
 			}
 		}
-		done <- counts
-	})
-	select {
-	case counts := <-done:
 		return counts
-	case <-s.closed:
-		return nil
-	}
+	})
+	return counts
 }
 
 // prunedSummary says what pressing prune actually did.

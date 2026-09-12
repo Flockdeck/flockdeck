@@ -33,6 +33,21 @@ func (s *Server) do(fn func()) {
 	}
 }
 
+// ask runs fn on the workspace goroutine and returns what it produced. ok is
+// false when the server closed first: do drops work once it is shutting down,
+// so no answer is coming, and a caller left waiting for one would strand the
+// connection or request it is serving.
+func ask[T any](s *Server, fn func() T) (v T, ok bool) {
+	done := make(chan T, 1)
+	s.do(func() { done <- fn() })
+	select {
+	case v = <-done:
+		return v, true
+	case <-s.closed:
+		return v, false
+	}
+}
+
 // runLoop owns the workspace.
 func (s *Server) runLoop() {
 	for {
@@ -1033,12 +1048,6 @@ func tabTitle(s string) string {
 // review commands — which all run on a connection goroutine — cannot call it
 // directly without racing whichever command last switched project.
 func (s *Server) activeRoot() string {
-	done := make(chan string, 1)
-	s.do(func() { done <- s.ws.ActiveRoot() })
-	select {
-	case root := <-done:
-		return root
-	case <-s.closed:
-		return ""
-	}
+	root, _ := ask(s, s.ws.ActiveRoot)
+	return root
 }

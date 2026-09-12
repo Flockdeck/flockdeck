@@ -72,21 +72,15 @@ func answerListing(c *controlClient, n uint64) bool {
 // goroutine that owns the workspace.
 func (s *Server) listConversations(c *controlClient, cwd string) {
 	asked := askedForListing(c)
-	done := make(chan string, 1)
-	s.do(func() {
+	dir, ok := ask(s, func() string {
 		if cwd == "" {
-			cwd = s.ws.ActiveRoot()
+			return s.ws.ActiveRoot()
 		}
-		done <- cwd
+		return cwd
 	})
-	// A request handed to a workspace that has already stopped is never run,
-	// so waiting on its answer waits for good. This runs on the goroutine
-	// that reads the window's socket, and that goroutine wedged is a window
-	// that cannot be closed and a shutdown that does not finish.
-	var dir string
-	select {
-	case dir = <-done:
-	case <-s.closed:
+	if !ok {
+		// Nothing will answer the request now, so it is forgotten rather than
+		// left in the listings for good.
 		answerListing(c, asked)
 		return
 	}
@@ -129,22 +123,16 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 // workspace that has stopped it reports none, which is what a list nobody
 // will see needs it to be.
 func (s *Server) openConversationIDs() map[string]bool {
-	done := make(chan map[string]bool, 1)
-	s.do(func() {
+	ids, _ := ask(s, func() map[string]bool {
 		ids := map[string]bool{}
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
 				ids[id] = true
 			}
 		}
-		done <- ids
-	})
-	select {
-	case ids := <-done:
 		return ids
-	case <-s.closed:
-		return nil
-	}
+	})
+	return ids
 }
 
 // resumeConversation opens a stored conversation in a new tab.

@@ -87,8 +87,7 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		agents []fanoutAgentView
 		agent  string
 	}
-	done := make(chan info, 1)
-	s.do(func() {
+	in, ok := ask(s, func() info {
 		id := paneID
 		if id == "" {
 			if t := s.ws.CurrentTab(); t != nil {
@@ -100,15 +99,9 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			cwd = p.Cwd
 		}
 		agents, def := s.fanoutCatalog()
-		done <- info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), agents: agents, agent: def}
+		return info{id: id, cwd: cwd, src: s.ws.PlanSourceFor(id), agents: agents, agent: def}
 	})
-	// s.do drops the callback once the server is closing, so every reply from
-	// the workspace goroutine has to be waited for with a way out. Without one
-	// the receive never returns and takes its caller down with it.
-	var in info
-	select {
-	case in = <-done:
-	case <-s.closed:
+	if !ok {
 		return
 	}
 
@@ -202,8 +195,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			cwd    string
 			tab    string
 		}
-		done := make(chan start, 1)
-		s.do(func() {
+		in, ok := ask(s, func() start {
 			id := req.Parent
 			if id == "" {
 				if t := s.ws.CurrentTab(); t != nil {
@@ -222,12 +214,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			if req.Split {
 				tab = s.ws.TabIDOf(id)
 			}
-			done <- start{parent: id, cwd: cwd, tab: tab}
+			return start{parent: id, cwd: cwd, tab: tab}
 		})
-		var in start
-		select {
-		case in = <-done:
-		case <-s.closed:
+		if !ok {
 			return
 		}
 		parent, baseCwd := in.parent, in.cwd
@@ -302,8 +291,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				failed++
 				continue
 			}
-			res := make(chan spawned, 1)
-			s.do(func() {
+			r, ok := ask(s, func() spawned {
 				id, err := s.ws.Spawn(parent, workspace.SpawnOptions{
 					Task:  j.task,
 					Cwd:   j.cwd,
@@ -314,12 +302,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 					Model: j.model,
 					Title: title,
 				})
-				res <- spawned{tab: s.ws.TabIDOf(id), err: err}
+				return spawned{tab: s.ws.TabIDOf(id), err: err}
 			})
-			var r spawned
-			select {
-			case r = <-res:
-			case <-s.closed:
+			if !ok {
 				return
 			}
 			if tab == "" {
@@ -356,20 +341,16 @@ func (s *Server) runnable(c *controlClient, jobs []*fanoutJob) ([]*fanoutJob, in
 	for _, j := range jobs {
 		ids[j.agent] = true
 	}
-	out := make(chan map[string]error, 1)
-	s.do(func() {
+	bad, ok := ask(s, func() map[string]error {
 		bad := map[string]error{}
 		for id := range ids {
 			if _, err := s.ws.AgentSpec(id); err != nil {
 				bad[id] = err
 			}
 		}
-		out <- bad
+		return bad
 	})
-	var bad map[string]error
-	select {
-	case bad = <-out:
-	case <-s.closed:
+	if !ok {
 		return nil, 0, false
 	}
 	keep, notices, dropped := partitionRunnable(jobs, bad)
@@ -733,8 +714,7 @@ func (s *Server) installSpawnHandler() {
 			cwd string
 			err error
 		}
-		done := make(chan start, 1)
-		s.do(func() {
+		in, ok := ask(s, func() start {
 			cwd := s.ws.ActiveRoot()
 			if p := s.ws.Pane(req.Parent); p != nil {
 				cwd = p.Cwd
@@ -743,15 +723,12 @@ func (s *Server) installSpawnHandler() {
 			if !req.Shell {
 				_, err = s.ws.AgentSpec(req.Agent)
 			}
-			done <- start{cwd, err}
+			return start{cwd, err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
 		// hanging in the pane forever.
-		var in start
-		select {
-		case in = <-done:
-		case <-s.closed:
+		if !ok {
 			return hooks.SpawnResult{}, errShuttingDown
 		}
 		if in.err != nil {
@@ -776,8 +753,7 @@ func (s *Server) installSpawnHandler() {
 			id  string
 			err error
 		}
-		res := make(chan result, 1)
-		s.do(func() {
+		r, ok := ask(s, func() result {
 			id, err := s.ws.Spawn(req.Parent, workspace.SpawnOptions{
 				Task:  req.Task,
 				Cwd:   cwd,
@@ -786,12 +762,9 @@ func (s *Server) installSpawnHandler() {
 				Agent: req.Agent,
 				Model: req.Model,
 			})
-			res <- result{id, err}
+			return result{id, err}
 		})
-		var r result
-		select {
-		case r = <-res:
-		case <-s.closed:
+		if !ok {
 			return hooks.SpawnResult{}, errShuttingDown
 		}
 		if r.err != nil {
