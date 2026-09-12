@@ -3330,6 +3330,18 @@ assert.ok(/only the first 12 start/.test(h.$("overlay-body").querySelector("span
 `)
 }
 
+// The help's search box had a placeholder and no name, and a placeholder is
+// gone as soon as anything is typed and is not reliably read out as a label.
+func TestTheHelpSearchIsNamed(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+assert.strictEqual(h.$("help-search").getAttribute("aria-label"), "Search the help", "the help's search box has no name");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

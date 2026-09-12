@@ -4399,6 +4399,9 @@
     search.id = "help-search";
     search.type = "search";
     search.placeholder = "Search the help";
+    // A placeholder is no name: it is gone as soon as anything is typed, and
+    // is not reliably read out as the field's label.
+    search.setAttribute("aria-label", "Search the help");
     search.value = helpQuery;
     search.autocomplete = "off";
     search.spellcheck = false;
