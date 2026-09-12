@@ -5504,9 +5504,12 @@
       b.onkeydown = (ev) => settingsTabKey(ev, s.id);
       list.append(b);
     });
-    if (had) {
-      const tab = $("settings-tab-" + settingsSection);
-      if (tab && tab.isConnected) tab.focus();
+    const tab = $("settings-tab-" + settingsSection);
+    if (tab && tab.isConnected) {
+      if (had) tab.focus();
+      // On a narrow screen the sections are a strip across the top that
+      // scrolls, and the one on show could be off its end.
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }
 
