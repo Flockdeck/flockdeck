@@ -220,14 +220,17 @@ func usage(fs *flag.FlagSet) {
 // a log file the user can be pointed at.
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "flockdeck:", err)
+	text := "Flockdeck could not start.\n\n" + err.Error()
 	if dir, dirErr := store.Dir(); dirErr == nil {
 		path := filepath.Join(dir, "error.log")
 		stamp := time.Now().Format(time.RFC3339)
 		if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
 			fmt.Fprintf(f, "%s %v\n", stamp, err)
 			f.Close()
+			text += "\n\nThis is also written to " + path
 		}
 	}
+	showStartupError(text)
 	os.Exit(1)
 }
 
