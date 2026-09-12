@@ -345,52 +345,12 @@ func Diff(dir, path string) (string, error) {
 		return "", &gitError{"not a path inside the working tree: " + path}
 	}
 	full := filepath.Join(dir, path)
-	// A repository sitting inside the tree is listed as one entry, a directory
-	// with a slash on the end, because its files belong to that repository and
-	// not to this one. git has no diff to give for it, and the empty answer
-	// was shown as "this file matches the last commit". What a commit would do
-	// with it is worth knowing before pressing the button.
-	if strings.HasSuffix(path, "/") {
-		if fi, err := os.Lstat(full); err == nil && fi.IsDir() && untracked(dir, path) {
-			return fmt.Sprintf("--- /dev/null\n+++ b/%s\nA separate git repository, not tracked by this one. "+
-				"Committing records only which commit it is on, none of its files.\n", path), nil
-		}
-	}
 	// Lstat, so a symlink is seen as a symlink rather than as whatever it
-	// points at. Anything that is neither a regular file nor a symlink -- a
-	// named pipe, a device -- is left to git below rather than opened here,
-	// where reading it could block until something else writes to it.
-	if fi, err := os.Lstat(full); err == nil && !fi.IsDir() && untracked(dir, path) {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			// git stores a symlink as the path it points at and shows that
-			// as the file's one line. Following it would print the contents
-			// of whatever is on the other end, which is not what was added
-			// and need not even be inside the working tree.
-			target, err := os.Readlink(full)
-			if err != nil {
-				return "", err
-			}
-			return renderAsAddition(path, target, 0), nil
-		}
-		if fi.Mode().IsRegular() {
-			// Only as much as the panel will show is read: a new file can be
-			// a gigabyte of generated output.
-			data, size, err := readCapped(full, maxDiffBytes+1)
-			if err != nil {
-				return "", err
-			}
-			if looksBinary(data) {
-				// git says this rather than printing the bytes, and so should
-				// a panel that has to render them as text.
-				return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, size), nil
-			}
-			if size > int64(len(data)) {
-				// Do not end on half a line.
-				if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
-					data = data[:i+1]
-				}
-			}
-			return renderAsAddition(path, string(data), size-int64(len(data))), nil
+	// points at. A directory is only ever asked about with a slash on the end,
+	// which is how status names a repository sitting inside this one.
+	if fi, err := os.Lstat(full); err == nil && (!fi.IsDir() || strings.HasSuffix(path, "/")) && untracked(dir, path) {
+		if text, ok, err := newFileDiff(path, full, fi); ok || err != nil {
+			return text, err
 		}
 	}
 
@@ -432,6 +392,53 @@ func Diff(dir, path string) (string, error) {
 	// and then showed an edit the commit would not contain: a line staged and
 	// then taken out again read as a line being deleted.
 	return out, nil
+}
+
+// newFileDiff shows something git does not track yet, and so has no diff for.
+// ok is false for what it leaves to git: anything that is neither a regular
+// file, a symlink nor a repository -- a named pipe, a device -- which reading
+// here could block on until something else writes to it.
+func newFileDiff(path, full string, fi os.FileInfo) (text string, ok bool, err error) {
+	switch {
+	case fi.IsDir():
+		// A repository inside the tree is listed as one entry because its
+		// files belong to it and not to this one. git has no diff to give for
+		// it, and the empty answer was shown as "this file matches the last
+		// commit". What a commit would do with it is worth knowing before
+		// pressing the button.
+		return fmt.Sprintf("--- /dev/null\n+++ b/%s\nA separate git repository, not tracked by this one. "+
+			"Committing records only which commit it is on, none of its files.\n", path), true, nil
+	case fi.Mode()&os.ModeSymlink != 0:
+		// git stores a symlink as the path it points at and shows that as the
+		// file's one line. Following it would print the contents of whatever
+		// is on the other end, which is not what was added and need not even
+		// be inside the working tree.
+		target, err := os.Readlink(full)
+		if err != nil {
+			return "", false, err
+		}
+		return renderAsAddition(path, target, 0), true, nil
+	case fi.Mode().IsRegular():
+		// Only as much as the panel will show is read: a new file can be a
+		// gigabyte of generated output.
+		data, size, err := readCapped(full, maxDiffBytes+1)
+		if err != nil {
+			return "", false, err
+		}
+		if looksBinary(data) {
+			// git says this rather than printing the bytes, and so should a
+			// panel that has to render them as text.
+			return fmt.Sprintf("--- /dev/null\n+++ b/%s\nBinary file (%d bytes)\n", path, size), true, nil
+		}
+		if size > int64(len(data)) {
+			// Do not end on half a line.
+			if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+				data = data[:i+1]
+			}
+		}
+		return renderAsAddition(path, string(data), size-int64(len(data))), true, nil
+	}
+	return "", false, nil
 }
 
 // pathspec wraps a file name so git reads it as the name of one file rather
