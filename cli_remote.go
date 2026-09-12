@@ -574,8 +574,9 @@ func remoteDevicesCmd(args []string, rio remoteIO) error {
 }
 
 // printRoster lists what the account has: the devices first, since they are
-// what `revoke` takes, with the id it takes them by. idle is flockdeck not
-// running here, which is why this machine is offline when it is.
+// what `revoke` takes, with the ids and names it takes them by. idle is
+// flockdeck not running here, which is why this machine is offline when it
+// is.
 func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 	if len(r.Devices) == 0 {
 		fmt.Fprintln(out, "No devices are paired. `flockdeck remote pair` pairs one.")
@@ -666,10 +667,11 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 }
 
 // pickDevice is the device revoke means by arg, as its id and its name: the
-// device with that id, else the one with that name, which is what the devices
-// list leads with and what somebody holding the phone knows it by. Two devices
-// with the name are not guessed between. Without a roster, arg is taken for an
-// id, and the relay says whether it is one.
+// device with that id, in any case, else the one with that name, which is
+// what the devices list leads with and what somebody holding the phone knows
+// it by. Two devices with the name are not guessed between, and one of the
+// account's machines is refused as what it is. Without a roster, arg is taken
+// for an id, and the relay says whether it is one.
 func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
 	if r == nil {
 		return arg, "", nil
