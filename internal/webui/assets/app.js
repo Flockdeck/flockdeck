@@ -567,6 +567,7 @@
     renderTabs(s);
     renderSummary(s);
     followAgents(s);
+    followProjects(s);
     renderUpdate(s);
     renderRemoteChip(s);
     updatePaneChrome(s);
@@ -2369,6 +2370,20 @@
 
   /** Whether every recent project is listed, rather than the first eight. */
   let recentsAll = false;
+
+  /** The projects dialog's Open section is drawn from the state, and was
+   *  drawn only when a recents or folder listing arrived: closing a project
+   *  from it - which answers with a state push and nothing else - left the
+   *  project listed as open, with a close button that did nothing, and an
+   *  agent starting to wait in another project did not show. It follows the
+   *  pushes that change what it lists, and no others. */
+  let projectsKey = "";
+  function followProjects(s) {
+    const key = (s.projects || []).map((p) => [p.root, p.active, p.tabs, p.waiting, p.working].join(":")).join("|");
+    if (key === projectsKey) return;
+    projectsKey = key;
+    if (dialog === "projects") keepFocus(renderProjects);
+  }
 
   function openProjects() {
     dialog = "projects";

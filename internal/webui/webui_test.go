@@ -4004,6 +4004,27 @@ assert.ok(!h.commands().slice(before).some((c) => c.cmd === "keyClear" && c.id =
 `)
 }
 
+// The projects dialog's Open section was drawn only when a recents or folder
+// listing arrived, and closing a project answers with a state push alone: the
+// closed project stayed listed as open, its close button doing nothing.
+func TestTheProjectsDialogFollowsTheOpenProjects(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (list) => list.map((name, i) =>
+  ({ root: "C:/" + name, name, active: i === 0, tabs: 1, waiting: 0, working: 0 }));
+h.recv(fixture({ projects: projects(["repo", "api", "docs"]) }));
+h.press("projects");
+assert.ok(h.$("overlay-body").textContent.includes("docs"), "the open projects are not listed");
+h.recv(fixture({ projects: projects(["repo", "api"]) }));
+assert.ok(!h.$("overlay-body").textContent.includes("docs"), "a closed project is still listed as open");
+
+// A push that changes nothing the dialog lists leaves it alone.
+const row = h.$("overlay-body").querySelector("div.proj-row");
+h.recv(fixture({ projects: projects(["repo", "api"]), working: 1 }));
+assert.ok(h.$("overlay-body").querySelector("div.proj-row") === row, "a status push redrew the projects dialog");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
