@@ -3413,6 +3413,27 @@ assert.ok(current[0].classList.contains("sel"), "the page said to be open is not
 `)
 }
 
+// The help's search box keeps the keyboard while the help is open, and Page Up
+// and Page Down did nothing there, so the page being read could not be
+// scrolled without the mouse.
+func TestPageKeysScrollTheHelpBeingRead(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("help");
+await h.sleep(30);
+const content = h.$("help-content");
+content.clientHeight = 400;
+content.scrollTop = 0;
+h.$("help-search").focus();
+const down = h.key({ key: "PageDown" });
+assert.ok(down.defaultPrevented);
+assert.strictEqual(content.scrollTop, 360, "Page Down did not scroll the page being read");
+h.key({ key: "PageUp" });
+assert.strictEqual(content.scrollTop, 0, "Page Up did not scroll it back");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the

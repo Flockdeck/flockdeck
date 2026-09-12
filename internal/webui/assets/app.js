@@ -4524,6 +4524,18 @@
   }
 
   function helpSearchKey(e) {
+    // The search box keeps the keyboard for as long as the help is open, and
+    // the arrows walk the contents from it; Page Up and Page Down did
+    // nothing, so the page being read could not be scrolled without the
+    // mouse. They scroll it by a screenful, less a line of overlap.
+    if (e.key === "PageDown" || e.key === "PageUp") {
+      const content = $("help-content");
+      if (!content) return;
+      e.preventDefault();
+      const step = Math.max(40, (content.clientHeight || 0) - 40);
+      content.scrollTop = Math.max(0, (content.scrollTop || 0) + (e.key === "PageDown" ? step : -step));
+      return;
+    }
     const hits = helpMatches();
     if (!hits.length) return;
     const at = hits.findIndex((h) => h.page.slug === helpSlug);
