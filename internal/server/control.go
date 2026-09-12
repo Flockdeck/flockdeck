@@ -267,6 +267,13 @@ type command struct {
 	// reads.
 	TaskAgents []string `json:"taskAgents"`
 	TaskModels []string `json:"taskModels"`
+	// Relay, Name, Join and Invite are what the remote access dialog turns
+	// remote access on with, each the flag of the same name to `flockdeck
+	// remote enable`, and each may be empty.
+	Relay  string `json:"relay"`
+	Name   string `json:"name"`
+	Join   string `json:"join"`
+	Invite string `json:"invite"`
 }
 
 // ---------------------------------------------------------------------------
@@ -870,7 +877,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.listConversations(c, cmd.Path)
 		return
 	case "resumeConversation":
-		s.resumeConversation(c, cmd.ID, cmd.Path, titleFor(cmd.Text, cmd.Path))
+		s.resumeConversation(c, cmd.ID, cmd.Path, titleFor(cmd.Text, cmd.Path), cmd.Agent)
 		return
 	case "recents":
 		s.recents(c)
@@ -883,6 +890,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "remoteRevoke":
 		s.remoteRevoke(c, cmd.ID)
+		return
+	case "remoteEnable":
+		s.remoteEnable(c, cmd)
+		return
+	case "remoteDisable":
+		s.remoteDisable(c, cmd.Force)
+		return
+	case "remoteReconnect":
+		s.remoteReconnect(c)
 		return
 	case "helpSeen":
 		s.markHelpSeen()

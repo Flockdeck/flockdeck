@@ -188,6 +188,57 @@ assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialo
 `)
 }
 
+// Remote access is turned on and off from the dialog as well as a terminal:
+// "try again" for a tunnel that is not up, turning it off only once asked, a
+// relay that could not be told offered again before it is forgotten anyway,
+// and a machine that is not enrolled given a form whose answer is shown under
+// it, with what was typed still there.
+func TestRemoteAccessCanBeTurnedOnAndOff(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const remote = { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z", detail: "no route to host" };
+h.recv(fixture({ remote }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: false, self: true }] });
+
+h.click(h.$("remote-retry"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteReconnect" });
+h.recv({ type: "remoteOutcome", action: "reconnect" });
+
+const before = h.commands().length;
+h.win._confirm = false;
+h.click(h.$("remote-disable"));
+assert.strictEqual(h.commands().length, before, "remote access was turned off without asking");
+h.win._confirm = true;
+h.click(h.$("remote-disable"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable", force: false });
+h.recv({ type: "remoteOutcome", action: "disable", untold: true, error: "could not reach the relay" });
+assert.ok(h.$("overlay-body").textContent.includes("could not reach the relay"), "why it was not turned off is shown");
+h.click(h.$("remote-forget"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable", force: true });
+h.recv({ type: "remoteOutcome", action: "disable", warning: "The relay could not be told, so it will go on listing this machine" });
+
+h.recv(fixture());
+h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
+const relay = h.$("remote-relay");
+assert.ok(relay, "a machine that is not enrolled is offered the form, not a command to type");
+assert.ok(h.$("overlay-body").textContent.includes("go on listing this machine"), "a relay left untold is still said");
+relay.value = "relay.example";
+h.$("remote-name").value = "desk";
+h.click(h.$("remote-enable"));
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "remoteEnable", relay: "relay.example", name: "desk", join: "", invite: "" });
+assert.ok(h.$("remote-enable").disabled, "the button waits for the answer rather than asking twice");
+h.recv({ type: "remoteOutcome", action: "enable", error: "the relay's own address is https://relay.example" });
+assert.ok(h.$("overlay-body").textContent.includes("the relay's own address"), "the refusal is shown under the form");
+assert.strictEqual(h.$("remote-relay").value, "relay.example", "what was typed survives the answer");
+assert.ok(!h.$("remote-enable").disabled, "the form can be sent again");
+`)
+}
+
 // runFrontEnd boots app.js against the harness and runs body against it. The
 // body is ordinary node: assert is in scope, and h is the booted front end.
 func runFrontEnd(t *testing.T, body string) string {

@@ -86,6 +86,35 @@ func detachFromTerminal() (done bool, code int) { return false, 0 }
 // letTerminalGo is never needed here: Windows sends no SIGHUP.
 func letTerminalGo() {}
 
+// detachConsole lets go of the console a run detaching from its window was
+// started in. Closing a console ends every program attached to it, whatever
+// they make of the event, so a console build started from a terminal — the
+// one `go install` makes, or -no-window — went down with its agents when that
+// terminal closed, detached or not. What it prints from then on goes nowhere,
+// unless it was redirected somewhere that is still there. The release has let
+// its borrowed terminal go already, and this finds nothing to do.
+func detachConsole() {
+	if borrowed.held {
+		releaseConsole()
+		return
+	}
+	var mode uint32
+	isConsole := func(f *os.File) bool { return syscall.GetConsoleMode(syscall.Handle(f.Fd()), &mode) == nil }
+	if isConsole(os.Stdout) || isConsole(os.Stderr) {
+		null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err == nil {
+			if isConsole(os.Stdout) {
+				os.Stdout = null
+			}
+			if isConsole(os.Stderr) {
+				os.Stderr = null
+			}
+			log.SetOutput(os.Stderr)
+		}
+	}
+	_, _, _ = procFreeConsole.Call()
+}
+
 // ctrlCStops reports whether Ctrl+C typed in the terminal reaches this run.
 // It does for a console build, whose console is its own, and not for the
 // release, which borrows its terminal's: with the prompt given back to the

@@ -368,6 +368,13 @@ func runningInstance() (*store.Instance, string, error) {
 	}
 	base := inst.URL
 	if _, err := server.Probe(base, inst.Token); err != nil {
+		// An instance that is there but too busy to answer for its workspace
+		// is running all the same. Taking its record for a stale one would
+		// start a rival set of agents beside it, which is much the worse
+		// mistake than a launch that has to wait or be told to try again.
+		if errors.Is(err, server.ErrNotReady) {
+			return inst, base, nil
+		}
 		// The record is stale: the process died without clearing it.
 		_ = store.ClearInstance()
 		return nil, "", nil
@@ -681,6 +688,8 @@ func run(opts options) error {
 		restarting.Store(true)
 		stop()
 	}
+	// Set before -detach below detaches, so that one is told too.
+	srv.OnDetach = detachConsole
 
 	// Record where this instance is listening so a later launch can attach.
 	// Only now, with the callbacks that answer for it in place: the server has

@@ -30,12 +30,16 @@ import (
 // server at all; they have a listener of their own on loopback.
 
 // RemoteAccess is what the server needs of remote access: to say how the
-// tunnel is, to reach the relay on the window's behalf, and to be told to
-// reread the enrolment.
+// tunnel is, to reach the relay on the window's behalf, to be told to reread
+// the enrolment, and to turn it on and off and try the relay again from the
+// dialog as `flockdeck remote` does from a terminal.
 type RemoteAccess interface {
 	Status() (remote.Status, bool)
 	Client() (*remote.Client, error)
 	Reload() error
+	Enable(ctx context.Context, req remote.EnableRequest) (replaced bool, err error)
+	Disable(ctx context.Context, force bool) (untold error, err error)
+	Reconnect() error
 }
 
 type remoteHolder struct{ RemoteAccess }
@@ -328,6 +332,96 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 		} else {
 			c.notify("device unpaired", false)
 		}
+		s.remoteDevices(c)
+	}()
+}
+
+// remoteOutcomeMsg answers a window that turned remote access on or off, or
+// asked for the relay to be tried again. An error is shown under the button
+// that asked, in the words remote access gave it, which name the field at
+// fault rather than a flag.
+type remoteOutcomeMsg struct {
+	Type   string `json:"type"`
+	Action string `json:"action"`
+	Error  string `json:"error,omitempty"`
+	// Untold is a disable that could not reach the relay. The window offers to
+	// try again first, since that is most often a network down for now, and to
+	// forget the enrolment here anyway second.
+	Untold bool `json:"untold,omitempty"`
+	// Warning is why the relay was not told, after it was forgotten anyway.
+	Warning string `json:"warning,omitempty"`
+}
+
+// remoteCallTimeout bounds a relay call the dialog is waiting on. It is long,
+// for a relay on the far side of a slow link, and still an answer.
+const remoteCallTimeout = 30 * time.Second
+
+// remoteEnable enrols this machine from the dialog: `flockdeck remote enable`
+// without a terminal. Enrolling decides where the traffic goes, which is why
+// the dialog shows the relay it will use before it is pressed.
+func (s *Server) remoteEnable(c *controlClient, cmd command) {
+	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
+	s.remoteCall(c, "enable", "turning remote access on", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		replaced, err := ra.Enable(ctx, req)
+		switch {
+		case err != nil:
+			msg.Error = err.Error()
+		case replaced:
+			c.notify("remote access is on: the relay had forgotten this machine, so it was enrolled again", false)
+		default:
+			c.notify("remote access is on", false)
+		}
+	})
+}
+
+// remoteDisable takes this machine off its relay from the dialog. A relay that
+// cannot be told is not taken for one that was: the window is asked whether to
+// forget the enrolment regardless, which leaves the machine listed there.
+func (s *Server) remoteDisable(c *controlClient, force bool) {
+	s.remoteCall(c, "disable", "turning remote access off", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		untold, err := ra.Disable(ctx, force)
+		var notTold *remote.RelayUntoldError
+		switch {
+		case errors.As(err, &notTold):
+			msg.Untold, msg.Error = true, err.Error()
+		case err != nil:
+			msg.Error = err.Error()
+		default:
+			if untold != nil {
+				msg.Warning = "The relay could not be told, so it will go on listing this machine, offline: " + untold.Error()
+			}
+			c.notify("remote access is off", false)
+		}
+	})
+}
+
+// remoteReconnect is the dialog's "try again": the relay is tried now rather
+// than when the tunnel's own wait runs out.
+func (s *Server) remoteReconnect(c *controlClient) {
+	s.remoteCall(c, "reconnect", "trying the relay again", func(_ context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		if err := ra.Reconnect(); err != nil {
+			msg.Error = err.Error()
+		}
+	})
+}
+
+// remoteCall runs one of the dialog's requests off the connection's own
+// goroutine, since each goes to the relay, and answers it with what came of
+// it and the roster again, which turning remote access on or off changes.
+func (s *Server) remoteCall(c *controlClient, action, what string, call func(context.Context, RemoteAccess, *remoteOutcomeMsg)) {
+	go func() {
+		defer s.survive(what)
+		msg := remoteOutcomeMsg{Type: "remoteOutcome", Action: action}
+		ra := s.remoteAccess()
+		if ra == nil {
+			msg.Error = "remote access is not available in this instance"
+			c.sendJSON(msg)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
+		defer cancel()
+		call(ctx, ra, &msg)
+		c.sendJSON(msg)
 		s.remoteDevices(c)
 	}()
 }

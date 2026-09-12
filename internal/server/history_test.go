@@ -273,7 +273,7 @@ func TestResumeAConversationThatIsNoLongerStored(t *testing.T) {
 
 	before := len(srv.openConversationIDs())
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.resumeConversation(c, "12345678-0000-0000-0000-000000000000", ws.ActiveRoot(), "gone")
+	srv.resumeConversation(c, "12345678-0000-0000-0000-000000000000", ws.ActiveRoot(), "gone", "")
 
 	var notice struct {
 		Type  string `json:"type"`

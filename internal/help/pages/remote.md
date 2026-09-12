@@ -26,8 +26,10 @@ token, so a remote window cannot reach them.
 
 ## Turning it on
 
-Enrolling a machine is done from a terminal, because it is the step that
-decides where the traffic goes:
+[[action:remote]] in the command palette opens a dialog that turns it on: leave
+the relay empty for `https://remote.flockdeck.ai`, or name your own, give this
+machine a name if its host name is not the one you want, and press **Turn on
+remote access**. The same can be done from a terminal:
 
 | Command | What it does |
 | --- | --- |
@@ -36,9 +38,9 @@ decides where the traffic goes:
 
 The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
-`flockdeck remote pair -desktop` on the first, given to
-`flockdeck remote enable -join <code>` on the second, so one paired device can
-reach both.
+`flockdeck remote pair -desktop` on the first, given to the second — in the
+dialog under **Joining an account, or invited?**, or as
+`flockdeck remote enable -join <code>` — so one paired device can reach both.
 
 ## Pairing a device
 
@@ -74,8 +76,13 @@ connection.
 ## Unpairing, and turning it off
 
 The dialog lists every paired device with an **Unpair** button; unpairing ends
-that device's session at once, including any window it has open. From a
-terminal:
+that device's session at once, including any window it has open. **Turn off
+remote access**, at its foot, takes this machine off the relay; if it is the
+only machine on the account, the account and its paired devices go with it,
+and the dialog says so before it asks. A relay that cannot be reached is not
+taken for one that was told: you are offered **Try again**, and only then to
+forget it here anyway, which leaves the relay listing this machine, offline.
+From a terminal:
 
 | Command | What it does |
 | --- | --- |

@@ -147,12 +147,18 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 // openConversationIDs reports which conversations already have a pane. On a
 // workspace that has stopped it reports none, which is what a list nobody
 // will see needs it to be.
+//
+// A pane is marked by the conversation it is in, not the id it was started
+// under: after /clear, Claude Code carries on in a new conversation, and the
+// one before it is free to be reopened in a pane of its own.
 func (s *Server) openConversationIDs() map[string]bool {
 	ids, _ := ask(s, func() map[string]bool {
 		ids := map[string]bool{}
 		for _, t := range s.ws.Tabs {
 			for _, id := range t.Tree.Panes() {
-				ids[id] = true
+				if conv := s.ws.ConversationOf(id); conv != "" {
+					ids[conv] = true
+				}
 			}
 		}
 		return ids
@@ -160,10 +166,11 @@ func (s *Server) openConversationIDs() map[string]bool {
 	return ids
 }
 
-// resumeConversation opens a stored conversation in a new tab.
-func (s *Server) resumeConversation(c *controlClient, id, cwd, title string) {
+// resumeConversation opens a stored conversation in a new tab, with the agent
+// the listing said recorded it when it said.
+func (s *Server) resumeConversation(c *controlClient, id, cwd, title, agentID string) {
 	s.do(func() {
-		if err := s.ws.OpenConversation(id, cwd, title); err != nil {
+		if err := s.ws.OpenConversationAs(id, cwd, title, agentID); err != nil {
 			c.notify(err.Error(), true)
 			return
 		}

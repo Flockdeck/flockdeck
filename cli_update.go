@@ -347,9 +347,13 @@ func ensureChatTwin() {
 // machine rather than clicking in a window.
 const updateEnv = "FLOCKDECK_UPDATE"
 
-// updatesOff reports whether updateEnv has turned updating in the background
-// off.
-func updatesOff() bool { return strings.EqualFold(os.Getenv(updateEnv), "off") }
+// updatesOff reports whether updating in the background is off: by updateEnv,
+// for somebody configuring a machine, or by the setting in the window, for
+// somebody using one. The setting is read each time rather than once, since it
+// can be changed while this runs.
+func updatesOff() bool {
+	return strings.EqualFold(os.Getenv(updateEnv), "off") || store.LoadPrefs().UpdatesOff
+}
 
 // updateInterval is how often a long-running instance looks again. Flockdeck
 // is left open for days at a time, so checking only at startup would mean
@@ -364,7 +368,10 @@ const updateInterval = 6 * time.Hour
 // worth interrupting the user over, because nothing is broken and the next
 // check is a few hours away.
 func watchForUpdates(ctx context.Context, srv *server.Server) {
-	if !selfupdate.Parseable(version) || updatesOff() {
+	// Only the environment ends the watcher for good. The setting in the
+	// window can be turned back on while this runs, so it is asked each round
+	// below instead, and a round with it off checks nothing.
+	if !selfupdate.Parseable(version) || strings.EqualFold(os.Getenv(updateEnv), "off") {
 		return
 	}
 	dir, err := updatesDir()
@@ -383,26 +390,29 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 
 	// An update staged by an earlier run is still waiting, and the badge
 	// should be there in the first frame rather than after the first check.
-	if p, ok := stagedUpdate(dir, version); ok {
+	if p, ok := stagedUpdate(dir, version); ok && !updatesOff() {
 		offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 	}
 
 	for {
 		// One question to GitHub a round, and its answer decides the round;
-		// a failed check leaves whatever is staged alone.
-		if latest, err := selfupdate.Latest(ctx); err == nil && latest != nil && !latest.Draft {
-			staged := ""
-			if p, ok := stagedUpdate(dir, version); ok {
-				staged = p.Version
-			}
-			discard, fetch := updateSteps(latest.Version, staged, version)
-			if discard {
-				selfupdate.Discard(dir)
-				offer(nil)
-			}
-			if fetch {
-				if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
-					offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+		// a failed check leaves whatever is staged alone. A round with updates
+		// turned off in the window asks nothing at all.
+		if !updatesOff() {
+			if latest, err := selfupdate.Latest(ctx); err == nil && latest != nil && !latest.Draft {
+				staged := ""
+				if p, ok := stagedUpdate(dir, version); ok {
+					staged = p.Version
+				}
+				discard, fetch := updateSteps(latest.Version, staged, version)
+				if discard {
+					selfupdate.Discard(dir)
+					offer(nil)
+				}
+				if fetch {
+					if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
+						offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+					}
 				}
 			}
 		}

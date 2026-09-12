@@ -962,7 +962,10 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// what it prints, and writing one would leave a file behind per pane
 		// that nothing ever reads.
 		if spec.Caps.Hooks {
-			settings, err := session.WriteHookSettings(
+			// Which events and which form of hook to write depend on the Claude
+			// Code that will read them, so the one asked is the program this
+			// pane runs, not whichever claude happens to be first on PATH.
+			settings, err := session.WriteHookSettingsFor(spec.Exe,
 				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token())
 			if err != nil {
 				p.Err = err
@@ -998,8 +1001,9 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		if spec.Runner == agent.RunnerAPI {
 			// An API agent is Flockdeck's own chat client. BuildArgv leaves the
 			// program off because only this side knows where the running
-			// binary is.
-			argv = append([]string{w.selfExe, "chat"}, argv...)
+			// binary is — and on Windows the program is the console build
+			// beside it, since the release itself gets no console to print to.
+			argv = append([]string{session.ChatExe(w.selfExe), "chat"}, argv...)
 			// A key Flockdeck is keeping for this agent goes into the environment
 			// of this pane and no other. One the user has already exported is
 			// inherited and needs nothing added, so nothing is: a second copy
@@ -1887,6 +1891,14 @@ func (w *Workspace) Close() {
 // conversation that is already open is focused instead of being started twice:
 // two panes on one conversation would fight over the same transcript.
 func (w *Workspace) OpenConversation(id, cwd, title string) error {
+	return w.OpenConversationAs(id, cwd, title, "")
+}
+
+// OpenConversationAs is OpenConversation for a conversation the history panel
+// knows the agent of. That agent is tried ahead of the rest: every API agent
+// keeps its transcripts in the chat client's one folder, so without it an
+// OpenAI conversation was reopened as whichever API agent came first.
+func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	if id == "" {
 		return fmt.Errorf("no conversation given")
 	}
@@ -1920,14 +1932,18 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 	}
 	// The pane runs whichever agent recorded the conversation, since only that
 	// agent can reattach to it, whichever agent this project opens new panes
-	// with. Claude Code is asked first, being where every conversation from
-	// before there were other agents lives, then the rest in catalog order.
-	// Every API agent is the same chat client keeping one folder of
-	// transcripts, so a chat conversation goes to the first of them.
+	// with. The one the listing named is asked first, then Claude Code, being
+	// where every conversation from before there were other agents lives, then
+	// the rest in catalog order. Every API agent is the same chat client
+	// keeping one folder of transcripts, so a chat conversation nobody named
+	// goes to the first of them.
 	c := w.agents()
 	specs := c.Specs
 	if claude, ok := c.Find("claude"); ok {
 		specs = append([]agent.Spec{claude}, specs...)
+	}
+	if named, ok := c.Find(agentID); ok && agentID != "" {
+		specs = append([]agent.Spec{named}, specs...)
 	}
 	var spec agent.Spec
 	for _, s := range specs {

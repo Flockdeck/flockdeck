@@ -114,6 +114,10 @@ func releaseConsole() {
 	}
 }
 
+// detachConsole has nothing to do here at the moment of detaching: the
+// terminal is let go when it closes, by letTerminalGo.
+func detachConsole() {}
+
 // letTerminalGo is what a run detached from the window does when the
 // terminal it was started from closes. It carries on, since detaching
 // promised its agents would, and what it prints from then on goes nowhere,

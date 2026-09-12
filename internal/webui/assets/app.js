@@ -286,6 +286,14 @@
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
       else if (msg.type === "remoteDevices") { remoteRoster = msg; if (dialog === "remote") keepFocus(renderRemote); }
       else if (msg.type === "remotePair") { remotePairing = msg; if (dialog === "remote") keepFocus(renderRemote); }
+      else if (msg.type === "remoteOutcome") {
+        remoteBusy = "";
+        remoteOutcome = msg;
+        // A machine that has just been enrolled starts from an empty form the
+        // next time it is turned off and on, not from the codes used once.
+        if (msg.action === "enable" && !msg.error) remoteDraft = newRemoteDraft();
+        if (dialog === "remote") keepFocus(renderRemote);
+      }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -369,6 +377,15 @@
   let remotePairing = null;
   let remoteChipKey = null;
 
+  /** remoteDraft is what has been typed into the form that turns remote
+   *  access on, kept across the redraws a state snapshot causes while the
+   *  dialog is open. remoteBusy is which request is out, so its button waits
+   *  rather than asking twice, and remoteOutcome the last answer to one. */
+  const newRemoteDraft = () => ({ relay: "", name: "", join: "", invite: "", more: false });
+  let remoteDraft = newRemoteDraft();
+  let remoteBusy = "";
+  let remoteOutcome = null;
+
   /** renderRemoteChip shows the Remote chip on an enrolled machine, and keeps
    *  the dialog's status line current while it is open. Like the update chip
    *  it is keyed on what it shows, so a snapshot that says nothing new about
@@ -417,6 +434,8 @@
     dialog = "remote";
     remoteRoster = null;
     remotePairing = null;
+    remoteOutcome = null;
+    remoteBusy = "";
     openOverlay("Remote access", "remote");
     renderRemote();
     send({ cmd: "remoteDevices" });
@@ -427,15 +446,13 @@
     const body = $("overlay-body");
     body.textContent = "";
     const r = state && state.remote;
-    // Enrolling is a terminal command on purpose — it decides where the
-    // traffic goes — so a machine that is not enrolled is told how, rather
-    // than offered a button that would have to guess which relay.
+    // Enrolling decides where the traffic goes, so the form says which relay
+    // it will use — empty is the default, named — before anything is pressed.
     if (!r && remoteRoster && !remoteRoster.enabled) {
       body.append(el("div", "fan-hint",
         "Remote access opens this window from another device — a laptop, a tablet, a phone — " +
         "through a relay, without opening a port on this machine."));
-      body.append(el("p", null, "This machine is not enrolled. To turn it on, run this in a terminal:"));
-      body.append(el("pre", "remote-cmd", "flockdeck remote enable"));
+      body.append(remoteEnableForm());
       return;
     }
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
@@ -532,6 +549,137 @@
       });
       body.append(hw);
     }
+    body.append(remoteMachineSection(r, roster));
+  }
+
+  /** remoteEnableForm turns remote access on: what `flockdeck remote enable`
+   *  asks for, as fields. Each may be left empty — the default relay, the host
+   *  name — and joining an account or answering an invitation is folded away,
+   *  since most machines do neither. */
+  function remoteEnableForm() {
+    const box = section("Turn it on");
+    const d = remoteDraft;
+    const o = remoteOutcome;
+    box.append(el("p", null, "This machine is not enrolled with a relay. Leave the relay empty for " +
+      "remote.flockdeck.ai, or name one of your own."));
+    const form = el("div", "wt-form");
+    const fields = [];
+    const field = (key, id, placeholder, label) => {
+      const f = el("input");
+      f.id = id;
+      f.placeholder = placeholder;
+      f.value = d[key];
+      f.spellcheck = false;
+      f.autocomplete = "off";
+      f.setAttribute("aria-label", label);
+      f.oninput = () => { d[key] = f.value; };
+      f.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); enable(); } };
+      fields.push([key, f]);
+      form.append(f);
+    };
+    field("relay", "remote-relay", "Relay — empty for https://remote.flockdeck.ai", "Relay address");
+    field("name", "remote-name", "Name for this machine — empty for its host name", "Machine name");
+    if (d.more) {
+      field("join", "remote-join", "Join code, from a machine already on the account", "Join code");
+      field("invite", "remote-invite", "Invitation code, for a relay that asks for one", "Invitation code");
+    }
+    box.append(form);
+
+    const enable = () => {
+      // Only its own request holds the form up: one still out to turn remote
+      // access off has nothing left to say to a machine that is not enrolled.
+      if (remoteBusy === "enable") return;
+      // What is in the fields now is what goes, typed or pasted, and codes
+      // folded away are not sent.
+      fields.forEach(([key, f]) => { d[key] = f.value; });
+      remoteBusy = "enable";
+      remoteOutcome = null;
+      send({ cmd: "remoteEnable", relay: d.relay.trim(), name: d.name.trim(),
+        join: d.more ? d.join.trim() : "", invite: d.more ? d.invite.trim() : "" });
+      renderRemote();
+    };
+    const row = el("div", "update-row");
+    const go = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
+    go.id = "remote-enable";
+    go.disabled = remoteBusy === "enable";
+    go.onclick = enable;
+    const more = el("button", "chip", d.more ? "No codes" : "Joining an account, or invited?");
+    more.id = "remote-more";
+    more.onclick = () => { d.more = !d.more; renderRemote(); };
+    row.append(go, more);
+    box.append(row);
+    if (o && o.action === "enable" && o.error) box.append(el("p", "remote-error", o.error));
+    if (o && o.warning) box.append(el("p", "remote-error", o.warning));
+    box.append(el("p", "fan-hint", "The same from a terminal: flockdeck remote enable."));
+    return box;
+  }
+
+  /** remoteMachineSection is this machine's own place on the relay: trying
+   *  a tunnel that is not up again now, and turning remote access off. */
+  function remoteMachineSection(r, roster) {
+    const box = section("This machine");
+    const o = remoteOutcome;
+    const row = el("div", "update-row");
+    if (r && r.state !== "connected") {
+      const retry = el("button", "chip", remoteBusy === "reconnect" ? "Trying…" : "Try again");
+      retry.id = "remote-retry";
+      retry.disabled = !!remoteBusy;
+      retry.onclick = () => {
+        remoteBusy = "reconnect";
+        remoteOutcome = null;
+        send({ cmd: "remoteReconnect" });
+        renderRemote();
+      };
+      row.append(retry);
+    }
+    const off = el("button", "chip danger", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
+    off.id = "remote-disable";
+    off.disabled = !!remoteBusy;
+    off.onclick = () => {
+      const where = String((r && r.relay) || "the relay").replace(/^https?:\/\//, "");
+      const hosts = roster.hosts || [];
+      const devices = roster.devices || [];
+      let q = "Turn off remote access? This machine is taken off " + where +
+        ", and no paired device can reach it until it is turned on again.";
+      // Taking the account's only machine off deletes the account on the
+      // relay, and every device paired with it, which nothing else here says.
+      if (hosts.length === 1 && devices.length) {
+        q += " It is the only machine on the account, so the account goes too, and " +
+          (devices.length === 1 ? "its paired device is" : "its " + devices.length + " paired devices are") + " unpaired.";
+      }
+      if (!window.confirm(q)) return;
+      remoteDisable(false);
+    };
+    row.append(off);
+    box.append(row);
+    if (o && o.action !== "enable" && o.error) box.append(el("p", "remote-error", o.error));
+    if (o && o.untold) {
+      box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
+        "network, for now. Forgetting it here anyway turns remote access off on this machine, but the " +
+        "relay goes on listing it, offline, since nothing else can take it off."));
+      const again = el("div", "update-row");
+      const retry = el("button", "chip primary", "Try again");
+      retry.id = "remote-disable-again";
+      retry.disabled = !!remoteBusy;
+      retry.onclick = () => remoteDisable(false);
+      const forget = el("button", "chip danger", "Forget it here anyway");
+      forget.id = "remote-forget";
+      forget.disabled = !!remoteBusy;
+      forget.onclick = () => {
+        if (!window.confirm("Forget remote access here without telling the relay? It will list this machine, offline, for good.")) return;
+        remoteDisable(true);
+      };
+      again.append(retry, forget);
+      box.append(again);
+    }
+    return box;
+  }
+
+  function remoteDisable(force) {
+    remoteBusy = "disable";
+    remoteOutcome = null;
+    send({ cmd: "remoteDisable", force });
+    renderRemote();
   }
 
   /** remoteAgo says how long since a time the relay reported, roughly. A time
@@ -3696,7 +3844,11 @@
 
       if (!c.open) {
         const resume = () => {
-          send({ cmd: "resumeConversation", id: c.id, path: m.cwd, text: c.summary });
+          const req = { cmd: "resumeConversation", id: c.id, path: m.cwd, text: c.summary };
+          // The agent the listing says recorded it is the one it reopens
+          // with: every API agent's conversations are kept in one folder.
+          if (c.agent) req.agent = c.agent;
+          send(req);
           closeOverlay();
         };
         const open = el("button", "chip primary", "Resume");

@@ -29,11 +29,80 @@ type fakeRemote struct {
 	// err is what Reload fails with, for a test of an enrolment that cannot
 	// be read.
 	err error
+	// enabled and disabled are what the dialog asked for; enableErr is what
+	// enrolling is refused with, and untoldErr why the relay cannot be told
+	// of a disable.
+	enabled   []remote.EnableRequest
+	disabled  []bool
+	enableErr error
+	untoldErr error
 }
 
 func (f *fakeRemote) Status() (remote.Status, bool)   { return f.st, f.ok }
 func (f *fakeRemote) Client() (*remote.Client, error) { return nil, remote.ErrNotEnabled }
 func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return f.err }
+func (f *fakeRemote) Reconnect() error                { return f.err }
+
+func (f *fakeRemote) Enable(_ context.Context, req remote.EnableRequest) (bool, error) {
+	f.enabled = append(f.enabled, req)
+	return false, f.enableErr
+}
+
+func (f *fakeRemote) Disable(_ context.Context, force bool) (error, error) {
+	f.disabled = append(f.disabled, force)
+	if f.untoldErr != nil && !force {
+		return nil, &remote.RelayUntoldError{Err: f.untoldErr}
+	}
+	return f.untoldErr, nil
+}
+
+// TestTheDialogTurnsRemoteAccessOnAndOff covers enrolling and leaving from the
+// Remote access dialog rather than a terminal: what the form was filled in
+// with reaches remote access as it was typed, a refusal comes back for the
+// window to show, and a relay that cannot be told of a disable is not taken
+// for one that was, until the window says to forget it anyway.
+func TestTheDialogTurnsRemoteAccessOnAndOff(t *testing.T) {
+	srv, _ := newTestServer(t)
+	fake := &fakeRemote{enableErr: errors.New("the join code is not valid")}
+	srv.SetRemote(fake)
+	conn := dialControl(t, srv)
+	// Each answer is read into an empty one: the fields an answer leaves out
+	// are its own, not whatever the last answer said.
+	type outcome struct {
+		Type, Action, Error, Warning string
+		Untold                       bool
+	}
+	var out outcome
+	read := func() {
+		t.Helper()
+		out = outcome{}
+		readUntil(t, conn, "remoteOutcome", &out)
+	}
+
+	sendCmd(t, conn, command{Cmd: "remoteEnable", Relay: "relay.example", Name: "desk", Join: "fdj_x"})
+	read()
+	if out.Action != "enable" || out.Error != "the join code is not valid" {
+		t.Errorf("a refused enrolment was answered %+v", out)
+	}
+	if len(fake.enabled) != 1 || fake.enabled[0] != (remote.EnableRequest{Relay: "relay.example", Name: "desk", Join: "fdj_x"}) {
+		t.Errorf("remote access was asked to enrol with %+v", fake.enabled)
+	}
+
+	fake.untoldErr = errors.New("dial tcp: no route to host")
+	sendCmd(t, conn, command{Cmd: "remoteDisable"})
+	read()
+	if !out.Untold || out.Error == "" {
+		t.Errorf("a disable the relay never heard of was answered %+v, want it offered again", out)
+	}
+	sendCmd(t, conn, command{Cmd: "remoteDisable", Force: true})
+	read()
+	if out.Untold || out.Error != "" || !strings.Contains(out.Warning, "no route to host") {
+		t.Errorf("forgetting the enrolment anyway was answered %+v, want a warning saying why", out)
+	}
+	if len(fake.disabled) != 2 || fake.disabled[0] || !fake.disabled[1] {
+		t.Errorf("remote access was asked to disable with force %v", fake.disabled)
+	}
+}
 
 // TestRemoteReloadSaysWhyItFailed covers `flockdeck remote enable` reaching an
 // instance that cannot reread the enrolment. It used to print "500 Internal
