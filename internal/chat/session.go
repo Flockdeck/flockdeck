@@ -574,7 +574,7 @@ func (s *session) answer(c ToolCall, text string) {
 		text = "(the tool produced no output)"
 	}
 	s.messages = append(s.messages, Message{Role: RoleTool, Text: text, Call: c})
-	s.record(Entry{Type: string(RoleTool), Tool: c.Name, Text: text})
+	s.record(Entry{Type: string(RoleTool), Tool: c.Name, Call: describeCall(c, 200), Text: text})
 }
 
 // decline answers calls that will not be run.

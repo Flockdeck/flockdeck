@@ -30,8 +30,11 @@ type Entry struct {
 	Type string    `json:"type"`
 	TS   timestamp `json:"ts"`
 	Text string    `json:"text"`
-	// Tool names the tool a "tool" entry is the output of.
+	// Tool names the tool a "tool" entry is the output of, and Call is what
+	// the call acted on as it was drawn -- "read_file src/a.go" -- without
+	// which the history could say what a tool returned but not what of.
 	Tool  string `json:"tool,omitempty"`
+	Call  string `json:"call,omitempty"`
 	Cwd   string `json:"cwd,omitempty"`
 	Model string `json:"model,omitempty"`
 	In    int    `json:"in,omitempty"`

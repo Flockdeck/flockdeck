@@ -233,7 +233,10 @@ func (s *session) drawEntries(entries []Entry) {
 			if n := strings.Count(strings.TrimRight(e.Text, "\n"), "\n") + 1; n > 1 {
 				summary += fmt.Sprintf(" (%d lines)", n)
 			}
-			s.out.line(ansiDim, "  · "+firstNonEmpty(e.Tool, "tool")+"  "+summary)
+			// What the call acted on, where the entry records it; a
+			// transcript written before it did names only the tool.
+			what := clipTo(firstNonEmpty(e.Call, e.Tool, "tool"), s.opts.Width/2)
+			s.out.line(ansiDim, "  · "+what+"  "+summary)
 		}
 	}
 }
