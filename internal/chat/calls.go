@@ -175,8 +175,12 @@ func (s *session) ask(ctx context.Context, t Tool, c ToolCall, question string) 
 		return false, false, ""
 	case line := <-s.in.lines:
 		reply := strings.TrimSpace(line)
-		switch strings.ToLower(reply) {
-		case "y", "yes":
+		switch strings.ToLower(strings.TrimRight(reply, ".!")) {
+		case "y", "yes", "ok", "okay", "sure", "yep", "yeah":
+			// The single words nobody types to mean no. Taken as words for
+			// the model, "ok" declined the call, and the model asked the same
+			// question again; a longer reply -- "ok, but with -v" -- is still
+			// what to do instead.
 			return true, true, ""
 		case "a", "always":
 			if canAlways {
