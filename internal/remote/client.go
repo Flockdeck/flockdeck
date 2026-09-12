@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -257,6 +258,17 @@ func transportError(err error) error {
 	var cert *tls.CertificateVerificationError
 	if errors.As(err, &cert) {
 		return fmt.Errorf("its certificate is not one this machine trusts (%v)", cert.Err)
+	}
+	// A name that cannot be looked up is the commonest failure of all — no
+	// network, most often, or a mistyped address — and the resolver's own
+	// account of it is no help: on Windows it is "getaddrinfow: The
+	// requested name is valid, but no data of the requested type was found".
+	var dns *net.DNSError
+	switch {
+	case errors.As(err, &dns) && dns.IsNotFound:
+		return fmt.Errorf("%s could not be found; check the address, and that this machine is online", dns.Name)
+	case errors.As(err, &dns) && dns.IsTimeout:
+		return fmt.Errorf("looking up %s took too long; check that this machine is online", dns.Name)
 	}
 	return err
 }

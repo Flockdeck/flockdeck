@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -733,6 +734,27 @@ func TestNotARelayIsAskedAbout(t *testing.T) {
 // A relay whose certificate this machine does not trust, a self-hosted one
 // with a certificate of its own making say, is said to be that, in words,
 // in the terminal and in the window, with the verifier's reason kept.
+// A relay whose name cannot be looked up is said in words, not the
+// resolver's, whichever way the error arrives.
+func TestLookupFailureIsSaidInWords(t *testing.T) {
+	lookup := func(dns *net.DNSError) error {
+		return &url.Error{Op: "Post", URL: "https://relay.example/api/v1/hosts", Err: &net.OpError{Op: "dial", Net: "tcp", Err: dns}}
+	}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{lookup(&net.DNSError{Err: "getaddrinfow: The requested name is valid, but no data of the requested type was found", Name: "relay.example", IsNotFound: true}),
+			"relay.example could not be found; check the address, and that this machine is online"},
+		{lookup(&net.DNSError{Err: "i/o timeout", Name: "relay.example", IsTimeout: true}),
+			"looking up relay.example took too long; check that this machine is online"},
+	} {
+		if got := transportError(tc.err); got == nil || got.Error() != tc.want {
+			t.Errorf("transportError(%v) = %v, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
 	quick(t)
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
