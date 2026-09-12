@@ -1126,6 +1126,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.setUpdates(c, cmd.Kind == "off")
 		return
+	case "pushNotify":
+		s.setPushOff(c, cmd.Kind == "off")
+		return
+	case "pushAnonymous":
+		s.setPushAnonymous(c, cmd.Kind == "on")
+		return
+	case "pushDelay":
+		s.setPushDelay(c, cmd.Size)
+		return
 	case "resetTips":
 		s.resetTips(c)
 		return

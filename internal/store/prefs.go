@@ -51,6 +51,10 @@ type Prefs struct {
 	// Spend is how the pane headers show what the agents spend and how near
 	// they are to their limits. Left out of the file while it is all defaults.
 	Spend SpendPrefs `json:"spend,omitzero"`
+	// Push is what the relay is asked to send the account's paired devices
+	// when an agent has been waiting a while. Left out of the file while it is
+	// all defaults.
+	Push PushPrefs `json:"push,omitzero"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
@@ -96,6 +100,20 @@ func unknownPrefs(data []byte) map[string]json.RawMessage {
 		return nil
 	}
 	return all
+}
+
+// PushPrefs are the preferences for push notifications to paired devices.
+// Each is kept as nothing while it is the default, so a file written before
+// there were any reads the same.
+type PushPrefs struct {
+	// Off stops asking the relay to notify the paired devices.
+	Off bool `json:"off,omitempty"`
+	// Anonymous has a notification say only that an agent on this machine
+	// needs you, rather than naming the pane and its project.
+	Anonymous bool `json:"anonymous,omitempty"`
+	// DelaySeconds is how long a pane has to have been waiting before the
+	// devices are told. Zero is the default, 30 seconds.
+	DelaySeconds int `json:"delaySeconds,omitempty"`
 }
 
 // SpendPrefs are the preferences for spend and limits.
