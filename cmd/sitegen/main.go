@@ -83,10 +83,8 @@ var icon []byte
 //go:embed assets/favicon.ico
 var iconICO []byte
 
-// touchIcon is the icon a phone puts on its home screen. It is the same mark
-// drawn to fill its square, because iOS rounds the corners itself and paints
-// anything transparent black, so the app's tile with its clear corners would
-// come out with a dark ring around it.
+// touchIcon is the icon a phone puts on its home screen: the application's
+// own internal/webui/assets/icon-256.png, copied, like the other two.
 //
 //go:embed assets/apple-touch-icon.png
 var touchIcon []byte

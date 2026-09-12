@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"html"
-	"image"
 	"image/png"
 	"io/fs"
 	"os"
@@ -768,12 +767,19 @@ func TestFaviconIsTheAppIcon(t *testing.T) {
 	if !bytes.Equal(iconICO, ico) {
 		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/assets/icon.ico; copy the app's icon over it")
 	}
+	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon-256.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(touchIcon, touch) {
+		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/assets/icon-256.png; copy the app's icon over it")
+	}
 }
 
 // Every page names all three icons, and each is written beside it: the SVG
 // for browsers that show one, favicon.ico for those that do not and for
-// whatever asks for /favicon.ico unprompted, and the home-screen icon, which
-// is a full 180-pixel square with nothing transparent for iOS to paint black.
+// whatever asks for /favicon.ico unprompted, and the home-screen icon. All
+// three are the application's own icons (TestFaviconIsTheAppIcon).
 //
 // What is checked is what was written, not what was embedded. The site's
 // text files are all written with LF, and an image passed through that loses
@@ -810,16 +816,7 @@ func TestEveryPageHasItsIcons(t *testing.T) {
 			}
 		}
 	}
-	img, err := png.Decode(bytes.NewReader(written["apple-touch-icon.png"]))
-	if err != nil {
-		t.Fatalf("apple-touch-icon.png as written: %v", err)
-	}
-	if b := img.Bounds(); b.Dx() != 180 || b.Dy() != 180 {
-		t.Errorf("apple-touch-icon.png is %dx%d, want 180x180", b.Dx(), b.Dy())
-	}
-	for _, p := range []image.Point{{0, 0}, {179, 0}, {0, 179}, {179, 179}, {90, 90}} {
-		if _, _, _, a := img.At(p.X, p.Y).RGBA(); a != 0xffff {
-			t.Errorf("apple-touch-icon.png is see-through at %v, which iOS paints black", p)
-		}
+	if _, err := png.Decode(bytes.NewReader(written["apple-touch-icon.png"])); err != nil {
+		t.Errorf("apple-touch-icon.png as written: %v", err)
 	}
 }
