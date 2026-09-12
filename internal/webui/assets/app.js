@@ -4511,15 +4511,15 @@
     return (helpPages || []).find((p) => p.slug === slug) || null;
   }
 
-  /** helpMatches is the contents list, filtered by the search box. Each hit
-   *  carries the piece of the page the words were found in, so the list
-   *  answers "which page is this in" without opening each one. */
   /** The hits for the search as it currently reads. One keystroke asks for
    *  them from the contents list, from the page beside it and, on an arrow key,
    *  from the key handler as well; there is one answer between them. */
   let helpHits = null;
   let helpHitsFor = null;
 
+  /** helpMatches is the contents list, filtered by the search box. Each hit
+   *  carries the piece of the page the words were found in, so the list
+   *  answers "which page is this in" without opening each one. */
   function helpMatches() {
     if (helpHitsFor === helpQuery && helpHits) return helpHits;
     const pages = helpPages || [];
