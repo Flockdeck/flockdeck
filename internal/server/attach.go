@@ -279,9 +279,14 @@ func (s *Server) requestRestart() {
 }
 
 // Detach makes the application keep running after its last window closes, so
-// the agents carry on and can be reattached to later.
+// the agents carry on and can be reattached to later. OnDetach is told once
+// each time the instance goes from attached to detached, on a goroutine of its
+// own: a window's Detach arrives on the workspace goroutine, and whatever the
+// hook does is not that goroutine's to wait for.
 func (s *Server) Detach() {
-	s.detached.Store(true)
+	if s.detached.CompareAndSwap(false, true) && s.OnDetach != nil {
+		go s.OnDetach()
+	}
 }
 
 // Detached reports whether the application should outlive its windows.

@@ -128,6 +128,12 @@ type Server struct {
 	// downloaded version. It is separate from OnQuit because the shutdown has
 	// to know whether to start the program again once it has replaced it.
 	OnRestart func()
+	// OnDetach is called when the instance becomes detached -- from a window,
+	// or by -detach at start -- once each time it goes from attached to
+	// detached, and never on the workspace goroutine. It is how the application
+	// lets go of what tied it to the way it was started: on Windows, the console
+	// a -no-window run was launched from, whose closing would otherwise end it.
+	OnDetach func()
 
 	// update is the release waiting to be applied, if one has been downloaded.
 	// It is read on every snapshot and written by whatever is watching for
