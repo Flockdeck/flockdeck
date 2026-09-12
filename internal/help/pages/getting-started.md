@@ -23,7 +23,7 @@ another tab, or a tab of its own; nothing restarts, and the conversation,
 working directory and scrollback come with it.
 
 **[[key:palette]] opens the command palette**, which holds every action in the
-application, searchable. If you remember one shortcut, remember that one.
+application but switching tabs, searchable. If you remember one shortcut, remember that one.
 
 ## A first session
 
@@ -54,5 +54,5 @@ an agent cannot report its own status, and how to add one of your own.
 ## Finding the rest of it
 
 [[key:help]] brings this back from anywhere, and [[key:palette]] opens the
-command palette, which lists every action there is — including the ones with
-no shortcut of their own.
+command palette, which lists every action there is but switching tabs —
+including the ones with no shortcut of their own.
