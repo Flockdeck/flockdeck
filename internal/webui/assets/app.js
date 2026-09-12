@@ -1022,6 +1022,14 @@
       else send({ cmd: "selectTab", id });
     };
     btn.ondblclick = () => renameTab(id);
+    // The middle button closes a tab, as it does a browser's or an editor's;
+    // here it did nothing, or began the browser's autoscroll over the strip.
+    btn.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
+    btn.onauxclick = (ev) => {
+      if (ev.button !== 1) return;
+      ev.preventDefault();
+      send({ cmd: "closeTab", id });
+    };
     btn.onkeydown = (ev) => tabStripKey(ev, id);
     makeTabDraggable(id, btn);
     node = { btn, label, close, attn: null };

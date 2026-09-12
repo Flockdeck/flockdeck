@@ -4372,6 +4372,30 @@ assert.ok(/default/.test(hint("Terminal font…")), "the font command does not s
 `)
 }
 
+// The middle button closes a tab in a browser or an editor, and on this strip
+// it did nothing.
+func TestTheMiddleButtonClosesATab(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  tabs: [
+    { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+    { id: "t2", title: "two", focus: "p2", root: leaf("n2", "p2") },
+  ],
+  panes: { p1: pane("p1"), p2: pane("p2") },
+}));
+const two = h.$("tabs").children[1];
+assert.ok(two.onauxclick, "a tab does not answer the middle button");
+let stopped = false;
+two.onauxclick({ button: 1, preventDefault() { stopped = true; } });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeTab", id: "t2" }, "the middle button did not close the tab");
+assert.ok(stopped, "the browser was left to act on the middle button too");
+const before = h.commands().length;
+two.onauxclick({ button: 2, preventDefault() {} });
+assert.strictEqual(h.commands().length, before, "the right button closed a tab");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
