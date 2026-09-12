@@ -188,7 +188,13 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 	// size is not something anybody can say yes or no to.
 	rel := t.root.Rel(abs)
 	newSize := humanBytes(int64(len(a.Content)))
-	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+	info, err := os.Stat(abs)
+	if err == nil && info.IsDir() {
+		// Run refuses it, and a question the answer to which makes no
+		// difference only teaches the user to stop reading them.
+		return ""
+	}
+	if err == nil {
 		old, _ := os.ReadFile(abs)
 		q := fmt.Sprintf("Overwrite %s (%s, %s) with %s, %s?", rel,
 			humanBytes(info.Size()), linesOf(string(old)), newSize, linesOf(a.Content))
