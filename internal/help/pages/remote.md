@@ -65,7 +65,9 @@ what it holds for this machine is a credential of its own, kept here in
 A remote window only works while Flockdeck is running here. Closing the window
 on this machine still quits it, even with a remote window open — so to leave
 the agents running for later, use [[action:detach]] instead, or start with
-`flockdeck -detach`. A remote window closing never stops anything.
+`flockdeck -detach`. On macOS and Linux, one started from a terminal still stops
+when that terminal closes; [What comes back, and what keeps running](#persistence)
+says how to avoid it. A remote window closing never stops anything.
 
 If a second Flockdeck on this machine connects to the relay as the same
 machine, the first one steps aside and says so rather than fighting it for the
