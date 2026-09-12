@@ -82,6 +82,12 @@ func claudeReplies(sessionID string, maxTurns int) []string {
 // replyTailBytes, which is where what an agent last said is. Reading only the
 // tail lands mid-line, so the first line read back is a fragment and is
 // dropped rather than parsed. The caller closes the file.
+//
+// The read starts a byte early, on the byte before the tail, so that what is
+// dropped is only ever the part of a line the cut landed in. Where the tail
+// begins with a whole line, that byte is the line break ending the one before
+// and the fragment is nothing; starting at the tail itself dropped the whole
+// line there, which could be the very reply being looked for.
 func tailLines(path string) (*bufio.Scanner, *os.File, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -89,7 +95,7 @@ func tailLines(path string) (*bufio.Scanner, *os.File, error) {
 	}
 	partial := false
 	if fi, err := f.Stat(); err == nil && fi.Size() > replyTailBytes {
-		if _, err := f.Seek(fi.Size()-replyTailBytes, io.SeekStart); err == nil {
+		if _, err := f.Seek(fi.Size()-replyTailBytes-1, io.SeekStart); err == nil {
 			partial = true
 		}
 	}
