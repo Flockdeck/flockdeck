@@ -64,10 +64,33 @@ jobs:
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
       # unable to check what it downloads. Other runs have no key to hold.
+      #
+      # The output is kept as well as shown, for the step after this one. Bash
+      # on every platform, so that the pipe keeps go test's exit status; on
+      # Windows that is Git's bash, which is where the tests are run by hand.
       - name: Test
+        shell: bash
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
-        run: go test ./...
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+
+      # A job's log can only be read signed in to GitHub, and its annotations
+      # can be read by anyone, from the web or the API. So a failure is also
+      # given as one: every failing test and panic, with what it printed. A
+      # test that panics on purpose logs "flockdeck: panic ..." and passes, so
+      # only go test's own "--- FAIL" and "panic:" lines are taken.
+      - name: Name the failures
+        if: failure()
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/go-test.log"
+          [ -f "$log" ] || exit 0
+          grep -E -A20 -- '--- FAIL|^panic:' "$log" | tr -d '\r' | head -c 30000 > "$RUNNER_TEMP/failures.txt" || true
+          [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
+          body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
+          echo "::error title=go test failed on ${{ runner.os }}::$body"
 
       # The workspace is reached from many goroutines through one owner, and a
       # mistake in that is a race rather than a failure. The detector needs a C
