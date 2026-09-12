@@ -163,7 +163,7 @@ func Probe(ctx context.Context, relay string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := relayHTTP.Do(req)
+	resp, err := probeHTTP.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("no answer within %s", requestTimeout)
@@ -175,6 +175,16 @@ func Probe(ctx context.Context, relay string) error {
 		return fmt.Errorf("it answered %s, which is not what a Flockdeck relay answers", resp.Status)
 	}
 	return nil
+}
+
+// probeHTTP is how Probe asks, following no redirect either: a relay answers
+// on its own address, so one that redirects was given some other address,
+// perhaps the one it redirects to. No token goes with a probe, so that, and
+// not the token, is what its refusal says.
+var probeHTTP = &http.Client{
+	CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("it answered with a redirect to %s://%s; if that is the relay's address, give that instead", req.URL.Scheme, req.URL.Host)
+	},
 }
 
 // Pair asks for a one-time pairing code of the given kind.

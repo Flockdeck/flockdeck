@@ -924,6 +924,13 @@ func TestProbe(t *testing.T) {
 	if err := Probe(context.Background(), goneURL); err == nil || !strings.Contains(err.Error(), "nothing is answering there") {
 		t.Errorf("Probe of nothing = %v, want it said that nothing answers", err)
 	}
+	// An address that redirects is not followed, and the refusal says where
+	// it pointed, not that a token was kept back: a probe sends none.
+	moved := httptest.NewServer(http.RedirectHandler("https://relay.example/healthz", http.StatusMovedPermanently))
+	defer moved.Close()
+	if err := Probe(context.Background(), moved.URL); err == nil || !strings.Contains(err.Error(), "a redirect to https://relay.example; if that is the relay's address, give that instead") || strings.Contains(err.Error(), "token") {
+		t.Errorf("Probe of an address that redirects = %v, want where it points, and no word of a token", err)
+	}
 }
 
 func TestUntrustedCertificateIsSaidInWords(t *testing.T) {
