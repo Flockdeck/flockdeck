@@ -70,6 +70,26 @@ func TestLandingRoot(t *testing.T) {
 	}
 }
 
+// PowerShell and cmd.exe pass a leading ~ through as typed, so -C has to read
+// it as the home directory itself, or the README's own example fails there.
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cases := []struct{ in, want string }{
+		{"~/code/api", filepath.Join(home, "code", "api")},
+		{"~", home},
+		{"~someone/code", "~someone/code"},
+		{"code/~/api", "code/~/api"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := expandHome(c.in); got != c.want {
+			t.Errorf("expandHome(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // `spawn -h` is a request for the usage it has just been given, not a failure.
 func TestSpawnHelpSucceeds(t *testing.T) {
 	if err := runSpawn([]string{"-h"}); err != nil {

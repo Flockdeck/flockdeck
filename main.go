@@ -435,7 +435,7 @@ func run(opts options) error {
 		}
 	}()
 
-	root, err := filepath.Abs(opts.dir)
+	root, err := filepath.Abs(expandHome(opts.dir))
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", opts.dir, err)
 	}
@@ -697,6 +697,24 @@ func landingRoot(cwd, exe string, saved *store.Session) string {
 		return cwd
 	}
 	return saved.Active
+}
+
+// expandHome reads a leading ~ as the home directory.
+//
+// A Unix shell does that before flockdeck ever sees the path, but PowerShell
+// and cmd.exe hand it over as typed, so `flockdeck -C ~/code/api` — the very
+// form the README and the usage give — became a directory called ~ below
+// wherever the command was run, and failed as one that did not exist.
+// ~user is a shell's business and is left alone.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") && !strings.HasPrefix(p, `~\`) {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
 }
 
 // sameFolder compares two directories the way the file systems holding them
