@@ -344,7 +344,17 @@ func TestRemoteSubcommandHelp(t *testing.T) {
 			t.Errorf("remote %s -h = %q, want its usage line and what it is for", name, b.String())
 		}
 		for _, l := range lines {
-			if n := len([]rune(l)); n > 80 {
+			// A tab takes a terminal on to its next multiple of eight
+			// columns, which is where flag starts every description.
+			n := 0
+			for _, r := range l {
+				if r == '\t' {
+					n = (n/8 + 1) * 8
+				} else {
+					n++
+				}
+			}
+			if n > 80 {
 				t.Errorf("remote %s -h has a line %d wide: %q", name, n, l)
 			}
 		}

@@ -198,9 +198,11 @@ type remoteEnableFlags struct{ relay, name, join, invite string }
 
 func remoteEnableFlagSet(f *remoteEnableFlags) *flag.FlagSet {
 	fs := remoteFlags("enable")
-	fs.StringVar(&f.relay, "relay", "", "the relay's `URL` (default: $"+remote.RelayEnv+" if set, else "+remote.DefaultRelay+")")
+	// PrintDefaults starts a description at column 8 and indents a line break
+	// in one the same way, so the long ones are broken to fit 80 columns.
+	fs.StringVar(&f.relay, "relay", "", "the relay's `URL`\n(default: $"+remote.RelayEnv+" if set, else "+remote.DefaultRelay+")")
 	fs.StringVar(&f.name, "name", "", "the `name` this machine goes by on your devices (default: its host name)")
-	fs.StringVar(&f.join, "join", "", "a `code` from `flockdeck remote pair -desktop` on another machine, to join its account")
+	fs.StringVar(&f.join, "join", "", "a `code` from `flockdeck remote pair -desktop` on another machine,\nto join its account")
 	fs.StringVar(&f.invite, "invite", "", "an invitation `code`, for a relay that asks for one")
 	return fs
 }
@@ -209,7 +211,7 @@ type remotePairFlags struct{ desktop bool }
 
 func remotePairFlagSet(f *remotePairFlags) *flag.FlagSet {
 	fs := remoteFlags("pair")
-	fs.BoolVar(&f.desktop, "desktop", false, "print a code that enrols another machine into this account, rather than pairing a device")
+	fs.BoolVar(&f.desktop, "desktop", false, "print a code that enrols another machine into this account,\nrather than pairing a device")
 	return fs
 }
 
