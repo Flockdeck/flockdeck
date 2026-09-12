@@ -113,6 +113,7 @@ func TestPickDevice(t *testing.T) {
 	}}
 	for _, c := range []struct{ arg, id, name, err string }{
 		{arg: "d1", id: "d1", name: "phone"},
+		{arg: "D1", id: "d1", name: "phone"}, // an id typed in capitals
 		{arg: "laptop", id: "d2", name: "Laptop"},
 		{arg: "d5", id: "d5"},
 		{arg: "d9", id: "d9"},

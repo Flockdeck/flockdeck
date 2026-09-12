@@ -610,7 +610,9 @@ func pickDevice(r *remote.Roster, arg string) (id, name string, err error) {
 	want := strings.TrimSpace(arg)
 	var named []remote.Device
 	for _, d := range r.Devices {
-		if d.ID == arg {
+		// An id is lower case, and one typed from a screenshot or read out
+		// may not be; ids are unique in any case, so any case is taken.
+		if d.ID == arg || strings.EqualFold(d.ID, want) {
 			return d.ID, strings.TrimSpace(d.Name), nil
 		}
 		if want != "" && strings.EqualFold(strings.TrimSpace(d.Name), want) {
