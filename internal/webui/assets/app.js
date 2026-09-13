@@ -333,7 +333,7 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); settingsChanged(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); renderHints(); settingsChanged(); }
       // A button that went with its worktree leaves the keyboard on the list
       // - the first row's first button, which removes nothing - rather than
       // out of the dialog.
@@ -2332,6 +2332,7 @@
    *  every other window when the preference comes back round. */
   function chooseCursorStyle(shape) {
     prefs.cursorStyle = shape === "block" ? "" : shape;
+    sentPref("cursorStyle");
     applyCursorStyle();
     send({ cmd: "cursorStyle", text: shape });
     settingsChanged();
@@ -4069,6 +4070,8 @@
 
   function setFontSize(px) {
     applyFontSize(px);
+    prefs.fontSize = fontSize;
+    sentPref("fontSize");
     send({ cmd: "fontSize", size: fontSize });
     notice("Font size " + fontSize + "px", false);
     settingsChanged();
@@ -4085,11 +4088,44 @@
     updatesOff: ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"],
   };
 
+  /** What this window has changed and not yet heard back, by preference: each
+   *  value sent, oldest first, and when. The server answers every change with
+   *  all of the preferences, and a change made twice in quick succession - the
+   *  font made bigger twice, a switch pressed off and on - had the answer to
+   *  the first arrive after the second was made here, and put the first back
+   *  until the answer to the second came. Values are compared rather than
+   *  answers counted, because a change the server finds is no change at all,
+   *  or cannot save, is answered with nothing; and each is given up after a
+   *  few seconds, so one that is never answered does not hold the field. */
+  const pendingPrefs = new Map();
+  const PREF_ECHO_MS = 3000;
+  function sentPref(field) {
+    const sent = pendingPrefs.get(field) || [];
+    sent.push({ value: prefs[field], at: Date.now() });
+    pendingPrefs.set(field, sent);
+  }
+  /** keepPending is a push of the preferences with this window's own latest
+   *  changes kept where the push is the answer to an earlier one of them: it
+   *  carries a value sent from here before the last. A push carrying the last
+   *  value sent has caught up, and one carrying none of them is somebody
+   *  else's choice, from another window, and is taken as it is. */
+  function keepPending(incoming) {
+    const now = Date.now();
+    for (const [field, sent] of pendingPrefs) {
+      const live = sent.filter((s) => now - s.at < PREF_ECHO_MS);
+      const at = live.map((s) => s.value).lastIndexOf(incoming[field]);
+      if (at >= 0 && at < live.length - 1) { incoming[field] = prefs[field]; pendingPrefs.set(field, live.slice(at + 1)); }
+      else pendingPrefs.delete(field);
+    }
+    return incoming;
+  }
+
   /** setOff turns one of those preferences on or off. It takes effect here at
    *  once rather than when the server's copy comes back, so a switch pressed
    *  twice in quick succession reads what it was last set to. */
   function setOff(field, off) {
     prefs[field] = off;
+    sentPref(field);
     send({ cmd: PREF_CMD[field], kind: off ? "off" : "on" });
     notice(PREF_SAYS[field][off ? 1 : 0], false);
     if (field === "cursorSteady") applyCursorBlink();
@@ -4116,6 +4152,7 @@
    *  effect here at once, as they do. */
   function setScreenReader(on) {
     prefs.screenReader = on;
+    sentPref("screenReader");
     send({ cmd: "screenReader", kind: on ? "on" : "off" });
     notice(on ? "Screen reader support is on" : "Screen reader support is off", false);
     applyScreenReader();
@@ -4194,6 +4231,7 @@
         (prefs.fontFamily || "the default font");
     }
     prefs.fontFamily = family;
+    sentPref("fontFamily");
     applyFontFamily();
     send({ cmd: "fontFamily", text: family });
     notice(family ? "The terminals now use " + family : "The terminals use the default font again", false);
@@ -4230,6 +4268,8 @@
    *  both do with an answer. */
   function chooseScrollback(n) {
     applyScrollback(n);
+    prefs.scrollback = n;
+    sentPref("scrollback");
     send({ cmd: "scrollback", size: n });
     notice("Each terminal now keeps " + n.toLocaleString("en") + " lines", false);
     settingsChanged();
@@ -4531,6 +4571,9 @@
   function applyHello(msg) {
     keyTable = msg.keys || [];
     remoteWindow = !!msg.remote;
+    // The hello is what the server holds, after a drop that may have taken
+    // changes sent from here with it, so nothing sent before it is waited on.
+    pendingPrefs.clear();
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();

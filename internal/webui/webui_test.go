@@ -2967,6 +2967,43 @@ assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "false"
 `)
 }
 
+// The server answers every change of a preference with all of them, and a
+// change made twice in quick succession - the font made bigger twice, the
+// blink turned off and on - had the answer to the first arrive after the
+// second was made, and put the first back: the font shrank a size, the cursor
+// stopped, until the second answer came. A change from somewhere else, once
+// this window's own have been answered, is still taken.
+func TestAnEchoOfAnEarlierPreferenceDoesNotUndoALaterOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const prefs = (over) => ({ type: "prefs", prefs: Object.assign({ helpSeen: true, dismissedTips: [] }, over) });
+h.press("fontUp");
+h.press("fontUp");
+assert.strictEqual(h.terms[0].options.fontSize, 15);
+h.recv(prefs({ fontSize: 14 }));
+assert.strictEqual(h.terms[0].options.fontSize, 15, "the answer to the first change put the font back a size");
+h.recv(prefs({ fontSize: 15 }));
+assert.strictEqual(h.terms[0].options.fontSize, 15);
+h.recv(prefs({ fontSize: 16 }));
+assert.strictEqual(h.terms[0].options.fontSize, 16, "a size chosen in another window was not taken");
+
+h.press("settings");
+for (const tab of h.$("settings-tabs").querySelectorAll("button")) {
+  if (h.$("set-cursor-blink")) break;
+  h.click(tab);
+}
+h.click(h.$("set-cursor-blink"));
+h.click(h.$("set-cursor-blink"));
+assert.deepStrictEqual(h.commands().slice(-2), [{ cmd: "cursorBlink", kind: "off" }, { cmd: "cursorBlink", kind: "on" }]);
+h.recv(prefs({ fontSize: 16, cursorSteady: true }));
+assert.strictEqual(h.terms[0].options.cursorBlink, true, "the answer to turning the blink off stopped the cursor again");
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "true", "the switch went back to off");
+h.recv(prefs({ fontSize: 16, cursorSteady: false }));
+assert.strictEqual(h.terms[0].options.cursorBlink, true);
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
