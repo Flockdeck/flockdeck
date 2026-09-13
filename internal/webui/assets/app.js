@@ -2911,7 +2911,16 @@
   function renderPaneOverlay(p, v) {
     const needed = !!v.err || v.status === "exited";
     if (!needed) {
-      if (p.overlay) { p.overlay.remove(); p.overlay = null; }
+      if (p.overlay) {
+        // Restart on the cover had the keyboard, and it went with the cover
+        // when the process came back - onto nothing, so what was typed next
+        // reached no pane until something was clicked. It goes back to the
+        // terminal the button brought back, and only from the cover.
+        const held = p.overlay.contains(document.activeElement);
+        p.overlay.remove();
+        p.overlay = null;
+        if (held) p.term.focus();
+      }
       return;
     }
     const text = v.err || "The process exited.";

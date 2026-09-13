@@ -2813,6 +2813,33 @@ assert.strictEqual(new TextDecoder().decode(ws.sent.pop()), "ls\r", "a keystroke
 `)
 }
 
+// Restart on an exited pane's cover had the keyboard, and when the cover went
+// with the process back, the keyboard went with it - onto nothing, so what was
+// typed next reached no pane until something was clicked.
+func TestTheKeyboardGoesBackToATerminalItsRestartBrought(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const exited = fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } });
+const restart = () => h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
+  .find((b) => b.textContent === "Restart");
+h.recv(exited);
+assert.ok(h.doc.activeElement === restart(), "Restart did not take the keyboard");
+h.terms[0].focused = false;
+h.click(restart());
+assert.deepStrictEqual(h.commands().pop(), { cmd: "restartPane", id: "p1" });
+h.recv(fixture());
+assert.ok(h.terms[0].focused, "the keyboard went with the cover instead of back to the terminal");
+
+// Only where the cover had it: elsewhere, the keyboard stays where it is.
+h.recv(exited);
+h.$("project-btn").focus();
+h.terms[0].focused = false;
+h.recv(fixture());
+assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("project-btn"), "the cover going took the keyboard from the top bar");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
