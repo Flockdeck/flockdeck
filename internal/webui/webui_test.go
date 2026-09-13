@@ -3086,6 +3086,28 @@ assert.strictEqual(regions[1].getAttribute("aria-live"), "assertive", "the termi
 `)
 }
 
+// A window reached through the relay was told, when its connection went, that
+// the flockdeck process was no longer running and to start it again - advice
+// for somebody at the machine. From a phone or another computer it is the
+// machine, or the relay, that is out of reach, and that is what it says.
+func TestARelayWindowsDisconnectedPanelSpeaksOfTheMachine(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.controls().pop().close();
+assert.ok(/start it again/i.test(h.$("disconnected-desc").textContent), "a window at the desk is no longer told to start flockdeck");
+
+// Through the relay the page lives under the machine's own prefix, and says
+// so before any hello has arrived.
+const r = boot({ pathname: "/m/desk/" });
+r.controls().pop().close();
+const said = r.$("disconnected-desc").textContent;
+assert.ok(!r.$("disconnected").hidden, "the panel did not go up");
+assert.ok(!/start it again|no longer running/i.test(said), "a window reached through the relay was told to start flockdeck: " + said);
+assert.ok(/relay/i.test(said) && /machine/i.test(said), "the panel does not say the machine or the relay is out of reach: " + said);
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

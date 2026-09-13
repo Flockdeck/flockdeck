@@ -262,6 +262,14 @@
    *  do: restarting onto an update, turning remote access off or on, and
    *  setting API keys. The server refuses each of them from here anyway. */
   let remoteWindow = false;
+  /** RELAY_DISCONNECTED is what the disconnected panel says in a window
+   *  reached through the relay. Its own words - the process has stopped,
+   *  start it again - are advice for somebody at the machine; from a phone or
+   *  another computer it is the machine, or the relay, that is out of reach. */
+  const RELAY_DISCONNECTED = "This window reaches flockdeck through the relay, and the connection was lost: " +
+    "the machine flockdeck runs on may be asleep or offline, flockdeck may have stopped there, or the relay " +
+    "may be out of reach. This window tries again on its own every couple of seconds, and comes back as it " +
+    "was once the machine answers.";
   /** Normalised binding → action id, built from the same table. */
   let bindings = new Map();
   /** What this person has already been shown. Kept by the Go side, because a
@@ -394,6 +402,9 @@
       // Where the keyboard was, for the first failure only: the attempts
       // after it find the panel already up with the keyboard on its button.
       if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
+      // Through the relay the page lives under the machine's own prefix, which
+      // says so before any hello has: see RELAY_DISCONNECTED.
+      if (remoteWindow || basePath !== "/") $("disconnected-desc").textContent = RELAY_DISCONNECTED;
       $("disconnected").hidden = false;
       // The title is what the taskbar shows of a window behind others, and it
       // went on counting agents waiting in a Flockdeck that had stopped.
