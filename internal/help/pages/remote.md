@@ -137,6 +137,15 @@ paired, so whoever runs it can open a window on any desktop that is connected
 to it and use it as a paired device would: type to every agent, and open a
 shell. Use a relay you would trust with this machine.
 
+A relay that gives every desktop's window its own address — `remote.flockdeck.ai`
+does — keeps a page from one desktop's window from reaching another's: it runs
+on a different address, with none of the account's own session, so it cannot
+list your devices, open another desktop, or make a code for one to join. A
+relay without one instead serves every desktop's window from the same address
+as the account itself, which trusts every desktop of an account with the
+others' sessions; that is weaker, and is what a relay run without a spare
+domain for it falls back to.
+
 The shared relay at `https://remote.flockdeck.ai` has a
 [privacy policy](https://flockdeck.ai/privacy.html), which says what it stores
 about this machine and your devices, how long it keeps it and how to have it

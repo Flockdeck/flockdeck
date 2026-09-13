@@ -198,6 +198,24 @@ func TestRemoteRequestsNeedNoToken(t *testing.T) {
 	}
 }
 
+// A window reached through the relay has no cookie of this server's own to
+// ride on -- the tunnel is what authorised it -- so frame-ancestors 'self'
+// would say nothing legitimately framed it, which is true only by accident:
+// unlike the local window, nothing here is a defence against a page on
+// another local port. The policy says outright that nothing may frame it.
+func TestRemoteIndexRefusesFraming(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET index through the tunnel: %v", err)
+	}
+	resp.Body.Close()
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != "frame-ancestors 'none'" {
+		t.Errorf("index through the tunnel Content-Security-Policy = %q, want frame-ancestors 'none'", csp)
+	}
+}
+
 // A phone reaches the front end only through the tunnel, and keeps a browser
 // profile of its own between one desktop version and the next. Locally that is
 // covered by TestIndexSetsCookieAndServesAssets; this is the same guarantee
