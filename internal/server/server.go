@@ -157,12 +157,13 @@ type Server struct {
 	// struct that is edited.
 	update atomic.Pointer[UpdateView]
 
-	// paneLookup and usageRefresh are the package variables of the same names,
-	// and saveInterval is layoutSaveInterval, read once as the server is made.
-	// A test shortens them for the server it makes, and a goroutine an earlier
-	// test's server left running would otherwise be reading them while the
-	// next test writes them.
+	// paneLookup, usageRefresh, pingInterval and pingTimeout are the package
+	// variables of the same names, and saveInterval is layoutSaveInterval, read
+	// once as the server is made. A test shortens them for the server it makes,
+	// and a goroutine an earlier test's server left running would otherwise be
+	// reading them while the next test writes them.
 	paneLookup, usageRefresh, saveInterval time.Duration
+	pingInterval, pingTimeout              time.Duration
 	// conversations is allConversations, read once as the server is made, for
 	// the same reason: a test replaces it on its own server, not for them all.
 	conversations conversationSource
@@ -237,6 +238,8 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		paneLookup:    paneLookup,
 		usageRefresh:  usageRefresh,
 		saveInterval:  layoutSaveInterval,
+		pingInterval:  pingInterval,
+		pingTimeout:   pingTimeout,
 		conversations: allConversations,
 		book:          spend.NewBook(),
 	}

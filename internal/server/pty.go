@@ -39,7 +39,8 @@ var paneLookup = 5 * time.Second
 
 // pingInterval is how often an idle terminal socket is checked, and
 // pingTimeout how long the answer is waited for. They are variables so a test
-// does not have to sit through half a minute of quiet.
+// does not have to sit through half a minute of quiet; a server reads them once,
+// as it is made, into its own fields.
 var (
 	pingInterval = 30 * time.Second
 	pingTimeout  = 10 * time.Second
@@ -136,7 +137,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
 	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
-	go keepalive(ctx, cancel, conn)
+	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
 
 	for {
 		if sess != nil {
@@ -217,16 +218,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 // A ping has to be answered by the window's own read loop, so it also tells
 // the difference between a window that is merely quiet and one that has
 // stopped listening.
-func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn) {
+func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, interval, timeout time.Duration) {
 	defer cancel()
-	tick := time.NewTicker(pingInterval)
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			pingCtx, done := context.WithTimeout(ctx, pingTimeout)
+			pingCtx, done := context.WithTimeout(ctx, timeout)
 			err := conn.Ping(pingCtx)
 			done()
 			if err != nil {
