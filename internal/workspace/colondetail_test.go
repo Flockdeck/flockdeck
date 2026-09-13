@@ -103,3 +103,43 @@ func TestExtractTasksFindsTheStepsUnderGroupLabels(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractTasksLeavesWhatAQuestionOrAFindingHeads covers entries that are
+// no task and no label either. The steps under a label are the work, but the
+// entries under a question are its options, and those under a finding its
+// evidence: lifted to the depth of the steps, the options to a question the
+// agent was still asking were offered as tasks to start.
+func TestExtractTasksLeavesWhatAQuestionOrAFindingHeads(t *testing.T) {
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"a question's options": {
+			"- Which approach do you prefer?\n" +
+				"  - Rewrite the parser from scratch\n" +
+				"  - Patch the existing tokenizer\n" +
+				"- Add tests for the parser\n",
+			[]string{"Add tests for the parser"},
+		},
+		"a numbered question's options": {
+			"1. Should we keep the old API?\n" +
+				"   - Keep it behind a flag\n" +
+				"   - Remove it outright\n" +
+				"2. Add the new endpoint\n",
+			[]string{"Add the new endpoint"},
+		},
+		"a finding's evidence": {
+			"- The login flow has two problems\n" +
+				"  - Tokens refresh after logout\n" +
+				"  - Retries never back off\n" +
+				"- Fix the retry backoff in the client\n",
+			[]string{"Fix the retry backoff in the client"},
+		},
+	} {
+		for _, screen := range []bool{true, false} {
+			if got := extractTasks(tc.plan, screen); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("%s (screen %v): extracted %q, want %q", name, screen, got, tc.want)
+			}
+		}
+	}
+}
