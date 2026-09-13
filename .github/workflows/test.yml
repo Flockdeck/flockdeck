@@ -100,9 +100,13 @@ jobs:
       # The workspace is reached from many goroutines through one owner, and a
       # mistake in that is a race rather than a failure. The detector needs a C
       # toolchain, which the application itself never does, so it runs where
-      # the runner has one.
+      # the runner has one: gcc on Linux, and on macOS the clang that comes
+      # with Xcode. macOS runs it too because its scheduler and its own code
+      # -- how a process is watched, how a file is locked -- give races other
+      # timings than Linux does. Windows is left out until a C toolchain on
+      # its runner is known to work with the detector.
       - name: Race
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' || runner.os == 'macOS'
         shell: bash
         env:
           CGO_ENABLED: "1"
