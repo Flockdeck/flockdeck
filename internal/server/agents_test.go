@@ -56,7 +56,14 @@ func TestCatalogIsNotReprobedWhileNobodyAsks(t *testing.T) {
 	if first.IsZero() {
 		t.Fatal("the first snapshot carried no catalog")
 	}
-	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
+	// The waking below lasts a second, which catches a probe started on every
+	// wake but is too short to outlast the old five seconds; this catches that.
+	if agentProbeInterval < 30*time.Second {
+		t.Fatalf("the catalog is believed for only %v, so an open window probes again that often", agentProbeInterval)
+	}
+	// A second of waking is twenty wakes, and with the answer believed for a
+	// minute, none of them may start a probe.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
 		srv.Wake()
 		time.Sleep(50 * time.Millisecond)
 	}
