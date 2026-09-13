@@ -35,10 +35,12 @@ import (
 // most it can do is hold an update back for as long as it is cached; it can
 // never have anything unsigned installed, nor anything older.
 //
-// GitHub carries every release as well and is where the updater goes when the
-// site cannot be reached, answers with something it cannot use, or fails a
-// signature. That is also the only place a copy from before the site knows
-// about, which is why every release is still published there.
+// GitHub carries every release as well, checksums.txt.sig with it, and is
+// where the updater goes when the site cannot be reached, answers with
+// something it cannot use, or fails a signature. What it downloads from there
+// is still held to the release key's signature. GitHub is also the only place
+// a copy from before the site knows about, which is why every release is
+// still published there.
 //
 // Asking here first is what keeps a shared office network from running out of
 // GitHub's sixty unauthenticated API calls an hour: the site has no such limit.
@@ -112,7 +114,7 @@ func CheckPointer(data []byte) (string, error) {
 // would refuse.
 func CheckManifest(key ed25519.PublicKey, data, sig []byte) (*Manifest, error) {
 	if err := Verify(key, data, sig); err != nil {
-		return nil, signatureError{manifestName, err}
+		return nil, signatureError{manifestName, siteHost(), err}
 	}
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -143,11 +145,12 @@ func CheckManifest(key ed25519.PublicKey, data, sig []byte) (*Manifest, error) {
 // and so always worth a warning rather than a note.
 type signatureError struct {
 	file string
+	from string // where it came from, as a person would name it
 	err  error
 }
 
 func (e signatureError) Error() string {
-	return e.file + " from " + siteHost() + " is not signed by the release key: " + e.err.Error()
+	return e.file + " from " + e.from + " is not signed by the release key: " + e.err.Error()
 }
 
 // suspicious reports whether err means what the site served was not what was
@@ -237,7 +240,7 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 		rel.sums[f.Name] = strings.ToLower(f.SHA256)
 		if f.Name == sumsName+sigExt {
 			rel.sumsSig = f.URL
-			continue // GitHub carries no signature
+			continue // the mirror is held to the manifest's SHA-256s instead
 		}
 		rel.Assets = append(rel.Assets, Asset{Name: f.Name, URL: f.URL, Size: f.Size})
 		mirror.Assets = append(mirror.Assets, Asset{Name: f.Name, URL: githubDownload(m.Version, f.Name), Size: f.Size})

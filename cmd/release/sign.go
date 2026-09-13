@@ -28,9 +28,11 @@ import (
 //
 // Signing is a step of its own, after the build, rather than part of it: the
 // build runs on every developer's machine through `make package`, where there
-// is no key, and in the workflow the GitHub release is published before
-// anything that needs the site's secrets, so that a missing secret costs the
-// site's copy and never GitHub's.
+// is no key. In the workflow it comes before the release is published
+// anywhere, because the updater holds a release it reads from GitHub to
+// checksums.txt.sig as well, so GitHub's copy has to carry it. The site's
+// other secrets are needed only after GitHub's copy is published, so a
+// missing one of those costs the site's copy and never GitHub's.
 
 // signingKeyEnv holds the signing key: the PKCS#8 PEM Terraform writes there,
 // or the base64 seed -keygen writes to its file.

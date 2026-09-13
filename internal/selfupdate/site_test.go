@@ -112,7 +112,7 @@ func (p *place) asked(prefix string) bool {
 
 // release is v9.9.9 published the way the release workflow publishes it: on
 // the site, with its manifest signed and latest.json naming it, and on
-// GitHub, unsigned.
+// GitHub, with checksums.txt.sig beside its checksums.txt.
 type release struct {
 	dl, gh   *place
 	key      ed25519.PrivateKey
@@ -146,9 +146,7 @@ func published(t *testing.T, body string) *release {
 		r.manifest.Files = append(r.manifest.Files, ManifestFile{
 			Name: name, URL: r.dl.srv.URL + "/v9.9.9/" + name, SHA256: sha(data), Size: int64(len(data)),
 		})
-		if name != sumsName+sigExt {
-			r.gh.set(ghDownloads+name, data)
-		}
+		r.gh.set(ghDownloads+name, data)
 	}
 	r.manifest.Version = "v9.9.9"
 	r.manifest.Date = time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
@@ -156,16 +154,24 @@ func published(t *testing.T, body string) *release {
 	r.manifest.Notes = "what changed"
 	r.sign()
 	r.point("v9.9.9")
-
-	api, _ := json.Marshal(map[string]any{
-		"tag_name": "v9.9.9", "body": "what changed on GitHub", "html_url": r.manifest.NotesURL,
-		"assets": []map[string]any{
-			{"name": r.name, "browser_download_url": r.gh.srv.URL + ghDownloads + r.name},
-			{"name": sumsName, "browser_download_url": r.gh.srv.URL + ghDownloads + sumsName},
-		},
-	})
-	r.gh.set("/repos/"+Repo+"/releases/latest", api)
+	r.onGitHub("v9.9.9", r.name, sumsName, sumsName+sigExt)
 	return r
+}
+
+// onGitHub has GitHub's API give tag as the latest release, holding the named
+// files of v9.9.9 as GitHub serves them.
+func (r *release) onGitHub(tag string, names ...string) {
+	assets := []map[string]any{}
+	for _, n := range names {
+		assets = append(assets, map[string]any{"name": n, "browser_download_url": r.gh.srv.URL + ghDownloads + n})
+	}
+	api, err := json.Marshal(map[string]any{
+		"tag_name": tag, "body": "what changed on GitHub", "html_url": r.manifest.NotesURL, "assets": assets,
+	})
+	if err != nil {
+		panic(err) // strings and slices of them always marshal
+	}
+	r.gh.set("/repos/"+Repo+"/releases/latest", api)
 }
 
 // sign puts the manifest as it stands on the site, with its signature, where
@@ -396,6 +402,74 @@ func TestStageFallsBackToGitHub(t *testing.T) {
 			}
 			if p, ok := Load(dir); !ok || p.Version != "v9.9.9" {
 				t.Errorf("Load = %+v, %v", p, ok)
+			}
+		})
+	}
+}
+
+// With the site out of use, the release GitHub's API names is held to the
+// release key too: its checksums.txt has to carry the key's signature, and has
+// to list the archive under the version the release is published as. It was
+// taken as it was, so anybody who could keep a copy from the site -- a
+// firewall, a DNS answer -- and publish on GitHub could have had anything
+// installed.
+func TestStageFromGitHubNeedsTheReleaseKeysSignature(t *testing.T) {
+	cases := []struct {
+		name   string
+		break_ func(r *release)
+		says   string // what the refusal says, or "" for a release that is installed
+	}{
+		{"signed by the release key", func(r *release) {}, ""},
+		{"without checksums.txt.sig", func(r *release) { r.onGitHub("v9.9.9", r.name, sumsName) }, "carries no checksums.txt.sig"},
+		{"with checksums.txt.sig by another key", func(r *release) {
+			_, other, _ := ed25519.GenerateKey(nil)
+			r.gh.set(ghDownloads+sumsName+sigExt, Sign(other, r.gh.get(ghDownloads+sumsName)))
+		}, "not signed by the release key"},
+		{"a tampered archive with a checksums.txt to match", func(r *release) {
+			_, evil := buildArchive(t, "a program nobody released")
+			r.gh.set(ghDownloads+r.name, evil)
+			r.gh.set(ghDownloads+sumsName, []byte(fmt.Sprintf("%s  %s\n", sha(evil), r.name)))
+		}, "not signed by the release key"},
+		{"a signed release published again under a newer tag", func(r *release) {
+			r.onGitHub("v9.9.10", r.name, sumsName, sumsName+sigExt)
+		}, "not an archive of v9.9.10"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := published(t, "the new program")
+			logged(t)
+			r.dl.breakAll()
+			c.break_(r)
+
+			rel, err := Latest(context.Background())
+			if err != nil {
+				t.Fatalf("Latest: %v", err)
+			}
+			if rel.Notes != "what changed on GitHub" {
+				t.Fatalf("Latest = %+v, want GitHub's release", rel)
+			}
+			dir := t.TempDir()
+			p, err := Stage(context.Background(), rel, dir)
+			if c.says == "" {
+				if err != nil {
+					t.Fatalf("Stage of a signed release from GitHub: %v", err)
+				}
+				if got := staged(t, p); got != "the new program" {
+					t.Errorf("staged %q", got)
+				}
+				if !r.gh.asked(ghDownloads + sumsName + sigExt) {
+					t.Error("checksums.txt.sig was not read from GitHub")
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Stage installed %q from GitHub", staged(t, p))
+			}
+			if !strings.Contains(err.Error(), c.says) {
+				t.Errorf("Stage: %v; want it to say %q", err, c.says)
+			}
+			if _, ok := Load(dir); ok {
+				t.Error("a release refused was recorded as staged")
 			}
 		})
 	}

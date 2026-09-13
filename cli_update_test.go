@@ -148,17 +148,19 @@ func TestUpdateHelpSucceeds(t *testing.T) {
 	}
 }
 
-// The usage said every download was checked against a SHA-256 signed by the
-// release key. One from GitHub's API, when the site cannot be read at all, has a
-// checksums.txt nothing signs, so the signature is claimed only for the site's.
-func TestUpdateUsageClaimsTheSignatureOnlyForTheSite(t *testing.T) {
+// The usage says every download is checked against a SHA-256 signed by the
+// release key, and that is now so wherever it came from: a release read from
+// GitHub's API has to carry the key's signature of its checksums.txt too. It
+// used to claim the signature only for what dl.flockdeck.ai gave, because
+// GitHub's checksums.txt was taken as it was.
+func TestUpdateUsageSaysTheSignatureIsChecked(t *testing.T) {
 	var out bytes.Buffer
 	fs := updateFlagSet(&updateFlags{})
 	fs.SetOutput(&out)
 	fs.Usage()
 	text := strings.Join(strings.Fields(out.String()), " ")
-	if !strings.Contains(text, "signed by the release key when dl.flockdeck.ai gave it") {
-		t.Errorf("update's usage claims more than is checked:\n%s", out.String())
+	if !strings.Contains(text, "checks it against its published SHA-256, signed by the release key, and") {
+		t.Errorf("update's usage does not say what is checked:\n%s", out.String())
 	}
 	for _, l := range strings.Split(out.String(), "\n") {
 		if n := len([]rune(l)); n > 80 {
