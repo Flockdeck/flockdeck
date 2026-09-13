@@ -4740,6 +4740,46 @@ assert.strictEqual(h.commands().length, before, "the last tab was sent further r
 `)
 }
 
+// A pane whose process has gone is covered with what happened and a Restart
+// button, and the cover was silent and left the keyboard in the terminal under
+// it, where nothing typed went anywhere and nothing said why. It is an alert
+// now, and takes the keyboard to Restart - once, as it goes up, for the pane
+// being typed in, and never out of the palette or a dialog.
+func TestAnExitedPaneSaysSoAndOffersRestartToTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.ok(h.terms[0].focused, "the first pane's terminal has the keyboard to begin with");
+const exited = (id) => fixture({ panes: { p1: pane("p1", { status: id === "p1" ? "exited" : "idle" }),
+  p2: pane("p2", { status: id === "p2" ? "exited" : "idle" }) } });
+const cover = () => h.terms[0].host.parentElement.querySelector("div.pane-error");
+const restart = () => cover().querySelectorAll("button").find((b) => b.textContent === "Restart");
+
+h.recv(exited("p1"));
+assert.strictEqual(cover().getAttribute("role"), "alert", "the cover appears without a word to a screen reader");
+assert.ok(h.doc.activeElement === restart(), "the keyboard stayed in the terminal under the cover");
+
+// Once: a push that changes nothing about the exit does not take it back.
+h.$("project-btn").focus();
+h.recv(exited("p1"));
+assert.ok(h.doc.activeElement === h.$("project-btn"), "another push took the keyboard back to Restart");
+
+// Not out of the palette.
+h.recv(fixture());
+assert.ok(!cover(), "the cover stayed up with the process back");
+h.press("palette");
+h.recv(exited("p1"));
+assert.ok(h.doc.activeElement === h.$("palette-input"), "an exit took the keyboard out of the palette");
+h.key({ key: "Escape" });
+
+// Nor for a pane in another tab.
+h.recv(fixture());
+h.$("project-btn").focus();
+h.recv(exited("p2"));
+assert.ok(h.doc.activeElement === h.$("project-btn"), "a pane in another tab took the keyboard as it exited");
+`)
+}
+
 // The conversations list answered no key: each row had a Resume button to tab
 // to, and the arrows did nothing. It is walked like the other lists now, and
 // Enter on a row resumes that conversation.

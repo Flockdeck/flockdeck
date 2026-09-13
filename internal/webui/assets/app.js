@@ -2768,6 +2768,9 @@
       return;
     }
     const box = el("div", "pane-error");
+    // It goes up on its own, over a terminal somebody may be reading or
+    // typing in, so it is said as it appears.
+    box.setAttribute("role", "alert");
     p.overlayText = el("div", null, text);
     box.append(p.overlayText);
     const row = el("div");
@@ -2779,6 +2782,14 @@
     box.append(row);
     p.body.append(box);
     p.overlay = box;
+    // The keyboard was left in the terminal under the cover, where nothing
+    // typed went anywhere. It moves to Restart once, as the cover goes up,
+    // and only for the pane being typed in: not from the rail or the top bar,
+    // and not out from under a dialog or the palette.
+    const t = currentTab();
+    const at = document.activeElement;
+    const here = !at || at === document.body || p.wrap.contains(at);
+    if (t && t.focus === p.id && here && !dialogOpen() && $("disconnected").hidden) restart.focus();
   }
 
   /** prunePanes takes down the panes the workspace no longer has. Everything a
