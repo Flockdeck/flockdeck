@@ -25,7 +25,8 @@ import (
 // than be dropped.
 func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
 	notARepo := t.TempDir()
-	job := &fanoutJob{task: "never started", cwd: t.TempDir(), created: true}
+	wt := t.TempDir()
+	job := &fanoutJob{task: "never started", cwd: wt, path: wt, created: true}
 	if err := discardWorktree(notARepo, job, idle); err == nil {
 		t.Fatal("removing a worktree from somewhere that is not a repository reported nothing")
 	}
@@ -226,7 +227,7 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 		t.Fatalf("worktree add: %v", err)
 	}
 
-	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path, created: true}, idle); err != nil {
+	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path, path: path, created: true}, idle); err != nil {
 		t.Errorf("discardWorktree: %v", err)
 	}
 

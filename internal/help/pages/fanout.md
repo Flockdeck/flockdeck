@@ -36,8 +36,10 @@ These choices go with it:
   rules, and how to turn routing on.
 - **Give each agent its own git worktree.** On by default in a repository.
   Each child gets a branch named after its task, so they work in parallel
-  without touching each other's files. [Git worktrees](#worktrees) covers what
-  you can do with them afterwards.
+  without touching each other's files. Fanned out from a folder inside the
+  repository, each child works in that same folder of its worktree; a folder
+  git does not track has no copy there, so the child starts at the top.
+  [Git worktrees](#worktrees) covers what you can do with them afterwards.
 - **Put them in this tab, beside the agent that planned them.** Off, the
   children get a new tab of their own, called **Fan out** — or named after the
   task, when there is only one. Either way they end
@@ -46,9 +48,11 @@ These choices go with it:
 - **Trust the new worktrees.** A fresh worktree is a directory the agent has
   never seen, so an agent with a trust question of its own — Claude Code has
   one — would stop and ask whether the folder is trusted before doing any work,
-  once per child. If the project you are fanning out from is already trusted,
-  this carries that same answer over. It will not invent trust: the box is
-  disabled unless the source directory is genuinely trusted already. The
+  once per child. If the folder you are fanning out from is already trusted,
+  this carries that same answer over to the folder each child works in. It will
+  not invent trust: the box is disabled unless the source directory is
+  genuinely trusted already, and an answer given for one folder of a repository
+  goes to that same folder of each worktree, never to the whole worktree. The
   project's answer to Claude Code's second question, "Allow external CLAUDE.md
   file imports?", comes across the same way: a yes stays a yes, a no stays a
   no, and nothing is written if the project was never asked. The questions are
