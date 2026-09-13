@@ -147,10 +147,11 @@ type Server struct {
 	update atomic.Pointer[UpdateView]
 
 	// paneLookup and usageRefresh are the package variables of the same names,
-	// read once as the server is made. A test shortens them for the server it
-	// makes, and a goroutine an earlier test's server left running would
-	// otherwise be reading them while the next test writes them.
-	paneLookup, usageRefresh time.Duration
+	// and saveInterval is layoutSaveInterval, read once as the server is made.
+	// A test shortens them for the server it makes, and a goroutine an earlier
+	// test's server left running would otherwise be reading them while the
+	// next test writes them.
+	paneLookup, usageRefresh, saveInterval time.Duration
 	// conversations is allConversations, read once as the server is made, for
 	// the same reason: a test replaces it on its own server, not for them all.
 	conversations conversationSource
@@ -221,6 +222,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 
 		paneLookup:    paneLookup,
 		usageRefresh:  usageRefresh,
+		saveInterval:  layoutSaveInterval,
 		conversations: allConversations,
 		book:          spend.NewBook(),
 	}
@@ -437,7 +439,8 @@ func (s *Server) usageLoop() {
 }
 
 // layoutSaveInterval is how often every open project's layout is written while
-// the app runs. A variable so a test need not wait it out.
+// the app runs. A variable so a test need not wait it out; a server reads it
+// once, as it is made, into Server.saveInterval.
 var layoutSaveInterval = 30 * time.Second
 
 // saveLoop writes every open project's layout on a timer.
@@ -454,7 +457,7 @@ var layoutSaveInterval = 30 * time.Second
 // A -new run puts back the list it skipped only once that save has been
 // made, and a list written here in between would be all a crash left of it.
 func (s *Server) saveLoop() {
-	tick := time.NewTicker(layoutSaveInterval)
+	tick := time.NewTicker(s.saveInterval)
 	defer tick.Stop()
 	for {
 		select {
