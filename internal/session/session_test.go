@@ -871,9 +871,14 @@ func TestARepeatedEventIsNotReported(t *testing.T) {
 func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 	f := newFakePTY()
 	// The narrower resize takes longer to apply, so an unordered second one
-	// overtakes it inside the pseudo-terminal.
+	// overtakes it inside the pseudo-terminal. It says when it has reached the
+	// pseudo-terminal, which is when the second is sent: under way, and a long
+	// way from finished.
+	started := make(chan struct{})
+	var once sync.Once
 	f.resizeDelay = func(cols int) time.Duration {
 		if cols == 100 {
+			once.Do(func() { close(started) })
 			return 150 * time.Millisecond
 		}
 		return 0
@@ -886,9 +891,7 @@ func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 		defer close(done)
 		s.Resize(100, 24)
 	}()
-	// Long enough for the slow resize to be under way, short enough that it
-	// has not finished.
-	time.Sleep(30 * time.Millisecond)
+	<-started
 	s.Resize(120, 40)
 	<-done
 
