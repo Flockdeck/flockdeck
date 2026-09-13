@@ -189,16 +189,23 @@ func TestNeedsNoKey(t *testing.T) {
 }
 
 // TestAvailableFromTheChatClientsFallbacks: the chat client takes a key from
-// the vendor's usual variable, and from Flockdeck's own, when an entry names
-// none, so the picker must not grey out an entry it would start.
+// Flockdeck's own variable when an entry names none, and from the vendor's
+// usual one where the entry talks to that vendor, so the picker must not grey
+// out an entry it would start -- nor offer a gateway on the strength of a key
+// for the vendor, which the chat will not send it.
 func TestAvailableFromTheChatClientsFallbacks(t *testing.T) {
 	gateway := Spec{ID: "gw", Runner: RunnerAPI, API: APISpec{Wire: "openai", BaseURL: "https://gw.example/v1"}}
+	vendor := Spec{ID: "oa", Runner: RunnerAPI, API: APISpec{Wire: "openai", BaseURL: "https://api.openai.com/v1"}}
 	template := normalizeAll([]Spec{openAICompatibleSpec()})[0]
 
 	stubProbes(t, nil, "")
+	t.Setenv("FLOCKDECK_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "sk-test")
-	if !Available(gateway) {
-		t.Error("a gateway with OPENAI_API_KEY exported should be available")
+	if Available(gateway) {
+		t.Error("a gateway was offered on OPENAI_API_KEY, the key for OpenAI, which it would never be sent")
+	}
+	if !Available(vendor) {
+		t.Error("an entry at OpenAI's own address with OPENAI_API_KEY exported should be available")
 	}
 	if Available(template) {
 		t.Error("the endpoint with no address is still not something Flockdeck can start")
@@ -206,6 +213,9 @@ func TestAvailableFromTheChatClientsFallbacks(t *testing.T) {
 
 	stubProbes(t, nil, "")
 	t.Setenv("FLOCKDECK_API_KEY", "sk-test")
+	if !Available(gateway) {
+		t.Error("FLOCKDECK_API_KEY should count for a gateway")
+	}
 	if spec := normalizeAll([]Spec{anthropicAPISpec()})[0]; !Available(spec) {
 		t.Error("FLOCKDECK_API_KEY should count for a built-in API agent")
 	}

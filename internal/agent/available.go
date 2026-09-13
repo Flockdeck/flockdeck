@@ -193,10 +193,14 @@ func keyIsSet(s Spec) bool {
 
 // KeyNames are the environment variables an API agent's key is looked for in,
 // in the order the chat client tries them: the entry's own, then the vendor's
-// usual one for the wire, then Flockdeck's own. Asking only the first left an
-// entry naming none of its own -- a gateway given just a baseURL, with
-// OPENAI_API_KEY exported -- greyed out in the picker while it would have
-// started perfectly well.
+// usual one for the wire where the entry talks to that vendor, then
+// Flockdeck's own.
+//
+// The vendor's variable is left out for an entry pointed anywhere else, a
+// gateway above all: OPENAI_API_KEY is the user's key for OpenAI, and an entry
+// given only a third party's address would have handed it to that party with
+// every request, even with a key stored for the entry itself. Such an entry
+// has its own variables, FLOCKDECK_API_KEY, and then its stored key.
 //
 // An entry with neither an endpoint nor a variable of its own is the
 // OpenAI-compatible one as it ships, with no address filled in yet; a key
@@ -205,9 +209,41 @@ func keyIsSet(s Spec) bool {
 func KeyNames(s Spec) []string {
 	names := append([]string{}, s.API.KeyEnv...)
 	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
-		names = append(append(names, wireKeyEnv(s.API.Wire)...), "FLOCKDECK_API_KEY")
+		if VendorsOwn(s.API) {
+			names = append(names, wireKeyEnv(s.API.Wire)...)
+		}
+		names = append(names, "FLOCKDECK_API_KEY")
 	}
 	return names
+}
+
+// VendorsOwn reports whether an API entry talks to the vendor its wire is
+// named for -- at no address of its own, or at the vendor's own host over
+// https -- which is the only place the vendor's usual key variable may be
+// sent. It is the one rule the picker, the keys dialog and the chat client
+// all decide that by.
+func VendorsOwn(api APISpec) bool {
+	base := strings.TrimSpace(api.BaseURL)
+	if base == "" {
+		return true
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "https" && strings.EqualFold(u.Hostname(), vendorHost(api.Wire))
+}
+
+// vendorHost is the host each wire's vendor serves its API from.
+func vendorHost(wire string) string {
+	switch strings.ToLower(strings.TrimSpace(wire)) {
+	case "openai", "openai-compatible":
+		return "api.openai.com"
+	case "gemini", "google":
+		return "generativelanguage.googleapis.com"
+	default:
+		return "api.anthropic.com"
+	}
 }
 
 // wireKeyEnv is the variable each vendor's own tools read a key from, which the
