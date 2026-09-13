@@ -4540,6 +4540,10 @@
     });
     describeChrome();
     renderHints();
+    // The hello comes again with every reconnect, carrying the preferences
+    // as they are now - changed, perhaps, from another window while this one
+    // was away - and settings left open went on showing them as they were.
+    settingsChanged();
     // A terminal in a box does not advertise what is around it, and the
     // alternative to opening the help once is finding it by accident.
     if (!prefs.helpSeen) openHelp("getting-started");

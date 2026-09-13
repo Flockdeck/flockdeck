@@ -2946,6 +2946,27 @@ assert.ok(h.terms[0].focused, "Shift+F6 in the prompt bar did not reach the focu
 `)
 }
 
+// The hello comes again with every reconnect, carrying the preferences as they
+// are now, and settings left open through the drop went on showing them as
+// they were before it: a switch turned off in another window meanwhile still
+// read on here.
+func TestSettingsLeftOpenFollowTheHelloAfterAReconnect(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+for (const tab of h.$("settings-tabs").querySelectorAll("button")) {
+  if (h.$("set-cursor-blink")) break;
+  h.click(tab);
+}
+assert.ok(h.$("set-cursor-blink"), "no section of the settings has the cursor's blink");
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "true");
+h.hello({ cursorSteady: true });
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "false",
+  "the settings went on saying the cursor blinks after the hello said it does not");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
