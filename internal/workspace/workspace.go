@@ -433,7 +433,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	if st == session.StatusWaiting && session.IsIdleReminder(ev.Event, ev.NotificationType) && w.hasOpenPane(parent) {
 		return
 	}
-	sess.SetStatus(st, detail)
+	sess.SetStatusFull(st, detail, ev.ToolInput)
 }
 
 // hasOpenPane reports whether id names a pane the workspace still has, empty

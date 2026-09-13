@@ -290,6 +290,13 @@ type paneView struct {
 	Project string `json:"project,omitempty"`
 	Status  string `json:"status"`
 	Detail  string `json:"detail"`
+	// Ask is the question an AskUserQuestion call is putting to the user, and
+	// Permission what a permission prompt for any other tool wants to do --
+	// built from the same PreToolUse call's own input (see waitingViews), so
+	// the phone's chat view can draw a real card without reading the pane's
+	// screen. Both are left out for a pane not waiting on either.
+	Ask        *askView        `json:"ask,omitempty"`
+	Permission *permissionView `json:"permission,omitempty"`
 	// Agent and Model are what the pane is running, drawn in the header beside
 	// the branch. Both are left out for a shell, which is running neither.
 	Agent string `json:"agent,omitempty"`
@@ -500,6 +507,9 @@ func (s *Server) snapshot() stateMsg {
 				Status:    st.String(),
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
+			}
+			if st == session.StatusWaiting && p.Sess != nil {
+				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
 			}
 			pv.Agent, pv.Model = paneAgent(p)
 			pv.Routed, pv.RoutedFrom, pv.Route = paneRoute(cat, p)

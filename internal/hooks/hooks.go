@@ -60,6 +60,15 @@ type Event struct {
 	// late -- which on Windows can outlive the process that ran it -- is
 	// otherwise an event about the new one. Empty from a hook that predates it.
 	Launch string `json:"launch,omitempty"`
+	// ToolInput is what a PreToolUse call's own tool_input says, kept to the
+	// parts worth carrying past this process and each capped -- a Write's
+	// whole file, say, never travels beyond what buildToolInput keeps of it --
+	// then re-marshalled as compact JSON. Empty for every event but
+	// PreToolUse, and for a PreToolUse whose input said nothing this cares
+	// about. It is opaque to everything between here and the phone-facing
+	// view that finally reads it (internal/server's waitingViews): Session
+	// only stores and carries it forward the way it already does Tool.
+	ToolInput string `json:"toolInput,omitempty"`
 	// NotificationType is what a Notification is about -- Claude Code's
 	// notification_type, carried through so the receiving end can tell an idle
 	// nudge ("idle_prompt") apart from a real ask ("permission_prompt" and the
@@ -94,6 +103,108 @@ type claudePayload struct {
 	NotificationType string `json:"notification_type"`
 	// IsInterrupt says a PostToolUseFailure is the user stopping the tool.
 	IsInterrupt bool `json:"is_interrupt"`
+	// ToolInput is a PreToolUse call's whole tool input -- the command for
+	// Bash, the file and text for Edit/Write, the questions for
+	// AskUserQuestion. Read as json.RawMessage rather than a concrete struct
+	// because which fields it has depends on the tool, and this only ever
+	// wants a few of them (see buildToolInput).
+	ToolInput json.RawMessage `json:"tool_input"`
+}
+
+// toolEditWire and toolInputWire are the parts of a PreToolUse call's
+// tool_input worth reading, in Claude Code's own wire shape (snake_case for
+// Bash/Edit/Write's fields; AskUserQuestion's are already spelled the way
+// AskQuestion below reads them, since that tool's schema is Flockdeck's own
+// concern nowhere else).
+type toolEditWire struct {
+	OldString string `json:"old_string"`
+	NewString string `json:"new_string"`
+}
+
+type toolInputWire struct {
+	Command     string         `json:"command"`
+	Description string         `json:"description"`
+	FilePath    string         `json:"file_path"`
+	OldString   string         `json:"old_string"`
+	NewString   string         `json:"new_string"`
+	Content     string         `json:"content"`
+	Edits       []toolEditWire `json:"edits"`
+	Questions   []AskQuestion  `json:"questions"`
+}
+
+// AskQuestion and AskOption are one question of an AskUserQuestion call, read
+// straight off its tool_input -- Claude Code's own field names already match
+// these tags, so there is nothing to translate.
+type AskQuestion struct {
+	Header      string      `json:"header,omitempty"`
+	Question    string      `json:"question"`
+	MultiSelect bool        `json:"multiSelect,omitempty"`
+	Options     []AskOption `json:"options"`
+}
+
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// toolInputFields is the capped, agent-agnostic shape Event.ToolInput
+// marshals to. Every string in it has already been through clip, so
+// marshalling it can never produce anything larger than the fields allow --
+// unlike clipping the marshalled JSON itself, which can slice a truncated
+// string in half and leave invalid JSON at the other end of the wire.
+type toolInputFields struct {
+	Command     string         `json:"command,omitempty"`
+	Description string         `json:"description,omitempty"`
+	FilePath    string         `json:"filePath,omitempty"`
+	OldString   string         `json:"oldString,omitempty"`
+	NewString   string         `json:"newString,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Edits       []toolEditWire `json:"edits,omitempty"`
+	Questions   []AskQuestion  `json:"questions,omitempty"`
+}
+
+// maxToolInputFieldBytes bounds each string field of a tool_input carried
+// onward -- a Write's content, say -- so that a permission prompt never
+// carries an arbitrarily large payload any further than this process needs
+// to. It matches the cap the phone protocol already puts on an inline diff.
+const maxToolInputFieldBytes = 64 << 10
+
+// buildToolInput reads a PreToolUse call's tool_input and returns it as
+// compact JSON in the capped shape above, or "" when there was nothing in it
+// worth carrying on (not PreToolUse, or a tool_input with none of these
+// fields -- Read's file_path is not one of them, say, since Read asks
+// nothing of the user).
+func buildToolInput(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var w toolInputWire
+	if json.Unmarshal(raw, &w) != nil {
+		return ""
+	}
+	out := toolInputFields{
+		Command:     clip(w.Command, maxToolInputFieldBytes),
+		Description: clip(w.Description, maxToolInputFieldBytes),
+		FilePath:    w.FilePath,
+		OldString:   clip(w.OldString, maxToolInputFieldBytes),
+		NewString:   clip(w.NewString, maxToolInputFieldBytes),
+		Content:     clip(w.Content, maxToolInputFieldBytes),
+		Questions:   w.Questions,
+	}
+	for _, e := range w.Edits {
+		out.Edits = append(out.Edits, toolEditWire{
+			OldString: clip(e.OldString, maxToolInputFieldBytes),
+			NewString: clip(e.NewString, maxToolInputFieldBytes),
+		})
+	}
+	if out.Command == "" && out.FilePath == "" && len(out.Questions) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Interrupted is what a PostToolUseFailure is reported as when the tool failed
@@ -290,6 +401,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 		if json.NewDecoder(io.LimitReader(stdin, maxHookPayload)).Decode(&cp) == nil {
 			p.Tool = cp.ToolName
 			p.Cwd = cp.Cwd
+			p.ToolInput = buildToolInput(cp.ToolInput)
 			p.Conversation = cp.SessionID
 			p.Prompt = clip(cp.Prompt, maxPromptBytes)
 			p.Source = cp.Source
