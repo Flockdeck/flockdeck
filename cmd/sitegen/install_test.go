@@ -522,7 +522,8 @@ func installPs1Runner(t *testing.T) string {
 // With FLOCKDECK_NO_MODIFY_PATH=1, install.ps1 leaves PATH alone, and it said
 // nothing of how to start what it had installed, which `flockdeck` does not
 // find in a directory PATH does not name. It says to start it by its path,
-// quoted for PowerShell.
+// quoted for PowerShell: inside single quotes an apostrophe is written as two,
+// or the line it prints ends its string at the apostrophe and does not parse.
 func TestInstallPs1SaysHowToStartItWithPathLeftAlone(t *testing.T) {
 	ps := installPs1Runner(t)
 	dir, _ := generate(t)
@@ -532,6 +533,7 @@ func TestInstallPs1SaysHowToStartItWithPathLeftAlone(t *testing.T) {
 	}
 	for _, c := range []struct{ name, dir string }{
 		{"a plain directory", "bin"},
+		{"a directory with an apostrophe", "o'brien's bin"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newReleases(t)

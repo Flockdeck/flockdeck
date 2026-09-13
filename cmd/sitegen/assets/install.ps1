@@ -184,18 +184,24 @@ function Install-Flockdeck {
     # A copy found first on PATH -- a go install, say -- is the one that
     # `flockdeck` runs, and adding this directory to the end of PATH will not
     # change that.
+    #
+    # Started by its path, the path goes inside single quotes, where
+    # PowerShell reads two quotes as one: C:\Users\o'brien\... was printed
+    # as a command that ended its string at the name's apostrophe and did
+    # not parse.
+    $byPath = "& '" + ($dest -replace "'", "''") + "'"
     $run = 'flockdeck'
     $found = Get-Command flockdeck -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found -and $found.Source -ne $dest) {
         Write-Host "flockdeck: note: the flockdeck your shell finds first is $($found.Source), not this one"
-        $run = "& '$dest'"
+        $run = $byPath
     }
 
     # With PATH left alone, `flockdeck` finds this copy only where PATH
     # already led to this directory. Anywhere else it is started by its path,
     # and saying nothing left the reader to work that out.
     if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') {
-        if (-not $found) { $run = "& '$dest'" }
+        if (-not $found) { $run = $byPath }
         Write-Host "flockdeck: start it with: $run"
         return
     }
