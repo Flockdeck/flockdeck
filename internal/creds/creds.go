@@ -130,6 +130,10 @@ type Status struct {
 	// Source and Env are where it was found. Env is a variable's name.
 	Source Source `json:"source,omitempty"`
 	Env    string `json:"env,omitempty"`
+	// Stored says Flockdeck holds a key for this agent, whether or not it is
+	// the one in use. A key stored before a variable was exported is shadowed
+	// by it, and without this the keys dialog offered no way to clear it.
+	Stored bool `json:"stored,omitempty"`
 	// Vars lists the environment variables this agent's key may arrive in, so
 	// somebody without one can be told where to put it instead of being sent
 	// to the documentation.
@@ -150,6 +154,7 @@ func StatusOf(spec agent.Spec) Status {
 		Env:       k.Env,
 		Vars:      spec.API.KeyEnv,
 		NotNeeded: agent.NeedsNoKey(spec),
+		Stored:    k.Source == SourceStore || Has(spec.ID),
 	}
 	// The chat client looks further than the entry's own variables: then the
 	// wire's usual one and Flockdeck's own, which the picker counts as well.

@@ -5723,6 +5723,9 @@
       if (k.set) {
         meta.append(el("span", "wt-clean",
           k.source === "env" ? "set — from " + k.env : "set — stored by flockdeck"));
+        // A key stored before the variable was exported is still held here,
+        // and Clear below is for it, not for the variable.
+        if (k.source === "env" && k.stored) meta.append(el("span", null, "a stored key is kept as well"));
       } else {
         meta.append(el("span", "wt-untracked", "not set"));
         // Somebody who keeps their keys in a shell profile or a secrets
@@ -5743,8 +5746,9 @@
       actions.append(set);
       // Only a stored key can be forgotten. A key that came from the
       // environment is the user's own arrangement and this dialog has no
-      // business unsetting a variable it did not set.
-      if (k.set && k.source === "store") {
+      // business unsetting a variable it did not set -- but a stored key that
+      // a variable shadows is still Flockdeck's, and can be cleared.
+      if (k.stored || (k.set && k.source === "store")) {
         const clear = el("button", "chip danger", "Clear");
         clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
         actions.append(clear);

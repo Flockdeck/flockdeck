@@ -324,6 +324,55 @@ func TestKeyNeverPrintsItself(t *testing.T) {
 	}
 }
 
+// TestAStoredKeyAVariableShadowsIsStillReportedStored covers an entry with no
+// key variable of its own, such as a gateway given only an address, whose key
+// was stored before its wire's usual variable was exported. The variable is
+// the key in use, and the keys dialog, which offers Clear only for a stored
+// key, had no way left to clear the one Flockdeck still held.
+func TestAStoredKeyAVariableShadowsIsStillReportedStored(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("FLOCKDECK_API_KEY", "")
+	// An address is what makes the wire's usual variable one it may be given.
+	gateway := apiSpec("gateway")
+	gateway.API.BaseURL = "https://gateway.example"
+
+	if st := StatusOf(gateway); st.Stored {
+		t.Errorf("with nothing stored the status says a key is stored: %+v", st)
+	}
+	if err := Set("gateway", "sk-stored"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if st := StatusOf(gateway); !st.Stored || st.Source != SourceStore {
+		t.Errorf("a stored key in use reads %+v, want it stored and the source", st)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "exported")
+	st := StatusOf(gateway)
+	if st.Source != SourceEnv || st.Env != "ANTHROPIC_API_KEY" {
+		t.Fatalf("the exported variable is not the key in use: %+v", st)
+	}
+	if !st.Stored {
+		t.Errorf("a stored key the variable shadows reads as not stored, so nothing offers to clear it: %+v", st)
+	}
+
+	// An entry with a variable of its own is given that variable ahead of the
+	// store, so there the key in use is never the stored one once it is
+	// exported: only asking the store says a key is kept there as well.
+	t.Setenv("FLOCKDECK_TEST_KEY_A", "")
+	own := apiSpec("anthropic", "FLOCKDECK_TEST_KEY_A")
+	if err := Set("anthropic", "sk-stored"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	t.Setenv("FLOCKDECK_TEST_KEY_A", "exported")
+	st = StatusOf(own)
+	if st.Source != SourceEnv || st.Env != "FLOCKDECK_TEST_KEY_A" {
+		t.Fatalf("the entry's own variable is not the key in use: %+v", st)
+	}
+	if !st.Stored {
+		t.Errorf("a stored key the entry's own variable shadows reads as not stored: %+v", st)
+	}
+}
+
 func TestStatus(t *testing.T) {
 	isolateConfig(t)
 	t.Setenv("FLOCKDECK_TEST_KEY_A", "")

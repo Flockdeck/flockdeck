@@ -764,3 +764,28 @@ const whens = h.$("overlay-body").querySelectorAll("span.agent-for").map((s) => 
 assert.deepStrictEqual(whens, ["just now", "for 5 minutes", "for 1m"]);
 `)
 }
+
+// A key stored before a variable was exported goes on being held, shadowed by
+// the variable. The keys dialog offered Clear only when the key in use was the
+// stored one, so that key could no longer be cleared from it. Clear is for the
+// stored key, never for the variable, which is the user's own arrangement.
+func TestAStoredKeyAVariableShadowsCanBeCleared(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+h.click(h.$("settings-tab-keys"));
+h.recv({ type: "keys", items: [
+  { agent: "gateway", name: "Gateway", set: true, source: "env", env: "OPENAI_API_KEY", stored: true, vars: [] },
+  { agent: "openai", name: "OpenAI API", set: true, source: "env", env: "OPENAI_API_KEY", vars: ["OPENAI_API_KEY"] }] });
+const rows = h.$("overlay-body").querySelectorAll("div.wt-row");
+const clearOf = (row) => row.querySelectorAll("button").find((b) => b.textContent === "Clear");
+assert.ok(rows[0].textContent.includes("a stored key is kept as well"), "the row does not say a stored key is still held");
+const clear = clearOf(rows[0]);
+assert.ok(clear, "a stored key the variable shadows has no Clear");
+h.click(clear);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "gateway" });
+assert.ok(!clearOf(rows[1]), "a key only from the environment was offered Clear");
+assert.ok(!rows[1].textContent.includes("a stored key"), "a key only from the environment says one is stored");
+`)
+}
