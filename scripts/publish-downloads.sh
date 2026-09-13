@@ -123,8 +123,20 @@ trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' INT TERM
 
 # fetch copies one file of the bucket to $tmp, and fails if it is not there.
+# Any other failure stops the run. Taken for a missing file, a key that cannot
+# read, a store that is down or a throttled request would each pass for an
+# empty bucket: a version already published with other files would be written
+# over, its first manifest replaced, and latest.json moved back to an older
+# release. The aws CLI says "(404)" or NoSuchKey, and "does not exist" or
+# "Not Found", only of a file that is not there.
 fetch() {
-	aws s3 cp "s3://$bucket/$1" "$tmp/$2" --endpoint-url "$endpoint" --only-show-errors >/dev/null 2>&1
+	if aws s3 cp "s3://$bucket/$1" "$tmp/$2" --endpoint-url "$endpoint" --only-show-errors >/dev/null 2>"$tmp/fetch.err"; then
+		return 0
+	fi
+	if grep -Eq '\(404\)|NoSuchKey|does not exist|Not Found' "$tmp/fetch.err"; then
+		return 1
+	fi
+	die "could not read $1 from the bucket, so whether it is already published is not known, and nothing more has been uploaded: $(tr '\n' ' ' <"$tmp/fetch.err")"
 }
 
 # A version's files are cached for a year and never change, so one already

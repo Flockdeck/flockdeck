@@ -21,6 +21,8 @@ import (
 // fakeAWS stands in for the aws CLI in the tests of scripts/publish-downloads.sh:
 // the bucket is a directory, and every call is written to a log shared with
 // the fake site, so the order of everything the script did can be read back.
+// A file that is not there is refused as the real CLI refuses it, and a read
+// of the key in $AWS_STUB_DENY fails as a key without the right to read does.
 const fakeAWS = `#!/bin/sh
 log() { printf '%s\n' "$*" >> "$AWS_STUB_LOG"; }
 [ "$1" = s3 ] && [ "$2" = cp ] || { log "unexpected: $*"; exit 2; }
@@ -41,7 +43,15 @@ done
 case $src in
 	s3://*)
 		key=${src#s3://*/}
-		[ -f "$AWS_STUB_STORE/$key" ] || exit 1
+		if [ "$key" = "${AWS_STUB_DENY:-}" ]; then
+			log "denied $key"
+			echo "fatal error: An error occurred (403) when calling the HeadObject operation: Forbidden" >&2
+			exit 1
+		fi
+		if [ ! -f "$AWS_STUB_STORE/$key" ]; then
+			echo "fatal error: An error occurred (404) when calling the HeadObject operation: Key \"$key\" does not exist" >&2
+			exit 1
+		fi
 		cp "$AWS_STUB_STORE/$key" "$dst"
 		log "get $key" ;;
 	*)
@@ -441,5 +451,64 @@ func TestPublishScriptKeepsAVersionsFirstManifest(t *testing.T) {
 	}
 	if !strings.Contains(out, "as they were first published") {
 		t.Errorf("output %q does not say the manifest was kept", out)
+	}
+}
+
+// A file of the bucket that cannot be read is not taken for one that is not
+// there. Taken so, a version already published would be written over, its
+// first manifest replaced, or latest.json moved back past a newer release,
+// all on the word of a key that cannot read or a store that is down. The run
+// stops instead, and says which file it could not read.
+func TestPublishScriptStopsWhenTheBucketCannotBeRead(t *testing.T) {
+	cases := []struct {
+		deny      string
+		published bool   // v9.9.9 is already up, from the same build
+		latest    string // what latest.json names beforehand, if anything
+	}{
+		{deny: "v9.9.9/checksums.txt"},
+		{deny: "v9.9.9/manifest.json", published: true},
+		{deny: "latest.json", latest: "v10.0.0"},
+	}
+	for _, c := range cases {
+		t.Run(c.deny, func(t *testing.T) {
+			p := newPublishing(t, "v9.9.9")
+			if c.published {
+				if out, err := p.run("v9.9.9", nil); err != nil {
+					t.Fatalf("publish: %v\n%s", err, out)
+				}
+				os.Remove(p.logPath)
+			}
+			var pointer []byte
+			if c.latest != "" {
+				pointer = []byte(`{"version":"` + c.latest + `"}` + "\n")
+				if err := os.WriteFile(filepath.Join(p.store, "latest.json"), pointer, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := p.run("v9.9.9", map[string]string{"AWS_STUB_DENY": c.deny})
+			if err == nil {
+				t.Fatalf("publish succeeded though %s could not be read:\n%s", c.deny, out)
+			}
+			if !strings.Contains(out, "could not read "+c.deny) {
+				t.Errorf("output %q does not name %s as what could not be read", out, c.deny)
+			}
+			// latest.json is read only once the version's own files are up,
+			// which is harmless; everything else is read before anything is
+			// uploaded.
+			keys, _ := p.puts()
+			for _, k := range keys {
+				if strings.HasPrefix(k, "latest") {
+					t.Errorf("uploaded %s all the same", k)
+				}
+			}
+			if c.deny != "latest.json" && len(keys) > 0 {
+				t.Errorf("uploaded %v before knowing whether v9.9.9 was published", keys)
+			}
+			if pointer != nil {
+				if got, _ := os.ReadFile(filepath.Join(p.store, "latest.json")); !bytes.Equal(got, pointer) {
+					t.Errorf("latest.json is %q, want it still naming %s", got, c.latest)
+				}
+			}
+		})
 	}
 }
