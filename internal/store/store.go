@@ -625,7 +625,17 @@ func noteRead(p string, err error) {
 // what it held. Where it cannot be moved either, the save is refused: what is
 // lost with it is what the user has just seen, and the file that could not be
 // read is what they have not.
+//
+// It takes the file's write lock first, as writeAtomic does, so the move
+// queues behind a save of the same file part-way through rather than racing
+// its rename: on Windows a rename of a file another rename is replacing is
+// refused, and waited out for the whole of renameWithRetry's budget. Nothing
+// takes the two locks the other way round, since writeAtomic never touches
+// unreadFiles.
 func keepUnread(p, what string) error {
+	mu := writeLock(p)
+	mu.Lock()
+	defer mu.Unlock()
 	unreadFiles.Lock()
 	defer unreadFiles.Unlock()
 	if !unreadFiles.paths[p] {
