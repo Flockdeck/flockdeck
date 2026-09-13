@@ -52,11 +52,16 @@ func marked(lines []string, mark string) string {
 // firstChange is the line at which b first differs from a, or 0 when the two
 // are the same.
 func firstChange(a, b string) int {
+	// Compared in one kind of line ending, since a write keeps the file's own:
+	// a file with Windows endings, written back with the same text read_file
+	// showed, was said to change at the line after its last, with nothing
+	// under it to show what.
+	a, b = strings.ReplaceAll(a, "\r\n", "\n"), strings.ReplaceAll(b, "\r\n", "\n")
 	if a == b {
 		return 0
 	}
-	al := strings.Split(strings.ReplaceAll(a, "\r\n", "\n"), "\n")
-	bl := strings.Split(strings.ReplaceAll(b, "\r\n", "\n"), "\n")
+	al := strings.Split(a, "\n")
+	bl := strings.Split(b, "\n")
 	for i := range bl {
 		if i >= len(al) || al[i] != bl[i] {
 			return i + 1

@@ -142,7 +142,7 @@ type Status struct {
 // StatusOf reports on one Spec's key without reading it back.
 func StatusOf(spec agent.Spec) Status {
 	k := Resolve(spec)
-	return Status{
+	st := Status{
 		Agent:     spec.ID,
 		Name:      spec.Name,
 		Set:       k.Set(),
@@ -151,6 +151,22 @@ func StatusOf(spec agent.Spec) Status {
 		Vars:      spec.API.KeyEnv,
 		NotNeeded: agent.NeedsNoKey(spec),
 	}
+	// The chat client looks further than the entry's own variables: then the
+	// wire's usual one and Flockdeck's own, which the picker counts as well.
+	// An entry with a variable of its own is handed its stored key under that
+	// name, so for it they come after the store; one with none is not, so for
+	// it they come before. Said only from the entry's own, a gateway given just
+	// an address was "not set -- run `flockdeck keys set`" in the keys dialog
+	// while the picker offered it and its pane ran on OPENAI_API_KEY.
+	if !st.Set || len(spec.API.KeyEnv) == 0 {
+		for _, name := range agent.KeyNames(spec) {
+			if strings.TrimSpace(os.Getenv(name)) != "" {
+				st.Set, st.Source, st.Env = true, SourceEnv, name
+				break
+			}
+		}
+	}
+	return st
 }
 
 // StatusAll reports on every Spec that could want a key, in the order given.

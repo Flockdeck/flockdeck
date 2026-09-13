@@ -161,6 +161,18 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			Usage struct {
 				PromptTokens     int `json:"prompt_tokens"`
 				CompletionTokens int `json:"completion_tokens"`
+				// The part of the prompt read from OpenAI's own prompt cache,
+				// which it applies unasked to any long prompt and bills at a
+				// tenth of the price: nearly all of a conversation's history,
+				// sent again with every turn.
+				PromptTokensDetails struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
+				// The part of the answer a reasoning model spent thinking,
+				// which is billed as output and counted within it.
+				CompletionTokensDetails struct {
+					ReasoningTokens int `json:"reasoning_tokens"`
+				} `json:"completion_tokens_details"`
 			} `json:"usage"`
 			Error struct {
 				Message string `json:"message"`
@@ -173,7 +185,9 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
 		}
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens}
+			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens,
+				CacheRead: chunk.Usage.PromptTokensDetails.CachedTokens,
+				Reasoning: chunk.Usage.CompletionTokensDetails.ReasoningTokens}
 		}
 		for _, ch := range chunk.Choices {
 			if ch.FinishReason != "" {

@@ -164,7 +164,12 @@ func (r *Router) Decide(in Input) Decision {
 func (ru rule) matches(in Input, words int, files []string) bool {
 	w := ru.When
 	switch {
-	case w.Kind != "" && w.Kind != in.Kind,
+	// A rule for another agent's model is not about this work, so it does
+	// not match it. Taken as a match that changed nothing, it was the first
+	// match, and every rule after it went untried: a Codex rule placed above
+	// the rest left every Claude row alone.
+	case ru.Model != "" && ru.Agent != in.Agent.ID,
+		w.Kind != "" && w.Kind != in.Kind,
 		w.Agent != "" && w.Agent != in.Agent.ID,
 		w.MinWords > 0 && words < w.MinWords,
 		w.MaxWords > 0 && words > w.MaxWords,
@@ -194,8 +199,6 @@ func (r *Router) apply(ru rule, in Input) Decision {
 	if ru.Model != "" {
 		m, ok := findModel(in.Agent, ru.Model)
 		switch {
-		case ru.Agent != in.Agent.ID:
-			return Decision{} // a rule for another agent's model is not about this work
 		case !ok:
 			return left(in.Agent.Name + " does not offer " + ru.Model)
 		case agent.TierRank(m.Tier) == 0:

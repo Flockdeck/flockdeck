@@ -28,14 +28,35 @@ func unknownFields(id string, raw json.RawMessage) []string {
 	}
 	var problems []string
 	for key := range keys {
-		if specFields[key] {
+		// The decoder matches a key to a field without regard to case, so
+		// "defaultmodel" is the default model: named here as unread, it was
+		// a notice saying a setting that had taken effect had not.
+		if specFields[strings.ToLower(key)] {
 			continue
 		}
 		msg := fmt.Sprintf("agent %q: %q is not something an agent has", id, key)
-		if apiFields[key] {
+		if apiFields[strings.ToLower(key)] {
 			msg = fmt.Sprintf("agent %q: %q belongs inside \"api\"", id, key)
 		}
 		problems = append(problems, msg)
+	}
+	// The keys inside "api" are read the same way and pass over a stranger
+	// just as quietly: an "api" given a "url" rather than a "baseURL" left the
+	// endpoint the vendor's own, and the agent greyed out, with nothing said.
+	for key, raw := range keys {
+		var api map[string]json.RawMessage
+		if !strings.EqualFold(key, "api") || json.Unmarshal(raw, &api) != nil {
+			continue
+		}
+		for inner := range api {
+			switch lower := strings.ToLower(inner); {
+			case apiFields[lower]:
+			case specFields[lower]:
+				problems = append(problems, fmt.Sprintf("agent %q: %q belongs beside \"api\", not inside it", id, inner))
+			default:
+				problems = append(problems, fmt.Sprintf("agent %q: %q in \"api\" is not something an endpoint has; it takes wire, baseURL and keyEnv", id, inner))
+			}
+		}
 	}
 	sort.Strings(problems)
 	return problems
@@ -46,14 +67,14 @@ var (
 	apiFields  = jsonFields(reflect.TypeFor[APISpec]())
 )
 
-// jsonFields is the set of keys a struct decodes, read from its own tags so
-// the two cannot drift apart.
+// jsonFields is the set of keys a struct decodes, in lower case, read from its
+// own tags so the two cannot drift apart.
 func jsonFields(t reflect.Type) map[string]bool {
 	out := map[string]bool{}
 	for i := range t.NumField() {
 		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
 		if name != "" && name != "-" {
-			out[name] = true
+			out[strings.ToLower(name)] = true
 		}
 	}
 	return out

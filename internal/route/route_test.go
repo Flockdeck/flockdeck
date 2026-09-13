@@ -211,6 +211,8 @@ func TestMatchGlob(t *testing.T) {
 		{"**/migrations/**", "db/migration.go", false},
 		{"internal/*/route.go", "internal/route/route.go", true},
 		{"internal/*/route.go", "internal/a/b/route.go", false},
+		{`db\migrations\**`, "db/migrations/0003.sql", true},
+		{"./migrations/**", "migrations/0003.sql", true},
 	}
 	for _, tc := range tests {
 		if got := MatchGlob(tc.glob, tc.name); got != tc.want {
@@ -249,5 +251,18 @@ func TestRoutingReachesNoNetwork(t *testing.T) {
 				t.Errorf("%s imports %s", name, p)
 			}
 		}
+	}
+}
+
+// A rule for another agent's model does not match this agent's work, so the
+// rules after it are still tried.
+func TestARuleForAnotherAgentsModelLetsTheNextRuleDecide(t *testing.T) {
+	policy := on(
+		agent.RoutingRule{Name: "codex mini", Model: "gpt-5.4-mini", Agent: "codex", When: agent.RuleMatch{Task: "tests"}},
+		small("tests", "tests"),
+	)
+	d := Decide(policy, Input{Task: "run the tests", Agent: claude(), Current: "sonnet"})
+	if d.Model != "haiku" || d.Rule != "tests" {
+		t.Errorf("decided %+v, want haiku by rule \"tests\"", d)
 	}
 }
