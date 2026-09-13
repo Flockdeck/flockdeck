@@ -53,4 +53,5 @@ This does not start a second set of agents. It finds the instance already
 running, hands it the directory, and opens a window onto it — so the project
 joins the session you already have.
 
-Closing a project stops its agents. Switching away does not.
+Closing a project closes its panes, which stops its agents and ends what was
+started in them, as closing each pane would. Switching away does not.

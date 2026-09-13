@@ -10,3 +10,7 @@ package session
 func procParents() map[int]int { return nil }
 
 func procMetrics(int) (procMetric, bool) { return procMetric{}, false }
+
+// sessionMembers cannot be listed here either, so closing a pane signals only
+// its own process group; see endTree.
+func sessionMembers(int) []int { return nil }

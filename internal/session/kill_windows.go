@@ -22,15 +22,19 @@ import (
 // Only console programs are ended. A program with windows of its own -- the
 // browser an agent opened for a login when none was running yet, an editor
 // started with `code .`, an Explorer window -- is the user's once it is on
-// screen, and closing a terminal does not close it. For the same reason the
-// job is not told to take its processes with it when it is closed: Flockdeck
-// exiting must not close somebody's browser either.
+// screen, and closing a terminal does not close it. Nor are the console
+// programs such a program starts, since they are its and not the pane's: the
+// terminal in an editor started with `code .`, the language servers and git it
+// runs. For the same reason the job is not told to take its processes with it
+// when it is closed: Flockdeck exiting must not close somebody's browser
+// either.
 
 var (
 	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
 	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
 	procQueryInformationJobObject  = kernel32.NewProc("QueryInformationJobObject")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+	procIsProcessInJob             = kernel32.NewProc("IsProcessInJob")
 )
 
 const (
@@ -49,14 +53,6 @@ const (
 	// started while the processes already listed were being ended.
 	endPasses = 3
 )
-
-// jobProcessIDs is JOBOBJECT_BASIC_PROCESS_ID_LIST with room for as many
-// processes as a pane's tree is ever walked to.
-type jobProcessIDs struct {
-	Assigned uint32
-	Listed   uint32
-	IDs      [maxTreeProcs]uintptr
-}
 
 // procTree is the job a pane's process was put in, or zero when it could not
 // be. A pane without one is ended the way it always was, one process alone.
@@ -86,32 +82,114 @@ func containTree(pid int) procTree {
 	return procTree{job: syscall.Handle(job)}
 }
 
-// jobMemberIDs lists the processes a job holds.
-func jobMemberIDs(job syscall.Handle) []uint32 {
-	list := new(jobProcessIDs)
-	if r, _, _ := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList,
-		uintptr(unsafe.Pointer(list)), unsafe.Sizeof(*list), 0); r == 0 {
+// jobMemberIDs lists the processes a job holds, as many as a pane's tree is
+// ever walked to.
+func jobMemberIDs(job syscall.Handle) []uint32 { return listJob(job, maxTreeProcs) }
+
+// listJob lists up to room of the processes a job holds.
+//
+// The list is JOBOBJECT_BASIC_PROCESS_ID_LIST: two counts, then the ids. A
+// job holding more than there is room for fails the call as ERROR_MORE_DATA,
+// but still fills in as many as fit, and those are ended rather than none.
+func listJob(job syscall.Handle, room int) []uint32 {
+	const counts = 2 * 4
+	word := int(unsafe.Sizeof(uintptr(0)))
+	buf := make([]uintptr, counts/word+room)
+	r, _, err := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)*word), 0)
+	if r == 0 && err != syscall.ERROR_MORE_DATA {
 		return nil
 	}
-	out := make([]uint32, 0, list.Listed)
-	for _, pid := range list.IDs[:min(int(list.Listed), len(list.IDs))] {
+	listed := (*[2]uint32)(unsafe.Pointer(&buf[0]))[1]
+	ids := buf[counts/word:]
+	out := make([]uint32, 0, min(int(listed), len(ids)))
+	for _, pid := range ids[:min(int(listed), len(ids))] {
 		out = append(out, uint32(pid))
 	}
 	return out
 }
 
-// consoleProgram reports whether an open process is known to run in a console
-// rather than draw windows of its own. A process whose program cannot be read
-// is not known to be either, and is left alone.
-func consoleProgram(h syscall.Handle) bool {
+// openMember opens a process the job listed, to be ended, and reports whether
+// it is still in the job once it is open.
+//
+// The job lists ids, and an id is let go of when its process ends: the
+// process listed may have ended since, and its id have been handed to one of
+// somebody else's. Once the process is open its id cannot be handed on, so
+// asking the job then settles which process it is.
+func openMember(job syscall.Handle, pid uint32) (syscall.Handle, bool) {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation|processTerminate|synchronize, false, pid)
+	if err != nil {
+		return 0, false
+	}
+	var in int32
+	if r, _, _ := procIsProcessInJob.Call(uintptr(h), uintptr(job), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
+		_ = syscall.CloseHandle(h)
+		return 0, false
+	}
+	return h, true
+}
+
+// programSubsystem reads, for an open process, whether its program runs in a
+// console or draws windows of its own. ok is false when the program cannot be
+// read, and then the process is known to be neither, and is left alone.
+func programSubsystem(h syscall.Handle) (sub uint16, ok bool) {
 	buf := make([]uint16, syscall.MAX_LONG_PATH)
 	n := uint32(len(buf))
 	if r, _, _ := procQueryFullProcessImageNameW.Call(uintptr(h), 0,
 		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&n))); r == 0 {
+		return 0, false
+	}
+	return peSubsystem(syscall.UTF16ToString(buf[:n]))
+}
+
+// jobMember is what endTree has read about a process in the pane's job.
+type jobMember struct {
+	windowed bool
+	// started is when the process was created, in file-time ticks.
+	started int64
+}
+
+// startedAt returns when an open process was created, in file-time ticks, or
+// zero when that cannot be read.
+func startedAt(h syscall.Handle) int64 {
+	var creation, exit, kernel, user syscall.Filetime
+	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
+		return 0
+	}
+	return filetimeTicks(creation)
+}
+
+// underWindow reports whether a process in the pane's job was started,
+// directly or through others, by a program with windows of its own that is
+// also in the job: a terminal in an editor started from the pane, or the
+// language servers the editor runs.
+//
+// The walk goes from parent to parent through members of the job only, and
+// stops at the pane's own process. A parent is only followed to a member
+// started before its child. A process keeps its parent's id after the parent
+// has ended, and by then the id may be another process's. A console program
+// whose windowed parent has already gone is not known to be the window's any
+// more, and is ended.
+func underWindow(pid uint32, pane int, parents map[int]int, members map[uint32]jobMember) bool {
+	child, ok := members[pid]
+	if !ok {
 		return false
 	}
-	sub, ok := peSubsystem(syscall.UTF16ToString(buf[:n]))
-	return ok && sub != imageSubsystemWindowsGUI
+	for i := 0; i < maxTreeProcs; i++ {
+		ppid, ok := parents[int(pid)]
+		if !ok || ppid == pane || ppid == int(pid) {
+			return false
+		}
+		parent, ok := members[uint32(ppid)]
+		if !ok || parent.started > child.started {
+			return false
+		}
+		if parent.windowed {
+			return true
+		}
+		pid, child = uint32(ppid), parent
+	}
+	return false
 }
 
 // peSubsystem reads the subsystem out of a program's PE header: the field of
@@ -163,24 +241,46 @@ func (s *Session) endTree() {
 	// is over.
 	var ending []syscall.Handle
 	if job != 0 {
+		pane := s.cmd.Process.Pid
 		seen := map[uint32]bool{}
+		members := map[uint32]jobMember{}
+		type console struct {
+			pid uint32
+			h   syscall.Handle
+		}
 		for pass := 0; pass < endPasses; pass++ {
-			more := false
+			// Every new member is read before any is ended, so that a console
+			// program's windowed parent is known whichever is listed first.
+			var consoles []console
 			for _, pid := range jobMemberIDs(job) {
 				if seen[pid] {
 					continue
 				}
 				seen[pid] = true
-				h, err := syscall.OpenProcess(processQueryLimitedInformation|processTerminate|synchronize, false, pid)
-				if err != nil {
+				h, ok := openMember(job, pid)
+				if !ok {
 					continue
 				}
-				if !consoleProgram(h) {
+				sub, known := programSubsystem(h)
+				m := jobMember{windowed: known && sub == imageSubsystemWindowsGUI, started: startedAt(h)}
+				members[pid] = m
+				if !known || m.windowed {
 					_ = syscall.CloseHandle(h)
 					continue
 				}
-				_ = syscall.TerminateProcess(h, 1)
-				ending = append(ending, h)
+				consoles = append(consoles, console{pid, h})
+			}
+			// Taken after the listing, so every process listed and still
+			// running is in it.
+			parents := procParents()
+			more := false
+			for _, c := range consoles {
+				if underWindow(c.pid, pane, parents, members) {
+					_ = syscall.CloseHandle(c.h)
+					continue
+				}
+				_ = syscall.TerminateProcess(c.h, 1)
+				ending = append(ending, c.h)
 				more = true
 			}
 			if !more {

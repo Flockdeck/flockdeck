@@ -36,6 +36,12 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   The others keep running; they are simply not on screen.
 - [[key:findInTerminal]] searches the focused terminal's scrollback.
 - [[key:closePane]] closes a pane and stops the agent in it, without asking.
+  It also ends what was started in the pane and is still running there: a
+  shell's background jobs, a server an agent left going, a job that ignores
+  the hangup. A program with windows of its own — a browser, an editor
+  started with `code .` — stays open, as it does when a terminal is closed,
+  and so does what it runs, such as the terminals in that editor.
+  On macOS a background job that ignores the hangup (`nohup`) keeps running.
   Closing a tab's last pane closes the tab, and the `×` on a tab closes every
   pane in it.
 
