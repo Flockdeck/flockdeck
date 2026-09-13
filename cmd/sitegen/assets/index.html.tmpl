@@ -388,7 +388,8 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
      at the top. A release picked this way is checked against the
      <code>checksums.txt</code> downloaded with it. To stay on a release, also set
-     <code>FLOCKDECK_UPDATE=off</code>. View the scripts: <a href="install.sh">install.sh</a> ·
+     <code>FLOCKDECK_UPDATE=off</code> where Flockdeck runs (with
+     <code>setx</code> on Windows, or in your shell profile). View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
