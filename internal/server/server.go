@@ -156,6 +156,14 @@ type Server struct {
 
 	// book is what the panes' agents have said they spent. See spend.go.
 	book *spend.Book
+
+	// saveFailShown records that the windows have been told the timed layout
+	// save is failing, so a save that fails every half minute is reported once
+	// rather than every time, until one works again. It is a flag rather than
+	// the error it was told: a failed save names the temporary file it could
+	// not rename, which is a new name every time. Only the workspace goroutine
+	// touches it.
+	saveFailShown bool
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -462,7 +470,21 @@ func (s *Server) saveLayouts() {
 		return
 	default:
 	}
-	_ = s.ws.SaveLayouts()
+	// A save that keeps failing — a state folder that cannot be written to,
+	// a disk with no room left — used to be heard of only as the app stopped,
+	// on a terminal the window had long since hidden. The windows are told
+	// while there is still something to be done about it: once when it starts
+	// failing, and again if it fails after having worked. It counts as told
+	// only if a window was there to be told.
+	err := s.ws.SaveLayouts()
+	if err == nil {
+		s.saveFailShown = false
+		return
+	}
+	if !s.saveFailShown && s.ClientCount() > 0 {
+		s.notifyAll("the layout could not be saved, and it is tried again every half minute; if this goes on, check that the disk has room and that Flockdeck's state folder can be written to: "+err.Error(), true)
+		s.saveFailShown = true
+	}
 }
 
 // authorised reports whether a request carries the token, either as the query
