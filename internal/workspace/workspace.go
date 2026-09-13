@@ -1152,6 +1152,15 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// This is shown in the pane in place of a terminal, so it has to name
 		// the directory: a worktree removed under a pane is the usual reason a
 		// session will not start, and the error itself never says which one.
+		//
+		// Where that is the reason it is said outright. The operating system's
+		// own account of it — "The directory name is invalid", on Windows —
+		// reads as a path mistyped somewhere, not as a directory that has gone,
+		// and says nothing about what to do next.
+		if _, statErr := os.Stat(p.Cwd); errors.Is(statErr, os.ErrNotExist) {
+			p.Err = fmt.Errorf("the directory this pane works in, %s, no longer exists; it is most often a worktree removed while the pane was closed. Put the directory back and restart the pane, or close it", p.Cwd)
+			return
+		}
 		p.Err = fmt.Errorf("%w (working directory %s)", err, p.Cwd)
 		return
 	}
