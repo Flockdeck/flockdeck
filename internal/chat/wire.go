@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -368,6 +369,38 @@ func unreachable(err error) bool {
 	}
 	var dns *net.DNSError
 	return errors.As(err, &dns)
+}
+
+// proxyUnreached is the address of the proxy err is a failure to reach, or ""
+// where err is not one.
+//
+// Go wraps the failure to reach a proxy in an error of its own, "proxyconnect",
+// which is neither a dial nor a read: read as neither, the pane printed Go's
+// words for it, and a proxy that was not running looked like the endpoint
+// failing.
+func proxyUnreached(err error) string {
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "proxyconnect" {
+		return ""
+	}
+	var dial *net.OpError
+	if errors.As(op.Err, &dial) && dial.Addr != nil {
+		return dial.Addr.String()
+	}
+	var dns *net.DNSError
+	if errors.As(op.Err, &dns) && dns.Name != "" {
+		return dns.Name
+	}
+	return "the address set"
+}
+
+// untrustedCert reports whether err is the endpoint's certificate being signed
+// by an authority this machine does not trust. For an API's public endpoint
+// that is almost always something in between -- a company proxy, an
+// antivirus -- inspecting HTTPS with a certificate of its own.
+func untrustedCert(err error) bool {
+	var ua x509.UnknownAuthorityError
+	return errors.As(err, &ua)
 }
 
 // dropped reports whether err is a connection that opened and then broke while
