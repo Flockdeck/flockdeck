@@ -83,7 +83,8 @@ func jsonFields(t reflect.Type) map[string]bool {
 // missingDefaults names each default, the installation's or a project's, that
 // names no agent in the catalog.
 //
-// Such a default opens Claude instead (DefaultsFor), and without a word that
+// Such a default gives way to the installation's own, or to Claude
+// (DefaultsFor), and without a word that
 // looks like the choice simply did not take: a hand-typed "Codex" or a
 // misspelt project entry said nothing at all.
 func (c *Catalog) missingDefaults() []string {

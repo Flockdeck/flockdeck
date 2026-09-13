@@ -193,9 +193,18 @@ func (b *Book) Add(r Report, now time.Time) {
 			continue
 		}
 		w.Seen = now
-		// The newest reading wins, whichever pane it came from: a limit is the
-		// account's, and each reading is the whole of it as of that moment.
-		b.windows[w.key()] = w
+		// A limit is the account's, so a reading from any pane on it is the
+		// whole of it -- but not always the newest. Claude Code hands a pane's
+		// status line the windows from that session's last answer, and an idle
+		// pane whose line refreshes sent back a figure the other panes on the
+		// login had long since passed, which every one of them then showed "as
+		// of just now". Within one window usage only rises, so the larger figure
+		// is the fresher; a later reset time is a new window, whose reading
+		// replaces the old one however low it is.
+		old, ok := b.windows[w.key()]
+		if !ok || w.ResetsAt.After(old.ResetsAt) || (w.ResetsAt.Equal(old.ResetsAt) && w.Used >= old.Used) {
+			b.windows[w.key()] = w
+		}
 		if !slices.Contains(e.accounts, w.Account) {
 			e.accounts = append(e.accounts, w.Account)
 		}

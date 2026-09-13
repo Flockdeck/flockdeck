@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -452,6 +453,30 @@ func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
 	}
 }
 
+// TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas: the decoder fills a list
+// by writing over the elements already there and carries on past a value of
+// the wrong kind, so an entry dropped for one bad field had already written its
+// lists into the built-in's own. Claude stopped stripping CLAUDECODE, and an
+// API agent stopped looking for its key where the built-in said.
+func TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "stripEnv": ["FOO"], "env": ["A=1"], "patterns": {"idle": ["x"]}, "models": "oops"}`),
+		json.RawMessage(`{"id": "anthropic", "api": {"keyEnv": ["MINE"]}, "caps": "oops"}`),
+		json.RawMessage(`{"id": "google", "api": {"keyEnv": ["ONE", "TWO"]}, "hidden": "oops"}`),
+	}})
+	for _, want := range normalizeAll(Builtins()) {
+		got, _ := c.Find(want.ID)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("built-in %q changed by an entry that was dropped:\n got %+v\nwant %+v", want.ID, got, want)
+		}
+	}
+	for _, id := range []string{"claude", "anthropic", "google"} {
+		if !strings.Contains(c.Notice, `agent "`+id+`"`) {
+			t.Errorf("notice %q should name the dropped entry %q", c.Notice, id)
+		}
+	}
+}
+
 // TestDefaultNamingADeletedAgentFallsBack: every new pane asks for the default,
 // so one naming an agent since deleted from agents.json stopped them all from
 // starting.
@@ -464,6 +489,59 @@ func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
 		if got := c.DefaultsFor(project); got != (Defaults{Agent: DefaultAgentID}) {
 			t.Errorf("DefaultsFor(%q) = %+v, want Claude with no model", project, got)
 		}
+	}
+}
+
+// TestAProjectDefaultNamingNoAgentFallsToTheInstallations: a project entry
+// misspelt "Codx" opened Claude in that project while every other project
+// opened the agent the installation's default names.
+func TestAProjectDefaultNamingNoAgentFallsToTheInstallations(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "codex", Model: "gpt-5"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "Codx", Model: "x"}},
+	})
+	if got := c.DefaultsFor("/work/app"); got != (Defaults{Agent: "codex", Model: "gpt-5"}) {
+		t.Errorf("DefaultsFor = %+v, want the installation's codex/gpt-5", got)
+	}
+	if !strings.Contains(c.Notice, `"Codx" for /work/app`) {
+		t.Errorf("notice %q should still name the misspelt default", c.Notice)
+	}
+}
+
+// TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered: an agents.json that
+// hides Claude and names no default went on opening Claude in every new pane,
+// and the picker marked as the default an agent it did not list.
+func TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Model: "sonnet"},
+		Agents:   []json.RawMessage{json.RawMessage(`{"id": "claude", "hidden": true}`)},
+	})
+	first := c.Visible()[0]
+	if first.ID == DefaultAgentID {
+		t.Fatalf("Claude is hidden and still offered first")
+	}
+	// Claude's model is not handed to the agent that stands in for it.
+	if got := c.DefaultsFor(""); got != (Defaults{Agent: first.ID}) {
+		t.Errorf("DefaultsFor = %+v, want %q with no model", got, first.ID)
+	}
+	for _, asked := range []string{"", "deleted-agent"} {
+		spec, model, ok := c.Resolve("", asked, "")
+		if !ok || spec.ID != first.ID || model != first.DefaultModel {
+			t.Errorf("Resolve(%q) = %q/%q ok=%v, want %q/%q", asked, spec.ID, model, ok, first.ID, first.DefaultModel)
+		}
+	}
+	// A pane that asks for Claude by name still gets it: hidden keeps an
+	// agent out of the picker, not out of the catalog.
+	if spec, _, _ := c.Resolve("", DefaultAgentID, ""); spec.ID != DefaultAgentID {
+		t.Errorf("a pane asking for Claude got %q", spec.ID)
+	}
+	// A default that names Claude is a choice, and stands.
+	chosen := Merge(&File{
+		Defaults: Defaults{Agent: DefaultAgentID},
+		Agents:   []json.RawMessage{json.RawMessage(`{"id": "claude", "hidden": true}`)},
+	})
+	if got := chosen.DefaultsFor(""); got.Agent != DefaultAgentID {
+		t.Errorf("a default naming Claude became %q", got.Agent)
 	}
 }
 
