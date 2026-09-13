@@ -79,7 +79,11 @@ func (p *Prefs) Dismiss(id string) bool {
 	return true
 }
 
-const prefsFile = "prefs.json"
+// prefsWhat is how the user is told of the preferences file.
+const (
+	prefsFile = "prefs.json"
+	prefsWhat = "the preferences"
+)
 
 // LoadPrefs reads the preferences. Absent, damaged or unreadable, they are the
 // defaults: nothing here is worth failing a start-up over.
@@ -119,7 +123,7 @@ func ReadPrefs() (Prefs, error) {
 		// Still the defaults, but the file is moved aside first, as every
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
-		quarantine(filepath.Join(dir, prefsFile))
+		quarantine(filepath.Join(dir, prefsFile), prefsWhat, KeptDamaged)
 		return Prefs{}, nil
 	}
 	return p, nil
@@ -135,7 +139,7 @@ func SavePrefs(p Prefs) error {
 	if err != nil {
 		return fmt.Errorf("encode prefs: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, prefsFile), "the preferences"); err != nil {
+	if err := keepUnread(filepath.Join(dir, prefsFile), prefsWhat); err != nil {
 		return fmt.Errorf("write prefs: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, prefsFile), data); err != nil {

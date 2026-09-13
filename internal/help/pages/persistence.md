@@ -28,7 +28,9 @@ were open at the last of those.
 A saved file Flockdeck cannot read — a layout, the list of open projects, your
 preferences — is never written over. It is moved aside, beside the original,
 with `.unread` on the end (or `.damaged`, when it could be read but made no
-sense), and that run goes on without it.
+sense, or is a layout saved by a newer version of Flockdeck), and that run goes
+on without it. The window says so, and where the file is kept, within half a
+minute of opening.
 
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity

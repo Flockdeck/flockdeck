@@ -356,7 +356,7 @@ func load(root string, restoring bool) (*State, error) {
 		// this very name on the way out, so the damaged file is the last copy
 		// of the user's tabs and this would be the moment it went for good.
 		// Moved aside it costs nothing and can still be repaired by hand.
-		quarantine(from(p, legacy))
+		quarantine(from(p, legacy), layoutWhat(root), KeptDamaged)
 		return nil, nil
 	}
 	if !migrate(&s) {
@@ -365,7 +365,14 @@ func load(root string, restoring bool) (*State, error) {
 		// from. It meets the same end as a damaged file, ignored now and
 		// written over on the way out, so it is kept for the same reason:
 		// going forward again is then a matter of moving one file back.
-		quarantine(from(p, legacy))
+		//
+		// Only a higher number is a newer build's. Zero, or less, is a file
+		// that is not a layout at all, which is damage by another name.
+		why := KeptDamaged
+		if s.Version > Version {
+			why = KeptNewer
+		}
+		quarantine(from(p, legacy), layoutWhat(root), why)
 		return nil, nil
 	}
 	// The filename is a hash of the root, so a file can only be the wrong one
@@ -431,6 +438,10 @@ func migratePaneKinds(n *Node) {
 	}
 }
 
+// layoutWhat names a project's saved layout as the user is told of it, the
+// same way whether it is moved aside at the read or at the save.
+func layoutWhat(root string) string { return "the saved layout for " + filepath.Clean(root) }
+
 // from returns the file a layout was actually read from: the name in use now,
 // unless it came from the pre-normalization name.
 func from(current, legacy string) string {
@@ -461,13 +472,25 @@ const damagedSuffix = ".damaged"
 // the name it is going to — was left where the next save wrote straight over
 // it, which is the loss moving it was for. It is recorded as unread instead,
 // so that save moves it aside first, or is refused if it still cannot.
-func quarantine(path string) {
+//
+// A file moved aside is recorded for TakeKept under what, which names what it
+// held, and why, which says why this build could not use it. Without that the
+// only sign of it was a project that opened on one fresh tab, or a picker that
+// had forgotten every project, and a file with a new name in a folder nobody
+// looks in.
+func quarantine(path, what string, why KeptWhy) {
 	aside, err := asideName(path, damagedSuffix)
 	if err == nil {
 		err = os.Rename(path, aside)
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		noteRead(path, err)
+		return
+	}
+	if err == nil {
+		unreadFiles.Lock()
+		unreadFiles.kept = append(unreadFiles.kept, Kept{What: what, Path: aside, Why: why})
+		unreadFiles.Unlock()
 	}
 }
 
@@ -484,7 +507,7 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
-	if err := keepUnread(p, "the saved layout for "+s.Root); err != nil {
+	if err := keepUnread(p, layoutWhat(s.Root)); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
 	if err := writeAtomic(p, data); err != nil {
@@ -517,14 +540,41 @@ var unreadFiles = struct {
 	kept []Kept
 }{paths: map[string]bool{}}
 
-// Kept is a state file this run could not read, moved aside before the save
-// that replaced it.
+// Kept is a state file this run moved aside: one it could not read, moved
+// before the save that replaced it, or one it read and could not use.
 type Kept struct {
 	// What names what the file held, as a sentence would: "the saved layout
 	// for /repo/a".
 	What string
 	// Path is where it is kept now.
 	Path string
+	// Why is why it was moved aside.
+	Why KeptWhy
+}
+
+// KeptWhy is why a state file was moved aside.
+type KeptWhy int
+
+const (
+	// KeptUnread is a file this run could not read at all.
+	KeptUnread KeptWhy = iota
+	// KeptDamaged is a file that was read and made no sense.
+	KeptDamaged
+	// KeptNewer is a layout saved by a newer build, in a form this one does
+	// not know.
+	KeptNewer
+)
+
+// Sentence says what happened to the file, and where it is now, in the words
+// the user is told it in.
+func (k Kept) Sentence() string {
+	switch k.Why {
+	case KeptDamaged:
+		return k.What + " could not be used, because its file is damaged; the file has been set aside rather than saved over, and is kept as " + k.Path
+	case KeptNewer:
+		return k.What + " could not be used, because it was saved by a newer version of Flockdeck; the file has been set aside rather than saved over, and is kept as " + k.Path
+	}
+	return k.What + " could not be read, so it was moved aside rather than saved over; it is kept as " + k.Path
 }
 
 // TakeKept returns the files moved aside since it was last called, and
@@ -1030,7 +1080,11 @@ type Project struct {
 
 // recentsFile is the global list of projects, kept separately from the
 // per-project layouts so the picker can offer them before any is opened.
-const recentsFile = "projects.json"
+// recentsWhat is how the user is told of it.
+const (
+	recentsFile = "projects.json"
+	recentsWhat = "the list of recent projects"
+)
 
 // maxRecents caps the remembered list.
 const maxRecents = 40
@@ -1056,7 +1110,7 @@ func Recents() ([]Project, error) {
 		// every directory they have ever opened, replaced by the one in front
 		// of them. The file is a plain list of paths, so the kept copy is
 		// something they can read and put back by hand.
-		quarantine(filepath.Join(dir, recentsFile))
+		quarantine(filepath.Join(dir, recentsFile), recentsWhat, KeptDamaged)
 		return nil, nil
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].LastUsed.After(list[j].LastUsed) })
@@ -1203,7 +1257,7 @@ func writeRecents(list []Project) error {
 	// A damaged list that would not move aside is recorded as unread, and this
 	// write is what it has to be kept from: every directory the user has
 	// opened, replaced by the list read from it, which is nothing.
-	if err := keepUnread(filepath.Join(dir, recentsFile), "the list of recent projects"); err != nil {
+	if err := keepUnread(filepath.Join(dir, recentsFile), recentsWhat); err != nil {
 		return fmt.Errorf("write projects: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
@@ -1226,7 +1280,11 @@ type Session struct {
 	Active string   `json:"active"`
 }
 
-const sessionFile = "session.json"
+// sessionWhat is how the user is told of the session file.
+const (
+	sessionFile = "session.json"
+	sessionWhat = "the list of open projects"
+)
 
 // LoadSession returns the last workspace, or nil when there is none.
 func LoadSession() (*Session, error) {
@@ -1248,7 +1306,7 @@ func LoadSession() (*Session, error) {
 		// save on the way out either: it names every project that was open,
 		// which is the one record of a workspace spread over several
 		// directories.
-		quarantine(filepath.Join(dir, sessionFile))
+		quarantine(filepath.Join(dir, sessionFile), sessionWhat, KeptDamaged)
 		return nil, nil
 	}
 	return tidySession(&s), nil
@@ -1329,7 +1387,7 @@ func SaveSession(s *Session) error {
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, sessionFile), "the list of open projects"); err != nil {
+	if err := keepUnread(filepath.Join(dir, sessionFile), sessionWhat); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {
