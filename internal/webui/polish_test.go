@@ -673,3 +673,27 @@ for (const n of h.notifications) {
 }
 `)
 }
+
+// A diff longer than the panel draws is offered whole with Show them, and the
+// button goes with its note once pressed - with the keyboard on it, from the
+// keyboard. The keyboard goes to the diff, where the arrows scroll the rest.
+func TestShowingTheRestOfADiffLeavesTheKeyboardInIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "big.go", label: "M", added: 3050, removed: 0 }] });
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const lines = [];
+for (let i = 0; i < 3050; i++) lines.push("+" + i);
+h.recv({ type: "diff", cwd: "C:/repo", file: "big.go", text: lines.join(String.fromCharCode(10)) });
+const panel = h.$("overlay-body").querySelector("div.rev-diff");
+const more = panel.querySelectorAll("button").find((b) => b.textContent === "Show them");
+assert.ok(more, "a long diff offers no way to see the rest");
+more.focus();
+h.key({ key: "Enter" });
+assert.ok(panel.textContent.includes("+3049"), "the rest was not drawn");
+assert.ok(h.doc.activeElement === panel, "showing the rest of the diff dropped the keyboard");
+`)
+}

@@ -5025,9 +5025,17 @@
     const note = el("div", "meta", rest + " more lines are not drawn.");
     const more = el("button", "chip", "Show them");
     more.onclick = () => {
+      // The button goes with the note, and pressed from the keyboard it took
+      // the keyboard with it. It goes to the diff instead, which is what the
+      // press was for, where the arrow keys scroll the lines just drawn.
+      const had = document.activeElement === more;
       note.remove();
       more.remove();
       for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+      if (had) {
+        if (!host.hasAttribute("tabindex")) host.tabIndex = -1;
+        host.focus();
+      }
     };
     host.append(note, more);
   }
