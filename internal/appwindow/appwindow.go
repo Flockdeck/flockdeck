@@ -239,7 +239,7 @@ func Open(target, profileDir string) (*Window, error) {
 		// own setting rather than something Flockdeck got wrong.
 		w, err := startAppMode(path, wrapped, profileDir)
 		if err != nil {
-			removeIfAny(file)
+			abandon(file)
 			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
 		w.arm(file)
@@ -251,12 +251,12 @@ func Open(target, profileDir string) (*Window, error) {
 			w.arm(file)
 			return w, nil
 		}
-		removeIfAny(file)
+		abandon(file)
 	}
 	// Better an ordinary tab than no interface at all.
 	wrapped, file := wrapForLaunch(target, "", kindDefault)
 	if err := openDefaultBrowser(wrapped); err != nil {
-		removeIfAny(file)
+		abandon(file)
 		return nil, fmt.Errorf("%w: %v", ErrNoBrowser, err)
 	}
 	win := &Window{AppMode: false, Program: "default browser"}
@@ -636,7 +636,7 @@ func resolvePinned(prog string) (string, error) {
 func OpenDefault(target string) error {
 	wrapped, file := wrapForLaunch(target, "", kindDefault)
 	if err := openDefaultBrowser(wrapped); err != nil {
-		removeIfAny(file)
+		abandon(file)
 		return err
 	}
 	scheduleCleanup(file, redirectFileLife)

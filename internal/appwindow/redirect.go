@@ -247,6 +247,17 @@ func removeIfAny(path string) {
 	}
 }
 
+// abandon is removeIfAny for a file whose browser never started at all --
+// the pinned browser was not found, or the one Open did find failed to
+// launch. An immediate os.Remove usually clears it (nothing has the file
+// open), but on Windows a moment's antivirus scan of a file just written can
+// hold it long enough for that to fail, so a backstop timer is armed too,
+// the same one a file that did reach a browser relies on.
+func abandon(path string) {
+	removeIfAny(path)
+	scheduleCleanup(path, redirectFileLife)
+}
+
 // wrapForLaunch is the URL to actually start a browser of kind k, found at
 // browserPath (empty for the desktop's own default handler), at: target
 // wrapped in a private redirect file where one could be written for it, or
