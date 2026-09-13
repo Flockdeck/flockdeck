@@ -4106,7 +4106,11 @@
     if (prefs.notificationsOff) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const n = new Notification(title, { body, tag: "flockdeck" });
+      // One tag, so a newer notification replaces the one before rather than
+      // piling up; and renotify, because a replacement is otherwise put in
+      // place silently: an agent stopping to wait while an earlier
+      // notification was still up made no sound and showed no banner.
+      const n = new Notification(title, { body, tag: "flockdeck", renotify: true });
       n.onclick = () => {
         window.focus();
         // Raising the window in front of whichever tab happened to be on

@@ -654,3 +654,22 @@ assert.strictEqual(h.$("search-label").textContent, "Find in builder", "Find did
 assert.ok(first.cleared > cleared, "the first pane's matches were left marked");
 `)
 }
+
+// Every notification carries the one tag, so a newer one replaces the one
+// before. A replacement is put in place silently unless it asks to alert
+// again, so an agent that stopped to wait while an earlier notification was
+// still up made no sound and showed no banner.
+func TestANotificationThatReplacesAnotherStillAlerts(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.doc._hasFocus = false;
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
+h.recv(fixture({ waiting: 2, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2", { status: "waiting" }) } }));
+assert.strictEqual(h.notifications.length, 2, "each agent that stopped was not notified");
+for (const n of h.notifications) {
+  assert.strictEqual(n.tag, "flockdeck");
+  assert.strictEqual(n.renotify, true, "a notification that replaces another is put in place silently");
+}
+`)
+}
