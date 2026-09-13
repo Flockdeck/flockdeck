@@ -2,8 +2,10 @@ package store
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -113,6 +115,60 @@ func TestALayoutKeptAsideSaysWhereItWent(t *testing.T) {
 	}
 	if again := TakeKept(); len(again) != 0 {
 		t.Errorf("reported a second time: %+v", again)
+	}
+}
+
+// TestALegacyLayoutThatCouldNotBeReadIsKeptAndReported checks a layout still
+// under the name an earlier build gave it, which could not be read, is moved
+// aside by the next save and reported like any other.
+//
+// The save writes the name in use now, and every load after it finds that and
+// never looks at the old name again. The tabs the old file held were left
+// under a name nothing reads, while the error at start promised they would be
+// kept and moved aside, and nothing ever said where they were.
+func TestALegacyLayoutThatCouldNotBeReadIsKeptAndReported(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("roots are only respelled on case-folding platforms")
+	}
+	isolateConfig(t)
+	TakeKept() // whatever earlier tests in this process left behind
+
+	root := filepath.Clean("/Repo/Legacy")
+	old, err := legacyPath(root)
+	if err != nil || old == "" {
+		t.Fatalf("legacy path = %q, %v; want a distinct pre-normalization name", old, err)
+	}
+	if err := os.WriteFile(old, []byte(`{"version": 2, "tabs": [{"title": "alpha"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	gone := errors.New("the device is not ready")
+	readFile = func(name string) ([]byte, error) {
+		if name == old {
+			return nil, gone
+		}
+		return os.ReadFile(name)
+	}
+	t.Cleanup(func() { readFile = os.ReadFile })
+	if _, err := Load(root); !errors.Is(err, gone) {
+		t.Fatalf("load gave %v, want the read's own failure", err)
+	}
+	readFile = os.ReadFile
+
+	// The run went on with a fresh tab, and saves it.
+	if err := Save(root, &State{Tabs: []Tab{{Title: "fresh"}}}); err != nil {
+		t.Fatalf("save after a failed read: %v", err)
+	}
+	kept, err := os.ReadFile(old + unreadSuffix)
+	if err != nil || !strings.Contains(string(kept), `"alpha"`) {
+		t.Fatalf("the legacy layout that could not be read was not kept aside: %q, %v", kept, err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the legacy layout is still under a name nothing will read again: %v", err)
+	}
+	told := TakeKept()
+	if len(told) != 1 || told[0].Path != old+unreadSuffix || !strings.Contains(told[0].What, root) {
+		t.Errorf("kept = %+v, want the legacy layout reported at %s", told, old+unreadSuffix)
 	}
 }
 

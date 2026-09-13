@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -107,6 +108,116 @@ func TestASecondLayoutPutAsideDoesNotReplaceTheFirst(t *testing.T) {
 		if got, err := os.ReadFile(file); err != nil || string(got) != string(want) {
 			t.Errorf("%s holds %s, %v; want %s", filepath.Base(file), got, err, want)
 		}
+	}
+}
+
+// TestAFilePutAsideSaysWhyAndWhereItWent checks every state file this build
+// puts aside, rather than restoring, is reported with why and where it is
+// kept.
+//
+// Nothing said so before. A damaged layout, or one a newer build had saved,
+// opened the project on one fresh tab, and the tabs the user had were a file
+// with a new name in a folder nobody looks in; the same went for the list of
+// open projects, the recent list and the preferences.
+func TestAFilePutAsideSaysWhyAndWhereItWent(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		contents string
+		file     func(dir string) string
+		read     func()
+		what     string
+		why      KeptWhy
+		says     string
+	}{
+		{
+			name:     "a damaged layout",
+			contents: `{"version": 2, "tabs": [{"title": "alpha"`,
+			file:     func(string) string { p, _ := path("/repo/a"); return p },
+			read:     func() { Load("/repo/a") },
+			what:     "the saved layout for " + filepath.Clean("/repo/a"),
+			why:      KeptDamaged,
+			says:     "damaged",
+		},
+		{
+			name:     "a layout from a newer build",
+			contents: `{"version": 99, "tabs": [{"title": "newer"}]}`,
+			file:     func(string) string { p, _ := path("/repo/a"); return p },
+			read:     func() { Load("/repo/a") },
+			what:     "the saved layout for " + filepath.Clean("/repo/a"),
+			why:      KeptNewer,
+			says:     "newer version of Flockdeck",
+		},
+		{
+			name:     "a file that is not a layout at all",
+			contents: `{"tabs": []}`,
+			file:     func(string) string { p, _ := path("/repo/a"); return p },
+			read:     func() { Load("/repo/a") },
+			what:     "the saved layout for " + filepath.Clean("/repo/a"),
+			why:      KeptDamaged,
+			says:     "damaged",
+		},
+		{
+			name:     "a damaged list of open projects",
+			contents: `{"open": ["/repo/a"`,
+			file:     func(dir string) string { return filepath.Join(dir, sessionFile) },
+			read:     func() { LoadSession() },
+			what:     sessionWhat,
+			why:      KeptDamaged,
+			says:     "damaged",
+		},
+		{
+			name:     "a damaged recent list",
+			contents: `[{"root": "/repo/a"`,
+			file:     func(dir string) string { return filepath.Join(dir, recentsFile) },
+			read:     func() { Recents() },
+			what:     recentsWhat,
+			why:      KeptDamaged,
+			says:     "damaged",
+		},
+		{
+			name:     "damaged preferences",
+			contents: `{"fontSize": 17`,
+			file:     func(dir string) string { return filepath.Join(dir, prefsFile) },
+			read:     func() { LoadPrefs() },
+			what:     prefsWhat,
+			why:      KeptDamaged,
+			says:     "damaged",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			isolateConfig(t)
+			TakeKept() // whatever earlier tests in this process left behind
+			dir, err := Dir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := c.file(dir)
+			if err := os.WriteFile(file, []byte(c.contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c.read()
+
+			kept := TakeKept()
+			if len(kept) != 1 {
+				t.Fatalf("kept = %+v, want the one file put aside", kept)
+			}
+			k := kept[0]
+			if k.Path != file+damagedSuffix || k.What != c.what || k.Why != c.why {
+				t.Errorf("kept %+v, want %q at %s, for reason %d", k, c.what, file+damagedSuffix, c.why)
+			}
+			if got, err := os.ReadFile(k.Path); err != nil || string(got) != c.contents {
+				t.Errorf("%s holds %q, %v; want the file as it was", k.Path, got, err)
+			}
+			said := k.Sentence()
+			for _, want := range []string{c.what, c.says, k.Path} {
+				if !strings.Contains(said, want) {
+					t.Errorf("told %q, which does not say %q", said, want)
+				}
+			}
+			if again := TakeKept(); len(again) != 0 {
+				t.Errorf("reported a second time: %+v", again)
+			}
+		})
 	}
 }
 

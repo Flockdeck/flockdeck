@@ -560,18 +560,18 @@ func (s *Server) saveLayouts() {
 	}
 }
 
-// tellKept tells the windows about every state file a save has moved aside
-// because it could not be read, which is the first they hear of it: the
-// project whose layout it was came up on one fresh tab at start, with nothing
-// to say why, and the save half a minute later moved the user's tabs to a new
-// name. Each is told once, and only once a window is there to be told; until
-// then the store holds on to them.
+// tellKept tells the windows about every state file moved aside — one a save
+// could not read, one that was damaged, or a layout a newer build saved — which
+// is the first they hear of it: the project whose layout it was came up on one
+// fresh tab at start, with nothing to say why, and the user's tabs were a file
+// with a new name. Each is told once, and only once a window is there to be
+// told; until then the store holds on to them.
 func (s *Server) tellKept() {
 	if s.ClientCount() == 0 {
 		return
 	}
 	for _, k := range store.TakeKept() {
-		s.notifyAll(k.What+" could not be read, so it was moved aside rather than saved over; it is kept as "+k.Path, true)
+		s.notifyAll(k.Sentence(), true)
 	}
 }
 

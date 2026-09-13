@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 )
 
 // Prefs is what the interface remembers about the person using it, as opposed
@@ -48,6 +51,51 @@ type Prefs struct {
 	// Spend is how the pane headers show what the agents spend and how near
 	// they are to their limits. Left out of the file while it is all defaults.
 	Spend SpendPrefs `json:"spend,omitzero"`
+
+	// extra is every top-level key the file held that this build does not
+	// know, as it was written. A newer build's setting would otherwise go at
+	// the first change made here, since the file is written back whole: step
+	// back a version, dismiss a hint, and stepping forward again found that
+	// setting gone. It is not sent to the windows, which would not know it
+	// either.
+	extra map[string]json.RawMessage
+}
+
+// prefsKeys are the top-level keys Prefs decodes itself; every other key in
+// the file is kept in extra.
+var prefsKeys = func() []string {
+	t := reflect.TypeFor[Prefs]()
+	var keys []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" {
+			name = f.Name
+		}
+		if name != "-" {
+			keys = append(keys, name)
+		}
+	}
+	return keys
+}()
+
+// unknownPrefs returns the top-level keys of a preferences file that Prefs
+// does not decode, or nil when there are none.
+func unknownPrefs(data []byte) map[string]json.RawMessage {
+	var all map[string]json.RawMessage
+	if json.Unmarshal(data, &all) != nil {
+		return nil
+	}
+	for _, name := range prefsKeys {
+		delete(all, name)
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	return all
 }
 
 // SpendPrefs are the preferences for spend and limits.
@@ -79,7 +127,11 @@ func (p *Prefs) Dismiss(id string) bool {
 	return true
 }
 
-const prefsFile = "prefs.json"
+// prefsWhat is how the user is told of the preferences file.
+const (
+	prefsFile = "prefs.json"
+	prefsWhat = "the preferences"
+)
 
 // LoadPrefs reads the preferences. Absent, damaged or unreadable, they are the
 // defaults: nothing here is worth failing a start-up over.
@@ -119,9 +171,10 @@ func ReadPrefs() (Prefs, error) {
 		// Still the defaults, but the file is moved aside first, as every
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
-		quarantine(filepath.Join(dir, prefsFile))
+		quarantine(filepath.Join(dir, prefsFile), prefsWhat, KeptDamaged)
 		return Prefs{}, nil
 	}
+	p.extra = unknownPrefs(data)
 	return p, nil
 }
 
@@ -135,7 +188,24 @@ func SavePrefs(p Prefs) error {
 	if err != nil {
 		return fmt.Errorf("encode prefs: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, prefsFile), "the preferences"); err != nil {
+	// What a newer build wrote goes back beside what this one knows. A key
+	// this build knows is never taken from there: one it has left out of the
+	// file is a setting put back to its default, and must stay out.
+	if len(p.extra) > 0 {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return fmt.Errorf("encode prefs: %w", err)
+		}
+		for name, raw := range p.extra {
+			if !slices.Contains(prefsKeys, name) {
+				m[name] = raw
+			}
+		}
+		if data, err = json.MarshalIndent(m, "", "  "); err != nil {
+			return fmt.Errorf("encode prefs: %w", err)
+		}
+	}
+	if err := keepUnread(filepath.Join(dir, prefsFile), prefsWhat); err != nil {
 		return fmt.Errorf("write prefs: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, prefsFile), data); err != nil {
