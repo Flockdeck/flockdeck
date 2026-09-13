@@ -135,9 +135,12 @@ func KeyFor(o Options) (key, from string) { return lookupKey(o) }
 // Pointed at a gateway, the chat sent OPENAI_API_KEY -- the user's key for
 // OpenAI -- to the gateway, ahead of the key stored for the gateway itself;
 // agent.VendorsOwn is the rule, which the picker and the keys dialog go by too.
+// It covers the agent's own names as well: a built-in pointed at a gateway
+// still names its vendor's variable, and is not sent it (agent.OwnKeyEnv).
 func keyNames(o Options) []string {
-	candidates := append([]string{}, o.KeyEnv...)
-	if agent.VendorsOwn(agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL}) {
+	api := agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL, KeyEnv: o.KeyEnv}
+	candidates := agent.OwnKeyEnv(api)
+	if agent.VendorsOwn(api) {
 		candidates = append(candidates, defaultKeyEnv(o.Wire)...)
 	}
 	var names []string

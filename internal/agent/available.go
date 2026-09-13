@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -207,12 +208,37 @@ func keyIsSet(s Spec) bool {
 // exported for OpenAI proper is not a reason to offer it, so it has only its
 // own names, which are none.
 func KeyNames(s Spec) []string {
-	names := append([]string{}, s.API.KeyEnv...)
+	names := OwnKeyEnv(s.API)
 	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
 		if VendorsOwn(s.API) {
 			names = append(names, wireKeyEnv(s.API.Wire)...)
 		}
 		names = append(names, "FLOCKDECK_API_KEY")
+	}
+	return names
+}
+
+// OwnKeyEnv are the variables an entry names for its key, as far as it may be
+// given them: all of them where it talks to its wire's vendor, and all but that
+// vendor's own where it talks to anybody else.
+//
+// A built-in keeps the vendor's variable in its entry when it is pointed at a
+// gateway -- `flockdeck keys endpoint` and the picker's address field change
+// the address and nothing else -- so an OPENAI_API_KEY exported for OpenAI was
+// sent to the gateway with every request, ahead of the key stored for it.
+// Everything that looks for a key, or tells a pane where to, goes through this.
+func OwnKeyEnv(api APISpec) []string {
+	if VendorsOwn(api) {
+		return slices.Clone(api.KeyEnv)
+	}
+	vendor := wireKeyEnv(api.Wire)
+	var names []string
+	for _, name := range api.KeyEnv {
+		// Windows reads a variable's name without regard to case, so a
+		// differently cased spelling is the vendor's variable there too.
+		if !slices.ContainsFunc(vendor, func(v string) bool { return strings.EqualFold(v, name) }) {
+			names = append(names, name)
+		}
 	}
 	return names
 }

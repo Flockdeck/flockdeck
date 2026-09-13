@@ -86,8 +86,12 @@ func (k Key) GoString() string { return "creds.Key{" + k.String() + "}" }
 // user's own arrangement — a secrets manager, a shell profile, a CI runner —
 // and Flockdeck quietly preferring its own stale copy of it is a debugging session
 // nobody enjoys.
+//
+// The names are the Spec's own less its vendor's where it talks to somebody
+// else (agent.OwnKeyEnv): a built-in pointed at a gateway keeps
+// OPENAI_API_KEY in its entry, and that key is the user's for OpenAI.
 func Resolve(spec agent.Spec) Key {
-	for _, name := range spec.API.KeyEnv {
+	for _, name := range agent.OwnKeyEnv(spec.API) {
 		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
 			return Key{secret: v, Source: SourceEnv, Env: name}
 		}
@@ -107,14 +111,17 @@ func Resolve(spec agent.Spec) Key {
 // vendor's own conventional variable, so `flockdeck chat` finds it by resolving
 // the same Spec at the other end rather than by learning a second convention.
 //
-// A Spec with no KeyEnv names has nowhere to put a stored key, and gets
-// nothing rather than an invented variable name.
+// A Spec with no names of its own has nowhere to put a stored key, and gets
+// nothing rather than an invented variable name; its chat reads the store
+// itself. Nor is a stored key put under the vendor's variable for a Spec
+// talking to somebody else, where it would be read as the key for the vendor.
 func Env(spec agent.Spec) []string {
 	k := Resolve(spec)
-	if !k.Set() || k.Source != SourceStore || len(spec.API.KeyEnv) == 0 {
+	own := agent.OwnKeyEnv(spec.API)
+	if !k.Set() || k.Source != SourceStore || len(own) == 0 {
 		return nil
 	}
-	return []string{spec.API.KeyEnv[0] + "=" + k.Secret()}
+	return []string{own[0] + "=" + k.Secret()}
 }
 
 // Status is everything about a key that may be shown, sent to the front end or
@@ -152,7 +159,7 @@ func StatusOf(spec agent.Spec) Status {
 		Set:       k.Set(),
 		Source:    k.Source,
 		Env:       k.Env,
-		Vars:      spec.API.KeyEnv,
+		Vars:      agent.OwnKeyEnv(spec.API),
 		NotNeeded: agent.NeedsNoKey(spec),
 		Stored:    k.Source == SourceStore || Has(spec.ID),
 	}
@@ -163,7 +170,7 @@ func StatusOf(spec agent.Spec) Status {
 	// it they come after the store; one with none is not, so for it they come
 	// before. A gateway given just an address is never given the vendor's
 	// variable, so for it that is FLOCKDECK_API_KEY and then its stored key.
-	if !st.Set || len(spec.API.KeyEnv) == 0 {
+	if !st.Set || len(st.Vars) == 0 {
 		for _, name := range agent.KeyNames(spec) {
 			if strings.TrimSpace(os.Getenv(name)) != "" {
 				st.Set, st.Source, st.Env = true, SourceEnv, name
