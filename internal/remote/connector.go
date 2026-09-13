@@ -357,12 +357,11 @@ func (c *Connector) session(ctx context.Context) error {
 		conn.CloseNow()
 		return fmt.Errorf("start the tunnel: %w", err)
 	}
-	c.set(StateConnected, "", time.Time{})
-
 	served := make(chan error, 1)
 	go func() { served <- c.serve(listener{sess}) }()
+	c.set(StateConnected, "", time.Time{})
 
-	serving, silent := true, false
+	serving, silent, failed := true, false, false
 	var serveErr error
 	select {
 	case <-ctx.Done():
@@ -388,8 +387,21 @@ func (c *Connector) session(ctx context.Context) error {
 	// the keepalive gives up most of a minute later. The failure itself is
 	// the news, so it is watched for directly.
 	case <-rec.failed:
+		failed = true
 	case serveErr = <-served:
 		serving = false
+		// serve's Accept fails the moment the tunnel does, so serve ends on
+		// the tunnel's failure as well as on its own, and when both have
+		// happened by the time this looks, which of them it takes is chance.
+		// Taken for this Flockdeck stopping, a relay that had revoked this
+		// machine went on being dialled. So the tunnel is looked at once more
+		// before serve is blamed.
+		select {
+		case <-rec.failed:
+			failed = true
+		default:
+			silent = sess.IsClosed()
+		}
 	}
 	_ = sess.Close()
 	conn.CloseNow()
@@ -407,12 +419,10 @@ func (c *Connector) session(ctx context.Context) error {
 	if silent {
 		return errSilent
 	}
-	if !serving {
-		// serve ends only once the session has, and a session that ended is
-		// seen above before serve can say so. So serve stopped of its own
-		// accord, with the tunnel still open: this Flockdeck is shutting down,
-		// or its server failed. The relay did nothing, and saying it did would
-		// send somebody to look at the relay.
+	if !serving && !failed {
+		// serve stopped of its own accord, with the tunnel still open: this
+		// Flockdeck is shutting down, or its server failed. The relay did
+		// nothing, and saying it did would send somebody to look at the relay.
 		if serveErr != nil {
 			return fmt.Errorf("this Flockdeck stopped answering remote windows: %w", serveErr)
 		}
