@@ -13,7 +13,9 @@ import (
 // its offset together.
 func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
 	css := stripComments(readAsset(t, "app.css"))
-	ring := ruleBody(css, ".tab:focus-visible")
+	// The ring is drawn round the whole tab, its close button and all, when the
+	// tab's button inside it has the keyboard.
+	ring := ruleBody(css, ".tab:has(> .tab-btn:focus-visible)")
 	if ring == "" {
 		t.Fatal("app.css has no focus ring for .tab")
 	}
@@ -316,7 +318,7 @@ func TestF2RenamesTheTabTheKeyboardIsOn(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-const tab = h.$("tabs").children[1];
+const tab = h.$("tab-t2");
 tab.focus();
 const ev = h.key({ key: "F2" });
 assert.ok(ev.defaultPrevented, "F2 went on to the browser");
@@ -503,8 +505,8 @@ func TestATabAndItsCloseButtonSayWhichTab(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-const tab = h.$("tabs").children[0];
-const close = tab.querySelector(".close");
+const tab = h.$("tab-t1");
+const close = tab.parentElement.querySelector(".close");
 assert.strictEqual(tab.getAttribute("aria-label"), "one", "the tab is not named by its title alone");
 assert.ok(/one/.test(close.getAttribute("aria-label") || ""), "the close button does not say which tab: " + close.getAttribute("aria-label"));
 assert.ok(/stops/.test(close.dataset.tip || ""), "nothing says closing the tab stops its agents: " + close.dataset.tip);

@@ -207,6 +207,12 @@ body { flex-direction: row; }
 }
 .tab:hover { background: #22262e; color: var(--fg); }
 .tab.active { background: var(--bg); color: var(--fg); border-color: var(--line); }
+/* The tab itself, beside its close button in the box (see tabNode in app.js):
+ * it takes the room the close button leaves, and draws nothing of its own. */
+.tab-btn {
+  display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; height: 100%;
+  padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .close {
   opacity: 0; border: 0; background: transparent; color: var(--fg-dim);
@@ -309,7 +315,7 @@ body { flex-direction: row; }
 #summary:focus-visible,
 .commands:focus-visible,
 .update:focus-visible,
-.tab:focus-visible,
+.tab:has(> .tab-btn:focus-visible),
 .tab .close:focus-visible,
 .pane-actions button:focus-visible,
 .divider:focus-visible,
@@ -327,6 +333,9 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* The ring goes round the whole tab, close button and all, as it did when the
+ * tab's button was the whole tab; the button inside draws none of its own. */
+.tab-btn:focus-visible { outline: none; }
 
 /* Windows high contrast replaces every colour here with a system one, which
  * takes the accent border the text fields use to show focus with it - and they
@@ -1408,4 +1417,37 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 }
 @media (pointer: coarse) and (max-width: 640px) {
   .rail-btn { width: 100%; }
+}
+
+/* Windows high contrast replaces every colour with a system one, and much of
+ * this window is told apart by colour alone: every row of a list looked like
+ * the chosen one's neighbours, a switch could not be seen to be on, and the
+ * focused pane had the same border as the rest. These are drawn in the
+ * system's own colours there. Last in the sheet, because a rule of the same
+ * weight written before the ordinary one is overridden by it. */
+@media (forced-colors: active) {
+  .pal-row.sel, .pick-row.sel, .rev-file.sel, .help-item.sel, .settings-tab.sel {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  /* The hints and counts in a chosen row are written dark for the accent. */
+  .pal-row.sel *, .pick-row.sel *, .rev-file.sel *, .help-item.sel *, .settings-tab.sel * {
+    color: HighlightText !important;
+  }
+  /* A switch is a track and a knob drawn in backgrounds, both taken away. */
+  .switch { forced-color-adjust: none; background: Canvas; border: 1px solid ButtonText; }
+  .switch .knob { background: ButtonText; }
+  .switch.on { background: Highlight; border-color: Highlight; }
+  .switch.on .knob { background: HighlightText; }
+  .pane.focused { border-color: Highlight; }
+  /* A toggle that is on, and the tab and the project on screen, are each
+   * shown by a background; an outline in the highlight is kept. */
+  [aria-pressed="true"], .seg.on, .tab.active, .rail-tile.current {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* A status dot's colour is the status, so it is kept, ringed so that it
+   * shows on whatever ground the system has chosen. */
+  .dot { forced-color-adjust: none; border: 1px solid CanvasText; }
 }

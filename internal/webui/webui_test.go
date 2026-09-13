@@ -455,15 +455,16 @@ const first = bar.children[0], second = bar.children[1];
 assert.strictEqual(first.querySelector(".label").textContent, "one");
 
 // Someone has tabbed to the second tab button.
-second.focus();
-assert.ok(h.doc.activeElement === second, "the tab button has the keyboard");
+const secondButton = second.querySelector("button.tab-btn");
+secondButton.focus();
+assert.ok(h.doc.activeElement === secondButton, "the tab button has the keyboard");
 
 // An agent starts working. Nothing about the tabs changed.
 h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
 
 assert.ok(h.$("tabs").children[0] === first, "the first tab button was replaced");
 assert.ok(h.$("tabs").children[1] === second, "the second tab button was replaced");
-assert.ok(h.doc.activeElement === second, "the push took the keyboard off the tab button");
+assert.ok(h.doc.activeElement === secondButton, "the push took the keyboard off the tab button");
 `)
 }
 
@@ -489,7 +490,7 @@ h.recv(fixture({
 assert.strictEqual(bar.children[0].querySelector(".label").textContent, "renamed");
 assert.ok(!one.classList.contains("active"), "the first tab is no longer current");
 assert.ok(two.classList.contains("active"), "the second tab is current");
-assert.strictEqual(two.getAttribute("aria-selected"), "true");
+assert.strictEqual(two.querySelector("button.tab-btn").getAttribute("aria-selected"), "true");
 assert.ok(two.classList.contains("attention"), "the blocked tab is marked");
 assert.ok(two.querySelector(".attn"), "the marker element is there");
 assert.ok(two.querySelector(".attn").getAttribute("aria-label"), "the marker names itself");
@@ -1408,14 +1409,14 @@ const many = (active) => {
 h.recv(many("t0"));
 
 const bar = h.$("tabs");
-const btns = bar.children;
+const btns = bar.children.map((n) => n.querySelector("button.tab-btn"));
 assert.strictEqual(btns.length, 10);
 
 // One stop for the strip, not two per tab.
 assert.strictEqual(btns[0].tabIndex, 0, "the current tab is not the stop");
 assert.ok(btns.slice(1).every((b) => b.tabIndex === -1),
   "every tab is a stop on the way through the window");
-assert.ok(btns.slice(1).every((b) => b.querySelector(".close").tabIndex === -1),
+assert.ok(btns.slice(1).every((b) => b.parentElement.querySelector(".close").tabIndex === -1),
   "every close button is a stop too");
 
 // Tab from the project chip reaches the strip once and leaves it once.
@@ -1423,7 +1424,7 @@ h.$("project-btn").focus();
 h.key({ key: "Tab" });
 assert.ok(h.doc.activeElement === btns[0], "Tab did not reach the current tab");
 h.key({ key: "Tab" });
-assert.ok(h.doc.activeElement === btns[0].querySelector(".close"), "its close button follows it");
+assert.ok(h.doc.activeElement === btns[0].parentElement.querySelector(".close"), "its close button follows it");
 h.key({ key: "Tab" });
 assert.ok(!btns.includes(h.doc.activeElement), "Tab is still walking the tabs one at a time");
 
@@ -2631,6 +2632,521 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
 `)
 }
 
+// On a Mac, Option with a digit types a character on most layouts - [ is
+// Option+5 on a German Mac, | is Option+7 - and it was read by position as
+// Alt+1 … Alt+9, so it switched tab and the character never reached the pane.
+// There Cmd with a digit picks the tab, as it does in every Mac application.
+func TestOptionWithADigitOnAMacTypesItsCharacter(t *testing.T) {
+	runFrontEnd(t, `
+const m = boot({ platform: "MacIntel" });
+m.hello();
+m.recv(fixture());
+const typing = m.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+m.terms[0].host.append(typing);
+const reached = [];
+typing.addEventListener("keydown", (e) => reached.push(e.key));
+typing.focus();
+const before = m.commands().length;
+const ev = m.key({ key: "[", code: "Digit5", altKey: true });
+assert.ok(!ev.defaultPrevented, "Option+5 was kept from typing [");
+assert.deepStrictEqual(reached, ["["], "Option+5 did not reach the terminal as [");
+m.key({ key: "|", code: "Digit7", altKey: true });
+assert.deepStrictEqual(m.commands().slice(before), [], "typing [ and | switched tabs");
+
+m.key({ key: "2", code: "Digit2", metaKey: true });
+assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t2" }, "Cmd+2 did not pick the second tab");
+// A French Mac's digit row types & é " ' unless Shift is held, and Cmd+é is
+// still the second key along.
+m.key({ key: "&", code: "Digit1", metaKey: true });
+assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t1" }, "Cmd and the first key did not pick the first tab");
+`)
+}
+
+// On AZERTY the 0 key types à unless Shift is held, so Ctrl+0 arrived as
+// Ctrl+à, matched nothing, and a font size made bigger could not be put back
+// from the keyboard.
+func TestCtrlZeroResetsTheFontSizeOnAZERTY(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
+h.key({ key: "à", code: "Digit0", ctrlKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 13 }, "Ctrl+0 on AZERTY did not reset the font size");
+`)
+}
+
+// The window's shortcuts went on running behind an open dialog: Ctrl+Shift+W
+// pressed while writing a commit message closed a pane nobody could see, and
+// Alt+2 switched the tab under it. While a dialog is up only the font keys,
+// the palette and the help still act.
+func TestShortcutsWaitBehindAnOpenDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+assert.ok(!h.$("overlay").hidden, "the settings did not open");
+const before = h.commands().length;
+const closing = h.press("closePane");
+h.press("newAgentTab");
+h.key({ key: "2", code: "Digit2", altKey: true });
+const sent = h.commands().slice(before).map((c) => c.cmd);
+assert.ok(!sent.includes("closePane"), "Ctrl+Shift+W closed a pane behind the dialog");
+assert.ok(!sent.includes("newTab"), "a tab was opened behind the dialog");
+assert.ok(!sent.includes("selectTab"), "Alt+2 switched tab behind the dialog");
+assert.ok(closing.defaultPrevented, "Ctrl+Shift+W was left to the browser, which closes the window with it");
+assert.ok(!h.$("overlay").hidden, "the dialog went");
+
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 }, "the font keys stopped working in a dialog");
+h.press("help");
+assert.strictEqual(h.$("overlay-title").textContent, "Help", "F1 did not open the help from a dialog");
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette did not open from a dialog");
+h.key({ key: "Escape" });
+
+// Closed, the keys are the window's again.
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "the dialog did not close");
+h.press("closePane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p1" });
+`)
+}
+
+// termKey is a keydown as xterm hands it to a terminal's own key handler.
+const termKey = `
+const termKey = (init) => Object.assign({ type: "keydown", key: "", code: "", ctrlKey: false, shiftKey: false,
+  altKey: false, metaKey: false, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, init);
+`
+
+// Ctrl+C with a selection sent ^C and Ctrl+V sent ^V, so text could only be
+// copied out of a pane or pasted into one with the mouse. They work the way
+// Windows Terminal has them: Ctrl+C copies when something is selected and is
+// ^C otherwise, Ctrl+Shift+C copies, and Ctrl+V and Ctrl+Shift+V paste.
+func TestCopyAndPasteInATerminalGoTheWindowsTerminalWay(t *testing.T) {
+	runFrontEnd(t, termKey+`
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const keys = t._keys;
+assert.ok(keys, "the terminal has no key handler of its own");
+
+let e = termKey({ key: "c", code: "KeyC", ctrlKey: true });
+assert.strictEqual(keys(e), true, "Ctrl+C with nothing selected did not go to the program as ^C");
+
+t.selection = "some output";
+e = termKey({ key: "c", code: "KeyC", ctrlKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+C with a selection went to the program");
+assert.ok(e.defaultPrevented, "Ctrl+C with a selection was left to the browser");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "some output", "Ctrl+C did not copy the selection");
+assert.strictEqual(t.selection, "", "the selection stayed, so the next Ctrl+C copied again instead of interrupting");
+
+// A layout without Latin letters reports the key by its own letter.
+t.selection = "по-русски";
+assert.strictEqual(keys(termKey({ key: "с", code: "KeyC", ctrlKey: true })), false, "Ctrl+C on a Russian layout did not copy");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "по-русски");
+
+t.selection = "more";
+e = termKey({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+Shift+C went to the program");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "more", "Ctrl+Shift+C did not copy");
+e = termKey({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+Shift+C with nothing selected went to the program");
+assert.ok(e.defaultPrevented, "Ctrl+Shift+C was left to the browser, which opens its inspector with it");
+
+for (const shiftKey of [false, true]) {
+  e = termKey({ key: shiftKey ? "V" : "v", code: "KeyV", ctrlKey: true, shiftKey });
+  assert.strictEqual(keys(e), false, (shiftKey ? "Ctrl+Shift+V" : "Ctrl+V") + " went to the program as ^V");
+  assert.ok(!e.defaultPrevented, (shiftKey ? "Ctrl+Shift+V" : "Ctrl+V") + " was kept from the browser, which pastes");
+}
+assert.strictEqual(keys(termKey({ key: "d", code: "KeyD", ctrlKey: true })), true, "Ctrl+D no longer reaches the program");
+assert.strictEqual(keys(termKey({ type: "keyup", key: "v", code: "KeyV", ctrlKey: true })), true, "a key going up was taken");
+
+// On a Mac, Cmd+C and Cmd+V copy and paste already, and Ctrl+C and Ctrl+V
+// are the program's.
+const m = boot({ platform: "MacIntel" });
+m.hello();
+m.recv(fixture());
+m.terms[0].selection = "x";
+assert.strictEqual(m.terms[0]._keys(termKey({ key: "c", code: "KeyC", ctrlKey: true })), true, "Ctrl+C on a Mac did not reach the program");
+assert.strictEqual(m.terms[0]._keys(termKey({ key: "v", code: "KeyV", ctrlKey: true })), true, "Ctrl+V on a Mac did not reach the program");
+`)
+}
+
+// A paste is sent between the markers of bracketed paste, so that the program
+// knows it is text rather than keys, and the markers were sent as they were
+// found in the text: a copied ESC[201~ ended the paste early, and whatever
+// followed it was typed at the program as keys - a command and its Enter.
+func TestAPasteCannotCloseTheBracketsItIsSentIn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+t.host.append(typing);
+const reached = [];
+typing.addEventListener("paste", () => reached.push("xterm"));
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: (type) => (type === "text/plain" ? text : "") } });
+  h.dispatch(typing, ev);
+  return ev;
+};
+
+const ev = paste("echo safe\x1b[201~rm -rf ~\n\x1b[200~\x9b201~");
+assert.deepStrictEqual(t.pasted, ["echo safe[201~rm -rf ~\n[200~201~"], "the paste kept its escape characters");
+assert.deepStrictEqual(reached, [], "xterm pasted the text as it was as well");
+assert.ok(ev.defaultPrevented, "the browser pasted the text as it was as well");
+
+// Ordinary text is xterm's to paste, as it always was.
+paste("git status\n");
+assert.deepStrictEqual(reached, ["xterm"], "an ordinary paste did not reach xterm");
+assert.strictEqual(t.pasted.length, 1, "an ordinary paste was pasted twice");
+`)
+}
+
+// The server takes a frame of up to 4 MiB from a terminal, and a paste bigger
+// than that went as one frame and was dropped with the connection, silently.
+// Input is sent a mebibyte at a time.
+func TestAHugePasteGoesInFramesTheServerTakes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+const before = ws.sent.length;
+const MiB = 1 << 20;
+h.terms[0]._data("x".repeat(3 * MiB + 5));
+const frames = ws.sent.slice(before);
+assert.strictEqual(frames.length, 4, "three and a bit mebibytes went as " + frames.length + " frames");
+assert.ok(frames.every((f) => typeof f !== "string" && f.byteLength <= MiB), "a frame was bigger than a mebibyte");
+assert.strictEqual(frames.reduce((n, f) => n + f.byteLength, 0), 3 * MiB + 5, "some of the paste went missing");
+h.terms[0]._data("ls\r");
+assert.strictEqual(new TextDecoder().decode(ws.sent.pop()), "ls\r", "a keystroke is not one frame any more");
+`)
+}
+
+// Restart on an exited pane's cover had the keyboard, and when the cover went
+// with the process back, the keyboard went with it - onto nothing, so what was
+// typed next reached no pane until something was clicked.
+func TestTheKeyboardGoesBackToATerminalItsRestartBrought(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const exited = fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } });
+const restart = () => h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
+  .find((b) => b.textContent === "Restart");
+h.recv(exited);
+assert.ok(h.doc.activeElement === restart(), "Restart did not take the keyboard");
+h.terms[0].focused = false;
+h.click(restart());
+assert.deepStrictEqual(h.commands().pop(), { cmd: "restartPane", id: "p1" });
+h.recv(fixture());
+assert.ok(h.terms[0].focused, "the keyboard went with the cover instead of back to the terminal");
+
+// Only where the cover had it: elsewhere, the keyboard stays where it is.
+h.recv(exited);
+h.$("project-btn").focus();
+h.terms[0].focused = false;
+h.recv(fixture());
+assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("project-btn"), "the cover going took the keyboard from the top bar");
+`)
+}
+
+// A program can print a link whose text is not its address - an OSC 8
+// hyperlink, which is how gh and ls --hyperlink print theirs - and nothing
+// here opened one: xterm's own fallback asks with the browser's confirm box
+// and then navigates, which in an app window is the application gone. It
+// opens the way every other link out of the window does, in a window of its
+// own, and only for a web address.
+func TestALinkATerminalProgramPrintsOpensOutsideTheWindow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const opened = [];
+h.win.open = (url, target, features) => { opened.push([url, target, features]); return null; };
+const link = h.terms[0].options.linkHandler;
+assert.ok(link && typeof link.activate === "function", "a terminal link has nothing to open it");
+link.activate(new h.Ev("click"), "https://example.com/pull/1");
+assert.deepStrictEqual(opened, [["https://example.com/pull/1", "_blank", "noopener,noreferrer"]], "the link did not open in a window of its own");
+link.activate(new h.Ev("click"), "javascript:alert(1)");
+link.activate(new h.Ev("click"), "file:///C:/Windows/win.ini");
+assert.strictEqual(opened.length, 1, "a link that is not a web address was opened");
+`)
+}
+
+// A pane whose process has gone is covered, and its terminal takes no typing.
+// Sent to it - a click on the tab on screen, F6, a dialog closing - the
+// keyboard went into the terminal nobody could see, and nothing typed went
+// anywhere. It lands on the cover's Restart instead.
+func TestTheKeyboardSentToACoveredPaneLandsOnRestart(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.recv(fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } }));
+const restart = h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
+  .find((b) => b.textContent === "Restart");
+h.$("project-btn").focus();
+h.terms[0].focused = false;
+// The tab on screen, clicked again, hands the keyboard back to its pane.
+h.click(h.$("tab-t1"));
+assert.ok(h.doc.activeElement === restart, "the keyboard went to the covered terminal rather than to Restart");
+assert.ok(!h.terms[0].focused, "the covered terminal took the keyboard");
+
+// With the process back, the terminal is where it goes again.
+h.recv(fixture());
+h.$("project-btn").focus();
+h.click(h.$("tab-t1"));
+assert.ok(h.terms[0].focused, "the terminal no longer takes the keyboard once its cover has gone");
+`)
+}
+
+// Windows high contrast replaces every colour with a system one, and much of
+// this window is told apart by colour alone: the chosen row of a list, whether
+// a switch is on, the focused pane's border, a pressed toggle, the tab and the
+// project on screen, and each pane's status dot all came out like their
+// neighbours. Only the focus ring was looked after. Each is drawn in the
+// system's own colours there, after the rules it overrides.
+func TestHighContrastStillShowsWhatIsChosenAndWhatIsOn(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	forced := mediaBlock(t, css, `\(forced-colors:\s*active\)`)
+	for _, want := range []string{
+		`\.pal-row\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.pick-row\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.rev-file\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.switch\.on\s*\{[^}]*background:\s*Highlight`,
+		`\.switch \.knob\s*\{[^}]*background:\s*ButtonText`,
+		`\.pane\.focused\s*\{[^}]*border-color:\s*Highlight`,
+		`\[aria-pressed="true"\][^{]*\{[^}]*Highlight`,
+		`\.tab\.active[^{]*\{[^}]*Highlight`,
+		`\.rail-tile\.current[^{]*\{[^}]*Highlight`,
+		`\.dot\s*\{[^}]*forced-color-adjust:\s*none`,
+	} {
+		if !regexp.MustCompile(want).MatchString(forced) {
+			t.Errorf("in high contrast app.css does not give %s", want)
+		}
+	}
+	// Written earlier in the sheet, a rule of the same weight is overridden by
+	// the ordinary one after it, and high contrast changes nothing.
+	last := strings.LastIndex(css, "@media (forced-colors: active)")
+	for _, ordinary := range []string{".switch .knob {", ".pane.focused {", ".pal-row.sel {"} {
+		if at := strings.Index(css, ordinary); at < 0 || at > last {
+			t.Errorf("%s comes after the high-contrast rules, so it wins over them", ordinary)
+		}
+	}
+}
+
+// F6 and Shift+F6 move the keyboard round the window's parts, and in the prompt
+// bar they did nothing: the bar kept every key but Escape and Enter, so the
+// only way out of it without the mouse was closing it.
+func TestF6LeavesThePromptBar(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+// A wide window, where the rail is on screen rather than folded into a menu.
+Object.defineProperty(h.$("rail-toggle"), "offsetParent", { get: () => null });
+h.press("promptAll");
+assert.ok(h.doc.activeElement === h.$("prompt-input"), "the prompt bar did not take the keyboard");
+const ev = h.press("nextRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "F6 in the prompt bar went nowhere");
+assert.ok(ev.defaultPrevented, "F6 was left to the browser as well");
+assert.ok(!h.$("promptbar").hidden, "F6 closed the prompt bar");
+
+h.$("prompt-input").focus();
+h.terms[0].focused = false;
+h.press("prevRegion");
+assert.ok(h.terms[0].focused, "Shift+F6 in the prompt bar did not reach the focused terminal");
+`)
+}
+
+// The hello comes again with every reconnect, carrying the preferences as they
+// are now, and settings left open through the drop went on showing them as
+// they were before it: a switch turned off in another window meanwhile still
+// read on here.
+func TestSettingsLeftOpenFollowTheHelloAfterAReconnect(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+for (const tab of h.$("settings-tabs").querySelectorAll("button")) {
+  if (h.$("set-cursor-blink")) break;
+  h.click(tab);
+}
+assert.ok(h.$("set-cursor-blink"), "no section of the settings has the cursor's blink");
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "true");
+h.hello({ cursorSteady: true });
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "false",
+  "the settings went on saying the cursor blinks after the hello said it does not");
+`)
+}
+
+// The server answers every change of a preference with all of them, and a
+// change made twice in quick succession - the font made bigger twice, the
+// blink turned off and on - had the answer to the first arrive after the
+// second was made, and put the first back: the font shrank a size, the cursor
+// stopped, until the second answer came. A change from somewhere else, once
+// this window's own have been answered, is still taken.
+func TestAnEchoOfAnEarlierPreferenceDoesNotUndoALaterOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const prefs = (over) => ({ type: "prefs", prefs: Object.assign({ helpSeen: true, dismissedTips: [] }, over) });
+h.press("fontUp");
+h.press("fontUp");
+assert.strictEqual(h.terms[0].options.fontSize, 15);
+h.recv(prefs({ fontSize: 14 }));
+assert.strictEqual(h.terms[0].options.fontSize, 15, "the answer to the first change put the font back a size");
+h.recv(prefs({ fontSize: 15 }));
+assert.strictEqual(h.terms[0].options.fontSize, 15);
+h.recv(prefs({ fontSize: 16 }));
+assert.strictEqual(h.terms[0].options.fontSize, 16, "a size chosen in another window was not taken");
+
+h.press("settings");
+for (const tab of h.$("settings-tabs").querySelectorAll("button")) {
+  if (h.$("set-cursor-blink")) break;
+  h.click(tab);
+}
+h.click(h.$("set-cursor-blink"));
+h.click(h.$("set-cursor-blink"));
+assert.deepStrictEqual(h.commands().slice(-2), [{ cmd: "cursorBlink", kind: "off" }, { cmd: "cursorBlink", kind: "on" }]);
+h.recv(prefs({ fontSize: 16, cursorSteady: true }));
+assert.strictEqual(h.terms[0].options.cursorBlink, true, "the answer to turning the blink off stopped the cursor again");
+assert.strictEqual(h.$("set-cursor-blink").getAttribute("aria-checked"), "true", "the switch went back to off");
+h.recv(prefs({ fontSize: 16, cursorSteady: false }));
+assert.strictEqual(h.terms[0].options.cursorBlink, true);
+`)
+}
+
+// Every pane had a WebGL renderer of its own, in every tab, and Chromium keeps
+// about sixteen WebGL contexts before it takes the oldest away: with a dozen
+// agents across the tabs, panes on screen lost theirs to panes nobody could
+// see. Only the panes of the tab on screen have one; a pane going out of sight
+// gives its up, and gets one again when it comes back.
+func TestOnlyThePanesOnScreenDrawWithWebGL(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const live = (i) => h.webgls.filter((g) => g.term === h.terms[i] && !g.disposed).length;
+assert.strictEqual(live(0), 1, "the pane on screen draws without WebGL");
+assert.strictEqual(live(1), 0, "a pane in a tab out of sight holds a WebGL renderer");
+
+h.recv(fixture({ activeTab: "t2" }));
+assert.strictEqual(live(0), 0, "a pane that went out of sight kept its WebGL renderer");
+assert.strictEqual(live(1), 1, "a pane that came on screen draws without WebGL");
+h.recv(fixture({ activeTab: "t2" }));
+assert.strictEqual(h.webgls.length, 2, "a push that changed nothing made another renderer");
+
+h.recv(fixture());
+assert.strictEqual(live(0), 1, "a pane back on screen did not get WebGL again");
+
+// A renderer whose context the browser takes away is given up, and the pane
+// gets another the next time it comes on screen.
+h.webgls.find((g) => g.term === h.terms[0] && !g.disposed)._lost();
+assert.strictEqual(live(0), 0, "a renderer that lost its context was kept");
+h.recv(fixture({ activeTab: "t2" }));
+h.recv(fixture());
+assert.strictEqual(live(0), 1, "a pane whose renderer lost its context never got another");
+`)
+}
+
+// The agents overview is asked for again whenever a push shows the counts it
+// lists moving, and with agents busy in several projects that is several times
+// a second, each answer rebuilding the whole list under the pointer and the
+// keyboard. The first change is asked for at once; after that it is at most
+// once a second, and the last change is not lost.
+func TestTheAgentsOverviewIsAskedForAtMostOnceASecond(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("agents");
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const opened = asked();
+assert.ok(opened >= 1, "opening the overview did not ask for it");
+for (let i = 1; i <= 5; i++) {
+  h.recv(fixture({ working: i, projects: [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: i }] }));
+}
+assert.strictEqual(asked(), opened + 1, "the overview was asked for again on every push");
+await h.sleep(1150);
+assert.strictEqual(asked(), opened + 2, "the last change was not asked for once the second had passed");
+`)
+}
+
+// With screen reader support on, xterm keeps a live region in every terminal
+// and makes each one assertive, so in a tab of several agents they all read out
+// what they were sent at once, over each other and over what was being typed.
+// Only the focused pane's terminal speaks; the others' are off until the
+// keyboard goes to them.
+func TestOnlyTheFocusedTerminalSpeaks(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ screenReader: true });
+const both = (focus) => fixture({ tabs: [{ id: "t1", title: "one", focus, zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] });
+h.recv(both("p1"));
+// xterm puts a live region in each terminal it reads out.
+const regions = h.terms.map((t) => {
+  const r = h.doc.createElement("div");
+  r.className = "live-region";
+  r.setAttribute("aria-live", "assertive");
+  t.host.append(r);
+  return r;
+});
+h.recv(both("p1"));
+assert.strictEqual(regions[0].getAttribute("aria-live"), "assertive", "the focused terminal no longer speaks");
+assert.strictEqual(regions[1].getAttribute("aria-live"), "off", "a terminal without the keyboard reads out what it is sent");
+h.recv(both("p2"));
+assert.strictEqual(regions[0].getAttribute("aria-live"), "off", "the terminal the keyboard left went on speaking");
+assert.strictEqual(regions[1].getAttribute("aria-live"), "assertive", "the terminal the keyboard went to does not speak");
+`)
+}
+
+// A window reached through the relay was told, when its connection went, that
+// the flockdeck process was no longer running and to start it again - advice
+// for somebody at the machine. From a phone or another computer it is the
+// machine, or the relay, that is out of reach, and that is what it says.
+func TestARelayWindowsDisconnectedPanelSpeaksOfTheMachine(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.controls().pop().close();
+assert.ok(/start it again/i.test(h.$("disconnected-desc").textContent), "a window at the desk is no longer told to start flockdeck");
+
+// Through the relay the page lives under the machine's own prefix, and says
+// so before any hello has arrived.
+const r = boot({ pathname: "/m/desk/" });
+r.controls().pop().close();
+const said = r.$("disconnected-desc").textContent;
+assert.ok(!r.$("disconnected").hidden, "the panel did not go up");
+assert.ok(!/start it again|no longer running/i.test(said), "a window reached through the relay was told to start flockdeck: " + said);
+assert.ok(/relay/i.test(said) && /machine/i.test(said), "the panel does not say the machine or the relay is out of reach: " + said);
+`)
+}
+
+// A tab's close button was inside the tab, a control inside a control: a
+// screen reader read it as part of the tab, and some could not reach it at
+// all. It sits beside the tab, in a box that is nothing to a screen reader,
+// and still closes its own tab; a click on the tab still selects it.
+func TestATabsCloseButtonSitsBesideIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tab-t1");
+assert.strictEqual(tab.getAttribute("role"), "tab");
+assert.ok(!tab.querySelector("button"), "the tab holds its close button, a control inside a control");
+const box = tab.parentElement;
+assert.ok(box.parentElement === h.$("tabs"), "the tab's box is not in the strip");
+assert.strictEqual(box.getAttribute("role"), "presentation", "the box around the tab and its close button is something to a screen reader");
+const close = box.querySelector(".close");
+assert.ok(close && close.parentElement === box, "the close button is not beside the tab");
+h.click(close);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeTab", id: "t1" });
+h.click(h.$("tab-t2"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
@@ -2859,12 +3375,12 @@ h.recv(fixture({ tabs: [
   { id: "t1", title: long, focus: "p1", zoom: false, attention: false, root: { id: "n1", pane: "p1", weight: 1 } },
   { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: { id: "n2", pane: "p2", weight: 1 } },
 ] }));
-const tab = h.$("tabs").children[0];
+const tab = h.$("tab-t1");
 assert.ok((tab.dataset.tip || "").startsWith(long), "the whole title cannot be read anywhere");
 assert.ok(/rename/.test(tab.dataset.tip), "nothing says how to rename the tab");
 
 h.recv(fixture());
-assert.ok(h.$("tabs").children[0].dataset.tip.startsWith("one"), "the bubble kept the old title");
+assert.ok(h.$("tab-t1").dataset.tip.startsWith("one"), "the bubble kept the old title");
 `)
 }
 
@@ -3557,6 +4073,8 @@ const before = asked();
 h.recv(fixture({ projects: projects(3) }));
 assert.strictEqual(asked(), before + 1, "a split did not bring the overview up to date");
 h.recv(fixture({ projects: projects(2) }));
+// Asked for at most once a second, so the second change waits for it.
+await h.sleep(1150);
 assert.strictEqual(asked(), before + 2, "a closed pane did not bring the overview up to date");
 `)
 }
@@ -5282,7 +5800,7 @@ func TestATabNamesThePanelItShows(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-const tab = h.$("tabs").children[0];
+const tab = h.$("tab-t1");
 const page = h.$("page-t1");
 assert.ok(page, "the tab's page has no id to be controlled by");
 assert.strictEqual(page.getAttribute("role"), "tabpanel", "the tab's page is not a tab panel");
@@ -6700,8 +7218,16 @@ class FakeTerm {
     // are kept apart: a reset reaches the screen ahead of bytes still queued.
     this.screen = []; this.queue = []; this.disposed = false; this.focused = false;
     this.buffer = { active: { viewportY: 0, baseY: 0 } };
+    // What is selected with the mouse, and what has been pasted through
+    // paste(), which is how xterm is given text that did not come from keys.
+    this.selection = ""; this.pasted = [];
     terms.push(this);
   }
+  attachCustomKeyEventHandler(fn) { this._keys = fn; }
+  hasSelection() { return !!this.selection; }
+  getSelection() { return this.selection; }
+  clearSelection() { this.selection = ""; }
+  paste(d) { this.pasted.push(d); }
   /** written is what the screen shows once everything written so far has
    *  been parsed: whatever follows the last full reset in the stream. */
   get written() {
@@ -6714,7 +7240,7 @@ class FakeTerm {
   parse() {
     for (const w of this.queue.splice(0)) { this.screen.push(w.data); if (w.cb) w.cb(); }
   }
-  loadAddon() {}
+  loadAddon(a) { if (a instanceof FakeWebgl) a.term = this; }
   open(host) { this.host = host; }
   onScroll(fn) { this._scroll = fn; }
   onWriteParsed(fn) { this._parsed = fn; }
@@ -6737,7 +7263,14 @@ class FakeSearch {
   clearDecorations() { this.cleared++; }
   onDidChangeResults(fn) { this.results = fn; }
 }
-class FakeWebgl { onContextLoss() {} dispose() {} }
+/** Every WebGL renderer made, with the terminal it was loaded into and
+ *  whether it has been given up since. */
+const webgls = [];
+class FakeWebgl {
+  constructor() { this.disposed = false; this.term = null; webgls.push(this); }
+  onContextLoss(fn) { this._lost = fn; }
+  dispose() { this.disposed = true; }
+}
 
 const notifications = [];
 class FakeNotification {
@@ -6851,7 +7384,7 @@ function unref(t) { t.unref(); return t; }
 function boot(opts) {
   opts = opts || {};
   sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
-  notifications.length = 0;
+  notifications.length = 0; webgls.length = 0;
   FakeNotification.permission = "granted";
   FakeNotification.asked = 0;
   const doc = new Doc();
@@ -6902,7 +7435,8 @@ function boot(opts) {
     focus: () => {},
     // The clipboard a Copy button writes to; a case reads what it was given
     // back as _copied.
-    navigator: { clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
+    navigator: { platform: opts.platform || "Win32",
+      clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
     _listeners: new Map(),
   };
   win.window = win;
@@ -6921,7 +7455,7 @@ function boot(opts) {
   vm.runInContext(src, ctx, { filename: "app.js" });
 
   const h = {
-    doc, win, sockets, terms, observers, searchers, notifications,
+    doc, win, sockets, terms, observers, searchers, notifications, webgls,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
     /** controls lists every control socket the page has opened, in order. */

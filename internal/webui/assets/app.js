@@ -263,6 +263,14 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** RELAY_DISCONNECTED is what the disconnected panel says in a window
+   *  reached through the relay. Its own words - the process has stopped,
+   *  start it again - are advice for somebody at the machine; from a phone or
+   *  another computer it is the machine, or the relay, that is out of reach. */
+  const RELAY_DISCONNECTED = "This window reaches flockdeck through the relay, and the connection was lost: " +
+    "the machine flockdeck runs on may be asleep or offline, flockdeck may have stopped there, or the relay " +
+    "may be out of reach. This window tries again on its own every couple of seconds, and comes back as it " +
+    "was once the machine answers.";
   /** Normalised binding → action id, built from the same table. */
   let bindings = new Map();
   /** What this person has already been shown. Kept by the Go side, because a
@@ -283,6 +291,16 @@
    *  kept in local storage, it was forgotten on every run, for the reason
    *  given for prefs above. */
   let fontSize = 13;
+  /** onMac is whether this window is on a Mac. Option there is how a layout
+   *  types the characters it has no key for - [ ] { } | # on German, Nordic,
+   *  French and UK Macs are Option with a digit - so it cannot be the
+   *  modifier for the window's own keys the way Alt is elsewhere. */
+  const onMac = (() => {
+    try {
+      const n = window.navigator || {};
+      return /Mac|iPhone|iPad|iPod/.test(n.platform || n.userAgent || "");
+    } catch { return false; }
+  })();
 
   // ---------------------------------------------------------------- control
 
@@ -324,7 +342,7 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs || prefs; applyPrefs(); renderHints(); settingsChanged(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); renderHints(); settingsChanged(); }
       // A button that went with its worktree leaves the keyboard on the list
       // - the first row's first button, which removes nothing - rather than
       // out of the dialog.
@@ -385,6 +403,9 @@
       // Where the keyboard was, for the first failure only: the attempts
       // after it find the panel already up with the keyboard on its button.
       if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
+      // Through the relay the page lives under the machine's own prefix, which
+      // says so before any hello has: see RELAY_DISCONNECTED.
+      if (remoteWindow || basePath !== "/") $("disconnected-desc").textContent = RELAY_DISCONNECTED;
       $("disconnected").hidden = false;
       // The title is what the taskbar shows of a window behind others, and it
       // went on counting agents waiting in a Flockdeck that had stopped.
@@ -1285,9 +1306,14 @@
     const tab = s.tabs[idx];
     for (const [id, page] of tabPages) page.hidden = !tab || id !== tab.id;
     // A terminal cannot measure itself while hidden, so refit on reveal.
-    if (!tab) { shownTab = ""; shownFocus = ""; return; }
+    if (!tab) {
+      shownTab = ""; shownFocus = "";
+      for (const p of panes.values()) drawWithWebgl(p, false);
+      return;
+    }
     const ids = new Set();
     collectPanes(tab.root, ids);
+    for (const [id, p] of panes) drawWithWebgl(p, ids.has(id));
     // Only when the tab has just come on screen. A status push arrives several
     // times a second while agents work, and measuring every visible terminal
     // on each one made the browser lay the window out again for nothing: a
@@ -1379,9 +1405,11 @@
       const name = title + (tab.attention ? ", an agent here is waiting on you" : "");
       if (node.btn.getAttribute("aria-label") !== name) node.btn.setAttribute("aria-label", name);
       const active = tab.id === s.activeTab;
-      node.btn.classList.toggle("active", active);
+      // The look is the whole box's, close button and all; what a screen
+      // reader is told is the tab's own.
+      node.item.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));
-      node.btn.classList.toggle("attention", !!tab.attention);
+      node.item.classList.toggle("attention", !!tab.attention);
       if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
       // One stop on the way through the window rather than two per tab. With
@@ -1390,11 +1418,11 @@
       // which is what a tab strip is expected to answer to anyway.
       const stop = active ? 0 : -1;
       if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
-      if (bar.childNodes[i] !== node.btn) { bar.insertBefore(node.btn, bar.childNodes[i] || null); changed = true; }
+      if (bar.childNodes[i] !== node.item) { bar.insertBefore(node.item, bar.childNodes[i] || null); changed = true; }
     });
     for (const [id, node] of tabNodes) {
       if (s.tabs.some((t) => t.id === id)) continue;
-      node.btn.remove();
+      node.item.remove();
       tabNodes.delete(id);
       changed = true;
     }
@@ -1446,7 +1474,14 @@
   function tabNode(id) {
     let node = tabNodes.get(id);
     if (node) return node;
-    const btn = el("button", "tab");
+    // The tab and its close button sit side by side in one box, rather than
+    // the one inside the other: a button inside a tab is a control inside a
+    // control, which a screen reader reads as part of the tab and some cannot
+    // reach at all. The box is nothing to a screen reader, and is what is
+    // clicked, dragged and dropped on, as the whole tab was.
+    const item = el("div", "tab");
+    item.setAttribute("role", "presentation");
+    const btn = el("button", "tab-btn");
     btn.setAttribute("role", "tab");
     btn.id = "tab-" + id;
     btn.setAttribute("aria-controls", "page-" + id);
@@ -1454,25 +1489,29 @@
     const close = el("button", "close", "×");
     describe(close, "Close tab");
     close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id }); };
-    btn.append(label, close);
-    btn.onclick = () => {
+    btn.append(label);
+    item.append(btn, close);
+    item.onclick = () => {
       // Re-clicking the tab already on screen produces no state change for
       // showActiveTab to react to, so hand the keyboard back here.
       if (state && state.activeTab === id) focusTerminal();
       else send({ cmd: "selectTab", id });
     };
-    btn.ondblclick = () => renameTab(id);
+    item.ondblclick = () => renameTab(id);
     // The middle button closes a tab, as it does a browser's or an editor's;
     // here it did nothing, or began the browser's autoscroll over the strip.
-    btn.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
-    btn.onauxclick = (ev) => {
+    item.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
+    item.onauxclick = (ev) => {
       if (ev.button !== 1) return;
       ev.preventDefault();
       send({ cmd: "closeTab", id });
     };
-    btn.onkeydown = (ev) => tabStripKey(ev, id);
-    makeTabDraggable(id, btn);
-    node = { btn, label, close, attn: null };
+    item.onkeydown = (ev) => tabStripKey(ev, id);
+    // Draggable itself as well, since some browsers start no drag from a
+    // button inside a draggable box.
+    btn.draggable = true;
+    makeTabDraggable(id, item);
+    node = { item, btn, label, close, attn: null };
     tabNodes.set(id, node);
     return node;
   }
@@ -1488,7 +1527,7 @@
     attn.setAttribute("role", "img");
     attn.setAttribute("aria-label", TIPS.waiting);
     describe(attn, TIPS.waiting);
-    node.btn.insertBefore(attn, node.close);
+    node.btn.append(attn);
     node.attn = attn;
   }
 
@@ -2199,6 +2238,12 @@
       // Drawn on a canvas, what an agent writes is nothing a screen reader
       // can see; this keeps an accessible copy of the lines beside it.
       screenReaderMode: !!prefs.screenReader,
+      // A program can print a link whose text is not its address - an OSC 8
+      // hyperlink, as gh and ls --hyperlink print theirs - and xterm's own
+      // fallback asks with the browser's confirm box and then navigates,
+      // which in an app window is the application gone. It opens the way
+      // every other link out of the window does.
+      linkHandler: { activate: (ev, uri) => openExternal(uri) },
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -2219,6 +2264,21 @@
       /* Search is a convenience; the terminal works without it. */
     }
     term.open(host);
+    term.attachCustomKeyEventHandler((ev) => terminalKey(term, ev));
+    // A paste goes to a program that asked for bracketed paste between two
+    // markers, so it can tell text from keys, and xterm sends the text between
+    // them as it was. A copied ESC[201~ ended the paste early, and whatever
+    // followed it - a command and its newline - was typed at the program as
+    // keys. No escape character in a paste is anything a person means to
+    // send, so text holding one is pasted without them. Caught on the way down
+    // to xterm's own textarea, before its handler sees the event.
+    host.addEventListener("paste", (ev) => {
+      const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
+      if (!text || !/[\x1b\x9b]/.test(text)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      term.paste(text.replace(/[\x1b\x9b]/g, ""));
+    }, true);
     // Scrolled back to read what an agent wrote earlier, a pane went on
     // showing the old lines with nothing to say newer ones had arrived below,
     // and the only way back down was the wheel, however far that was.
@@ -2234,13 +2294,8 @@
     };
     if (term.onScroll) term.onScroll(scrolledBack);
     if (term.onWriteParsed) term.onWriteParsed(scrolledBack);
-    try {
-      const webgl = new WebglAddon.WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      /* Canvas rendering is a fine fallback. */
-    }
+    // The WebGL renderer is loaded when the pane comes on screen, not here:
+    // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
@@ -2269,6 +2324,39 @@
     p.resize.observe(host);
     connectPTY(p);
     return p;
+  }
+
+  /** drawWithWebgl gives a pane's terminal a WebGL renderer while it is on
+   *  screen, and takes it away when the pane goes out of sight. Every pane had
+   *  one, in every tab, and Chromium keeps about sixteen WebGL contexts before
+   *  it takes the oldest away: with a dozen agents across the tabs, panes on
+   *  screen lost theirs to panes nobody could see. Without one a terminal
+   *  draws in the DOM, which is what a hidden pane needs anyway. */
+  function drawWithWebgl(p, on) {
+    if (on === !!p.webgl) return;
+    if (!on) {
+      const g = p.webgl;
+      p.webgl = null;
+      try { g.dispose(); } catch { /* already gone with its context */ }
+      return;
+    }
+    // A browser without WebGL says so once; asking again on every push
+    // would build and throw away a renderer each time.
+    if (p.noWebgl || typeof WebglAddon === "undefined") return;
+    try {
+      const g = new WebglAddon.WebglAddon();
+      // A context the browser takes back is given up, and the pane asks for
+      // another the next time it comes on screen.
+      g.onContextLoss(() => {
+        if (p.webgl === g) p.webgl = null;
+        try { g.dispose(); } catch { /* already gone */ }
+      });
+      p.term.loadAddon(g);
+      p.webgl = g;
+    } catch {
+      /* Canvas rendering is a fine fallback. */
+      p.noWebgl = true;
+    }
   }
 
   /** reducedMotion reports whether the system has been asked for less
@@ -2302,6 +2390,7 @@
    *  every other window when the preference comes back round. */
   function chooseCursorStyle(shape) {
     prefs.cursorStyle = shape === "block" ? "" : shape;
+    sentPref("cursorStyle");
     applyCursorStyle();
     send({ cmd: "cursorStyle", text: shape });
     settingsChanged();
@@ -2361,6 +2450,40 @@
     return last === "y" && s.includes("$");
   }
 
+  /** terminalKey is a terminal's say over its own keys, and answers false for
+   *  a key the terminal is to leave alone. Ctrl+C with a selection sent ^C
+   *  and Ctrl+V sent ^V, so text could be copied out of a pane and pasted
+   *  into one only with the mouse. They go the way Windows Terminal has them:
+   *  Ctrl+C copies when something is selected and is ^C otherwise, Ctrl+Shift+C
+   *  copies, and Ctrl+V and Ctrl+Shift+V are left to the browser, which pastes
+   *  through xterm's own paste handling. A Mac copies and pastes with Cmd, and
+   *  its Ctrl keys stay the program's. */
+  function terminalKey(term, ev) {
+    if (onMac || ev.type !== "keydown" || !ev.ctrlKey || ev.altKey || ev.metaKey) return true;
+    let k = (ev.key || "").toLowerCase();
+    // A layout without Latin letters says which letter by the key's place.
+    if (/^[^\x00-\x7f]$/.test(k)) {
+      const m = /^Key([A-Z])$/.exec(ev.code || "");
+      if (m) k = m[1].toLowerCase();
+    }
+    if (k === "v") return false;
+    if (k !== "c" || (!ev.shiftKey && !term.hasSelection())) return true;
+    // Kept from the browser too, whose Ctrl+Shift+C opens its inspector.
+    ev.preventDefault();
+    const text = term.getSelection();
+    if (!text) return false;
+    // The selection goes once it is copied, as it does in Windows Terminal,
+    // so the next Ctrl+C interrupts the program rather than copying again.
+    term.clearSelection();
+    const failed = () => notice("The clipboard could not be reached, so nothing was copied", true);
+    try {
+      const clip = window.navigator && window.navigator.clipboard;
+      if (clip && clip.writeText) clip.writeText(text).catch(failed);
+      else failed();
+    } catch { failed(); }
+    return false;
+  }
+
   function sendInput(p, data) {
     sendBytes(p, new TextEncoder().encode(data));
   }
@@ -2371,8 +2494,14 @@
   function sendFocus(p) {
     if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ focus: true }));
   }
+  /** INPUT_FRAME is the most input one frame carries. The server takes a
+   *  frame of up to 4 MiB from a terminal and drops the connection over a
+   *  bigger one, so a paste of more than that was lost without a word. */
+  const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(bytes);
+    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) return;
+    if (bytes.length <= INPUT_FRAME) { p.ws.send(bytes); return; }
+    for (let at = 0; at < bytes.length; at += INPUT_FRAME) p.ws.send(bytes.subarray(at, at + INPUT_FRAME));
   }
 
   function connectPTY(p) {
@@ -2563,7 +2692,9 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
-      p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
+      const focused = !!tab && tab.focus === id;
+      p.wrap.classList.toggle("focused", focused);
+      speakIfFocused(p, focused);
       renderPaneOverlay(p, v);
     }
   }
@@ -2851,7 +2982,17 @@
   function renderPaneOverlay(p, v) {
     const needed = !!v.err || v.status === "exited";
     if (!needed) {
-      if (p.overlay) { p.overlay.remove(); p.overlay = null; }
+      if (p.overlay) {
+        // Restart on the cover had the keyboard, and it went with the cover
+        // when the process came back - onto nothing, so what was typed next
+        // reached no pane until something was clicked. It goes back to the
+        // terminal the button brought back, and only from the cover.
+        const held = p.overlay.contains(document.activeElement);
+        p.overlay.remove();
+        p.overlay = null;
+        p.overlayRestart = null;
+        if (held) p.term.focus();
+      }
       return;
     }
     const text = v.err || "The process exited.";
@@ -2878,6 +3019,7 @@
     box.append(row);
     p.body.append(box);
     p.overlay = box;
+    p.overlayRestart = restart;
     // The keyboard was left in the terminal under the cover, where nothing
     // typed went anywhere. It moves to Restart once, as the cover goes up,
     // and only for the pane being typed in: not from the rail or the top bar,
@@ -3100,7 +3242,13 @@
         if (q) { p = q; break; }
       }
     }
-    if (p) p.term.focus();
+    if (!p) return;
+    // A pane whose process has gone is covered, and its terminal takes no
+    // typing: sent there - by F6, a click on the tab on screen, a closed
+    // dialog - the keyboard was in a terminal nobody could see and nothing
+    // typed went anywhere. The cover's Restart is what can be used.
+    if (p.overlayRestart) p.overlayRestart.focus();
+    else p.term.focus();
   }
 
   /** dialogOpen reports whether anything is on screen that the keyboard could
@@ -3994,6 +4142,8 @@
 
   function setFontSize(px) {
     applyFontSize(px);
+    prefs.fontSize = fontSize;
+    sentPref("fontSize");
     send({ cmd: "fontSize", size: fontSize });
     notice("Font size " + fontSize + "px", false);
     settingsChanged();
@@ -4010,11 +4160,44 @@
     updatesOff: ["Flockdeck will check for new releases", "Flockdeck will not check for new releases"],
   };
 
+  /** What this window has changed and not yet heard back, by preference: each
+   *  value sent, oldest first, and when. The server answers every change with
+   *  all of the preferences, and a change made twice in quick succession - the
+   *  font made bigger twice, a switch pressed off and on - had the answer to
+   *  the first arrive after the second was made here, and put the first back
+   *  until the answer to the second came. Values are compared rather than
+   *  answers counted, because a change the server finds is no change at all,
+   *  or cannot save, is answered with nothing; and each is given up after a
+   *  few seconds, so one that is never answered does not hold the field. */
+  const pendingPrefs = new Map();
+  const PREF_ECHO_MS = 3000;
+  function sentPref(field) {
+    const sent = pendingPrefs.get(field) || [];
+    sent.push({ value: prefs[field], at: Date.now() });
+    pendingPrefs.set(field, sent);
+  }
+  /** keepPending is a push of the preferences with this window's own latest
+   *  changes kept where the push is the answer to an earlier one of them: it
+   *  carries a value sent from here before the last. A push carrying the last
+   *  value sent has caught up, and one carrying none of them is somebody
+   *  else's choice, from another window, and is taken as it is. */
+  function keepPending(incoming) {
+    const now = Date.now();
+    for (const [field, sent] of pendingPrefs) {
+      const live = sent.filter((s) => now - s.at < PREF_ECHO_MS);
+      const at = live.map((s) => s.value).lastIndexOf(incoming[field]);
+      if (at >= 0 && at < live.length - 1) { incoming[field] = prefs[field]; pendingPrefs.set(field, live.slice(at + 1)); }
+      else pendingPrefs.delete(field);
+    }
+    return incoming;
+  }
+
   /** setOff turns one of those preferences on or off. It takes effect here at
    *  once rather than when the server's copy comes back, so a switch pressed
    *  twice in quick succession reads what it was last set to. */
   function setOff(field, off) {
     prefs[field] = off;
+    sentPref(field);
     send({ cmd: PREF_CMD[field], kind: off ? "off" : "on" });
     notice(PREF_SAYS[field][off ? 1 : 0], false);
     if (field === "cursorSteady") applyCursorBlink();
@@ -4041,6 +4224,7 @@
    *  effect here at once, as they do. */
   function setScreenReader(on) {
     prefs.screenReader = on;
+    sentPref("screenReader");
     send({ cmd: "screenReader", kind: on ? "on" : "off" });
     notice(on ? "Screen reader support is on" : "Screen reader support is off", false);
     applyScreenReader();
@@ -4053,6 +4237,22 @@
     for (const p of panes.values()) {
       if (p.term.options.screenReaderMode !== on) p.term.options.screenReaderMode = on;
     }
+    // xterm has made each terminal's live region by now, all of them loud.
+    for (const p of panes.values()) speakIfFocused(p, p.wrap.classList.contains("focused"));
+  }
+
+  /** speakIfFocused lets only the focused pane's terminal read out what it
+   *  is sent. With screen reader support on, xterm keeps a live region in
+   *  every terminal and makes each one assertive, so in a tab of several
+   *  agents they all talked at once, over each other and over what was being
+   *  typed. The others' are off until the keyboard goes to them. */
+  function speakIfFocused(p, focused) {
+    if (!prefs.screenReader) return;
+    if (!p.liveRegion || !p.liveRegion.isConnected) p.liveRegion = p.host.querySelector(".live-region");
+    const r = p.liveRegion;
+    if (!r) return;
+    const want = focused ? "assertive" : "off";
+    if (r.getAttribute("aria-live") !== want) r.setAttribute("aria-live", want);
   }
 
   /** The typeface the terminals are drawn in where nobody has chosen one. */
@@ -4119,6 +4319,7 @@
         (prefs.fontFamily || "the default font");
     }
     prefs.fontFamily = family;
+    sentPref("fontFamily");
     applyFontFamily();
     send({ cmd: "fontFamily", text: family });
     notice(family ? "The terminals now use " + family : "The terminals use the default font again", false);
@@ -4155,6 +4356,8 @@
    *  both do with an answer. */
   function chooseScrollback(n) {
     applyScrollback(n);
+    prefs.scrollback = n;
+    sentPref("scrollback");
     send({ cmd: "scrollback", size: n });
     notice("Each terminal now keeps " + n.toLocaleString("en") + " lines", false);
     settingsChanged();
@@ -4456,6 +4659,9 @@
   function applyHello(msg) {
     keyTable = msg.keys || [];
     remoteWindow = !!msg.remote;
+    // The hello is what the server holds, after a drop that may have taken
+    // changes sent from here with it, so nothing sent before it is waited on.
+    pendingPrefs.clear();
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();
@@ -4465,6 +4671,10 @@
     });
     describeChrome();
     renderHints();
+    // The hello comes again with every reconnect, carrying the preferences
+    // as they are now - changed, perhaps, from another window while this one
+    // was away - and settings left open went on showing them as they were.
+    settingsChanged();
     // A terminal in a box does not advertise what is around it, and the
     // alternative to opening the help once is finding it by accident.
     if (!prefs.helpSeen) openHelp("getting-started");
@@ -4563,10 +4773,12 @@
     if (key === "+") { key = "="; shift = false; }
     // A layout that does not type Latin letters - Russian, Greek, Hebrew -
     // reports the key marked D as "в", so every Ctrl+Shift binding was dead
-    // on it. There the binding can only mean the physical key.
+    // on it. There the binding can only mean the physical key. The digit row
+    // too: on AZERTY the 0 key types à unless Shift is held, so Ctrl+0
+    // arrived as Ctrl+à and the font size could not be put back.
     if (/^[^\x00-\x7f]$/.test(key)) {
-      const m = /^Key([A-Z])$/.exec(e.code || "");
-      if (m) key = m[1].toLowerCase();
+      const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code || "");
+      if (m) key = (m[1] || m[2]).toLowerCase();
     }
     return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
   }
@@ -5368,7 +5580,28 @@
     const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs + ":" + p.panes).join("|");
     if (key === agentsKey) return;
     agentsKey = key;
-    if (dialog === "agents") send({ cmd: "agents" });
+    askAgents();
+  }
+
+  /** When the overview was last asked for because something it lists moved,
+   *  and the ask waiting for the second to pass. Each answer rebuilds the
+   *  whole list, and with agents busy in several projects the counts move
+   *  several times a second: asked for on every move, the list was rebuilt
+   *  under the pointer and the keyboard as fast as it could be drawn. The
+   *  first move is asked for at once, so an agent that stops to wait shows
+   *  straight away; after that it is at most once a second, and a move inside
+   *  the second is asked for when the second is up. */
+  const AGENTS_EVERY_MS = 1000;
+  let agentsAsked = 0;
+  let agentsTimer = 0;
+  function askAgents() {
+    clearTimeout(agentsTimer);
+    agentsTimer = 0;
+    if (dialog !== "agents") return;
+    const wait = agentsAsked + AGENTS_EVERY_MS - Date.now();
+    if (wait > 0) { agentsTimer = setTimeout(askAgents, wait); return; }
+    agentsAsked = Date.now();
+    send({ cmd: "agents" });
   }
 
   /** openAgents lists every pane in every open project. The tab bar only shows
@@ -5379,6 +5612,8 @@
     openOverlay("Agents", "status");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    clearTimeout(agentsTimer);
+    agentsTimer = 0;
     send({ cmd: "agents" });
   }
 
@@ -7660,13 +7895,30 @@
       // Enter sends. Shift+Enter is left to the field, which starts a new
       // line with it, so a prompt of several lines can be written here.
       else if (e.key === "Enter" && !e.shiftKey && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
+      // F6 and Shift+F6 leave the bar for the rest of the window, as they
+      // leave a terminal. The bar took them and did nothing, so from here the
+      // only way out without the mouse was closing it.
+      else if (sizing === "nextRegion" || sizing === "prevRegion") { claimKey(e); runAction(sizing); }
       return;
     }
 
     // Every other binding is dispatched from the action table, so what the
     // help says a key does is what the key does.
     const id = actionFor(e);
-    if (id && !editsText(e)) { claimKey(e); runAction(id); return; }
+    // Behind a dialog, the window's keys wait for it to close: they went on
+    // acting on what the dialog covers, and Ctrl+Shift+W pressed in the middle
+    // of a commit message closed a pane nobody could see. The font keys
+    // (above), the palette and the help are the exceptions, since each is
+    // about the window rather than a pane in it. The key is still kept from
+    // the browser, whose own idea of Ctrl+Shift+W is closing the window.
+    const covered = !!modalRoot();
+    if (id && !editsText(e)) {
+      if (covered && id !== "palette" && id !== "help") { e.preventDefault(); return; }
+      claimKey(e);
+      runAction(id);
+      return;
+    }
+    if (covered) return;
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.
@@ -7677,10 +7929,22 @@
     // its code, and Alt+0233 for é switched to tab 2 and then to tab 3.
     const row = /^Digit([1-9])$/.exec(e.code || "");
     const keypad = /^Numpad/.test(e.code || "");
-    const n = row ? row[1] : (!keypad && /^[1-9]$/.test(e.key || "") ? e.key : "");
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
+    const typed = /^[1-9]$/.test(e.key || "") ? e.key : "";
+    // On a Mac, Option with a digit is how most layouts type a character -
+    // [ on a German Mac is Option+5, | is Option+7 - and read by position it
+    // switched tab instead, so those characters could not be typed into a
+    // pane at all. There it is a tab number only where it typed the digit,
+    // and Cmd with a digit, which is how a Mac picks a tab anyway, does it.
+    const n = onMac ? typed : row ? row[1] : (!keypad ? typed : "");
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && n) {
       claimKey(e);
       runAction("selectTab", n);
+      return;
+    }
+    const cmd = row ? row[1] : typed;
+    if (onMac && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && cmd) {
+      claimKey(e);
+      runAction("selectTab", cmd);
     }
   }, true);
 
@@ -7786,8 +8050,15 @@
     const a = e.target.closest && e.target.closest("a[href]");
     if (!a || a.target === "_blank" || !/^https?:/i.test(a.getAttribute("href"))) return;
     e.preventDefault();
-    window.open(a.getAttribute("href"), "_blank", "noopener,noreferrer");
+    openExternal(a.getAttribute("href"));
   });
+
+  /** openExternal opens a web address in a window of its own, and nothing
+   *  that is not one: a terminal's link can name any scheme at all. */
+  function openExternal(url) {
+    if (!/^https?:/i.test(String(url || ""))) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
   // Asking on the first interaction rather than at load avoids a permission
   // prompt before the user has done anything. A keystroke is an interaction as
   // much as a click, and this is an application built to be driven from the
