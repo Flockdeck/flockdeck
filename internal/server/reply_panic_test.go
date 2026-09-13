@@ -14,9 +14,7 @@ import (
 // project, over one listing.
 func TestAReplyThatPanicsLeavesTheInstanceRunning(t *testing.T) {
 	srv, _ := newTestServer(t)
-	was := allConversations
-	t.Cleanup(func() { allConversations = was })
-	allConversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
+	srv.conversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
 		panic("a transcript nobody expected")
 	}
 

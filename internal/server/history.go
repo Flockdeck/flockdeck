@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
@@ -83,10 +84,16 @@ func askedForListing(c *controlClient) uint64 { return listings.asked(c) }
 // window is waiting for, and forgets the window when it is.
 func answerListing(c *controlClient, n uint64) bool { return listings.answer(c, n) }
 
-// allConversations reads every agent's stored conversations. It is a variable
-// so a test can have one agent's store fail beside another's that works, which
-// no file system arrangement does reliably everywhere.
-var allConversations = transcript.All
+// conversationSource reads every agent's stored conversations: transcript.All,
+// or in a test one agent's store failing beside another's that works, which no
+// file system arrangement does reliably everywhere.
+type conversationSource func([]agent.Spec, string) ([]transcript.Conversation, error)
+
+// allConversations is the conversationSource every server is made with. It is
+// read once as the server is made, into Server.conversations, and that field
+// is what a test replaces: a listing goroutine an earlier test's server left
+// running would otherwise be reading this while the next test wrote it.
+var allConversations conversationSource = transcript.All
 
 // listConversations answers a window's request for the project's conversation
 // history. Reading transcripts touches the disk, so it happens away from the
@@ -124,7 +131,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 			return answerListing(c, asked)
 		}
 		msg := conversationsMsg{Type: "conversations", Cwd: dir}
-		items, err := allConversations(transcript.Agents(), dir)
+		items, err := s.conversations(transcript.Agents(), dir)
 		// One agent's store being unreadable is worth saying, but not at the
 		// price of what the others found. Only a listing with nothing in it
 		// carries the error: the panel draws an error in place of the whole

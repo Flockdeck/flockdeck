@@ -151,6 +151,9 @@ type Server struct {
 	// makes, and a goroutine an earlier test's server left running would
 	// otherwise be reading them while the next test writes them.
 	paneLookup, usageRefresh time.Duration
+	// conversations is allConversations, read once as the server is made, for
+	// the same reason: a test replaces it on its own server, not for them all.
+	conversations conversationSource
 
 	// mux is every route the window uses. It is kept so that the same routes
 	// can be served a second time, to windows reached through the relay.
@@ -216,9 +219,10 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 
-		paneLookup:   paneLookup,
-		usageRefresh: usageRefresh,
-		book:         spend.NewBook(),
+		paneLookup:    paneLookup,
+		usageRefresh:  usageRefresh,
+		conversations: allConversations,
+		book:          spend.NewBook(),
 	}
 
 	mux := http.NewServeMux()

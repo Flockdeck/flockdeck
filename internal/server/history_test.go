@@ -175,9 +175,7 @@ func TestOneUnreadableStoreDoesNotHideTheRest(t *testing.T) {
 	root := srv.activeRoot()
 
 	// Claude's store has a conversation; the chat client's cannot be read.
-	was := allConversations
-	t.Cleanup(func() { allConversations = was })
-	allConversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
+	srv.conversations = func([]agent.Spec, string) ([]transcript.Conversation, error) {
 		return []transcript.Conversation{{ID: "11111111-0000-0000-0000-000000000000", Agent: "claude", Summary: "a prompt"}},
 			errors.New("read chats: access is denied")
 	}
