@@ -427,8 +427,10 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 // two, or left a shell waiting on the closing quote of its apostrophe.
 func cliWord(s string) string {
 	// Single quotes keep every character, where double quotes still let sh
-	// read a $, a backtick or a double quote inside them.
-	if strings.ContainsAny(s, "$`\"") {
+	// read a $, a backtick, a double quote or a backslash inside them -- a
+	// name ending in a backslash escaped the closing quote and left the shell
+	// waiting on another -- and let bash and zsh read a ! as a history event.
+	if strings.ContainsAny(s, "$`\"\\!") {
 		return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`
 	}
 	if s != "" && !strings.ContainsFunc(s, func(r rune) bool {

@@ -888,6 +888,27 @@ func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
 	}
 }
 
+// A name in a command the user is told to run pastes into a shell as the one
+// word it is. In double quotes, "desk\" was a quote the backslash escaped, and
+// the shell waited on another, and bash and zsh read "hi!" as a history event.
+func TestANameInACommandPastesAsItStands(t *testing.T) {
+	for name, want := range map[string]string{
+		"desk":        `desk`,
+		"new desk":    `"new desk"`,
+		"Jim's desk":  `"Jim's desk"`,
+		`desk\`:       `'desk\'`,
+		`a\b`:         `'a\b'`,
+		"hi!":         `'hi!'`,
+		"Jim's desk!": `'Jim'\''s desk!'`,
+		"$HOME":       `'$HOME'`,
+		"":            `""`,
+	} {
+		if got := cliWord(name); got != want {
+			t.Errorf("cliWord(%q) = %s, want %s", name, got, want)
+		}
+	}
+}
+
 // A new name given to an enrolled machine is something to do, and the refusal
 // names the command that does it; the name it already has is nothing to do.
 func TestRemoteEnableWithANewName(t *testing.T) {
