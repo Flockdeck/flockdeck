@@ -5,13 +5,16 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 // TestStatusWithinSaysWhenGitDidNotAnswer makes a checkout slow on purpose,
-// with an fsmonitor hook that does not return until it is let go, which git
-// status waits on. The read has to be given up on at its deadline and say it
+// with a clean filter that does not return until it is let go: git status runs
+// it on a tracked file whose times have changed, to see whether its content
+// has, and waits for it. (It was an fsmonitor hook, which git run by Flockdeck
+// no longer runs.) The read has to be given up on at its deadline and say it
 // was, rather than come back empty like a checkout git had nothing to say
 // about: the pane headers tell the two apart.
 func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
@@ -27,31 +30,49 @@ func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
 	base := t.TempDir()
 	release := filepath.Join(base, "release")
 	gone := filepath.Join(base, "gone")
-	hook := filepath.Join(base, "fsmonitor.sh")
-	// Bounded in any case, so a hook nobody lets go of still ends.
-	script := "#!/bin/sh\ni=0\nwhile [ ! -e '" + filepath.ToSlash(release) + "' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n" +
+	hook := filepath.Join(base, "clean.sh")
+	// Bounded in any case, so a filter nobody lets go of still ends.
+	script := "#!/bin/sh\ncat >/dev/null\ni=0\nwhile [ ! -e '" + filepath.ToSlash(release) + "' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n" +
 		": > '" + filepath.ToSlash(gone) + "'\n"
 	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Registered after both directories, so it runs before either is removed:
-	// the hook is sitting in the checkout.
+	// the filter is sitting in the checkout.
 	// A process sitting in a directory keeps Windows from removing it, and a
-	// shell there can take seconds to notice and go, so the hook says when it
-	// has finished and that is waited for.
+	// shell there can take seconds to notice and go, so the filter says when
+	// it has finished and that is waited for. On Windows giving up on git
+	// ends the filter with it, which never says so, and there it is enough
+	// that everything git started has gone.
+	var err error
 	t.Cleanup(func() {
 		_ = os.WriteFile(release, nil, 0o644)
 		for end := time.Now().Add(20 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(gone); err == nil {
 				return
 			}
+			select {
+			case <-Exited(err):
+				if runtime.GOOS == "windows" {
+					return
+				}
+			default:
+			}
 		}
 	})
-	gitRun(t, repo, "config", "core.fsmonitor", "'"+filepath.ToSlash(hook)+"'")
+	gitRun(t, repo, "config", "filter.slow.clean", "'"+filepath.ToSlash(hook)+"'")
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("README.md filter=slow\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(repo, "README.md"), later, later); err != nil {
+		t.Fatal(err)
+	}
 
 	const deadline = 300 * time.Millisecond
 	start := time.Now()
-	st, err := StatusWithin(repo, deadline)
+	var st Status
+	st, err = StatusWithin(repo, deadline)
 	took := time.Since(start)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a checkout git did not answer for in time gave err = %v, want a deadline exceeded", err)
