@@ -434,7 +434,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
          Flockdeck itself only contacts dl.flockdeck.ai to check for updates,
-         with GitHub as a mirror, and the relay if you turn on remote access. The exception is the built-in API
+         with GitHub as a mirror; the relay, if you turn on remote access;
+         your git remotes, when you push, pull or fetch; and, when you store
+         an API key, that provider, once, to check the key. The exception is the built-in API
          agents: they send your conversations to the model provider you
          choose, with your own key. Routing and the cost estimates add no
          connection of their own. The <a href="privacy.html">privacy

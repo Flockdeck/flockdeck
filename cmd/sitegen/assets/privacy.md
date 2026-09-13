@@ -80,7 +80,10 @@ The app makes these network connections of its own.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
 - **Model providers**, only if you use a built-in API agent (Claude API,
-  OpenAI API, Gemini API, or an endpoint you name). The app then sends your
+  OpenAI API, Gemini API, or an endpoint you name). When you store a key
+  with `flockdeck keys`, the app makes one request with it to that
+  provider, asking for its list of models, to check the key is accepted;
+  the request carries nothing else. The app then sends your
   conversation to the provider you chose, using your own API key. That
   includes the files and command output the agent reads, the working
   folder's path, and your operating system's name. What the provider does
