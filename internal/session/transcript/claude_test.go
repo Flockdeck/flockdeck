@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -1846,5 +1847,71 @@ func TestConversationsStopRereadingATranscriptClaudeNeverNamed(t *testing.T) {
 	}
 	if got[0].Messages != was+1 {
 		t.Errorf("entry count = %d, want %d", got[0].Messages, was+1)
+	}
+}
+
+// TestARenamedConversationIsListedByItsName covers /rename. Claude Code keeps
+// the name as an entry of its own, appended when it is given -- long after the
+// opening entries, and again whenever it rewrites its bookkeeping -- and its
+// own /resume lists the conversation by it ahead of anything else. The history
+// overlay went on listing it by its opening prompt, so the name somebody gave
+// a conversation to find it by was the one thing that could not find it.
+func TestARenamedConversationIsListedByItsName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	dir := filepath.Join(home, "projects", projectSlug(cwd))
+	const id = "12345678-1234-1234-1234-123456789012"
+
+	lines := []string{
+		`{"type":"user","cwd":"` + jsonPath(cwd) + `","message":{"role":"user","content":"fix the build"}}`,
+		`{"type":"ai-title","aiTitle":"Build fixes","sessionId":"` + id + `"}`,
+	}
+	for i := 0; i < summaryScanLimit+50; i++ {
+		lines = append(lines, `{"type":"assistant","cwd":"`+jsonPath(cwd)+`","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}`)
+	}
+	lines = append(lines, `{"type":"custom-title","customTitle":"first name","sessionId":"`+id+`"}`)
+	lines = append(lines, `{"type":"assistant","cwd":"`+jsonPath(cwd)+`","message":{"role":"assistant","content":[{"type":"text","text":"more"}]}}`)
+	lines = append(lines, `{"type":"custom-title","customTitle":"the release work","sessionId":"`+id+`"}`)
+	path := writeTranscript(t, dir, id, lines...)
+
+	got, err := claudeConversations(cwd)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("listed %+v (%v), want the one conversation", got, err)
+	}
+	if got[0].Summary != "the release work" {
+		t.Errorf("summary = %q, want the name it was last given", got[0].Summary)
+	}
+
+	// Renamed again as it goes on: only what was appended is read, and the
+	// name in it is the one that counts.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString(`{"type":"custom-title","customTitle":"shipped","sessionId":"` + id + `"}` + "\n")
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	touch(t, path, time.Now().Add(time.Minute))
+	if got, _ := claudeConversations(cwd); len(got) != 1 || got[0].Summary != "shipped" {
+		t.Errorf("after another rename: %+v, want it listed as \"shipped\"", got)
+	}
+}
+
+// TestARenameIsFoundAcrossReads covers the mark falling across two reads of
+// the file, which on a transcript of any size it sometimes will: fed a byte at
+// a time, every occurrence is split, and the last is still where it is.
+func TestARenameIsFoundAcrossReads(t *testing.T) {
+	text := "{}\n{" + string(customTitleMark) + `,"customTitle":"a"}` + "\nfiller\n{" + string(customTitleMark) + `,"customTitle":"b"}` + "\n"
+	want := int64(strings.LastIndex(text, string(customTitleMark)))
+	c := &countingReader{r: iotest.OneByteReader(strings.NewReader(text)), last: '\n', mark: customTitleMark, markAt: -1}
+	drain(c)
+	if c.markAt != want {
+		t.Errorf("mark found at %d, want %d", c.markAt, want)
+	}
+	if c.newlines != 4 {
+		t.Errorf("counted %d line breaks, want 4", c.newlines)
 	}
 }
