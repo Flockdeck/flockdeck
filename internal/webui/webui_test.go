@@ -4312,6 +4312,35 @@ assert.deepStrictEqual(sent.tasks, ["the second pane's plan"]);
 `)
 }
 
+// An agent's control holds agent and model together, and an empty model means
+// whichever model the agent is set to. For an agent whose models have no empty
+// entry - the model APIs - nothing matched, and the control fell back to its
+// first entry: another agent, or one not installed. Settings showed the wrong
+// default, and a fan-out could start the wrong agent.
+func TestAnAgentChosenWithoutAModelShowsItsOwnDefault(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const api = { id: "anthropic", name: "Anthropic API", runner: "api", available: true, defaultModel: "claude-sonnet",
+  models: [{ id: "claude-opus", name: "Opus" }, { id: "claude-sonnet", name: "Sonnet" }] };
+h.recv(fixture({ agents: catalog({ items: catalog().items.concat([api]),
+  default: { agent: "anthropic", model: "" }, project: { agent: "anthropic", model: "retired" } }) }));
+h.press("settings");
+h.click(h.$("settings-tab-agents"));
+assert.strictEqual(h.$("set-agent-all").value, "anthropic\nclaude-sonnet",
+  "the default for every project is not shown as the agent's own default model");
+assert.strictEqual(h.$("set-agent-project").value, "anthropic\nclaude-opus",
+  "a model the agent no longer has was shown as another agent");
+
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["a task"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
+  agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
+           { id: "anthropic", name: "Anthropic API", default: "retired", models: [{ id: "claude-opus" }, { id: "claude-sonnet" }] }] });
+const run = h.$("overlay-body").querySelector("div.fan-agent").querySelector("select");
+assert.strictEqual(run.value, "anthropic\nclaude-opus", "the run would start another agent");
+`)
+}
+
 // A pane started on a routed model says so in its header, and which way.
 func TestAPaneOnARoutedModelSaysSo(t *testing.T) {
 	runFrontEnd(t, `

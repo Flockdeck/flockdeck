@@ -6548,12 +6548,31 @@
       });
       sel.append(group);
     });
-    sel.value = value || "";
+    sel.value = agentValue(agents, value);
     // A choice naming an agent the catalog no longer has leaves the control
     // showing nothing at all, which reads as a control that is broken rather
     // than as one whose agent has gone.
     if (sel.selectedIndex < 0) sel.selectedIndex = 0;
     return sel;
+  }
+
+  /** agentValue is the entry of an agentSelect that stands for value. An empty
+   *  model is whatever the agent is set to, and for an agent whose models have
+   *  no empty entry - the model APIs - it matched nothing, so the control fell
+   *  back to its first entry: another agent, or one not installed. Settings
+   *  then showed the wrong default and a fan-out could start the wrong agent.
+   *  An empty model is the agent's default model where that is one of its
+   *  entries, and an agent found without the model named is on its own first
+   *  model rather than on somebody else's. */
+  function agentValue(agents, value) {
+    const [id, model] = pickParts(value);
+    const a = (agents || []).find((x) => x.id === id);
+    if (!a) return value || "";
+    const ids = (a.models && a.models.length ? a.models : [{ id: a.default || "" }]).map((mo) => mo.id || "");
+    let pick = ids[0];
+    if (ids.includes(model)) pick = model;
+    else if (!model && ids.includes(a.default || "")) pick = a.default || "";
+    return a.id + "\n" + pick;
   }
 
   /** modelLabel is a model as one line of a select: its name and note, then in
