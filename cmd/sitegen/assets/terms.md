@@ -1,6 +1,6 @@
 # Terms of service
 
-*Last updated: 12 September 2026*
+*Last updated: 13 September 2026*
 
 These terms cover the Flockdeck relay at remote.flockdeck.ai and this website.
 They are an agreement between you and Jim Wright, an individual based in the
@@ -16,8 +16,11 @@ provided to you under these terms.
 
 ## The shared relay
 
-The shared relay is free. It connects your devices to Flockdeck running on
-your own desktops, so that you can use your desktops from anywhere.
+The shared relay connects your devices to Flockdeck running on your own
+desktops, so that you can use your desktops from anywhere.
+
+It is free to use for now. A paid plan for it is coming. We'll tell you
+before it starts, and you won't be charged unless you choose to subscribe.
 
 - **Your desktops, your responsibility.** You are responsible for what runs on
   your desktops, for the devices you pair, and for keeping them secure. Anyone
@@ -49,7 +52,7 @@ remote access off, which deletes your data from it.
 
 ## Availability and changes
 
-The shared relay is provided free and **as is**. We aim to keep it running,
+The shared relay is provided **as is**. We aim to keep it running,
 but it may go down, be changed or be withdrawn, sometimes without notice. We
 make no promise that it will be available, uninterrupted or error-free.
 
@@ -58,7 +61,7 @@ coming. It will have terms of its own.
 
 ## Liability
 
-The shared relay is free, so to the extent the law allows, we are not liable
+While the shared relay is free, to the extent the law allows, we are not liable
 for any loss that comes from using it or from it being unavailable. This
 includes lost data, lost work, lost profits, and anything done through a
 device you paired.
