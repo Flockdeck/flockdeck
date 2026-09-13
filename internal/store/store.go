@@ -278,6 +278,9 @@ func legacyPath(root string) (string, error) {
 // pre-normalization name, along with the path it was read from so the caller
 // can adopt it once it has been checked. A missing file is the ordinary case:
 // it simply means nothing was saved under the old name either.
+//
+// The path comes back with a read that failed too, so the caller can record
+// that file as unread: it is the one holding the user's tabs.
 func readLegacy(root string) (string, []byte, error) {
 	old, err := legacyPath(root)
 	if err != nil {
@@ -287,10 +290,7 @@ func readLegacy(root string) (string, []byte, error) {
 		return "", nil, fs.ErrNotExist
 	}
 	data, err := readState(old)
-	if err != nil {
-		return "", nil, err
-	}
-	return old, data, nil
+	return old, data, err
 }
 
 // normalizeRoot puts a workspace path into the one form used for comparing and
@@ -342,6 +342,14 @@ func load(root string, restoring bool) (*State, error) {
 	legacy := ""
 	if errors.Is(err, fs.ErrNotExist) {
 		legacy, data, err = readLegacy(root)
+		// The old name is then the file that could not be read, and it is not
+		// the one the save writes: that goes to the name in use now, and every
+		// load after it finds that and never looks at the old name again. Left
+		// unrecorded, the tabs it held stayed under a name nothing reads, and
+		// nothing said where. Recorded, the save moves it aside and says so.
+		if restoring && legacy != "" {
+			noteRead(legacy, err)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -509,6 +517,14 @@ func Save(root string, s *State) error {
 	}
 	if err := keepUnread(p, layoutWhat(s.Root)); err != nil {
 		return fmt.Errorf("write layout: %w", err)
+	}
+	// A layout still under the name an earlier build gave it, which could not
+	// be read, is moved aside too. The save does not write over it, but once
+	// this save is there nothing reads the old name again.
+	if old, err := legacyPath(root); err == nil && old != "" {
+		if err := keepUnread(old, layoutWhat(s.Root)); err != nil {
+			return fmt.Errorf("write layout: %w", err)
+		}
 	}
 	if err := writeAtomic(p, data); err != nil {
 		return fmt.Errorf("write layout: %w", err)
