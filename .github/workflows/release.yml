@@ -189,6 +189,24 @@ jobs:
             echo "::error::could not ask GitHub whether $TAG is released already, so it has been neither created nor added to"
             exit 1
           fi
+          # gh release create has not always carried --latest=false through
+          # to GitHub: with files to upload it makes a draft and publishes it
+          # afterwards, and the flag has been lost on the way. So the release
+          # is told again, through the API by its id, that it is not the
+          # latest, and the latest is asked for: if it is not the newer
+          # release any more, that one is made the latest again.
+          if [ -n "$latest" ]; then
+            id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+            case "$id" in "" | *[!0-9]*) echo "::error::could not find $TAG's release id, to keep $current the latest"; exit 1 ;; esac
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f make_latest=false >/dev/null
+            now=$(gh release view --json tagName --jq .tagName)
+            if [ "$now" != "$current" ]; then
+              echo "GitHub's latest release is $now; making $current the latest again"
+              id=$(gh release view "$current" --json databaseId --jq .databaseId)
+              case "$id" in "" | *[!0-9]*) echo "::error::could not find $current's release id, to make it the latest again"; exit 1 ;; esac
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f make_latest=true >/dev/null
+            fi
+          fi
 
       # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
       # behind DigitalOcean's CDN that the updater, the install scripts and the
