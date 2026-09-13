@@ -290,6 +290,30 @@ func (f streamFailure) err() error {
 	return fmt.Errorf("%s", redactKeys(msg))
 }
 
+// unreadChunk is what a chunk of a stream that is not in the wire's shape
+// amounts to: an error where it is words a server wrote in place of a chunk,
+// or an error in a shape of its own, and nothing where it is JSON this wire
+// does not read.
+//
+// Passed over, the first two were lost: a proxy's "upstream request timeout"
+// in the stream ended the answer as a dropped connection ends one, and an
+// error with a field of an unexpected type said nothing at all. JSON that is
+// not an error -- content sent as a list of parts, by a server that does --
+// is no reason to end an answer that is otherwise arriving.
+func unreadChunk(data string) error {
+	b := []byte(data)
+	if !json.Valid(b) {
+		return fmt.Errorf("the endpoint sent this in place of an answer: %s", redactKeys(apiMessage(b)))
+	}
+	var loose struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(b, &loose) == nil && len(loose.Error) > 0 && string(loose.Error) != "null" {
+		return errors.New(redactKeys(apiMessage(b)))
+	}
+	return nil
+}
+
 // cutOffError is an answer that stopped because it reached a limit on its
 // length. What was written of it stands, and is the start of the answer rather
 // than a failed one: the way on is to ask for the rest, not to ask again.

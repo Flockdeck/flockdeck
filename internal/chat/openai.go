@@ -182,7 +182,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			Error streamFailure `json:"error"`
 		}
 		if json.Unmarshal([]byte(data), &chunk) != nil {
-			return nil
+			return unreadChunk(data)
 		}
 		if err := chunk.Error.err(); err != nil {
 			return err
