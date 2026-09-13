@@ -119,9 +119,11 @@ desk.
 
 Releases are published at `dl.flockdeck.ai` as one archive per platform, with
 a `checksums.txt` beside them, signed with the release key that is built into
-Flockdeck. GitHub carries every release too, signed the same way: when
-`dl.flockdeck.ai` cannot be reached, or what it serves is not signed by the
-release key, Flockdeck downloads from GitHub instead and says why in its log.
+Flockdeck. A second, standby key, held offline and used only if the first is
+ever lost or compromised, has been trusted alongside it since v0.3.5. GitHub
+carries every release too, signed the same way: when `dl.flockdeck.ai` cannot
+be reached, or what it serves is not signed by a trusted key, Flockdeck
+downloads from GitHub instead and says why in its log.
 Wherever it comes from, the download is checked against its signed SHA-256
 before anything is replaced, and a download that does not match is thrown away
 rather than installed.

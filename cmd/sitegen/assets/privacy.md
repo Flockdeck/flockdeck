@@ -142,13 +142,17 @@ routing chose for it. Remote access is **not end-to-end encrypted.**
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 
-Notifications are the exception. When an agent needs you and you aren't
-using that pane, your desktop encrypts a notification for each device you
-turned notifications on for, with that device's own keys, before it leaves
-your computer. The relay adds its signature and posts it to the device's push
-service, and neither can read it. It says which pane needs you, with its
-project, and on which desktop; if you choose notifications without names, it
-says only how many agents need you, and on which desktop.
+Notifications are the exception. When an agent has been waiting on you for a
+while and you haven't touched this computer — no keyboard or mouse input in
+any application for two minutes, or its screen is locked — your desktop
+encrypts a notification for each device you turned notifications on for, with
+that device's own keys, before it leaves your computer. Whether you are at
+this computer is worked out here, on this computer, and is never sent
+anywhere, encrypted or not. The relay adds its signature and posts the
+notification to the device's push service, and neither can read it. It says
+which pane needs you, with its project, and on which desktop; if you choose
+notifications without names, it says only how many agents need you, and on
+which desktop.
 
 When a paired device reaches your desktop, the relay passes your desktop the
 device's IP address, its identifier and its name, along with the headers its
@@ -191,12 +195,18 @@ reached, remove it from one of your paired devices, or email us.
 
 ### Cookies
 
-The relay sets one cookie, on a device you pair. It keeps that device signed
-in. It is strictly necessary for remote access to work, lasts up to 30 days,
-and is removed when you sign out. The relay's web client also remembers three
-display preferences in your browser's local storage: notifications, zoom and
-fit to screen. Neither is used for tracking, and neither is shared with
-anyone.
+The relay sets a cookie on a device you pair, that keeps it signed in. It is
+strictly necessary for remote access to work, lasts up to 30 days, and is
+removed when you sign out. Opening a desktop's own window (**Full
+interface**) sets a second cookie, `__Host-fdr_desk`, scoped to that
+desktop's own address alone, so a page from one desktop cannot use another's
+session; it carries no permission of its own, is checked against your account
+on every request, and stops working the moment the device or the desktop is
+removed. Getting there uses a one-time code, kept in the relay's memory for
+60 seconds and good once, never written to a cookie or stored any longer. The
+relay's web client also remembers three display preferences in your
+browser's local storage: notifications, zoom and fit to screen. None of this
+is used for tracking, or shared with anyone.
 
 ## This website
 
