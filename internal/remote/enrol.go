@@ -122,10 +122,15 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 		return nil, false, err
 	}
 	cfg = &Config{Relay: relay, HostID: reg.HostID, AccountID: reg.AccountID, Token: reg.Token, Name: name}
-	if err := cfg.Save(); err != nil {
+	if err := saveConfig(cfg); err != nil {
 		// The relay now has a host that nothing here can speak for. Take it
 		// back off rather than leave it listed on every device for good.
-		_ = NewClient(cfg, version).Unregister(ctx)
+		//
+		// Not on ctx alone: the window gives the whole of an Enable one
+		// budget, and a relay slow to register can leave none of it for
+		// this, when the request failed at once and the host stayed listed.
+		// The call still has its own requestTimeout.
+		_ = NewClient(cfg, version).Unregister(context.WithoutCancel(ctx))
 		return nil, false, err
 	}
 	return cfg, replaced, nil
@@ -133,6 +138,9 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 
 // hostname is os.Hostname, a variable so that a test can have it fail.
 var hostname = os.Hostname
+
+// saveConfig is Config.Save, a variable so that a test can have it fail.
+var saveConfig = (*Config).Save
 
 // hostName is what a machine is called on devices when nobody says: its host
 // name, without the ".local" a Mac adds for its own network, which is not

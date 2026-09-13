@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1119,6 +1120,30 @@ func TestAReloadAfterCloseStartsNothing(t *testing.T) {
 	}
 	if s, ok := m.Status(); ok {
 		t.Errorf("after Close, a reload started a tunnel (%v)", s.State)
+	}
+}
+
+// A registration that cannot be saved is taken back off the relay, even when
+// the caller's time has run out by then: the window gives the whole of an
+// Enable one budget, and a relay slow to register can use all of it. The
+// cleanup went on that same context, failed at once, and left a host on the
+// relay that nothing here could speak for.
+func TestARegistrationThatCannotBeSavedIsTakenBackWhenTimeHasRunOut(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	saveConfig = func(*Config) error { cancel(); return errors.New("the disk is full") }
+	t.Cleanup(func() { saveConfig = (*Config).Save })
+
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"}); err == nil || !strings.Contains(err.Error(), "the disk is full") {
+		t.Fatalf("Enable = %v, want the save's failure", err)
+	}
+	f.mu.Lock()
+	calls := append([]string(nil), f.calls...)
+	f.mu.Unlock()
+	if !slices.Contains(calls, "DELETE /api/v1/host") {
+		t.Errorf("the registration was left on the relay; it saw:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
