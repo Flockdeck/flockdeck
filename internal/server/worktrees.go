@@ -257,6 +257,11 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	asked := worktreeListings.asked(c)
 	go func() {
 		defer s.survive("creating a worktree")
+		// The listing is sent however this ends, a refusal included. Asking
+		// for it above made any listing the panel was still waiting on out of
+		// date, and one that never came left the panel on "Loading…" -- or on
+		// a list from before -- until it was opened again.
+		defer s.sendWorktrees(c, root, asked)
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			c.notify("a branch name is required", true)
@@ -270,7 +275,6 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 			return
 		}
 		c.notify("created "+filepath.Base(path), false)
-		s.sendWorktrees(c, root, asked)
 	}()
 }
 
@@ -279,6 +283,7 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.survive("removing a worktree")
+		defer s.sendWorktrees(c, root, asked) // as addWorktree's
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
 		// explain why everything it does from then on fails, and whatever it
@@ -305,7 +310,6 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 			return
 		}
 		c.notify("removed "+filepath.Base(path), false)
-		s.sendWorktrees(c, root, asked)
 	}()
 }
 
@@ -314,12 +318,12 @@ func (s *Server) pruneWorktrees(c *controlClient) {
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.survive("pruning worktrees")
+		defer s.sendWorktrees(c, root, asked) // as addWorktree's
 		pruned, err := gitx.Prune(root)
 		if err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
 		c.notify(prunedSummary(pruned), false)
-		s.sendWorktrees(c, root, asked)
 	}()
 }
