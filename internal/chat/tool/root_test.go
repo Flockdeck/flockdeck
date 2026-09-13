@@ -186,7 +186,20 @@ func TestANameThatOnlyLowerCasesToTheRootsIsOutsideIt(t *testing.T) {
 		if _, err := call(t, &writeFile{root: root}, map[string]any{"path": p, "content": "x"}); !errors.Is(err, ErrOutsideRoot) {
 			t.Errorf("writing %q: %v; want a refusal", p, err)
 		}
-		if _, err := os.Stat(filepath.Join(parent, sibling)); err == nil {
+		// On Windows the name is a folder of its own, and must not have been
+		// made. On macOS, where APFS folds case the way Unicode does, the
+		// Kelvin sign's name is the working directory itself: refusing it
+		// there refuses a path that was inside, which is the safe mistake,
+		// and finding the root by it is not a folder made beside it.
+		info, err := os.Stat(filepath.Join(parent, sibling))
+		if err != nil {
+			continue
+		}
+		rootInfo, rerr := os.Stat(root.Dir())
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if !os.SameFile(info, rootInfo) {
 			t.Errorf("%s was made beside the working directory", sibling)
 		}
 	}
