@@ -820,3 +820,30 @@ h.press("findInTerminal");
 assert.strictEqual(input.value, "deadlock", "moving the bar to another pane dropped what was typed");
 `)
 }
+
+// The disconnected panel covers the whole window, and the shortcuts went on
+// running under it: a binding opened the palette or the find bar out of sight,
+// and Escape closed the dialog behind the panel and put the keyboard in a
+// terminal nobody could see. While it is up, only Tab and Enter do anything,
+// and they do it in the panel.
+func TestNothingBehindTheDisconnectedPanelAnswersTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.control.close();
+assert.ok(!h.$("disconnected").hidden, "the panel did not come up");
+h.terms.forEach((t) => { t.focused = false; });
+
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape closed the dialog behind the disconnected panel");
+assert.ok(!h.terms.some((t) => t.focused), "Escape put the keyboard in a terminal behind the panel");
+h.press("findInTerminal");
+assert.ok(h.$("searchbar").hidden, "a shortcut ran behind the disconnected panel");
+assert.ok(h.doc.activeElement === h.$("retry"), "the keyboard left the panel");
+
+const before = h.controls().length;
+h.key({ key: "Enter" });
+assert.strictEqual(h.controls().length, before + 1, "Enter no longer presses Reconnect");
+`)
+}

@@ -7260,6 +7260,12 @@
       return;
     }
     if (e.key === "Tab" && trapTab(e)) return;
+    // Nothing behind the disconnected panel can be used, and the shortcuts
+    // went on running under it: the palette opened out of sight and took what
+    // was typed into its hidden field, and Escape closed a dialog behind the
+    // panel and put the keyboard in a terminal. Tab is kept inside the panel
+    // above, and Enter is left to press its button.
+    if (!$("disconnected").hidden) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
     if (e.key === "Escape" && railMenuOpen() && $("overlay").hidden) { e.preventDefault(); closeRailMenu(true); return; }
     // Anywhere in the bar, not only in its field: after a click on one of its
