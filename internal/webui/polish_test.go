@@ -214,6 +214,7 @@ h.recv(fixture());
 const n = h.$("notice");
 h.recv({ type: "notice", text: "pushed 2 commits to origin/main", error: false });
 h.dispatch(n, new h.Ev("pointerenter", { target: n }));
+h.dispatch(n, new h.Ev("pointermove", { target: n }));
 h.recv({ type: "notice", text: "fetched origin", error: false });
 await h.sleep(4300);
 assert.ok(!n.hidden, "the message was taken away from under the pointer reading it");
@@ -221,6 +222,33 @@ assert.ok(n.textContent.includes("fetched"), "the newer message is not the one s
 h.dispatch(n, new h.Ev("pointerleave", { target: n }));
 await h.sleep(1800);
 assert.ok(n.hidden, "the message stayed on after the pointer left it");
+`)
+}
+
+// Chromium sends pointerenter when a message appears under a pointer that has
+// not moved, so a pointer parked where the messages appear held every one of
+// them for as long as someone went on typing. A message is held by a pointer
+// moving on it, and a pointer left still on it lets it go in the end.
+func TestANoticeUnderAParkedPointerStillGoes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+// The page's own timers run a hundred times faster here, so that the longest
+// a message can be held is waited out in a moment.
+const real = h.win.setTimeout;
+h.win.setTimeout = (fn, ms, ...args) => real(fn, (ms || 0) / 100, ...args);
+h.recv({ type: "notice", text: "fetched origin", error: false });
+h.dispatch(n, new h.Ev("pointerenter", { target: n }));
+await h.sleep(80);
+assert.ok(n.hidden, "a message that appeared under a parked pointer stayed as though it were being read");
+
+h.recv({ type: "notice", text: "push rejected: the remote has commits you do not", error: true });
+h.dispatch(n, new h.Ev("pointermove", { target: n }));
+await h.sleep(200);
+assert.ok(!n.hidden, "a message went from under the pointer moving on it");
+await h.sleep(250);
+assert.ok(n.hidden, "a message the pointer stopped on never went");
 `)
 }
 

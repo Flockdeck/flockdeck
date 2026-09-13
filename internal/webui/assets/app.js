@@ -7172,10 +7172,19 @@
   const ERROR_MS = 12000;
   /** How long a message stays once the pointer has left it. */
   const NOTICE_AFTER_MS = 1500;
+  /** How long a message stays with the pointer still on it. Long enough to
+   *  read any of them, and an end all the same, for a pointer simply left
+   *  where the messages appear. */
+  const NOTICE_HELD_MS = 30000;
   /** Whether the pointer is resting on the message. A message is read with
    *  the pointer on it as often as not, and it went on its own timer
    *  regardless: a long git error was taken away mid-sentence. It stays while
-   *  the pointer is there, and for a moment after it leaves. */
+   *  the pointer is there, and for a moment after it leaves.
+   *
+   *  It is the pointer moving on the message that holds it, not the pointer
+   *  arriving. Chromium says the pointer entered when a message appears under
+   *  one parked there, and a mouse left in that corner kept every message up
+   *  for as long as someone went on typing. */
   let noticeHeld = false;
 
   function notice(text, isError) {
@@ -7189,7 +7198,7 @@
     n.textContent = text;
     n.hidden = false;
     clearTimeout(notice.timer);
-    if (!noticeHeld) notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
+    notice.timer = setTimeout(hideNotice, noticeHeld ? NOTICE_HELD_MS : isError ? ERROR_MS : NOTICE_MS);
   }
 
   /** hideNotice takes the message away. It is also what a click on it does:
@@ -7199,6 +7208,14 @@
     clearTimeout(notice.timer);
     noticeHeld = false;
     $("notice").hidden = true;
+  }
+
+  /** holdNotice keeps the message while the pointer moves on it, and lets it
+   *  go once the pointer has been still on it for NOTICE_HELD_MS. */
+  function holdNotice() {
+    noticeHeld = true;
+    clearTimeout(notice.timer);
+    notice.timer = setTimeout(hideNotice, NOTICE_HELD_MS);
   }
 
   // -------------------------------------------------------------- shortcuts
@@ -7396,7 +7413,7 @@
     searchTimer = setTimeout(() => runSearch(false, true), 120);
   };
   $("notice").onclick = hideNotice;
-  $("notice").addEventListener("pointerenter", () => { noticeHeld = true; clearTimeout(notice.timer); });
+  $("notice").addEventListener("pointermove", holdNotice);
   $("notice").addEventListener("pointerleave", () => {
     noticeHeld = false;
     if ($("notice").hidden) return;
