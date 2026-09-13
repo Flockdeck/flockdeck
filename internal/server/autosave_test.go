@@ -42,3 +42,19 @@ func TestLayoutsAreSavedWhileTheAppRuns(t *testing.T) {
 		t.Errorf("the list of open projects was written while the app ran: %v", err)
 	}
 }
+
+// TestTheTimedSaveStandsAsideOnceTheServerCloses covers a save queued just
+// before the app began to stop. The workspace goroutine can still run it after
+// the server has closed, while the last save and the closing of every pane
+// are going on elsewhere; it must not touch the workspace then.
+func TestTheTimedSaveStandsAsideOnceTheServerCloses(t *testing.T) {
+	srv, ws := newTestServer(t)
+	root := ws.ActiveRoot()
+	if err := srv.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	srv.saveLayouts()
+	if st, err := store.Load(root); err != nil || st != nil {
+		t.Errorf("a save run after the server closed wrote %+v, %v; want nothing written", st, err)
+	}
+}

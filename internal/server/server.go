@@ -445,9 +445,24 @@ func (s *Server) saveLoop() {
 		case <-s.closed:
 			return
 		case <-tick.C:
-			s.do(func() { _ = s.ws.SaveLayouts() })
+			s.do(s.saveLayouts)
 		}
 	}
+}
+
+// saveLayouts is one turn of saveLoop, run on the workspace goroutine.
+//
+// Work queued before the server closed can still be run after it, and by then
+// the app is saving for the last time and closing the panes on another
+// goroutine. A save here would be reading the workspace while that one tore
+// it down, for layouts the last save writes anyway, so it stands aside.
+func (s *Server) saveLayouts() {
+	select {
+	case <-s.closed:
+		return
+	default:
+	}
+	_ = s.ws.SaveLayouts()
 }
 
 // authorised reports whether a request carries the token, either as the query
