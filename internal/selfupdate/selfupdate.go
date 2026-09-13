@@ -125,7 +125,14 @@ type Pending struct {
 // 9.4MB, so on a link slower than about 31KB/s the download could never
 // finish, and the background check threw away up to five minutes of one
 // every time it tried.
-var client = &http.Client{Timeout: time.Hour}
+//
+// abandonedWork is measured from it: a longer bound would let sweepWork clear
+// a download that is still being written.
+var client = &http.Client{Timeout: requestLimit}
+
+// requestLimit is the longest a request, the body of a download included, is
+// given.
+const requestLimit = time.Hour
 
 // stallTimeout is how long a request may go with nothing arriving -- no
 // answer, or no more of its body -- before it is given up on. A variable so a
@@ -377,9 +384,13 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 }
 
 // abandonedWork is how old a download's work directory has to be before it is
-// taken for one an interrupted attempt left behind. A download is given
-// minutes; nothing an hour old is still being written.
-const abandonedWork = time.Hour
+// taken for one an interrupted attempt left behind. The archive is created
+// once the answer arrives, and its download is given up on requestLimit after
+// it was asked for; the unpacking that follows writes into the directory again
+// within seconds. So nothing older than requestLimit and a minute more is still
+// being written, and sweepWork, which clears what is older, never takes the
+// work of a download under way -- another process's included.
+const abandonedWork = requestLimit + time.Minute
 
 // sweepWork clears the work directories interrupted downloads left in dir: the
 // one name every download used before each had its own, and the ones since.
