@@ -2147,6 +2147,14 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	if id == "" {
 		return fmt.Errorf("no conversation given")
 	}
+	// The id arrives from the window and becomes the pane's id, which is a
+	// file name in more than one place: the chat client's transcript, the
+	// pane's settings file, removed again when the pane goes. One naming a
+	// directory, or the way out of one, would have those read, written and
+	// removed somewhere else. No conversation an agent records is named so.
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return fmt.Errorf("%q is not a conversation", id)
+	}
 	// The pane in the conversation need not be the one whose id it is: that
 	// one may have moved on, on /clear, to a conversation of its own.
 	for _, t := range w.Tabs {
