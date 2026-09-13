@@ -517,3 +517,31 @@ h.key({ key: "Enter" });
 assert.ok(h.doc.activeElement === setBtn(), "Cancel dropped the keyboard with the form");
 `)
 }
+
+// Escape in the API key field was meant to put the form away and keep the
+// dialog, so a half-typed key did not leave anyone wondering what was saved.
+// The window's key handler sees Escape first, and it closed the whole dialog
+// before the field's own handler ran.
+func TestEscapeInAKeyFieldPutsTheFormAway(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+h.click(h.$("settings-tab-keys"));
+h.recv({ type: "keys", items: [{ agent: "anthropic", name: "Anthropic API", set: false, source: "", vars: [] }] });
+const setBtn = () => h.$("overlay-body").querySelectorAll("div.wt-row")[0].querySelector("button");
+setBtn().focus();
+h.key({ key: "Enter" });
+const field = h.$("key-field");
+assert.ok(field && h.doc.activeElement === field, "the key field did not take the keyboard");
+field.value = "sk-half";
+const before = h.commands().length;
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape in the key field closed the whole dialog");
+assert.ok(!field.isConnected, "the form is still open");
+assert.ok(h.doc.activeElement === setBtn(), "the keyboard did not go back to the row");
+assert.strictEqual(h.commands().length, before, "a half-typed key was sent");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape from the row no longer closes the dialog");
+`)
+}

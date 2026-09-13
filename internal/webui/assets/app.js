@@ -5609,6 +5609,8 @@
    *  keyboard was on went with it - the field, its Cancel, the Clear - and
    *  it goes back to that row's Set or Replace button instead. */
   let keyActed = null;
+  /** Puts the open key form away, for the window's Escape to call. */
+  let keyCancel = null;
   function keySetButton(agent) {
     const b = agent ? $("key-set-" + encodeURIComponent(agent)) : null;
     return b && b.isConnected ? b : null;
@@ -5739,12 +5741,16 @@
       done();
     };
     const cancel = () => { field.value = ""; keyEditing = null; done(); };
+    keyCancel = cancel;
+    field.id = "key-field";
 
+    // Escape closes the whole overlay everywhere else, which here would take
+    // a half-typed key with it and leave the user wondering what was saved.
+    // It is the window's key handler that puts the form away instead: it
+    // sees the key before this field does, and an Escape handled here never
+    // arrived - the dialog had already closed.
     field.onkeydown = (ev) => {
-      if (ev.key === "Enter") { ev.preventDefault(); save(); return; }
-      // Escape closes the whole overlay everywhere else, which here would take
-      // a half-typed key with it and leave the user wondering what was saved.
-      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); cancel(); }
+      if (ev.key === "Enter") { ev.preventDefault(); save(); }
     };
 
     const ok = el("button", "chip primary", "Save");
@@ -7197,6 +7203,13 @@
       if (f && f.id === "agent-address") {
         e.preventDefault();
         closeAddress();
+        return;
+      }
+      // So is an API key being typed: the form goes, with what was typed in
+      // it, and the dialog stays.
+      if (f && f.id === "key-field" && keyCancel) {
+        e.preventDefault();
+        keyCancel();
         return;
       }
       closeOverlay();
