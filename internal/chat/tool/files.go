@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -237,17 +238,42 @@ func (t *writeFile) Prefix(args json.RawMessage) string {
 // runs at the next commit, and a config there names programs to run -- a
 // pager, an editor, an ssh command -- so "always" for edits would be standing
 // permission to run anything the next time anybody used git in the pane.
+//
+// The path is checked as it was written and as the file system resolves it,
+// because a name is not the only way to reach a directory: a link can lead
+// there, and on Windows .git. and ".git " (Windows drops the trailing dot or
+// space), .git::$INDEX_ALLOCATION (the directory's own stream) and GIT~1 (its
+// short name) are all .git.
 func editPrefix(root *Root, path string) string {
 	abs, err := root.ResolveFile(path)
 	if err != nil {
 		return ""
 	}
-	for _, part := range strings.Split(filepath.ToSlash(root.Rel(abs)), "/") {
-		if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".hg") {
-			return ""
+	for _, p := range []string{abs, evalExisting(abs)} {
+		for _, part := range strings.Split(root.Rel(p), "/") {
+			if repoPart(part) {
+				return ""
+			}
 		}
 	}
 	return editFamily
+}
+
+// repoPart reports whether one part of a path is, or on Windows might be, a
+// repository's own directory. A name spelled one of Windows' other ways --
+// ending in a dot or a space, naming a stream, or short like GIT~1 -- is
+// counted as one even where no such directory exists yet, because the one
+// made by writing through it would be .git itself.
+func repoPart(part string) bool {
+	if strings.EqualFold(part, ".git") || strings.EqualFold(part, ".hg") {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	lower := strings.ToLower(part)
+	return strings.TrimRight(part, ". ") != part || strings.Contains(part, ":") ||
+		strings.HasPrefix(lower, "git~") || strings.HasPrefix(lower, "hg~")
 }
 
 func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error) {

@@ -144,14 +144,38 @@ func normCase(p string) string {
 // evalExisting resolves the links in the longest prefix of p that exists, and
 // puts the rest back on the end. A file about to be created has no links of
 // its own to follow, but the directory it is being created in does.
+//
+// A link whose target is not there cannot be resolved, but it is there itself,
+// and it is not a name that is free: a file written through it is created at
+// its target, wherever that is. So such a link is replaced by its target,
+// which is resolved in turn, rather than stepped over as though it were a
+// name yet to be made -- which judged a link in the pane to a file not yet
+// made outside it as inside, and let the write make the file out there.
 func evalExisting(p string) string {
 	cur, rest := p, ""
-	for {
+	for hops := 0; ; {
 		if real, err := realPath(cur); err == nil {
 			if rest == "" {
 				return real
 			}
 			return filepath.Join(real, rest)
+		}
+		if target, err := os.Readlink(cur); err == nil {
+			// Links that lead round in a circle can be neither resolved nor
+			// written through; "" is inside no root, and so refused.
+			if hops++; hops > 255 {
+				return ""
+			}
+			if !filepath.IsAbs(target) {
+				// A relative target is taken from where the link really is.
+				dir := filepath.Dir(cur)
+				if real, err := realPath(dir); err == nil {
+					dir = real
+				}
+				target = filepath.Join(dir, target)
+			}
+			cur = filepath.Clean(target)
+			continue
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {

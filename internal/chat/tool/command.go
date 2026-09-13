@@ -84,12 +84,8 @@ func (t *runCommand) Approval(args json.RawMessage) string {
 	if err != nil || len(argv) == 0 {
 		return ""
 	}
-	path := argv[0]
-	if p, err := exec.LookPath(argv[0]); err == nil {
-		path = p
-	}
-	if batchUnsafe(path, argv[1:]) != nil {
-		// Run refuses it, and says why.
+	if batchUnsafe(t.program(argv[0]), argv[1:]) != nil {
+		// Run refuses it, and says why: it finds the program the same way.
 		return ""
 	}
 	return fmt.Sprintf("Run `%s` in %s?", strings.TrimSpace(a.Command), t.root.Dir())
@@ -175,11 +171,12 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = t.root.Dir()
-	if err := batchUnsafe(cmd.Path, argv[1:]); err != nil {
+	program := t.program(argv[0])
+	if err := batchUnsafe(program, argv[1:]); err != nil {
 		return "", err
 	}
+	cmd := exec.CommandContext(ctx, program, argv[1:]...)
+	cmd.Dir = t.root.Dir()
 	// Something the command started and left running -- a dev server, a
 	// watcher -- keeps the output pipe open for as long as it lives, and
 	// without a limit here the tool would wait on it for that long, timeout
@@ -231,8 +228,29 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 	return b.String(), nil
 }
 
+// program is the file a command's first word runs, found one way for both the
+// question and the run, so that what is checked is what runs.
+//
+// A bare name is looked up on PATH, as exec.Command would. A relative path is
+// taken from the working directory the command runs in, not from wherever the
+// chat itself was started, and looked up as an absolute path so that Windows'
+// extensions are added to it here: left relative, Go adds them only as the
+// program starts, so .\gradlew was checked as a name with no extension and ran
+// as gradlew.bat.
+func (t *runCommand) program(name string) string {
+	path := name
+	if filepath.Base(name) != name && !filepath.IsAbs(name) && filepath.VolumeName(name) == "" &&
+		!os.IsPathSeparator(name[0]) {
+		path = filepath.Join(t.root.Dir(), name)
+	}
+	if p, err := exec.LookPath(path); err == nil {
+		return p
+	}
+	return path
+}
+
 // batchUnsafe refuses an argument cmd.exe would read as syntax, where the
-// program is a Windows batch file.
+// program is, or might be, a Windows batch file.
 //
 // There is no shell here, except that Windows runs a .bat or .cmd -- npm,
 // yarn and many other tools installed from a package manager are one -- by
@@ -241,19 +259,29 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 // so `npm test 'x"&del /q *'` runs del. "Always for `npm test`" made that
 // a del nobody was asked about. A % expands a variable. The characters are
 // refused in any argument to a batch file: none can be passed through safely.
+//
+// Only a program found as an .exe or a .com is let through with them, rather
+// than only a .bat or a .cmd kept out: Windows has more than one way of
+// spelling a batch file's name that does not end in .bat -- gradlew.bat. and
+// "gradlew.bat " are gradlew.bat once it drops the trailing dot or space --
+// and a name that could be spelled past a list of what to refuse is safer
+// checked against a list of what to allow.
 func batchUnsafe(program string, args []string) error {
 	if runtime.GOOS != "windows" {
 		return nil
 	}
-	switch strings.ToLower(filepath.Ext(program)) {
-	case ".bat", ".cmd":
-	default:
+	ext := strings.ToLower(filepath.Ext(strings.TrimRight(program, ". ")))
+	if ext == ".exe" || ext == ".com" {
 		return nil
+	}
+	what := "is a batch file"
+	if ext != ".bat" && ext != ".cmd" {
+		what = "was not found as a program (.exe) and may be a batch file"
 	}
 	for _, a := range args {
 		if i := strings.IndexAny(a, "\"&|<>^%\n\r"); i >= 0 {
-			return fmt.Errorf("%s is a batch file, whose arguments cmd.exe reads as its own syntax, "+
-				"so %q cannot be passed in one; run it without that character", filepath.Base(program), string(a[i]))
+			return fmt.Errorf("%s %s, whose arguments cmd.exe reads as its own syntax, "+
+				"so %q cannot be passed in one; run it without that character", filepath.Base(program), what, string(a[i]))
 		}
 	}
 	return nil
