@@ -109,6 +109,15 @@ type Pane struct {
 	// naming another is from the process before a restart, and is dropped. It
 	// is read from the hook goroutine, so it is only written under the lock.
 	launch string
+	// Parent is the pane whose agent started this one with its own `flockdeck
+	// spawn`, so this pane is that agent's helper rather than the user's own.
+	// Empty for a pane the user started themselves -- opened by hand, or by a
+	// fan-out run from the window -- and for a helper whose parent has since
+	// been closed: see handleHook, which is where it is read.
+	//
+	// It is persisted with the layout, so a restored helper still knows whose
+	// it is; see encodeNode and decodeNode.
+	Parent string
 }
 
 // Alive reports whether the pane has a running process.
@@ -349,8 +358,10 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		p = nil
 	}
 	var sess *session.Session
+	var parent string
 	if p != nil {
 		sess = p.Sess
+		parent = p.Parent
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
 		// restore and a fan-out go on finding the conversation on screen
@@ -381,7 +392,29 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	if st == session.StatusExited {
 		return
 	}
+	// A helper's own idle nudge -- nobody has asked it anything, it has simply
+	// gone quiet -- is the parent agent's to notice, for as long as the parent
+	// is still open to notice it: the lead agent reads its screen, or gets told
+	// through a status it asked for, not through a phone push or a desktop
+	// notification meant for a person. A real question is never swallowed this
+	// way: it turns the pane amber whether or not a parent is watching, since
+	// only a person can answer it, and a parent that has stopped watching --
+	// its own pane closed -- hands the helper back to the person, from its next
+	// idle nudge on.
+	//
+	// This is decided here, where every consumer of a pane's status already
+	// meets it, rather than separately in the push loop and the web UI.
+	if st == session.StatusWaiting && session.IsIdleReminder(ev.Event, ev.NotificationType) && w.hasOpenPane(parent) {
+		return
+	}
 	sess.SetStatus(st, detail)
+}
+
+// hasOpenPane reports whether id names a pane the workspace still has, empty
+// naming none. A pane taken out of every tab is destroyed with it, so this is
+// also how a helper learns its parent has been closed.
+func (w *Workspace) hasOpenPane(id string) bool {
+	return id != "" && w.Pane(id) != nil
 }
 
 // ----------------------------------------------------------------- projects
@@ -1781,15 +1814,32 @@ func (w *Workspace) ClosePane() {
 	if t == nil {
 		return
 	}
-	id := t.Focus
+	w.ClosePaneByID(t.Focus)
+}
+
+// ClosePaneByID closes a pane wherever its tab is, without moving the window
+// off whatever tab or project is on screen, and reports whether the pane was
+// there to close. Closing the last pane in its tab closes the tab.
+//
+// It is what lets the control socket close a helper sitting in a tab nobody
+// is looking at: FocusPane, which every command used to go through, only
+// finds a pane in the tab already on screen, and refused one anywhere else as
+// though it had already gone.
+func (w *Workspace) ClosePaneByID(id string) bool {
+	t := w.tabOf(id)
+	if t == nil {
+		return false
+	}
 	if t.Tree.Count() <= 1 {
-		w.CloseTab(t.ID)
-		return
+		w.destroyPane(id)
+		w.unlinkTab(t)
+		return true
 	}
 	// Closing a pane is taking it out of its tab, which a move does too, focus
 	// on the pane beside the gap and all; only ending its process is extra.
 	w.detachPane(id)
 	w.destroyPane(id)
+	return true
 }
 
 // RestartPane relaunches the focused pane's process. An agent pane resumes the
@@ -1799,6 +1849,16 @@ func (w *Workspace) RestartPane() {
 	if p == nil {
 		return
 	}
+	w.RestartPaneByID(p.ID)
+}
+
+// RestartPaneByID is RestartPane for a pane named by id, wherever its tab is,
+// and reports whether the pane was there to restart.
+func (w *Workspace) RestartPaneByID(id string) bool {
+	p := w.Pane(id)
+	if p == nil {
+		return false
+	}
 	if p.Sess != nil {
 		_ = p.Sess.Close()
 		w.mu.Lock()
@@ -1807,6 +1867,7 @@ func (w *Workspace) RestartPane() {
 	}
 	w.startPane(p, p.IsAgent())
 	w.wake()
+	return true
 }
 
 // FocusPane focuses a pane by id if it is in the active tab.
@@ -1837,8 +1898,23 @@ func (w *Workspace) RevealPane(id string) {
 // ToggleZoom expands or restores the focused pane.
 func (w *Workspace) ToggleZoom() {
 	if t := w.CurrentTab(); t != nil {
-		t.Zoom = !t.Zoom
+		w.ToggleZoomByID(t.Focus)
 	}
+}
+
+// ToggleZoomByID is ToggleZoom for a pane named by id, wherever its tab is: it
+// gives the pane the focus of its own tab, expands or restores that tab, and
+// reports whether the pane was there at all. Called on the pane already
+// focused in the tab on screen, which is every use but the control socket's,
+// it changes nothing beyond that tab's own Zoom.
+func (w *Workspace) ToggleZoomByID(id string) bool {
+	t := w.tabOf(id)
+	if t == nil {
+		return false
+	}
+	t.Focus = id
+	t.Zoom = !t.Zoom
+	return true
 }
 
 // ResizePaneTerminal records the terminal size the viewer measured for a pane

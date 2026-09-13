@@ -106,6 +106,10 @@ type Pane struct {
 	// Absent, which is every layout written before this, means the default.
 	Cols int `json:"cols,omitempty"`
 	Rows int `json:"rows,omitempty"`
+	// Parent is the id of the pane whose agent started this one with its own
+	// `flockdeck spawn`, absent for a pane the user started themselves. See
+	// workspace.Pane.Parent.
+	Parent string `json:"parent,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.

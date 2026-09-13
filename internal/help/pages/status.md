@@ -33,6 +33,11 @@ tells you what the agent is actually doing rather than only that it is busy.
 - **A desktop notification** is raised when an agent blocks while the window is
   not in front. It is not raised when you are already looking at the window —
   the tab marker is enough, and a toast would be noise.
+- **A helper another agent started** for itself (see [[key:fanout]]) does not
+  raise any of the above while that agent's own pane stays open — its idle
+  nudge is the agent's to notice, not yours, though a permission prompt or a
+  real question always still reaches you, and once that pane is closed the
+  helper's idle nudges do too.
 - [[key:agents]] lists every pane in every open project with its status, and
   jumps to any of them.
 

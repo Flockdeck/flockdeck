@@ -490,6 +490,30 @@ func TestSessionStartDoesNotMoveTheStatusDot(t *testing.T) {
 	}
 }
 
+// TestIsIdleReminder covers telling Claude Code's idle nudge apart from a
+// real ask: only a Notification whose notification_type is idle_prompt is
+// one, since that is the only kind a helper's idle parent should be allowed
+// to swallow.
+func TestIsIdleReminder(t *testing.T) {
+	cases := []struct {
+		event, notificationType string
+		want                    bool
+	}{
+		{"Notification", "idle_prompt", true},
+		{"Notification", "permission_prompt", false},
+		{"Notification", "elicitation_dialog", false},
+		{"Notification", "agent_needs_input", false},
+		{"Notification", "", false},
+		{"PreToolUse", "idle_prompt", false},
+		{"PermissionRequest", "", false},
+	}
+	for _, c := range cases {
+		if got := IsIdleReminder(c.event, c.notificationType); got != c.want {
+			t.Errorf("IsIdleReminder(%q, %q) = %v, want %v", c.event, c.notificationType, got, c.want)
+		}
+	}
+}
+
 // TestClaudeArgsGuardsATaskThatLooksLikeAFlag covers the opening prompt a pane
 // is spawned with. Nothing stops someone starting a task with a dash, and the
 // CLI would take it for an option it does not have and exit at once.

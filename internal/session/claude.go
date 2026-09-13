@@ -423,6 +423,22 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	}
 }
 
+// idlePromptNotification is the notification_type Claude Code sends when a
+// pane has simply gone quiet, waiting for a new prompt -- as opposed to a
+// Notification about something it actually needs answered: a permission
+// prompt, an MCP elicitation, an agent asking for input. See IsIdleReminder.
+const idlePromptNotification = "idle_prompt"
+
+// IsIdleReminder reports whether a lifecycle event is Claude Code's idle
+// nudge rather than a real ask. Only a Notification carries a notification
+// type at all, so every other event -- including PreToolUse's
+// AskUserQuestion and the PermissionRequest event itself, both of which
+// StatusForEvent already maps to StatusWaiting -- answers false here and goes
+// on turning a pane amber regardless of who, if anyone, is watching it.
+func IsIdleReminder(event, notificationType string) bool {
+	return event == "Notification" && notificationType == idlePromptNotification
+}
+
 // ConversationExists reports whether Claude Code has a stored transcript for a
 // session id.
 //

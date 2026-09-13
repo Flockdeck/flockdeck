@@ -137,6 +137,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			// Zero, and so left out, for a pane no window has measured.
 			Cols: p.Cols,
 			Rows: p.Rows,
+			// Empty for a pane the user started themselves, which is left out
+			// by omitempty like every other field here.
+			Parent: p.Parent,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -521,6 +524,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Routed:       n.Pane.Routed,
 			RoutedFrom:   n.Pane.RoutedFrom,
 			Conversation: n.Pane.Conversation,
+			Parent:       n.Pane.Parent,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot

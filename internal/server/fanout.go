@@ -1113,12 +1113,13 @@ func (s *Server) installSpawnHandler() {
 		}
 		r, ok := ask(s, func() result {
 			id, err := s.ws.Spawn(req.Parent, workspace.SpawnOptions{
-				Task:  req.Task,
-				Cwd:   cwd,
-				Split: req.Split,
-				Kind:  kind,
-				Agent: req.Agent,
-				Model: req.Model,
+				Task:           req.Task,
+				Cwd:            cwd,
+				Split:          req.Split,
+				Kind:           kind,
+				Agent:          req.Agent,
+				Model:          req.Model,
+				SpawnedByAgent: true,
 			})
 			return result{id, err}
 		})
