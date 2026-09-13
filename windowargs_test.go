@@ -1,8 +1,10 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,8 +33,11 @@ func init() {
 
 // The address a window's browser is started with stays on its command line for
 // as long as the window is open, where any other user of the machine can read
-// it, and it used to carry the token that drives every agent. Neither the
-// window this run opens nor one a second launch opens onto it is given it.
+// it. It used to carry the token that drives every agent, and now carries
+// neither that nor even the one-time link that replaced it (R3.7.2): the link
+// is written into a local redirect file instead, and the browser started at
+// that. Neither the window this run opens nor one a second launch opens onto
+// it puts either on the browser's command line.
 func TestTheWindowsBrowserIsNotGivenTheToken(t *testing.T) {
 	state := t.TempDir()
 	for _, v := range []string{"APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "HOME"} {
@@ -73,8 +78,25 @@ func TestTheWindowsBrowserIsNotGivenTheToken(t *testing.T) {
 		if strings.Contains(args, srv.Token()) {
 			t.Errorf("%s: the browser's command line carries the token", what)
 		}
-		if !strings.Contains(args, "--app="+srv.BaseURL()+"/?") {
-			t.Errorf("%s: the browser was not opened onto the instance", what)
+		if strings.Contains(args, srv.BaseURL()) {
+			t.Errorf("%s: the browser's command line carries the instance's link: %s", what, args)
+		}
+		appArg := ""
+		for _, line := range strings.Split(args, "\n") {
+			if rest, ok := strings.CutPrefix(line, "--app="); ok {
+				appArg = rest
+			}
+		}
+		if !strings.HasPrefix(appArg, "file://") {
+			t.Fatalf("%s: --app=%s, want a local redirect file rather than the instance's own link", what, appArg)
+		}
+		path := filePathFromFileURL(t, appArg)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: reading the redirect file at %s: %v", what, path, err)
+		}
+		if !strings.Contains(string(data), srv.BaseURL()+"/?") {
+			t.Errorf("%s: the redirect file does not point at the instance: %s", what, data)
 		}
 	}
 
@@ -90,4 +112,19 @@ func TestTheWindowsBrowserIsNotGivenTheToken(t *testing.T) {
 			t.Fatal(err)
 		}
 	}))
+}
+
+// filePathFromFileURL is the reverse of appwindow's fileURLFor, for a test
+// that only has the browser's own arguments to read.
+func filePathFromFileURL(t *testing.T, fileURL string) string {
+	t.Helper()
+	u, err := url.Parse(fileURL)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", fileURL, err)
+	}
+	p := u.Path
+	if runtime.GOOS == "windows" && len(p) > 2 && p[0] == '/' && p[2] == ':' {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p)
 }
