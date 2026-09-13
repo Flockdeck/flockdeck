@@ -120,6 +120,12 @@ func lookupKey(o Options) (key, from string) {
 	return "", ""
 }
 
+// KeyFor is the key a pane started with these options would send, and where
+// it comes from in words that never include it. It is the chat's own lookup,
+// so that `flockdeck keys check` asks the endpoint about that key rather than
+// one found in another order; KeyStore must be set for a stored key to count.
+func KeyFor(o Options) (key, from string) { return lookupKey(o) }
+
 // keyNames are the environment variables a key is looked for in, in order: the
 // agent's own, the wire's conventional one, and Flockdeck's. The spec usually
 // names the conventional variable itself, and an error that tells somebody to

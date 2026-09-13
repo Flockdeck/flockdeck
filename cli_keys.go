@@ -327,18 +327,26 @@ func keysClear(agentID string, out io.Writer) error {
 // where that key comes from, never what it is. A pane told its key was
 // refused, with one key in the environment and another stored, otherwise left
 // nobody able to say which of the two it was.
+//
+// The key is found by the chat's own lookup, given the options a pane of the
+// agent starts with. creds.Resolve looks in fewer places -- not in
+// FLOCKDECK_API_KEY, nor the wire's usual variable -- and checked a stored key
+// while the pane was sending another.
 func keysCheck(agentID string, out io.Writer) error {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {
 		return err
 	}
-	k := creds.Resolve(spec)
-	if !k.Set() {
+	chat.KeyStore = storedKey
+	key, from := chat.KeyFor(chat.Options{
+		Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
+	})
+	if key == "" {
 		fmt.Fprintf(out, "%s: %s\n", agentID, creds.StatusOf(spec).Describe())
 		return nil
 	}
-	fmt.Fprintf(out, "%s's key is %s; asking its endpoint\n", agentID, k)
-	checkKey(agentID, k.Secret(), out)
+	fmt.Fprintf(out, "%s's key is the one %s; asking its endpoint\n", agentID, from)
+	checkKey(agentID, key, out)
 	return nil
 }
 
