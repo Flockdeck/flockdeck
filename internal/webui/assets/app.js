@@ -344,7 +344,9 @@
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
       else if (msg.type === "agentAddress") addressAnswered(msg);
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote); }
+      // An unpaired device's row goes with its Unpair button, and the
+      // keyboard with it: to Pair a device, rather than out of the dialog.
+      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
       else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
@@ -602,9 +604,11 @@
     // otherwise lose it across the redraw.
     go.id = "remote-pair";
     go.disabled = !!(p && p.pending);
+    // These buttons draw the dialog again themselves, and drawn without
+    // keepFocus it took the keyboard with the button that was pressed.
     go.onclick = () => {
       remotePairing = { pending: true };
-      renderRemote();
+      keepFocus(renderRemote);
       send({ cmd: "remotePair", kind: "device" });
     };
     row.append(go);
@@ -725,7 +729,7 @@
       remoteOutcome = null;
       send({ cmd: "remoteEnable", relay: d.relay.trim(), name: d.name.trim(),
         join: d.more ? d.join.trim() : "", invite: d.more ? d.invite.trim() : "" });
-      renderRemote();
+      keepFocus(renderRemote);
     };
     const row = el("div", "update-row");
     const go = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
@@ -734,7 +738,12 @@
     go.onclick = enable;
     const more = el("button", "chip", d.more ? "No codes" : "Joining an account, or invited?");
     more.id = "remote-more";
-    more.onclick = () => { d.more = !d.more; renderRemote(); };
+    more.onclick = () => {
+      d.more = !d.more;
+      keepFocus(renderRemote);
+      // Opened, the codes are what the press was for.
+      if (d.more && $("remote-join")) $("remote-join").focus();
+    };
     row.append(go, more);
     box.append(row);
     if (o && o.action === "enable" && o.error) box.append(el("p", "remote-error", o.error));
@@ -771,7 +780,7 @@
         remoteBusy = "reconnect";
         remoteOutcome = null;
         send({ cmd: "remoteReconnect" });
-        renderRemote();
+        keepFocus(renderRemote);
       };
       row.append(retry);
     }
@@ -850,7 +859,7 @@
     remoteBusy = "disable";
     remoteOutcome = null;
     send({ cmd: "remoteDisable", force });
-    renderRemote();
+    keepFocus(renderRemote);
   }
 
   /** remoteAgo says how long since a time the relay reported, roughly. A time

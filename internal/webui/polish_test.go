@@ -441,3 +441,37 @@ assert.ok(h.$("set-font-up").disabled, "Larger is still offered at the largest s
 assert.strictEqual(settled("the stepper at its limit").id, "set-font-down", "the keyboard did not go to the other half of the stepper");
 `)
 }
+
+// The remote access dialog's own buttons drew it again without keepFocus, so
+// the keyboard went with the button pressed: opening the codes left it on
+// nothing rather than in the first code, Enter in the relay field threw the
+// field away with the keyboard in it, and unpairing a device dropped it.
+func TestTheRemoteDialogKeepsTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
+h.$("remote-more").focus();
+h.key({ key: "Enter" });
+assert.ok(h.doc.activeElement === h.$("remote-join"), "opening the codes did not put the keyboard in the first one");
+const relay = h.$("remote-relay");
+relay.value = "relay.example";
+relay.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop().cmd, "remoteEnable");
+assert.ok(h.doc.activeElement === h.$("remote-relay"), "Enter in the relay field took the keyboard away with the field");
+
+const remote = { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0, since: "2030-01-01T00:00:00Z" };
+const hosts = [{ id: "h1", name: "desk", online: true, self: true }];
+h.recv(fixture({ remote }));
+h.recv({ type: "remoteDevices", enabled: true, hosts,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }] });
+const unpair = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Unpair");
+unpair.focus();
+h.win._confirm = true;
+h.key({ key: "Enter" });
+h.recv({ type: "remoteDevices", enabled: true, hosts, devices: [] });
+assert.ok(h.doc.activeElement === h.$("remote-pair"), "unpairing a device dropped the keyboard out of the dialog");
+`)
+}
