@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,11 +20,7 @@ func TestADamagedLayoutThatWillNotMoveIsStillKept(t *testing.T) {
 	if err := os.WriteFile(p, damaged, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Something standing at the name it would move to, which no rename can
-	// replace on any platform: a directory with a file in it.
-	if err := os.MkdirAll(filepath.Join(p+damagedSuffix, "occupied"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	blockAside(t, p, damagedSuffix)
 
 	if st, err := Load("/repo/a"); err != nil || st != nil {
 		t.Fatalf("load of a damaged layout = %+v, %v; want nothing to restore and no error", st, err)
@@ -55,9 +52,7 @@ func TestADamagedRecentListThatWillNotMoveIsStillKept(t *testing.T) {
 	if err := os.WriteFile(file, damaged, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(file+damagedSuffix, "occupied"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	blockAside(t, file, damagedSuffix)
 
 	if err := TouchRecent("/repo/c"); err != nil {
 		t.Fatalf("touch: %v", err)
@@ -79,5 +74,54 @@ func TestADamagedRecentListThatWillNotMoveIsStillKept(t *testing.T) {
 	}
 	if list, err := Recents(); err != nil || len(list) != 2 {
 		t.Errorf("recents after two touches = %+v, %v; want the two projects opened since", list, err)
+	}
+}
+
+// TestASecondLayoutPutAsideDoesNotReplaceTheFirst checks a layout already
+// kept as damaged is still there after another is put aside beside it.
+//
+// The first is most often a newer build's layout, put aside by the older one
+// the user stepped back to, and so the tabs they had. Stepping forward and
+// back again put aside the layout the older build had saved since, onto the
+// same name, and the newer build's tabs went with the copy it replaced.
+func TestASecondLayoutPutAsideDoesNotReplaceTheFirst(t *testing.T) {
+	isolateConfig(t)
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := []byte(`{"version": 99, "tabs": [{"title": "newer"}]}`)
+	later := []byte(`{"version": 98, "tabs": [{"title": "later"}]}`)
+	for _, layout := range [][]byte{newer, later} {
+		if err := os.WriteFile(p, layout, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if st, err := Load("/repo/a"); err != nil || st != nil {
+			t.Fatalf("load of a layout from another build = %+v, %v; want nothing to restore and no error", st, err)
+		}
+	}
+	for file, want := range map[string][]byte{
+		p + damagedSuffix:        newer,
+		p + damagedSuffix + ".1": later,
+	} {
+		if got, err := os.ReadFile(file); err != nil || string(got) != string(want) {
+			t.Errorf("%s holds %s, %v; want %s", filepath.Base(file), got, err, want)
+		}
+	}
+}
+
+// blockAside stands something at every name a file could be put aside to
+// under suffix, which no rename can replace on any platform: a directory with
+// a file in it.
+func blockAside(t *testing.T, p, suffix string) {
+	t.Helper()
+	for i := 0; i < maxKeptAside; i++ {
+		name := p + suffix
+		if i > 0 {
+			name = fmt.Sprintf("%s.%d", name, i)
+		}
+		if err := os.MkdirAll(filepath.Join(name, "occupied"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

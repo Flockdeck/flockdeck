@@ -446,9 +446,15 @@ func from(current, legacy string) string {
 // looking for what vanished.
 const damagedSuffix = ".damaged"
 
-// quarantine moves a state file out of the way, best effort. Only one copy is
-// kept per name; a second one replacing the first is no loss, because a file
-// only becomes unreadable again after a good one has been written over it.
+// quarantine moves a state file out of the way, best effort.
+//
+// A copy already kept is not replaced: the next one goes to "<name>.damaged.1"
+// and on, as a file that could not be read goes beside ".unread". Moved onto
+// the one name, a second copy replaced the first, and the first is the one that
+// mattered as often as not: a layout from a newer build is put aside by the
+// older one the user stepped back to, and stepping forward and back once more
+// put aside the layout the older build had saved on top of the newer one's
+// tabs.
 //
 // A file that will not move — held for a moment by the virus scanner that
 // reads every file in the state directory, or blocked by whatever stands at
@@ -456,7 +462,11 @@ const damagedSuffix = ".damaged"
 // it, which is the loss moving it was for. It is recorded as unread instead,
 // so that save moves it aside first, or is refused if it still cannot.
 func quarantine(path string) {
-	if err := os.Rename(path, path+damagedSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	aside, err := asideName(path, damagedSuffix)
+	if err == nil {
+		err = os.Rename(path, aside)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		noteRead(path, err)
 	}
 }
@@ -527,7 +537,7 @@ func keepUnread(p string) error {
 	if !unreadFiles.paths[p] {
 		return nil
 	}
-	aside, err := unreadName(p)
+	aside, err := asideName(p, unreadSuffix)
 	if err == nil {
 		err = renameWithRetry(p, aside)
 	}
@@ -538,14 +548,15 @@ func keepUnread(p string) error {
 	return nil
 }
 
-// maxUnreadKept bounds how many copies of one file are kept aside. It is far
-// more than any run will make; it is there so a folder where every name
-// answers something other than "not there" is not searched forever.
-const maxUnreadKept = 100
+// maxKeptAside bounds how many copies of one file are kept aside under one
+// suffix. It is far more than any run will make; it is there so a folder where
+// every name answers something other than "not there" is not searched forever.
+const maxKeptAside = 100
 
-// unreadName is the name a file this run could not read is moved aside to:
-// "<name>.unread", or where that is taken, the first of "<name>.unread.1",
-// "<name>.unread.2" and on that is not.
+// asideName is the name a state file is moved aside to under suffix — the
+// file this run could not read to "<name>.unread", the one this build could
+// not use to "<name>.damaged" — or where that is taken, the first of
+// "<name><suffix>.1", "<name><suffix>.2" and on that is not.
 //
 // A rename replaces whatever stands at the name it is given, on every
 // platform, and a copy already there is one kept for the user from an earlier
@@ -558,9 +569,9 @@ const maxUnreadKept = 100
 // in the same moment could take the name between the look and the rename.
 // That needs two instances failing to read one file at once, and costs one of
 // the two copies, which is what every second move used to cost.
-func unreadName(p string) (string, error) {
-	for i := 0; i < maxUnreadKept; i++ {
-		name := p + unreadSuffix
+func asideName(p, suffix string) (string, error) {
+	for i := 0; i < maxKeptAside; i++ {
+		name := p + suffix
 		if i > 0 {
 			name = fmt.Sprintf("%s.%d", name, i)
 		}
@@ -568,7 +579,7 @@ func unreadName(p string) (string, error) {
 			return name, nil
 		}
 	}
-	return "", fmt.Errorf("%d copies of it are already kept beside it", maxUnreadKept)
+	return "", fmt.Errorf("%d copies of it are already kept beside it", maxKeptAside)
 }
 
 // WriteAtomic is writeAtomic for the packages that keep a file of their own in
