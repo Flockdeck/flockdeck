@@ -44,9 +44,11 @@ func TestReportedSpendReachesThePaneHeader(t *testing.T) {
 		t.Error("a report for a pane that does not exist was kept")
 	}
 
-	// Nothing new makes nothing different, so the state is not sent again.
-	a, _ := json.Marshal(snap().Panes[pane])
-	b, _ := json.Marshal(snap().Panes[pane])
+	// Nothing new makes nothing different, so the state is not sent again. Only
+	// the spend is compared: the pane is a real shell, and its status can move
+	// on from starting between the two.
+	a, _ := json.Marshal(snap().Panes[pane].Spend)
+	b, _ := json.Marshal(snap().Panes[pane].Spend)
 	if string(a) != string(b) {
 		t.Errorf("two snapshots with nothing new between them differ:\n%s\n%s", a, b)
 	}
