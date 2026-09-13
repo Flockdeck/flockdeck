@@ -15,6 +15,10 @@ func TestACommandIsSummarisedByItsResult(t *testing.T) {
 	if got := summarise("line one\nline two\n", 80); !strings.HasPrefix(got, "line one") {
 		t.Errorf("other output = %q, want it to lead with its first line", got)
 	}
+	// A command the user stopped says so last, and that is how it went.
+	if got := summarise("building\n[stopped: the user interrupted it]\n", 80); !strings.HasPrefix(got, "[stopped: the user interrupted it]") {
+		t.Errorf("an interrupted command = %q, want it to lead with the interruption", got)
+	}
 }
 
 // A search's result is how much it found, which it says last; its first line

@@ -400,6 +400,12 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 		// runs the same command again and is killed at the same point.
 		fmt.Fprintf(&b, "[killed after %s; a longer run can be asked for with timeout_seconds, up to %d]\n",
 			timeout, int(commandMaxTimeout/time.Second))
+	case errors.Is(ctx.Err(), context.Canceled):
+		// Ctrl+C in the pane cancels the call, which kills the command, and
+		// the status it exits with then is the kill's: told "[exit status
+		// 1]", the model reads a failure of the command and sets about
+		// fixing it.
+		b.WriteString("[stopped: the user interrupted it]\n")
 	case runErr == nil:
 		b.WriteString("[exit status 0]\n")
 	case errors.Is(runErr, exec.ErrWaitDelay):
