@@ -750,6 +750,13 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	go c.writeLoop(ctx)
+	// Pinged as a terminal socket is (see keepalive). A window that went away
+	// without closing -- a laptop shut, a phone gone out of signal while the
+	// relay holds its end -- is otherwise found out only when a write to it
+	// times out, and with the agents quiet nothing is written: it went on
+	// being counted, among the windows through the relay the desk is shown,
+	// for as long as the instance ran.
+	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
 
 	// The key table and the preferences come first: the palette and the
 	// first-run hints are drawn from them, and both are wanted before the
