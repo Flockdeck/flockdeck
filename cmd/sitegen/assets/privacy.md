@@ -19,8 +19,8 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   access, as described below.
 - **The relay is optional.** It is used only if you turn on remote access. It
   keeps what it needs to connect your devices to your desktops: names, random
-  identifiers, timestamps and each paired browser's user-agent string. It
-  keeps no email address, password, real name or IP address.
+  identifiers and timestamps. It keeps no email address, password, real
+  name, IP address or browser details.
 - **This website** sets no cookies, runs no analytics, and loads nothing from
   anyone else.
 - **Nobody's data is sold,** and nothing is used for advertising.
@@ -122,7 +122,6 @@ For each device you pair:
 - a random identifier;
 - the name you gave it, or one guessed from its browser (such as "iPhone
   Safari");
-- its browser's user-agent string;
 - when it was paired, when it was last used and when its sign-in expires;
 - its sign-in token, stored only as a one-way hash.
 
@@ -165,7 +164,8 @@ in memory.
 - **A paired device** is deleted when you remove it, when it signs out, or 30
   days after it was last used.
 - **A desktop** is kept until you turn remote access off on it or remove it
-  from another of your devices. When the last desktop in an account is
+  from another of your devices. One that never connects to the relay
+  is removed after seven days. When the last desktop in an account is
   removed, the account and all its devices go with it.
 - **Pairing codes** expire after ten minutes.
 
