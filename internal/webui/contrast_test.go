@@ -40,6 +40,54 @@ func TestTextOnATintedPaneHeaderCanBeRead(t *testing.T) {
 	}
 }
 
+// A text field's edge is what shows where it is, and at #3a414d on the near
+// black inside it (#0f1114) it came to 1.84:1, against the 3:1 anything that is
+// not text needs. The selected row of the palette drew its hint at 4.47:1, just
+// under the 4.5 text needs. The fields' edge has to reach 3:1 on the field and
+// on the panel and the page around it, every text field has to use it, and the
+// selected hint has to reach 4.5:1 on its row.
+func TestTextFieldsAndTheSelectedPaletteHintStandOut(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	root := cssColours(ruleBody(css, ":root"))
+	edge := root["--field-line"]
+	if edge == "" {
+		t.Fatal("app.css defines no --field-line for the edge of a text field")
+	}
+	for _, ground := range []string{"--bg-inset", "--bg-raised", "--bg"} {
+		if r := contrast(t, edge, root[ground]); r < 3 {
+			t.Errorf("a text field's edge (%s) is %.2f:1 on %s, short of 3:1", edge, r, ground)
+		}
+	}
+	for _, sel := range []string{"#prompt-input", "#searchbar input", ".wt-form input", ".browse-bar input",
+		".fan-tasks", ".fan-agent-sel", ".rev-commit textarea", ".help-search", ".settings-find",
+		".set-input", ".pick-filter", ".remote-link"} {
+		if !strings.Contains(ruleBody(css, sel), "var(--field-line)") {
+			t.Errorf("%s draws its edge in something other than --field-line", sel)
+		}
+	}
+
+	row := ruleBody(css, ".pal-row.sel")
+	bg := regexp.MustCompile(`background:\s*var\((--[\w-]+)\)`).FindStringSubmatch(row)
+	hint := ruleBody(css, ".pal-row.sel .pal-hint")
+	ink := regexp.MustCompile(`(?:^|[;\s])color:\s*(#[0-9a-fA-F]{6})`).FindStringSubmatch(hint)
+	if bg == nil || ink == nil {
+		t.Fatalf("the selected palette row's ground or its hint's colour cannot be read: %q / %q", row, hint)
+	}
+	opacity := 1.0
+	if m := regexp.MustCompile(`opacity:\s*([\d.]+)`).FindStringSubmatch(hint); m != nil {
+		opacity, _ = strconv.ParseFloat(m[1], 64)
+	}
+	a, b := rgb(t, ink[1]), rgb(t, root[bg[1]])
+	var c [3]int
+	for i := range c {
+		c[i] = int(math.Round(a[i]*opacity + b[i]*(1-opacity)))
+	}
+	shown := fmt.Sprintf("#%02x%02x%02x", c[0], c[1], c[2])
+	if r := contrast(t, shown, root[bg[1]]); r < 4.5 {
+		t.Errorf("the selected palette row's hint comes to %s on %s, %.2f:1, short of 4.5:1", shown, root[bg[1]], r)
+	}
+}
+
 // stripComments takes the comments out of a style sheet, which may mention a
 // brace or a colour of their own.
 func stripComments(css string) string {

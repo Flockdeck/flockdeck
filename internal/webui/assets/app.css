@@ -5,6 +5,11 @@
   --bg-inset: #0f1114;
   --line: #2a2f38;
   --line-strong: #3a414d;
+  /* The edge of a text field, which is what shows where the field is. The
+   * line colours above came to under 2:1 on the field; this reaches the 3:1
+   * anything that is not text needs on the field (3.79), the panels (3.35)
+   * and the page (3.63). */
+  --field-line: #69707c;
   --fg: #d8dee9;
   --fg-dim: #8b93a1;
   --accent: #4c9aff;
@@ -608,7 +613,7 @@ textarea:focus-visible {
 #prompt-input {
   /* min-width lets it shrink below a text field's default width, which a
    * narrow window does not have, as the worktree form's fields do. */
-  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--line-strong);
+  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
   /* It grows with the lines in it (fitPrompt) up to a third of the window and
    * scrolls past that, so a long prompt cannot push the panes off the screen.
@@ -671,7 +676,7 @@ textarea:focus-visible {
 .remote-link, .remote-cmd {
   width: 100%; padding: 6px 8px; margin: 0 0 8px;
   background: var(--bg-inset); color: var(--fg);
-  border: 1px solid var(--line); border-radius: var(--radius);
+  border: 1px solid var(--field-line); border-radius: var(--radius);
   font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 .remote-link:focus { outline: none; border-color: var(--accent); }
@@ -690,7 +695,7 @@ textarea:focus-visible {
  * wrapping catches the case where even that is too wide. */
 .wt-form { display: flex; gap: 8px; flex-wrap: wrap; }
 .wt-form input {
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
   min-width: 0;
 }
@@ -734,7 +739,7 @@ textarea:focus-visible {
 .browse-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .browse-bar input {
   flex: 1 1 180px; min-width: 0;
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
 }
 .browse-bar input:focus { outline: none; border-color: var(--accent); }
@@ -767,7 +772,7 @@ textarea:focus-visible {
 .fan-hint { color: var(--fg-dim); font-size: 12px; margin-bottom: 10px; }
 .fan-tasks {
   width: 100%; min-height: 150px; resize: vertical;
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 9px 11px;
   font: 12px/1.7 ui-monospace, Consolas, "SF Mono", monospace;
 }
@@ -786,7 +791,7 @@ textarea:focus-visible {
    than the dialog, and the button that starts them all must stay in sight. */
 .fan-agent { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--fg-dim); font-size: 12px; }
 .fan-agent-sel {
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; padding: 4px 6px;
 }
 .fan-agent-sel:focus { outline: none; border-color: var(--accent); }
@@ -876,7 +881,7 @@ textarea:focus-visible {
 .rev-commit { display: flex; gap: 8px; margin-top: 12px; align-items: flex-start; }
 .rev-commit textarea {
   flex: 1 1 auto; min-height: 58px; resize: vertical;
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
 }
 .rev-commit textarea:focus { outline: none; border-color: var(--accent); }
@@ -924,7 +929,7 @@ textarea:focus-visible {
 }
 .help-search {
   margin: 10px; padding: 6px 9px; font: inherit;
-  background: var(--bg-inset); border: 1px solid var(--line-strong);
+  background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg);
 }
 .help-search::placeholder { color: var(--fg-dim); }
@@ -1010,7 +1015,7 @@ textarea:focus-visible {
 }
 .settings-find {
   margin: 0 0 8px; padding: 6px 9px; min-width: 0; font: inherit; font-size: 12px;
-  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); color: var(--fg);
+  background: var(--bg); border: 1px solid var(--field-line); border-radius: var(--radius); color: var(--fg);
 }
 .settings-find::placeholder { color: var(--fg-dim); }
 .settings-find:focus { outline: none; border-color: var(--accent); }
@@ -1057,7 +1062,7 @@ textarea:focus-visible {
 }
 .set-select, .set-input {
   min-width: 200px; height: 30px; padding: 0 8px 0 10px; font: inherit;
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  border: 1px solid var(--field-line); border-radius: var(--radius);
   background: var(--bg-inset); color: var(--fg);
 }
 .set-select:focus, .set-input:focus { outline: none; border-color: var(--accent); }
@@ -1155,7 +1160,7 @@ kbd {
 #searchbar label { color: var(--fg-dim); }
 #searchbar input {
   /* Free to shrink, as the prompt bar's field is, or the bar overflows. */
-  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--line-strong);
+  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 5px 9px; font: inherit;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
@@ -1191,7 +1196,9 @@ kbd {
   display: flex; align-items: center; gap: 10px; padding: 9px 16px; cursor: pointer;
 }
 .pal-row.sel { background: var(--accent); color: #06101f; }
-.pal-row.sel .pal-hint { color: #06101f; opacity: .75; }
+/* Dark ink let a little of the row through: at .75 the hint came to 4.47:1,
+ * just short of 4.5; at .8 it is 4.93. */
+.pal-row.sel .pal-hint { color: #06101f; opacity: .8; }
 .pal-label { flex: 1 1 auto; }
 .pal-hint { color: var(--fg-dim); font-size: 11px; }
 .pal-empty { padding: 16px; color: var(--fg-dim); }
@@ -1203,7 +1210,7 @@ kbd {
   border: 1px solid var(--waiting); color: var(--waiting); font-size: 12px;
 }
 .pick-filter {
-  width: 100%; background: var(--bg-inset); border: 1px solid var(--line);
+  width: 100%; background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); padding: 9px 12px;
   font-family: inherit; font-size: 14px; line-height: 1.4;
 }
