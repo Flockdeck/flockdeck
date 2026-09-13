@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -741,5 +742,29 @@ func TestIsTrustedWithoutAConfiguration(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "missing"))
 	if IsTrusted(t.TempDir()) {
 		t.Error("nothing is trusted when there is no configuration")
+	}
+}
+
+// TestATrustCarryOverThatFailsSaysWhatHappensNext covers the two ways a
+// fan-out's trust carry-over is refused, which it shows as "could not carry
+// over folder trust: " and then the reason. A project nobody has answered for
+// said only that it was "not itself trusted", and a busy configuration ended
+// by repeating the notice's own words; neither said what to do, or that each
+// new agent would now ask about its folder itself.
+func TestATrustCarryOverThatFailsSaysWhatHappensNext(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	project := filepath.Join(t.TempDir(), "my-project")
+	err := InheritTrust(project, filepath.Join(t.TempDir(), "worktree"))
+	if err == nil {
+		t.Fatal("trust was carried over from a project nobody has answered for")
+	}
+	for _, want := range []string{"my-project", "Claude Code", "answer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal = %q, want it to say %q", err, want)
+		}
+	}
+	busy := errConfigBusy.Error()
+	if strings.Contains(busy, "not carried over") || !strings.Contains(busy, "ask") {
+		t.Errorf("busy = %q, want the reason alone, and that each agent will ask for itself", busy)
 	}
 }
