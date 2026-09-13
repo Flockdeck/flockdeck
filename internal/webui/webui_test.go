@@ -1304,7 +1304,9 @@ assert.ok(rows[1].classList.contains("sel"), "the row was not chosen");
 assert.strictEqual(rows[1].getAttribute("aria-current"), "true", "nothing says which file the diff is of");
 assert.strictEqual(rows[0].getAttribute("aria-current"), "false");
 
-// Space works the same way, and does not scroll the dialog instead.
+// Space works the same way, and does not scroll the dialog instead. A diff
+// asked for hard on the heels of another waits out a short gap.
+await h.sleep(200);
 rows[2].focus();
 const ev = h.key({ key: " " });
 assert.ok(ev.defaultPrevented, "Space scrolled the dialog rather than choosing the file");
@@ -3003,6 +3005,7 @@ const down = h.key({ key: "ArrowDown" });
 assert.ok(down.defaultPrevented, "Down scrolled the dialog instead");
 assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next file");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "b.go" });
+await h.sleep(200); // past the gap a diff asked for straight after another waits out
 h.key({ key: "End" });
 assert.ok(h.doc.activeElement === rows[2], "End did not reach the last file");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "c.go" });

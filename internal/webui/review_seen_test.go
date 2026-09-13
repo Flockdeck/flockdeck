@@ -97,3 +97,24 @@ assert.ok(h.$("rev-commit"), "a detached HEAD cannot be committed to from the pa
 `)
 }
 
+// Arrowing down the list asked for the diff of every row it passed.
+func TestTheDiffIsAskedForOnlyWhereTheSelectionStops(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [
+  { path: "a.go", label: "M", added: 1, removed: 0 },
+  { path: "b.go", label: "M", added: 1, removed: 0 },
+  { path: "c.go", label: "M", added: 1, removed: 0 },
+] });
+const diffs = () => h.commands().filter((c) => c.cmd === "diff").map((c) => c.text);
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+h.click(rows[0]);
+h.click(rows[1]);
+h.click(rows[2]);
+assert.deepStrictEqual(diffs(), ["a.go"], "a row chosen on its own was not asked about at once, or the rows passed were");
+await h.sleep(250);
+assert.deepStrictEqual(diffs(), ["a.go", "c.go"], "the row the selection stopped on was not asked about");
+`)
+}

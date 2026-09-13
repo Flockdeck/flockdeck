@@ -5310,6 +5310,13 @@
     if (!isError) commitDrafts.delete(commitPendingCwd);
   }
 
+  /** The diff of a row chosen within diffGap of the last one asked for waits
+   *  for the rest of that gap, and only the row the selection is on by then
+   *  is asked about. */
+  const diffGap = 150;
+  let diffTimer = 0;
+  let diffAskedAt = 0;
+
   /** selectChangedFile shows one file's diff. Only the marking on the rows and
    *  the diff panel change: rebuilding the dialog would take the commit box
    *  away from under the caret, and the message half-written in it with the
@@ -5320,7 +5327,21 @@
     diffText = "";
     markSelectedFile();
     fillDiff();
-    send({ cmd: "diff", path: cwd, text: path });
+    // Arrowing down the list asked for the diff of every row passed on the
+    // way, each one a git process or two on the far side. A row chosen on
+    // its own is still asked about at once; one chosen hard on the heels of
+    // another waits out the gap, and only the row the selection has reached
+    // by then is asked about.
+    clearTimeout(diffTimer);
+    const ask = () => {
+      diffTimer = 0;
+      if (dialog !== "changes" || selectedFile !== path) return;
+      diffAskedAt = Date.now();
+      send({ cmd: "diff", path: cwd, text: path });
+    };
+    const wait = diffAskedAt + diffGap - Date.now();
+    if (wait <= 0) ask();
+    else diffTimer = setTimeout(ask, wait);
   }
 
   function markSelectedFile() {
