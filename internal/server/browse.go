@@ -76,6 +76,13 @@ func (s *Server) browse(c *controlClient, path string) {
 		entries, err := os.ReadDir(abs)
 		if err != nil {
 			msg.Error = err.Error()
+			// A path that names a file -- pasted from an editor's title bar,
+			// say -- fails in the operating system's words for opening a file
+			// as a folder, which never say that it is a file; on Windows they
+			// say the path cannot be found. The way up is offered already.
+			if fi, serr := os.Stat(abs); serr == nil && !fi.IsDir() {
+				msg.Error = filepath.Base(abs) + " is a file, not a folder — go up to the one it is in"
+			}
 			c.sendJSON(msg)
 			return
 		}
