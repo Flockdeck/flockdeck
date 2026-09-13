@@ -326,13 +326,26 @@ func samePath(a, b string) bool { return foldPath(a) == foldPath(b) }
 // checkout in their file manager leaves behind, and it fails differently --
 // "a missing but already registered worktree" -- for a path that looks free.
 func DefaultWorktreePath(repoRoot, branch string) string {
+	return WorktreePaths(repoRoot, []string{branch})[0]
+}
+
+// WorktreePaths is DefaultWorktreePath for several branches at once, whose
+// worktrees are about to be created side by side: each path steps around the
+// ones chosen before it as well as around what is already there.
+//
+// Chosen one at a time, while the worktrees were being created together, two
+// could be given the same path. Every choice looks only at what exists, and
+// the sibling that would have taken a name has not made its directory yet --
+// so "agent/fix", stepping around a stray repo-agent-fix to repo-agent-fix-2,
+// and "agent/fix-2", whose own name that is, both chose it, and one of the two
+// tasks failed on a directory the other had just made.
+func WorktreePaths(repoRoot string, branches []string) []string {
 	// Cleaned first: the parent of "C:\repo\" is "C:\repo" to filepath.Dir, so
 	// a project opened with a trailing separator -- which is what a shell's
 	// tab completion leaves -- had every new worktree suggested inside the
 	// repository, as a directory its own status then listed as untracked.
 	repoRoot = filepath.Clean(repoRoot)
 	parent := filepath.Dir(repoRoot)
-	name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
 
 	registered := map[string]bool{}
 	if wts, err := List(repoRoot); err == nil {
@@ -348,17 +361,72 @@ func DefaultWorktreePath(repoRoot, branch string) string {
 		return err == nil
 	}
 
-	path := filepath.Join(parent, name)
-	// The last name tried is checked like the rest, so a hundred collisions
-	// end in a name that is merely unlikely rather than one known to be
-	// taken -- which is what a loop that stopped on the counter returned.
-	for i := 2; taken(path); i++ {
-		if i > 99 {
-			return filepath.Join(parent, fmt.Sprintf("%s-%d", name, time.Now().UnixNano()))
+	paths := make([]string, len(branches))
+	for n, branch := range branches {
+		name := filepath.Base(repoRoot) + "-" + worktreeSegment(branch)
+		path := filepath.Join(parent, name)
+		// The last name tried is checked like the rest, so a hundred
+		// collisions end in a name that is merely unlikely rather than one
+		// known to be taken -- which is what a loop that stopped on the
+		// counter returned.
+		for i := 2; taken(path); i++ {
+			if i > 99 {
+				path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, time.Now().UnixNano()))
+				break
+			}
+			path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, i))
 		}
-		path = filepath.Join(parent, fmt.Sprintf("%s-%d", name, i))
+		// Taken from here on, though nothing is there yet.
+		registered[foldPath(path)] = true
+		paths[n] = path
 	}
-	return path
+	return paths
+}
+
+// CommonDir returns the git directory shared by every worktree of the
+// repository containing dir: the main checkout's .git, whichever worktree dir
+// is in. It is what tells two paths apart as the same repository or not, where
+// Root answers with the worktree each is in.
+func CommonDir(dir string) (string, error) {
+	out, err := run(dir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	common := strings.TrimSpace(out)
+	if common == "" {
+		return "", &gitError{"git did not report a git directory"}
+	}
+	// Relative to dir when dir is the main checkout, which is where git
+	// answers with a bare ".git".
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(dir, common)
+	}
+	// With its links resolved, as git spells it for a linked worktree: asked
+	// from the main checkout under macOS's /var, the same directory would
+	// otherwise come back spelled two ways.
+	if real, err := filepath.EvalSymlinks(common); err == nil {
+		common = real
+	}
+	return filepath.Clean(common), nil
+}
+
+// AddNewBranch creates a worktree at path on a new branch, starting at the
+// current HEAD, and never checks out a branch that is already there.
+//
+// AddFrom checks out a branch that exists, which is what a person naming one
+// means. A caller that means to make a branch of its own -- and later to
+// delete it again, as a fan-out does for an agent that never started -- has
+// to know it did: handed a branch somebody else made in the meantime, it would
+// be deleting their branch. A branch that exists is refused instead.
+func AddNewBranch(repoDir, path, branch string) error {
+	if branch == "" {
+		return &gitError{"a new worktree needs a branch name"}
+	}
+	if branchExists(repoDir, branch) {
+		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
+	}
+	_, err := run(repoDir, "worktree", "add", "-b", branch, "--no-track", "--", path)
+	return err
 }
 
 // foldPath puts a path in the form two of them can be compared in: cleaned,
