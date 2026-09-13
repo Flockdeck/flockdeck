@@ -780,7 +780,8 @@ const maxTaskBytes = 16 << 10
 
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
 // be run when it cannot. An empty id means the default agent of the project on
-// screen.
+// screen, which is a field only the goroutine that owns the workspace may read;
+// AgentSpecByID asks the same about an agent named by id, from anywhere.
 //
 // The question asked here is about one spec rather than about Claude. A
 // fan-out may now give four of its tasks to one agent and eight to another,
@@ -788,7 +789,22 @@ const maxTaskBytes = 16 << 10
 // other half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
-	spec, ok := w.specFor(w.activeRoot, id)
+	if id == "" {
+		id = w.defaultAgent()
+	}
+	return w.AgentSpecByID(id)
+}
+
+// AgentSpecByID is AgentSpec for an agent named by its id, and is safe to call
+// from any goroutine. It reads the catalog, which has a lock of its own, and
+// the claude CLI found when the workspace was made, and nothing else: not the
+// active project, which is written on the workspace goroutine at every project
+// switch. AgentSpec read that for every id -- empty or not, since it was an
+// argument -- so the fan-out dialog probing agents, and a fan-out deciding
+// which rows ask about folder trust, raced every switch. An empty id names no
+// agent here.
+func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
+	spec, ok := w.agents().Find(id)
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}

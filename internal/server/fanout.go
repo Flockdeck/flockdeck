@@ -79,7 +79,9 @@ type fanoutAgentView struct {
 // workspace goroutine, where every window's commands would otherwise wait
 // behind it. Only the probing is: which agents there are, and which one a run
 // starts on, are read on that goroutine and handed in, because the default
-// depends on the active project, a field nothing else may read.
+// depends on the active project, a field nothing else may read. The probing
+// asks about each agent by its id, through AgentSpecByID, which reads nothing
+// of the workspace's but the catalog.
 func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 	out := make([]fanoutAgentView, 0, len(specs))
 	for _, spec := range specs {
@@ -90,7 +92,7 @@ func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 			ID: spec.ID, Name: spec.Name, Models: modelViews(spec),
 			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
-		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
+		if _, err := s.ws.AgentSpecByID(spec.ID); err != nil {
 			view.Unavailable = err.Error()
 		}
 		out = append(out, view)
@@ -784,14 +786,16 @@ var trustWrites sync.Mutex
 // goroutine. A row on the run's default names no agent, and Workspace.AgentSpec
 // resolves an empty id from the active project -- a field only that goroutine
 // may read, written there on every project switch. So the default is read there
-// with the rest of the run's facts and filled in here, and the lookup only ever
-// sees a real id, which reads nothing of the workspace's own.
+// with the rest of the run's facts and filled in here, and the lookup is
+// AgentSpecByID, which takes only a real id and reads nothing of the
+// workspace's but the catalog. AgentSpec itself read the active project for
+// every id, empty or not, so asking it from here raced every switch.
 func (s *Server) specOrDefault(def string) func(id string) (agent.Spec, error) {
 	return func(id string) (agent.Spec, error) {
 		if id == "" {
 			id = def
 		}
-		return s.ws.AgentSpec(id)
+		return s.ws.AgentSpecByID(id)
 	}
 }
 
