@@ -1503,6 +1503,52 @@ func TestPatternsSharpenTheFallback(t *testing.T) {
 	}
 }
 
+// TestAnAnsweredQuestionIsNotAskedAgain covers the output that follows an
+// answer to a question the patterns found. The question is still on screen --
+// the answer is echoed on the end of its line -- so the next chunk the pane
+// printed read it again and put the pane back to waiting, on a fresh clock,
+// for a question nobody was being asked any more.
+func TestAnAnsweredQuestionIsNotAskedAgain(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.sawInput = true
+	s.startedAt = time.Now()
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+	s.patterns = foldPatterns(agent.Patterns{Waiting: []string{"(y/n)"}, Idle: []string{"ready."}})
+
+	s.publish([]byte("writing main.go\noverwrite main.go? (y/n) "))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v at a question, want waiting", st)
+	}
+	if err := s.WriteString("y\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Fatalf("status = %v after answering, want working", st)
+	}
+
+	// The echo of the answer, and a little of the work it allowed.
+	for _, chunk := range []string{"y\r\n", "wrote main.go\r\n"} {
+		s.publish([]byte(chunk))
+		if st, _ := s.Status(); st != StatusWorking {
+			t.Fatalf("status = %v after %q; the question was answered", st, chunk)
+		}
+	}
+
+	// What the pane says after the answer is still read.
+	s.publish([]byte("Ready."))
+	if st, _ := s.Status(); st != StatusIdle {
+		t.Errorf("status = %v back at its prompt, want idle", st)
+	}
+	s.publish([]byte("\noverwrite go.mod? (y/n) "))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v at the next question, want waiting", st)
+	}
+}
+
 // TestPatternsAreNotFoldedPerLine covers the cost of the pattern fallback,
 // which runs in the reader on every chunk a pane prints. Lower-casing each
 // pattern for each line it was compared with allocated dozens of times a chunk.

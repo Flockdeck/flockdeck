@@ -151,6 +151,10 @@ type Session struct {
 	// because the status machinery below runs on every chunk a pane prints and
 	// must not go looking anything up to do it.
 	patterns agent.Patterns
+	// answeredAt is how much the pane had printed when it was last answered,
+	// as written counts it. The patterns are only read in what came after it:
+	// see patternStatus.
+	answeredAt int64
 	// sawInput records that the user has typed into this pane, and startedAt
 	// when it was launched. Claude rings the bell while starting up, so
 	// without one of the two a freshly opened pane would announce that it
@@ -683,6 +687,7 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
 		s.toolQuestion = false
+		s.answeredAt = s.written
 		if !s.hooksSeen && !s.settling {
 			s.settling = true
 			go s.settleIdle()
