@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -565,6 +566,10 @@ func planJobs(req fanoutRequest, cwd string) ([]*fanoutJob, bool) {
 type fanoutJob struct {
 	task string
 	cwd  string
+	// origin is the folder of the checkout the fan-out started from that cwd
+	// stands for, once cwd is in a worktree: the same folder, in the checkout
+	// the worktree was cut from. Folder trust is carried from there.
+	origin string
 	// agent and model are the agent this task's pane runs and the model it is
 	// asked for: the run's choice, or the row's own override of it.
 	agent string
@@ -608,10 +613,42 @@ func prepareWorktrees(c *controlClient, repo string, jobs []*fanoutJob) bool {
 	}
 	nameBranches(jobs, taken)
 	placeWorktrees(repo, jobs)
+	from := make(map[*fanoutJob]string, len(jobs))
+	for _, j := range jobs {
+		from[j] = j.cwd
+	}
 	makeWorktrees(jobs, func(branch, path string) error {
 		return gitx.AddNewBranch(repo, path, branch)
 	})
+	for _, j := range jobs {
+		if j.created {
+			j.cwd, j.origin = sameFolderIn(repo, from[j], j.path)
+		}
+	}
 	return true
+}
+
+// sameFolderIn returns where in the worktree at wt an agent fanned out from
+// base works, and the folder of the checkout at repo that stands for.
+//
+// That is the same folder base is of its checkout, where the worktree has it.
+// An agent planning from repo/sub was planning work in repo/sub, and every
+// child it started worked at the top of its worktree instead -- and was given
+// trust there, carried over from repo/sub, for a whole checkout nobody had said
+// to trust. A folder the worktree does not have, one git does not track, leaves
+// the child at the top, standing for the top of the checkout.
+func sameFolderIn(repo, base, wt string) (cwd, origin string) {
+	rel, err := filepath.Rel(repo, base)
+	switch {
+	case err != nil, filepath.IsAbs(rel), rel == "..", strings.HasPrefix(rel, ".."+string(filepath.Separator)):
+		return wt, repo
+	case rel == ".":
+		return wt, base
+	}
+	if fi, err := os.Stat(filepath.Join(wt, rel)); err != nil || !fi.IsDir() {
+		return wt, repo
+	}
+	return filepath.Join(wt, rel), base
 }
 
 // nameBranches gives each job a branch nothing else is using.
@@ -744,15 +781,17 @@ func discardWorktree(repo string, j *fanoutJob, working func(path string) (bool,
 		return nil
 	}
 	defer lockRepo(repo)()
-	busy, known := working(j.cwd)
+	// The worktree is j.path. j.cwd is the folder in it the agent was to work
+	// in, which is a subfolder for a fan-out started from one.
+	busy, known := working(j.path)
 	switch {
 	case !known:
-		return fmt.Errorf("its worktree %s was kept: whether a pane is working in it could not be told", filepath.Base(j.cwd))
+		return fmt.Errorf("its worktree %s was kept: whether a pane is working in it could not be told", filepath.Base(j.path))
 	case busy:
 		return nil
 	}
-	if err := gitx.Remove(repo, j.cwd, true); err != nil {
-		return fmt.Errorf("its worktree %s could not be removed: %w", filepath.Base(j.cwd), err)
+	if err := gitx.Remove(repo, j.path, true); err != nil {
+		return fmt.Errorf("its worktree %s could not be removed: %w", filepath.Base(j.path), err)
 	}
 	// The branch goes with it. `git worktree add -b` made it for this job,
 	// so it is this run's as much as the directory was, and left behind it
@@ -885,6 +924,11 @@ func agents(n int) string {
 // from a copy each of them read before it. Done in one pass up front, this is
 // the only writer there is.
 //
+// The answer is carried from the folder each child's stands for, its origin,
+// which is baseCwd itself unless the child had to work somewhere else in its
+// worktree; see sameFolderIn. Trust given to one folder of a repository says
+// nothing about the rest of it.
+//
 // A failure stops the rest. It is a property of the configuration rather than
 // of any one worktree, so carrying on would bury the fan-out's own messages
 // under a dozen copies of the same complaint.
@@ -895,7 +939,11 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 		if j.err != nil || j.cwd == "" || j.cwd == baseCwd {
 			continue
 		}
-		if err := inherit(baseCwd, j.cwd); err != nil {
+		from := j.origin
+		if from == "" {
+			from = baseCwd
+		}
+		if err := inherit(from, j.cwd); err != nil {
 			notify("could not carry over folder trust: " + err.Error())
 			return
 		}

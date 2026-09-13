@@ -172,6 +172,13 @@ func promoteUnderLabels(items []item, base int, screen bool) []item {
 		if _, ok := shallowTask(items, i, base, screen); ok {
 			continue
 		}
+		// Only a label gives way. An entry can be no task for being a question
+		// or a finding, and what is nested under one of those is no more work
+		// than it is: promoted, the options under "Which approach do you
+		// prefer?" were each offered as a task to start.
+		if !isGroupLabel(items[i].text) {
+			continue
+		}
 		child := items[i+1].indent
 		for _, it := range items[i+1 : end] {
 			child = min(child, it.indent)
@@ -185,6 +192,21 @@ func promoteUnderLabels(items []item, base int, screen bool) []item {
 		i--
 	}
 	return items
+}
+
+// maxLabelWords is the most words a group label is taken to have: "Backend",
+// "Web UI", "Phase 2 cleanup".
+const maxLabelWords = 4
+
+// isGroupLabel reports whether an entry reads as the name of a group of steps
+// rather than as anything said about them: a few words, neither asked as a
+// question nor opening the way a finding does.
+func isGroupLabel(s string) bool {
+	label := strings.TrimSpace(strings.TrimSuffix(tidyTask(s), ":"))
+	if label == "" || strings.HasSuffix(label, "?") || len(strings.Fields(label)) > maxLabelWords {
+		return false
+	}
+	return !opensOnFinding(label)
 }
 
 // withDetail finishes a step that ends on a colon with the entries nested
@@ -526,13 +548,19 @@ func isTask(s string, screen bool) bool {
 	// naming the thing it is about — "The Go process owns the panes" — where an
 	// instruction opens with the doing, or with what is to be done to. Note
 	// that "I'll add …" and "We should …" are instructions, and stay.
+	return !opensOnFinding(s)
+}
+
+// opensOnFinding reports whether a line opens the way a finding does, by
+// naming the thing it is about: "The Go process owns the panes".
+func opensOnFinding(s string) bool {
 	lower := strings.ToLower(s)
 	for _, opener := range []string{"the ", "there ", "this ", "that ", "these ", "those ", "it "} {
 		if strings.HasPrefix(lower, opener) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // isChrome reports whether a line is part of the interface an agent's CLI draws

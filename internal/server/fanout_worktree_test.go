@@ -53,7 +53,7 @@ func TestDiscardWorktreeLeavesOneAPaneIsWorkingIn(t *testing.T) {
 	}
 	working := func(p string) (bool, bool) { return p == path, true }
 
-	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/shared", cwd: path, created: true}, working); err != nil {
+	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/shared", cwd: path, path: path, created: true}, working); err != nil {
 		t.Errorf("discardWorktree: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(path, "README.md")); err != nil {
