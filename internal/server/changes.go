@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
 )
@@ -240,6 +241,13 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 		text, err := gitx.Diff(dir, file)
 		if err != nil {
 			msg.Error = err.Error()
+		} else if strings.TrimSpace(text) == "" && notUTF8Name(dir, file) {
+			// The window was sent this name as JSON, with its bytes that are not
+			// UTF-8 replaced, and the name it asks about is not a file at all:
+			// the diff was empty, and was explained as a file that matches the
+			// last commit.
+			msg.Text = "(this file's name is not valid UTF-8, so its diff cannot be shown here — look at it in a terminal. " +
+				"A commit still includes it.)"
 		} else if strings.TrimSpace(text) == "" {
 			// Binary content is not the explanation it once looked like: git
 			// says "Binary files differ" for a tracked one and gitx renders an
@@ -251,6 +259,17 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 		}
 		c.sendJSON(msg)
 	}()
+}
+
+// notUTF8Name reports whether a name the window asked about carries the
+// replacement character JSON put in place of bytes that were not UTF-8, and
+// names nothing in the working tree as it is spelled.
+func notUTF8Name(dir, file string) bool {
+	if !strings.ContainsRune(file, utf8.RuneError) {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(file)))
+	return err != nil
 }
 
 // commitChanges stages everything in a working tree and commits it, optionally

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // CommitAll stages everything and commits it.
@@ -155,7 +156,11 @@ func changedSince(dir string, recs []statusRecord, r Reviewed) int {
 		if !ok {
 			continue
 		}
-		name := path
+		// The list reached the window as JSON, which carries a name that is
+		// not UTF-8 -- possible on Linux -- with each bad byte replaced. Held
+		// to git's own spelling it matched nothing, and every commit from the
+		// panel was refused.
+		name := jsonName(path)
 		now[name] = true
 		if !shown[name] {
 			extra++
@@ -197,6 +202,26 @@ func Stamp(dir, path string) string {
 		return ""
 	}
 	return fmt.Sprintf("%d:%d:%o", fi.Size(), fi.ModTime().UnixNano(), uint32(fi.Mode()))
+}
+
+// jsonName is a name as encoding/json writes it: each byte that is not part
+// of a valid UTF-8 sequence becomes U+FFFD. strings.ToValidUTF8 would replace
+// a run of them with one, which is not what the window was sent.
+func jsonName(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && n == 1 {
+			b.WriteRune(utf8.RuneError)
+		} else {
+			b.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	return b.String()
 }
 
 // statusRecord is one entry of `git status --porcelain -z`: its two-letter

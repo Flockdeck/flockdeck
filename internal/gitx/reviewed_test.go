@@ -2,12 +2,14 @@ package gitx
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // TestAReviewedFileWrittenToAgainIsNotCommittedUnseen covers a file that was
@@ -149,5 +151,29 @@ func TestCommitRefusesAConflictWithNoMarkersToEdit(t *testing.T) {
 				t.Fatal("the merge was committed with a side nobody chose")
 			}
 		})
+	}
+}
+
+// TestANameThatIsNotUTF8IsHeldToHowTheWindowSpellsIt covers a file whose name
+// is not UTF-8, which Linux allows. The list reaches the window as JSON, which
+// replaces each bad byte, so the name the window sent back never matched
+// git's and every commit from the panel was refused as a tree that had moved.
+func TestANameThatIsNotUTF8IsHeldToHowTheWindowSpellsIt(t *testing.T) {
+	raw := "caf\xe9\xe9.txt"
+	sent, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spelled string
+	if err := json.Unmarshal(sent, &spelled); err != nil {
+		t.Fatal(err)
+	}
+	if want := "caf" + string(utf8.RuneError) + string(utf8.RuneError) + ".txt"; spelled != want || jsonName(raw) != want {
+		t.Fatalf("JSON spells %q as %q and jsonName as %q; want both %q", raw, spelled, jsonName(raw), want)
+	}
+
+	recs := statusRecords("?? " + raw + "\x00 M plain.txt\x00")
+	if moved := changedSince(t.TempDir(), recs, Reviewed{Files: []string{spelled, "plain.txt"}}); moved != 0 {
+		t.Errorf("the tree as the window was sent it counts %d files as moved; want none", moved)
 	}
 }
