@@ -5,9 +5,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // releases stands in for everywhere the install scripts download from, under
@@ -32,6 +35,7 @@ type releases struct {
 	mu       sync.Mutex
 	onSite   map[string]bool // versions the site has; GitHub has every one
 	down     bool            // the site drops every connection
+	stalled  bool            // the site takes every connection and never answers
 	tampered bool            // the site serves an archive its checksums do not describe
 	forged   string          // a place that serves a tampered archive, and checksums to match it
 	asked    []string
@@ -63,7 +67,7 @@ func newReleases(t *testing.T) *releases {
 func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.asked = append(r.asked, req.URL.Path)
-	onSite, down, tampered, forged := r.onSite, r.down, r.tampered, r.forged
+	onSite, down, stalled, tampered, forged := r.onSite, r.down, r.stalled, r.tampered, r.forged
 	r.mu.Unlock()
 
 	place, rest, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
@@ -74,6 +78,17 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	case place == "dl" && down:
 		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 			conn.Close()
+		}
+		return
+	case place == "dl" && stalled:
+		// Held open, with nothing sent, until the client hangs up. A
+		// hijacked connection is the server's no longer, so closing the
+		// server does not wait on one a client never gives up.
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			go func() {
+				io.Copy(io.Discard, conn)
+				conn.Close()
+			}()
 		}
 		return
 	case place != "dl" && place != "gh" && place != "mirror":
@@ -405,19 +420,7 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Every program the script uses, but neither of the two that download.
-	tools := filepath.Join(home, "tools")
-	if err := os.Mkdir(tools, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
-		"tar", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"} {
-		if p, err := exec.LookPath(name); err == nil {
-			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	tools := toolsDir(t, home)
 	cmd := exec.Command(sh, path)
 	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+filepath.Join(home, "bin"), "PATH="+tools)
 	out, err := cmd.CombinedOutput()
@@ -431,6 +434,86 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 		if asked := r.askedOf(p); len(asked) > 0 {
 			t.Errorf("asked %v of %s", asked, p)
 		}
+	}
+}
+
+// toolsDir is a directory, under home, of links to every program install.sh
+// uses but the two that download, and to those named in extra: a PATH of it
+// alone gives the script the downloaders a test chooses and no others.
+func toolsDir(t *testing.T, home string, extra ...string) string {
+	t.Helper()
+	tools := filepath.Join(home, "tools")
+	if err := os.Mkdir(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range append([]string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
+		"tar", "gzip", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"}, extra...) {
+		if p, err := exec.LookPath(name); err == nil {
+			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return tools
+}
+
+// A site that is down, or that takes the connection and then sends nothing,
+// is given up on in seconds, and GitHub asked instead. GNU wget retries 20
+// times by default, waiting longer after each, so a site that was down took
+// over two minutes to give up on; curl's --connect-timeout covers only the
+// connection, so a site that stalled after it held the script for good.
+func TestInstallShGivesUpOnTheSiteInSeconds(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, tool string
+		setup      func(r *releases)
+	}{
+		{"wget with the site down", "wget", func(r *releases) { r.down = true }},
+		{"curl with the site stalled", "curl", func(r *releases) { r.stalled = true }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := exec.LookPath(c.tool); err != nil {
+				t.Skipf("no %s", c.tool)
+			}
+			r := newReleases(t)
+			c.setup(r)
+			script := pointAt(t, string(shipped), r, shAddresses)
+			// A download is allowed five minutes, which is how long a stall
+			// takes to end. Here it is allowed three seconds, so that the
+			// test sees it end without waiting that long.
+			script = strings.Replace(script, "--max-time 300", "--max-time 3", 1)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.sh")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, "bin")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, sh, path)
+			// A downloader left running by a killed script would hold the
+			// output open, and the wait with it.
+			cmd.WaitDelay = 5 * time.Second
+			cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin, "PATH="+toolsDir(t, home, c.tool))
+			start := time.Now()
+			out, err := cmd.CombinedOutput()
+			took := time.Since(start)
+			got, _ := os.ReadFile(filepath.Join(bin, "flockdeck"))
+			if err != nil || string(got) != "flockdeck v9.9.9" {
+				t.Fatalf("after %v the script exited %v and installed %q\n%s", took.Round(time.Second), err, got, out)
+			}
+			if took > 30*time.Second {
+				t.Errorf("the script took %v to give up on the site", took.Round(time.Second))
+			}
+			if served := r.servedFrom(); !slices.Equal(served, []string{"gh"}) {
+				t.Errorf("the archive was served from %v; want gh alone\n%s", served, out)
+			}
+		})
 	}
 }
 

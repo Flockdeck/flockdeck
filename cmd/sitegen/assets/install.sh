@@ -87,11 +87,20 @@ on_path() {
 # fetch downloads a URL to a file with whichever of curl and wget is present.
 # A place that cannot be reached gives up in seconds rather than hanging, so
 # that the next one is tried.
+#
+# Each is bounded both ways. curl's --connect-timeout covers only the
+# connection, so a server that accepts it and then sends nothing held the
+# script for good; --max-time ends a download after five minutes, far longer
+# than an archive takes on any line worth installing over. GNU wget retries
+# 20 times by default, waiting longer after each: a site that was down took
+# over two minutes to give up on, and one that stalled over five, before
+# GitHub was tried. -t 2 is one retry, and -T 15 gives up on a connection that
+# stops sending for 15 seconds. BusyBox's wget takes both too.
 fetch() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 2 --connect-timeout 15 -o "$2" "$1"
+		curl -fsSL --retry 2 --connect-timeout 15 --max-time 300 -o "$2" "$1"
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q -T 30 -O "$2" "$1"
+		wget -q -t 2 -T 15 -O "$2" "$1"
 	else
 		die "downloading the release needs curl or wget"
 	fi
