@@ -56,8 +56,10 @@ func TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway(t *testing.T) {
 	phone := dialResumable(t, srv, paneID, "&from=-1")
 	defer phone.CloseNow()
 	readResumable(t, phone, "echo phone_view\r", "phone_view", &h, &held)
-	// No size is ever sent from here.
-	for deadline := time.Now().Add(5 * time.Second); ; {
+	// No size is ever sent from here. The repaint is due 50ms after the attach,
+	// but it is made on the workspace goroutine, which a loaded CI runner has
+	// been seen to keep busy past five seconds.
+	for deadline := time.Now().Add(20 * time.Second); ; {
 		if got := taken(); len(got) >= 2 {
 			if len(got) != 2 || got[0] != shorter || got[1] != back {
 				t.Fatalf("the repaint went %v; want a row shorter and back, %s then %s", got, shorter, back)

@@ -373,11 +373,14 @@ func TestSweepFindsWhatApplyMovedAsideThroughALink(t *testing.T) {
 // whole body, so below about 31KB/s the Windows archive could never finish.
 func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 	old := stallTimeout
-	stallTimeout = 300 * time.Millisecond
+	// A whole second: a Windows runner under load has been seen to go 300ms
+	// between two of the bytes below, and give up on the download that was
+	// still arriving.
+	stallTimeout = time.Second
 	t.Cleanup(func() { stallTimeout = old })
 
-	// A byte every 25ms: a second and a half in all, five times what may pass
-	// with nothing arriving, and never that long without a byte.
+	// A byte every 25ms: a second and a half in all, longer than may pass with
+	// nothing arriving, and never anywhere near that long without a byte.
 	body := bytes.Repeat([]byte("x"), 60)
 	hold := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
