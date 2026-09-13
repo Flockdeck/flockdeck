@@ -1522,3 +1522,20 @@ func TestStartTakesWhatItNeedsOffTheSpec(t *testing.T) {
 		t.Errorf("patterns = %+v, want the Spec's own", got)
 	}
 }
+
+// TestAPaneWhoseFolderIsGoneSaysSo covers starting a pane in a directory that
+// is not there -- a worktree removed under a saved layout, most often. Windows
+// said "The directory name is invalid" about the shell, and Unix a chdir
+// error, and neither says which folder or what to do about it.
+func TestAPaneWhoseFolderIsGoneSaysSo(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "removed-worktree")
+	_, err := Start(Config{ID: "gone", Kind: KindShell, Cwd: gone, Argv: ShellArgs(), Env: Env()})
+	if err == nil {
+		t.Fatal("a pane started in a folder that is not there")
+	}
+	// Which folder is the caller's to say: the pane shows this with its working
+	// directory after it.
+	if !strings.Contains(err.Error(), "not there") || strings.Contains(err.Error(), "cmd.exe") {
+		t.Errorf("error = %q, want it to say the folder is not there", err)
+	}
+}
