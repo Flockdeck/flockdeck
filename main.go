@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -1003,7 +1004,7 @@ func run(opts options) error {
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		shutdownFailed("could not save layout", err)
 	}
-	if err := keepOpenProjects(before, ws.Session()); err != nil {
+	if err := keepOpenProjects(before, ws.Session(), ws.ClosedRoots()); err != nil {
 		shutdownFailed("could not keep the list of open projects", err)
 	}
 	close(saved)
@@ -1299,14 +1300,21 @@ func sameFolder(a, b string) bool {
 // saving on any trouble with the read -- a file held a moment too long, a list
 // that came back damaged -- and the projects kept aside were lost with the
 // only copy of them, which was the one in memory.
-func keepOpenProjects(before, now *store.Session) error {
+//
+// closed are the projects this run closed. They are left out of the ones put
+// back: closing one during a -new run did not stick, since the list from
+// before the run still named it, and the next start reopened it.
+func keepOpenProjects(before, now *store.Session, closed []string) error {
 	if before == nil {
 		return nil
 	}
-	return store.SaveSession(&store.Session{
-		Open:   append(append([]string(nil), now.Open...), before.Open...),
-		Active: now.Active,
-	})
+	open := append([]string(nil), now.Open...)
+	for _, root := range before.Open {
+		if !slices.ContainsFunc(closed, func(c string) bool { return sameFolder(c, root) }) {
+			open = append(open, root)
+		}
+	}
+	return store.SaveSession(&store.Session{Open: open, Active: now.Active})
 }
 
 // shutdown stops serving, and only then saves.

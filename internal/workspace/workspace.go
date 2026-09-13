@@ -199,6 +199,8 @@ type Workspace struct {
 	// openRoots are the projects currently open, in the order they were
 	// opened; activeRoot is the one being shown.
 	openRoots []string
+	// closedRoots are the projects closed during this run. See ClosedRoots.
+	closedRoots []string
 	// opening guards against a restore that reopens itself. A tab can show
 	// panes from another project, so restoring one project can open a second,
 	// whose own layout may hold a pane belonging back to the first.
@@ -687,6 +689,7 @@ func (w *Workspace) CloseProject(root string) error {
 		}
 	}
 	w.openRoots = roots
+	w.closedRoots = append(w.closedRoots, root)
 
 	if w.activeRoot == root {
 		w.activeRoot = w.openRoots[0]
@@ -694,6 +697,15 @@ func (w *Workspace) CloseProject(root string) error {
 	w.focusFirstTabOf(w.activeRoot)
 	w.wake()
 	return saveErr
+}
+
+// ClosedRoots are the projects closed during this run, in the order they were
+// closed, under the spelling each was open with. A -new run puts back the
+// projects that were open before it on its way out, and without these it put
+// back the very ones the user had closed. One closed and opened again is still
+// among them; it is in Session's list as well.
+func (w *Workspace) ClosedRoots() []string {
+	return append([]string(nil), w.closedRoots...)
 }
 
 func (w *Workspace) isOpen(root string) bool {
