@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -61,5 +62,54 @@ func TestALayoutThatCouldNotBeReadIsNotWrittenOver(t *testing.T) {
 	}
 	if again, err := os.ReadFile(p + unreadSuffix); err != nil || !strings.Contains(string(again), `"alpha"`) {
 		t.Errorf("a later save replaced the kept layout: %s, %v", again, err)
+	}
+}
+
+// TestASecondLayoutThatCouldNotBeReadDoesNotReplaceTheFirst checks a file
+// kept aside is still there after the same file cannot be read a second time.
+//
+// The first copy is the tabs the user had before a run came up without them,
+// and nothing says they have been back for it. Moved aside onto the same name,
+// the second copy took its place: the one kept for the user was lost to the
+// next moment's trouble reading the file that replaced it.
+func TestASecondLayoutThatCouldNotBeReadDoesNotReplaceTheFirst(t *testing.T) {
+	isolateConfig(t)
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	gone := errors.New("the device is not ready")
+	unreadable := func() {
+		t.Helper()
+		readFile = func(name string) ([]byte, error) {
+			if name == p {
+				return nil, gone
+			}
+			return os.ReadFile(name)
+		}
+		defer func() { readFile = os.ReadFile }()
+		if _, err := Load("/repo/a"); !errors.Is(err, gone) {
+			t.Fatalf("load gave %v, want the read's own failure", err)
+		}
+	}
+	t.Cleanup(func() { readFile = os.ReadFile })
+
+	for _, title := range []string{"alpha", "fresh", "later"} {
+		if _, err := os.Stat(p); err == nil {
+			unreadable()
+		}
+		if err := Save("/repo/a", &State{Tabs: []Tab{{Title: title}}}); err != nil {
+			t.Fatalf("save %s: %v", title, err)
+		}
+	}
+	for file, want := range map[string]string{
+		p + unreadSuffix:        `"alpha"`,
+		p + unreadSuffix + ".1": `"fresh"`,
+		p:                       `"later"`,
+	} {
+		got, err := os.ReadFile(file)
+		if err != nil || !strings.Contains(string(got), want) {
+			t.Errorf("%s holds %s, %v; want %s", filepath.Base(file), got, err, want)
+		}
 	}
 }

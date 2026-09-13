@@ -527,11 +527,48 @@ func keepUnread(p string) error {
 	if !unreadFiles.paths[p] {
 		return nil
 	}
-	if err := renameWithRetry(p, p+unreadSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	aside, err := unreadName(p)
+	if err == nil {
+		err = renameWithRetry(p, aside)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
 	}
 	delete(unreadFiles.paths, p)
 	return nil
+}
+
+// maxUnreadKept bounds how many copies of one file are kept aside. It is far
+// more than any run will make; it is there so a folder where every name
+// answers something other than "not there" is not searched forever.
+const maxUnreadKept = 100
+
+// unreadName is the name a file this run could not read is moved aside to:
+// "<name>.unread", or where that is taken, the first of "<name>.unread.1",
+// "<name>.unread.2" and on that is not.
+//
+// A rename replaces whatever stands at the name it is given, on every
+// platform, and a copy already there is one kept for the user from an earlier
+// time the file could not be read: the tabs or settings they had before a run
+// came up without them, which nothing says they have been back for. The file
+// being moved now is most often what that run saved in their place, so the two
+// are not the same, and moving one onto the other lost the copy that mattered.
+//
+// Looking first is not atomic: a second instance moving the same file aside
+// in the same moment could take the name between the look and the rename.
+// That needs two instances failing to read one file at once, and costs one of
+// the two copies, which is what every second move used to cost.
+func unreadName(p string) (string, error) {
+	for i := 0; i < maxUnreadKept; i++ {
+		name := p + unreadSuffix
+		if i > 0 {
+			name = fmt.Sprintf("%s.%d", name, i)
+		}
+		if _, err := os.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("%d copies of it are already kept beside it", maxUnreadKept)
 }
 
 // WriteAtomic is writeAtomic for the packages that keep a file of their own in
