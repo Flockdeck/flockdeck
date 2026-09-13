@@ -77,9 +77,10 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 	fmt.Fprintf(out, "records a transcript and can be resumed.\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nWhat -wire, -base-url and -key-env leave unsaid is taken from the -agent's\n")
-	fmt.Fprintf(out, "catalog entry, agents.json included. The API key is read from those names,\n")
-	fmt.Fprintf(out, "then from the conventional name for the wire, then from the keys Flockdeck\n")
-	fmt.Fprintf(out, "has been given with `flockdeck keys set <agent>`.\n")
+	fmt.Fprintf(out, "catalog entry, agents.json included. The API key is read from those names\n")
+	fmt.Fprintf(out, "and then the conventional name for the wire -- the vendor's own names only\n")
+	fmt.Fprintf(out, "where the endpoint is the vendor's -- then from the key stored with\n")
+	fmt.Fprintf(out, "`flockdeck keys set <agent>`, and last from FLOCKDECK_API_KEY.\n")
 	// The commands are what somebody opening the help is looking for once
 	// the chat is running, and /help is only found by those who know of it.
 	fmt.Fprintf(out, "\nOnce it is running, /help lists the commands: /model to see and switch\n")

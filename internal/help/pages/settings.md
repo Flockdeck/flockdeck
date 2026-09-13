@@ -134,8 +134,11 @@ elsewhere — and start Flockdeck again.
 - `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
-  `GOOGLE_API_KEY`) — keys for the API agents, used before anything in
-  `keys.json`. `FLOCKDECK_API_KEY` is tried after them, for any API agent.
+  `GOOGLE_API_KEY`) — keys for the API agents talking to those vendors' own
+  addresses, used before anything in `keys.json`. An agent given another
+  address, such as a gateway's, is never sent them.
+- `FLOCKDECK_API_KEY` — a key for any API agent, used when neither its own
+  variables nor `keys.json` hold one.
 - `CLAUDE_CONFIG_DIR` — where Claude Code keeps its own files; Flockdeck follows
   it to find conversations and folder trust.
 - `NO_COLOR` — the built-in chat client draws without colour.

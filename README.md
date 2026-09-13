@@ -385,7 +385,10 @@ default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
 should still learn that Flockdeck would run it. An OpenAI-compatible endpoint
 is given its address there too: pick it, type where the model server answers,
-and one on this machine, which needs no key, is offered at once. Each model
+and one on this machine, which needs no key, is offered at once. `/v1` is
+added only to a bare address such as `http://127.0.0.1:11434`; one with a path
+of its own, such as a gateway's `https://gateway.example/openai`, is used as it
+stands. Each model
 shows its tier — *small*, *mid* or *top*, how capable and so how costly it is
 among that agent's own — and an API agent's models their published price per
 million tokens with the day it was read; a CLI agent's show none, since it may
@@ -432,7 +435,10 @@ does not parse is a notice in the interface rather than a failure to start.
 Keys for the API agents are resolved from that agent's own environment
 variables first, then from `keys.json` in the state directory, written by
 `flockdeck keys set <agent>` reading stdin, and last from `FLOCKDECK_API_KEY`,
-which every API agent reads. A key reaches exactly one place — the
+which every API agent reads. A vendor's own variable, such as
+`OPENAI_API_KEY`, is read only by an agent talking to that vendor's own
+address: a built-in pointed at a gateway or a proxy is never sent the key you
+exported for the vendor, and uses the one stored for it. A key reaches exactly one place — the
 environment of the chat process for the pane that needs it — and is never
 logged, never in a snapshot, never in an error message. The interface shows
 *set* or *not set*, offers *set…* and *clear*, and never reads one back.

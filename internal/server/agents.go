@@ -562,10 +562,17 @@ func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
 		root  string
 		known bool
 	}
-	f, _ := ask(s, func() facts {
+	f, ok := ask(s, func() facts {
 		_, known := s.ws.Catalog().Find(cmd.Agent)
 		return facts{root: s.ws.ActiveRoot(), known: known || cmd.Agent == ""}
 	})
+	if !ok {
+		// No answer came: Flockdeck is closing, or looking the agent up
+		// failed. Read as an answer, the empty facts said `there is no agent
+		// called ""`, which named neither and blamed the agent asked for.
+		c.notify("the default agent was not saved: Flockdeck is closing, or could not look the agent up; try again", true)
+		return
+	}
 	if !f.known {
 		c.notify(fmt.Sprintf("there is no agent called %q", cmd.Agent), true)
 		return

@@ -75,6 +75,16 @@ model server answers, starting `http://` or `https://` — `http://127.0.0.1:114
 for Ollama, `http://127.0.0.1:1234/v1` for LM Studio — and press `Enter`.
 `Escape` puts the field away without saving anything.
 
+How much of the address to give depends on the path. For an OpenAI-compatible
+endpoint, `/v1` is added only to a bare address such as
+`http://127.0.0.1:11434`. An address with a path of its own — `.../v1`, or a
+gateway's `https://gateway.example/openai` — is taken as the whole of the API's
+root, and nothing is added to it. So give the path your server or gateway
+documents, `/v1` included where it has one. For the Anthropic and Gemini
+agents, the API's version is added unless the address already ends in it. A
+request's full address pasted in, ending `/chat/completions`, `/messages` or
+`/models`, has that part taken off first.
+
 An address on this machine needs no key, so a local model server is offered
 the moment its address is saved. One anywhere else, such as a gateway, needs a
 key as well, set under [[action:apiKeys]].
@@ -128,8 +138,11 @@ the task does.
 
 A CLI agent uses the login it already has, and Flockdeck never sees it. An API
 agent needs a key, which is looked for in that agent's own environment
-variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — and then
-in Flockdeck's own store.
+variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — then in
+Flockdeck's own store, and last in `FLOCKDECK_API_KEY`, which any API agent
+reads. A vendor's own variable is read only by an agent talking to that
+vendor's own address: a built-in given a gateway's or a proxy's address is
+never sent the key you exported for the vendor, and uses the one stored for it.
 
 | Command | What it does |
 | --- | --- |

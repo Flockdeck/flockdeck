@@ -224,8 +224,10 @@ func chatArgs(id string, api APISpec, resume bool) []Arg {
 	if api.BaseURL != "" {
 		args = append(args, Lit("--base-url"), Lit(api.BaseURL))
 	}
-	if len(api.KeyEnv) > 0 {
-		args = append(args, Lit("--key-env"), Lit(strings.Join(api.KeyEnv, ",")))
+	// The names are the ones the entry may be given where it talks now: a
+	// built-in pointed at a gateway is not told to read its vendor's variable.
+	if env := OwnKeyEnv(api); len(env) > 0 {
+		args = append(args, Lit("--key-env"), Lit(strings.Join(env, ",")))
 	}
 	args = append(args,
 		Group("model", "--model", "{{model}}"),

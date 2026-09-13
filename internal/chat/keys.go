@@ -43,9 +43,19 @@ func resolveKey(o Options) (string, error) {
 
 // noKey says that there is no key, and where one goes.
 func noKey(o Options) string {
-	return fmt.Sprintf("no API key for %s: set %s, or run `flockdeck keys set %s`",
-		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(keyNames(o), " or "), keyAgent(o))
+	first, last := keyNames(o)
+	store := "run `flockdeck keys set " + agentNamed(o) + "`"
+	if keyAgent(o) == "" {
+		store += " and start this with -agent <agent>"
+	}
+	return fmt.Sprintf("no API key for %s: set %s, or %s",
+		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(append(first, last...), " or "), store)
 }
+
+// agentNamed is the agent id to put in a command the user is told to run: the
+// chat's own, or "<agent>" where it has none to give, rather than a command
+// with a gap where the id goes.
+func agentNamed(o Options) string { return firstNonEmpty(keyAgent(o), "<agent>") }
 
 // keyPoll is how often a chat waiting for a key looks for one.
 var keyPoll = 2 * time.Second
@@ -82,9 +92,17 @@ func waitForKey(ctx context.Context, o Options) (string, error) {
 // agent that speaks that wire, which is the id `flockdeck keys set` would have
 // been given. Looked for under no id at all, a stored key was never found,
 // and the error said to run the very command that had stored it.
+//
+// Started by hand at somebody else's address -- a gateway -- it is not that
+// built-in, and there is no agent: the key stored for the built-in is the
+// user's key for the vendor, and was sent to the gateway. It is "" then, and
+// no stored key is looked for.
 func keyAgent(o Options) string {
 	if o.Agent != "" {
 		return o.Agent
+	}
+	if !agent.VendorsOwn(agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL}) {
+		return ""
 	}
 	switch strings.ToLower(strings.TrimSpace(o.Wire)) {
 	case "openai", "openai-compatible":
@@ -102,15 +120,17 @@ func keyAgent(o Options) string {
 // It is one lookup for starting the chat and for /status, so that what /status
 // says is where the key the chat is using came from.
 func lookupKey(o Options) (key, from string) {
-	for _, name := range keyNames(o) {
-		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-			return v, "from " + name
+	first, last := keyNames(o)
+	if v, name := envKey(first); v != "" {
+		return v, "from " + name
+	}
+	if id := keyAgent(o); KeyStore != nil && id != "" {
+		if v := strings.TrimSpace(KeyStore(id)); v != "" {
+			return v, "stored with `flockdeck keys set " + id + "`"
 		}
 	}
-	if KeyStore != nil {
-		if v := strings.TrimSpace(KeyStore(keyAgent(o))); v != "" {
-			return v, "stored with `flockdeck keys set " + keyAgent(o) + "`"
-		}
+	if v, name := envKey(last); v != "" {
+		return v, "from " + name
 	}
 	// An endpoint on this machine is usually a local model, which wants no key
 	// at all; refusing to start would be refusing over nothing.
@@ -126,29 +146,48 @@ func lookupKey(o Options) (key, from string) {
 // one found in another order; KeyStore must be set for a stored key to count.
 func KeyFor(o Options) (key, from string) { return lookupKey(o) }
 
-// keyNames are the environment variables a key is looked for in, in order: the
-// agent's own, the wire's conventional one, and Flockdeck's. The spec usually
-// names the conventional variable itself, and an error that tells somebody to
-// set X or X is one they read twice.
+// keyNames are the environment variables a key is looked for in, split where
+// the stored key is looked at: first the agent's own and the wire's
+// conventional one, before it; last Flockdeck's, after it. It is the order
+// agent.KeyNames gives the keys dialog and `flockdeck keys`, so that what they
+// say is in use is what this sends. The spec usually names the conventional
+// variable itself, and an error that tells somebody to set X or X is one they
+// read twice.
 //
 // The conventional one is looked in only where the chat talks to that vendor.
 // Pointed at a gateway, the chat sent OPENAI_API_KEY -- the user's key for
 // OpenAI -- to the gateway, ahead of the key stored for the gateway itself;
 // agent.VendorsOwn is the rule, which the picker and the keys dialog go by too.
-func keyNames(o Options) []string {
-	candidates := append([]string{}, o.KeyEnv...)
-	if agent.VendorsOwn(agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL}) {
+// It covers the agent's own names as well: a built-in pointed at a gateway
+// still names its vendor's variable, and is not sent it (agent.OwnKeyEnv).
+func keyNames(o Options) (first, last []string) {
+	api := agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL, KeyEnv: o.KeyEnv}
+	candidates := agent.OwnKeyEnv(api)
+	if agent.VendorsOwn(api) {
 		candidates = append(candidates, defaultKeyEnv(o.Wire)...)
 	}
-	var names []string
 	seen := map[string]bool{}
-	for _, name := range append(candidates, "FLOCKDECK_API_KEY") {
+	for _, name := range candidates {
 		if !seen[name] {
 			seen[name] = true
-			names = append(names, name)
+			first = append(first, name)
 		}
 	}
-	return names
+	if seen[agent.FallbackKeyEnv] {
+		return first, nil
+	}
+	return first, []string{agent.FallbackKeyEnv}
+}
+
+// envKey is the key in the first of these variables that holds one, and the
+// variable's name.
+func envKey(names []string) (key, name string) {
+	for _, name := range names {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			return v, name
+		}
+	}
+	return "", ""
 }
 
 // keyLike matches what a vendor's refusal quotes of a key: OpenAI's "Incorrect
@@ -198,8 +237,7 @@ func (s *session) rekey() bool {
 	if key, from := lookupKey(s.opts); key != "" {
 		candidates = append(candidates, candidate{key, from})
 	}
-	if KeyStore != nil {
-		agent := keyAgent(s.opts)
+	if agent := keyAgent(s.opts); KeyStore != nil && agent != "" {
 		candidates = append(candidates, candidate{strings.TrimSpace(KeyStore(agent)), "stored with `flockdeck keys set " + agent + "`"})
 	}
 	for _, c := range candidates {

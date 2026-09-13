@@ -324,11 +324,11 @@ func TestKeyNeverPrintsItself(t *testing.T) {
 	}
 }
 
-// TestAStoredKeyAVariableShadowsIsStillReportedStored covers an entry with no
-// key variable of its own, such as a gateway given only an address, whose key
-// was stored before Flockdeck's own variable was exported. The variable is the
-// key in use, and the keys dialog, which offers Clear only for a stored key,
-// had no way left to clear the one Flockdeck still held.
+// TestAStoredKeyAVariableShadowsIsStillReportedStored covers a key stored for
+// an entry and then shadowed by a variable exported afterwards. The variable
+// is the key in use, and the keys dialog, which offers Clear only for a stored
+// key, had no way left to clear the one Flockdeck still held. Flockdeck's own
+// variable shadows nothing: it is any agent's, and comes after the store.
 func TestAStoredKeyAVariableShadowsIsStillReportedStored(t *testing.T) {
 	isolateConfig(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -354,11 +354,8 @@ func TestAStoredKeyAVariableShadowsIsStillReportedStored(t *testing.T) {
 	}
 	t.Setenv("FLOCKDECK_API_KEY", "exported")
 	st := StatusOf(gateway)
-	if st.Source != SourceEnv || st.Env != "FLOCKDECK_API_KEY" {
-		t.Fatalf("the exported variable is not the key in use: %+v", st)
-	}
-	if !st.Stored {
-		t.Errorf("a stored key the variable shadows reads as not stored, so nothing offers to clear it: %+v", st)
+	if st.Source != SourceStore || !st.Stored {
+		t.Fatalf("FLOCKDECK_API_KEY was taken over the gateway's stored key: %+v", st)
 	}
 
 	// An entry with a variable of its own is given that variable ahead of the

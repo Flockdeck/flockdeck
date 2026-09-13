@@ -10,8 +10,7 @@ import (
 // none of its own at the vendor's own address -- is shown as set, and where
 // from, as the picker already counts it. A gateway given just an address is
 // never sent the vendor's variable, so it is not shown as having that key:
-// FLOCKDECK_API_KEY and then its stored key are what it uses, and a stored
-// key a variable shadows is still reported stored. The OpenAI-compatible
+// its stored key and then FLOCKDECK_API_KEY are what it uses. The OpenAI-compatible
 // entry with no address is not offered on the strength of a key for OpenAI
 // proper, and is not shown as having one.
 func TestAKeyInTheWiresUsualVariableIsShownAsSet(t *testing.T) {
@@ -36,11 +35,11 @@ func TestAKeyInTheWiresUsualVariableIsShownAsSet(t *testing.T) {
 	if st := StatusOf(gw); !st.Set || st.Source != SourceStore || !st.Stored {
 		t.Errorf("status %+v, want the gateway's stored key, not OPENAI_API_KEY", st)
 	}
-	// Flockdeck's own variable comes before the store, for an entry the store
-	// cannot be handed to by name, and the stored key can still be cleared.
+	// Flockdeck's own variable comes after the store, for every entry: the
+	// stored key is this agent's, and the variable is any agent's.
 	t.Setenv("FLOCKDECK_API_KEY", "sk-test-own")
-	if st := StatusOf(gw); st.Source != SourceEnv || st.Env != "FLOCKDECK_API_KEY" || !st.Stored {
-		t.Errorf("status %+v, want FLOCKDECK_API_KEY in use and the stored key still reported", st)
+	if st := StatusOf(gw); st.Source != SourceStore || !st.Stored {
+		t.Errorf("status %+v, want the stored key in use over FLOCKDECK_API_KEY", st)
 	}
 	t.Setenv("FLOCKDECK_API_KEY", "")
 

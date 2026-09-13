@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +164,8 @@ func TakesAddress(s Spec) bool {
 // the key store. It reads nothing out -- the answer is set or not set, which is
 // all availability, and all the interface, is ever told.
 func keyIsSet(s Spec) bool {
-	for _, name := range KeyNames(s) {
+	first, last := KeyNames(s)
+	for _, name := range append(first, last...) {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
 			return true
 		}
@@ -191,28 +193,76 @@ func keyIsSet(s Spec) bool {
 	return strings.TrimSpace(keys[s.ID]) != ""
 }
 
+// FallbackKeyEnv is Flockdeck's own variable, which any API agent reads a key
+// from when nothing of its own holds one.
+const FallbackKeyEnv = "FLOCKDECK_API_KEY"
+
 // KeyNames are the environment variables an API agent's key is looked for in,
-// in the order the chat client tries them: the entry's own, then the vendor's
-// usual one for the wire where the entry talks to that vendor, then
-// Flockdeck's own.
+// split where the key stored for it with `flockdeck keys set` is looked at:
+// first before it, last after it. It is the one order the chat client, the
+// keys dialog, `flockdeck keys` and the picker all go by:
+//
+//  1. the entry's own variables, less its vendor's where it talks to somebody
+//     else (OwnKeyEnv), then the vendor's usual one where it talks to the
+//     vendor;
+//  2. the key stored for it;
+//  3. FLOCKDECK_API_KEY.
+//
+// The stored key comes before Flockdeck's own variable because it is this
+// agent's, and the variable is any agent's. The order used to depend on the
+// entry: one with a variable of its own was handed its stored key under that
+// variable, and so used it first, while one with none -- a built-in pointed at
+// a gateway -- took FLOCKDECK_API_KEY first, and `flockdeck keys check` asked
+// about one key while the pane sent the other.
 //
 // The vendor's variable is left out for an entry pointed anywhere else, a
 // gateway above all: OPENAI_API_KEY is the user's key for OpenAI, and an entry
 // given only a third party's address would have handed it to that party with
-// every request, even with a key stored for the entry itself. Such an entry
-// has its own variables, FLOCKDECK_API_KEY, and then its stored key.
+// every request, even with a key stored for the entry itself.
 //
 // An entry with neither an endpoint nor a variable of its own is the
 // OpenAI-compatible one as it ships, with no address filled in yet; a key
 // exported for OpenAI proper is not a reason to offer it, so it has only its
-// own names, which are none.
-func KeyNames(s Spec) []string {
-	names := append([]string{}, s.API.KeyEnv...)
-	if len(s.API.KeyEnv) > 0 || s.API.BaseURL != "" {
-		if VendorsOwn(s.API) {
-			names = append(names, wireKeyEnv(s.API.Wire)...)
+// own names, which are none, and its stored key.
+func KeyNames(s Spec) (first, last []string) {
+	if len(s.API.KeyEnv) == 0 && s.API.BaseURL == "" {
+		return nil, nil
+	}
+	first = OwnKeyEnv(s.API)
+	if VendorsOwn(s.API) {
+		for _, name := range wireKeyEnv(s.API.Wire) {
+			if !slices.Contains(first, name) {
+				first = append(first, name)
+			}
 		}
-		names = append(names, "FLOCKDECK_API_KEY")
+	}
+	if slices.Contains(first, FallbackKeyEnv) {
+		return first, nil
+	}
+	return first, []string{FallbackKeyEnv}
+}
+
+// OwnKeyEnv are the variables an entry names for its key, as far as it may be
+// given them: all of them where it talks to its wire's vendor, and all but that
+// vendor's own where it talks to anybody else.
+//
+// A built-in keeps the vendor's variable in its entry when it is pointed at a
+// gateway -- `flockdeck keys endpoint` and the picker's address field change
+// the address and nothing else -- so an OPENAI_API_KEY exported for OpenAI was
+// sent to the gateway with every request, ahead of the key stored for it.
+// Everything that looks for a key, or tells a pane where to, goes through this.
+func OwnKeyEnv(api APISpec) []string {
+	if VendorsOwn(api) {
+		return slices.Clone(api.KeyEnv)
+	}
+	vendor := wireKeyEnv(api.Wire)
+	var names []string
+	for _, name := range api.KeyEnv {
+		// Windows reads a variable's name without regard to case, so a
+		// differently cased spelling is the vendor's variable there too.
+		if !slices.ContainsFunc(vendor, func(v string) bool { return strings.EqualFold(v, name) }) {
+			names = append(names, name)
+		}
 	}
 	return names
 }

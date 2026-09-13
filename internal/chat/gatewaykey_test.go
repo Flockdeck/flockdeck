@@ -67,6 +67,20 @@ func TestAGatewayIsNotSentTheVendorsKey(t *testing.T) {
 		t.Errorf("error = %v, want one naming FLOCKDECK_API_KEY and not OPENAI_API_KEY", err)
 	}
 
+	// A built-in pointed at a gateway is started still naming its vendor's
+	// variable, and is not sent it either.
+	KeyStore = func(agent string) string {
+		if agent == "openai" {
+			return "sk-test-stored-for-openai"
+		}
+		return ""
+	}
+	builtin := Options{Agent: "openai", Wire: "openai", BaseURL: "https://gw.example/v1", KeyEnv: []string{"OPENAI_API_KEY"}}
+	if key, from := lookupKey(builtin); key != "sk-test-stored-for-openai" {
+		t.Errorf("a built-in at a gateway took its key %s, want the one stored for it", from)
+	}
+	KeyStore = func(string) string { return "" }
+
 	for _, base := range []string{"", "https://api.openai.com/v1"} {
 		if key, from := lookupKey(Options{Agent: "openai", Wire: "openai", BaseURL: base}); key != "sk-test-vendor" {
 			t.Errorf("at OpenAI's own address %q the key came %s, want from OPENAI_API_KEY", base, from)

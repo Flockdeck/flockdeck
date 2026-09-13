@@ -235,36 +235,14 @@ func writeConfig(dir string, f *File) error {
 	if err := enc.Encode(f); err != nil {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
-	data := buf.Bytes()
-	path := filepath.Join(dir, ConfigName)
-	tmp, err := os.CreateTemp(dir, ConfigName+".tmp*")
-	if err != nil {
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	// The state directory is the user's alone, but the file is written 0600 as
-	// well: an OpenAI-compatible entry may carry a private endpoint, and the
-	// rest of Flockdeck's state is kept that way too.
-	if err := os.Chmod(name, 0o600); err != nil && !os.IsNotExist(err) {
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
+	// The state directory's own atomic write: a temporary file flushed and
+	// renamed into place, 0600 -- an OpenAI-compatible entry may carry a
+	// private endpoint -- and one save of the file at a time. Its rename waits
+	// out whatever has the file open for a moment. A plain rename failed on
+	// Windows with "Access is denied" whenever the virus scanner, another
+	// instance or a picker reading the catalog had agents.json open, and the
+	// default or the address being saved was lost.
+	if err := store.WriteAtomic(filepath.Join(dir, ConfigName), buf.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", ConfigName, err)
 	}
 	return nil
@@ -328,10 +306,16 @@ func SetDefaults(dir, project string, d Defaults) error {
 // else it says; one is added when there is none. An empty address takes the
 // one recorded away.
 //
-// Where the agent has more than one entry the last is the one changed, because
-// entries are merged in order and the last one's address is the one used: an
-// address written into an earlier entry was saved without error and changed
-// nothing.
+// Where the agent has more than one entry the last is the one given the
+// address, because entries are merged in order and the last one's address is
+// the one used: an address written into an earlier entry was saved without
+// error and changed nothing. Every other entry for the agent has its address
+// taken out, since each is merged over the one before: an address an earlier
+// entry gave, which the last never mentions, was still the one panes used
+// after being told the vendor's own was back.
+//
+// It is what the picker's address field and `flockdeck keys endpoint` both
+// save with.
 func SetBaseURL(dir, id, baseURL string) error {
 	baseURL = strings.TrimSpace(baseURL)
 	if err := CheckBaseURL(baseURL); err != nil {
@@ -344,34 +328,31 @@ func SetBaseURL(dir, id, baseURL string) error {
 		// As with a default: a file that cannot be read is not written over.
 		return err
 	}
-	at := -1
+	ofAgent := func(raw json.RawMessage) bool {
+		var head struct {
+			ID string `json:"id"`
+		}
+		return json.Unmarshal(raw, &head) == nil && head.ID == id
+	}
+	last := -1
 	for i, raw := range f.Agents {
-		var entry map[string]json.RawMessage
-		var got string
-		if json.Unmarshal(raw, &entry) == nil && json.Unmarshal(entry["id"], &got) == nil && got == id {
-			at = i
+		if ofAgent(raw) {
+			last = i
 		}
 	}
-	if at >= 0 {
-		var entry map[string]json.RawMessage
-		if err := json.Unmarshal(f.Agents[at], &entry); err != nil {
-			return err
+	for i, raw := range f.Agents {
+		if !ofAgent(raw) {
+			continue
 		}
-		api := map[string]json.RawMessage{}
-		if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
-			return fmt.Errorf("agent %q in %s: its \"api\" is not an object, so the address was not written", id, ConfigName)
+		address := ""
+		if i == last {
+			address = baseURL
 		}
-		if baseURL == "" {
-			delete(api, "baseURL")
-		} else if api["baseURL"], err = marshalUnescaped(baseURL); err != nil {
-			return err
+		if f.Agents[i], err = withBaseURL(raw, address); err != nil {
+			return fmt.Errorf("agent %q in %s: %w", id, ConfigName, err)
 		}
-		if entry["api"], err = marshalUnescaped(api); err != nil {
-			return err
-		}
-		if f.Agents[at], err = marshalUnescaped(entry); err != nil {
-			return err
-		}
+	}
+	if last >= 0 {
 		return writeConfig(dir, f)
 	}
 	if baseURL == "" {
@@ -383,6 +364,53 @@ func SetBaseURL(dir, id, baseURL string) error {
 	}
 	f.Agents = append(f.Agents, entry)
 	return writeConfig(dir, f)
+}
+
+// withBaseURL is an agents.json entry with its api's address set to address,
+// or taken out where address is "" -- and its api with it, where nothing else
+// is left there. Everything else in the entry is kept as it was written, and
+// an entry with no address to take out is left exactly as it was.
+//
+// The key is matched without regard to case, as the decoder matches it. A
+// "baseUrl" written by hand was left beside the "baseURL" set here, sorted
+// after it when the file was written back, and so was the one read: setting
+// the address and taking it away both reported success and changed nothing.
+func withBaseURL(raw json.RawMessage, address string) (json.RawMessage, error) {
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil, err
+	}
+	api := map[string]json.RawMessage{}
+	if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
+		return nil, errors.New(`its "api" is not an object, so the address was not written`)
+	}
+	had := false
+	for key := range api {
+		if strings.EqualFold(key, "baseURL") {
+			delete(api, key)
+			had = true
+		}
+	}
+	if address == "" && !had {
+		return raw, nil
+	}
+	if address != "" {
+		v, err := marshalUnescaped(address)
+		if err != nil {
+			return nil, err
+		}
+		api["baseURL"] = v
+	}
+	if len(api) == 0 {
+		delete(entry, "api")
+	} else {
+		v, err := marshalUnescaped(api)
+		if err != nil {
+			return nil, err
+		}
+		entry["api"] = v
+	}
+	return marshalUnescaped(entry)
 }
 
 // CheckBaseURL says whether an address is one an endpoint can have, and when
