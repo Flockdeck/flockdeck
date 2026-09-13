@@ -269,6 +269,18 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 	}
 }
 
+// Outside a pane the answer says what is missing and how to start an agent
+// from where the user is: it said only where the command works.
+func TestSpawnOutsideAPaneSaysWhatToDoInstead(t *testing.T) {
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_API", "PERCH_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	err := runSpawn([]string{"watch the build"})
+	if err == nil || !strings.Contains(err.Error(), "FLOCKDECK_API") || !strings.Contains(err.Error(), "run `flockdeck` to open the window") {
+		t.Errorf("spawn outside a pane = %v, want it to name what is missing and what to do", err)
+	}
+}
+
 // A value flag given last with no value has to be reported as missing one.
 // The separator the reordering adds used to follow it, and the flag set took
 // "--" for its value: a worktree on a branch called --, and no complaint.

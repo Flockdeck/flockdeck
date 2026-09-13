@@ -1127,7 +1127,12 @@ func runSpawn(args []string) error {
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a flockdeck pane")
+		// Said with what is missing and the way round it: somebody who typed
+		// this in a terminal of their own was told only where it works, and
+		// an agent in a pane whose environment had lost them had nothing to
+		// go on at all.
+		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
 	}
 
 	res, err := hooks.Spawn(api, token, pane, req)
