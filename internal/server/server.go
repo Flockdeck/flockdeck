@@ -104,6 +104,9 @@ type Server struct {
 	gitNow chan struct{}
 	once   sync.Once
 
+	// loopDone is closed when the workspace goroutine returns. See Stopped.
+	loopDone chan struct{}
+
 	// prefs is what the interface remembers about this person rather than
 	// about a workspace. It is read and written only on the workspace
 	// goroutine, which is what keeps it free of a lock of its own.
@@ -220,6 +223,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 
+		loopDone:      make(chan struct{}),
 		paneLookup:    paneLookup,
 		usageRefresh:  usageRefresh,
 		saveInterval:  layoutSaveInterval,

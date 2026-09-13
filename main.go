@@ -759,9 +759,20 @@ func run(opts options) error {
 
 	// The tunnel is a way in like the local port, so it is closed with it,
 	// before anything is saved.
+	//
+	// Closing the server stops it taking changes, but the one it was applying
+	// as it closed runs on, on its own goroutine -- and that goroutine is the
+	// workspace's only owner. Saving, and then closing the workspace, while it
+	// was still at work were the races shutdown exists to avoid, so they wait
+	// for it to have finished, for as long as the shutdown is given at all.
 	stopServing := func() error {
 		remoteAccess.Close()
-		return srv.Close()
+		err := srv.Close()
+		select {
+		case <-srv.Stopped():
+		case <-time.After(shutdownGrace):
+		}
+		return err
 	}
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
