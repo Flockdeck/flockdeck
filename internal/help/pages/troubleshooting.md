@@ -64,8 +64,9 @@ reporting has stopped: the agent carries on working, and its terminal is still
 the truth.
 
 **Restart** the pane. It is launched with a freshly written settings file
-pointing at the address and token this run is listening on, which is what a
-pane running against a settings file from an earlier run is missing. If it
+pointing at the address this run is listening on, and with this run's token
+in its environment, where the hooks read it; a pane still carrying an earlier
+run's address and token is missing both. If it
 happens repeatedly with Claude Code, run `claude --debug` in that directory: a
 hook that cannot reach the application, or that is turned away by it, says so
 on its standard error, and that is where Claude Code shows it.
