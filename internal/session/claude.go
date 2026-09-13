@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -173,7 +174,11 @@ func installedClaudeVersion(exe string) string {
 	// on the goroutine that owns the workspace, so the wait is bounded too.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
-	if err != nil {
+	// WaitDelay also ends the wait for a program that answered and exited on
+	// its own, when something it started still holds the pipe: the answer is
+	// all there, and the error only says the wait was cut short. Taking that as
+	// no answer gave the pane the hooks for an unknown version.
+	if err != nil && !(errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success()) {
 		return ""
 	}
 	return strings.TrimSpace(string(out))

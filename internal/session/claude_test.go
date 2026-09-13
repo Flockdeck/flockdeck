@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -301,24 +302,35 @@ func TestAFailedVersionQuestionIsAskedAgain(t *testing.T) {
 // --version and exit at once.
 //
 // Set to "orphan", it first starts a copy of itself that holds its standard
-// output for ten seconds, as node does when an npm shim's cmd.exe is killed.
+// output for four seconds, as node does when an npm shim's cmd.exe is killed:
+// longer than the shortened timeout and WaitDelay together, which is what the
+// tests need, and no longer, so as not to leave it running long after them.
+// Set to "answered", it starts the same copy, then says its version and exits
+// as a program should.
 func init() {
 	if len(os.Args) != 2 || os.Args[1] != "--version" {
 		return
+	}
+	holdOutput := func() {
+		held := exec.Command(os.Args[0], "--version")
+		held.Env = append(os.Environ(), "FLOCKDECK_SLOW_VERSION=held")
+		held.Stdout = os.Stdout
+		_ = held.Start()
 	}
 	switch os.Getenv("FLOCKDECK_SLOW_VERSION") {
 	case "1":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	case "held":
-		time.Sleep(10 * time.Second)
+		time.Sleep(4 * time.Second)
 		os.Exit(0)
 	case "orphan":
-		held := exec.Command(os.Args[0], "--version")
-		held.Env = append(os.Environ(), "FLOCKDECK_SLOW_VERSION=held")
-		held.Stdout = os.Stdout
-		_ = held.Start()
+		holdOutput()
 		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "answered":
+		holdOutput()
+		fmt.Println("2.1.269 (Claude Code)")
 		os.Exit(0)
 	}
 }
@@ -341,6 +353,29 @@ func TestTheVersionQuestionIsNotHeldByAnOrphan(t *testing.T) {
 	began := time.Now()
 	if got := installedClaudeVersion(self); got != "" {
 		t.Errorf("a program that did not answer in time reported %q", got)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("the version question took %v, held open by what the program left behind", took)
+	}
+}
+
+// TestAVersionAnsweredBeforeSomethingHoldsThePipeIsKept covers the other side
+// of that bound. A Claude Code that says its version and exits, leaving
+// something it started holding its output, has answered: WaitDelay ends the
+// wait with its answer already read, and throwing that away gave the pane the
+// hooks for an unknown version, and asked again every minute.
+func TestAVersionAnsweredBeforeSomethingHoldsThePipeIsKept(t *testing.T) {
+	wait := versionTimeout
+	versionTimeout = 1500 * time.Millisecond
+	t.Cleanup(func() { versionTimeout = wait })
+	t.Setenv("FLOCKDECK_SLOW_VERSION", "answered")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	if got := installedClaudeVersion(self); got != "2.1.269 (Claude Code)" {
+		t.Errorf("a program that answered and exited reported %q, want its version", got)
 	}
 	if took := time.Since(began); took > 5*time.Second {
 		t.Errorf("the version question took %v, held open by what the program left behind", took)
