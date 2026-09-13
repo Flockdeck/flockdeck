@@ -23,6 +23,7 @@
 {"type":"user","uuid":"u-mixed-leading-reminder-1","timestamp":"2024-01-01T00:00:22Z","message":{"role":"user","content":"<system-reminder>Some injected context the user never saw.</system-reminder>\n\nWhat is the weather like today?"}}
 {"type":"user","uuid":"u-mixed-trailing-reminder-1","timestamp":"2024-01-01T00:00:22Z","message":{"role":"user","content":"Where did I leave my keys?\n\n<system-reminder>Some other injected context.</system-reminder>"}}
 {"type":"user","uuid":"u-human-caveat-1","timestamp":"2024-01-01T00:00:22Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"Caveat: this is something I typed myself, not a real caveat."}}
+{"type":"user","uuid":"u-human-reminder-1","timestamp":"2024-01-01T00:00:22Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":[{"type":"text","text":"Fix the flaky test please."},{"type":"text","text":"<system-reminder>Some context the harness attached.</system-reminder>"}]}}
 {"type":"user","uuid":"u-unknown-meta-1","timestamp":"2024-01-01T00:00:22Z","isMeta":true,"message":{"role":"user","content":"This is a made-up harness message the translator has never seen before."}}
 {"type":"system","subtype":"compact_boundary","uuid":"c-compact-1","timestamp":"2024-01-01T00:00:23Z"}
 {"type":"user","uuid":"u-truncated-1","timestamp":"2024-01-01T00:00:24Z","message":{"role":"user","content":"This line never finishes

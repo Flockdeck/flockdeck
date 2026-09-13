@@ -366,19 +366,22 @@ func (s *claudeStream) promptOrNotice(line streamLine, id, ts, text string) []En
 		return nil
 	}
 
-	if line.Origin.Kind == "human" {
-		return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindPrompt, TS: ts, Text: text})}
-	}
-
+	// A system reminder the harness attached to a message -- ahead of what
+	// was typed or after it -- is never part of it, whoever typed the rest,
+	// so it comes off before anything else is decided. Left on for a line
+	// marked as a person's own, it was drawn inside their bubble.
 	if line.IsCompactSummary || line.IsVisibleInTranscriptOnly {
 		return []Entry{s.notice(id, ts, "Conversation continued from a summary", text)}
 	}
-
 	if stripped := stripSystemReminders(text); stripped != text {
 		text = stripped
 		if text == "" {
 			return nil
 		}
+	}
+
+	if line.Origin.Kind == "human" {
+		return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindPrompt, TS: ts, Text: text})}
 	}
 
 	for _, rule := range noticeRules {

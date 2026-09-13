@@ -236,6 +236,14 @@ func TestClaudeStreamTranslatesEveryLineKind(t *testing.T) {
 		t.Errorf("origin=human should win over a matching prefix: got %+v, ok=%v", humanCaveat, ok)
 	}
 
+	// A person's own message with a system reminder attached keeps only what
+	// they typed: the reminder is stripped before origin=human is trusted,
+	// not drawn inside their bubble.
+	humanReminder, ok := entryByID(entries, "u-human-reminder-1")
+	if !ok || humanReminder.Kind != KindPrompt || humanReminder.Text != "Fix the flaky test please." {
+		t.Errorf("a person's message with an attached reminder: got %+v, ok=%v", humanReminder, ok)
+	}
+
 	unknownMeta, ok := entryByID(entries, "u-unknown-meta-1")
 	if !ok || unknownMeta.Kind != KindNotice || unknownMeta.Text != "System notification" || !unknownMeta.HasDetail {
 		t.Errorf("isMeta with no matching prefix should still fall back to a generic notice: got %+v, ok=%v", unknownMeta, ok)
