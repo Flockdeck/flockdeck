@@ -2649,7 +2649,7 @@ h.key(composing);
 assert.ok(!h.$("promptbar").hidden, "confirming the characters sent the prompt");
 assert.ok(!h.commands().some((c) => c.cmd === "sendPrompt"), "confirming the characters sent the prompt");
 h.key({ key: "Enter" });
-assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "\u4f60\u597d" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", id: "p1", text: "\u4f60\u597d" });
 
 h.press("palette");
 h.$("palette-input").value = "zoom";
@@ -4154,7 +4154,7 @@ h.key({ key: "ArrowDown" });
 assert.strictEqual(input.value, "half typ", "Down did not come back to what was being typed");
 h.key({ key: "ArrowUp" });
 h.key({ key: "Enter" });
-assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "commit what you have" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", id: "p1", text: "commit what you have" });
 `)
 }
 
@@ -5291,7 +5291,7 @@ h.key({ key: "Escape" });
 h.press("promptAll");
 assert.strictEqual(input.value, "stop and run the tests", "closing the bar threw away what was being written");
 h.key({ key: "Enter" });
-assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "stop and run the tests" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", id: "p1", text: "stop and run the tests" });
 h.press("promptAll");
 assert.strictEqual(input.value, "", "a prompt that was sent came back as an unsent draft");
 `)
@@ -6137,7 +6137,7 @@ assert.ok(!h.$("promptbar").hidden, "Shift+Enter sent the prompt");
 assert.ok(!h.commands().some((c) => c.cmd === "sendPrompt"), "Shift+Enter sent the prompt");
 input.value = "add tests\nrun them";
 h.key({ key: "Enter" });
-assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", text: "add tests\nrun them" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "sendPrompt", id: "p1", text: "add tests\nrun them" });
 assert.ok(h.$("promptbar").hidden, "sending did not close the bar");
 `)
 }
