@@ -91,15 +91,34 @@ func (s *Server) clearKey(c *controlClient, agentID string) {
 	go func() {
 		defer s.survive("clearing a key")
 		keyWrites.Lock()
-		_, err := creds.Clear(agentID)
+		had, err := creds.Clear(agentID)
 		keyWrites.Unlock()
-		if err != nil {
+		switch {
+		case err != nil:
 			c.notify("could not clear the key: "+err.Error(), true)
-		} else {
+		case !had:
+			// Cleared from another window a moment ago, most likely, whose
+			// dialog this one had not caught up with. "cleared the key" said
+			// here reads as though the agent had just lost a key -- which, for
+			// one from the environment, it goes on using.
+			c.notify(s.noStoredKeyNotice(agentID), false)
+		default:
 			c.notify("cleared the key for "+agentID, false)
 		}
 		s.keysChanged(c)
 	}()
+}
+
+// noStoredKeyNotice says that there was no stored key to clear, and where the
+// key in use comes from when it is flockdeck's environment.
+func (s *Server) noStoredKeyNotice(agentID string) string {
+	text := "there was no stored key for " + agentID + " to clear"
+	if spec, ok := s.ws.Catalog().Find(agentID); ok {
+		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
+			text += "; the key it uses is " + st.Env + " in flockdeck's environment"
+		}
+	}
+	return text
 }
 
 // keysChanged redraws the dialog and has the machine asked about the agents
