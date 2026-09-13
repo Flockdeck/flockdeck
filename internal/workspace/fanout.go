@@ -909,6 +909,11 @@ type SpawnOptions struct {
 	// so its header says the model was routed, and why.
 	Routed     string
 	RoutedFrom string
+	// SpawnedByAgent marks a child started by its parent's own `flockdeck
+	// spawn`, so the pane records the parent as its Pane.Parent -- as opposed
+	// to a fan-out the user ran themselves from the window, whose children are
+	// the user's own and carry no parent. Only installSpawnHandler sets it.
+	SpawnedByAgent bool
 }
 
 // Spawn starts a child agent, optionally in a worktree of its own.
@@ -983,6 +988,9 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
+	}
+	if o.SpawnedByAgent && parent != nil {
+		p.Parent = parentPaneID
 	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model

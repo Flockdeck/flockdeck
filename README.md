@@ -477,6 +477,12 @@ knows, not decorating the window.
 | faint grey | Starting — launched, and not heard from yet |
 | red | The process exited |
 
+A helper another agent started for itself (see [An agent starting its own
+helpers](#an-agent-starting-its-own-helpers)) raises none of this while that
+agent's own pane stays open — its idle nudge is the agent's to notice, not
+yours, though a permission prompt or a real question still reaches you as
+usual, and once that pane is closed the helper's idle nudges do too.
+
 For an agent that reports its own lifecycle, this is not screen scraping. A
 Claude Code pane is launched with a generated `--settings` file registering its
 lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop`, …),
@@ -791,6 +797,14 @@ flockdeck spawn --split "watch the build"
 Ask a lead agent to plan and then run one of these per task, and it fans itself
 out. Only processes running inside a pane can do this: the token never leaves
 the environment the pane was started with.
+
+A helper started this way is its parent's responsibility, not yours: its
+finishing and going quiet does not raise a phone push, a desktop notification
+or count toward the waiting badges, for as long as its parent's pane stays
+open to notice instead. A helper asking permission or a real question still
+turns amber and reaches you as usual, since only you can answer those. Once
+the parent's pane is closed, its helpers are yours again, from their next idle
+moment on.
 
 ### Review, commit and push
 

@@ -60,6 +60,12 @@ type Event struct {
 	// late -- which on Windows can outlive the process that ran it -- is
 	// otherwise an event about the new one. Empty from a hook that predates it.
 	Launch string `json:"launch,omitempty"`
+	// NotificationType is what a Notification is about -- Claude Code's
+	// notification_type, carried through so the receiving end can tell an idle
+	// nudge ("idle_prompt") apart from a real ask ("permission_prompt" and the
+	// rest); see session.IsIdleReminder. Empty for every other event, and for a
+	// Notification from a Claude Code too old to say.
+	NotificationType string `json:"notificationType,omitempty"`
 }
 
 // LaunchEnv is the variable a pane's process is started with naming that
@@ -293,6 +299,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 			if event == "Notification" && finishedNotifications[cp.NotificationType] {
 				return "", nil
 			}
+			p.NotificationType = cp.NotificationType
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
 				p.Event.Event = Interrupted
 			}

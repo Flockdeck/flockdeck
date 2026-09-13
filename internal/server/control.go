@@ -1253,25 +1253,22 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			s.splitPaneFor(cmd)
 		case "closePane":
-			if !focusFor(ws, cmd.ID) {
+			if !ws.ClosePaneByID(paneIDFor(ws, cmd.ID)) {
 				c.notify(paneGone, true)
 				return
 			}
-			ws.ClosePane()
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
-			if !focusFor(ws, cmd.ID) {
+			if !ws.RestartPaneByID(paneIDFor(ws, cmd.ID)) {
 				c.notify(paneGone, true)
 				return
 			}
-			ws.RestartPane()
 		case "toggleZoom":
-			if !focusFor(ws, cmd.ID) {
+			if !ws.ToggleZoomByID(paneIDFor(ws, cmd.ID)) {
 				c.notify(paneGone, true)
 				return
 			}
-			ws.ToggleZoom()
 		case "movePane":
 			if err := ws.MovePane(cmd.ID, cmd.Target, parseEdge(cmd.Edge)); err != nil {
 				c.notify(err.Error(), true)
@@ -1485,6 +1482,24 @@ func focusFor(ws *workspace.Workspace, id string) bool {
 	ws.FocusPane(id)
 	t := ws.CurrentTab()
 	return t != nil && t.Focus == id
+}
+
+// paneIDFor resolves what a command names: the pane it gives an id for, or,
+// when it gives none, the one focused in the tab on screen -- the keyboard's
+// way of asking for "whichever pane has focus" without knowing its id.
+//
+// closePane, restartPane and toggleZoom act on the pane by id, in whichever
+// tab it is actually in, rather than through focusFor: that only ever finds a
+// pane in the tab already on screen, which refused a helper sitting in any
+// other tab as though it had already gone.
+func paneIDFor(ws *workspace.Workspace, id string) string {
+	if id != "" {
+		return id
+	}
+	if t := ws.CurrentTab(); t != nil {
+		return t.Focus
+	}
+	return ""
 }
 
 // tabTitle cleans up a hand-typed tab name. The front end only checks that

@@ -333,6 +333,24 @@ func TestFinishedNotificationsAreNotReported(t *testing.T) {
 	}
 }
 
+// TestEmitCarriesTheNotificationType covers what a real ask needs told apart
+// from Claude Code's idle nudge: the notification_type Claude's payload
+// carries has to reach the Event this server delivers, since that is the only
+// place a helper's idle reminder can be told from a question nobody but a
+// person can answer.
+func TestEmitCarriesTheNotificationType(t *testing.T) {
+	srv, r := newServer(t)
+	for _, kind := range []string{"idle_prompt", "permission_prompt", "elicitation_dialog", "agent_needs_input", ""} {
+		stdin := strings.NewReader(`{"session_id":"s","notification_type":"` + kind + `"}`)
+		if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-n", "Notification"); err != nil {
+			t.Fatalf("emit %q: %v", kind, err)
+		}
+		if got := r.next(t); got.NotificationType != kind {
+			t.Errorf("notification type = %q, want %q", got.NotificationType, kind)
+		}
+	}
+}
+
 // TestSpawnSaysWhatAFailureMeans covers what the agent that ran `flockdeck
 // spawn` is told, since it acts on it. A timeout is not a refusal: the helper
 // may be on its way, and an agent that reads a bare deadline error asks again.
