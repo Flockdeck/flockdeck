@@ -6481,6 +6481,7 @@
       routeClear = el("button", "chip", "Use the run's model for every task");
       routeClear.id = "fan-route-clear";
       routeClear.onclick = () => {
+        const had = document.activeElement === routeClear;
         taskLines().forEach((t) => {
           const r = activeRoute(t);
           if (!r) return;
@@ -6489,6 +6490,10 @@
         });
         renderRows();
         updateCount();
+        // The button hides itself once nothing is left routed, and hid
+        // itself with the keyboard on it, which then went nowhere. It goes to
+        // the run's own select, which is what the button was about.
+        if (had && routeClear.hidden) runSel.focus();
       };
       line.append(routeText, routeClear);
       body.append(line);

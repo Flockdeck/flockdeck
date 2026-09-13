@@ -545,3 +545,19 @@ h.key({ key: "Escape" });
 assert.ok(h.$("overlay").hidden, "Escape from the row no longer closes the dialog");
 `)
 }
+
+// "Use the run's model for every task" hides itself once nothing is left
+// routed, and pressed from the keyboard it hid itself with the keyboard on
+// it. The keyboard goes to the run's own select, which the button is about.
+func TestClearingTheRoutesKeepsTheKeyboardInTheFanOut(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview());
+const clear = h.$("fan-route-clear");
+clear.focus();
+h.key({ key: "Enter" });
+assert.ok(clear.hidden, "the button is still offered with nothing left to undo");
+const run = body.querySelector("div.fan-agent").querySelector("select");
+assert.ok(h.doc.activeElement === run, "the keyboard was left on the button that hid itself");
+`)
+}
