@@ -41,9 +41,13 @@ var paneLookup = 5 * time.Second
 // pingTimeout how long the answer is waited for. They are variables so a test
 // does not have to sit through half a minute of quiet; a server reads them once,
 // as it is made, into its own fields.
+//
+// The answer is given as long as a frame of output is given to arrive. A ping
+// can go out behind a frame already on its way, and a window allowed less for
+// the one than the other was dropped for a frame it was still taking.
 var (
 	pingInterval = 30 * time.Second
-	pingTimeout  = 10 * time.Second
+	pingTimeout  = writeBudget
 )
 
 // handlePTY streams one pane's terminal: process output down, keystrokes up.
@@ -137,7 +141,8 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
 	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
-	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
+	var writes writeGauge
+	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
 	for {
 		if sess != nil {
@@ -156,7 +161,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				// One that replaces it after a restart starts from nothing.
 				from = -1
 				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed, End: start + int64(len(replay))}
-				if err := writeHeader(ctx, conn, h); err != nil {
+				if err := writeHeader(ctx, conn, &writes, h); err != nil {
 					if subID >= 0 {
 						sess.Unsubscribe(subID)
 					}
@@ -165,8 +170,8 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			} else {
 				subID, replay, out = sess.Subscribe()
 			}
-			s.armRepaint(&repaint, id, viewer, sess, fresh)
-			ended := streamOutput(ctx, conn, replay, out)
+			s.armRepaint(ctx, &repaint, id, viewer, sess, fresh)
+			ended := streamOutput(ctx, conn, replay, out, liveFrame(r), &writes)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
 			}
@@ -195,7 +200,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// for itself while a restart still cost it a reconnection. A pane that
 		// never started anything has nothing to undo.
 		if sess != nil {
-			if err := writeChunk(ctx, conn, termReset); err != nil {
+			if err := writeChunk(ctx, conn, &writes, termReset); err != nil {
 				return
 			}
 		}
@@ -218,7 +223,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 // A ping has to be answered by the window's own read loop, so it also tells
 // the difference between a window that is merely quiet and one that has
 // stopped listening.
-func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, interval, timeout time.Duration) {
+//
+// A socket that is being written to is not pinged. Output still getting
+// through is answer enough that the window is there, and a ping sent then goes
+// out behind the frame on its way: a replay's frame can take a phone on a slow
+// link most of the write budget, and the ping waiting it out had the window
+// dropped part way through the replay, to reconnect and be sent the same
+// replay again, and never get past it. Nothing is lost by it, because writes
+// hold themselves to account: one that stalls runs out of its budget and
+// drops the connection anyway.
+func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, writes *writeGauge, interval, timeout time.Duration) {
 	defer cancel()
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
@@ -227,9 +241,19 @@ func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.C
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+			if writes.writingWithin(interval) {
+				continue
+			}
+			before := writes.finished.Load()
 			pingCtx, done := context.WithTimeout(ctx, timeout)
 			err := conn.Ping(pingCtx)
 			done()
+			// A frame that started just after the look above holds the ping
+			// up all the same, and one that got through while the ping
+			// waited says as much as its answer would have.
+			if err != nil && ctx.Err() == nil && (writes.busy.Load() > 0 || writes.finished.Load() != before) {
+				continue
+			}
 			if err != nil {
 				return
 			}
@@ -393,18 +417,23 @@ var repaintGap = 100 * time.Millisecond
 // The relay's phone client is one of those: it reports a size only when asked
 // to fit the pane to its screen, and without this it was left looking at the
 // garbled replay for as long as the program had nothing new to draw.
-func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
+//
+// That wait belongs to the connection, whose ctx this is. A window that goes
+// before it is over is not repainted for: the pane would drop a row and come
+// back in every other window watching it, for a window nobody is looking at.
+func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
 	repaint.Store(fresh && altScreen(sess))
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
 		return
 	}
 	if repaint.Load() {
-		time.AfterFunc(unsizedRepaintWait, func() {
-			if repaint.CompareAndSwap(true, false) {
+		timer := repaintAfter(unsizedRepaintWait, func() {
+			if ctx.Err() == nil && repaint.CompareAndSwap(true, false) {
 				s.do(func() { s.repaintPane(id) })
 			}
 		})
+		context.AfterFunc(ctx, func() { timer.Stop() })
 	}
 }
 
@@ -412,6 +441,10 @@ func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess 
 // waits for its window's size before the pane is repainted without it. It is
 // a variable so a test need not wait it out, or can wait for ever.
 var unsizedRepaintWait = 500 * time.Millisecond
+
+// repaintAfter starts that wait. It is a variable so a test can say when the
+// wait is over rather than sit through it.
+var repaintAfter = time.AfterFunc
 
 // repaintPane makes a pane a row shorter and, a moment later, puts it back. It
 // must run on the workspace goroutine.
@@ -531,9 +564,12 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 // first, so the window can rebuild its screen, then everything the process
 // prints from here on.
 //
+// Live output is merged into frames of at most frame bytes: see liveFrame.
+// Every frame is counted on writes, for keepalive.
+//
 // It returns true when the session's stream ended, leaving the connection
 // usable, and false when the connection itself went away.
-func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte) bool {
+func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte, frame int, writes *writeGauge) bool {
 	// The replay goes out a frame at a time, and each frame has the write's
 	// budget to itself. Sent whole, half a megabyte of history on a slow link
 	// -- a phone reaching this through the relay -- outlasted that budget, the
@@ -541,7 +577,7 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 	// replay again, never once getting as far as the live output.
 	for len(replay) > 0 {
 		n := min(len(replay), replayFrame)
-		if err := writeChunk(ctx, conn, replay[:n]); err != nil {
+		if err := writeChunk(ctx, conn, writes, replay[:n]); err != nil {
 			return false
 		}
 		replay = replay[n:]
@@ -565,9 +601,16 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 				return true
 			}
 			var ended bool
-			buf, ended = coalesce(ctx, buf[:0], chunk, out, minFrameGap-time.Since(sent))
-			if err := writeChunk(ctx, conn, buf); err != nil {
-				return false
+			buf, ended = coalesce(ctx, buf[:0], chunk, out, minFrameGap-time.Since(sent), frame)
+			// Merging stops once the frame is full, but the read that filled
+			// it can take it past the bound, so what it holds goes out in
+			// frames no larger.
+			for rest := buf; len(rest) > 0; {
+				n := min(len(rest), frame)
+				if err := writeChunk(ctx, conn, writes, rest[:n]); err != nil {
+					return false
+				}
+				rest = rest[n:]
 			}
 			sent = time.Now()
 			if ended {
@@ -577,11 +620,27 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 	}
 }
 
+// liveFrame is the largest frame of live output one terminal socket is sent.
+//
+// A window reached through the relay gets frames no larger than a replay's.
+// It is the window most likely to be a phone on a slow link, and a busy pane's
+// merged frame of coalesceLimit had the same fifteen seconds to arrive in as a
+// replay frame a quarter of its size -- so the burst a replay's bound was
+// chosen to survive got the socket dropped instead, and the window reconnected
+// to be sent the whole history again.
+func liveFrame(r *http.Request) int {
+	if fromRemote(r) {
+		return replayFrame
+	}
+	return coalesceLimit
+}
+
 const (
 	// coalesceLimit bounds one frame. Merging is only worth doing up to the
 	// point where the frame itself is the thing the window waits on: past this
 	// the remainder goes out as the next frame, which the terminal draws just
-	// as happily.
+	// as happily. A window reached through the relay has a smaller bound: see
+	// liveFrame.
 	coalesceLimit = 256 << 10
 
 	// replayFrame bounds one frame of a replay. What decides it is the
@@ -608,7 +667,8 @@ const (
 	minFrameGap = 8 * time.Millisecond
 )
 
-// coalesce appends chunk, and whatever else is queued behind it, to buf.
+// coalesce appends chunk, and whatever else is queued behind it, to buf, until
+// it holds limit bytes or more.
 //
 // Everything already produced is taken without waiting. If wait is positive
 // and there is room left in the frame, it then gathers for that long, which is
@@ -617,9 +677,9 @@ const (
 // ended reports that the stream closed while draining, which the caller must
 // still act on -- after sending what was collected, since those bytes are the
 // last thing the process printed.
-func coalesce(ctx context.Context, buf, chunk []byte, out <-chan []byte, wait time.Duration) (data []byte, ended bool) {
+func coalesce(ctx context.Context, buf, chunk []byte, out <-chan []byte, wait time.Duration, limit int) (data []byte, ended bool) {
 	buf = append(buf, chunk...)
-	for len(buf) < coalesceLimit {
+	for len(buf) < limit {
 		select {
 		case next, ok := <-out:
 			if !ok {
@@ -627,7 +687,7 @@ func coalesce(ctx context.Context, buf, chunk []byte, out <-chan []byte, wait ti
 			}
 			buf = append(buf, next...)
 		default:
-			return gather(ctx, buf, out, wait)
+			return gather(ctx, buf, out, wait, limit)
 		}
 	}
 	return buf, false
@@ -636,13 +696,13 @@ func coalesce(ctx context.Context, buf, chunk []byte, out <-chan []byte, wait ti
 // gather waits out the rest of the frame gap, collecting whatever the pane
 // prints meanwhile. A frame that is already full does not wait: volume is
 // dealt with by the size bound, and pacing is for frequency.
-func gather(ctx context.Context, buf []byte, out <-chan []byte, wait time.Duration) ([]byte, bool) {
-	if wait <= 0 || len(buf) >= coalesceLimit {
+func gather(ctx context.Context, buf []byte, out <-chan []byte, wait time.Duration, limit int) ([]byte, bool) {
+	if wait <= 0 || len(buf) >= limit {
 		return buf, false
 	}
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
-	for len(buf) < coalesceLimit {
+	for len(buf) < limit {
 		select {
 		case next, ok := <-out:
 			if !ok {
@@ -812,18 +872,53 @@ type streamHeader struct {
 
 // writeHeader sends a streamHeader, as the only text frame a terminal socket
 // ever carries.
-func writeHeader(ctx context.Context, conn *websocket.Conn, h streamHeader) error {
+func writeHeader(ctx context.Context, conn *websocket.Conn, writes *writeGauge, h streamHeader) error {
 	data, err := json.Marshal(h)
 	if err != nil {
 		return err
 	}
-	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	return conn.Write(writeCtx, websocket.MessageText, data)
+	return writes.write(ctx, conn, websocket.MessageText, data)
 }
 
-func writeChunk(ctx context.Context, conn *websocket.Conn, data []byte) error {
-	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+func writeChunk(ctx context.Context, conn *websocket.Conn, writes *writeGauge, data []byte) error {
+	return writes.write(ctx, conn, websocket.MessageBinary, data)
+}
+
+// writeBudget is how long one frame down a terminal socket has to arrive.
+const writeBudget = 15 * time.Second
+
+// writeGauge follows one terminal socket's writes, so that keepalive can tell
+// a window still taking its output from one that has gone.
+type writeGauge struct {
+	// busy is how many frames are being written now, and finished how many
+	// ever have been; last is when the latest of them finished, in Unix
+	// nanoseconds.
+	busy     atomic.Int32
+	finished atomic.Int64
+	last     atomic.Int64
+}
+
+// write sends one frame within the write budget. A nil gauge counts nothing.
+func (g *writeGauge) write(ctx context.Context, conn *websocket.Conn, typ websocket.MessageType, data []byte) error {
+	writeCtx, cancel := context.WithTimeout(ctx, writeBudget)
 	defer cancel()
-	return conn.Write(writeCtx, websocket.MessageBinary, data)
+	if g == nil {
+		return conn.Write(writeCtx, typ, data)
+	}
+	// Counted as finished before it stops being busy, so there is no moment
+	// at which a frame that went out looks like nothing at all.
+	g.busy.Add(1)
+	defer g.busy.Add(-1)
+	err := conn.Write(writeCtx, typ, data)
+	if err == nil {
+		g.last.Store(time.Now().UnixNano())
+		g.finished.Add(1)
+	}
+	return err
+}
+
+// writingWithin reports whether a frame is being written now, or one finished
+// less than d ago.
+func (g *writeGauge) writingWithin(d time.Duration) bool {
+	return g.busy.Load() > 0 || time.Since(time.Unix(0, g.last.Load())) < d
 }
