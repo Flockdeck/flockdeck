@@ -619,6 +619,24 @@ func asideName(p, suffix string) (string, error) {
 // beside the local server's token wants too.
 func WriteAtomic(path string, data []byte) error { return writeAtomic(path, data) }
 
+// writeLocks holds one lock for each file writeAtomic writes. Saves made by
+// this process queue for the file they replace instead of racing each other to
+// the rename: on Windows a rename onto a file another save is reading, or is
+// renaming onto, is refused, and eight at once on a slow machine could wait
+// out renameWithRetry's whole budget. The retry is still there for a second
+// instance, which a lock in this process cannot reach.
+var writeLocks sync.Map // cleaned path -> *sync.Mutex
+
+func writeLock(path string) *sync.Mutex {
+	m, _ := writeLocks.LoadOrStore(filepath.Clean(path), new(sync.Mutex))
+	return m.(*sync.Mutex)
+}
+
+// beforeRename, when set, is called by writeAtomic just before it renames the
+// finished file into place, so that a test can see how many saves are there
+// at once.
+var beforeRename func(path string)
+
 // writeAtomic replaces a file with new contents, leaving either the old file
 // or the new one behind and never a half-written mixture of the two.
 //
@@ -628,6 +646,10 @@ func WriteAtomic(path string, data []byte) error { return writeAtomic(path, data
 // a rename that reaches the disk ahead of the contents it names would leave an
 // empty file after a crash.
 func writeAtomic(path string, data []byte) error {
+	mu := writeLock(path)
+	mu.Lock()
+	defer mu.Unlock()
+
 	// A file already holding these bytes does not need writing. The save on the
 	// way out writes every open project's layout and the list of which ones
 	// were open, and all but the one project the user was actually working in
@@ -669,6 +691,9 @@ func writeAtomic(path string, data []byte) error {
 	}
 	// os.CreateTemp already makes the file 0600, which is what these state
 	// files want: they carry the local server's auth token.
+	if beforeRename != nil {
+		beforeRename(path)
+	}
 	if err := renameWithRetry(tmp, path); err != nil {
 		return err
 	}
