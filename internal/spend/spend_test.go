@@ -97,6 +97,34 @@ func TestWindowsAreTheAccounts(t *testing.T) {
 	}
 }
 
+// Claude Code hands each pane's status line the windows from that session's
+// last answer, so an idle pane on the login sends an old, lower figure again
+// every time its line refreshes. Within one window usage only rises, so that
+// figure does not replace a fresher one; a later reset is a new window, and
+// its reading does, however low.
+func TestAnIdlePaneDoesNotSendTheWindowBack(t *testing.T) {
+	b := NewBook()
+	const acct = "claude:/home/a/.claude"
+	resets := t0.Add(2 * time.Hour)
+	five := func(used float64, resets time.Time) []Window {
+		return []Window{{Account: acct, Name: "five_hour", Used: used, Percent: true, ResetsAt: resets}}
+	}
+	b.Add(Report{Pane: "busy", Account: acct, Windows: five(92, resets)}, t0.Add(time.Minute))
+	b.Add(Report{Pane: "idle", Account: acct, Windows: five(40, resets)}, t0.Add(5*time.Minute))
+	for _, id := range []string{"busy", "idle"} {
+		v := b.Pane(id, t0.Add(5*time.Minute))
+		if v == nil || len(v.Windows) != 1 || v.Windows[0].Pct != 92 || v.Windows[0].AsOf != t0.Add(time.Minute).Unix() {
+			t.Errorf("pane %s: got %+v, want 92%% as of the reading that said so", id, v)
+		}
+	}
+
+	later := resets.Add(5 * time.Hour)
+	b.Add(Report{Pane: "busy", Account: acct, Windows: five(3, later)}, t0.Add(10*time.Minute))
+	if v := b.Pane("idle", t0.Add(10*time.Minute)); v == nil || len(v.Windows) != 1 || v.Windows[0].Pct != 3 {
+		t.Errorf("got %+v, want the new window's 3%%", v)
+	}
+}
+
 // A window past its reset time describes one that no longer exists, and is
 // dropped rather than shown at the figure it reached.
 func TestAnExpiredWindowIsDropped(t *testing.T) {
