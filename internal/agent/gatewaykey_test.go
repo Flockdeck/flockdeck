@@ -31,7 +31,8 @@ func TestABuiltInPointedAtAGatewayIsNotGivenItsVendorsVariable(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: not in the catalog", tc.id)
 		}
-		names := KeyNames(s)
+		first, last := KeyNames(s)
+		names := append(first, last...)
 		argv := BuildArgv(s, false, Tokens{Session: "s", Model: "m", Prompt: "hi"})
 		for _, v := range tc.vendor {
 			if slices.Contains(names, v) {
@@ -53,8 +54,8 @@ func TestABuiltInPointedAtAGatewayIsNotGivenItsVendorsVariable(t *testing.T) {
 	vendor := Merge(&File{})
 	for id, v := range map[string]string{"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"} {
 		s, _ := vendor.Find(id)
-		if !slices.Contains(KeyNames(s), v) {
-			t.Errorf("%s at its vendor's own address no longer reads %s: %q", id, v, KeyNames(s))
+		if first, _ := KeyNames(s); !slices.Contains(first, v) {
+			t.Errorf("%s at its vendor's own address no longer reads %s: %q", id, v, first)
 		}
 	}
 }

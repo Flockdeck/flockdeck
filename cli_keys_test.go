@@ -30,6 +30,8 @@ func isolateKeys(t *testing.T) {
 			t.Setenv(name, "")
 		}
 	}
+	// Any API agent reads this one, after its stored key.
+	t.Setenv("FLOCKDECK_API_KEY", "")
 }
 
 // keysAgent is one agent from the list the subcommand works from.
@@ -579,7 +581,10 @@ func TestKeysCheckAsksAboutTheKeyAPaneWouldUse(t *testing.T) {
 		t.Errorf("with no key: %v\n%s", err, out)
 	}
 
-	name := keysAgent(t, "anthropic").API.KeyEnv[0]
+	// The agent now talks to somebody other than Anthropic, so the variable it
+	// reads is Flockdeck's own: ANTHROPIC_API_KEY, the key for Anthropic, is
+	// never sent to another address.
+	name := "FLOCKDECK_API_KEY"
 	for key, want := range map[string]string{"sk-bad-key": "refused", "sk-good-key": "accepted"} {
 		t.Setenv(name, key)
 		out, err := runKeysCmd(t, "", "check", "anthropic")
@@ -592,10 +597,11 @@ func TestKeysCheckAsksAboutTheKeyAPaneWouldUse(t *testing.T) {
 	}
 }
 
-// keys check finds the key the way a pane does. A pane takes FLOCKDECK_API_KEY
-// before a stored key; checked by the store's own order, the stored key was
-// the one asked about -- refused, here -- while the pane went on sending the
-// exported one, which the endpoint takes.
+// keys check finds the key the way a pane does. A pane sends the key stored
+// for its agent before FLOCKDECK_API_KEY, which is any agent's, and a built-in
+// pointed at a gateway never sends its vendor's variable. The check went by
+// another order: it asked the endpoint about FLOCKDECK_API_KEY -- which it
+// takes, here -- while the pane went on sending the stored key, refused.
 func TestKeysCheckFindsTheKeyTheWayAPaneDoes(t *testing.T) {
 	isolateKeys(t)
 	t.Setenv("FLOCKDECK_API_KEY", "")
@@ -615,13 +621,15 @@ func TestKeysCheckFindsTheKeyTheWayAPaneDoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("FLOCKDECK_API_KEY", "sk-good-key")
+	// The vendor's variable, which an agent at a gateway is never sent.
+	t.Setenv("ANTHROPIC_API_KEY", "sk-good-key")
 
 	out, err := runKeysCmd(t, "", "check", "anthropic")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "accepted") || !strings.Contains(out, "FLOCKDECK_API_KEY") {
-		t.Errorf("keys check did not ask about the key a pane sends, from FLOCKDECK_API_KEY:\n%s", out)
+	if !strings.Contains(out, "refused") || !strings.Contains(out, "stored with") {
+		t.Errorf("keys check did not ask about the key a pane sends, the stored one:\n%s", out)
 	}
 	if strings.Contains(out, "sk-good-key") || strings.Contains(out, "sk-bad-key") {
 		t.Errorf("a key was printed:\n%s", out)

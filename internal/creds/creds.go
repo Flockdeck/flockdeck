@@ -2,8 +2,8 @@
 //
 // A key is the one piece of state Flockdeck holds that is worth stealing, so this
 // package is built around keeping it in as few places as possible. A key is
-// looked for in the environment the user already keeps it in, and only then in
-// Flockdeck's own store; whatever is found reaches exactly one place, the
+// looked for in the variables the user already keeps it in, then in Flockdeck's
+// own store, and last in FLOCKDECK_API_KEY; whatever is found reaches exactly one place, the
 // environment of the `flockdeck chat` process for the pane that needs it. Nothing
 // else in the application is ever handed the value. The interface, the CLI and
 // the snapshot code are given a Status instead, which says that there is a key
@@ -78,26 +78,37 @@ func (k Key) String() string {
 // the debug output of anything holding a Key.
 func (k Key) GoString() string { return "creds.Key{" + k.String() + "}" }
 
-// Resolve finds the key for a Spec: each name in API.KeyEnv from the
-// environment, in the order the Spec lists them, then Flockdeck's own store under
-// the Spec's id, then nothing.
+// Resolve finds the key for a Spec in the one order everything goes by
+// (agent.KeyNames): the Spec's own variables from the environment, less its
+// vendor's where it talks to somebody else, and the vendor's usual one where
+// it talks to the vendor; then Flockdeck's own store under the Spec's id; then
+// FLOCKDECK_API_KEY; then nothing.
 //
 // The environment comes first because a key already exported there is the
 // user's own arrangement — a secrets manager, a shell profile, a CI runner —
 // and Flockdeck quietly preferring its own stale copy of it is a debugging session
-// nobody enjoys.
+// nobody enjoys. FLOCKDECK_API_KEY is the exception, being every agent's: a
+// key stored for this one is the more particular answer.
 //
-// The names are the Spec's own less its vendor's where it talks to somebody
-// else (agent.OwnKeyEnv): a built-in pointed at a gateway keeps
-// OPENAI_API_KEY in its entry, and that key is the user's for OpenAI.
+// It is the chat client's own order, so what the keys dialog and `flockdeck
+// keys` say is in use is what a pane sends.
 func Resolve(spec agent.Spec) Key {
-	for _, name := range agent.OwnKeyEnv(spec.API) {
-		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-			return Key{secret: v, Source: SourceEnv, Env: name}
-		}
+	first, last := agent.KeyNames(spec)
+	if k := fromEnv(first); k.Set() {
+		return k
 	}
 	if v := stored(spec.ID); v != "" {
 		return Key{secret: v, Source: SourceStore}
+	}
+	return fromEnv(last)
+}
+
+// fromEnv is the key in the first of these variables that holds one.
+func fromEnv(names []string) Key {
+	for _, name := range names {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			return Key{secret: v, Source: SourceEnv, Env: name}
+		}
 	}
 	return Key{}
 }
@@ -162,21 +173,6 @@ func StatusOf(spec agent.Spec) Status {
 		Vars:      agent.OwnKeyEnv(spec.API),
 		NotNeeded: agent.NeedsNoKey(spec),
 		Stored:    k.Source == SourceStore || Has(spec.ID),
-	}
-	// The chat client looks further than the entry's own variables: then the
-	// wire's usual one, for an entry talking to that vendor, and Flockdeck's
-	// own -- agent.KeyNames, which the picker counts by as well. An entry with
-	// a variable of its own is handed its stored key under that name, so for
-	// it they come after the store; one with none is not, so for it they come
-	// before. A gateway given just an address is never given the vendor's
-	// variable, so for it that is FLOCKDECK_API_KEY and then its stored key.
-	if !st.Set || len(st.Vars) == 0 {
-		for _, name := range agent.KeyNames(spec) {
-			if strings.TrimSpace(os.Getenv(name)) != "" {
-				st.Set, st.Source, st.Env = true, SourceEnv, name
-				break
-			}
-		}
 	}
 	return st
 }

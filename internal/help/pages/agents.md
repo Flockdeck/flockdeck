@@ -124,8 +124,11 @@ the task does.
 
 A CLI agent uses the login it already has, and Flockdeck never sees it. An API
 agent needs a key, which is looked for in that agent's own environment
-variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — and then
-in Flockdeck's own store.
+variables first — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest — then in
+Flockdeck's own store, and last in `FLOCKDECK_API_KEY`, which any API agent
+reads. A vendor's own variable is read only by an agent talking to that
+vendor's own address: a built-in given a gateway's or a proxy's address is
+never sent the key you exported for the vendor, and uses the one stored for it.
 
 | Command | What it does |
 | --- | --- |

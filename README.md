@@ -432,7 +432,10 @@ does not parse is a notice in the interface rather than a failure to start.
 Keys for the API agents are resolved from that agent's own environment
 variables first, then from `keys.json` in the state directory, written by
 `flockdeck keys set <agent>` reading stdin, and last from `FLOCKDECK_API_KEY`,
-which every API agent reads. A key reaches exactly one place — the
+which every API agent reads. A vendor's own variable, such as
+`OPENAI_API_KEY`, is read only by an agent talking to that vendor's own
+address: a built-in pointed at a gateway or a proxy is never sent the key you
+exported for the vendor, and uses the one stored for it. A key reaches exactly one place — the
 environment of the chat process for the pane that needs it — and is never
 logged, never in a snapshot, never in an error message. The interface shows
 *set* or *not set*, offers *set…* and *clear*, and never reads one back.

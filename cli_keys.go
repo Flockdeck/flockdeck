@@ -329,9 +329,12 @@ func keysClear(agentID string, out io.Writer) error {
 // nobody able to say which of the two it was.
 //
 // The key is found by the chat's own lookup, given the options a pane of the
-// agent starts with. creds.Resolve looks in fewer places -- not in
-// FLOCKDECK_API_KEY, nor the wire's usual variable -- and checked a stored key
-// while the pane was sending another.
+// agent starts with and the store: the agent's own variables, then its stored
+// key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane finds the same one,
+// whether the chat reads the store itself or is handed the stored key under
+// the agent's first variable (creds.Env), since that variable is empty when it
+// is. The chat used to look in FLOCKDECK_API_KEY before the store, so this
+// checked that variable while a pane, handed its stored key, sent that.
 func keysCheck(agentID string, out io.Writer) error {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {

@@ -52,7 +52,9 @@ obscurely. That is what lets an agent hand work to helpers of its own.
 
 An API agent — one Flockdeck talks to directly rather than through a CLI of its
 own — needs a key. It is looked for in that agent's own environment variables
-first, and then in `keys.json` in the state directory.
+first, then in `keys.json` in the state directory, and last in
+`FLOCKDECK_API_KEY`. A vendor's own variable, such as `OPENAI_API_KEY`, is read
+only while the agent talks to that vendor's own address.
 
 | Command | What it does |
 | --- | --- |

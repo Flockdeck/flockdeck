@@ -290,7 +290,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
 	fmt.Fprintf(out, "        the relay remote access goes through, instead of the default one\n")
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
-	fmt.Fprintf(out, "        the key an API agent uses when neither its own variables nor keys hold one\n")
+	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
+	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
