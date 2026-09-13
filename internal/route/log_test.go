@@ -77,3 +77,31 @@ func TestALogWithoutAFinalNewlineKeepsBothDecisions(t *testing.T) {
 		t.Errorf("read back %+v, %v; want the old decision and the new", got, err)
 	}
 }
+
+// A full log whose last line lost its newline keeps both decisions too. Once
+// the log reaches its cap every append trims it, which is a different path
+// from the plain append, and the one a log in steady use always takes.
+func TestAFullLogWithoutAFinalNewlineKeepsBothDecisions(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	for range logCap - 1 {
+		b.WriteString(`{"kind":"fanout","rule":"filler","outcome":"kept"}` + "\n")
+	}
+	b.WriteString(`{"kind":"fanout","rule":"old","outcome":"kept"}`)
+	if err := os.WriteFile(filepath.Join(dir, LogName), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendLog(dir, LogEntry{Kind: KindFanout, Rule: "new", Outcome: OutcomeKept}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadLog(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != logCap {
+		t.Errorf("the log holds %d decisions, want %d", len(got), logCap)
+	}
+	if n := len(got); n < 2 || got[n-2].Rule != "old" || got[n-1].Rule != "new" {
+		t.Errorf("the log ends %+v; want the old decision and then the new", got[max(0, len(got)-2):])
+	}
+}
