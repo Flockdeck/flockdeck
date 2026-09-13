@@ -5224,8 +5224,10 @@
       const box = el("textarea");
       box.id = "commit-message";
       box.placeholder = "Commit message (Ctrl+Enter commits)";
-      box.value = commitDraft;
-      box.oninput = () => { commitDraft = box.value; };
+      // A draft belongs to the checkout it was written for: one draft for
+      // them all carried a message into the review of another worktree.
+      box.value = commitDrafts.get(m.cwd) || "";
+      box.oninput = () => { commitDrafts.set(m.cwd, box.value); };
       const buttons = el("div", "rev-commit-buttons");
       const doCommit = (btn, push) => {
         // The buttons wait while anything is out, and the message box, which
@@ -5246,6 +5248,7 @@
         if (stamps.length) cmd.stamps = Object.fromEntries(stamps);
         send(cmd);
         commitPending = true;
+        commitPendingCwd = m.cwd;
       };
       // The server lists at most two thousand files and counts the rest, and
       // the button counted only the ones listed while the commit records every
@@ -5290,7 +5293,8 @@
     body.append(tools);
   }
 
-  let commitDraft = "";
+  /** The commit message being written for each checkout, by its root. */
+  const commitDrafts = new Map();
   /** Whether a commit has been asked for and not yet answered. The message
    *  stays in the box until it has: a commit that fails - a hook refusing it,
    *  an identity git has not been given - answers by redrawing the dialog, and
@@ -5298,11 +5302,12 @@
    *  the redraw and had to be written again. The server's first word on a
    *  commit is a notice saying whether it was made. */
   let commitPending = false;
+  let commitPendingCwd = "";
 
   function commitAnswered(isError) {
     if (!commitPending) return;
     commitPending = false;
-    if (!isError) commitDraft = "";
+    if (!isError) commitDrafts.delete(commitPendingCwd);
   }
 
   /** selectChangedFile shows one file's diff. Only the marking on the rows and

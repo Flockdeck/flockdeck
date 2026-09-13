@@ -51,6 +51,30 @@ assert.deepStrictEqual(marks(), ["", ""], "the rows stayed marked after a refres
 `)
 }
 
+// One draft served every checkout, so a message written for one worktree's
+// review turned up in the review of another.
+func TestACommitDraftBelongsToItsCheckout(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (cwd) => ({ type: "changes", cwd, branch: "main", hasRemote: false, reason: "asked",
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+h.recv(tree("C:/repo"));
+const box = () => h.$("commit-message");
+box().value = "for the repo";
+box().oninput();
+
+h.recv(tree("C:/other"));
+assert.strictEqual(box().value, "", "the other checkout's review was given this one's draft");
+box().value = "for the other";
+box().oninput();
+
+h.recv(tree("C:/repo"));
+assert.strictEqual(box().value, "for the repo", "the draft written for this checkout was lost");
+`)
+}
+
 // A rebase or a bisect runs on a detached HEAD. The review showed the branch it
 // would go back to with "no upstream yet", and a Push that could only fail.
 func TestADetachedOrRebasingCheckoutOffersNoPush(t *testing.T) {
