@@ -39,8 +39,11 @@ func (w *Workspace) MovePane(paneID, targetID string, edge layout.Edge) error {
 			return fmt.Errorf("that move is not possible")
 		}
 	} else {
-		// Detach only once the destination is known to be good, so a failed
-		// insert cannot leave a live pane belonging to no tab at all.
+		// The destination is found before the pane is detached, and once it
+		// has been the insert cannot fail: InsertBeside refuses only a target
+		// missing from the tree or a pane already in it, and the target is in
+		// dest while the pane has just left another tab. Were it to fail
+		// anyway, the pane would be left running in no tab at all.
 		w.detachPane(paneID)
 		if !dest.Tree.InsertBeside(targetID, paneID, edge) {
 			return fmt.Errorf("that move is not possible")

@@ -10,8 +10,14 @@
 //     with nothing on one side of it;
 //   - no split nests inside a split along its own axis, so three panes in a
 //     row share the row rather than one of them sharing it with a pair;
-//   - Compute tiles the box it is given exactly, leaving no cell to two panes
-//     and none to nobody, as long as there is a cell in it for each pane.
+//   - Compute tiles the box it is given exactly, every cell going to one pane
+//     or to the rule between two panes side by side and none to two panes, as
+//     long as every split's own box has a cell for each of its children and
+//     the rules between them. A cell for each pane in the whole box is not
+//     enough: each level of splitting halves the box, so a tree nested deeply
+//     enough runs out of cells in one corner while there are plenty in
+//     another, and fit then piles the panes that do not fit into the last
+//     cells of their own box.
 //
 // A tree read back from a saved layout can arrive in other shapes, and the
 // operations cope with those rather than assuming them away.
