@@ -165,7 +165,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			} else {
 				subID, replay, out = sess.Subscribe()
 			}
-			s.armRepaint(&repaint, id, viewer, sess, fresh)
+			s.armRepaint(ctx, &repaint, id, viewer, sess, fresh)
 			ended := streamOutput(ctx, conn, replay, out, liveFrame(r))
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
@@ -393,18 +393,23 @@ var repaintGap = 100 * time.Millisecond
 // The relay's phone client is one of those: it reports a size only when asked
 // to fit the pane to its screen, and without this it was left looking at the
 // garbled replay for as long as the program had nothing new to draw.
-func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
+//
+// That wait belongs to the connection, whose ctx this is. A window that goes
+// before it is over is not repainted for: the pane would drop a row and come
+// back in every other window watching it, for a window nobody is looking at.
+func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
 	repaint.Store(fresh && altScreen(sess))
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
 		return
 	}
 	if repaint.Load() {
-		time.AfterFunc(unsizedRepaintWait, func() {
-			if repaint.CompareAndSwap(true, false) {
+		timer := repaintAfter(unsizedRepaintWait, func() {
+			if ctx.Err() == nil && repaint.CompareAndSwap(true, false) {
 				s.do(func() { s.repaintPane(id) })
 			}
 		})
+		context.AfterFunc(ctx, func() { timer.Stop() })
 	}
 }
 
@@ -412,6 +417,10 @@ func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess 
 // waits for its window's size before the pane is repainted without it. It is
 // a variable so a test need not wait it out, or can wait for ever.
 var unsizedRepaintWait = 500 * time.Millisecond
+
+// repaintAfter starts that wait. It is a variable so a test can say when the
+// wait is over rather than sit through it.
+var repaintAfter = time.AfterFunc
 
 // repaintPane makes a pane a row shorter and, a moment later, puts it back. It
 // must run on the workspace goroutine.
