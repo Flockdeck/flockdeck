@@ -24,8 +24,8 @@
 #
 # Nothing is purged from the CDN, so this needs no DigitalOcean API token.
 # What is under a version never changes, and is cached for a year. latest.json
-# and /latest/ are cached for five minutes, so for that long an edge may go on
-# naming the release before. That holds an update back and does no harm:
+# and /latest/ are cached for a minute, so for that long an edge or a browser
+# may go on naming the release before. That holds an update back and does no harm:
 # latest.json is not signed, and needs neither a signature nor a purge,
 # because all it does is name a version, whose own signed manifest the
 # updater checks before believing any of it.
@@ -158,7 +158,7 @@ put() { # file key max-age cache-control
 		--cache-control "$4" --metadata "max-age=$3"
 }
 forever() { put "$1" "$2" 31536000 'public, max-age=31536000, immutable'; }
-briefly() { put "$1" "$2" 300 'public, max-age=300'; }
+briefly() { put "$1" "$2" 60 'public, max-age=60'; }
 
 # 1. The version's own files.
 for f in "$@"; do

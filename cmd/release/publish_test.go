@@ -199,7 +199,7 @@ func index(events []string, prefix string) int {
 // own files under its version, its signed manifest among them, one read back
 // through the public address, the unversioned copies for the site's buttons,
 // and latest.json last, naming the version. Everything is public to read, and
-// cached for a year or for five minutes depending on whether it can ever
+// cached for a year or for a minute depending on whether it can ever
 // change. Nothing is purged.
 func TestPublishScriptOrder(t *testing.T) {
 	p := newPublishing(t, "v9.9.9")
@@ -261,10 +261,10 @@ func TestPublishScriptOrder(t *testing.T) {
 			t.Errorf("%s is %q, want %q", k, typ, wantType)
 		}
 		forever := strings.HasPrefix(k, "v9.9.9/")
-		if wantCache := map[bool]string{true: "public, max-age=31536000, immutable", false: "public, max-age=300"}[forever]; cache != wantCache {
+		if wantCache := map[bool]string{true: "public, max-age=31536000, immutable", false: "public, max-age=60"}[forever]; cache != wantCache {
 			t.Errorf("%s is cached %q, want %q", k, cache, wantCache)
 		}
-		if wantMeta := map[bool]string{true: "max-age=31536000", false: "max-age=300"}[forever]; meta != wantMeta {
+		if wantMeta := map[bool]string{true: "max-age=31536000", false: "max-age=60"}[forever]; meta != wantMeta {
 			t.Errorf("%s has %q, want %q", k, meta, wantMeta)
 		}
 	}
