@@ -327,6 +327,20 @@ func cutOff(err error) bool {
 	return errors.As(err, &e)
 }
 
+// refusalError is an answer the model or a filter in front of it would not
+// give. It is said the same way whichever wire it came from, because what the
+// user can do about it is the same on all of them: asking the same again is
+// refused the same way.
+type refusalError struct{ why string }
+
+func (e *refusalError) Error() string { return "the request was refused: " + e.why }
+
+// refused reports whether err is a refusal to answer.
+func refused(err error) bool {
+	var e *refusalError
+	return errors.As(err, &e)
+}
+
 // busy reports whether err is the API being too busy to answer just now --
 // rate-limited, overloaded, or failing on its own side -- rather than
 // refusing the request.

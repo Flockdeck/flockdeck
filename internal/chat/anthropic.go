@@ -258,7 +258,7 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 	case stopReason == "max_tokens":
 		stopped = &cutOffError{fmt.Sprintf("the answer reached its limit of %d tokens and was cut off there", req.MaxTokens)}
 	case stopReason == "refusal":
-		stopped = errors.New("the model declined to go on with this")
+		stopped = &refusalError{"the model declined to go on with this"}
 	case stopReason == "model_context_window_exceeded":
 		stopped = errors.New("the conversation has filled the model's context window")
 	}

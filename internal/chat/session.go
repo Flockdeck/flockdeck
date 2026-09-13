@@ -569,6 +569,11 @@ func (s *session) sayWhyItStopped(err error) {
 		// again throws it away and is cut off at the same length.
 		s.out.line(ansiRed, err.Error())
 		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
+	case refused(err):
+		// /retry asks the same again, which is refused the same way: the way
+		// on is to ask differently.
+		s.out.line(ansiRed, err.Error())
+		s.out.line(ansiDim, "(asking the same again is refused the same way; put it differently, or /clear to start over)")
 	case unreachable(err):
 		s.out.line(ansiRed, "could not reach the endpoint: "+err.Error())
 		change := "`flockdeck keys endpoint " + keyAgent(s.opts) + " <url>` changes the address"

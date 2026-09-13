@@ -245,7 +245,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		return &cutOffError{"the answer reached the model's limit on its length and was cut off there"}
 	case finish == "content_filter":
 		emit(Event{Kind: EventUsage, Usage: usage})
-		return errors.New("the endpoint's content filter stopped the answer")
+		return &refusalError{"the endpoint's content filter stopped the answer"}
 	}
 	for _, i := range sortedKeys(calls) {
 		if calls[i].name == "" {
