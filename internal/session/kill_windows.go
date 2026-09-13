@@ -31,6 +31,7 @@ var (
 	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
 	procQueryInformationJobObject  = kernel32.NewProc("QueryInformationJobObject")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+	procIsProcessInJob             = kernel32.NewProc("IsProcessInJob")
 )
 
 const (
@@ -98,6 +99,26 @@ func jobMemberIDs(job syscall.Handle) []uint32 {
 		out = append(out, uint32(pid))
 	}
 	return out
+}
+
+// openMember opens a process the job listed, to be ended, and reports whether
+// it is still in the job once it is open.
+//
+// The job lists ids, and an id is let go of when its process ends: the
+// process listed may have ended since, and its id have been handed to one of
+// somebody else's. Once the process is open its id cannot be handed on, so
+// asking the job then settles which process it is.
+func openMember(job syscall.Handle, pid uint32) (syscall.Handle, bool) {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation|processTerminate|synchronize, false, pid)
+	if err != nil {
+		return 0, false
+	}
+	var in int32
+	if r, _, _ := procIsProcessInJob.Call(uintptr(h), uintptr(job), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
+		_ = syscall.CloseHandle(h)
+		return 0, false
+	}
+	return h, true
 }
 
 // consoleProgram reports whether an open process is known to run in a console
@@ -171,8 +192,8 @@ func (s *Session) endTree() {
 					continue
 				}
 				seen[pid] = true
-				h, err := syscall.OpenProcess(processQueryLimitedInformation|processTerminate|synchronize, false, pid)
-				if err != nil {
+				h, ok := openMember(job, pid)
+				if !ok {
 					continue
 				}
 				if !consoleProgram(h) {

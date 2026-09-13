@@ -94,6 +94,47 @@ func TestClosingAPaneLeavesItsWindowsOpen(t *testing.T) {
 	}
 }
 
+// startSleeper starts this binary as a child that waits an hour, outside any
+// pane, and returns its process id. It is ended when the test is.
+func startSleeper(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), treeEnv+"=child")
+	cmd.Dir = os.TempDir()
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() {
+		endProcess(pid)
+		_ = cmd.Wait()
+	})
+	return pid
+}
+
+// TestAnIDTheJobListedIsNotEndedOnceItIsSomebodyElses covers the moment
+// between the pane's job listing its processes and each being ended. A
+// process listed may end in it, and its id be given to a process of somebody
+// else's, which was then opened by that id and terminated.
+func TestAnIDTheJobListedIsNotEndedOnceItIsSomebodyElses(t *testing.T) {
+	member, outsider := startSleeper(t), startSleeper(t)
+	tree := containTree(member)
+	if tree.job == 0 {
+		t.Fatal("the process could not be put in a job")
+	}
+	defer syscall.CloseHandle(tree.job)
+
+	h, ok := openMember(tree.job, uint32(member))
+	if !ok {
+		t.Fatal("a process in the job was not opened to be ended")
+	}
+	_ = syscall.CloseHandle(h)
+	if h, ok := openMember(tree.job, uint32(outsider)); ok {
+		_ = syscall.CloseHandle(h)
+		t.Fatal("a process that is not in the job was opened to be ended")
+	}
+}
+
 // TestConsoleProgramsAreToldFromWindowedOnes pins the reading the choice rests
 // on, against programs every Windows machine has.
 func TestConsoleProgramsAreToldFromWindowedOnes(t *testing.T) {
