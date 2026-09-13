@@ -178,6 +178,10 @@ type projectView struct {
 	Tabs    int    `json:"tabs"`
 	Waiting int    `json:"waiting"`
 	Working int    `json:"working"`
+	// Panes counts every pane in the project, so the agents list, which the
+	// window asks for again when this summary moves, follows a split or a
+	// closed idle pane as well as a change of status.
+	Panes int `json:"panes"`
 }
 
 type tabView struct {
@@ -353,7 +357,7 @@ func (s *Server) snapshot() stateMsg {
 		names[p.Root] = p.Name
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
-			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
+			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
 		})
 	}
 

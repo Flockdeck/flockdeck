@@ -1090,6 +1090,21 @@ func (s *Server) projectRoots(t *testing.T) []string {
 	}
 }
 
+// TestAProjectCountsItsPanes covers the summary the agents list is asked for
+// again by. It counted tabs and the panes waiting and working, and a split --
+// a new idle pane -- or an idle pane closed in a tab of several changed none
+// of them, so the open list went on showing a pane that had gone.
+func TestAProjectCountsItsPanes(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	st := nextState(t, conn, nil)
+	if got := st.Projects[0].Panes; got != 1 {
+		t.Fatalf("a project of one pane counts %d", got)
+	}
+	sendCmd(t, conn, command{Cmd: "splitPane", ID: st.Tabs[0].Root.Pane, Dir: "h", Kind: "shell"})
+	nextState(t, conn, func(s stateMsg) bool { return len(s.Projects) == 1 && s.Projects[0].Panes == 2 })
+}
+
 // TestOpenProjectNeedsAFullPath covers what a path the window did not fill in
 // would otherwise mean. Anything that is not absolute is resolved against the
 // directory flockdeck itself was launched from, and an empty one resolves to that

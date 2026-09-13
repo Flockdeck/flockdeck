@@ -3439,6 +3439,25 @@ assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard wh
 `)
 }
 
+// A split adds an idle pane and closing one in a tab of several takes one
+// away, and neither moved the tabs, waiting or working counts the overview was
+// asked for again by: the open list went stale, and a closed pane's row
+// answered a click with an error.
+func TestTheAgentsOverviewFollowsASplit(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (panes) => [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0, panes }];
+h.recv(fixture({ projects: projects(2) }));
+h.click(h.$("summary"));
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const before = asked();
+h.recv(fixture({ projects: projects(3) }));
+assert.strictEqual(asked(), before + 1, "a split did not bring the overview up to date");
+h.recv(fixture({ projects: projects(2) }));
+assert.strictEqual(asked(), before + 2, "a closed pane did not bring the overview up to date");
+`)
+}
+
 // mediaBlock returns the bodies of every @media rule whose condition matches
 // cond, braces balanced and joined, so a test can look for what the style
 // sheet does in that case and nowhere else. The rail and the dialogs each

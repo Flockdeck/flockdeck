@@ -5107,7 +5107,10 @@
    *  push shows the counts it lists moving, in any project. */
   let agentsKey = "";
   function followAgents(s) {
-    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs).join("|");
+    // The panes are counted too: a split adds an idle pane and closing one in
+    // a tab of several takes one away, and neither moves the other counts, so
+    // the list went on showing a pane that had gone.
+    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs + ":" + p.panes).join("|");
     if (key === agentsKey) return;
     agentsKey = key;
     if (dialog === "agents") send({ cmd: "agents" });
