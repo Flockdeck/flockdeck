@@ -7,7 +7,7 @@ switched from inside the window. These are what is left.
 | --- | --- |
 | `flockdeck` | Open the current directory |
 | `flockdeck -C ~/code/api` | Open that directory, in the running instance if there is one |
-| `flockdeck -new` | Start without the saved layout, and replace it on exit |
+| `flockdeck -new` | Start without the saved layout, and replace it with this run's |
 | `flockdeck -shell` | Make the first pane a shell, not an agent |
 | `flockdeck -agent codex` | Make every new pane this run that agent |
 | `flockdeck -detach` | Run with no window; attach to it later |
@@ -23,8 +23,11 @@ window onto it. `-solo` is the escape hatch when you genuinely want two.
 
 `-new` is not a way to glance at an empty window. Its layout is saved over the
 one it skipped within half a minute of starting, and again when the run ends.
-The other projects you had open are left alone: the next start reopens them as
-before, around the one this run was started on, which is where it lands.
+The other projects you had open are put back in the list when the run ends,
+so the next start reopens them as before, around the one this run was started
+on, which is where it lands. A run that crashes after its window was reloaded
+or detached has already written the list without them, and the next start
+opens only its own projects.
 
 ## spawn
 

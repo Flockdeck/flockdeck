@@ -20,8 +20,15 @@ none; to open it on purpose, run `flockdeck -C ~`.
 A layout is written when the window closes or reloads, when you detach,
 restart or quit, when a project is closed, and every half minute while
 Flockdeck runs — so if it is killed or crashes, it comes back as it was at
-most half a minute before. Which projects were open is written only as
-Flockdeck stops, so a crash reopens the ones that were open the time before.
+most half a minute before. Which projects were open is not on that timer: it
+is written when the window closes or reloads, when you detach, and when
+Flockdeck stops, so after a crash the next start reopens the projects that
+were open at the last of those.
+
+A saved file Flockdeck cannot read — a layout, the list of open projects, your
+preferences — is never written over. It is moved aside, beside the original,
+with `.unread` on the end (or `.damaged`, when it could be read but made no
+sense), and that run goes on without it.
 
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity
