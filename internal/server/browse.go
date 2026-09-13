@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -88,8 +90,16 @@ func (s *Server) browse(c *controlClient, path string) {
 			// say -- fails in the operating system's words for opening a file
 			// as a folder, which never say that it is a file; on Windows they
 			// say the path cannot be found. The way up is offered already.
-			if fi, serr := os.Stat(abs); serr == nil && !fi.IsDir() {
+			//
+			// A folder that is not there -- a slip in a typed path -- is said
+			// as opening a project says it, rather than in words that begin
+			// with the call that failed and on Windows speak of a file. The
+			// file is looked for first: listing one fails as "not found" there.
+			switch fi, serr := os.Stat(abs); {
+			case serr == nil && !fi.IsDir():
 				msg.Error = filepath.Base(abs) + " is a file, not a folder — go up to the one it is in"
+			case errors.Is(serr, fs.ErrNotExist):
+				msg.Error = abs + " does not exist"
 			}
 			c.sendJSON(msg)
 			return
