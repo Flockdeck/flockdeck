@@ -115,7 +115,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	}
 
 	h := w.header()
-	url := endpoint(w.base, "https://api.openai.com", "v1", "/chat/completions")
+	url := openaiEndpoint(w.base, "/chat/completions")
 	rc, err := post(ctx, url, h, body)
 	if refusedStreamOptions(err) {
 		// An endpoint that refuses the request over stream_options -- older

@@ -24,7 +24,7 @@ func (w *openaiWire) ListModels(ctx context.Context) ([]string, error) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := getJSON(ctx, endpoint(w.base, "https://api.openai.com", "v1", "/models"), w.header(), &out); err != nil {
+	if err := getJSON(ctx, openaiEndpoint(w.base, "/models"), w.header(), &out); err != nil {
 		return nil, err
 	}
 	var ids []string
