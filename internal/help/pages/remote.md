@@ -94,7 +94,9 @@ Here, Settings › **Remote access** says what is sent:
 - **Notify paired devices** turns notifications off for every device at once.
 - **After waiting** is how long an agent has to have been waiting first: 30
   seconds, unless you choose otherwise. Each wait is told once, and an agent
-  that is answered and then asks again is a new wait.
+  that is answered and then asks again is a new wait. However many agents are
+  waiting, the phone is sent one notification that says how many, which
+  replaces the one before it, and no more than one a minute.
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 

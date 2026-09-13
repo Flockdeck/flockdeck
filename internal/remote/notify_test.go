@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -180,6 +181,31 @@ func TestPushSealsForEachDevice(t *testing.T) {
 	}
 	if got, ok := replaced.open(posts[1][0].Payload); !ok || !bytes.Equal(got, want) || posts[1][0].P256dh != replaced.device("").P256dh {
 		t.Errorf("the laptop's new keys were not sealed for: %q, %v", got, ok)
+	}
+}
+
+// Names are what make a notification long. One too long for a push is cut
+// short, its body first, rather than not sent; and what is kept is what was
+// written, not escaped into something longer.
+func TestALongNotificationIsCutShortToFit(t *testing.T) {
+	n := Notification{Title: "3 agents need you", Body: "On desk: " + strings.Repeat("<pane> & more, ", 200), URL: "/d/h1", Tag: "flockdeck-h1"}
+	plain, err := fitNotification(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Notification
+	if err := json.Unmarshal(plain, &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(plain) >= pushRecord || back.Title != n.Title || back.URL != n.URL || !strings.HasPrefix(back.Body, "On desk: <pane> & more") || !strings.HasSuffix(back.Body, "…") {
+		t.Errorf("a long notification became %d bytes: %s", len(plain), plain)
+	}
+	d := newBrowser(t).device("d1")
+	if _, err := Seal(d.P256dh, d.Auth, plain); err != nil {
+		t.Errorf("cut short, it still cannot be sealed: %v", err)
+	}
+	if short, _ := fitNotification(Notification{Title: "a", Body: "b <c>"}); string(short) != `{"title":"a","body":"b <c>","url":"","tag":""}` {
+		t.Errorf("a short notification came out as %s", short)
 	}
 }
 

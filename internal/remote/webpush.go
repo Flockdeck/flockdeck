@@ -7,6 +7,7 @@ package remote
 // (RFC 8291, with the aes128gcm coding of RFC 8188).
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -81,7 +82,7 @@ func (c *Client) PushDevices(ctx context.Context) ([]PushDevice, error) {
 // sent a message it could not open; the relay says so, and is asked once more
 // for the keys of the devices that changed.
 func (c *Client) Push(ctx context.Context, n Notification) (int, error) {
-	plain, err := json.Marshal(n)
+	plain, err := fitNotification(n)
 	if err != nil {
 		return 0, err
 	}
@@ -123,6 +124,44 @@ func (c *Client) Push(ctx context.Context, n Notification) (int, error) {
 		}
 	}
 	return sent, nil
+}
+
+// fitNotification is a notification's JSON, shortened if it is longer than one
+// push carries: its body first, then its title, each cut to half with an
+// ellipsis until it fits. Names are what make one long, and a notification
+// that says less is better than none.
+func fitNotification(n Notification) ([]byte, error) {
+	for {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		// "<" is six bytes escaped, and nothing here is put in a page.
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(n); err != nil {
+			return nil, err
+		}
+		plain := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+		if len(plain) < pushRecord {
+			return plain, nil
+		}
+		switch {
+		case n.Body != "":
+			n.Body = halve(n.Body)
+		case n.Title != "":
+			n.Title = halve(n.Title)
+		default:
+			return nil, fmt.Errorf("a notification of %d bytes is longer than the %d a push carries", len(plain), pushRecord-1)
+		}
+	}
+}
+
+// halve is the first half of s's runes and an ellipsis, or nothing once there
+// is a rune or less left.
+func halve(s string) string {
+	r := []rune(strings.TrimSuffix(s, "…"))
+	if len(r) <= 1 {
+		return ""
+	}
+	return string(r[:len(r)/2]) + "…"
 }
 
 // Seal encrypts a message to a browser's push subscription -- its P-256

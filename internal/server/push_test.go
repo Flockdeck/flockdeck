@@ -13,77 +13,149 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
-// waitingPane puts the test server's first pane into a wait, and says when
-// the wait began.
-func waitingPane(t *testing.T, srv *Server, ws *workspace.Workspace) (string, time.Time) {
+// firstPane is the test server's first pane.
+func firstPane(t *testing.T, srv *Server, ws *workspace.Workspace) string {
 	t.Helper()
 	id, ok := ask(srv, func() string { return ws.CurrentTab().Tree.Panes()[0] })
 	if !ok {
 		t.Fatal("the workspace did not answer")
 	}
-	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
-	p.Sess.SetStatus(session.StatusWaiting, "")
-	return id, p.Sess.StatusSince()
+	return id
 }
 
-func due(srv *Server, now time.Time) []remote.Notification {
-	out, _ := ask(srv, func() []remote.Notification { return srv.pushesDue(now) })
+// addPane opens a tab with a pane of its own, and says the pane's id.
+func addPane(t *testing.T, srv *Server, ws *workspace.Workspace, title string) string {
+	t.Helper()
+	id, ok := ask(srv, func() string { return ws.NewTab(session.KindShell, ws.ActiveRoot(), title).Tree.Panes()[0] })
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	return id
+}
+
+// waitIn puts a pane into a wait, and says when the wait began.
+func waitIn(t *testing.T, srv *Server, ws *workspace.Workspace, id string) time.Time {
+	t.Helper()
+	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+	p.Sess.SetStatus(session.StatusWaiting, "")
+	return p.Sess.StatusSince()
+}
+
+// answer puts a pane back to work.
+func answer(srv *Server, ws *workspace.Workspace, id string) {
+	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+	p.Sess.SetStatus(session.StatusWorking, "")
+}
+
+// waitingPane puts the test server's first pane into a wait, and says when
+// the wait began.
+func waitingPane(t *testing.T, srv *Server, ws *workspace.Workspace) (string, time.Time) {
+	t.Helper()
+	id := firstPane(t, srv, ws)
+	return id, waitIn(t, srv, ws, id)
+}
+
+func paneName(srv *Server, ws *workspace.Workspace, id string) string {
+	name, _ := ask(srv, func() string { return ws.Pane(id).Name })
+	return name
+}
+
+func due(srv *Server, now time.Time) *remote.Notification {
+	out, _ := ask(srv, func() *remote.Notification { return srv.pushDue(now) })
 	return out
 }
 
+func enrolled(srv *Server) {
+	srv.SetRemote(&fakeRemote{ok: true, st: remote.Status{Name: "desk", HostID: "h1"}})
+}
+
 // A pane that has been waiting for the delay is pushed once, naming it and
-// its project; one that waits again is pushed again. Nothing is pushed for a
-// machine that is not enrolled, or with the switch off.
+// its project, opening its pane, under the machine's tag; one that waits
+// again is pushed again, but not within a minute of the last push. Nothing is
+// pushed for a machine that is not enrolled, or with the switch off.
 func TestAWaitThatLastsIsPushedOnce(t *testing.T) {
 	srv, ws := newTestServer(t)
 	id, since := waitingPane(t, srv, ws)
-	if n := due(srv, since.Add(time.Hour)); len(n) != 0 {
+	if n := due(srv, since.Add(time.Hour)); n != nil {
 		t.Fatalf("a machine that is not enrolled was due %+v", n)
 	}
 
-	srv.SetRemote(&fakeRemote{ok: true, st: remote.Status{Name: "desk", HostID: "h1"}})
-	if n := due(srv, since.Add(29*time.Second)); len(n) != 0 {
+	enrolled(srv)
+	if n := due(srv, since.Add(29*time.Second)); n != nil {
 		t.Errorf("a wait of 29 seconds was pushed: %+v", n)
 	}
 	n := due(srv, since.Add(30*time.Second))
-	if len(n) != 1 || n[0].URL != "/d/h1/"+id || !strings.HasSuffix(n[0].Title, " needs you") || n[0].Body != "On desk" {
+	if n == nil || n.URL != "/d/h1/"+id || n.Tag != "flockdeck-h1" || !strings.HasSuffix(n.Title, " needs you") || n.Body != "On desk" {
 		t.Fatalf("a wait of 30 seconds: %+v", n)
 	}
-	name, _ := ask(srv, func() string { return ws.Pane(id).Name })
-	if !strings.HasPrefix(n[0].Title, name+" · ") {
-		t.Errorf("the push %q does not name the pane %q and its project", n[0].Title, name)
+	if name := paneName(srv, ws, id); !strings.HasPrefix(n.Title, name+" · ") {
+		t.Errorf("the push %q does not name the pane %q and its project", n.Title, name)
 	}
-	if n := due(srv, since.Add(time.Hour)); len(n) != 0 {
+	if n := due(srv, since.Add(time.Hour)); n != nil {
 		t.Errorf("one wait was pushed twice: %+v", n)
 	}
 
-	// Answered, and waiting again: a new wait.
-	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
-	p.Sess.SetStatus(session.StatusWorking, "")
-	if n := due(srv, time.Now()); len(n) != 0 {
+	// Answered, and waiting again: a new wait, told once the minute since the
+	// last push has passed.
+	answer(srv, ws, id)
+	if n := due(srv, time.Now()); n != nil {
 		t.Errorf("a pane at work was pushed: %+v", n)
 	}
 	time.Sleep(2 * time.Millisecond) // a new wait begins at a new time
-	p.Sess.SetStatus(session.StatusWaiting, "")
-	again := p.Sess.StatusSince()
-	if n := due(srv, again.Add(31*time.Second)); len(n) != 1 {
-		t.Errorf("the second wait was not pushed: %+v", n)
+	again := waitIn(t, srv, ws, id)
+	if n := due(srv, again.Add(31*time.Second)); n != nil {
+		t.Errorf("a second push came within a minute of the first: %+v", n)
+	}
+	if n := due(srv, since.Add(30*time.Second+minPushGap)); n == nil {
+		t.Error("the second wait was not pushed once the minute had passed")
 	}
 
 	ask(srv, func() bool { srv.prefs.Push.Off = true; return true })
 	time.Sleep(2 * time.Millisecond)
-	p.Sess.SetStatus(session.StatusWorking, "")
-	p.Sess.SetStatus(session.StatusWaiting, "")
-	if n := due(srv, time.Now().Add(time.Hour)); len(n) != 0 {
+	answer(srv, ws, id)
+	waitIn(t, srv, ws, id)
+	if n := due(srv, time.Now().Add(time.Hour)); n != nil {
 		t.Errorf("pushed with the switch off: %+v", n)
 	}
 }
 
+// Agents that stop together are told of in one push that counts them and
+// names them, and opens the machine's list rather than one of them. An agent
+// that began waiting just before is counted in it, and is not told of again
+// when its own delay passes.
+func TestAgentsWaitingTogetherArePushedAsOne(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	a := firstPane(t, srv, ws)
+	b := addPane(t, srv, ws, "second")
+	c := addPane(t, srv, ws, "third")
+	since := waitIn(t, srv, ws, a)
+	waitIn(t, srv, ws, b)
+	time.Sleep(5 * time.Millisecond)
+	late := waitIn(t, srv, ws, c)
+
+	n := due(srv, since.Add(30*time.Second))
+	if n == nil || n.Title != "3 agents need you" || n.URL != "/d/h1" || n.Tag != "flockdeck-h1" {
+		t.Fatalf("three agents waiting: %+v", n)
+	}
+	for _, id := range []string{a, b, c} {
+		if name := paneName(srv, ws, id); !strings.Contains(n.Body, name) {
+			t.Errorf("the push %q does not name %q", n.Body, name)
+		}
+	}
+	if !strings.HasPrefix(n.Body, "On desk: ") {
+		t.Errorf("the push does not say which machine: %q", n.Body)
+	}
+	if n := due(srv, late.Add(30*time.Second+minPushGap)); n != nil {
+		t.Errorf("an agent counted in the push was told of again: %+v", n)
+	}
+}
+
 // The delay is a setting, within bounds, and sent anonymously a push says only
-// which machine an agent is on.
+// how many agents are waiting, and on which machine.
 func TestThePushSettingsShapeWhatIsSent(t *testing.T) {
 	srv, ws := newTestServer(t)
-	srv.SetRemote(&fakeRemote{ok: true, st: remote.Status{Name: "desk", HostID: "h1"}})
+	enrolled(srv)
 	conn := dialControl(t, srv)
 	nextHello(t, conn)
 
@@ -99,13 +171,19 @@ func TestThePushSettingsShapeWhatIsSent(t *testing.T) {
 		t.Error("sending anonymously did not reach the disk")
 	}
 
-	_, since := waitingPane(t, srv, ws)
-	if n := due(srv, since.Add(time.Minute)); len(n) != 0 {
+	id, since := waitingPane(t, srv, ws)
+	if n := due(srv, since.Add(time.Minute)); n != nil {
 		t.Errorf("pushed before the delay of two minutes: %+v", n)
 	}
 	n := due(srv, since.Add(2*time.Minute))
-	if len(n) != 1 || n[0].Title != "An agent on desk needs you" || n[0].Body != "" {
+	if n == nil || n.Title != "An agent on desk needs you" || n.Body != "" || n.URL != "/d/h1/"+id {
 		t.Errorf("an anonymous push: %+v", n)
+	}
+	other := addPane(t, srv, ws, "second")
+	later := waitIn(t, srv, ws, other)
+	n = due(srv, later.Add(2*time.Minute+minPushGap))
+	if n == nil || n.Title != "2 agents on desk need you" || n.Body != "" || strings.Contains(n.Title, paneName(srv, ws, other)) {
+		t.Errorf("an anonymous push about two: %+v", n)
 	}
 
 	sendCmd(t, conn, command{Cmd: "pushDelay", Size: 30})
@@ -114,21 +192,17 @@ func TestThePushSettingsShapeWhatIsSent(t *testing.T) {
 	nextPrefs(t, conn, func(p store.Prefs) bool { return p.Push.Off })
 }
 
-// A due wait is sent to the relay off the workspace goroutine, and a refusal
-// is kept for Settings to say, until one goes through.
+// A due push is sent to the relay off the workspace goroutine, and a refusal
+// is kept for Settings to say.
 func TestAPushIsSentAndItsFailureShown(t *testing.T) {
 	srv, ws := newTestServer(t)
-	srv.SetRemote(&fakeRemote{ok: true, st: remote.Status{Name: "desk", HostID: "h1"}})
+	enrolled(srv)
 	sent := make(chan remote.Notification, 4)
 	refusal := errors.New("the relay said: this relay does not send push notifications")
-	fail := true
 	ask(srv, func() bool {
 		srv.push.send = func(_ context.Context, n remote.Notification) error {
 			sent <- n
-			if fail {
-				return refusal
-			}
-			return nil
+			return refusal
 		}
 		return true
 	})
