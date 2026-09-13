@@ -47,3 +47,31 @@ assert.ok(pane.textContent.includes("on the machine itself"),
   "a window reached through the relay is not told where keys are set: " + pane.textContent);
 `)
 }
+
+// TestARemoteWindowIsNotOfferedAnAgentsAddress covers the agent picker on a
+// phone. An API agent's stored key goes wherever its address says, so the
+// address is changed at the desk, as the key is: the picker there has no
+// address row, and an endpoint with no address says where it is given one
+// rather than opening a field for it.
+func TestARemoteWindowIsNotOfferedAnAgentsAddress(t *testing.T) {
+	runFrontEnd(t, `
+h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
+const local = { id: "local", name: "Local llama", runner: "api", available: true, defaultModel: "qwen",
+  addressable: true, address: "http://127.0.0.1:11434/v1", models: [{ id: "qwen", name: "qwen" }] };
+const endpoint = { id: "openai-compatible", name: "OpenAI-compatible endpoint", runner: "api",
+  available: false, defaultModel: "", models: [], addressable: true, install: "give it an address" };
+h.recv(fixture({ agents: catalog({ items: [local, endpoint] }) }));
+h.click(h.$("new-tab-pick"));
+const rows = () => h.$("agent-list").querySelectorAll("div.pick-row");
+h.key({ key: "ArrowRight" });
+assert.ok(!rows().some((r) => r.textContent.includes("Address:")),
+  "a window reached through the relay is offered an agent's address: " + rows().map((r) => r.textContent).join(" | "));
+assert.ok(rows().some((r) => r.textContent.includes("qwen")), "the agent's models went with its address");
+
+const row = rows().find((r) => r.textContent.includes("OpenAI-compatible"));
+assert.ok(row && row.textContent.includes("at the desk"), "an endpoint with no address does not say where it is given one: " + (row && row.textContent));
+h.click(row);
+assert.ok(!h.$("agent-address"), "a window reached through the relay was given a field for an address");
+assert.ok(!h.commands().some((c) => c.cmd === "setAgentAddress"), "a window reached through the relay sent an address");
+`)
+}
