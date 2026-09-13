@@ -134,7 +134,7 @@ what you type, and the state of your panes pass through it. That state
 includes what each pane's agent has spent, its usage limits, and which model
 routing chose for it. Remote access is **not end-to-end encrypted.**
 
-The relay does not record, inspect, store or log the content of that traffic.
+The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 
 When a paired device reaches your desktop, the relay passes your desktop the
