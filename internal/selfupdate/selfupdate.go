@@ -244,6 +244,13 @@ func latestFromGitHub(ctx context.Context) (*Release, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("read release: %w", err)
 	}
+	// GitHub never gives a pre-release as the latest, but a candidate whose
+	// pre-release mark was taken off by hand is given like any other. The
+	// site refuses a candidate by its version, and so does this, whichever of
+	// the two says it is one.
+	if rel.Pre || prerelease(rel.Version) {
+		return nil, fmt.Errorf("GitHub names %s, a pre-release, which is never the latest", rel.Version)
+	}
 	return &rel, nil
 }
 
@@ -360,10 +367,7 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	}
 
 	staging := filepath.Join(dir, "staging")
-	if err := os.RemoveAll(staging); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(work, staging); err != nil {
+	if err := swapStaging(dir, work, staging); err != nil {
 		return nil, err
 	}
 
@@ -387,6 +391,52 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	return p, nil
 }
 
+// rename is how the updater renames what it stages and what it puts in place:
+// through store.RenameWithRetry, which on Windows waits out a moment's hold on
+// the file -- most often a virus scanner opening a program just written. A
+// variable so a test can have a rename fail, or be held.
+var rename = store.RenameWithRetry
+
+// swapStaging puts work, a finished download, at staging in place of whatever
+// is staged there already.
+//
+// What is staged is moved aside rather than removed first, and put back if the
+// new download cannot be put in its place. Removing it first meant a rename
+// that then failed -- on Windows, a virus scanner still holding the new
+// program it had just been shown -- left nothing staged while the top bar
+// went on offering the update, and the restart it asked for found nothing to
+// apply. The renames are retried for as long as store.RenameWithRetry waits
+// out such a hold, which is gone in moments.
+//
+// The previous download goes into a directory of its own, made now, so that
+// sweepWork, which clears those by age, never takes one that is still to be
+// put back.
+func swapStaging(dir, work, staging string) error {
+	if _, err := os.Lstat(staging); errors.Is(err, os.ErrNotExist) {
+		return rename(work, staging)
+	}
+	aside, err := os.MkdirTemp(dir, "staging.old-")
+	if err != nil {
+		return err
+	}
+	previous := filepath.Join(aside, "staging")
+	if err := rename(staging, previous); err != nil {
+		os.RemoveAll(aside)
+		return fmt.Errorf("move the update staged before aside: %w", err)
+	}
+	if err := rename(work, staging); err != nil {
+		if rerr := rename(previous, staging); rerr != nil {
+			// The previous download is left where it is, for sweepWork:
+			// removing it would take the last copy of it.
+			return fmt.Errorf("put the download in place: %w; the update staged before could not be put back either: %v", err, rerr)
+		}
+		os.RemoveAll(aside)
+		return fmt.Errorf("put the download in place: %w", err)
+	}
+	os.RemoveAll(aside)
+	return nil
+}
+
 // abandonedWork is how old a download's work directory has to be before it is
 // taken for one an interrupted attempt left behind. The archive is created
 // once the answer arrives, and its download is given up on requestLimit after
@@ -397,14 +447,15 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 const abandonedWork = requestLimit + time.Minute
 
 // sweepWork clears the work directories interrupted downloads left in dir: the
-// one name every download used before each had its own, and the ones since.
+// one name every download used before each had its own, and the ones since,
+// and the previous downloads swapStaging moved aside and could not remove.
 func sweepWork(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "staging.new") {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "staging.new") && !strings.HasPrefix(e.Name(), "staging.old-") {
 			continue
 		}
 		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > abandonedWork {
@@ -728,6 +779,11 @@ func Apply(dir, exePath string) error {
 // directory and the installation are frequently on different volumes, and a
 // rename across volumes fails.
 //
+// Every rename here waits out a moment's hold (rename). A virus scanner opens
+// each program written, the copy landed beside the program among them, and a
+// rename refused while it had that open rolled the update back, with advice to
+// try again from an administrator shell that would have changed nothing.
+//
 // undo takes the new file back out: what was there before is put back, or,
 // where there was nothing, the new file is removed.
 func replace(src, target string) (undo func() error, err error) {
@@ -741,7 +797,7 @@ func replace(src, target string) (undo func() error, err error) {
 
 	// The twin is missing from an installation made before there was one.
 	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
-		if err := os.Rename(next, target); err != nil {
+		if err := rename(next, target); err != nil {
 			os.Remove(next)
 			return nil, fmt.Errorf("put the new version in place: %w", err)
 		}
@@ -757,16 +813,16 @@ func replace(src, target string) (undo func() error, err error) {
 	if err := os.Remove(old); err != nil && !errors.Is(err, os.ErrNotExist) {
 		old = fmt.Sprintf("%s.old-%d", target, time.Now().UnixNano())
 	}
-	if err := os.Rename(target, old); err != nil {
+	if err := rename(target, old); err != nil {
 		os.Remove(next)
 		return nil, fmt.Errorf("move the running version aside: %w", err)
 	}
-	if err := os.Rename(next, target); err != nil {
+	if err := rename(next, target); err != nil {
 		// Put back what was there. Leaving no program at all under the name
 		// the user starts is far worse than failing to update — and when
 		// even that fails, where the program went is the one thing they
 		// need to be told.
-		if rerr := os.Rename(old, target); rerr != nil {
+		if rerr := rename(old, target); rerr != nil {
 			return nil, fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, target)
 		}
 		os.Remove(next)
@@ -777,7 +833,7 @@ func replace(src, target string) (undo func() error, err error) {
 		if err := os.Remove(target); err != nil {
 			return err
 		}
-		return os.Rename(old, target)
+		return rename(old, target)
 	}, nil
 }
 
@@ -924,11 +980,13 @@ func EnsureChatTwin(exePath string) error {
 		err = os.Chmod(tmp.Name(), 0o755)
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), twin)
+		err = rename(tmp.Name(), twin)
 	}
 	if err != nil {
 		// Most often a chat pane running from the twin, which Windows will
-		// not let anything be renamed over. The next start tries again.
+		// not let anything be renamed over. The rename waits out a moment's
+		// hold, a scanner's on the file just written, and gives up on this
+		// after a second; the next start tries again.
 		os.Remove(tmp.Name())
 	}
 	return nil
