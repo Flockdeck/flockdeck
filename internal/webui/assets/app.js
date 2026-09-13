@@ -1404,9 +1404,11 @@
       const name = title + (tab.attention ? ", an agent here is waiting on you" : "");
       if (node.btn.getAttribute("aria-label") !== name) node.btn.setAttribute("aria-label", name);
       const active = tab.id === s.activeTab;
-      node.btn.classList.toggle("active", active);
+      // The look is the whole box's, close button and all; what a screen
+      // reader is told is the tab's own.
+      node.item.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));
-      node.btn.classList.toggle("attention", !!tab.attention);
+      node.item.classList.toggle("attention", !!tab.attention);
       if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
       // One stop on the way through the window rather than two per tab. With
@@ -1415,11 +1417,11 @@
       // which is what a tab strip is expected to answer to anyway.
       const stop = active ? 0 : -1;
       if (node.btn.tabIndex !== stop) { node.btn.tabIndex = stop; node.close.tabIndex = stop; }
-      if (bar.childNodes[i] !== node.btn) { bar.insertBefore(node.btn, bar.childNodes[i] || null); changed = true; }
+      if (bar.childNodes[i] !== node.item) { bar.insertBefore(node.item, bar.childNodes[i] || null); changed = true; }
     });
     for (const [id, node] of tabNodes) {
       if (s.tabs.some((t) => t.id === id)) continue;
-      node.btn.remove();
+      node.item.remove();
       tabNodes.delete(id);
       changed = true;
     }
@@ -1471,7 +1473,14 @@
   function tabNode(id) {
     let node = tabNodes.get(id);
     if (node) return node;
-    const btn = el("button", "tab");
+    // The tab and its close button sit side by side in one box, rather than
+    // the one inside the other: a button inside a tab is a control inside a
+    // control, which a screen reader reads as part of the tab and some cannot
+    // reach at all. The box is nothing to a screen reader, and is what is
+    // clicked, dragged and dropped on, as the whole tab was.
+    const item = el("div", "tab");
+    item.setAttribute("role", "presentation");
+    const btn = el("button", "tab-btn");
     btn.setAttribute("role", "tab");
     btn.id = "tab-" + id;
     btn.setAttribute("aria-controls", "page-" + id);
@@ -1479,25 +1488,29 @@
     const close = el("button", "close", "×");
     describe(close, "Close tab");
     close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closeTab", id }); };
-    btn.append(label, close);
-    btn.onclick = () => {
+    btn.append(label);
+    item.append(btn, close);
+    item.onclick = () => {
       // Re-clicking the tab already on screen produces no state change for
       // showActiveTab to react to, so hand the keyboard back here.
       if (state && state.activeTab === id) focusTerminal();
       else send({ cmd: "selectTab", id });
     };
-    btn.ondblclick = () => renameTab(id);
+    item.ondblclick = () => renameTab(id);
     // The middle button closes a tab, as it does a browser's or an editor's;
     // here it did nothing, or began the browser's autoscroll over the strip.
-    btn.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
-    btn.onauxclick = (ev) => {
+    item.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
+    item.onauxclick = (ev) => {
       if (ev.button !== 1) return;
       ev.preventDefault();
       send({ cmd: "closeTab", id });
     };
-    btn.onkeydown = (ev) => tabStripKey(ev, id);
-    makeTabDraggable(id, btn);
-    node = { btn, label, close, attn: null };
+    item.onkeydown = (ev) => tabStripKey(ev, id);
+    // Draggable itself as well, since some browsers start no drag from a
+    // button inside a draggable box.
+    btn.draggable = true;
+    makeTabDraggable(id, item);
+    node = { item, btn, label, close, attn: null };
     tabNodes.set(id, node);
     return node;
   }
@@ -1513,7 +1526,7 @@
     attn.setAttribute("role", "img");
     attn.setAttribute("aria-label", TIPS.waiting);
     describe(attn, TIPS.waiting);
-    node.btn.insertBefore(attn, node.close);
+    node.btn.append(attn);
     node.attn = attn;
   }
 

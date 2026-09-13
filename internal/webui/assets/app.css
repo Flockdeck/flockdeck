@@ -207,6 +207,12 @@ body { flex-direction: row; }
 }
 .tab:hover { background: #22262e; color: var(--fg); }
 .tab.active { background: var(--bg); color: var(--fg); border-color: var(--line); }
+/* The tab itself, beside its close button in the box (see tabNode in app.js):
+ * it takes the room the close button leaves, and draws nothing of its own. */
+.tab-btn {
+  display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; height: 100%;
+  padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .close {
   opacity: 0; border: 0; background: transparent; color: var(--fg-dim);
@@ -309,7 +315,7 @@ body { flex-direction: row; }
 #summary:focus-visible,
 .commands:focus-visible,
 .update:focus-visible,
-.tab:focus-visible,
+.tab:has(> .tab-btn:focus-visible),
 .tab .close:focus-visible,
 .pane-actions button:focus-visible,
 .divider:focus-visible,
@@ -327,6 +333,9 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* The ring goes round the whole tab, close button and all, as it did when the
+ * tab's button was the whole tab; the button inside draws none of its own. */
+.tab-btn:focus-visible { outline: none; }
 
 /* Windows high contrast replaces every colour here with a system one, which
  * takes the accent border the text fields use to show focus with it - and they

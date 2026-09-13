@@ -440,15 +440,16 @@ const first = bar.children[0], second = bar.children[1];
 assert.strictEqual(first.querySelector(".label").textContent, "one");
 
 // Someone has tabbed to the second tab button.
-second.focus();
-assert.ok(h.doc.activeElement === second, "the tab button has the keyboard");
+const secondButton = second.querySelector("button.tab-btn");
+secondButton.focus();
+assert.ok(h.doc.activeElement === secondButton, "the tab button has the keyboard");
 
 // An agent starts working. Nothing about the tabs changed.
 h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
 
 assert.ok(h.$("tabs").children[0] === first, "the first tab button was replaced");
 assert.ok(h.$("tabs").children[1] === second, "the second tab button was replaced");
-assert.ok(h.doc.activeElement === second, "the push took the keyboard off the tab button");
+assert.ok(h.doc.activeElement === secondButton, "the push took the keyboard off the tab button");
 `)
 }
 
@@ -474,7 +475,7 @@ h.recv(fixture({
 assert.strictEqual(bar.children[0].querySelector(".label").textContent, "renamed");
 assert.ok(!one.classList.contains("active"), "the first tab is no longer current");
 assert.ok(two.classList.contains("active"), "the second tab is current");
-assert.strictEqual(two.getAttribute("aria-selected"), "true");
+assert.strictEqual(two.querySelector("button.tab-btn").getAttribute("aria-selected"), "true");
 assert.ok(two.classList.contains("attention"), "the blocked tab is marked");
 assert.ok(two.querySelector(".attn"), "the marker element is there");
 assert.ok(two.querySelector(".attn").getAttribute("aria-label"), "the marker names itself");
@@ -1393,14 +1394,14 @@ const many = (active) => {
 h.recv(many("t0"));
 
 const bar = h.$("tabs");
-const btns = bar.children;
+const btns = bar.children.map((n) => n.querySelector("button.tab-btn"));
 assert.strictEqual(btns.length, 10);
 
 // One stop for the strip, not two per tab.
 assert.strictEqual(btns[0].tabIndex, 0, "the current tab is not the stop");
 assert.ok(btns.slice(1).every((b) => b.tabIndex === -1),
   "every tab is a stop on the way through the window");
-assert.ok(btns.slice(1).every((b) => b.querySelector(".close").tabIndex === -1),
+assert.ok(btns.slice(1).every((b) => b.parentElement.querySelector(".close").tabIndex === -1),
   "every close button is a stop too");
 
 // Tab from the project chip reaches the strip once and leaves it once.
@@ -1408,7 +1409,7 @@ h.$("project-btn").focus();
 h.key({ key: "Tab" });
 assert.ok(h.doc.activeElement === btns[0], "Tab did not reach the current tab");
 h.key({ key: "Tab" });
-assert.ok(h.doc.activeElement === btns[0].querySelector(".close"), "its close button follows it");
+assert.ok(h.doc.activeElement === btns[0].parentElement.querySelector(".close"), "its close button follows it");
 h.key({ key: "Tab" });
 assert.ok(!btns.includes(h.doc.activeElement), "Tab is still walking the tabs one at a time");
 
@@ -3108,6 +3109,29 @@ assert.ok(/relay/i.test(said) && /machine/i.test(said), "the panel does not say 
 `)
 }
 
+// A tab's close button was inside the tab, a control inside a control: a
+// screen reader read it as part of the tab, and some could not reach it at
+// all. It sits beside the tab, in a box that is nothing to a screen reader,
+// and still closes its own tab; a click on the tab still selects it.
+func TestATabsCloseButtonSitsBesideIt(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tab = h.$("tab-t1");
+assert.strictEqual(tab.getAttribute("role"), "tab");
+assert.ok(!tab.querySelector("button"), "the tab holds its close button, a control inside a control");
+const box = tab.parentElement;
+assert.ok(box.parentElement === h.$("tabs"), "the tab's box is not in the strip");
+assert.strictEqual(box.getAttribute("role"), "presentation", "the box around the tab and its close button is something to a screen reader");
+const close = box.querySelector(".close");
+assert.ok(close && close.parentElement === box, "the close button is not beside the tab");
+h.click(close);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closeTab", id: "t1" });
+h.click(h.$("tab-t2"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
@@ -3336,12 +3360,12 @@ h.recv(fixture({ tabs: [
   { id: "t1", title: long, focus: "p1", zoom: false, attention: false, root: { id: "n1", pane: "p1", weight: 1 } },
   { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: { id: "n2", pane: "p2", weight: 1 } },
 ] }));
-const tab = h.$("tabs").children[0];
+const tab = h.$("tab-t1");
 assert.ok((tab.dataset.tip || "").startsWith(long), "the whole title cannot be read anywhere");
 assert.ok(/rename/.test(tab.dataset.tip), "nothing says how to rename the tab");
 
 h.recv(fixture());
-assert.ok(h.$("tabs").children[0].dataset.tip.startsWith("one"), "the bubble kept the old title");
+assert.ok(h.$("tab-t1").dataset.tip.startsWith("one"), "the bubble kept the old title");
 `)
 }
 
@@ -5761,7 +5785,7 @@ func TestATabNamesThePanelItShows(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-const tab = h.$("tabs").children[0];
+const tab = h.$("tab-t1");
 const page = h.$("page-t1");
 assert.ok(page, "the tab's page has no id to be controlled by");
 assert.strictEqual(page.getAttribute("role"), "tabpanel", "the tab's page is not a tab panel");
