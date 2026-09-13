@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
@@ -63,10 +64,20 @@ var ErrHandedOff = errors.New("the window was handed to a browser already runnin
 // opens the window and closes it again inside this.
 const handOffWithin = 5 * time.Second
 
+// closeGrace is how long Close gives the browser to close its window itself
+// before it is killed.
+const closeGrace = 2 * time.Second
+
 // Window is a running UI window.
 type Window struct {
 	cmd     *exec.Cmd
 	started time.Time
+	// done is closed once the browser process has exited, with waitErr and
+	// exited set: one goroutine waits on the process, so that Wait and Close
+	// can both learn when it has gone.
+	done    chan struct{}
+	waitErr error
+	exited  time.Time
 	// AppMode reports whether the window is a dedicated app window rather than
 	// a tab in the user's ordinary browser.
 	AppMode bool
@@ -81,18 +92,40 @@ func (w *Window) Wait() error {
 	if w == nil || w.cmd == nil || !w.AppMode {
 		return nil
 	}
-	err := w.cmd.Wait()
-	if err == nil && time.Since(w.started) < handOffWithin {
+	<-w.done
+	if w.waitErr == nil && w.exited.Sub(w.started) < handOffWithin {
 		return ErrHandedOff
 	}
-	return err
+	return w.waitErr
 }
 
-// Close terminates an app-mode window.
+// Close closes an app-mode window.
+//
+// The browser is asked first, with SIGTERM, which Chromium takes as being
+// told to close: it saves the window's size and place as it goes, which is
+// what the next window opens at (see placementArgs). Killed outright, as it
+// always was, it saved nothing, and could count the run as a crash. Only one
+// that has not gone after closeGrace is killed. A Windows process cannot be
+// sent SIGTERM, so there it is killed, as before.
 func (w *Window) Close() {
-	if w != nil && w.cmd != nil && w.cmd.Process != nil {
-		_ = w.cmd.Process.Kill()
+	if w == nil || w.cmd == nil || w.cmd.Process == nil {
+		return
 	}
+	select {
+	case <-w.done:
+		return
+	default:
+	}
+	if w.cmd.Process.Signal(syscall.SIGTERM) == nil {
+		timer := time.NewTimer(closeGrace)
+		defer timer.Stop()
+		select {
+		case <-w.done:
+			return
+		case <-timer.C:
+		}
+	}
+	_ = w.cmd.Process.Kill()
 }
 
 // Open displays url in a window. profileDir holds the browser profile used for
@@ -236,7 +269,13 @@ func startAppMode(path, url, profileDir string) (*Window, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", path, err)
 	}
-	return &Window{cmd: cmd, started: time.Now(), AppMode: true, Program: path}, nil
+	win := &Window{cmd: cmd, started: time.Now(), done: make(chan struct{}), AppMode: true, Program: path}
+	go func() {
+		win.waitErr = cmd.Wait()
+		win.exited = time.Now()
+		close(win.done)
+	}()
+	return win, nil
 }
 
 // candidates lists the browsers to try, in preference order, for this platform.

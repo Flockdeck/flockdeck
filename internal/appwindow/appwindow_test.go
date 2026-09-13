@@ -3,10 +3,13 @@ package appwindow
 import (
 	"errors"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // browserExit makes this test binary stand in for a browser: started with it
@@ -15,12 +18,29 @@ import (
 // looks like from here.
 const browserExit = "APPWINDOW_TEST_BROWSER_EXIT"
 
+// browserDir is where a stand-in browser started with browserExit set to
+// "term" says it is ready, and that it was asked to close.
+const browserDir = "APPWINDOW_TEST_BROWSER_DIR"
+
 func TestMain(m *testing.M) {
 	switch os.Getenv(browserExit) {
 	case "0":
 		os.Exit(0)
 	case "1":
 		os.Exit(1)
+	case "term":
+		// A browser that closes when it is asked to, as Chromium does on
+		// SIGTERM, and says so before it goes.
+		asked := make(chan os.Signal, 1)
+		signal.Notify(asked, syscall.SIGTERM)
+		dir := os.Getenv(browserDir)
+		_ = os.WriteFile(filepath.Join(dir, "ready"), nil, 0o600)
+		select {
+		case <-asked:
+			_ = os.WriteFile(filepath.Join(dir, "asked"), nil, 0o600)
+		case <-time.After(30 * time.Second):
+		}
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
@@ -220,6 +240,39 @@ func TestWaitReportsAHandOff(t *testing.T) {
 	}
 	if err := w.Wait(); !errors.Is(err, ErrHandedOff) {
 		t.Errorf("Wait = %v, want ErrHandedOff", err)
+	}
+}
+
+// Quitting killed the window's browser outright, and a browser killed saves
+// nothing: the window's size and place, which the next window opens at, were
+// lost. It is asked to close first, and killed only if it does not.
+func TestCloseAsksTheBrowserToCloseBeforeKillingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows process cannot be sent SIGTERM, so Close kills it there")
+	}
+	dir := t.TempDir()
+	t.Setenv(browserExit, "term")
+	t.Setenv(browserDir, dir)
+	w, err := startAppMode(os.Args[0], "http://127.0.0.1:1/", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.cmd.Process.Kill() })
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(dir, "ready")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in browser never started")
+		}
+	}
+	began := time.Now()
+	w.Close()
+	if _, err := os.Stat(filepath.Join(dir, "asked")); err != nil {
+		t.Error("the browser was killed without being asked to close first")
+	}
+	if took := time.Since(began); took >= closeGrace {
+		t.Errorf("Close took %v for a browser that closed when asked; it should not wait out the grace", took)
 	}
 }
 
