@@ -8,9 +8,9 @@
 //   - Latest asks what the latest release is, and Newer says whether it is
 //     one to move to; an untagged local build never has one.
 //   - Stage downloads it, checks it against the published SHA-256, signed by
-//     the release key when it comes from the site, and unpacks the binary
-//     into the state directory. Nothing about the installation has changed
-//     yet.
+//     the release key whether it comes from the site or from GitHub, and
+//     unpacks the binary into the state directory. Nothing about the
+//     installation has changed yet.
 //   - Apply swaps the staged binary into place. This is the only step that
 //     touches the installed program, and it is never done under a running
 //     session: panes hold live agents, and replacing the binary beneath them
@@ -98,9 +98,10 @@ type Release struct {
 	Assets  []Asset `json:"assets"`
 
 	// A release read from the site (latestFromSite) has these as well, and
-	// one read from GitHub's API has none of them.
+	// one read from GitHub's API has none of them: fetchSum finds the
+	// signature of its checksums.txt among its Assets instead.
 	sumsSig string            // checksums.txt.sig, which checksums.txt must pass
-	sums    map[string]string // each file's SHA-256, from the signed manifest
+	sums    map[string]string // each file's SHA-256, from the signed manifest; nil for GitHub's API
 	mirror  *Release          // the same release on GitHub, if the site fails
 }
 
@@ -265,9 +266,12 @@ func (r *Release) DownloadSize() int64 {
 	return a.Size
 }
 
-func (r *Release) checksums() (Asset, bool) {
+func (r *Release) checksums() (Asset, bool) { return r.asset(sumsName) }
+
+// asset is the file of the release called name.
+func (r *Release) asset(name string) (Asset, bool) {
 	for _, a := range r.Assets {
-		if a.Name == "checksums.txt" {
+		if a.Name == name {
 			return a, true
 		}
 	}
@@ -333,7 +337,7 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	defer os.RemoveAll(work) // nothing left once it has become the staging
 
 	archive := filepath.Join(work, asset.Name)
-	if err := download(ctx, asset.URL, archive, want); err != nil {
+	if err := download(ctx, asset.URL, archive, want, asset.Size); err != nil {
 		return nil, err
 	}
 	if err := unpack(archive, filepath.Join(work, binaryName), binaryName); err != nil {
@@ -414,19 +418,46 @@ func sweepWork(dir string) {
 // For a release from the site, checksums.txt has to carry the release key's
 // signature, and the hash it gives has to be the one the signed manifest
 // gave; from GitHub's mirror of that release, only the second. A release read
-// from GitHub's API has neither, and its checksums.txt is taken as it is.
+// from GitHub's API has no manifest, so its checksums.txt has to carry the
+// release key's signature, checksums.txt.sig, published beside it on GitHub.
+//
+// That release used to be taken as it was. Latest goes to GitHub whenever the
+// site fails, which anybody between a copy and the site can arrange, so the
+// release key vouched for nothing against whoever could also publish on
+// GitHub. Only a build without a release key, which trusts nothing from the
+// site either, still takes GitHub's checksums.txt as it is. Every release it
+// could move to is newer than the build itself, and is published by the
+// workflow that uploads the signature to GitHub too, so nothing is lost by
+// requiring it of every release rather than only of the later ones.
 func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error) {
+	sigURL, from := r.sumsSig, siteHost()
+	if sigURL == "" && r.sums == nil && trustedKey != nil {
+		from = "GitHub"
+		a, ok := r.asset(sumsName + sigExt)
+		if !ok {
+			return "", signatureError{sumsName, from, fmt.Errorf("release %s carries no %s", r.Version, sumsName+sigExt)}
+		}
+		// The signature covers checksums.txt alone, which names each archive
+		// with its version (assetFor gives the contract). An archive of
+		// another version would let an older signed release, one with a
+		// known flaw, be republished under a newer tag and installed as an
+		// update to the release that fixed it.
+		if !strings.HasPrefix(name, "flockdeck_"+r.Version+"_") {
+			return "", mismatchError{fmt.Sprintf("GitHub's release %s carries %s, which is not an archive of %s", r.Version, name, r.Version)}
+		}
+		sigURL = a.URL
+	}
 	body, err := fetchSmall(ctx, url, 1<<20)
 	if err != nil {
 		return "", err
 	}
-	if r.sumsSig != "" {
-		sig, err := fetchSmall(ctx, r.sumsSig, 1<<10)
+	if sigURL != "" {
+		sig, err := fetchSmall(ctx, sigURL, 1<<10)
 		if err != nil {
 			return "", err
 		}
 		if err := Verify(trustedKey, body, sig); err != nil {
-			return "", signatureError{sumsName, err}
+			return "", signatureError{sumsName, from, err}
 		}
 	}
 	sum, err := sumIn(body, name)
@@ -458,7 +489,16 @@ func sumIn(body []byte, name string) (string, error) {
 	return "", fmt.Errorf("checksums.txt does not list %s", name)
 }
 
-func download(ctx context.Context, url, dest, want string) error {
+// download writes url to dest and checks it against want, the SHA-256 it has
+// to have, and size, the bytes the release gives for it, or 0 for a release
+// that does not say.
+//
+// Nothing past size is read. The hash can only be checked once the body has
+// ended, so a body that never ended -- from a CDN serving something other than
+// the release -- was written to disk for as long as requestLimit allowed, on
+// every check. The size is signed in the site's manifest, so one byte more is
+// already enough to know the download is not the release.
+func download(ctx context.Context, url, dest, want string, size int64) error {
 	resp, err := get(ctx, url)
 	if err != nil {
 		return err
@@ -469,14 +509,22 @@ func download(ctx context.Context, url, dest, want string) error {
 	if err != nil {
 		return err
 	}
+	var body io.Reader = resp.Body
+	if size > 0 {
+		body = io.LimitReader(resp.Body, size+1)
+	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	n, err := io.Copy(io.MultiWriter(f, h), body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		os.Remove(dest)
 		return err
+	}
+	if size > 0 && n > size {
+		os.Remove(dest)
+		return mismatchError{fmt.Sprintf("download is larger than the %d bytes published for it", size)}
 	}
 
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {

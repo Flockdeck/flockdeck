@@ -115,11 +115,12 @@ Flockdeck next quits.
 
 Releases are published at `dl.flockdeck.ai` as one archive per platform, with
 a `checksums.txt` beside them, signed with the release key that is built into
-Flockdeck. GitHub carries every release too: when `dl.flockdeck.ai` cannot be
-reached, or what it serves is not signed by the release key, Flockdeck
-downloads from GitHub instead and says why in its log. The download is checked
-against its published SHA-256 before anything is replaced, and a download that
-does not match is thrown away rather than installed.
+Flockdeck. GitHub carries every release too, signed the same way: when
+`dl.flockdeck.ai` cannot be reached, or what it serves is not signed by the
+release key, Flockdeck downloads from GitHub instead and says why in its log.
+Wherever it comes from, the download is checked against its signed SHA-256
+before anything is replaced, and a download that does not match is thrown away
+rather than installed.
 
 Which release is the latest comes from `latest.json` on `dl.flockdeck.ai`,
 which only names a version; Flockdeck then reads that version's own signed

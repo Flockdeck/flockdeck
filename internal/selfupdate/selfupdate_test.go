@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"debug/pe"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -145,17 +147,39 @@ type byteWriter struct{ b []byte }
 
 func (w *byteWriter) Write(p []byte) (int, error) { w.b = append(w.b, p...); return len(p), nil }
 
-// releaseServer stands in for GitHub, serving one release whose checksums file
-// can be made to disagree with the archive so the checking path can be tested.
+// testKey signs the checksums.txt of the releases these tests serve as
+// GitHub, which carries the release key's signature of every release's.
+var testKey = func() ed25519.PrivateKey {
+	_, k, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		panic(err)
+	}
+	return k
+}()
+
+// signedByTestKey is checksums.txt.sig for sums, signed by testKey, which the
+// updater trusts in place of the release key until the test ends.
+func signedByTestKey(t *testing.T, sums []byte) []byte {
+	t.Helper()
+	old := trustedKey
+	trustedKey = testKey.Public().(ed25519.PublicKey)
+	t.Cleanup(func() { trustedKey = old })
+	return Sign(testKey, sums)
+}
+
+// releaseServer stands in for GitHub, serving one release, its checksums.txt
+// signed as the release workflow signs it, whose checksums file can be made to
+// disagree with the archive so the checking path can be tested.
 func releaseServer(t *testing.T, archiveName string, archive []byte, sum string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	var srv *httptest.Server
 
+	sums := []byte(fmt.Sprintf("%s  %s\n", sum, archiveName))
+	sig := signedByTestKey(t, sums)
 	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) { w.Write(archive) })
-	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s  %s\n", sum, archiveName)
-	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) { w.Write(sums) })
+	mux.HandleFunc("/checksums.txt.sig", func(w http.ResponseWriter, r *http.Request) { w.Write(sig) })
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{
 			Version: "v9.9.9",
@@ -164,6 +188,7 @@ func releaseServer(t *testing.T, archiveName string, archive []byte, sum string)
 			Assets: []Asset{
 				{Name: archiveName, URL: srv.URL + "/archive"},
 				{Name: "checksums.txt", URL: srv.URL + "/checksums.txt"},
+				{Name: "checksums.txt.sig", URL: srv.URL + "/checksums.txt.sig"},
 			},
 		})
 	})
@@ -239,13 +264,15 @@ func TestTwoStagingsAtOnceBothFinish(t *testing.T) {
 		<-hold
 		w.Write(archive[len(archive)/2:])
 	})
-	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(h[:]), name)
-	})
+	sums := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(h[:]), name))
+	sig := signedByTestKey(t, sums)
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) { w.Write(sums) })
+	mux.HandleFunc("/checksums.txt.sig", func(w http.ResponseWriter, r *http.Request) { w.Write(sig) })
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{Version: "v9.9.9", Assets: []Asset{
 			{Name: name, URL: srv.URL + "/archive"},
 			{Name: "checksums.txt", URL: srv.URL + "/checksums.txt"},
+			{Name: "checksums.txt.sig", URL: srv.URL + "/checksums.txt.sig"},
 		}})
 	})
 	srv = httptest.NewServer(mux)
@@ -372,16 +399,46 @@ func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 
 	h := sha256.Sum256(body)
 	want := hex.EncodeToString(h[:])
-	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want); err != nil {
+	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want, int64(len(body))); err != nil {
 		t.Errorf("a download that kept arriving, slowly: %v", err)
 	}
 	start := time.Now()
-	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want)
+	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want, int64(len(body)))
 	if err == nil || !strings.Contains(err.Error(), "stopped sending") {
 		t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
 	}
 	if d := time.Since(start); d > 10*time.Second {
 		t.Errorf("giving up on a stalled download took %s", d)
+	}
+}
+
+// A download that goes on past the size its release gives is given up on as
+// soon as it does. The size is signed in the site's manifest, and a body that
+// never ended used to be written to disk until requestLimit, an hour, ran out,
+// on every check, since the hash can only be checked at the end.
+func TestADownloadLargerThanItsSizeIsCutOff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk := bytes.Repeat([]byte("x"), 32<<10)
+		for r.Context().Err() == nil {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	// Long enough for a download that is cut off, and far short of what an
+	// endless one read to the end would take.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dest := filepath.Join(t.TempDir(), "archive")
+	err := download(ctx, srv.URL, dest, sha([]byte("the release")), 1<<20)
+	var mismatch mismatchError
+	if !errors.As(err, &mismatch) || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("download of a body that never ends = %v, want it refused as larger than its size", err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("what was downloaded is still on disk: %v", err)
 	}
 }
 
@@ -441,10 +498,13 @@ func TestStageNeverLeavesARecordForAnotherRelease(t *testing.T) {
 	h := sha256.Sum256(archive)
 	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
 	dir := t.TempDir()
-	old := fetchRelease(t, srv.URL+"/release")
-	old.Version = "v9.9.8"
-	if _, err := Stage(context.Background(), old, dir); err != nil {
+	first, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+	if err != nil {
 		t.Fatalf("Stage: %v", err)
+	}
+	// The record names another release than the one staged next.
+	if err := save(dir, &Pending{Version: "v9.9.8", Binary: first.Binary}); err != nil {
+		t.Fatal(err)
 	}
 
 	held, err := os.Open(pendingPath(dir))

@@ -46,10 +46,14 @@ jobs:
           # same checkout.
           fetch-depth: 0
 
+      # The release is built from nothing cached. The build cache is shared
+      # with the test runs on main, which execute every test, dependencies'
+      # included, and a release restored from it would be built from what
+      # they left there, and then signed.
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       # The tag reaches every script through the environment rather than being
       # written into it. A hand-run release takes it as free text, and pasted
@@ -86,12 +90,47 @@ jobs:
       - name: List what was built
         run: ls -l dist && cat dist/checksums.txt
 
+      # checksums.txt and the release's manifest are signed with the release
+      # key, whose public half every build carries, so that what the updater
+      # downloads can be trusted without trusting where it came from: the
+      # site, or GitHub, where the updater goes when the site fails and which
+      # it holds to the same signature. So the release is signed before it is
+      # published anywhere, and a missing key stops the run before GitHub
+      # has a release every copy would refuse.
+      #
+      # The notes GitHub generates go into the manifest, so the update chip
+      # shows them as it did when the updater read them from GitHub. They are
+      # generated here, before the release exists, and the release is made
+      # with the same notes; a release being published again keeps its own.
+      - name: Sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$RUNNER_TEMP/notes.md"
+          fi
+          go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
+
       # gh is already on the runner, so the release is made without a
       # third-party action holding the token.
       #
       # A tag with a suffix, v1.4.0-rc.1, is a candidate. Published as an
       # ordinary release it would be the latest one, which is what every
       # running copy asks GitHub for and installs; a pre-release is skipped.
+      #
+      # What was signed goes up with the archives: checksums.txt.sig above
+      # all, which the updater requires of a release it reads from GitHub.
+      # latest.json does not; it only names the site's latest release.
+      #
+      # GitHub makes every new release its latest, and a release older than
+      # the latest there -- a fix to an older line cut after a newer release
+      # -- would then be what every copy reading GitHub is offered, and each
+      # would throw away the newer release it had staged as withdrawn. So one
+      # that is not newer is published without being made the latest.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,10 +138,21 @@ jobs:
         run: |
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
+          latest=""
+          current=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -z "$pre" ] && [ -n "$current" ] && [ "$current" != "$TAG" ] &&
+            [ "$(printf '%s\n' "$current" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
+            echo "$current is newer than $TAG, and stays GitHub's latest release"
+            latest="--latest=false"
+          fi
+          set --
+          for f in dist/*; do
+            [ "${f##*/}" = latest.json ] || set -- "$@" "$f"
+          done
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
+            gh release upload "$TAG" "$@" --clobber
           else
-            gh release create "$TAG" dist/* --title "$TAG" --generate-notes $pre
+            gh release create "$TAG" "$@" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $pre $latest
           fi
 
       # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
@@ -118,34 +168,19 @@ jobs:
       - name: Check the download site's secrets
         env:
           TAG: ${{ steps.version.outputs.tag }}
-          FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
           DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
           DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
         run: |
           missing=""
-          for name in FLOCKDECK_SIGNING_KEY DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
+          for name in DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
             [ -n "$(printenv "$name" || true)" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
             echo "::error::$TAG is published on GitHub, but cannot go to dl.flockdeck.ai until these repository secrets are set:$missing. Terraform writes them: apply terrawost's svc/flockdeck-site/release.tf"
             exit 1
           fi
-
-      # checksums.txt and the release's manifest are signed with the release
-      # key, whose public half every build carries, so that what the site
-      # serves can be trusted without trusting the site. The notes GitHub
-      # generated go into the manifest, so the update chip shows them as it did
-      # when the updater read them from GitHub.
-      - name: Sign
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
-        run: |
-          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
-          go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
 
       # The script says why the order is what it is. It is kept in the
       # repository so that it can be run by hand, and tried against any
