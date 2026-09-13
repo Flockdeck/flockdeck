@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -357,6 +358,7 @@ func quitRunning() error {
 	// still ours -- and a wedged instance is exactly the one somebody reaches
 	// for -quit to stop, while the request to quit needs nothing from the
 	// workspace. So that is asked to quit, as one that answers is.
+	asked := time.Now()
 	h, err := server.Identify(inst.URL, inst.Token)
 	switch {
 	case err == nil, errors.Is(err, server.ErrNotReady):
@@ -370,7 +372,7 @@ func quitRunning() error {
 		_ = store.ClearInstance()
 		return errNoneRunning
 	default:
-		return fmt.Errorf("ask the instance at %s whether it is running: %w", inst.URL, err)
+		return instanceRequestFailed(inst, "ask the instance at "+inst.URL+" whether it is running", err, time.Since(asked))
 	}
 
 	// RequestQuit returns only once the instance has gone -- stopped
@@ -383,12 +385,13 @@ func quitRunning() error {
 	if h != nil {
 		pid = h.PID
 	}
+	asked = time.Now()
 	if err := server.RequestQuit(inst.URL, inst.Token, pid); err != nil {
 		// Gone between the question and the request, or on its way.
 		if refusedConnection(err) {
 			return quitWithNothingListening(inst)
 		}
-		return fmt.Errorf("ask the instance at %s to stop: %w", inst.URL, err)
+		return instanceRequestFailed(inst, "ask the instance at "+inst.URL+" to stop", err, time.Since(asked))
 	}
 	fmt.Println("flockdeck: stopped")
 	return nil
@@ -457,6 +460,45 @@ func refusedConnection(err error) bool {
 	return errors.As(err, &dial) && dial.Op == "dial"
 }
 
+// instanceRequestFailed words a failed request to the instance on record, as
+// what was being attempted and why it failed, for the terminal and for the
+// error.log and Windows error box that fail puts it in.
+//
+// Go's error for a failed request names the address it went to, and every
+// request to an instance carries the instance's token in that address, so the
+// token went wherever the message did. It is taken out. A request that got no
+// answer in time is worded as notAnswering says, since a URL and a context
+// deadline tell nobody what to do next.
+func instanceRequestFailed(inst *store.Instance, what string, err error, waited time.Duration) error {
+	if timedOut(err) {
+		return notAnswering(inst, waited)
+	}
+	return fmt.Errorf("%s: %s", what, redactToken(err.Error(), inst.Token))
+}
+
+// timedOut reports whether a request failed for want of an answer in time.
+func timedOut(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+// notAnswering is the error for an instance that is there, holding its port,
+// and gave no answer within waited: stuck, most likely, and ended only by
+// ending its process. Starting another beside it is no answer, so it is not
+// offered.
+func notAnswering(inst *store.Instance, waited time.Duration) error {
+	host := inst.URL
+	if u, err := url.Parse(inst.URL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	secs := int(waited.Round(time.Second) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return fmt.Errorf("the Flockdeck at %s (process %d) did not answer within %d s; it may be stuck, so end process %d",
+		host, inst.PID, secs, inst.PID)
+}
+
 // runningInstance returns the recorded instance if it is alive and answering.
 func runningInstance() (*store.Instance, string, error) {
 	inst, err := store.LoadInstance()
@@ -502,10 +544,15 @@ func answering() bool {
 // shows the window.
 func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if root != "" {
+		asked := time.Now()
 		if err := server.RequestOpen(base, inst.Token, root); err != nil {
+			if timedOut(err) {
+				return notAnswering(inst, time.Since(asked))
+			}
 			// On its own this was "open project: 400 Bad Request", which says
 			// neither what was being attempted nor what else there is to do.
-			return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
+			return fmt.Errorf("the flockdeck already running would not open %s (%s); run with -solo to start a separate one",
+				root, redactToken(err.Error(), inst.Token))
 		}
 	}
 	url := base + "/?t=" + inst.Token
@@ -522,11 +569,17 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	// with the token in it, which would stay on its command line for anybody
 	// on the machine to read (see server.WindowURL). Only an instance from an
 	// earlier build, which gives out no links, is opened the old way.
+	asked := time.Now()
 	link, err := server.RequestWindowURL(base, inst.Token)
 	if errors.Is(err, server.ErrNoWindowLinks) {
 		link = url
+	} else if timedOut(err) {
+		return notAnswering(inst, time.Since(asked))
 	} else if err != nil {
-		return fmt.Errorf("the flockdeck already running would not give a window a way in (%w); open this URL manually:\n  %s", err, url)
+		// The address to open by hand does carry the token: it is the one way
+		// in left to offer. The reason the link was refused need not.
+		return fmt.Errorf("the flockdeck already running would not give a window a way in (%s); open this URL manually:\n  %s",
+			redactToken(err.Error(), inst.Token), url)
 	}
 	if _, err := appwindow.Open(link, profile); err != nil {
 		// The instance carries on without us, so its address stays good.
