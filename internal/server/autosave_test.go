@@ -18,9 +18,13 @@ import (
 func TestLayoutsAreSavedWhileTheAppRuns(t *testing.T) {
 	was := layoutSaveInterval
 	layoutSaveInterval = 200 * time.Millisecond
-	t.Cleanup(func() { layoutSaveInterval = was })
-
 	_, ws := newTestServer(t)
+	// Put back as soon as the server is made, which is the one place it is
+	// read. A server reading it from its own goroutine, as saveLoop did, could
+	// read it after this, and a server left running by this test would be
+	// reading it while the next one wrote it.
+	layoutSaveInterval = was
+
 	root := ws.ActiveRoot()
 	for deadline := time.Now().Add(15 * time.Second); ; {
 		st, err := store.Load(root)

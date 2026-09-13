@@ -308,13 +308,35 @@ func normalizeRoot(root string) string {
 
 // Load reads the saved state for a workspace root. A missing file is not an
 // error: it simply means there is nothing to restore.
-func Load(root string) (*State, error) {
+//
+// It is for a caller about to restore what it reads, because it records how
+// the read went: a layout that could not be read is kept from the next save,
+// and one that could is not.
+func Load(root string) (*State, error) { return load(root, true) }
+
+// Peek is Load for a caller that only wants to look at what was saved and is
+// not going to restore it, and so says nothing about whether the file could be
+// read.
+//
+// The save of a project nobody has been in since it was opened reads the tab
+// it was last saved on. Through Load, that read taking a moment's trouble in
+// its stride cleared the record of the one at start that had not: a project
+// whose layout could not be read comes up on one fresh tab, and the timed save
+// half a minute later then found nothing to keep and wrote that tab straight
+// over every tab the user had saved.
+func Peek(root string) (*State, error) { return load(root, false) }
+
+// load is Load, recording how the read went only when restoring says what it
+// reads is going to be restored.
+func load(root string, restoring bool) (*State, error) {
 	p, err := path(root)
 	if err != nil {
 		return nil, err
 	}
 	data, err := readState(p)
-	noteRead(p, err)
+	if restoring {
+		noteRead(p, err)
+	}
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
@@ -505,11 +527,48 @@ func keepUnread(p string) error {
 	if !unreadFiles.paths[p] {
 		return nil
 	}
-	if err := renameWithRetry(p, p+unreadSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	aside, err := unreadName(p)
+	if err == nil {
+		err = renameWithRetry(p, aside)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
 	}
 	delete(unreadFiles.paths, p)
 	return nil
+}
+
+// maxUnreadKept bounds how many copies of one file are kept aside. It is far
+// more than any run will make; it is there so a folder where every name
+// answers something other than "not there" is not searched forever.
+const maxUnreadKept = 100
+
+// unreadName is the name a file this run could not read is moved aside to:
+// "<name>.unread", or where that is taken, the first of "<name>.unread.1",
+// "<name>.unread.2" and on that is not.
+//
+// A rename replaces whatever stands at the name it is given, on every
+// platform, and a copy already there is one kept for the user from an earlier
+// time the file could not be read: the tabs or settings they had before a run
+// came up without them, which nothing says they have been back for. The file
+// being moved now is most often what that run saved in their place, so the two
+// are not the same, and moving one onto the other lost the copy that mattered.
+//
+// Looking first is not atomic: a second instance moving the same file aside
+// in the same moment could take the name between the look and the rename.
+// That needs two instances failing to read one file at once, and costs one of
+// the two copies, which is what every second move used to cost.
+func unreadName(p string) (string, error) {
+	for i := 0; i < maxUnreadKept; i++ {
+		name := p + unreadSuffix
+		if i > 0 {
+			name = fmt.Sprintf("%s.%d", name, i)
+		}
+		if _, err := os.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("%d copies of it are already kept beside it", maxUnreadKept)
 }
 
 // WriteAtomic is writeAtomic for the packages that keep a file of their own in
@@ -1073,6 +1132,12 @@ func writeRecents(list []Project) error {
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode projects: %w", err)
+	}
+	// A damaged list that would not move aside is recorded as unread, and this
+	// write is what it has to be kept from: every directory the user has
+	// opened, replaced by the list read from it, which is nothing.
+	if err := keepUnread(filepath.Join(dir, recentsFile)); err != nil {
+		return fmt.Errorf("write projects: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
 		return fmt.Errorf("write projects: %w", err)
