@@ -1051,7 +1051,7 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 
 	if win.AppMode {
 		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
-			fmt.Fprintln(os.Stderr, windowFailedNote(err))
+			note := noteWindowFailed(err)
 			// Better an ordinary tab than no interface at all, as when no
 			// app-mode browser is found. Whether or not one opens, the address
 			// is printed: a desktop that could not show the window may well
@@ -1060,6 +1060,8 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 				fmt.Println("Trying your default browser instead.")
 			}
 			printServing(opts, recorded, srv.URL())
+			// Last, since on Windows it waits for the box to be dismissed.
+			showStartupError(note)
 		})
 	} else {
 		// A tab in the user's own browser cannot be watched, so fall back
@@ -1136,6 +1138,22 @@ func windowFailedNote(err error) string {
 	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
 		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
 		err, appwindow.BrowserEnv)
+}
+
+// noteWindowFailed says that the window's browser failed as it started, and
+// returns what it said.
+//
+// It can say so as much as five seconds after start-up, when the Windows
+// release has let its terminal go, or never had one: started from a shortcut,
+// the note went nowhere, and the run carried on with no window and nothing to
+// say why. So it goes to error.log as well, and the caller puts it in front of
+// the user with showStartupError, which shows it only where there is no
+// terminal to have read it in.
+func noteWindowFailed(err error) string {
+	note := windowFailedNote(err)
+	fmt.Fprintln(os.Stderr, note)
+	logError(errors.New(strings.TrimPrefix(note, "flockdeck: ")))
+	return note
 }
 
 // workingDir and loadSession are where a launch that names no project learns
