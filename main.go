@@ -506,23 +506,42 @@ func runningInstance() (*store.Instance, string, error) {
 		return nil, "", err
 	}
 	base := inst.URL
+	asked := time.Now()
 	if _, err := server.Probe(base, inst.Token); err != nil {
-		// An instance that is there but too busy to answer for its workspace
-		// is running all the same. Taking its record for a stale one would
-		// start a rival set of agents beside it, which is much the worse
-		// mistake than a launch that has to wait or be told to try again.
-		if errors.Is(err, server.ErrNotReady) {
+		switch {
+		case errors.Is(err, server.ErrNotReady):
+			// An instance that is there but too busy to answer for its
+			// workspace is running all the same. Taking its record for a stale
+			// one would start a rival set of agents beside it, which is much
+			// the worse mistake than a launch that has to wait or be told to
+			// try again.
 			return inst, base, nil
-		}
-		// Nothing listening, while the process that made the record still
-		// runs, is an instance on its way out: its port is closed before it
-		// saves every project, stops the agents and clears its record. A
-		// launch that took that for a stale record started a rival, which
-		// restored the projects before the first had saved them, wrote over
-		// that save half a minute later, and resumed conversations the first
-		// one's agents still had open. So it waits for the first to finish.
-		if refusedConnection(err) && instanceGoing(inst) && !waitForExit(inst) {
-			return nil, "", fmt.Errorf("the flockdeck on record has stopped listening but is still running, as process %d, after %s", inst.PID, exitWait)
+		case refusedConnection(err):
+			// Nothing listening, while the process that made the record still
+			// runs, is an instance on its way out: its port is closed before
+			// it saves every project, stops the agents and clears its record.
+			// A launch that took that for a stale record started a rival,
+			// which restored the projects before the first had saved them,
+			// wrote over that save half a minute later, and resumed
+			// conversations the first one's agents still had open. So it
+			// waits for the first to finish.
+			if instanceGoing(inst) && !waitForExit(inst) {
+				return nil, "", fmt.Errorf("the flockdeck on record has stopped listening but is still running, as process %d, after %s", inst.PID, exitWait)
+			}
+		case errors.Is(err, server.ErrNotOurs):
+			// Something else answers there: the record was left by an
+			// instance that has gone, and its port has been taken since.
+		case instanceGoing(inst):
+			// No answer in time, or none that could be read, from an address
+			// whose instance is still running. That was taken for a stale
+			// record like the rest, and a second instance started without a
+			// word beside the first one's agents. It is said instead, and the
+			// launch goes no further.
+			if timedOut(err) {
+				return nil, "", fmt.Errorf("%w: %w", errNotAnswering, notAnswering(inst, time.Since(asked)))
+			}
+			return nil, "", fmt.Errorf("%w: the Flockdeck at %s (process %d) could not be asked whether it is running (%s)",
+				errNotAnswering, inst.URL, inst.PID, redactToken(err.Error(), inst.Token))
 		}
 		// The record is stale: the process died without clearing it.
 		_ = store.ClearInstance()
@@ -530,6 +549,11 @@ func runningInstance() (*store.Instance, string, error) {
 	}
 	return inst, base, nil
 }
+
+// errNotAnswering marks an instance on record whose process is running but
+// which does not answer. A launch stops at it rather than starting a second
+// set of agents beside the first.
+var errNotAnswering = errors.New("an instance is running but not answering")
 
 // answering reports whether the instance on record is running and answering.
 // A record left by one that has gone is cleared on the way, as for any launch.
@@ -603,14 +627,21 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 // Starting is still the right default — refusing would leave the application
 // unusable over a file the user has never heard of — but it is a guess, and
 // the guess is said out loud rather than made silently.
-func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string) {
+//
+// An instance that is running and not answering is no guess: it is there, and
+// its agents with it. That is the one error handed back, for the launch to
+// stop at.
+func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string, error) {
 	inst, base, err := lookup()
-	if err != nil {
+	switch {
+	case errors.Is(err, errNotAnswering):
+		return nil, "", err
+	case err != nil:
 		warn("could not tell whether one is already running (" + err.Error() +
 			"), so starting a new one; any agents already running still are")
-		return nil, ""
+		return nil, "", nil
 	}
-	return inst, base
+	return inst, base, nil
 }
 
 // startLockWait is how long a launch waits for one already starting to put
@@ -747,9 +778,13 @@ func run(opts options) error {
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
-		if inst, base := joinRunning(runningInstance, func(text string) {
+		inst, base, err := joinRunning(runningInstance, func(text string) {
 			fmt.Fprintln(os.Stderr, "flockdeck:", text)
-		}); inst != nil {
+		})
+		if err != nil {
+			return err
+		}
+		if inst != nil {
 			// The flags that describe how to start up have nobody to apply
 			// to once we are joining agents that are already running. Say so:
 			// silently ignoring -new looks like the layout was kept on purpose.
