@@ -220,9 +220,10 @@ function Install-Flockdeck {
     # With the pinned release above installed and checked, move it to
     # whatever is newest: `flockdeck update` verifies the release signature
     # itself (internal/selfupdate), so nothing more is checked here. Skipped
-    # for a release chosen by hand, which asked to stay put, and for a
-    # mirror, which may carry nothing past what it was given.
-    if (-not $env:FLOCKDECK_VERSION -and -not $env:FLOCKDECK_DOWNLOAD) {
+    # for a release chosen by hand, which asked to stay put; for a mirror,
+    # which may carry nothing past what it was given; and where updates are
+    # turned off, which the updater would refuse anyway.
+    if (-not $env:FLOCKDECK_VERSION -and -not $env:FLOCKDECK_DOWNLOAD -and $env:FLOCKDECK_UPDATE -ne 'off') {
         $latestVersion = $null
         try {
             $body = (Invoke-WebRequest -UseBasicParsing "$dl/latest.json").Content

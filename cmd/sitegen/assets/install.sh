@@ -299,9 +299,10 @@ main() {
 	# With the pinned release above installed and checked, move it to
 	# whatever is newest: `flockdeck update` verifies the release signature
 	# itself (internal/selfupdate), so nothing more is checked here. Skipped
-	# for a release chosen by hand, which asked to stay put, and for a
-	# mirror, which may carry nothing past what it was given.
-	if [ -z "${FLOCKDECK_VERSION:-}" ] && [ -z "${FLOCKDECK_DOWNLOAD:-}" ]; then
+	# for a release chosen by hand, which asked to stay put; for a mirror,
+	# which may carry nothing past what it was given; and where updates are
+	# turned off, which the updater would refuse anyway.
+	if [ -z "${FLOCKDECK_VERSION:-}" ] && [ -z "${FLOCKDECK_DOWNLOAD:-}" ] && [ "${FLOCKDECK_UPDATE:-}" != off ]; then
 		latest=$(latest_release) || latest=
 		if [ -n "$latest" ] && release_gt "$latest" "$version"; then
 			if ! "$dir/flockdeck" update; then
