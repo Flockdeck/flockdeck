@@ -113,16 +113,24 @@ jobs:
       # shows them as it did when the updater read them from GitHub. They are
       # generated here, before the release exists, and the release is made
       # with the same notes; a release being published again keeps its own.
+      # Only GitHub's answer that there is no such release counts as there
+      # being none. Any other failure to ask stops the run: taken for none, a
+      # release published before would be given fresh notes, and below it
+      # would be created again.
       - name: Sign
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
-          else
+          if gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md" 2> "$RUNNER_TEMP/gh.err"; then
+            echo "$TAG is already released on GitHub, and keeps its notes"
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
             gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$RUNNER_TEMP/notes.md"
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub whether $TAG is released already, so nothing has been signed or published"
+            exit 1
           fi
           go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
 
@@ -142,6 +150,10 @@ jobs:
       # -- would then be what every copy reading GitHub is offered, and each
       # would throw away the newer release it had staged as withdrawn. So one
       # that is not newer is published without being made the latest.
+      #
+      # As in signing, only GitHub's answer that there is no release counts as
+      # there being none. A failure to ask for the latest release taken for
+      # there being none would make any release the latest, older or not.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -150,7 +162,15 @@ jobs:
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
           latest=""
-          current=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          if current=$(gh release view --json tagName --jq .tagName 2> "$RUNNER_TEMP/gh.err"); then
+            :
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
+            current=""
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub for its latest release, so whether $TAG may become it is not known; nothing has been published"
+            exit 1
+          fi
           if [ -z "$pre" ] && [ -n "$current" ] && [ "$current" != "$TAG" ] &&
             [ "$(printf '%s\n' "$current" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
             echo "$current is newer than $TAG, and stays GitHub's latest release"
@@ -160,10 +180,14 @@ jobs:
           for f in dist/*; do
             [ "${f##*/}" = latest.json ] || set -- "$@" "$f"
           done
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --json tagName >/dev/null 2> "$RUNNER_TEMP/gh.err"; then
             gh release upload "$TAG" "$@" --clobber
-          else
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
             gh release create "$TAG" "$@" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $pre $latest
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub whether $TAG is released already, so it has been neither created nor added to"
+            exit 1
           fi
 
       # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
