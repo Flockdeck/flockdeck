@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAReviewListingSaysWhyItWasSent covers the window's record of what
@@ -74,5 +76,75 @@ func TestAReviewListingSaysWhyItWasSent(t *testing.T) {
 	}
 	if ch.Reason != "committed" {
 		t.Errorf("the listing after a commit says %q; want committed", ch.Reason)
+	}
+}
+
+// TestTheOmittedNoticeGoesOnlyWithAListingSomebodyAskedFor covers a checkout
+// with more changed files than the list holds. Every listing said so in a
+// notice, and the window shows one notice at a time, so the one after a
+// failed commit, push or pull replaced the error saying why it had failed.
+func TestTheOmittedNoticeGoesOnlyWithAListingSomebodyAskedFor(t *testing.T) {
+	srv, _ := newTestServer(t)
+	dir := t.TempDir()
+	was := readChanges
+	t.Cleanup(func() { readChanges = was })
+	readChanges = func(dir string) changesMsg {
+		return changesMsg{Type: "changes", Cwd: dir, Files: []changeView{{Path: "a.txt"}}, Omitted: 5}
+	}
+	// notices collects what the window is sent until a listing and the moment
+	// after it, and returns the notices.
+	notices := func(c *controlClient) []noticeMsg {
+		t.Helper()
+		var got []noticeMsg
+		listed := false
+		for wait := 10 * time.Second; ; {
+			select {
+			case raw := <-c.out:
+				var probe struct {
+					Type string `json:"type"`
+				}
+				_ = json.Unmarshal(raw, &probe)
+				switch probe.Type {
+				case "notice":
+					var n noticeMsg
+					_ = json.Unmarshal(raw, &n)
+					got = append(got, n)
+				case "changes":
+					listed, wait = true, 500*time.Millisecond
+				}
+			case <-time.After(wait):
+				if !listed {
+					t.Fatal("no listing arrived")
+				}
+				return got
+			}
+		}
+	}
+	showing := func(ns []noticeMsg) bool {
+		for _, n := range ns {
+			if strings.Contains(n.Text, "showing 1 of 6") {
+				return true
+			}
+		}
+		return false
+	}
+
+	c := &controlClient{out: make(chan []byte, 16)}
+	srv.commitChanges(c, dir, "   ", false, nil, nil, 0)
+	got := notices(c)
+	if showing(got) {
+		t.Errorf("after a commit that failed, the window was sent %+v; the notice about files left out replaces the error", got)
+	}
+	if len(got) == 0 || !got[0].Error {
+		t.Errorf("the failed commit's error did not arrive: %+v", got)
+	}
+
+	srv.listChanges(c, dir, true)
+	if got := notices(c); showing(got) {
+		t.Errorf("a listing the panel asked for by itself was announced: %+v", got)
+	}
+	srv.listChanges(c, dir, false)
+	if got := notices(c); !showing(got) {
+		t.Errorf("opening the panel on a list that leaves files out said nothing about them: %+v", got)
 	}
 }

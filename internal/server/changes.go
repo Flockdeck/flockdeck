@@ -141,10 +141,13 @@ func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason 
 			return
 		}
 		c.sendJSON(msg)
-		if msg.Omitted > 0 {
-			// Said out loud, because a list that stops at two thousand rows
-			// looks exactly like a working tree with two thousand changes in
-			// it, and the difference matters to someone about to commit.
+		// Said out loud, because a list that stops at two thousand rows looks
+		// exactly like a working tree with two thousand changes in it, and the
+		// difference matters to someone about to commit. Only for a listing
+		// somebody asked to see, though: the window shows one notice at a time,
+		// and this one came straight after -- and replaced -- the error saying
+		// why a commit, push or pull had failed.
+		if msg.Omitted > 0 && reason == "asked" {
 			c.notify(fmt.Sprintf("showing %d of %d changed files — the rest are left out to keep the list usable",
 				len(msg.Files), len(msg.Files)+msg.Omitted), false)
 		}
