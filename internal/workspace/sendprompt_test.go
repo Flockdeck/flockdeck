@@ -21,10 +21,15 @@ func TestThePromptBarStillReachesThePane(t *testing.T) {
 		t.Fatalf("the shell did not start: %v", p.Err)
 	}
 
-	// Typed while the shell is still starting, the line is partly lost to it:
-	// a loaded macOS runner echoed "rompt-bar-reached-me" and never ran it. So
-	// the prompt goes once the shell has printed something and then gone
-	// quiet, which is its prompt waiting for a line.
+	// Wide enough that the typed line never wraps. A macOS runner's prompt
+	// carries a hostname of some seventy characters, so at 80 columns the echo
+	// of what was typed broke across two lines -- "…echo p" and
+	// "rompt-bar-reached-me" -- and only the command's output held the text
+	// whole, once, though the command had run.
+	ws.ResizePaneTerminal(p.ID, 200, 50)
+
+	// The prompt goes once the shell has printed something and then gone
+	// quiet, which is its prompt, redrawn at the new width, waiting for a line.
 	deadline := time.Now().Add(15 * time.Second)
 	for text, since := "", time.Now(); ; time.Sleep(50 * time.Millisecond) {
 		if now := p.Sess.RecentText(8192); now != text {
