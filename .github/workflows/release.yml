@@ -185,6 +185,15 @@ jobs:
       # The script says why the order is what it is. It is kept in the
       # repository so that it can be run by hand, and tried against any
       # S3-compatible store. The aws CLI is already on the runner.
+      #
+      # The script is run as this workflow's own commit has it, not as the
+      # tag's. For a pushed tag they are one commit. A release run by hand,
+      # though, builds an older tag with the workflow on main, and the tag's
+      # copy of the script predates whatever it has learned since: one from
+      # before it compared versions moves latest.json and /latest/ back to the
+      # older release, and every copy that had staged the newer one throws it
+      # away as withdrawn. The checkout above fetched every branch, so the
+      # commit is here to read it from.
       - name: Publish to dl.flockdeck.ai
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -192,4 +201,9 @@ jobs:
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
           DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
-        run: sh scripts/publish-downloads.sh "$TAG" dist
+        run: |
+          if ! git show "$GITHUB_SHA:scripts/publish-downloads.sh" > "$RUNNER_TEMP/publish-downloads.sh"; then
+            echo "::error::$TAG is published on GitHub, but the publish script could not be read from $GITHUB_SHA, the workflow's own commit"
+            exit 1
+          fi
+          sh "$RUNNER_TEMP/publish-downloads.sh" "$TAG" dist
