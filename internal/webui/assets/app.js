@@ -4682,7 +4682,7 @@
     // as a project with no conversations or a list still being read.
     const none = el("div", "dir-empty", "No conversation matches that.");
     none.id = "history-none";
-    const sayNone = () => { none.hidden = wrap.querySelectorAll("div.conv-row").some((r) => !r.hidden); };
+    const sayNone = () => { none.hidden = [...wrap.querySelectorAll("div.conv-row")].some((r) => !r.hidden); };
     wrap.append(none);
     sayNone();
     body.append(wrap);
