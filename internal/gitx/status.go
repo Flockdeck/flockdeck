@@ -23,7 +23,9 @@ type Status struct {
 	Unborn bool
 	// Operation names what a detached checkout is in the middle of --
 	// "rebasing" or "bisecting" -- when Branch was read from that operation's
-	// state rather than from HEAD, which names no branch while it runs.
+	// state rather than from HEAD, which names no branch while it runs. A
+	// rebase started from a detached HEAD has no branch to read, and is
+	// "rebasing" with Branch empty.
 	Operation string
 	// Dirty counts tracked files with changes; Untracked counts new files.
 	Dirty     int
@@ -158,10 +160,12 @@ func operationBranch(ctx context.Context, dir string) (branch, operation string)
 		// Only a branch's own ref: a rebase started from a detached HEAD
 		// writes the words "detached HEAD" here, which were shown as the
 		// branch's name and offered as the base for a new worktree -- one
-		// git then refused as no reference at all.
+		// git then refused as no reference at all. That rebase is still a
+		// rebase, with no branch to go back to.
 		if ref := strings.TrimSpace(string(data)); strings.HasPrefix(ref, "refs/heads/") {
 			return strings.TrimPrefix(ref, "refs/heads/"), "rebasing"
 		}
+		return "", "rebasing"
 	}
 	// A bisect writes down where it started: a branch's name, or a commit
 	// id when it was started from a detached HEAD, which is no branch.
