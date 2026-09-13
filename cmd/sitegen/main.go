@@ -27,10 +27,10 @@
 // -release is the release the install scripts install by default, and
 // -checksums that release's checksums.txt, from
 // https://dl.flockdeck.ai/v1.2.3/checksums.txt, with its checksums.txt.sig
-// beside it: the signature is checked against the release key built into
-// this program before anything in the file is trusted. The SHA-256 of each
-// archive is written into the scripts, which check the archive they download
-// against it; see bake.
+// beside it: the signature is checked against the release keys built into
+// this program, the primary or the standby, before anything in the file is
+// trusted. The SHA-256 of each archive is written into the scripts, which
+// check the archive they download against it; see bake.
 package main
 
 import (
@@ -126,8 +126,7 @@ func main() {
 	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, with its checksums.txt.sig beside it")
 	flag.Parse()
 
-	key, _ := selfupdate.ReleaseKey()
-	rel, err := readRelease(*version, *sums, key)
+	rel, err := readRelease(*version, *sums, selfupdate.TrustedKeys())
 	if err == nil {
 		err = run(*out, *repo, *module, *url, rel)
 	}
@@ -163,17 +162,18 @@ func archives(version string) []string {
 
 // readRelease is the release version, with the checksums the checksums.txt
 // at path gives its archives, once the signature beside it at path+".sig" is
-// found to be key's: key is the release key.
+// found to be one of keys': keys are this build's trusted release keys, the
+// primary and the standby (selfupdate.TrustedKeys).
 //
-// Neither may be left out. Without them the scripts would have nothing to
-// check an archive against but a checksums.txt fetched from wherever the
-// archive came from, and whoever could replace the one there could replace
-// the other with it.
+// Neither the version nor the checksums may be left out. Without them the
+// scripts would have nothing to check an archive against but a checksums.txt
+// fetched from wherever the archive came from, and whoever could replace the
+// one there could replace the other with it.
 //
 // The signature is checked here rather than left to whoever runs this. These
 // checksums are what every install from the site trusts in place of anything
 // it downloads, and a step done by hand is a step that can be skipped.
-func readRelease(version, path string, key ed25519.PublicKey) (release, error) {
+func readRelease(version, path string, keys []ed25519.PublicKey) (release, error) {
 	if version == "" || path == "" {
 		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt, with checksums.txt.sig beside it")
 	}
@@ -185,7 +185,7 @@ func readRelease(version, path string, key ed25519.PublicKey) (release, error) {
 	if err != nil {
 		return release{}, fmt.Errorf("read the checksums' signature: %w; download checksums.txt.sig from %s/%s/ and put it beside them", err, downloadsURL, version)
 	}
-	if err := selfupdate.Verify(key, body, sig); err != nil {
+	if err := selfupdate.VerifyAny(keys, body, sig); err != nil {
 		return release{}, fmt.Errorf("%s.sig: %w, so the checksums are not the release's", path, err)
 	}
 	return parseRelease(version, body)

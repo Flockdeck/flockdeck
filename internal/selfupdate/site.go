@@ -118,12 +118,13 @@ func CheckPointer(data []byte) (string, error) {
 }
 
 // CheckManifest reads a release's manifest.json once its signature, the
-// content of manifest.json.sig, has been checked against key, and refuses a
+// content of manifest.json.sig, has been checked against keys, and refuses a
 // manifest the updater could not act on. cmd/release reads back what it wrote
 // through this, so a release is never published with a manifest the updater
-// would refuse.
-func CheckManifest(key ed25519.PublicKey, data, sig []byte) (*Manifest, error) {
-	if err := Verify(key, data, sig); err != nil {
+// would refuse. A signature from any one of keys is accepted, so a release
+// signed with the standby passes exactly as one signed with the primary does.
+func CheckManifest(keys []ed25519.PublicKey, data, sig []byte) (*Manifest, error) {
+	if err := VerifyAny(keys, data, sig); err != nil {
 		return nil, signatureError{manifestName, siteHost(), err}
 	}
 	var m Manifest
@@ -213,7 +214,8 @@ func siteHost() string {
 // signature before believing it, and carries the same release on GitHub for
 // Stage to fall back to.
 func latestFromSite(ctx context.Context) (*Release, error) {
-	if trustedKey == nil {
+	keys := TrustedKeys()
+	if len(keys) == 0 {
 		return nil, errNoKey
 	}
 	data, err := fetchSmall(ctx, siteURL+"/"+pointerName, 1<<10)
@@ -236,7 +238,7 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := CheckManifest(trustedKey, data, sig)
+	m, err := CheckManifest(keys, data, sig)
 	if err != nil {
 		return nil, err
 	}

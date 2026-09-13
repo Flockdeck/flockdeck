@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"testing"
 )
 
 // Releases are signed with Ed25519. Each signed file has a .sig beside it
@@ -25,16 +26,64 @@ import (
 // Both formats live here, beside the one thing that reads them, so the command
 // that writes them (cmd/release) and the updater that checks them cannot drift.
 
-// trustedKey is the key signatures are checked against: releaseKey decoded, or
-// nil while releaseKey is still the placeholder or not a key at all. Tests put
-// a key of their own here.
+// trustedKey is the primary key signatures are checked against: releaseKey
+// decoded, or nil while releaseKey is still the placeholder or not a key at
+// all. Tests put a key of their own here.
 var trustedKey = parsePublicKey(releaseKey)
 
-// ReleaseKey is the public key compiled into this build, and false while it is
-// still the placeholder.
+// trustedStandbyKey is the standby key signatures are checked against as
+// well: releaseKeyStandby decoded, or nil while it is still the placeholder.
+// Tests put a key of their own here.
+var trustedStandbyKey = parsePublicKey(releaseKeyStandby)
+
+// ReleaseKey is the primary public key compiled into this build, and false
+// while it is still the placeholder.
 func ReleaseKey() (ed25519.PublicKey, bool) {
 	k := parsePublicKey(releaseKey)
 	return k, k != nil
+}
+
+// StandbyKey is the standby public key compiled into this build, and false
+// while it is still the placeholder: before the user has generated the
+// standby keypair and its public half has been put in releaseKeyStandby.
+func StandbyKey() (ed25519.PublicKey, bool) {
+	k := parsePublicKey(releaseKeyStandby)
+	return k, k != nil
+}
+
+// TrustedKeys is every key this build's updater accepts a signature from: the
+// primary, and the standby once releaseKeyStandby holds a real key instead of
+// its placeholder. Every signature this package checks against "the release
+// key" is checked against all of these, so that a release signed with the
+// standby is accepted exactly as one signed with the primary is.
+func TrustedKeys() []ed25519.PublicKey {
+	var keys []ed25519.PublicKey
+	if trustedKey != nil {
+		keys = append(keys, trustedKey)
+	}
+	if trustedStandbyKey != nil {
+		keys = append(keys, trustedStandbyKey)
+	}
+	return keys
+}
+
+// TrustKeysForTest makes this build trust exactly primary and standby (either
+// may be nil) in place of releaseKey and releaseKeyStandby, until the
+// returned func puts back what it trusted before. It exists for tests of
+// other packages, such as cmd/release's, that need TrustedKeys and runSign's
+// check against it to see keys the test itself generated, since the real
+// compiled keys' private halves are held by nobody the tests can reach.
+//
+// It panics outside a test binary: exported only so another package's tests
+// can reach it, never so that anything shipped could swap out the keys a
+// build trusts.
+func TrustKeysForTest(primary, standby ed25519.PublicKey) func() {
+	if !testing.Testing() {
+		panic("selfupdate: TrustKeysForTest is for tests only")
+	}
+	oldPrimary, oldStandby := trustedKey, trustedStandbyKey
+	trustedKey, trustedStandbyKey = primary, standby
+	return func() { trustedKey, trustedStandbyKey = oldPrimary, oldStandby }
 }
 
 // parsePublicKey decodes a public key as Terraform's public_key_pem gives it,
@@ -110,4 +159,25 @@ func Verify(key ed25519.PublicKey, data, sig []byte) error {
 		return errors.New("the signature does not match the release key")
 	}
 	return nil
+}
+
+// VerifyAny reports whether sig, the content of a .sig file, is any of keys'
+// signature of data: the primary release key's, or the standby's once it
+// holds one. It refuses everything, as errNoKey, when keys is empty, which is
+// every build's own trusted keys (TrustedKeys) while both are still
+// placeholders.
+func VerifyAny(keys []ed25519.PublicKey, data, sig []byte) error {
+	if len(keys) == 0 {
+		return errNoKey
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
+	if err != nil || len(raw) != ed25519.SignatureSize {
+		return fmt.Errorf("the signature is not %d bytes of base64", ed25519.SignatureSize)
+	}
+	for _, k := range keys {
+		if ed25519.Verify(k, data, raw) {
+			return nil
+		}
+	}
+	return errors.New("the signature does not match any trusted release key")
 }

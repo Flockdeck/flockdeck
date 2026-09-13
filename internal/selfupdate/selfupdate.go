@@ -482,7 +482,8 @@ func sweepWork(dir string) {
 // requiring it of every release rather than only of the later ones.
 func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error) {
 	sigURL, from := r.sumsSig, siteHost()
-	if sigURL == "" && r.sums == nil && trustedKey != nil {
+	keys := TrustedKeys()
+	if sigURL == "" && r.sums == nil && len(keys) > 0 {
 		from = "GitHub"
 		a, ok := r.asset(sumsName + sigExt)
 		if !ok {
@@ -507,7 +508,7 @@ func (r *Release) fetchSum(ctx context.Context, url, name string) (string, error
 		if err != nil {
 			return "", err
 		}
-		if err := Verify(trustedKey, body, sig); err != nil {
+		if err := VerifyAny(keys, body, sig); err != nil {
 			return "", signatureError{sumsName, from, err}
 		}
 	}

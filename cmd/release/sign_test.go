@@ -22,7 +22,7 @@ import (
 func TestKeygenPrintsOnlyThePublicKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "release.key")
 	var stdout, stderr bytes.Buffer
-	if err := runKeygen(path, &stdout, &stderr); err != nil {
+	if err := runKeygen(path, false, &stdout, &stderr); err != nil {
 		t.Fatalf("runKeygen: %v", err)
 	}
 	file, err := os.ReadFile(path)
@@ -50,7 +50,52 @@ func TestKeygenPrintsOnlyThePublicKey(t *testing.T) {
 		}
 	}
 
-	if err := runKeygen(path, &stdout, &stderr); err == nil {
+	if err := runKeygen(path, false, &stdout, &stderr); err == nil {
+		t.Fatal("runKeygen wrote over an existing key")
+	}
+	if again, _ := os.ReadFile(path); !bytes.Equal(again, file) {
+		t.Error("the existing key was changed")
+	}
+}
+
+// -keygen -standby writes and prints exactly as the primary does, but its
+// stderr hints say to keep the file offline only, never as a repository
+// secret, and name releaseKeyStandby instead of releaseKey.
+func TestKeygenStandbyPrintsOnlyThePublicKeyAndHintsAtOfflineStorage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "standby.key")
+	var stdout, stderr bytes.Buffer
+	if err := runKeygen(path, true, &stdout, &stderr); err != nil {
+		t.Fatalf("runKeygen: %v", err)
+	}
+	file, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := selfupdate.ParseSigningKey(string(file))
+	if err != nil {
+		t.Fatalf("the key file does not read back: %v", err)
+	}
+	want := selfupdate.EncodePublicKey(key.Public().(ed25519.PublicKey)) + "\n"
+	if stdout.String() != want {
+		t.Errorf("stdout = %q, want the public key alone, %q", stdout.String(), want)
+	}
+	secret := strings.TrimSpace(string(file))
+	if strings.Contains(stdout.String()+stderr.String(), secret) {
+		t.Error("the private key was printed")
+	}
+	if !strings.Contains(stderr.String(), "releaseKeyStandby") || strings.Contains(stderr.String(), signingKeyEnv) {
+		t.Errorf("stderr = %q, want it to name releaseKeyStandby and never %s", stderr.String(), signingKeyEnv)
+	}
+	if !strings.Contains(stderr.String(), "offline") {
+		t.Errorf("stderr = %q, want it to say to keep the file offline", stderr.String())
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("the key file is mode %v, want 0600", fi.Mode().Perm())
+		}
+	}
+
+	if err := runKeygen(path, true, &stdout, &stderr); err == nil {
 		t.Fatal("runKeygen wrote over an existing key")
 	}
 	if again, _ := os.ReadFile(path); !bytes.Equal(again, file) {
@@ -123,7 +168,7 @@ func TestSignWritesWhatTheUpdaterAccepts(t *testing.T) {
 	if err := selfupdate.Verify(pub, read("checksums.txt"), read("checksums.txt.sig")); err != nil {
 		t.Errorf("checksums.txt.sig: %v", err)
 	}
-	m, err := selfupdate.CheckManifest(pub, read("manifest.json"), read("manifest.json.sig"))
+	m, err := selfupdate.CheckManifest([]ed25519.PublicKey{pub}, read("manifest.json"), read("manifest.json.sig"))
 	if err != nil {
 		t.Fatalf("the updater refuses the manifest: %v", err)
 	}
@@ -160,6 +205,52 @@ func TestSignRefusesAKeyTheUpdaterDoesNotHold(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.out, "manifest.json")); err == nil {
 		t.Error("manifest.json was written all the same")
+	}
+}
+
+// runSign accepts a key whose public half is either compiled key, primary or
+// standby, so the standby can sign a release in an emergency; a key matching
+// neither is refused, and the message says so.
+func TestSignAcceptsEitherCompiledKeyAndRefusesAThird(t *testing.T) {
+	primaryPub, primaryKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standbyPub, standbyKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := selfupdate.TrustKeysForTest(primaryPub, standbyPub)
+	t.Cleanup(restore)
+
+	for _, c := range []struct {
+		name string
+		key  ed25519.PrivateKey
+		ok   bool
+	}{
+		{"the primary key", primaryKey, true},
+		{"the standby key", standbyKey, true},
+		{"a third key", otherKey, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out := fakeRelease(t, "v9.9.9")
+			s, _ := testSigning(t, out)
+			s.key = selfupdate.EncodeSigningKey(c.key)
+			s.anyKey = false
+			err := runSign(s)
+			if c.ok && err != nil {
+				t.Errorf("runSign with %s: %v, want it accepted", c.name, err)
+			}
+			if !c.ok {
+				if err == nil || !strings.Contains(err.Error(), "releasekey.go") {
+					t.Errorf("runSign with %s = %v, want it refused for matching neither compiled key", c.name, err)
+				}
+			}
+		})
 	}
 }
 

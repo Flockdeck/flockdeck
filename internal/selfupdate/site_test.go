@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -135,9 +137,11 @@ func published(t *testing.T, body string) *release {
 	r := &release{dl: newPlace(t), gh: newPlace(t), key: key}
 	r.name, r.archive = buildArchive(t, body)
 
-	oldKey, oldSite, oldAPI, oldGH := trustedKey, siteURL, githubAPIURL, githubURL
+	oldKey, oldStandby, oldSite, oldAPI, oldGH := trustedKey, trustedStandbyKey, siteURL, githubAPIURL, githubURL
 	trustedKey, siteURL, githubAPIURL, githubURL = pub, r.dl.srv.URL, r.gh.srv.URL, r.gh.srv.URL
-	t.Cleanup(func() { trustedKey, siteURL, githubAPIURL, githubURL = oldKey, oldSite, oldAPI, oldGH })
+	t.Cleanup(func() {
+		trustedKey, trustedStandbyKey, siteURL, githubAPIURL, githubURL = oldKey, oldStandby, oldSite, oldAPI, oldGH
+	})
 
 	sums := []byte(fmt.Sprintf("%s  %s\n", sha(r.archive), r.name))
 	sumsSig := Sign(key, sums)
@@ -321,7 +325,7 @@ func TestLatestFallsBackToGitHub(t *testing.T) {
 			r.manifest.Files = r.manifest.Files[:0]
 			r.sign()
 		}, "does not list", false},
-		{"no release key in this build", func(r *release) { trustedKey = nil }, "no release key", false},
+		{"no release key in this build", func(r *release) { trustedKey, trustedStandbyKey = nil, nil }, "no release key", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -616,6 +620,163 @@ func TestReleaseKeyIsInPlace(t *testing.T) {
 	if _, ok := ReleaseKey(); !ok {
 		t.Fatal("internal/selfupdate/releasekey.go still holds the placeholder: put the public key " +
 			"`terraform output -raw flockdeck_release_public_key` prints in releaseKey")
+	}
+}
+
+// The standby key is not required to be a real key yet -- the user generates
+// it separately, offline -- but whatever releaseKeyStandby holds has to be
+// the placeholder or a real key, never something that silently trusts nothing
+// while looking like it might.
+func TestStandbyKeyIsThePlaceholderOrAKey(t *testing.T) {
+	if _, ok := StandbyKey(); !ok && releaseKeyStandby != releaseKeyStandbyPlaceholder {
+		t.Errorf("releaseKeyStandby is %q, which is neither the placeholder nor an Ed25519 public key in PEM or base64", releaseKeyStandby)
+	}
+}
+
+// If the standby is ever set to a real key, it must not be the same key as
+// the primary: one key wearing two hats is exactly the single point of
+// failure the standby exists to not be.
+func TestStandbyKeyDiffersFromThePrimary(t *testing.T) {
+	primary, primaryOK := ReleaseKey()
+	standby, standbyOK := StandbyKey()
+	if primaryOK && standbyOK && primary.Equal(standby) {
+		t.Error("releaseKeyStandby is the same key as releaseKey")
+	}
+}
+
+// A manifest signed by either trusted key is accepted, one signed by neither
+// is refused, and the standby's signature is refused when it is not among the
+// keys trusted -- as it is not while releaseKeyStandby is the placeholder.
+func TestCheckManifestAcceptsEitherTrustedKeyAndRefusesAThird(t *testing.T) {
+	primaryPub, primaryKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standbyPub, standbyKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{
+		Version: "v1.2.3",
+		Files: []ManifestFile{
+			{Name: sumsName, URL: "https://example.invalid/checksums.txt", SHA256: strings.Repeat("ab", 32), Size: 1},
+			{Name: sumsName + sigExt, URL: "https://example.invalid/checksums.txt.sig", SHA256: strings.Repeat("ab", 32), Size: 1},
+		},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := []ed25519.PublicKey{primaryPub, standbyPub}
+
+	for _, c := range []struct {
+		name string
+		key  ed25519.PrivateKey
+	}{{"the primary key", primaryKey}, {"the standby key", standbyKey}} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := CheckManifest(keys, data, Sign(c.key, data)); err != nil {
+				t.Errorf("CheckManifest signed by %s: %v", c.name, err)
+			}
+		})
+	}
+	if _, err := CheckManifest(keys, data, Sign(otherKey, data)); err == nil {
+		t.Error("CheckManifest accepted a signature from a third key")
+	}
+	if _, err := CheckManifest([]ed25519.PublicKey{primaryPub}, data, Sign(standbyKey, data)); err == nil {
+		t.Error("CheckManifest accepted the standby's signature while only the primary was trusted")
+	}
+}
+
+// The site is trusted through the same two keys: a release signed with either
+// is taken as the latest, and one signed with neither, or with the standby
+// while the build does not yet trust it, is refused.
+func TestLatestAcceptsEitherTrustedKey(t *testing.T) {
+	primaryPub, primaryKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standbyPub, standbyKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name         string
+		signWith     ed25519.PrivateKey
+		trustStandby bool
+		ok           bool
+	}{
+		{"signed by the primary", primaryKey, true, true},
+		{"signed by the standby", standbyKey, true, true},
+		{"signed by a third key", otherKey, true, false},
+		{"signed by the standby while it is not trusted", standbyKey, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := published(t, "the new program")
+			oldPrimary, oldStandby := trustedKey, trustedStandbyKey
+			trustedKey = primaryPub
+			if c.trustStandby {
+				trustedStandbyKey = standbyPub
+			} else {
+				trustedStandbyKey = nil
+			}
+			t.Cleanup(func() { trustedKey, trustedStandbyKey = oldPrimary, oldStandby })
+			r.key = c.signWith
+			r.sign()
+
+			_, err := latestFromSite(context.Background())
+			if c.ok && err != nil {
+				t.Errorf("latestFromSite = %v, want it accepted", err)
+			}
+			if !c.ok && err == nil {
+				t.Error("latestFromSite accepted a signature from an untrusted key")
+			}
+		})
+	}
+}
+
+// TrustKeysForTest is exported only so other packages' tests can reach it.
+// Outside a test binary -- a plain built program, as anything shipped is --
+// it has to panic instead of letting something swap out the keys a build
+// trusts.
+func TestTrustKeysForTestPanicsOutsideATestBinary(t *testing.T) {
+	t.Chdir(filepath.Join("..", ".."))
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	// Named under the same import path as the real module, or the internal
+	// package this calls could not be imported at all: Go's internal/
+	// visibility rule is decided by import path text, regardless of which
+	// module or directory it is actually built from.
+	mod := fmt.Sprintf("module github.com/jmwri/flockdeck/trustkeystest\n\ngo 1.21\n\nrequire github.com/jmwri/flockdeck v0.0.0\n\nreplace github.com/jmwri/flockdeck => %s\n",
+		filepath.ToSlash(repoRoot))
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := "package main\n\nimport \"github.com/jmwri/flockdeck/internal/selfupdate\"\n\nfunc main() {\n\tselfupdate.TrustKeysForTest(nil, nil)\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "-mod=mod", ".")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("TrustKeysForTest did not panic outside a test binary; output:\n%s", out)
+	}
+	if !strings.Contains(string(out), "TrustKeysForTest is for tests only") {
+		t.Errorf("want the panic to say TrustKeysForTest is for tests only, got:\n%s", out)
 	}
 }
 
