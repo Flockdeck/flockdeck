@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/url"
@@ -434,6 +435,132 @@ func TestEmitClipsAHugePrompt(t *testing.T) {
 	// What survives has to be the start of it: that is what names the tab.
 	if !strings.HasPrefix(got.Prompt, "rewrite this: ") {
 		t.Errorf("prompt = %.40q…, want it to open on the words the user typed", got.Prompt)
+	}
+}
+
+// TestEmitCarriesBashToolInput covers what a permission prompt needs to say
+// what a Bash call wants to run, straight from PreToolUse rather than waiting
+// on anything drawn to the screen.
+func TestEmitCarriesBashToolInput(t *testing.T) {
+	srv, r := newServer(t)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash",
+		"tool_input":{"command":"echo hi > out.txt","description":"Write hi to out.txt"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-bash", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.ToolInput == "" {
+		t.Fatal("ToolInput is empty, want the Bash command carried through")
+	}
+	var out struct {
+		Command     string `json:"command"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(got.ToolInput), &out); err != nil {
+		t.Fatalf("ToolInput is not valid JSON: %v (%s)", err, got.ToolInput)
+	}
+	if out.Command != "echo hi > out.txt" {
+		t.Errorf("command = %q, want the command from tool_input", out.Command)
+	}
+	if out.Description != "Write hi to out.txt" {
+		t.Errorf("description = %q, want the description from tool_input", out.Description)
+	}
+}
+
+// TestEmitCarriesEditToolInput covers the file and both sides of an edit,
+// which is what lets a permission prompt show the same diff a finished Edit
+// row would, before the edit has even run.
+func TestEmitCarriesEditToolInput(t *testing.T) {
+	srv, r := newServer(t)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Edit",
+		"tool_input":{"file_path":"/repo/push.go","old_string":"a","new_string":"b"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-edit", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	var out struct {
+		FilePath  string `json:"filePath"`
+		OldString string `json:"oldString"`
+		NewString string `json:"newString"`
+	}
+	if err := json.Unmarshal([]byte(got.ToolInput), &out); err != nil {
+		t.Fatalf("ToolInput is not valid JSON: %v (%s)", err, got.ToolInput)
+	}
+	if out.FilePath != "/repo/push.go" || out.OldString != "a" || out.NewString != "b" {
+		t.Errorf("got %+v, want the file and both sides of the edit", out)
+	}
+}
+
+// TestEmitCarriesAskUserQuestionInput covers AskUserQuestion's own shape,
+// unmodified, since Claude Code's field names already match what the phone
+// needs to draw the question itself.
+func TestEmitCarriesAskUserQuestionInput(t *testing.T) {
+	srv, r := newServer(t)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"AskUserQuestion",
+		"tool_input":{"questions":[{"question":"Which colour?","header":"Colour","multiSelect":false,
+		"options":[{"label":"Red","description":"Warm"},{"label":"Blue","description":"Calm"}]}]}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-ask", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	var out struct {
+		Questions []AskQuestion `json:"questions"`
+	}
+	if err := json.Unmarshal([]byte(got.ToolInput), &out); err != nil {
+		t.Fatalf("ToolInput is not valid JSON: %v (%s)", err, got.ToolInput)
+	}
+	if len(out.Questions) != 1 {
+		t.Fatalf("got %d questions, want 1", len(out.Questions))
+	}
+	q := out.Questions[0]
+	if q.Question != "Which colour?" || q.Header != "Colour" {
+		t.Errorf("question = %+v, want the text and header carried through", q)
+	}
+	if len(q.Options) != 2 || q.Options[0].Label != "Red" || q.Options[0].Description != "Warm" {
+		t.Errorf("options = %+v, want both options with their descriptions", q.Options)
+	}
+}
+
+// TestEmitCapsHugeToolInputContent covers a Write of a generated file: the
+// content is capped rather than carried on whole (a permission prompt built
+// from it only ever needs a diff-sized preview), and what survives must
+// still be valid JSON -- clipping the marshalled bytes instead of the string
+// before marshalling would risk cutting a multi-byte rune, or an escape
+// sequence, in half.
+func TestEmitCapsHugeToolInputContent(t *testing.T) {
+	srv, r := newServer(t)
+	big := strings.Repeat("x", 4<<20)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Write","tool_input":{"file_path":"/repo/out.txt","content":"` + big + `"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-write", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	var out struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(got.ToolInput), &out); err != nil {
+		t.Fatalf("ToolInput is not valid JSON: %v (%s)", err, got.ToolInput)
+	}
+	if len(out.Content) > maxToolInputFieldBytes {
+		t.Errorf("content is %d bytes, want at most %d", len(out.Content), maxToolInputFieldBytes)
+	}
+	if len(out.Content) == 0 {
+		t.Error("content is empty, want a capped preview of it")
+	}
+}
+
+// TestEmitToolInputEmptyForAToolWithNothingToAsk covers Grep: none of its
+// tool_input is a command, a file being written, or a question, so ToolInput
+// should carry nothing forward.
+func TestEmitToolInputEmptyForAToolWithNothingToAsk(t *testing.T) {
+	srv, r := newServer(t)
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Grep","tool_input":{"pattern":"TODO"}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-grep", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	if got.ToolInput != "" {
+		t.Errorf("ToolInput = %q, want empty for a tool_input with nothing to ask about", got.ToolInput)
 	}
 }
 

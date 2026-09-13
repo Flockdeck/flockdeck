@@ -843,6 +843,45 @@ func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
 	}
 }
 
+// TestAWaitingPaneKeepsTheToolInputItIsAskingAbout is
+// TestAWaitingPaneKeepsTheToolItIsAskingAbout for ToolInput: a permission
+// prompt's Notification carries none of its own, so what it is asking has to
+// be whatever the PreToolUse just before it said, the same way the tool name
+// itself is kept.
+func TestAWaitingPaneKeepsTheToolInputItIsAskingAbout(t *testing.T) {
+	s := claudePane()
+	report := func(event, tool, toolInput string) {
+		st, detail, ok := StatusForEvent(event, tool)
+		if ok {
+			s.SetStatusFull(st, detail, toolInput)
+		}
+	}
+
+	report("PreToolUse", "Bash", `{"command":"echo hi"}`)
+	report("Notification", "", "")
+	if _, detail := s.Status(); detail != "Bash" {
+		t.Fatalf("detail = %q, want Bash", detail)
+	}
+	if got := s.ToolInput(); got != `{"command":"echo hi"}` {
+		t.Errorf("ToolInput = %q, want the command the PreToolUse before named", got)
+	}
+
+	// A second tool call replaces it, same as the tool name does.
+	report("Stop", "", "")
+	report("PreToolUse", "Edit", `{"filePath":"push.go"}`)
+	report("Notification", "", "")
+	if got := s.ToolInput(); got != `{"filePath":"push.go"}` {
+		t.Errorf("ToolInput = %q, want the newer PreToolUse's input", got)
+	}
+
+	// An idle nudge with nothing running carries nothing either.
+	report("Stop", "", "")
+	report("Notification", "", "")
+	if got := s.ToolInput(); got != "" {
+		t.Errorf("ToolInput = %q, want empty after an idle nudge", got)
+	}
+}
+
 // TestARepeatedEventIsNotReported covers the lifecycle events that say what a
 // pane already said: Claude nudges about the same unanswered question, and
 // every report rebuilds and sends the whole workspace.

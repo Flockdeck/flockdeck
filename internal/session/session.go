@@ -132,10 +132,15 @@ type Session struct {
 	// time Start returns.
 	OnChange func()
 
-	mu          sync.RWMutex
-	name        string
-	status      Status
-	detail      string // e.g. the tool currently running
+	mu     sync.RWMutex
+	name   string
+	status Status
+	detail string // e.g. the tool currently running
+	// toolInput is a lifecycle event's own ToolInput, carried alongside detail
+	// under the same rule: opaque to Session (it is a hooks-package concern
+	// what it holds), and kept across a waiting nudge that names no tool of
+	// its own the same way detail is -- see SetStatusFull.
+	toolInput   string
 	lastOutput  time.Time
 	bellAt      time.Time
 	statusSince time.Time
@@ -880,6 +885,14 @@ func (s *Session) WriteString(text string) error {
 // SetStatus records an authoritative status transition, normally from a
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
+	s.SetStatusFull(st, detail, "")
+}
+
+// SetStatusFull is SetStatus, additionally recording a lifecycle event's own
+// ToolInput (see hooks.Event) alongside detail -- what a permission prompt or
+// an AskUserQuestion call is actually asking, carried forward the same way
+// detail is, and read back by ToolInput.
+func (s *Session) SetStatusFull(st Status, detail, toolInput string) {
 	s.mu.Lock()
 	// Counted before anything is decided: an event that changes nothing is
 	// still the agent reporting, which is what settleAnswered waits to hear.
@@ -891,20 +904,25 @@ func (s *Session) SetStatus(st Status, detail string) {
 	// second nudge about a wait already showing is about the same wait, and
 	// keeps what the first said it was about -- a question from
 	// AskUserQuestion was otherwise renamed to nothing by the nudge about it.
+	// toolInput follows the same rule: a Notification/PermissionRequest hook
+	// carries none of its own, and what a permission prompt is asking is
+	// still whatever the PreToolUse just before it said.
 	question := false
 	if st == StatusWaiting && detail == "" {
 		switch s.status {
 		case StatusWorking:
 			detail, question = s.detail, s.detail != ""
+			toolInput = s.toolInput
 		case StatusWaiting:
 			detail, question = s.detail, s.toolQuestion
+			toolInput = s.toolInput
 		}
 	}
 	// An exited pane stays exited, and an event that changes nothing is not
 	// reported: every report rebuilds and sends the whole workspace, and
 	// Claude repeats itself -- the same nudge about the same unanswered
 	// question, a tool it has already said it is running.
-	if s.status == StatusExited || (s.hooksSeen && s.status == st && s.detail == detail) {
+	if s.status == StatusExited || (s.hooksSeen && s.status == st && s.detail == detail && s.toolInput == toolInput) {
 		s.mu.Unlock()
 		return
 	}
@@ -913,6 +931,7 @@ func (s *Session) SetStatus(st Status, detail string) {
 	}
 	s.status = st
 	s.detail = detail
+	s.toolInput = toolInput
 	s.toolQuestion = question
 	s.hooksSeen = true
 	s.mu.Unlock()
@@ -924,6 +943,16 @@ func (s *Session) Status() (Status, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status, s.detail
+}
+
+// ToolInput returns the ToolInput carried by the lifecycle event behind the
+// current status and detail -- compact JSON in the shape hooks.buildToolInput
+// produces, or "" when there is none (an agent that reports no lifecycle, or
+// a wait that named no tool and none came before it either).
+func (s *Session) ToolInput() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.toolInput
 }
 
 // StatusSince reports when the current status began, which is how long an

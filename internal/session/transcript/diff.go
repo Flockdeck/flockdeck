@@ -32,6 +32,39 @@ func unifiedDiff(path, before, after string) string {
 	return renderUnified(path, ops)
 }
 
+// EditPair is one edit's old and new text, as MultiEdit's own input carries
+// several of them for one file.
+type EditPair struct {
+	OldString string
+	NewString string
+}
+
+// EditDiff, MultiEditDiff and WriteDiff let another package build the same
+// inline diff a finished Edit, MultiEdit or Write tool row shows, straight
+// from a call's own input -- in particular, a permission prompt built from a
+// PreToolUse call before the tool has run at all, which has nothing else to
+// diff against.
+func EditDiff(path, oldString, newString string) string {
+	return unifiedDiff(path, oldString, newString)
+}
+
+// MultiEditDiff renders every edit of a MultiEdit call as its own hunk,
+// oldest first, the same order toolDiff already builds them in.
+func MultiEditDiff(path string, edits []EditPair) string {
+	var b strings.Builder
+	for i, e := range edits {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(unifiedDiff(path, e.OldString, e.NewString))
+	}
+	return b.String()
+}
+
+// WriteDiff renders a Write call as a diff against nothing: every line of
+// content arrives as added.
+func WriteDiff(path, content string) string { return writeDiff(path, content) }
+
 // writeDiff renders a Write call as a diff against nothing: every line of
 // content arrives as added.
 func writeDiff(path, content string) string {
