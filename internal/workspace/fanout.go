@@ -42,8 +42,21 @@ const minTaskRunes = 8
 // signal: bullets, numbers and checkboxes. Everything else is prose. The result
 // is a suggestion the user edits before anything is started, so it is better to
 // offer a few plausible lines than to guess cleverly.
-func ExtractTasks(text string) []string {
-	items, cues := listItems(text)
+//
+// text is read as a pane's screen, which is the harder of the two things a plan
+// is read from; see extractTasks.
+func ExtractTasks(text string) []string { return extractTasks(text, true) }
+
+// extractTasks is ExtractTasks, told whether text is a pane's screen or one of
+// the agent's replies from its transcript.
+//
+// A screen is the tail of a terminal: it can begin part way through a code
+// block, and it carries the interface the agent's CLI draws around what it
+// says. A reply is neither -- it is the whole of one message, and nothing but
+// what the agent wrote -- so the allowances made for a screen only cost a reply
+// the tasks they misread.
+func extractTasks(text string, screen bool) []string {
+	items, cues := listItems(text, screen)
 
 	// An agent's answer is rarely only its plan: it surveys what it read, notes
 	// what it found, and then says what it would do. All of that is bulleted,
@@ -161,7 +174,10 @@ type item struct {
 // terminal breaks a long bullet across rows, and markdown lets one run on over
 // indented lines. Keeping only the first row of either would hand an agent a
 // task that stops mid-sentence.
-func listItems(text string) ([]item, []int) {
+//
+// screen says whether text is a pane's screen rather than a reply read from a
+// transcript; see extractTasks.
+func listItems(text string, screen bool) ([]item, []int) {
 	// A terminal redraws a row by returning to the start of it and writing
 	// over what was there, so one newline-delimited line of a pane history
 	// can hold several renderings of the same row — the last of which is how
@@ -179,7 +195,12 @@ func listItems(text string) ([]item, []int) {
 	// through a code block. An odd number of fences says that is what happened:
 	// the first marker is a closing one, and reading it as an opening one would
 	// bury the whole plan that follows it.
-	fenced := countFences(lines)%2 == 1
+	//
+	// A reply is a whole message, so its first marker is always an opening one.
+	// One that ends in a code block it never closed -- cut off, or written
+	// carelessly -- has an odd count too, and reading that as a screen's put
+	// the plan above the block inside it and offered nothing at all.
+	fenced := screen && countFences(lines)%2 == 1
 
 	for n, raw := range lines {
 		line := strings.TrimRight(raw, " \t")
@@ -1070,7 +1091,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 // laid out a plan and then answered a follow-up should not lose the plan.
 func (s PlanSource) Tasks() ([]string, bool) {
 	for _, reply := range transcript.For(s.Spec).Replies(s.Spec, s.SessionID, planTurns) {
-		if tasks := ExtractTasks(reply); len(tasks) > 0 {
+		if tasks := extractTasks(reply, false); len(tasks) > 0 {
 			return tasks, true
 		}
 	}
