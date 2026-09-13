@@ -244,6 +244,13 @@ func latestFromGitHub(ctx context.Context) (*Release, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
 		return nil, fmt.Errorf("read release: %w", err)
 	}
+	// GitHub never gives a pre-release as the latest, but a candidate whose
+	// pre-release mark was taken off by hand is given like any other. The
+	// site refuses a candidate by its version, and so does this, whichever of
+	// the two says it is one.
+	if rel.Pre || prerelease(rel.Version) {
+		return nil, fmt.Errorf("GitHub names %s, a pre-release, which is never the latest", rel.Version)
+	}
 	return &rel, nil
 }
 

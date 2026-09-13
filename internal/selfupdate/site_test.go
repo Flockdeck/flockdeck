@@ -475,6 +475,40 @@ func TestStageFromGitHubNeedsTheReleaseKeysSignature(t *testing.T) {
 	}
 }
 
+// A candidate is never the latest release, from GitHub any more than from the
+// site. GitHub's API never gives a pre-release as its latest, but a candidate
+// whose mark was taken off by hand is given like any other, and was taken:
+// the site refuses one by its version, and GitHub's path did not look.
+func TestLatestFromGitHubRefusesAPreRelease(t *testing.T) {
+	cases := []struct {
+		name string
+		api  map[string]any
+	}{
+		{"tagged as a candidate", map[string]any{"tag_name": "v9.9.10-rc.1"}},
+		{"marked as a pre-release", map[string]any{"tag_name": "v9.9.10", "prerelease": true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := published(t, "the new program")
+			logged(t)
+			r.dl.breakAll()
+			api, err := json.Marshal(c.api)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.gh.set("/repos/"+Repo+"/releases/latest", api)
+
+			rel, err := Latest(context.Background())
+			if err == nil {
+				t.Fatalf("Latest = %s from GitHub, a pre-release", rel.Version)
+			}
+			if !strings.Contains(err.Error(), "a pre-release, which is never the latest") {
+				t.Errorf("Latest: %v; want it refused as a pre-release", err)
+			}
+		})
+	}
+}
+
 // latest.json is not signed, and a stale one, or a forged one, can only name
 // another signed release. Named an older one, the updater reads that release's
 // own signed manifest, finds nothing wrong, and Newer declines to move to it:
