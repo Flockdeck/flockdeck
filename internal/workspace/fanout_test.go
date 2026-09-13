@@ -595,24 +595,47 @@ func TestExtractTasksKeepsCountsOutOfTasks(t *testing.T) {
 }
 
 // TestExtractTasksKeepsLongWrappedItems covers a bullet long enough that its
-// wrapped tail would carry it past the cap. isTask discards anything over the
-// cap whole, so joining blindly cost the plan a real job instead of its tail.
+// wrapped tail would carry it past the limit. isTask discards anything over the
+// limit whole, so joining blindly cost the plan a real job instead of its tail.
+// What is kept says it was cut, rather than stopping mid-sentence as if that
+// were the whole of the job.
 func TestExtractTasksKeepsLongWrappedItems(t *testing.T) {
-	head := "Rewrite the pane renderer " + strings.Repeat("and tidy it up ", 36)
-	if n := len([]rune(head)); n > maxTaskRunes {
-		t.Fatalf("the test's first row is %d runes, already over the cap", n)
+	head := "Rewrite the pane renderer " + strings.Repeat("and tidy it up ", (maxTaskBytes-200)/15)
+	if n := len(head); n > maxTaskBytes-len(cutMark) {
+		t.Fatalf("the test's first row is %d bytes, already over the limit", n)
 	}
-	screen := "- " + head + "\n  " + strings.Repeat("a continuation row ", 8) + "\n"
+	screen := "- " + head + "\n  " + strings.Repeat("a continuation row ", 16) + "\n"
 
 	got := ExtractTasks(screen)
 	if len(got) != 1 {
-		t.Fatalf("extracted %#v, want the one task", got)
+		t.Fatalf("extracted %d tasks, want the one", len(got))
 	}
+	tail := got[0][max(0, len(got[0])-40):]
 	if !strings.HasPrefix(got[0], "Rewrite the pane renderer") {
-		t.Errorf("task = %q, want the bullet itself", got[0])
+		t.Errorf("task = %.60q, want the bullet itself", got[0])
 	}
 	if strings.Contains(got[0], "a continuation row") {
-		t.Errorf("the tail was joined past the cap: %q", got[0])
+		t.Errorf("the tail was joined past the limit: …%q", tail)
+	}
+	if !strings.HasSuffix(got[0], "…") {
+		t.Errorf("the task was cut without saying so: …%q", tail)
+	}
+}
+
+// TestExtractTasksKeepsALongSelfContainedStep covers a step written the way the
+// briefing asks, carrying everything a helper that inherits nothing needs to
+// know. Past six hundred characters such a step was taken for a paragraph and
+// dropped from the plan without a word, while its shorter siblings were kept.
+func TestExtractTasksKeepsALongSelfContainedStep(t *testing.T) {
+	long := "Add a /health endpoint to the HTTP server in internal/server/health.go" +
+		strings.Repeat(", and make sure it reports the version, the uptime and whether the store is writable", 8)
+	if n := utf8.RuneCountInString(long); n < 700 {
+		t.Fatalf("the long step is %d characters; the test needs one past 700", n)
+	}
+	plan := "1. " + long + "\n2. Write tests for the config parser\n"
+	want := []string{long, "Write tests for the config parser"}
+	if got := ExtractTasks(plan); !reflect.DeepEqual(got, want) {
+		t.Errorf("extracted %d tasks %.80q, want both steps, the long one whole", len(got), got)
 	}
 }
 

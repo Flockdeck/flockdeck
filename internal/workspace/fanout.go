@@ -28,9 +28,16 @@ const maxTasks = 12
 // limit is one number rather than one per fan-out path.
 const MaxTasks = maxTasks
 
-// maxTaskRunes bounds a task. Longer than this and the line is a paragraph that
-// happens to begin with a dash, not a job to hand to an agent.
-const maxTaskRunes = 600
+// cutMark ends a task that had to be cut short to fit within maxTaskBytes, so
+// that the person editing the list can see the rest of it is missing.
+//
+// A task used to be held to six hundred characters as well, past which it was
+// taken for a paragraph that happened to begin with a dash and dropped without
+// a word. But the briefing asks an agent for one self-contained task per line,
+// for helpers that inherit nothing else, and a line that carries its own
+// context is often longer than that: the fullest steps of a plan were the ones
+// that vanished from it.
+const cutMark = " …"
 
 // minTaskRunes is the shortest thing worth starting an agent for. Below it a
 // line is a fragment: the tail of a wrapped row, or a one-word status.
@@ -131,8 +138,9 @@ func extractTasks(text string, screen bool) []string {
 // withDetail finishes a step that ends on a colon with the entries nested
 // under it, joined in order — "Fix the login bug: the refresh races with
 // logout; add a regression test" — for as many of them as keep the task
-// within maxTaskRunes. rest is every entry after the step; the step's own
-// entries are those indented past base+1 before the next step.
+// within maxTaskBytes, ending on cutMark where the rest had to be left off.
+// rest is every entry after the step; the step's own entries are those
+// indented past base+1 before the next step.
 func withDetail(task string, rest []item, base int) string {
 	full := task
 	added := false
@@ -148,7 +156,8 @@ func withDetail(task string, rest []item, base int) string {
 		if added {
 			sep = "; "
 		}
-		if utf8.RuneCountInString(full)+utf8.RuneCountInString(sep+part) > maxTaskRunes {
+		if len(full)+len(sep+part) > maxTaskBytes-len(cutMark) {
+			full += cutMark
 			break
 		}
 		full += sep + part
@@ -247,15 +256,18 @@ func listItems(text string, screen bool) ([]item, []int) {
 		}
 		// Text indented under the entry above it is the rest of that entry, but
 		// only while the join still reads as a task. isTask throws away
-		// anything past maxTaskRunes whole, so a continuation that tips an
-		// entry over the cap would cost the plan a real job rather than the
-		// tail of one. Stop at the last row that fits and close the entry.
+		// anything past maxTaskBytes whole, so a continuation that tips an
+		// entry over the limit would cost the plan a real job rather than the
+		// tail of one. Stop at the last row that fits, say the entry was cut
+		// there, and close it: a task that simply stops mid-sentence reads as
+		// the whole of what was asked.
 		if open >= 0 && indent >= items[open].indent+2 {
 			joined := items[open].text + " " + body
-			if utf8.RuneCountInString(joined) <= maxTaskRunes {
+			if len(joined) <= maxTaskBytes-len(cutMark) {
 				items[open].text = joined
 				continue
 			}
+			items[open].text += cutMark
 		}
 		open = -1
 	}
@@ -426,7 +438,7 @@ func isGlyphRune(r rune) bool {
 // place that interface can appear.
 func isTask(s string, screen bool) bool {
 	r := []rune(s)
-	if len(r) < minTaskRunes || len(r) > maxTaskRunes {
+	if len(r) < minTaskRunes || len(s) > maxTaskBytes {
 		return false
 	}
 	// A task is a phrase. One word is a spinner frame or the tail of a row that
@@ -709,9 +721,9 @@ func isDecoration(line string) bool {
 // the task nor the length as the problem. The same text is also written into
 // the saved layout, which is no place for a document.
 //
-// The limit is far above any brief anyone writes: the tasks a fan-out proposes
-// are capped at six hundred characters, and this is more than twenty times
-// that.
+// The limit is far above any brief anyone writes, and it is the only one a task
+// a fan-out proposes is held to: a step past it is offered cut short, and says
+// so, rather than offered whole only to be refused here.
 const maxTaskBytes = 16 << 10
 
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
