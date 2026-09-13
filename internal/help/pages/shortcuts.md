@@ -38,6 +38,9 @@ and <kbd>End</kbd> go to the first and the last.
 - <kbd>Esc</kbd> closes any dialog, the command palette and the prompt bar, and
   the find bar while you are typing in it. <kbd>Tab</kbd> stays inside an open
   dialog.
+- While a dialog is open, the other shortcuts wait until it closes, so nothing
+  changes behind it unseen. The font size keys, [[key:palette]] and
+  [[key:help]] still work.
 - In the command palette, the agent picker and the help's contents,
   <kbd>↑</kbd> and <kbd>↓</kbd> move through the list and <kbd>Enter</kbd>
   takes the one selected.

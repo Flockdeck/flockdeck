@@ -7655,7 +7655,20 @@
     // Every other binding is dispatched from the action table, so what the
     // help says a key does is what the key does.
     const id = actionFor(e);
-    if (id && !editsText(e)) { claimKey(e); runAction(id); return; }
+    // Behind a dialog, the window's keys wait for it to close: they went on
+    // acting on what the dialog covers, and Ctrl+Shift+W pressed in the middle
+    // of a commit message closed a pane nobody could see. The font keys
+    // (above), the palette and the help are the exceptions, since each is
+    // about the window rather than a pane in it. The key is still kept from
+    // the browser, whose own idea of Ctrl+Shift+W is closing the window.
+    const covered = !!modalRoot();
+    if (id && !editsText(e)) {
+      if (covered && id !== "palette" && id !== "help") { e.preventDefault(); return; }
+      claimKey(e);
+      runAction(id);
+      return;
+    }
+    if (covered) return;
 
     // Alt+1 … Alt+9 names a tab rather than being one binding, so it is the
     // one thing the table cannot express and this has to spell out.

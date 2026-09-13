@@ -2647,6 +2647,43 @@ assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t1" }, "Cmd 
 `)
 }
 
+// The window's shortcuts went on running behind an open dialog: Ctrl+Shift+W
+// pressed while writing a commit message closed a pane nobody could see, and
+// Alt+2 switched the tab under it. While a dialog is up only the font keys,
+// the palette and the help still act.
+func TestShortcutsWaitBehindAnOpenDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+assert.ok(!h.$("overlay").hidden, "the settings did not open");
+const before = h.commands().length;
+const closing = h.press("closePane");
+h.press("newAgentTab");
+h.key({ key: "2", code: "Digit2", altKey: true });
+const sent = h.commands().slice(before).map((c) => c.cmd);
+assert.ok(!sent.includes("closePane"), "Ctrl+Shift+W closed a pane behind the dialog");
+assert.ok(!sent.includes("newTab"), "a tab was opened behind the dialog");
+assert.ok(!sent.includes("selectTab"), "Alt+2 switched tab behind the dialog");
+assert.ok(closing.defaultPrevented, "Ctrl+Shift+W was left to the browser, which closes the window with it");
+assert.ok(!h.$("overlay").hidden, "the dialog went");
+
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 }, "the font keys stopped working in a dialog");
+h.press("help");
+assert.strictEqual(h.$("overlay-title").textContent, "Help", "F1 did not open the help from a dialog");
+h.press("palette");
+assert.ok(!h.$("palette").hidden, "the palette did not open from a dialog");
+h.key({ key: "Escape" });
+
+// Closed, the keys are the window's again.
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "the dialog did not close");
+h.press("closePane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p1" });
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
