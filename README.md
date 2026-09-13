@@ -216,7 +216,7 @@ command palette.
 ```sh
 flockdeck                 # open the current directory, or the projects open last time
 flockdeck -C ~/code/api   # …or attach to a running instance and open it there
-flockdeck -new            # start without the saved layout, and replace it on exit
+flockdeck -new            # start without the saved layout, and replace it as it runs
 flockdeck -shell          # first pane is a shell, not an agent
 flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
