@@ -697,3 +697,21 @@ assert.ok(panel.textContent.includes("+3049"), "the rest was not drawn");
 assert.ok(h.doc.activeElement === panel, "showing the rest of the diff dropped the keyboard");
 `)
 }
+
+// The agents list says how long each pane has been as it is. The server
+// words that as "just now" or "5 minutes ago", and the row put "for" in front
+// of it, so it read "for just now" and "for 5 minutes ago".
+func TestHowLongAPaneHasBeenAsItIsReadsAsASentence(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle", for: "just now" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "b", status: "waiting", for: "5 minutes ago" },
+  { paneId: "p3", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "c", status: "working", for: "1m" },
+] });
+const whens = h.$("overlay-body").querySelectorAll("span.agent-for").map((s) => s.textContent);
+assert.deepStrictEqual(whens, ["just now", "for 5 minutes", "for 1m"]);
+`)
+}

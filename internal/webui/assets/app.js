@@ -882,6 +882,17 @@
     return unit(Math.floor(s / 86400), "day");
   }
 
+  /** howLong says how long a pane has been as it is. The server words it as
+   *  a list of recent things would, "just now" or "5 minutes ago", and after
+   *  "for" that read "for just now" and "for 5 minutes ago". The phone's list
+   *  says it the same way. */
+  function howLong(since) {
+    const s = String(since).trim();
+    if (s === "just now") return s;
+    const ago = s.match(/^(.+) ago$/);
+    return "for " + (ago ? ago[1] : s);
+  }
+
   /** remoteUntil is ", until 14:05" for a pairing link's expiry. */
   function remoteUntil(when) {
     const t = Date.parse(when || "");
@@ -5139,7 +5150,7 @@
 
       const status = el("span", "agent-status " + a.status, a.status);
       row.append(status);
-      if (a.for) row.append(el("span", "agent-for", "for " + a.for));
+      if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
 
       rowAction(row, () => {
         send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
