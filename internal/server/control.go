@@ -1018,6 +1018,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "cursorStyle":
 		s.setCursorStyle(c, cmd.Text)
 		return
+	case "screenReader":
+		s.setScreenReader(c, cmd.Kind == "on")
+		return
 	case "statusLine":
 		s.setStatusLine(c, cmd.Text)
 		return

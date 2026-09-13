@@ -28,6 +28,28 @@ func TestTheCursorCanBeMadeSteady(t *testing.T) {
 	}
 }
 
+// Screen reader support is chosen in the window and kept, like the cursor's
+// blink: a window opened on the next run has to read the agents out as well.
+func TestScreenReaderSupportIsKept(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+
+	sendCmd(t, conn, command{Cmd: "screenReader", Kind: "on"})
+	if got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.ScreenReader }); !got.ScreenReader {
+		t.Fatalf("screen reader support was not turned on: %+v", got)
+	}
+	if !store.LoadPrefs().ScreenReader {
+		t.Error("screen reader support did not reach the disk")
+	}
+
+	sendCmd(t, conn, command{Cmd: "screenReader", Kind: "off"})
+	nextPrefs(t, conn, func(p store.Prefs) bool { return !p.ScreenReader })
+	if store.LoadPrefs().ScreenReader {
+		t.Error("turning screen reader support off did not reach the disk")
+	}
+}
+
 // The cursor's shape is chosen in the settings and kept. A block is the
 // default and is kept as nothing, so prefs.json written before there was a
 // choice still reads as a block; a shape the terminals cannot draw is refused.

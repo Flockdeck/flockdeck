@@ -4585,6 +4585,40 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
 `)
 }
 
+// The terminals are drawn on a canvas, so without xterm's screen reader mode
+// nothing an agent wrote could be read out. It is turned on from the palette
+// or the settings, kept with the preferences, and followed by every terminal:
+// those already open, those opened after, and those in another window.
+func TestScreenReaderSupportReachesEveryTerminal(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.screenReaderMode, false, "screen reader support is on before anybody asked for it");
+paletteRun("screen reader support on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
+assert.strictEqual(h.terms[0].options.screenReaderMode, true, "an open terminal did not follow the choice");
+
+// A pane opened afterwards reads it as it is made.
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n3", "p3")]) },
+  { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: leaf("n2", "p2") }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } }));
+const late = h.terms[h.terms.length - 1];
+assert.strictEqual(late.options.screenReaderMode, true, "a pane opened after the choice cannot be read out");
+
+// Another window turning it off.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.ok(h.terms.every((t) => t.disposed || t.options.screenReaderMode === false), "the terminals did not follow another window");
+
+// The settings have a switch for it.
+h.press("settings");
+h.click(h.$("settings-tab-terminal"));
+assert.ok(h.$("set-screen-reader"), "the terminal settings have no switch for screen reader support");
+h.click(h.$("set-screen-reader"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
+`)
+}
+
 // The conversations list answered no key: each row had a Resume button to tab
 // to, and the arrows did nothing. It is walked like the other lists now, and
 // Enter on a row resumes that conversation.

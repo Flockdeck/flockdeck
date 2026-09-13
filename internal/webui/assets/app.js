@@ -2121,6 +2121,9 @@
       fontSize: fontSize,
       lineHeight: 1.15,
       scrollback: scrollback,
+      // Drawn on a canvas, what an agent writes is nothing a screen reader
+      // can see; this keeps an accessible copy of the lines beside it.
+      screenReaderMode: !!prefs.screenReader,
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -3844,6 +3847,27 @@
     applyCursorBlink();
     applyCursorStyle();
     applyFontFamily();
+    applyScreenReader();
+  }
+
+  /** setScreenReader turns screen reader support on or off. It is kept as
+   *  "on", unlike the preferences setOff looks after: it costs every terminal
+   *  a copy of its lines, so it stays off until somebody asks for it. It takes
+   *  effect here at once, as they do. */
+  function setScreenReader(on) {
+    prefs.screenReader = on;
+    send({ cmd: "screenReader", kind: on ? "on" : "off" });
+    notice(on ? "Screen reader support is on" : "Screen reader support is off", false);
+    applyScreenReader();
+    settingsChanged();
+  }
+  /** applyScreenReader makes every terminal follow the preference. A pane
+   *  made later reads it as it is made. */
+  function applyScreenReader() {
+    const on = !!prefs.screenReader;
+    for (const p of panes.values()) {
+      if (p.term.options.screenReaderMode !== on) p.term.options.screenReaderMode = on;
+    }
   }
 
   /** The typeface the terminals are drawn in where nobody has chosen one. */
@@ -4390,6 +4414,12 @@
     // The cursor's blink was fixed in the source, and one blinking cursor
     // among a tab of still terminals is a distraction some people want gone.
     toggle("cursorSteady", ["Make the terminal cursor blink", "Stop the terminal cursor blinking"]);
+    // What the agents write was out of a screen reader's reach, and the one
+    // way to reach it has to be findable by somebody who cannot see the
+    // settings: this entry is it.
+    cmds.push(prefs.screenReader
+      ? { label: "Turn screen reader support off", also: SETTING + " accessibility", run: () => setScreenReader(false) }
+      : { label: "Turn screen reader support on", also: SETTING + " accessibility", run: () => setScreenReader(true) });
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
@@ -5827,7 +5857,7 @@
 
   const SETTINGS_SECTIONS = [
     { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
-    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview" },
+    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
@@ -6191,6 +6221,9 @@
     pane.append(settingRow("Blinking cursor",
       reducedMotion() ? "Your system asks for less motion, so the cursors stay still whatever this says." : "",
       switchControl("set-cursor-blink", !prefs.cursorSteady, (on) => setOff("cursorSteady", !on))));
+    pane.append(settingRow("Screen reader support",
+      "Lets a screen reader read what the agents write. Each terminal keeps a copy of its lines for it, which slows them a little.",
+      switchControl("set-screen-reader", !!prefs.screenReader, (on) => setScreenReader(on))));
 
     // Drawn in the terminals' own font and size, with a cursor of the chosen
     // shape, so a change is seen here before a pane is looked at.
