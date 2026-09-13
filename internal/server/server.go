@@ -80,7 +80,8 @@ type Server struct {
 	mu sync.Mutex
 	// clients is every window connected, from the moment its socket opens,
 	// and whether it has been handed its hello: only a window that has is
-	// sent broadcasts (see clientList), while every one of them counts.
+	// sent the state (see greetedClients), while every one of them counts
+	// and is sent notices.
 	clients map[*controlClient]bool
 
 	// lastState is the encoded snapshot that was last broadcast, kept so an

@@ -115,16 +115,25 @@ func (s *Server) notifyAll(text string, isErr bool) {
 	}
 }
 
-// clientList is the windows connected at this moment that have been handed
-// their hello, copied out so that sending to them does not hold the lock a
-// window connecting or leaving needs. A window still waiting for its hello is
-// left out: nothing may reach it before its key table (see handleControl).
+// clientList is the windows connected at this moment, copied out so that
+// sending to them does not hold the lock a window connecting or leaving needs.
 func (s *Server) clientList() []*controlClient {
+	return s.listClients(false)
+}
+
+// greetedClients is clientList without the windows still waiting for their
+// hello, which is who a snapshot is broadcast to: no state may reach a window
+// before its key table (see handleControl). A notice may, as it always could.
+func (s *Server) greetedClients() []*controlClient {
+	return s.listClients(true)
+}
+
+func (s *Server) listClients(greetedOnly bool) []*controlClient {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clients := make([]*controlClient, 0, len(s.clients))
 	for c, greeted := range s.clients {
-		if greeted {
+		if greeted || !greetedOnly {
 			clients = append(clients, c)
 		}
 	}
@@ -586,7 +595,7 @@ func (s *Server) broadcastState() {
 			return
 		}
 		s.lastState = data
-		for _, c := range s.clientList() {
+		for _, c := range s.greetedClients() {
 			c.sendState(data)
 		}
 	})
@@ -692,7 +701,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// The window counts from the moment its socket opens: whether the last
 	// window has gone is decided by counting them, and a page being reloaded
 	// while the workspace is busy -- opening a project, say -- would otherwise
-	// look like nobody there at all. It is sent nothing until its hello.
+	// look like nobody there at all. It is sent no state until its hello.
 	s.mu.Lock()
 	s.clients[c] = false
 	s.mu.Unlock()
@@ -719,9 +728,9 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// first keystroke. The state follows so the window can render.
 	s.do(func() {
 		s.sendHello(c)
-		// The window is sent broadcasts only from now, with its hello queued
-		// ahead of anything they send it. Every broadcast is made on this
-		// goroutine, so none can reach it first. Sent them from the moment
+		// The window is sent the state only from now, with its hello queued
+		// ahead of any snapshot. Every broadcast is made on this goroutine,
+		// so none can reach it first. Sent them from the moment
 		// its socket opened, it was handed the snapshot of a broadcast
 		// already queued here before its hello was even queued -- one
 		// connection in a few dozen, whenever git or an agent had just
