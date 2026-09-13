@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -21,19 +23,32 @@ const statusJSON = `{"session_id":"conv-1","cwd":"/repo","model":{"id":"claude-o
 	`"rate_limits":{"five_hour":{"used_percentage":72,"resets_at":1789300800},"seven_day":{"used_percentage":31.5}}}`
 
 // shellLines are the user's status line commands the tests run, in the shell
-// Claude Code would run them in here.
-type shellLines struct{ echo, slow, fails string }
+// Claude Code would run them in here. slow is a command that prints "late" only
+// once the file it is given exists, so a test decides when it finishes rather
+// than guessing how long is slow enough.
+type shellLines struct {
+	echo, fails string
+	slow        func(release string) string
+}
 
 func userLines(t *testing.T) shellLines {
 	t.Helper()
 	if runtime.GOOS == "windows" && session.GitBash() == "" {
 		return shellLines{
-			echo:  `[Console]::In.ReadToEnd()`,
-			slow:  `Start-Sleep -Seconds 3; Write-Output late`,
+			echo: `[Console]::In.ReadToEnd()`,
+			slow: func(release string) string {
+				return `while (-not (Test-Path -LiteralPath '` + filepath.ToSlash(release) + `')) { Start-Sleep -Milliseconds 50 }; Write-Output late`
+			},
 			fails: `Write-Output partial; exit 3`,
 		}
 	}
-	return shellLines{echo: `cat`, slow: `sleep 3; echo late`, fails: `echo partial; exit 3`}
+	return shellLines{
+		echo: `cat`,
+		slow: func(release string) string {
+			return `while [ ! -e '` + filepath.ToSlash(release) + `' ]; do sleep 0.05; done; echo late`
+		},
+		fails: `echo partial; exit 3`,
+	}
 }
 
 func usageServer(t *testing.T) (*hooks.Server, chan spend.Report) {
@@ -76,23 +91,41 @@ func TestStatuslineRunsTheUsersCommandAndReports(t *testing.T) {
 
 // A user's command that is slow does not hold the figures back, and one that
 // fails is still printed, with its own exit code.
+//
+// The slow command finishes only once the figures have arrived, so figures
+// that wait for it never come, however slow or quick the machine. It used to
+// sleep for three seconds while the figures had two and a half, through a post
+// that is given one, which a busy machine did not always manage.
 func TestStatuslineIsNotHeldUpByTheUsersCommand(t *testing.T) {
 	srv, got := usageServer(t)
 	lines := userLines(t)
-	done := make(chan string, 1)
+	release := filepath.Join(t.TempDir(), "release")
+	let := func() { _ = os.WriteFile(release, nil, 0o600) }
+	done, finished := make(chan string, 1), make(chan struct{})
 	go func() {
+		defer close(finished)
 		var out bytes.Buffer
 		statusline([]string{"--endpoint", srv.UsageEndpoint(), "--token", srv.Token(), "--session", "pane-1",
-			"--then", then(lines.slow)}, strings.NewReader(statusJSON), &out, &bytes.Buffer{})
+			"--then", then(lines.slow(release))}, strings.NewReader(statusJSON), &out, &bytes.Buffer{})
 		done <- out.String()
 	}()
+	// However the test ends, the command is let go and waited for, so it is
+	// not left running, nor holding the folder the file is in.
+	t.Cleanup(func() {
+		let()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+		}
+	})
 	select {
 	case <-got:
 	case <-done:
-		t.Fatal("the figures waited for the user's slow command")
-	case <-time.After(2500 * time.Millisecond):
+		t.Fatal("the user's slow command finished before it was let go")
+	case <-time.After(20 * time.Second):
 		t.Fatal("the figures waited for the user's slow command")
 	}
+	let()
 	if out := <-done; strings.TrimSpace(out) != "late" {
 		t.Errorf("the slow command printed %q", out)
 	}
