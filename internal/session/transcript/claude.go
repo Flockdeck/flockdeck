@@ -14,7 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -978,12 +980,39 @@ func firstPrompt(s string) string {
 	if isSyntheticPrompt(s) {
 		return ""
 	}
-	s = strings.Join(strings.Fields(s), " ")
-	if len([]rune(s)) > 160 {
-		s = string([]rune(s)[:160]) + "…"
+	// Runs of white space become one space, and the result is cut at
+	// promptRunes with an ellipsis -- worked out only as far as the cut.
+	// Splitting the whole prompt into words and counting it out in runes
+	// twice over was four milliseconds and seven megabytes for an opening
+	// prompt that was a pasted megabyte of log, of which a row shows a line.
+	var b strings.Builder
+	runes, gap := 0, false
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if unicode.IsSpace(r) {
+			gap, i = true, i+size
+			continue
+		}
+		if gap && runes > 0 {
+			if runes == promptRunes {
+				return b.String() + "…"
+			}
+			b.WriteByte(' ')
+			runes++
+		}
+		if runes == promptRunes {
+			return b.String() + "…"
+		}
+		// A byte that is not UTF-8 is written as the replacement character,
+		// which is what it reached the window as whichever way it went.
+		b.WriteRune(r)
+		gap, runes, i = false, runes+1, i+size
 	}
-	return s
+	return b.String()
 }
+
+// promptRunes is how much of a prompt is kept for a row in the history list.
+const promptRunes = 160
 
 // newTranscriptScanner returns a scanner able to cope with the long lines a
 // transcript contains. It is what the reply reader walks a transcript with,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,6 +292,55 @@ func TestAllListsEachChatOnceUnderItsAgent(t *testing.T) {
 	for id, agentID := range want {
 		if held[id] != agentID {
 			t.Errorf("%s is listed under %q, want %q", id, held[id], agentID)
+		}
+	}
+}
+
+// BenchmarkFirstPromptOfAPaste measures tidying an opening prompt that was a
+// pasted log a megabyte long, of which the history overlay shows 160
+// characters.
+func BenchmarkFirstPromptOfAPaste(b *testing.B) {
+	paste := "here is the log:\n" + strings.Repeat("2026-09-13 12:00:00 INFO  request served in 3ms\n", 1<<20/48)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if got := firstPrompt(paste); len([]rune(got)) != 161 {
+			b.Fatalf("got %d runes", len([]rune(got)))
+		}
+	}
+}
+
+// TestFirstPromptIsTidiedAsItWas holds the prompt shown for a row to what it
+// was when the whole prompt was split into words and joined again: runs of
+// white space of any kind made one space, and anything past 160 characters
+// cut off with an ellipsis.
+func TestFirstPromptIsTidiedAsItWas(t *testing.T) {
+	joined := func(s string) string {
+		s = strings.TrimSpace(s)
+		if s == "" || isSyntheticPrompt(s) {
+			return ""
+		}
+		s = strings.Join(strings.Fields(s), " ")
+		if len([]rune(s)) > 160 {
+			s = string([]rune(s)[:160]) + "…"
+		}
+		// A byte that is not UTF-8 was kept as it was in a short prompt and
+		// made the replacement character in a long one; encoded as JSON for the
+		// window it was the replacement character either way, and now is here.
+		return string([]rune(s))
+	}
+	word := strings.Repeat("é", 159)
+	for _, in := range []string{
+		"", "   ", "fix the build", "  fix\tthe \n\n build  ",
+		"a b c　d", // spaces a person does not type as such
+		strings.Repeat("x", 160), strings.Repeat("x", 161), strings.Repeat("x", 500),
+		word + " y", word + "  yz", word + "y", word + "\n",
+		strings.Repeat("ab ", 100),
+		"bad \xff\xfe bytes", strings.Repeat("\xff", 200),
+		"<system-reminder>be nice</system-reminder>", "  <command-name>/cost</command-name>",
+	} {
+		if got, want := firstPrompt(in), joined(in); got != want {
+			t.Errorf("firstPrompt(%q)\n = %q\nwant %q", in, got, want)
 		}
 	}
 }
