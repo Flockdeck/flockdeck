@@ -80,6 +80,12 @@ function Install-Flockdeck {
     $pinned = $version -ceq $release
 
     $dir = if ($env:FLOCKDECK_INSTALL_DIR) { $env:FLOCKDECK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\flockdeck' }
+    # A slash on the end names the same directory, and compared as typed it
+    # did not: C:\Tools\ was added to PATH again beside the C:\Tools already
+    # on it. A drive's root keeps its slash, without which C: names another
+    # directory, the one current on that drive.
+    $trimmed = $dir.TrimEnd('\', '/')
+    if ($trimmed -and -not $trimmed.EndsWith(':')) { $dir = $trimmed }
     $dest = Join-Path $dir 'flockdeck.exe'
     $archive = "flockdeck_${version}_windows_$arch.zip"
 
@@ -184,14 +190,27 @@ function Install-Flockdeck {
     # A copy found first on PATH -- a go install, say -- is the one that
     # `flockdeck` runs, and adding this directory to the end of PATH will not
     # change that.
+    #
+    # Started by its path, the path goes inside single quotes, where
+    # PowerShell reads two quotes as one: C:\Users\o'brien\... was printed
+    # as a command that ended its string at the name's apostrophe and did
+    # not parse.
+    $byPath = "& '" + ($dest -replace "'", "''") + "'"
     $run = 'flockdeck'
     $found = Get-Command flockdeck -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found -and $found.Source -ne $dest) {
         Write-Host "flockdeck: note: the flockdeck your shell finds first is $($found.Source), not this one"
-        $run = "& '$dest'"
+        $run = $byPath
     }
 
-    if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') { return }
+    # With PATH left alone, `flockdeck` finds this copy only where PATH
+    # already led to this directory. Anywhere else it is started by its path,
+    # and saying nothing left the reader to work that out.
+    if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') {
+        if (-not $found) { $run = $byPath }
+        Write-Host "flockdeck: start it with: $run"
+        return
+    }
 
     # PATH is read and written through the registry, unexpanded, because
     # [Environment]::SetEnvironmentVariable would store it expanded and turn
@@ -199,7 +218,10 @@ function Install-Flockdeck {
     $key = Get-Item 'HKCU:\Environment'
     $path = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
     $parts = @($path -split ';' | Where-Object { $_ })
-    if ($parts -notcontains $dir) {
+    # What PATH names is compared without the slashes on its end, as $dir is:
+    # C:\Tools\ on it is where C:\Tools is.
+    $bare = @($parts | ForEach-Object { $_.TrimEnd('\', '/') })
+    if ($bare -notcontains $dir.TrimEnd('\', '/')) {
         $kind = if ($path -match '%') { 'ExpandString' } else { 'String' }
         Set-ItemProperty 'HKCU:\Environment' -Name Path -Value (($parts + $dir) -join ';') -Type $kind
         # Writing the registry tells nobody. Setting and clearing a variable

@@ -32,7 +32,22 @@ conversations with built-in API agents, any API keys you give it, and a
 record of which models routing chose for a fan-out's tasks (the rules' names
 and the models, never the tasks) in Flockdeck's configuration folder on your
 computer. The routing record also names each fan-out's project folder, by its
-full path, and the pane each task ran in. If the app fails to start, it writes
+full path, and the pane each task ran in.
+
+The same folder also holds:
+
+- the folders you have opened recently, by their full paths and when each
+  was last used, and which were open when the app last quit;
+- a record of the running app, with its process number, the local address
+  its window uses and the token that address asks for, so that starting it
+  again joins it;
+- the settings it hands each Claude Code pane, which name that address;
+- updates it has downloaded and not yet installed;
+- if you turn on remote access, the relay's address, the random identifiers
+  of this desktop and its account, the name you gave the desktop, and the
+  token it signs in to the relay with.
+
+If the app fails to start, it writes
 the error to a file there, `error.log`, which can include the paths of files
 and folders on your computer. Nothing there is sent anywhere by Flockdeck.
 
@@ -65,10 +80,14 @@ The app makes these network connections of its own.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
 - **Model providers**, only if you use a built-in API agent (Claude API,
-  OpenAI API, Gemini API, or an endpoint you name). The app then sends your
+  OpenAI API, Gemini API, or an endpoint you name). When you store a key
+  with `flockdeck keys`, the app makes one request with it to that
+  provider, asking for its list of models, to check the key is accepted;
+  the request carries nothing else. The app then sends your
   conversation to the provider you chose, using your own API key. That
-  includes the files and command output the agent reads, and the working
-  folder's path. What the provider does with it is governed by your agreement
+  includes the files and command output the agent reads, the working
+  folder's path, and your operating system's name. What the provider does
+  with it is governed by your agreement
   with them.
 
 Flockdeck also starts programs you choose, such as Claude Code, Codex or
@@ -118,7 +137,7 @@ what you type, and the state of your panes pass through it. That state
 includes what each pane's agent has spent, its usage limits, and which model
 routing chose for it. Remote access is **not end-to-end encrypted.**
 
-The relay does not record, inspect, store or log the content of that traffic.
+The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 
 When a paired device reaches your desktop, the relay passes your desktop the
@@ -134,10 +153,12 @@ in memory.
   write them to its database.
 - **Relay logs.** The relay's own logs record events such as "desktop
   connected" or "device paired" against the random identifiers above, not
-  names or addresses.
-- **Front-end server logs.** The servers in front of the relay and this
-  website may keep standard access logs, which include IP addresses,
-  temporarily, for security and troubleshooting.
+  names or addresses. A desktop tells the relay which version of Flockdeck
+  it runs when it connects, and that version is logged with the connection.
+- **Front-end server logs.** The load balancer in front of the relay and
+  this website may keep standard access logs, which include IP addresses,
+  temporarily, for security and troubleshooting. The web server behind it
+  that serves this website keeps no access logs.
 
 ### How long it is kept
 
@@ -164,8 +185,9 @@ anyone.
 ## This website
 
 flockdeck.ai sets no cookies, runs no analytics and loads nothing from third
-parties; its fonts are served from the site itself. The web server may keep
-standard access logs, as described above. Downloads from dl.flockdeck.ai
+parties; its fonts are served from the site itself. Its web server keeps no
+access logs, though the load balancer in front of it may, as described
+above. Downloads from dl.flockdeck.ai
 may get its content delivery network's security cookie, as
 [Who else is involved](#who-else-is-involved) describes.
 

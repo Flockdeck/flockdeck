@@ -5,9 +5,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +22,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // releases stands in for everywhere the install scripts download from, under
@@ -32,6 +38,7 @@ type releases struct {
 	mu       sync.Mutex
 	onSite   map[string]bool // versions the site has; GitHub has every one
 	down     bool            // the site drops every connection
+	stalled  bool            // the site takes every connection and never answers
 	tampered bool            // the site serves an archive its checksums do not describe
 	forged   string          // a place that serves a tampered archive, and checksums to match it
 	asked    []string
@@ -63,7 +70,7 @@ func newReleases(t *testing.T) *releases {
 func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.asked = append(r.asked, req.URL.Path)
-	onSite, down, tampered, forged := r.onSite, r.down, r.tampered, r.forged
+	onSite, down, stalled, tampered, forged := r.onSite, r.down, r.stalled, r.tampered, r.forged
 	r.mu.Unlock()
 
 	place, rest, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
@@ -74,6 +81,17 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	case place == "dl" && down:
 		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 			conn.Close()
+		}
+		return
+	case place == "dl" && stalled:
+		// Held open, with nothing sent, until the client hangs up. A
+		// hijacked connection is the server's no longer, so closing the
+		// server does not wait on one a client never gives up.
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			go func() {
+				io.Copy(io.Discard, conn)
+				conn.Close()
+			}()
 		}
 		return
 	case place != "dl" && place != "gh" && place != "mirror":
@@ -405,19 +423,7 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Every program the script uses, but neither of the two that download.
-	tools := filepath.Join(home, "tools")
-	if err := os.Mkdir(tools, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
-		"tar", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"} {
-		if p, err := exec.LookPath(name); err == nil {
-			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	tools := toolsDir(t, home)
 	cmd := exec.Command(sh, path)
 	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+filepath.Join(home, "bin"), "PATH="+tools)
 	out, err := cmd.CombinedOutput()
@@ -431,6 +437,86 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 		if asked := r.askedOf(p); len(asked) > 0 {
 			t.Errorf("asked %v of %s", asked, p)
 		}
+	}
+}
+
+// toolsDir is a directory, under home, of links to every program install.sh
+// uses but the two that download, and to those named in extra: a PATH of it
+// alone gives the script the downloaders a test chooses and no others.
+func toolsDir(t *testing.T, home string, extra ...string) string {
+	t.Helper()
+	tools := filepath.Join(home, "tools")
+	if err := os.Mkdir(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range append([]string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
+		"tar", "gzip", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"}, extra...) {
+		if p, err := exec.LookPath(name); err == nil {
+			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return tools
+}
+
+// A site that is down, or that takes the connection and then sends nothing,
+// is given up on in seconds, and GitHub asked instead. GNU wget retries 20
+// times by default, waiting longer after each, so a site that was down took
+// over two minutes to give up on; curl's --connect-timeout covers only the
+// connection, so a site that stalled after it held the script for good.
+func TestInstallShGivesUpOnTheSiteInSeconds(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, tool string
+		setup      func(r *releases)
+	}{
+		{"wget with the site down", "wget", func(r *releases) { r.down = true }},
+		{"curl with the site stalled", "curl", func(r *releases) { r.stalled = true }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := exec.LookPath(c.tool); err != nil {
+				t.Skipf("no %s", c.tool)
+			}
+			r := newReleases(t)
+			c.setup(r)
+			script := pointAt(t, string(shipped), r, shAddresses)
+			// A download is allowed five minutes, which is how long a stall
+			// takes to end. Here it is allowed three seconds, so that the
+			// test sees it end without waiting that long.
+			script = strings.Replace(script, "--max-time 300", "--max-time 3", 1)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.sh")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, "bin")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, sh, path)
+			// A downloader left running by a killed script would hold the
+			// output open, and the wait with it.
+			cmd.WaitDelay = 5 * time.Second
+			cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin, "PATH="+toolsDir(t, home, c.tool))
+			start := time.Now()
+			out, err := cmd.CombinedOutput()
+			took := time.Since(start)
+			got, _ := os.ReadFile(filepath.Join(bin, "flockdeck"))
+			if err != nil || string(got) != "flockdeck v9.9.9" {
+				t.Fatalf("after %v the script exited %v and installed %q\n%s", took.Round(time.Second), err, got, out)
+			}
+			if took > 30*time.Second {
+				t.Errorf("the script took %v to give up on the site", took.Round(time.Second))
+			}
+			if served := r.servedFrom(); !slices.Equal(served, []string{"gh"}) {
+				t.Errorf("the archive was served from %v; want gh alone\n%s", served, out)
+			}
+		})
 	}
 }
 
@@ -477,13 +563,7 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 // installing into a temporary directory and leaving PATH and the Start menu
 // alone.
 func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("install.ps1 reads the machine's architecture from the Windows registry")
-	}
-	ps, err := exec.LookPath("powershell")
-	if err != nil {
-		t.Skip("no Windows PowerShell to run it with")
-	}
+	ps := installPs1Runner(t)
 	dir, _ := generate(t)
 	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
 	if err != nil {
@@ -507,6 +587,140 @@ func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
 			cmd.Env = append(installEnv(r, c.env), "FLOCKDECK_INSTALL_DIR="+bin, "FLOCKDECK_NO_MODIFY_PATH=1")
 			out, err := cmd.CombinedOutput()
 			c.check(t, r, filepath.Join(bin, "flockdeck.exe"), out, err)
+		})
+	}
+}
+
+// installPs1Runner is the Windows PowerShell to run install.ps1 with, and
+// skips a test where there is none.
+func installPs1Runner(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("install.ps1 reads the machine's architecture from the Windows registry")
+	}
+	ps, err := exec.LookPath("powershell")
+	if err != nil {
+		t.Skip("no Windows PowerShell to run it with")
+	}
+	return ps
+}
+
+// With FLOCKDECK_NO_MODIFY_PATH=1, install.ps1 leaves PATH alone, and it said
+// nothing of how to start what it had installed, which `flockdeck` does not
+// find in a directory PATH does not name. It says to start it by its path,
+// quoted for PowerShell: inside single quotes an apostrophe is written as two,
+// or the line it prints ends its string at the apostrophe and does not parse.
+func TestInstallPs1SaysHowToStartItWithPathLeftAlone(t *testing.T) {
+	ps := installPs1Runner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, dir string }{
+		{"a plain directory", "bin"},
+		{"a directory with an apostrophe", "o'brien's bin"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			script := pointAt(t, string(shipped), r, ps1Addresses)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.ps1")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, c.dir)
+			cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
+			// A PATH with no flockdeck on it, whatever this machine has.
+			sys := os.Getenv("SystemRoot")
+			cmd.Env = append(installEnv(r, nil), "FLOCKDECK_INSTALL_DIR="+bin, "FLOCKDECK_NO_MODIFY_PATH=1",
+				"PATH="+filepath.Join(sys, "System32")+string(os.PathListSeparator)+sys)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, out)
+			}
+			want := "flockdeck: start it with: & '" + strings.ReplaceAll(filepath.Join(bin, "flockdeck.exe"), "'", "''") + "'"
+			if !strings.Contains(string(out), want) {
+				t.Errorf("want %q in what the script said:\n%s", want, out)
+			}
+		})
+	}
+}
+
+// A directory given with a slash on the end is the same directory, and so is
+// one on PATH written with one. Compared as typed, C:\Tools\ was added to the
+// user's PATH beside the C:\Tools already on it, and C:\Tools beside a
+// C:\Tools\. The script's PATH, Start menu shortcut and change broadcast are
+// pointed at a scratch registry key and folder here, so that the user's own
+// are left alone.
+func TestInstallPs1TakesADirectoryWithASlashOnTheEnd(t *testing.T) {
+	ps := installPs1Runner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	powershell := func(script string) string {
+		t.Helper()
+		out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("powershell: %v\n%s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, c := range []struct{ name, given, onPath string }{
+		{"given with a slash", `bin\`, `bin`},
+		{"on PATH with a slash", `bin`, `bin\`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			home := t.TempDir()
+			// Joined by hand: filepath.Join would take the slash off.
+			given, onPath := home+`\`+c.given, home+`\`+c.onPath
+			key := `HKCU:\Software\FlockdeckInstallTest-` + filepath.Base(filepath.Dir(home))
+			programs := filepath.Join(home, "Programs")
+			if err := os.Mkdir(programs, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			script := pointAt(t, string(shipped), r, ps1Addresses)
+			for from, to := range map[string]string{
+				`'HKCU:\Environment'`:                      "'" + key + "'",
+				`[Environment]::GetFolderPath('Programs')`: "'" + programs + "'",
+				`'FLOCKDECK_INSTALLING', '1', 'User'`:      `'FLOCKDECK_INSTALLING', '1', 'Process'`,
+				`'FLOCKDECK_INSTALLING', $null, 'User'`:    `'FLOCKDECK_INSTALLING', $null, 'Process'`,
+			} {
+				if !strings.Contains(script, from) {
+					t.Fatalf("the script no longer says %s, which this test points elsewhere", from)
+				}
+				script = strings.ReplaceAll(script, from, to)
+			}
+			path := filepath.Join(home, "install.ps1")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			const others = `C:\Windows`
+			powershell(fmt.Sprintf(`New-Item -Path '%s' -Force | Out-Null; Set-ItemProperty -Path '%s' -Name Path -Value '%s' -Type String`,
+				key, key, onPath+";"+others))
+			t.Cleanup(func() {
+				exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", "Remove-Item -Path '"+key+"' -Recurse -Force").Run()
+			})
+
+			cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
+			// A PATH with no flockdeck on it, whatever this machine has.
+			sys := os.Getenv("SystemRoot")
+			cmd.Env = append(installEnv(r, nil), "FLOCKDECK_INSTALL_DIR="+given,
+				"PATH="+filepath.Join(sys, "System32")+string(os.PathListSeparator)+sys)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, out)
+			}
+			if _, err := os.Stat(filepath.Join(home, "bin", "flockdeck.exe")); err != nil {
+				t.Errorf("nothing installed: %v\n%s", err, out)
+			}
+			got := powershell(fmt.Sprintf(`(Get-Item '%s').GetValue('Path', '', 'DoNotExpandEnvironmentNames')`, key))
+			if want := onPath + ";" + others; got != want {
+				t.Errorf("FLOCKDECK_INSTALL_DIR=%s with %s on PATH made PATH %q; want it left as %q\n%s", given, onPath, got, want, out)
+			}
 		})
 	}
 }
@@ -564,12 +778,63 @@ func TestInstallScriptsCarryTheReleaseTheyWereGeneratedFor(t *testing.T) {
 	}
 }
 
+// sitegen takes a release's checksums only once the checksums.txt.sig beside
+// them is the release key's signature of them. They are what every install
+// from the site trusts in place of what it downloads, and checking the
+// signature was a step left to whoever ran sitegen.
+func TestSitegenChecksTheChecksumsSignature(t *testing.T) {
+	pub, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, other, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sums strings.Builder
+	for _, a := range archives("v1.2.3") {
+		fmt.Fprintf(&sums, "%s  %s\n", strings.Repeat("ab", 32), a)
+	}
+	signed := []byte(sums.String())
+	for _, c := range []struct {
+		name      string
+		sums, sig []byte
+		trusted   ed25519.PublicKey
+		ok        bool
+	}{
+		{"signed by the release key", signed, selfupdate.Sign(key, signed), pub, true},
+		{"with no signature beside it", signed, nil, pub, false},
+		{"signed by another key", signed, selfupdate.Sign(other, signed), pub, false},
+		{"changed after it was signed", []byte(strings.Replace(string(signed), "ab", "cd", 1)), selfupdate.Sign(key, signed), pub, false},
+		{"read by a build with no release key", signed, selfupdate.Sign(key, signed), nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "checksums.txt")
+			if err := os.WriteFile(path, c.sums, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if c.sig != nil {
+				if err := os.WriteFile(path+".sig", c.sig, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rel, err := readRelease("v1.2.3", path, c.trusted)
+			if c.ok && (err != nil || len(rel.Sums) != 6) {
+				t.Errorf("readRelease gave %v, %v; want the six checksums", rel, err)
+			}
+			if !c.ok && err == nil {
+				t.Errorf("the checksums were taken")
+			}
+		})
+	}
+}
+
 // sitegen will not write install scripts without a release and its checksums
 // to put in them, nor from checksums that miss one of the release's archives
 // or a version that is not a release's tag.
 func TestSitegenWantsTheReleaseAndItsChecksums(t *testing.T) {
 	for _, c := range []struct{ version, path string }{{"", "checksums.txt"}, {"v1.2.3", ""}} {
-		if _, err := readRelease(c.version, c.path); err == nil || !strings.Contains(err.Error(), "-release and -checksums are both required") {
+		if _, err := readRelease(c.version, c.path, nil); err == nil || !strings.Contains(err.Error(), "-release and -checksums are both required") {
 			t.Errorf("readRelease(%q, %q) = %v; want both asked for", c.version, c.path, err)
 		}
 	}

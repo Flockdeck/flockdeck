@@ -110,6 +110,17 @@ a:hover { color: var(--accent-strong); }
   border-radius: 4px;
 }
 
+/* The skip link, the first thing a Tab press reaches: above the top of the
+   page until it has the focus, then over the header's corner, where it is
+   seen and Enter takes it. */
+.skip {
+  position: absolute; left: 16px; top: -64px; z-index: 10;
+  padding: 8px 14px; border-radius: var(--radius);
+  background: var(--accent); color: var(--on-accent);
+  font-weight: 600; text-decoration: none;
+}
+.skip:focus { top: 12px; color: var(--on-accent); }
+
 /* ------------------------------------------------------------------ top */
 
 .top {

@@ -355,6 +355,28 @@ func TestDownloadButtonsNameTheLatestArchives(t *testing.T) {
 	}
 }
 
+// A keyboard or screen-reader user reaches each page's content without going
+// through every link in its header first: the first link in every page's
+// body skips to the page's <main>, which has the id it names.
+func TestEveryPageStartsWithASkipLink(t *testing.T) {
+	_, pages := generate(t)
+	firstLink := regexp.MustCompile(`<a\s[^>]*>`)
+	mainTag := regexp.MustCompile(`<main\s[^>]*\bid="main"`)
+	for name, page := range pages {
+		at := strings.Index(page, "<body")
+		if at < 0 {
+			t.Errorf("%s has no body", name)
+			continue
+		}
+		if got := firstLink.FindString(page[at:]); got != `<a class="skip" href="#main">` {
+			t.Errorf("%s's first link is %s, not the skip link", name, got)
+		}
+		if !mainTag.MatchString(page) {
+			t.Errorf("%s has no <main id=\"main\"> for the skip link to go to", name)
+		}
+	}
+}
+
 // The site sets no cookies, so it needs no banner: the privacy policy's
 // section on cookies is its cookie notice, and has to be there to be linked
 // to.
@@ -772,12 +794,6 @@ func TestEveryLinkedFileCarriesItsFingerprint(t *testing.T) {
 	if checked < 10 {
 		t.Errorf("only %d fingerprinted files are linked; the stylesheet, both fonts and the screenshots should be", checked)
 	}
-	og := defaultURL + "/" + servedAs(t, dir, "og.png")
-	for name, page := range pages {
-		if !strings.Contains(page, `<meta property="og:image" content="`+og+`">`) {
-			t.Errorf("%s does not give %s as its image for a shared link", name, og)
-		}
-	}
 }
 
 // The site is generated into its own repository, over what was there. A file
@@ -878,14 +894,84 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	// The site's own files are there, each once.
 	servedAs(t, dir, "site.css")
 	servedAs(t, dir, "fonts/archivo.woff2")
-	servedAs(t, dir, "og.png")
 }
 
-// Links to the site shared before its files were fingerprinted show the
-// picture at https://flockdeck.ai/og.png, and Slack, Discord and X fetch it
-// again when their copy expires. So the social card is written under that
-// name too, the same picture as the fingerprinted copy the pages name, and a
-// regeneration over a site that has it leaves it there.
+// The site is deployed from its repository's commits, so the generation being
+// served is the committed one. Two regenerations before a commit took each
+// other's pages as the generation before, and the second took out the files
+// the committed pages, the ones being served, still link. A regeneration keeps
+// those until a commit no longer links them.
+func TestARegenerationKeepsWhatTheCommittedPagesLink(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git to commit the site with")
+	}
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=sitegen test",
+			"-c", "user.email=sitegen@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name)))
+		return err == nil
+	}
+	// The generation being served: committed, with a page naming files one
+	// of them only through the stylesheet.
+	served := []string{"site.aaaaaaaaaa.css", "fonts/archivo.bbbbbbbbbb.woff2", "deck.cccccccccc.png"}
+	git("init", "-q")
+	write("index.html", `<link rel="stylesheet" href="site.aaaaaaaaaa.css"><img src="deck.cccccccccc.png">`)
+	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/archivo.bbbbbbbbbb.woff2") }`)
+	for _, name := range served[1:] {
+		write(name, "from the commit")
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "the generation being served")
+
+	for i := 1; i <= 2; i++ {
+		if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		for _, name := range served {
+			if !exists(name) {
+				t.Errorf("%s, which the committed pages link, was taken out by regeneration %d before a commit", name, i)
+			}
+		}
+	}
+
+	// Once the new generation is committed, nothing being served links the
+	// old one, and the next regeneration takes it out.
+	git("add", "-A")
+	git("commit", "-q", "-m", "the next generation")
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
+		t.Fatalf("run after the commit: %v", err)
+	}
+	for _, name := range served {
+		if exists(name) {
+			t.Errorf("%s was left in the site after a commit whose pages no longer link it", name)
+		}
+	}
+	servedAs(t, dir, "site.css")
+}
+
+// Slack, Discord and X keep the picture address a shared link gave them, and
+// fetch the picture from it again when their copy expires. The pages named a
+// fingerprinted copy, which a regeneration takes out two after the picture
+// changes, so links shared before then went blank. Every page names the
+// social card at https://flockdeck.ai/og.png, which stays, and a
+// regeneration over a site that has it writes the card there.
 func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "og.png"), []byte("from before"), 0o644); err != nil {
@@ -900,14 +986,23 @@ func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"og.png", servedAs(t, dir, "og.png")} {
-		got, err := os.ReadFile(filepath.Join(dir, name))
+	got, err := os.ReadFile(filepath.Join(dir, "og.png"))
+	if err != nil {
+		t.Fatalf("the site has no og.png: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("og.png is %d bytes, not the %d of the social card", len(got), len(want))
+	}
+	og := defaultURL + "/og.png"
+	for _, name := range []string{"index.html", "privacy.html", "terms.html", "licences.html"} {
+		page, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
-			t.Errorf("the site has no %s: %v", name, err)
-			continue
+			t.Fatal(err)
 		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s is %d bytes, not the %d of the social card", name, len(got), len(want))
+		for _, meta := range []string{`<meta property="og:image" content="` + og + `">`, `<meta name="twitter:image" content="` + og + `">`} {
+			if !strings.Contains(string(page), meta) {
+				t.Errorf("%s does not give %s as its image for a shared link: want %s", name, og, meta)
+			}
 		}
 	}
 }

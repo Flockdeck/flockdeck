@@ -91,25 +91,31 @@ curl -fsSL https://flockdeck.ai/install.sh | sh   # macOS and Linux
 irm https://flockdeck.ai/install.ps1 | iex        # Windows, in PowerShell
 ```
 
-Either one downloads the latest release for the machine from
-`dl.flockdeck.ai`, or from GitHub when that cannot be reached, checks it
-against the release's checksums and puts it in a directory you own — `~/.local/bin`, or
+Either one installs the release it was published with. The site is
+regenerated for every release, and that writes the release's version and the
+SHA-256 of each of its archives into both scripts. The script downloads the
+archive for the machine from `dl.flockdeck.ai`, or from GitHub when that
+cannot be reached, and checks it against the SHA-256 it carries itself, not
+against a `checksums.txt` fetched from where the archive came from. Then it
+puts it in a directory you own — `~/.local/bin`, or
 `%LOCALAPPDATA%\Programs\flockdeck` with a Start menu shortcut on Windows — so
 neither installing nor updating ever asks for admin rights. The scripts are in
 `cmd/sitegen/assets`, beside the page that serves them.
 
 Both read a few settings from the environment:
 
-- `FLOCKDECK_VERSION` — a release such as `v0.2.8` instead of the latest. To
-  stay on it, also set `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it
-  updates itself.
+- `FLOCKDECK_VERSION` — another release, such as `v0.2.8`. The script carries
+  checksums for its own release only, so any other is checked against the
+  `checksums.txt` downloaded beside it. To stay on it, also set
+  `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it updates itself.
 - `FLOCKDECK_INSTALL_DIR` — another directory to install into.
 - `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from instead,
-  laid out as `<mirror>/<version>/<file>`. The latest is read from
-  `<mirror>/latest.json`, which names it as `{"version":"v1.2.3"}`, or asked
-  of GitHub when the mirror has none.
+  laid out as `<mirror>/<version>/<file>`. It is the only place asked, with no
+  falling back to GitHub. It is asked for the script's own release unless
+  `FLOCKDECK_VERSION` names another, and for that release's `checksums.txt`
+  too when it does.
 - `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
-  alone.
+  alone. The script then says how to start Flockdeck by its path.
 
 ```sh
 curl -fsSL https://flockdeck.ai/install.sh | FLOCKDECK_INSTALL_DIR=~/bin sh
@@ -1040,9 +1046,11 @@ Two programs under `cmd/` make what is published rather than the application:
 - `cmd/sitegen` writes the landing page at flockdeck.ai, and the install
   scripts it serves, from `cmd/sitegen/assets`:
   `go run ./cmd/sitegen -out ../flockdeck-site -release v1.2.3 -checksums checksums.txt`,
-  where `checksums.txt` is that release's, from dl.flockdeck.ai, its
-  `checksums.txt.sig` checked first. The install scripts install that release
-  and check its archive against the SHA-256 written into them.
+  where `checksums.txt` is that release's, from dl.flockdeck.ai, with its
+  `checksums.txt.sig` beside it. sitegen checks that signature against the
+  release key built into it, and writes nothing unless it is the key's. The
+  install scripts install that release and check its archive against the
+  SHA-256 written into them.
 
 Four development aids live under `cmd/` and are not part of the product:
 

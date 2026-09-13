@@ -17,7 +17,7 @@
 
 {{template "header" .}}
 
-<main class="wrap">
+<main class="wrap" id="main">
 
 <section class="hero">
   <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built for multi-agent coding</p>
@@ -372,9 +372,13 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   </div>
   <p class="aside">Each archive holds the program itself: unpack it and run it.
      Its checksum is in that release's <code>checksums.txt</code>, and every
-     release is also on <a href="{{ .Repo }}/releases">GitHub</a>. macOS and
-     Windows may ask before a downloaded copy first runs; the installers above
-     don't.</p>
+     release is also on <a href="{{ .Repo }}/releases">GitHub</a>. The
+     binaries are not signed, so macOS and Windows may refuse to open a copy
+     downloaded in a browser. On macOS, run
+     <code>xattr -d com.apple.quarantine</code> on it, or allow it under
+     System Settings → Privacy &amp; Security; on Windows, choose More info →
+     Run anyway. The installers above leave no download mark, so they meet
+     neither.</p>
   <p>The installer downloads the latest release for your machine, checks it
      against the checksum written into the installer itself, and installs it
      to <code>~/.local/bin</code>. On Windows it goes to
@@ -384,7 +388,8 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
      at the top. A release picked this way is checked against the
      <code>checksums.txt</code> downloaded with it. To stay on a release, also set
-     <code>FLOCKDECK_UPDATE=off</code>. View the scripts: <a href="install.sh">install.sh</a> ·
+     <code>FLOCKDECK_UPDATE=off</code> where Flockdeck runs (with
+     <code>setx</code> on Windows, or in your shell profile). View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
   <pre><code>go install {{ .Module }}@latest</code></pre>
@@ -430,7 +435,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
          Flockdeck itself only contacts dl.flockdeck.ai to check for updates,
-         with GitHub as a mirror, and the relay if you turn on remote access. The exception is the built-in API
+         with GitHub as a mirror; the relay, if you turn on remote access;
+         your git remotes, when you push, pull or fetch; and, when you store
+         an API key, that provider, once, to check the key. The exception is the built-in API
          agents: they send your conversations to the model provider you
          choose, with your own key. Routing and the cost estimates add no
          connection of their own. The <a href="privacy.html">privacy

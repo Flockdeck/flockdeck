@@ -26,14 +26,16 @@
 //
 // -release is the release the install scripts install by default, and
 // -checksums that release's checksums.txt, from
-// https://dl.flockdeck.ai/v1.2.3/checksums.txt once its checksums.txt.sig has
-// been checked against the release key. The SHA-256 of each archive is written
-// into the scripts, which check the archive they download against it; see
-// bake.
+// https://dl.flockdeck.ai/v1.2.3/checksums.txt, with its checksums.txt.sig
+// beside it: the signature is checked against the release key built into
+// this program before anything in the file is trusted. The SHA-256 of each
+// archive is written into the scripts, which check the archive they download
+// against it; see bake.
 package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -44,11 +46,13 @@ import (
 	"html/template"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
@@ -119,10 +123,11 @@ func main() {
 	module := flag.String("module", defaultModule, "`path` the module is installed from")
 	url := flag.String("url", defaultURL, "`address` the site is served from, which the install lines name")
 	version := flag.String("release", "", "the release the install scripts install by default, such as v1.2.3 (`version`)")
-	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, its signature already checked")
+	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, with its checksums.txt.sig beside it")
 	flag.Parse()
 
-	rel, err := readRelease(*version, *sums)
+	key, _ := selfupdate.ReleaseKey()
+	rel, err := readRelease(*version, *sums, key)
 	if err == nil {
 		err = run(*out, *repo, *module, *url, rel)
 	}
@@ -157,19 +162,31 @@ func archives(version string) []string {
 }
 
 // readRelease is the release version, with the checksums the checksums.txt
-// at path gives its archives.
+// at path gives its archives, once the signature beside it at path+".sig" is
+// found to be key's: key is the release key.
 //
 // Neither may be left out. Without them the scripts would have nothing to
 // check an archive against but a checksums.txt fetched from wherever the
 // archive came from, and whoever could replace the one there could replace
 // the other with it.
-func readRelease(version, path string) (release, error) {
+//
+// The signature is checked here rather than left to whoever runs this. These
+// checksums are what every install from the site trusts in place of anything
+// it downloads, and a step done by hand is a step that can be skipped.
+func readRelease(version, path string, key ed25519.PublicKey) (release, error) {
 	if version == "" || path == "" {
-		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt and check checksums.txt.sig first")
+		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt, with checksums.txt.sig beside it")
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return release{}, fmt.Errorf("read the checksums: %w", err)
+	}
+	sig, err := os.ReadFile(path + ".sig")
+	if err != nil {
+		return release{}, fmt.Errorf("read the checksums' signature: %w; download checksums.txt.sig from %s/%s/ and put it beside them", err, downloadsURL, version)
+	}
+	if err := selfupdate.Verify(key, body, sig); err != nil {
+		return release{}, fmt.Errorf("%s.sig: %w, so the checksums are not the release's", path, err)
 	}
 	return parseRelease(version, body)
 }
@@ -397,23 +414,18 @@ func run(out, repo, module, url string, rel release) error {
 	}
 	written := map[string]bool{}
 	for plain, body := range files {
-		as := []string{plain}
+		name := plain
 		if hashed, ok := names[plain]; ok {
-			as = []string{hashed}
-			if alsoByName[plain] {
-				as = append(as, plain)
-			}
+			name = hashed
 		}
-		for _, name := range as {
-			path := filepath.Join(out, filepath.FromSlash(name))
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				return fmt.Errorf("create the folder for %s: %w", name, err)
-			}
-			if err := os.WriteFile(path, body, 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", name, err)
-			}
-			written[name] = true
+		path := filepath.Join(out, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create the folder for %s: %w", name, err)
 		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+		written[name] = true
 	}
 	if err := prune(out, names, written, previous); err != nil {
 		return err
@@ -432,21 +444,17 @@ func lf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n
 // /apple-touch-icon.png. Every other stylesheet, font and image is served
 // under a fingerprinted name. (favicon.svg is a text file, and keeps its name
 // too: the site's CI asks for it by name.)
+//
+// og.png is the picture a link to the site shows in Slack, Discord or X, and
+// the pages name it by its plain address, which nginx serves no-cache. Those
+// services keep the address a link gave them and fetch the picture from it
+// again when their copy expires. A fingerprinted address would be taken out
+// two regenerations after the picture next changed, and every link shared
+// before that would lose its picture.
 var servedByName = map[string]bool{
 	"favicon.ico":          true,
 	"apple-touch-icon.png": true,
-}
-
-// alsoByName are the fingerprinted files written under their plain name as
-// well, for what asks for that name without a page to give it the other.
-//
-// og.png is the picture a link to the site shows in Slack, Discord or X. The
-// pages name its fingerprinted copy, but every link shared before names were
-// fingerprinted gave https://flockdeck.ai/og.png, and those services fetch the
-// picture again when their copy expires: were that address gone, those links
-// would lose it. nginx serves the plain name no-cache, like a page.
-var alsoByName = map[string]bool{
-	"og.png": true,
+	"og.png":               true,
 }
 
 // fingerprint is name with the start of its content's SHA-256 put before the
@@ -488,8 +496,9 @@ func hashedFiles(out string) ([]string, error) {
 }
 
 // linked is every fingerprinted file in out that the pages already there
-// link, and that the stylesheet they link asks for in turn: the generation of
-// the site before this one.
+// link, or that the pages as out's repository last committed them link, and
+// that the stylesheet they link asks for in turn: the generation of the site
+// before this one, and the generation being served.
 //
 // prune leaves these for one more run. A page that was open before a deploy
 // goes on asking for its own generation's files after it: a lazy screenshot
@@ -497,6 +506,12 @@ func hashedFiles(out string) ([]string, error) {
 // while a deploy rolls, a page served by a server still on the old image can
 // send its requests for its files to one already on the new. Were the old
 // files gone, each of those would be a 404 on a page that works.
+//
+// The committed pages count as well as the ones on disk because the site is
+// deployed from its commits, not from the working tree. Two regenerations
+// before a commit, a release tried twice say, would otherwise take each
+// other's pages as the generation before, and the second would take out the
+// files the site being served still links.
 func linked(out string) (map[string]bool, error) {
 	hashed, err := hashedFiles(out)
 	if err != nil {
@@ -507,6 +522,9 @@ func linked(out string) (map[string]bool, error) {
 		name := p.Path
 		if name == "" {
 			name = "index.html"
+		}
+		if body, ok := committed(out, name); ok {
+			texts = append(texts, body)
 		}
 		body, err := os.ReadFile(filepath.Join(out, name))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -544,6 +562,16 @@ func linked(out string) (map[string]bool, error) {
 	return keep, nil
 }
 
+// committed is the file name in out as out's repository last committed it,
+// and false where out is not a repository, git is not installed, or the last
+// commit has no such file: then there is no committed generation to keep.
+// "HEAD:./" names the file relative to out, which need not be the top of its
+// repository.
+func committed(out, name string) ([]byte, bool) {
+	body, err := exec.Command("git", "-C", out, "show", "HEAD:./"+name).Output()
+	return body, err == nil
+}
+
 // prune takes out of out what a run before this one wrote and this one did
 // not: a fingerprinted file whose content has changed since, and the plain
 // name an asset had before it was fingerprinted. out is the site's own
@@ -554,9 +582,6 @@ func linked(out string) (map[string]bool, error) {
 // when nothing links it any more.
 func prune(out string, names map[string]string, written, previous map[string]bool) error {
 	for plain := range names {
-		if written[plain] {
-			continue // see alsoByName
-		}
 		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("remove the old %s: %w", plain, err)
 		}
