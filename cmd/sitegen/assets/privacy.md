@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 12 September 2026*
+*Last updated: 13 September 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -31,7 +31,15 @@ The app runs entirely on your computer. It keeps its settings, layouts,
 conversations with built-in API agents, any API keys you give it, and a
 record of which models routing chose for a fan-out's tasks (the rules' names
 and the models, never the tasks) in Flockdeck's configuration folder on your
-computer. Nothing there is sent anywhere by Flockdeck.
+computer. The routing record also names each fan-out's project folder, by its
+full path, and the pane each task ran in. If the app fails to start, it writes
+the error to a file there, `error.log`, which can include the paths of files
+and folders on your computer. Nothing there is sent anywhere by Flockdeck.
+
+Outside that folder, the app writes to one file of another program's. When a
+fan-out carries Claude Code's folder trust over to the worktrees it creates, it
+records in Claude Code's own configuration file (`~/.claude.json`) that those
+worktrees are trusted, as the folder they came from already was.
 
 To show what each agent has spent, the app reads what the agents report about
 their own usage on your computer: the tokens, cost estimate and usage limits
