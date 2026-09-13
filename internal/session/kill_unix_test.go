@@ -19,6 +19,9 @@ func detach(*exec.Cmd) {}
 // ignoreHangups makes this process one a terminal closing does not end.
 func ignoreHangups() { signal.Ignore(syscall.SIGHUP) }
 
+// endProcess ends a process a test started.
+func endProcess(pid int) { _ = syscall.Kill(pid, syscall.SIGKILL) }
+
 // alive reports whether a process is still running. A zombie is not: it has
 // ended, and only waits for whoever inherited it to notice.
 func alive(pid int) bool {
