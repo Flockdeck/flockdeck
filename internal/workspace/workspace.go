@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -205,6 +206,11 @@ type Workspace struct {
 	// openRoots are the projects currently open, in the order they were
 	// opened; activeRoot is the one being shown.
 	openRoots []string
+	// closedRoots are the projects closed during this run. See ClosedRoots.
+	closedRoots []string
+	// away are the projects in the saved list whose folders were not there
+	// when this run started, kept for their return. See RestoreSession.
+	away []awayRoot
 	// opening guards against a restore that reopens itself. A tab can show
 	// panes from another project, so restoring one project can open a second,
 	// whose own layout may hold a pane belonging back to the first.
@@ -700,6 +706,10 @@ func (w *Workspace) CloseProject(root string) error {
 		}
 	}
 	w.openRoots = roots
+	w.closedRoots = append(w.closedRoots, root)
+	// A project whose folder was away at start, and came back and was opened,
+	// is closed for good: it is not kept for its return any more.
+	w.away = slices.DeleteFunc(w.away, func(a awayRoot) bool { return sameDir(a.root, root) })
 
 	if w.activeRoot == root {
 		w.activeRoot = w.openRoots[0]
@@ -707,6 +717,15 @@ func (w *Workspace) CloseProject(root string) error {
 	w.focusFirstTabOf(w.activeRoot)
 	w.wake()
 	return saveErr
+}
+
+// ClosedRoots are the projects closed during this run, in the order they were
+// closed, under the spelling each was open with. A -new run puts back the
+// projects that were open before it on its way out, and without these it put
+// back the very ones the user had closed. One closed and opened again is still
+// among them; it is in Session's list as well.
+func (w *Workspace) ClosedRoots() []string {
+	return append([]string(nil), w.closedRoots...)
 }
 
 func (w *Workspace) isOpen(root string) bool {
@@ -733,6 +752,29 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 	}
 	for _, r := range w.openRoots {
 		if sameDir(r, root) {
+			return r, true
+		}
+	}
+	return w.openRootOnDisk(root)
+}
+
+// openRootOnDisk finds the open project that is the directory root names,
+// asking the file system rather than comparing strings.
+//
+// Some spellings of one directory no comparison of strings can see through:
+// an 8.3 short name on Windows (PROGRA~1), a junction or a symlink, macOS's
+// /tmp for /private/tmp. Each opened a second project onto a folder that was
+// already open, with its own panes resuming the very conversations the first
+// set was in. It is asked only once the strings have failed to match, which
+// for a folder that has gone costs one failed Stat; the project keeps the
+// spelling it was opened with, and with it the name of its layout file.
+func (w *Workspace) openRootOnDisk(root string) (string, bool) {
+	fi, err := os.Stat(root)
+	if err != nil || !fi.IsDir() {
+		return "", false
+	}
+	for _, r := range w.openRoots {
+		if open, err := os.Stat(r); err == nil && os.SameFile(fi, open) {
 			return r, true
 		}
 	}

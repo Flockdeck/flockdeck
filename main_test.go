@@ -503,12 +503,12 @@ func TestShutdownReportsTheSave(t *testing.T) {
 // by, so the guess has to be said out loud.
 func TestJoinRunningSaysWhenItCannotTell(t *testing.T) {
 	var warnings []string
-	inst, base := joinRunning(
+	inst, base, err := joinRunning(
 		func() (*store.Instance, string, error) { return nil, "", errors.New("unreadable") },
 		func(text string) { warnings = append(warnings, text) },
 	)
-	if inst != nil || base != "" {
-		t.Errorf("joined %v at %q on an unreadable record", inst, base)
+	if inst != nil || base != "" || err != nil {
+		t.Errorf("joined %v at %q (%v) on an unreadable record, want a new one started", inst, base, err)
 	}
 	if len(warnings) != 1 {
 		t.Fatalf("warnings = %v, want one", warnings)
@@ -521,20 +521,20 @@ func TestJoinRunningSaysWhenItCannotTell(t *testing.T) {
 // The two ordinary answers are silent: one to join, or nothing running.
 func TestJoinRunningIsQuietWhenItCanTell(t *testing.T) {
 	running := &store.Instance{URL: "http://127.0.0.1:1"}
-	inst, base := joinRunning(
+	inst, base, err := joinRunning(
 		func() (*store.Instance, string, error) { return running, running.URL, nil },
 		func(text string) { t.Errorf("unexpected warning: %s", text) },
 	)
-	if inst != running || base != running.URL {
-		t.Errorf("joined %v at %q, want the running instance", inst, base)
+	if inst != running || base != running.URL || err != nil {
+		t.Errorf("joined %v at %q (%v), want the running instance", inst, base, err)
 	}
 
-	inst, base = joinRunning(
+	inst, base, err = joinRunning(
 		func() (*store.Instance, string, error) { return nil, "", nil },
 		func(text string) { t.Errorf("unexpected warning: %s", text) },
 	)
-	if inst != nil || base != "" {
-		t.Errorf("joined %v at %q when nothing was running", inst, base)
+	if inst != nil || base != "" || err != nil {
+		t.Errorf("joined %v at %q (%v) when nothing was running", inst, base, err)
 	}
 }
 

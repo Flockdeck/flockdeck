@@ -96,7 +96,7 @@ func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := keepOpenProjects(before, now); err != nil {
+	if err := keepOpenProjects(before, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.LoadSession()
@@ -107,7 +107,7 @@ func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
 		t.Errorf("session = %+v, want both projects open and this run's active", got)
 	}
 
-	if err := keepOpenProjects(nil, now); err != nil {
+	if err := keepOpenProjects(nil, now, nil); err != nil {
 		t.Errorf("a run without -new: %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestKeepOpenProjectsWhenTheSavedListCannotBeReadBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := keepOpenProjects(before, now); err != nil {
+	if err := keepOpenProjects(before, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.LoadSession()
@@ -141,6 +141,50 @@ func TestKeepOpenProjectsWhenTheSavedListCannotBeReadBack(t *testing.T) {
 	}
 	if len(got.Open) != 2 || got.Open[0] != a || got.Open[1] != b || got.Active != a {
 		t.Errorf("session = %+v, want both projects open and this run's active", got)
+	}
+}
+
+// A project closed during a -new run was put back by the list of projects
+// open before it, so closing it did not stick: the next start reopened it.
+// Only the ones the run did not close are put back.
+func TestKeepOpenProjectsLeavesOutWhatTheRunClosed(t *testing.T) {
+	isolateState(t)
+	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()
+	before := &store.Session{Open: []string{a, b, c}, Active: b}
+	// The -new run on a opened b, and then closed it.
+	now := &store.Session{Open: []string{a}, Active: a}
+
+	if err := keepOpenProjects(before, now, []string{b}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("LoadSession = %v, %v", got, err)
+	}
+	if len(got.Open) != 2 || got.Open[0] != a || got.Open[1] != c {
+		t.Errorf("session = %+v, want %s and %s open, and not %s, which the run closed", got, a, c, b)
+	}
+}
+
+// A -new run does not look for the projects it puts back, so one whose folder
+// was away before it is still away, and keeps its count of starts away: the
+// run is not a start that found it there.
+func TestKeepOpenProjectsKeepsWhatIsAway(t *testing.T) {
+	isolateState(t)
+	a := t.TempDir()
+	away := filepath.Join(t.TempDir(), "usb")
+	before := &store.Session{Open: []string{a, away}, Active: a, Away: map[string]int{away: 3}}
+	now := &store.Session{Open: []string{a}, Active: a}
+
+	if err := keepOpenProjects(before, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("LoadSession = %v, %v", got, err)
+	}
+	if len(got.Open) != 2 || got.Open[1] != away || got.Away[away] != 3 {
+		t.Errorf("session = %+v, want %s kept, away for the 3 starts it had been", got, away)
 	}
 }
 

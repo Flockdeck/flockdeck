@@ -1352,7 +1352,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return
 			}
 			s.Detach()
-			_ = ws.SaveAll()
+			// A layout that cannot be saved is no reason not to detach: the
+			// agents run on, and the save is tried again every half minute.
+			// But the window closes itself once told it has detached, and
+			// the failure went with it unread, so it is kept open and told.
+			if err := ws.SaveAll(); err != nil {
+				c.notify("detached, but the layout could not be saved, so a crash now would lose what changed since it last was ("+err.Error()+"); the agents keep running, the save is tried again every half minute, and this window can be closed", true)
+				return
+			}
 			c.sendJSON(map[string]any{"type": "detached"})
 		case "quit":
 			// Quitting stops every agent on this machine, and the instance
@@ -1363,7 +1370,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify("a window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
 				return
 			}
-			_ = ws.SaveAll()
+			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
+				c.notify("the layout could not be saved, so flockdeck did not quit: quitting now would lose what changed since it last was ("+err.Error()+"). Quit again to quit anyway.", true)
+				return
+			}
 			go s.requestQuit()
 		case "restart":
 			// A restart is a quit that comes back, and stops every agent on
@@ -1376,8 +1386,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			// The layout is saved here as well as by the shutdown, because a
 			// restart is the one quit the user expects to come back to exactly
-			// what they were looking at.
-			_ = ws.SaveAll()
+			// what they were looking at -- and one that could not be saved
+			// would come back to something else.
+			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
+				c.notify("the layout could not be saved, so flockdeck did not restart: it would come back without what changed since it last was ("+err.Error()+"). Restart again to restart anyway.", true)
+				return
+			}
 			go s.requestRestart()
 		default:
 			return
@@ -1385,6 +1399,27 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.wakeAsked()
 	})
 }
+
+// askedAgainPastFailedSave reports whether a quit or restart may go ahead
+// although the layout could not be saved.
+//
+// Both used to go ahead regardless, and whatever had changed since the last
+// save was lost without a word. The first is now turned down, with the reason.
+// Asking again soon after is the person having been told and choosing to lose
+// it -- a disk that has filled up may stay full, and flockdeck has still to be
+// quittable -- so that goes ahead. It runs on the workspace goroutine, which
+// is what keeps unsavedAskedAt free of a lock of its own.
+func (s *Server) askedAgainPastFailedSave() bool {
+	if !s.unsavedAskedAt.IsZero() && time.Since(s.unsavedAskedAt) < askAgainWithin {
+		return true
+	}
+	s.unsavedAskedAt = time.Now()
+	return false
+}
+
+// askAgainWithin is how soon a quit or restart turned down for a failed save
+// has to be asked again to go ahead anyway.
+const askAgainWithin = 2 * time.Minute
 
 // cmdName names a command for a message. The name arrives from the page, so it
 // is clamped rather than repeated back whole.

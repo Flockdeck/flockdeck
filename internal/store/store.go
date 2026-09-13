@@ -1304,6 +1304,12 @@ func sameRoot(a, b string) bool {
 type Session struct {
 	Open   []string `json:"open"`
 	Active string   `json:"active"`
+	// Away counts, for each project in Open whose folder was not there when
+	// a run started -- a USB stick, a network drive not yet connected -- how
+	// many starts in a row have found it missing. Such a project is kept in
+	// the list for a few starts rather than dropped at the first, and let go
+	// once they run out.
+	Away map[string]int `json:"away,omitempty"`
 }
 
 // sessionWhat is how the user is told of the session file.
@@ -1378,6 +1384,19 @@ func tidySession(s *Session) *Session {
 		}
 		if !found {
 			out.Active = ""
+		}
+	}
+	// A count of starts away is kept only for a project still in the list,
+	// under the spelling the list has.
+	for root, starts := range s.Away {
+		for _, kept := range out.Open {
+			if starts > 0 && sameRoot(kept, root) {
+				if out.Away == nil {
+					out.Away = map[string]int{}
+				}
+				out.Away[kept] = starts
+				break
+			}
 		}
 	}
 	return out
@@ -1518,3 +1537,32 @@ var processAlive = func(pid int) bool {
 // is how `flockdeck -quit` tells that the instance it asked to stop has gone,
 // rather than only stopped listening.
 func ProcessAlive(pid int) bool { return processAlive(pid) }
+
+// StillRunning reports whether the process that made this record is still
+// running.
+//
+// Its id alone cannot say. Once that process has exited, the system is free to
+// give the id to any process started since, and asking after the id then
+// answers for that one. A process that started after the record was made
+// cannot be the one that made it, so where the system says when a process
+// started -- Windows and Linux -- that is checked as well. Elsewhere, and for a
+// record with no start time, a live process id is taken at its word.
+func (inst *Instance) StillRunning() bool {
+	if inst == nil || !processAlive(inst.PID) {
+		return false
+	}
+	if inst.Started.IsZero() {
+		return true
+	}
+	started, ok := processStarted(inst.PID)
+	if !ok {
+		return true
+	}
+	return !started.After(inst.Started.Add(startSlack))
+}
+
+// startSlack allows for the precision a process's start is known to: Linux
+// gives the boot time only to the second. A process given the id of an
+// instance that had exited inside that second of recording itself is not a
+// case worth more.
+const startSlack = 2 * time.Second

@@ -12,6 +12,11 @@ starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
 
+A project whose folder is not there when Flockdeck starts — on a USB stick
+that is not plugged in, or a network drive not yet connected — is not opened,
+but it stays in the list for the next ten starts, so it comes back with its
+folder. Closing it, once it is back and open, takes it off the list.
+
 Started without one — from the Start menu, a shortcut, or a terminal in your
 home folder — Flockdeck opens the projects you had open last time and lands in
 the one you were in. Your home folder opens as a project only when there were

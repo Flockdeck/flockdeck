@@ -301,6 +301,12 @@ func savedPlacement(profileDir, pageURL string) (placement, bool) {
 
 // startAppMode launches a chromeless window pointed at url.
 func startAppMode(path, url, profileDir string) (*Window, error) {
+	home, _ := os.UserHomeDir()
+	if dir := profileFor(path, profileDir, home); dir != profileDir {
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			profileDir = dir
+		}
+	}
 	w, h := workArea()
 	cmd := exec.Command(path, windowArgs(url, profileDir, w, h)...)
 	stderr := &tail{max: stderrKeep}
@@ -327,6 +333,28 @@ func startAppMode(path, url, profileDir string) (*Window, error) {
 		close(win.done)
 	}()
 	return win, nil
+}
+
+// profileFor is the profile folder the browser at path is started on:
+// profileDir, except for a browser installed as a snap. Snap confines one to
+// its own corner of the home folder and will not let it use a hidden folder in
+// it, which is where Flockdeck keeps its state on Linux, so the window failed
+// to open at all. It is given a folder where snap lets it write instead:
+// ~/snap/<name>/common/flockdeck-window.
+func profileFor(path, profileDir, home string) string {
+	p := filepath.ToSlash(path)
+	if home == "" || !strings.HasPrefix(p, "/snap/") {
+		return profileDir
+	}
+	parts := strings.Split(strings.TrimPrefix(p, "/snap/"), "/")
+	name := parts[0]
+	if name == "bin" && len(parts) > 1 {
+		name = parts[1]
+	}
+	if name == "" || name == "bin" {
+		return profileDir
+	}
+	return filepath.Join(home, "snap", name, "common", "flockdeck-window")
 }
 
 // stderrKeep is how much of the end of what the browser prints is kept, and
@@ -401,11 +429,29 @@ func candidates() []string {
 		return darwinCandidates(home)
 
 	default:
-		return []string{
-			"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-			"microsoft-edge", "brave-browser", "vivaldi",
+		home, _ := os.UserHomeDir()
+		return linuxCandidates(home)
+	}
+}
+
+// linuxCandidates lists the Linux browsers in preference order: those on PATH,
+// under the names their packages give them -- snap's Brave is plain `brave`
+// -- and then those installed with Flatpak, which puts nothing on PATH but
+// exports a command under a bin folder of its own, for the whole machine and
+// for the one user. Without them a Flatpak Chrome, Chromium, Edge or Brave
+// gave an ordinary tab instead of the application window.
+func linuxCandidates(home string) []string {
+	out := []string{
+		"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+		"microsoft-edge", "brave-browser", "brave", "vivaldi",
+	}
+	for _, app := range []string{"com.google.Chrome", "org.chromium.Chromium", "com.microsoft.Edge", "com.brave.Browser"} {
+		out = append(out, "/var/lib/flatpak/exports/bin/"+app)
+		if home != "" {
+			out = append(out, home+"/.local/share/flatpak/exports/bin/"+app)
 		}
 	}
+	return out
 }
 
 // darwinCandidates lists the macOS browsers in preference order, each in the
@@ -459,8 +505,8 @@ func available(c string) string {
 // of a candidate's path, lower case and with forward slashes, that are that
 // browser.
 var browserNames = map[string][]string{
-	"chrome":   {"google/chrome/", "google chrome.app", "google-chrome"},
-	"edge":     {"microsoft/edge/", "microsoft edge.app", "microsoft-edge"},
+	"chrome":   {"google/chrome/", "google chrome.app", "google-chrome", "com.google.chrome"},
+	"edge":     {"microsoft/edge/", "microsoft edge.app", "microsoft-edge", "com.microsoft.edge"},
 	"brave":    {"brave"},
 	"chromium": {"chromium"},
 	"vivaldi":  {"vivaldi"},
@@ -512,7 +558,15 @@ func openDefaultBrowser(url string) error {
 	// a windowless Flockdeck would flash a terminal up just to pass the address
 	// on, and saying so costs nothing.
 	sysproc.NoWindow(cmd)
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// xdg-open, open and rundll32 hand the address on and exit, and nothing
+	// waited for them: on Linux and macOS every fall back to the default
+	// browser left a zombie behind for as long as Flockdeck ran. Waiting is
+	// what reaps one; letting the process go, on Unix, does not.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // defaultBrowserCommand is the program, and its arguments, that hands url to

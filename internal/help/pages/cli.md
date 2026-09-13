@@ -25,7 +25,7 @@ window onto it. `-solo` is the escape hatch when you genuinely want two.
 one it skipped within half a minute of starting, and again when the run ends.
 The other projects you had open are put back in the list when the run ends,
 so the next start reopens them as before, around the one this run was started
-on, which is where it lands. A run that crashes after its window was reloaded
+on, which is where it lands. One you closed during the run stays closed. A run that crashes after its window was reloaded
 or detached has already written the list without them, and the next start
 opens only its own projects.
 

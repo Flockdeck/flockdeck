@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -303,17 +305,37 @@ func usage(fs *flag.FlagSet) {
 func fail(heading string, err error) {
 	fmt.Fprintln(os.Stderr, "flockdeck:", err)
 	text := heading + "\n\n" + err.Error()
-	if dir, dirErr := store.Dir(); dirErr == nil {
-		path := filepath.Join(dir, "error.log")
-		stamp := time.Now().Format(time.RFC3339)
-		if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
-			fmt.Fprintf(f, "%s %v\n", stamp, err)
-			f.Close()
-			text += "\n\nThis is also written to " + path
-		}
+	if path := logError(err); path != "" {
+		text += "\n\nThis is also written to " + path
 	}
 	showStartupError(text)
 	os.Exit(1)
+}
+
+// logError appends err to error.log in the state directory, and reports the
+// file's path, or "" when it could not be written. It is where a failure goes
+// that may have no terminal to be read in.
+func logError(err error) string {
+	dir, dirErr := store.Dir()
+	if dirErr != nil {
+		return ""
+	}
+	path := filepath.Join(dir, "error.log")
+	f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if openErr != nil {
+		return ""
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %v\n", time.Now().Format(time.RFC3339), err)
+	return path
+}
+
+// shutdownFailed says what went wrong on the way out, as what was being done
+// and why it failed. By then the window has closed, and the terminal, if
+// there was one, has been let go of, so it goes to error.log as well.
+func shutdownFailed(what string, err error) {
+	fmt.Fprintf(os.Stderr, "flockdeck: %s: %v\n", what, err)
+	logError(fmt.Errorf("%s: %w", what, err))
 }
 
 // options are the settings run needs.
@@ -358,16 +380,21 @@ func quitRunning() error {
 	// still ours -- and a wedged instance is exactly the one somebody reaches
 	// for -quit to stop, while the request to quit needs nothing from the
 	// workspace. So that is asked to quit, as one that answers is.
+	asked := time.Now()
 	h, err := server.Identify(inst.URL, inst.Token)
 	switch {
 	case err == nil, errors.Is(err, server.ErrNotReady):
-	case refusedConnection(err), errors.Is(err, server.ErrNotOurs):
-		// Nothing listening there, or not the instance on record: the record
-		// was left by one that has gone.
+	case refusedConnection(err):
+		// Nothing listening there: an instance that has gone, or one on its
+		// way out.
+		return quitWithNothingListening(inst)
+	case errors.Is(err, server.ErrNotOurs):
+		// Not the instance on record: the record was left by one that has
+		// gone.
 		_ = store.ClearInstance()
 		return errNoneRunning
 	default:
-		return fmt.Errorf("ask the instance at %s whether it is running: %w", inst.URL, err)
+		return instanceRequestFailed(inst, "ask the instance at "+inst.URL+" whether it is running", err, time.Since(asked))
 	}
 
 	// RequestQuit returns only once the instance has gone -- stopped
@@ -380,16 +407,69 @@ func quitRunning() error {
 	if h != nil {
 		pid = h.PID
 	}
+	asked = time.Now()
 	if err := server.RequestQuit(inst.URL, inst.Token, pid); err != nil {
-		// Gone between the question and the request.
+		// Gone between the question and the request, or on its way.
 		if refusedConnection(err) {
-			_ = store.ClearInstance()
-			return errNoneRunning
+			return quitWithNothingListening(inst)
 		}
-		return fmt.Errorf("ask the instance at %s to stop: %w", inst.URL, err)
+		return instanceRequestFailed(inst, "ask the instance at "+inst.URL+" to stop", err, time.Since(asked))
 	}
 	fmt.Println("flockdeck: stopped")
 	return nil
+}
+
+// quitWithNothingListening is what -quit does when nothing listens at the
+// recorded address.
+//
+// That is not always an instance that has gone. One shutting down closes its
+// port first, and saves every project, stops the agents and clears its record
+// after. Saying nothing was running then let `flockdeck -quit && flockdeck`
+// start a second instance beside the first one's agents, still running, so
+// while the process that made the record runs, -quit waits for it to finish,
+// as it does for an instance it asked to stop.
+func quitWithNothingListening(inst *store.Instance) error {
+	if !instanceGoing(inst) {
+		_ = store.ClearInstance()
+		return errNoneRunning
+	}
+	if !waitForExit(inst) {
+		return fmt.Errorf("the instance at %s has stopped listening but is still running, as process %d", inst.URL, inst.PID)
+	}
+	_ = store.ClearInstance()
+	fmt.Println("flockdeck: stopped")
+	return nil
+}
+
+// instanceGoing reports whether the process that recorded inst is still
+// running, and is not this one. It is a variable so that a test can stand in
+// for an instance on its way out.
+var instanceGoing = func(inst *store.Instance) bool {
+	return inst.PID != os.Getpid() && inst.StillRunning()
+}
+
+// exitWait bounds how long a launch or -quit waits for an instance on its way
+// out to finish. That instance's shutdown is bounded by shutdownGrace, after
+// which it ends itself, so a little longer than that sees out any instance
+// that is going to go. It is a variable so that a test need not wait as long.
+var exitWait = shutdownGrace + 5*time.Second
+
+// waitForExit waits, up to exitWait, for the process that recorded inst to
+// exit, and reports whether it has.
+func waitForExit(inst *store.Instance) bool {
+	deadline := time.Now().Add(exitWait)
+	said := false
+	for instanceGoing(inst) {
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		if !said {
+			fmt.Fprintln(os.Stderr, "flockdeck: waiting for the instance that is shutting down to finish")
+			said = true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return true
 }
 
 // errNoneRunning is what -quit reports when there is nothing to stop.
@@ -402,6 +482,45 @@ func refusedConnection(err error) bool {
 	return errors.As(err, &dial) && dial.Op == "dial"
 }
 
+// instanceRequestFailed words a failed request to the instance on record, as
+// what was being attempted and why it failed, for the terminal and for the
+// error.log and Windows error box that fail puts it in.
+//
+// Go's error for a failed request names the address it went to, and every
+// request to an instance carries the instance's token in that address, so the
+// token went wherever the message did. It is taken out. A request that got no
+// answer in time is worded as notAnswering says, since a URL and a context
+// deadline tell nobody what to do next.
+func instanceRequestFailed(inst *store.Instance, what string, err error, waited time.Duration) error {
+	if timedOut(err) {
+		return notAnswering(inst, waited)
+	}
+	return fmt.Errorf("%s: %s", what, redactToken(err.Error(), inst.Token))
+}
+
+// timedOut reports whether a request failed for want of an answer in time.
+func timedOut(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+// notAnswering is the error for an instance that is there, holding its port,
+// and gave no answer within waited: stuck, most likely, and ended only by
+// ending its process. Starting another beside it is no answer, so it is not
+// offered.
+func notAnswering(inst *store.Instance, waited time.Duration) error {
+	host := inst.URL
+	if u, err := url.Parse(inst.URL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	secs := int(waited.Round(time.Second) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return fmt.Errorf("the Flockdeck at %s (process %d) did not answer within %d s; it may be stuck, so end process %d",
+		host, inst.PID, secs, inst.PID)
+}
+
 // runningInstance returns the recorded instance if it is alive and answering.
 func runningInstance() (*store.Instance, string, error) {
 	inst, err := store.LoadInstance()
@@ -409,13 +528,42 @@ func runningInstance() (*store.Instance, string, error) {
 		return nil, "", err
 	}
 	base := inst.URL
+	asked := time.Now()
 	if _, err := server.Probe(base, inst.Token); err != nil {
-		// An instance that is there but too busy to answer for its workspace
-		// is running all the same. Taking its record for a stale one would
-		// start a rival set of agents beside it, which is much the worse
-		// mistake than a launch that has to wait or be told to try again.
-		if errors.Is(err, server.ErrNotReady) {
+		switch {
+		case errors.Is(err, server.ErrNotReady):
+			// An instance that is there but too busy to answer for its
+			// workspace is running all the same. Taking its record for a stale
+			// one would start a rival set of agents beside it, which is much
+			// the worse mistake than a launch that has to wait or be told to
+			// try again.
 			return inst, base, nil
+		case refusedConnection(err):
+			// Nothing listening, while the process that made the record still
+			// runs, is an instance on its way out: its port is closed before
+			// it saves every project, stops the agents and clears its record.
+			// A launch that took that for a stale record started a rival,
+			// which restored the projects before the first had saved them,
+			// wrote over that save half a minute later, and resumed
+			// conversations the first one's agents still had open. So it
+			// waits for the first to finish.
+			if instanceGoing(inst) && !waitForExit(inst) {
+				return nil, "", fmt.Errorf("the flockdeck on record has stopped listening but is still running, as process %d, after %s", inst.PID, exitWait)
+			}
+		case errors.Is(err, server.ErrNotOurs):
+			// Something else answers there: the record was left by an
+			// instance that has gone, and its port has been taken since.
+		case instanceGoing(inst):
+			// No answer in time, or none that could be read, from an address
+			// whose instance is still running. That was taken for a stale
+			// record like the rest, and a second instance started without a
+			// word beside the first one's agents. It is said instead, and the
+			// launch goes no further.
+			if timedOut(err) {
+				return nil, "", fmt.Errorf("%w: %w", errNotAnswering, notAnswering(inst, time.Since(asked)))
+			}
+			return nil, "", fmt.Errorf("%w: the Flockdeck at %s (process %d) could not be asked whether it is running (%s)",
+				errNotAnswering, inst.URL, inst.PID, redactToken(err.Error(), inst.Token))
 		}
 		// The record is stale: the process died without clearing it.
 		_ = store.ClearInstance()
@@ -423,6 +571,11 @@ func runningInstance() (*store.Instance, string, error) {
 	}
 	return inst, base, nil
 }
+
+// errNotAnswering marks an instance on record whose process is running but
+// which does not answer. A launch stops at it rather than starting a second
+// set of agents beside the first.
+var errNotAnswering = errors.New("an instance is running but not answering")
 
 // answering reports whether the instance on record is running and answering.
 // A record left by one that has gone is cleared on the way, as for any launch.
@@ -437,10 +590,15 @@ func answering() bool {
 // shows the window.
 func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if root != "" {
+		asked := time.Now()
 		if err := server.RequestOpen(base, inst.Token, root); err != nil {
+			if timedOut(err) {
+				return notAnswering(inst, time.Since(asked))
+			}
 			// On its own this was "open project: 400 Bad Request", which says
 			// neither what was being attempted nor what else there is to do.
-			return fmt.Errorf("the flockdeck already running would not open %s (%w); run with -solo to start a separate one", root, err)
+			return fmt.Errorf("the flockdeck already running would not open %s (%s); run with -solo to start a separate one",
+				root, redactToken(err.Error(), inst.Token))
 		}
 	}
 	url := base + "/?t=" + inst.Token
@@ -457,11 +615,17 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	// with the token in it, which would stay on its command line for anybody
 	// on the machine to read (see server.WindowURL). Only an instance from an
 	// earlier build, which gives out no links, is opened the old way.
+	asked := time.Now()
 	link, err := server.RequestWindowURL(base, inst.Token)
 	if errors.Is(err, server.ErrNoWindowLinks) {
 		link = url
+	} else if timedOut(err) {
+		return notAnswering(inst, time.Since(asked))
 	} else if err != nil {
-		return fmt.Errorf("the flockdeck already running would not give a window a way in (%w); open this URL manually:\n  %s", err, url)
+		// The address to open by hand does carry the token: it is the one way
+		// in left to offer. The reason the link was refused need not.
+		return fmt.Errorf("the flockdeck already running would not give a window a way in (%s); open this URL manually:\n  %s",
+			redactToken(err.Error(), inst.Token), url)
 	}
 	if _, err := appwindow.Open(link, profile); err != nil {
 		// The instance carries on without us, so its address stays good.
@@ -485,14 +649,21 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 // Starting is still the right default — refusing would leave the application
 // unusable over a file the user has never heard of — but it is a guess, and
 // the guess is said out loud rather than made silently.
-func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string) {
+//
+// An instance that is running and not answering is no guess: it is there, and
+// its agents with it. That is the one error handed back, for the launch to
+// stop at.
+func joinRunning(lookup func() (*store.Instance, string, error), warn func(string)) (*store.Instance, string, error) {
 	inst, base, err := lookup()
-	if err != nil {
+	switch {
+	case errors.Is(err, errNotAnswering):
+		return nil, "", err
+	case err != nil:
 		warn("could not tell whether one is already running (" + err.Error() +
 			"), so starting a new one; any agents already running still are")
-		return nil, ""
+		return nil, "", nil
 	}
-	return inst, base
+	return inst, base, nil
 }
 
 // startLockWait is how long a launch waits for one already starting to put
@@ -597,7 +768,7 @@ func run(opts options) error {
 		applyStagedUpdate(os.Stderr)
 		if restarting.Load() {
 			if err := relaunch(reopen); err != nil {
-				fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+				shutdownFailed("could not start again", err)
 			}
 		}
 	}()
@@ -629,9 +800,13 @@ func run(opts options) error {
 	// Attach to an instance that is already running rather than starting a
 	// second one: its agents are the ones the user means.
 	if !opts.solo {
-		if inst, base := joinRunning(runningInstance, func(text string) {
+		inst, base, err := joinRunning(runningInstance, func(text string) {
 			fmt.Fprintln(os.Stderr, "flockdeck:", text)
-		}); inst != nil {
+		})
+		if err != nil {
+			return err
+		}
+		if inst != nil {
 			// The flags that describe how to start up have nobody to apply
 			// to once we are joining agents that are already running. Say so:
 			// silently ignoring -new looks like the layout was kept on purpose.
@@ -800,8 +975,11 @@ func run(opts options) error {
 	// this was run from: -detach's address and how to stop it, the notes on
 	// flags that had no effect, a failure to start. A run that goes on without
 	// the terminal lets it go now, so that closing it does not end the run;
-	// -no-window has the terminal as its only interface and keeps it.
-	if !opts.noWindow {
+	// -no-window has the terminal as its only interface and keeps it, unless
+	// -detach says to go on without it too. That pair kept it as well: the
+	// prompt never came back on macOS and Linux, and closing the terminal
+	// ended the detached run on Windows.
+	if !opts.noWindow || opts.detach {
 		releaseConsole()
 	}
 
@@ -825,10 +1003,10 @@ func run(opts options) error {
 		return err
 	}
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
+		shutdownFailed("could not save layout", err)
 	}
-	if err := keepOpenProjects(before, ws.Session()); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
+	if err := keepOpenProjects(before, ws.Session(), ws.ClosedRoots()); err != nil {
+		shutdownFailed("could not keep the list of open projects", err)
 	}
 	close(saved)
 
@@ -875,7 +1053,7 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 
 	if win.AppMode {
 		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
-			fmt.Fprintln(os.Stderr, windowFailedNote(err))
+			note := noteWindowFailed(err)
 			// Better an ordinary tab than no interface at all, as when no
 			// app-mode browser is found. Whether or not one opens, the address
 			// is printed: a desktop that could not show the window may well
@@ -884,6 +1062,8 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 				fmt.Println("Trying your default browser instead.")
 			}
 			printServing(opts, recorded, srv.URL())
+			// Last, since on Windows it waits for the box to be dismissed.
+			showStartupError(note)
 		})
 	} else {
 		// A tab in the user's own browser cannot be watched, so fall back
@@ -960,6 +1140,22 @@ func windowFailedNote(err error) string {
 	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
 		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
 		err, appwindow.BrowserEnv)
+}
+
+// noteWindowFailed says that the window's browser failed as it started, and
+// returns what it said.
+//
+// It can say so as much as five seconds after start-up, when the Windows
+// release has let its terminal go, or never had one: started from a shortcut,
+// the note went nowhere, and the run carried on with no window and nothing to
+// say why. So it goes to error.log as well, and the caller puts it in front of
+// the user with showStartupError, which shows it only where there is no
+// terminal to have read it in.
+func noteWindowFailed(err error) string {
+	note := windowFailedNote(err)
+	fmt.Fprintln(os.Stderr, note)
+	logError(errors.New(strings.TrimPrefix(note, "flockdeck: ")))
+	return note
 }
 
 // workingDir and loadSession are where a launch that names no project learns
@@ -1105,14 +1301,34 @@ func sameFolder(a, b string) bool {
 // saving on any trouble with the read -- a file held a moment too long, a list
 // that came back damaged -- and the projects kept aside were lost with the
 // only copy of them, which was the one in memory.
-func keepOpenProjects(before, now *store.Session) error {
+//
+// closed are the projects this run closed. They are left out of the ones put
+// back: closing one during a -new run did not stick, since the list from
+// before the run still named it, and the next start reopened it.
+func keepOpenProjects(before, now *store.Session, closed []string) error {
 	if before == nil {
 		return nil
 	}
-	return store.SaveSession(&store.Session{
-		Open:   append(append([]string(nil), now.Open...), before.Open...),
-		Active: now.Active,
-	})
+	open := append([]string(nil), now.Open...)
+	for _, root := range before.Open {
+		if !slices.ContainsFunc(closed, func(c string) bool { return sameFolder(c, root) }) {
+			open = append(open, root)
+		}
+	}
+	// A project whose folder was away before the run keeps its count of
+	// starts away: a -new run does not look for the ones it puts back, so it
+	// is not a start that found the folder there. SaveSession keeps a count
+	// only for a project still in the list.
+	var away map[string]int
+	for _, from := range []map[string]int{before.Away, now.Away} {
+		for root, starts := range from {
+			if away == nil {
+				away = map[string]int{}
+			}
+			away[root] = starts
+		}
+	}
+	return store.SaveSession(&store.Session{Open: open, Active: now.Active, Away: away})
 }
 
 // shutdown stops serving, and only then saves.

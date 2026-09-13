@@ -19,6 +19,9 @@ import (
 // the run lasted, and to end with the terminal, the opposite of its promise.
 // Now the command returns once start-up is over, having printed the address
 // and how to stop the run, and the run is still there to be stopped.
+//
+// With -no-window as well it held the prompt for good: only a run with a
+// window let the terminal go.
 func TestDetachGivesTheTerminalBack(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the program")
@@ -28,6 +31,12 @@ func TestDetachGivesTheTerminalBack(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	for _, flags := range [][]string{{"-detach"}, {"-detach", "-no-window"}} {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) { detachGivesTheTerminalBack(t, exe, flags) })
+	}
+}
+
+func detachGivesTheTerminalBack(t *testing.T, exe string, flags []string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
@@ -35,7 +44,7 @@ func TestDetachGivesTheTerminalBack(t *testing.T) {
 	t.Setenv(updateEnv, "off")
 
 	var out bytes.Buffer
-	cmd := exec.Command(exe, "-solo", "-detach", "-shell", "-C", t.TempDir())
+	cmd := exec.Command(exe, append(append([]string{"-solo"}, flags...), "-shell", "-C", t.TempDir())...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	returned := make(chan error, 1)
 	if err := cmd.Start(); err != nil {

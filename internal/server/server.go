@@ -134,6 +134,11 @@ type Server struct {
 	// last window closes so the agents carry on.
 	detached atomic.Bool
 
+	// unsavedAskedAt is when a quit or restart was last turned down because
+	// the layout could not be saved. See askedAgainPastFailedSave. It is
+	// touched only on the workspace goroutine.
+	unsavedAskedAt time.Time
+
 	// OnLastClientGone is called when the final window closes, so the
 	// application can decide whether to shut down.
 	OnLastClientGone func()

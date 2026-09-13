@@ -7,6 +7,11 @@ The things that go wrong most often, and what they mean.
 Started from a shortcut, Flockdeck has no terminal to print to, so a failure to
 start is also written to `error.log` in the state directory — [Settings](#settings) says
 where that is. Running `flockdeck` from a terminal shows the same message there.
+What goes wrong as it stops — a layout it could not save, an update it could
+not put in place, a restart that did not come back — is written there too.
+
+When the layout cannot be saved, Quit and Restart say why and stop there
+rather than lose what changed; asking a second time goes ahead anyway.
 
 ## macOS or Windows will not open a Flockdeck I downloaded
 
