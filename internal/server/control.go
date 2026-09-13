@@ -405,6 +405,11 @@ type command struct {
 	After  string `json:"after"`
 	Before string `json:"before"`
 	Entry  string `json:"entry"`
+	// MediaType and Data are attachImage's own: a picture's content type as
+	// the phone claims it, and its bytes, base64. Name (above) is what the
+	// phone calls the file. See imageattach.go.
+	MediaType string `json:"mediaType"`
+	Data      string `json:"data"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,6 +1097,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "conversationClose":
 		s.conversationClose(c, cmd.ID)
+		return
+	case "attachImage":
+		s.attachImage(c, cmd.ID, cmd.Name, cmd.MediaType, cmd.Data)
 		return
 	case "resumeConversation":
 		s.resumeConversation(c, cmd.ID, cmd.Path, titleFor(cmd.Text, cmd.Path), cmd.Agent)

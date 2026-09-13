@@ -1,8 +1,14 @@
 package transcript
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,6 +197,131 @@ func TestClaudeStreamTranslatesEveryLineKind(t *testing.T) {
 
 	if _, found := entryByID(entries, "u-truncated-1"); found {
 		t.Error("the deliberately truncated last line must not be parsed until it is completed")
+	}
+}
+
+// tinyPNGBase64 is a real, decodable one-pixel PNG, checked into the fixture
+// twice: once as a pasted screenshot sitting directly in a user message, once
+// as a Read tool's own result -- the two places the design says an image
+// block turns up.
+const tinyPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+// TestClaudeStreamTranslatesImages is the core test for the chat view's
+// pictures: without addImage in claude_stream.go, both a pasted screenshot
+// and a Read tool's own image result are dropped silently, and detail never
+// carries the bytes the phone draws.
+func TestClaudeStreamTranslatesImages(t *testing.T) {
+	home := copyFixtureHome(t)
+	spec := fixtureSpec(home)
+
+	stream, ok := StreamFor(spec, fixtureSessionID)
+	if !ok {
+		t.Fatal("StreamFor: claude Spec answered unsupported")
+	}
+	stream.Refresh()
+	entries := stream.Snapshot()
+
+	pasted, ok := entryByID(entries, "u-image-1:0")
+	if !ok || pasted.Kind != KindImage || pasted.MediaType != "image/png" || !pasted.HasDetail {
+		t.Fatalf("pasted image entry: got %+v, ok=%v", pasted, ok)
+	}
+	if pasted.Width != 1 || pasted.Height != 1 {
+		t.Errorf("pasted image dimensions: got %dx%d, want 1x1", pasted.Width, pasted.Height)
+	}
+	if pasted.Bytes != len(mustDecodeBase64(t, tinyPNGBase64)) {
+		t.Errorf("pasted image bytes: got %d, want %d", pasted.Bytes, len(mustDecodeBase64(t, tinyPNGBase64)))
+	}
+	detail, ok := stream.Detail("u-image-1:0")
+	if !ok || detail.Data != tinyPNGBase64 {
+		t.Errorf("pasted image detail: ok=%v, got %q", ok, detail.Data)
+	}
+
+	fromTool, ok := entryByID(entries, "toolu_read_img:image:0")
+	if !ok || fromTool.Kind != KindImage || fromTool.MediaType != "image/png" || !fromTool.HasDetail {
+		t.Fatalf("tool-result image entry: got %+v, ok=%v", fromTool, ok)
+	}
+	toolDetail, ok := stream.Detail("toolu_read_img:image:0")
+	if !ok || toolDetail.Data != tinyPNGBase64 {
+		t.Errorf("tool-result image detail: ok=%v, got %q", ok, toolDetail.Data)
+	}
+
+	// The Read call that returned the picture is still an ordinary tool row
+	// beside it, not replaced by the image.
+	readTool, ok := entryByID(entries, "toolu_read_img")
+	if !ok || readTool.Kind != KindTool || readTool.Name != "Read" || readTool.Status != StatusOK {
+		t.Errorf("the Read tool call itself: got %+v, ok=%v", readTool, ok)
+	}
+}
+
+// bigTestPNG builds a real png, w by h, filled with noise so it does not
+// compress away to nothing -- what an oversized screenshot looks like to
+// prepareImage, without checking in a multi-hundred-KB fixture file.
+func bigTestPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	rng := rand.New(rand.NewSource(1))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(rng.Intn(256)), G: uint8(rng.Intn(256)), B: uint8(rng.Intn(256)), A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func mustDecodeBase64(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// TestPrepareImageRefusesDisallowedAndOversizedTypes covers the safety rule
+// behind every image entry: only png, jpeg, gif and webp are ever sent, an
+// svg above all is never one of them, and a gif or webp too large to send is
+// refused outright rather than sent oversized, since only png and jpeg can be
+// downscaled without cgo.
+func TestPrepareImageRefusesDisallowedAndOversizedTypes(t *testing.T) {
+	small := mustDecodeBase64(t, tinyPNGBase64)
+	if _, _, _, _, ok := prepareImage("image/svg+xml", small); ok {
+		t.Error("an svg must never be accepted as an image entry")
+	}
+	if _, _, _, _, ok := prepareImage("image/png", nil); ok {
+		t.Error("empty image bytes must be refused")
+	}
+	oversizedGIF := bytes.Repeat([]byte{0}, maxImageSendBytes+1)
+	copy(oversizedGIF, []byte("GIF89a"))
+	if _, _, _, _, ok := prepareImage("image/gif", oversizedGIF); ok {
+		t.Error("a gif too large to send must be refused, not sent oversized")
+	}
+}
+
+// TestPrepareImageDownscalesAnOversizedPNG covers the one thing this file
+// spends real work on: a png too large or too big on a side is downscaled and
+// re-encoded as a jpeg that fits the phone's size cap, rather than sent whole
+// or dropped.
+func TestPrepareImageDownscalesAnOversizedPNG(t *testing.T) {
+	big := bigTestPNG(t, 3000, 100)
+	if len(big) <= maxImageSendBytes {
+		t.Fatalf("test PNG is not actually oversized: %d bytes", len(big))
+	}
+	mediaType, data, width, height, ok := prepareImage("image/png", big)
+	if !ok {
+		t.Fatal("an oversized png should be downscaled, not refused")
+	}
+	if mediaType != "image/jpeg" {
+		t.Errorf("downscaled media type = %q, want image/jpeg", mediaType)
+	}
+	if len(data) > maxImageSendBytes {
+		t.Errorf("downscaled image is still %d bytes, over the %d cap", len(data), maxImageSendBytes)
+	}
+	if width > maxImageDimension || height > maxImageDimension {
+		t.Errorf("downscaled dimensions %dx%d exceed the %d cap", width, height, maxImageDimension)
 	}
 }
 

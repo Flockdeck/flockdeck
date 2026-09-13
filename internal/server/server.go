@@ -298,6 +298,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.saveLoop()
 	go s.waitLoop()
 	go s.conversationPollLoop()
+	go cleanupAttachedImages(attachedImageMaxAge)
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()
