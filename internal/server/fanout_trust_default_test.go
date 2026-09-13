@@ -31,7 +31,9 @@ func TestFanoutTrustKeepsItsProjectsDefault(t *testing.T) {
 		return def
 	})
 	if def == "anthropic" {
-		t.Skip("the first project's default could not be told from the second's")
+		// The test arranged the difference itself, so a skip here would pass
+		// it unrun whenever that arrangement broke.
+		t.Fatal("the first project's default could not be told from the second's")
 	}
 	// The project switches before the trust step runs.
 	ask(srv, func() bool { ws.SelectProject(second); return true })

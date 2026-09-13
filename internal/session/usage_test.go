@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -313,7 +314,7 @@ func TestUsageOfARealProcessTree(t *testing.T) {
 	s := usagePane(os.Getpid())
 	u := s.usageAsOf(time.Now())
 	if !u.Known {
-		t.Skipf("no process table on %s; the reading is left out rather than guessed", os.Getenv("GOOS"))
+		t.Skipf("no process table on %s; the reading is left out rather than guessed", runtime.GOOS)
 	}
 	if u.Procs < 1 {
 		t.Errorf("Procs = %d, want at least this process", u.Procs)
