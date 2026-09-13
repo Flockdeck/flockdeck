@@ -1059,11 +1059,20 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify("a project has to be named by its full path", true)
 				return
 			}
+			// The recent-projects list and the folder browser open a project
+			// by its path whether it is open already or not, and one that is
+			// is only switched to. "opened app" said for that reads as a
+			// second copy of it having been started.
+			before := len(ws.Projects())
 			if err := ws.OpenProject(cmd.Path); err != nil {
 				c.notify(err.Error(), true)
 				return
 			}
-			c.notify("opened "+filepath.Base(cmd.Path), false)
+			if len(ws.Projects()) == before {
+				c.notify("switched to "+filepath.Base(cmd.Path)+", which was already open", false)
+			} else {
+				c.notify("opened "+filepath.Base(cmd.Path), false)
+			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
 		case "closeProject":
