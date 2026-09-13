@@ -166,6 +166,28 @@ func TestKeepOpenProjectsLeavesOutWhatTheRunClosed(t *testing.T) {
 	}
 }
 
+// A -new run does not look for the projects it puts back, so one whose folder
+// was away before it is still away, and keeps its count of starts away: the
+// run is not a start that found it there.
+func TestKeepOpenProjectsKeepsWhatIsAway(t *testing.T) {
+	isolateState(t)
+	a := t.TempDir()
+	away := filepath.Join(t.TempDir(), "usb")
+	before := &store.Session{Open: []string{a, away}, Active: a, Away: map[string]int{away: 3}}
+	now := &store.Session{Open: []string{a}, Active: a}
+
+	if err := keepOpenProjects(before, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("LoadSession = %v, %v", got, err)
+	}
+	if len(got.Open) != 2 || got.Open[1] != away || got.Away[away] != 3 {
+		t.Errorf("session = %+v, want %s kept, away for the 3 starts it had been", got, away)
+	}
+}
+
 // A record left behind by an instance that has gone still means nothing is
 // running, and the record is cleared on the way.
 func TestQuitWithOnlyAStaleRecord(t *testing.T) {

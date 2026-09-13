@@ -1224,6 +1224,12 @@ func sameRoot(a, b string) bool {
 type Session struct {
 	Open   []string `json:"open"`
 	Active string   `json:"active"`
+	// Away counts, for each project in Open whose folder was not there when
+	// a run started -- a USB stick, a network drive not yet connected -- how
+	// many starts in a row have found it missing. Such a project is kept in
+	// the list for a few starts rather than dropped at the first, and let go
+	// once they run out.
+	Away map[string]int `json:"away,omitempty"`
 }
 
 const sessionFile = "session.json"
@@ -1294,6 +1300,19 @@ func tidySession(s *Session) *Session {
 		}
 		if !found {
 			out.Active = ""
+		}
+	}
+	// A count of starts away is kept only for a project still in the list,
+	// under the spelling the list has.
+	for root, starts := range s.Away {
+		for _, kept := range out.Open {
+			if starts > 0 && sameRoot(kept, root) {
+				if out.Away == nil {
+					out.Away = map[string]int{}
+				}
+				out.Away[kept] = starts
+				break
+			}
 		}
 	}
 	return out

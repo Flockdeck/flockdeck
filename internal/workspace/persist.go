@@ -691,9 +691,16 @@ func (w *Workspace) RestoreSession() int {
 		if w.sessionRootIsOpen(root) {
 			continue
 		}
-		// A project whose directory has since been deleted or moved is simply
-		// dropped rather than reported as an error at startup.
+		// A project whose directory is not there is not opened, and not
+		// reported as an error at startup. It may be back, though: a USB
+		// stick, a network drive not yet connected. Dropping it here dropped
+		// it from the list at the next save, for good, so it is carried
+		// forward instead, for maxAwayStarts starts in a row, and only then
+		// let go.
 		if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+			if starts := sess.Away[saved] + 1; starts <= maxAwayStarts {
+				w.away = append(w.away, awayRoot{root: root, starts: starts})
+			}
 			continue
 		}
 		w.openRoots = append(w.openRoots, root)
@@ -758,10 +765,37 @@ func (w *Workspace) SaveSession() error {
 	return store.SaveSession(w.Session())
 }
 
-// Session is the list of open projects SaveSession records.
+// Session is the list of open projects SaveSession records: the ones open,
+// and after them the ones whose folders were away at start and are still
+// being kept for their return, with how many starts each has been away. One
+// whose folder came back and was opened during the run is among the open.
 func (w *Workspace) Session() *store.Session {
-	return &store.Session{
+	s := &store.Session{
 		Open:   append([]string(nil), w.openRoots...),
 		Active: w.activeRoot,
 	}
+	for _, a := range w.away {
+		if w.sessionRootIsOpen(a.root) {
+			continue
+		}
+		s.Open = append(s.Open, a.root)
+		if s.Away == nil {
+			s.Away = map[string]int{}
+		}
+		s.Away[a.root] = a.starts
+	}
+	return s
 }
+
+// awayRoot is a project whose folder was not there when this run started,
+// with how many starts in a row, this one included, have found it missing.
+type awayRoot struct {
+	root   string
+	starts int
+}
+
+// maxAwayStarts is how many starts in a row a project's folder may be found
+// missing before the project is let go of: enough for a drive left unplugged
+// for a week or two of daily use, and not so many that a folder deleted for
+// good haunts the list for ever.
+const maxAwayStarts = 10

@@ -1314,7 +1314,20 @@ func keepOpenProjects(before, now *store.Session, closed []string) error {
 			open = append(open, root)
 		}
 	}
-	return store.SaveSession(&store.Session{Open: open, Active: now.Active})
+	// A project whose folder was away before the run keeps its count of
+	// starts away: a -new run does not look for the ones it puts back, so it
+	// is not a start that found the folder there. SaveSession keeps a count
+	// only for a project still in the list.
+	var away map[string]int
+	for _, from := range []map[string]int{before.Away, now.Away} {
+		for root, starts := range from {
+			if away == nil {
+				away = map[string]int{}
+			}
+			away[root] = starts
+		}
+	}
+	return store.SaveSession(&store.Session{Open: open, Active: now.Active, Away: away})
 }
 
 // shutdown stops serving, and only then saves.

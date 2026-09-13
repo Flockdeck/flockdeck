@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -201,6 +202,9 @@ type Workspace struct {
 	openRoots []string
 	// closedRoots are the projects closed during this run. See ClosedRoots.
 	closedRoots []string
+	// away are the projects in the saved list whose folders were not there
+	// when this run started, kept for their return. See RestoreSession.
+	away []awayRoot
 	// opening guards against a restore that reopens itself. A tab can show
 	// panes from another project, so restoring one project can open a second,
 	// whose own layout may hold a pane belonging back to the first.
@@ -690,6 +694,9 @@ func (w *Workspace) CloseProject(root string) error {
 	}
 	w.openRoots = roots
 	w.closedRoots = append(w.closedRoots, root)
+	// A project whose folder was away at start, and came back and was opened,
+	// is closed for good: it is not kept for its return any more.
+	w.away = slices.DeleteFunc(w.away, func(a awayRoot) bool { return sameDir(a.root, root) })
 
 	if w.activeRoot == root {
 		w.activeRoot = w.openRoots[0]

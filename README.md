@@ -671,7 +671,9 @@ and working directories come back, **every project you had open is reopened**,
 each pane starts the agent and model it had, and each one resumes the
 conversation it had before rather than starting an empty one. The project you
 name on the command line is the one you land in; the rest are restored around
-it.
+it. A project whose folder is missing at start — a USB stick, a network drive
+not yet connected — is not opened, but stays in the list for the next ten
+starts, so it comes back with its folder.
 
 That works because panes are identified by a UUID handed to the agent as its
 session id when the pane is created, and handed back to reattach when it is
