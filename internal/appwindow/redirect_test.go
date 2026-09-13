@@ -101,9 +101,15 @@ func TestRedirectDirChoosesAPrivatePlacePerGoosAndKind(t *testing.T) {
 // fileURLFor is the reverse of what a browser reading a file:// URL does: a
 // Windows path gets a leading slash before its drive letter, and a Unix path,
 // already starting with one, is left alone.
+//
+// It is only ever handed a path of the system it runs on, and only Windows
+// takes a backslash for a separator, so the Windows path is tried on Windows
+// alone: elsewhere a backslash is part of a name, and escaping it is right.
 func TestFileURLFor(t *testing.T) {
-	if got, want := fileURLFor(`C:\Users\u\flockdeck.html`), "file:///C:/Users/u/flockdeck.html"; got != want {
-		t.Errorf("fileURLFor(windows path) = %q, want %q", got, want)
+	if filepath.Separator == '\\' {
+		if got, want := fileURLFor(`C:\Users\u\flockdeck.html`), "file:///C:/Users/u/flockdeck.html"; got != want {
+			t.Errorf("fileURLFor(windows path) = %q, want %q", got, want)
+		}
 	}
 	if got, want := fileURLFor("/home/u/flockdeck.html"), "file:///home/u/flockdeck.html"; got != want {
 		t.Errorf("fileURLFor(unix path) = %q, want %q", got, want)
