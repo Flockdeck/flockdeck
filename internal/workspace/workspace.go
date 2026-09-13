@@ -1967,6 +1967,9 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 // checking.
 var gitStatus = gitx.StatusWithin
 
+// gitExited says when a git given up on has really gone; see gitx.Exited.
+var gitExited = gitx.Exited
+
 // gitDeadline is how long one checkout's refresh has before it is given up on
 // and its panes are marked as not having answered. It is shorter than the
 // fifteen seconds between refreshes, so a checkout that hangs has been given
@@ -2052,11 +2055,27 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 			st, err := gitStatus(cwd, gitDeadline)
 			<-slots
 			key := pathKey(cwd)
-			w.gitMu.Lock()
-			delete(w.gitBusy, key)
-			w.gitMu.Unlock()
 			late := errors.Is(err, context.DeadlineExceeded)
 			apply(func() { w.applyGit(key, st, late) })
+			// A git given up on is answered for at once, but the checkout
+			// stays busy until it has really gone. Ending one stuck on a
+			// drive that has gone away takes as long as the drive does, and
+			// asking again sooner started another git beside it every
+			// refresh. That wait is not this refresh's: its slot is free.
+			done := func() {
+				w.gitMu.Lock()
+				delete(w.gitBusy, key)
+				w.gitMu.Unlock()
+			}
+			select {
+			case <-gitExited(err):
+				done()
+			default:
+				go func() {
+					<-gitExited(err)
+					done()
+				}()
+			}
 		}(cwd)
 	}
 	wg.Wait()
