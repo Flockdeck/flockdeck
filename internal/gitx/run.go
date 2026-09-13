@@ -58,7 +58,9 @@ func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
 // the only commands here that talk to anything outside the machine, which is
 // why they are the ones given the longer deadline.
 func runVerbose(dir string, args ...string) (string, error) {
-	out, errText, err := runCapture(context.Background(), networkTimeout, dir, args...)
+	var outb bytes.Buffer
+	errText, err := runToEnv(context.Background(), networkTimeout, dir, batchSSH(dir), nil, &outb, args...)
+	out := outb.String()
 	if err != nil {
 		// A remote that wants a login, on a machine with no credential
 		// helper to supply one, is refused a prompt here -- there is no
@@ -72,6 +74,32 @@ func runVerbose(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	return cleanProgress(errText + out), nil
+}
+
+// batchSSH is the environment push, pull and fetch are given so that ssh
+// cannot stop to ask a question.
+//
+// GIT_TERMINAL_PROMPT stops only git's own prompts. ssh opens the terminal
+// itself to ask whether to trust a host it has not seen, or for a key's
+// passphrase, so a run started from a terminal was asked there -- where nobody
+// was looking -- and waited all of networkTimeout for an answer. BatchMode
+// makes ssh fail at once instead, saying why.
+//
+// A user who has chosen an ssh command of their own keeps it: GIT_SSH_COMMAND
+// or GIT_SSH in the environment, or core.sshCommand in git's config, which is
+// often what names the key a repository needs and which GIT_SSH_COMMAND would
+// override. The config is asked here, one short local git process ahead of a
+// command that goes out to the network, rather than ahead of every status.
+func batchSSH(dir string) []string {
+	for _, name := range []string{"GIT_SSH_COMMAND", "GIT_SSH"} {
+		if _, ok := os.LookupEnv(name); ok {
+			return nil
+		}
+	}
+	if cmd, err := run(dir, "config", "--get", "core.sshCommand"); err == nil && strings.TrimSpace(cmd) != "" {
+		return nil
+	}
+	return []string{"GIT_SSH_COMMAND=ssh -o BatchMode=yes"}
 }
 
 // quotedURL picks the address out of git's "could not read Username for
@@ -137,6 +165,12 @@ type output interface {
 // runTo is runCapture with stdout going to out, for a caller that means to
 // keep only part of it; stderr is returned.
 func runTo(parent context.Context, timeout time.Duration, dir string, in io.Reader, out output, args ...string) (string, error) {
+	return runToEnv(parent, timeout, dir, nil, in, out, args...)
+}
+
+// runToEnv is runTo with env added to what git is given, for the commands
+// that go out to the network (see batchSSH).
+func runToEnv(parent context.Context, timeout time.Duration, dir string, env []string, in io.Reader, out output, args ...string) (string, error) {
 	// An empty Dir does not mean "no repository" to exec: it means the
 	// directory this process happens to be running in. Flockdeck is often started
 	// from inside a checkout of something, so a caller that lost track of
@@ -165,6 +199,7 @@ func runTo(parent context.Context, timeout time.Duration, dir string, in io.Read
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_OPTIONAL_LOCKS=0",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	var errb bytes.Buffer
 	cmd.Stdin = in
 	cmd.Stdout = out

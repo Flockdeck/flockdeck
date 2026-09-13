@@ -446,9 +446,15 @@ func from(current, legacy string) string {
 // looking for what vanished.
 const damagedSuffix = ".damaged"
 
-// quarantine moves a state file out of the way, best effort. Only one copy is
-// kept per name; a second one replacing the first is no loss, because a file
-// only becomes unreadable again after a good one has been written over it.
+// quarantine moves a state file out of the way, best effort.
+//
+// A copy already kept is not replaced: the next one goes to "<name>.damaged.1"
+// and on, as a file that could not be read goes beside ".unread". Moved onto
+// the one name, a second copy replaced the first, and the first is the one that
+// mattered as often as not: a layout from a newer build is put aside by the
+// older one the user stepped back to, and stepping forward and back once more
+// put aside the layout the older build had saved on top of the newer one's
+// tabs.
 //
 // A file that will not move — held for a moment by the virus scanner that
 // reads every file in the state directory, or blocked by whatever stands at
@@ -456,7 +462,11 @@ const damagedSuffix = ".damaged"
 // it, which is the loss moving it was for. It is recorded as unread instead,
 // so that save moves it aside first, or is refused if it still cannot.
 func quarantine(path string) {
-	if err := os.Rename(path, path+damagedSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	aside, err := asideName(path, damagedSuffix)
+	if err == nil {
+		err = os.Rename(path, aside)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		noteRead(path, err)
 	}
 }
@@ -474,7 +484,7 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
-	if err := keepUnread(p); err != nil {
+	if err := keepUnread(p, "the saved layout for "+s.Root); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
 	if err := writeAtomic(p, data); err != nil {
@@ -503,7 +513,34 @@ const unreadSuffix = ".unread"
 var unreadFiles = struct {
 	sync.Mutex
 	paths map[string]bool
+	// kept is every one of them moved aside since TakeKept last looked.
+	kept []Kept
 }{paths: map[string]bool{}}
+
+// Kept is a state file this run could not read, moved aside before the save
+// that replaced it.
+type Kept struct {
+	// What names what the file held, as a sentence would: "the saved layout
+	// for /repo/a".
+	What string
+	// Path is where it is kept now.
+	Path string
+}
+
+// TakeKept returns the files moved aside since it was last called, and
+// forgets them.
+//
+// A file that could not be read at start is moved aside by the first save
+// after, and the project it held came up on one fresh tab: without this, the
+// only sign of either was a file with a new name in a folder nobody looks in.
+// Whoever can tell the user asks, and says where their file went.
+func TakeKept() []Kept {
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
+	kept := unreadFiles.kept
+	unreadFiles.kept = nil
+	return kept
+}
 
 // noteRead records how reading a state file went. A file read, or found not
 // to be there, has nothing left to keep.
@@ -518,16 +555,17 @@ func noteRead(p string, err error) {
 }
 
 // keepUnread moves a file this run could not read aside, ahead of the save
-// about to replace it. Where it cannot be moved either, the save is refused:
-// what is lost with it is what the user has just seen, and the file that
-// could not be read is what they have not.
-func keepUnread(p string) error {
+// about to replace it, and records it for TakeKept under what, which names
+// what it held. Where it cannot be moved either, the save is refused: what is
+// lost with it is what the user has just seen, and the file that could not be
+// read is what they have not.
+func keepUnread(p, what string) error {
 	unreadFiles.Lock()
 	defer unreadFiles.Unlock()
 	if !unreadFiles.paths[p] {
 		return nil
 	}
-	aside, err := unreadName(p)
+	aside, err := asideName(p, unreadSuffix)
 	if err == nil {
 		err = renameWithRetry(p, aside)
 	}
@@ -535,17 +573,21 @@ func keepUnread(p string) error {
 		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
 	}
 	delete(unreadFiles.paths, p)
+	if err == nil {
+		unreadFiles.kept = append(unreadFiles.kept, Kept{What: what, Path: aside})
+	}
 	return nil
 }
 
-// maxUnreadKept bounds how many copies of one file are kept aside. It is far
-// more than any run will make; it is there so a folder where every name
-// answers something other than "not there" is not searched forever.
-const maxUnreadKept = 100
+// maxKeptAside bounds how many copies of one file are kept aside under one
+// suffix. It is far more than any run will make; it is there so a folder where
+// every name answers something other than "not there" is not searched forever.
+const maxKeptAside = 100
 
-// unreadName is the name a file this run could not read is moved aside to:
-// "<name>.unread", or where that is taken, the first of "<name>.unread.1",
-// "<name>.unread.2" and on that is not.
+// asideName is the name a state file is moved aside to under suffix — the
+// file this run could not read to "<name>.unread", the one this build could
+// not use to "<name>.damaged" — or where that is taken, the first of
+// "<name><suffix>.1", "<name><suffix>.2" and on that is not.
 //
 // A rename replaces whatever stands at the name it is given, on every
 // platform, and a copy already there is one kept for the user from an earlier
@@ -558,9 +600,9 @@ const maxUnreadKept = 100
 // in the same moment could take the name between the look and the rename.
 // That needs two instances failing to read one file at once, and costs one of
 // the two copies, which is what every second move used to cost.
-func unreadName(p string) (string, error) {
-	for i := 0; i < maxUnreadKept; i++ {
-		name := p + unreadSuffix
+func asideName(p, suffix string) (string, error) {
+	for i := 0; i < maxKeptAside; i++ {
+		name := p + suffix
 		if i > 0 {
 			name = fmt.Sprintf("%s.%d", name, i)
 		}
@@ -568,7 +610,7 @@ func unreadName(p string) (string, error) {
 			return name, nil
 		}
 	}
-	return "", fmt.Errorf("%d copies of it are already kept beside it", maxUnreadKept)
+	return "", fmt.Errorf("%d copies of it are already kept beside it", maxKeptAside)
 }
 
 // WriteAtomic is writeAtomic for the packages that keep a file of their own in
@@ -1136,7 +1178,7 @@ func writeRecents(list []Project) error {
 	// A damaged list that would not move aside is recorded as unread, and this
 	// write is what it has to be kept from: every directory the user has
 	// opened, replaced by the list read from it, which is nothing.
-	if err := keepUnread(filepath.Join(dir, recentsFile)); err != nil {
+	if err := keepUnread(filepath.Join(dir, recentsFile), "the list of recent projects"); err != nil {
 		return fmt.Errorf("write projects: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
@@ -1262,7 +1304,7 @@ func SaveSession(s *Session) error {
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, sessionFile)); err != nil {
+	if err := keepUnread(filepath.Join(dir, sessionFile), "the list of open projects"); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {

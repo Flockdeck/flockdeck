@@ -65,6 +65,57 @@ func TestALayoutThatCouldNotBeReadIsNotWrittenOver(t *testing.T) {
 	}
 }
 
+// TestALayoutKeptAsideSaysWhereItWent checks a layout moved aside by the
+// save after a failed read is reported, once, with the project it belonged to
+// and the name it is kept under.
+//
+// Nothing said so before: the project came up on one fresh tab, and half a
+// minute later the user's tabs were a file with a new name in a folder nobody
+// looks in.
+func TestALayoutKeptAsideSaysWhereItWent(t *testing.T) {
+	isolateConfig(t)
+	TakeKept() // whatever earlier tests in this process left behind
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "alpha"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	p, err := path("/repo/a")
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	gone := errors.New("the device is not ready")
+	readFile = func(name string) ([]byte, error) {
+		if name == p {
+			return nil, gone
+		}
+		return os.ReadFile(name)
+	}
+	t.Cleanup(func() { readFile = os.ReadFile })
+	if _, err := Load("/repo/a"); !errors.Is(err, gone) {
+		t.Fatalf("load gave %v, want the read's own failure", err)
+	}
+	readFile = os.ReadFile
+	if kept := TakeKept(); len(kept) != 0 {
+		t.Fatalf("kept before anything was moved: %+v", kept)
+	}
+
+	if err := Save("/repo/a", &State{Tabs: []Tab{{Title: "fresh"}}}); err != nil {
+		t.Fatalf("save after a failed read: %v", err)
+	}
+	kept := TakeKept()
+	if len(kept) != 1 {
+		t.Fatalf("kept = %+v, want the one layout moved aside", kept)
+	}
+	if kept[0].Path != p+unreadSuffix {
+		t.Errorf("kept at %s, want %s", kept[0].Path, p+unreadSuffix)
+	}
+	if !strings.Contains(kept[0].What, filepath.Clean("/repo/a")) {
+		t.Errorf("kept %q, want it named after its project", kept[0].What)
+	}
+	if again := TakeKept(); len(again) != 0 {
+		t.Errorf("reported a second time: %+v", again)
+	}
+}
+
 // TestASecondLayoutThatCouldNotBeReadDoesNotReplaceTheFirst checks a file
 // kept aside is still there after the same file cannot be read a second time.
 //

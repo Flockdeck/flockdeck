@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/session"
@@ -73,6 +74,75 @@ func TestALayoutThatCouldNotBeReadAtStartIsKeptFromTheTimedSave(t *testing.T) {
 	}
 	if !bytes.Equal(kept, saved) {
 		t.Errorf("kept %s, want the layout saved before", kept)
+	}
+}
+
+// TestALayoutThatCouldNotBeReadAtStartIsReported checks a restore says which
+// saved layouts and which list of open projects it could not read.
+//
+// It dropped the errors, so the project came up on one fresh tab with nothing
+// said, and the file was moved aside by the next save with nothing said either.
+func TestALayoutThatCouldNotBeReadAtStartIsReported(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	first, second := t.TempDir(), t.TempDir()
+
+	ws := newTestWorkspace(t, first)
+	ws.NewTab(session.KindShell, first, "alpha")
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("open second: %v", err)
+	}
+	ws.NewTab(session.KindShell, second, "beta")
+	if err := ws.SaveAll(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws.Close()
+
+	// Both layouts are made unreadable, each with a folder where it goes.
+	for _, want := range []string{`"alpha"`, `"beta"`} {
+		file, _ := layoutHolding(t, want)
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(file, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	again := newTestWorkspace(t, first)
+	ok, err := again.Restore()
+	if ok {
+		t.Errorf("restore of an unreadable layout says it restored something")
+	}
+	if err == nil || !strings.Contains(err.Error(), first) {
+		t.Errorf("restore = %v, want the first project's layout named", err)
+	}
+	if n := again.RestoreSession(); n != 1 {
+		t.Fatalf("reopened %d projects, want the second", n)
+	}
+	if err := again.RestoreErrors(); err == nil || !strings.Contains(err.Error(), second) {
+		t.Errorf("after reopening the others = %v, want the second project's layout named", err)
+	}
+	if err := again.RestoreErrors(); err != nil {
+		t.Errorf("asked again = %v, want what was said already forgotten", err)
+	}
+
+	// The list of open projects, unreadable in the same way.
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionFile := filepath.Join(dir, "session.json")
+	if err := os.Remove(sessionFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(sessionFile, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	third := newTestWorkspace(t, t.TempDir())
+	third.RestoreSession()
+	if err := third.RestoreErrors(); err == nil || !strings.Contains(err.Error(), "open projects") {
+		t.Errorf("an unreadable list of open projects = %v, want it said", err)
 	}
 }
 

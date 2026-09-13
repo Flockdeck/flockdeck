@@ -2023,7 +2023,7 @@ func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
 		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("temporary file %s was left behind", e.Name())
 		}
-		if strings.HasSuffix(e.Name(), damagedSuffix) {
+		if strings.Contains(e.Name(), damagedSuffix) {
 			t.Errorf("%s was written badly enough that it had to be quarantined", e.Name())
 		}
 	}

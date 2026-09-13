@@ -488,6 +488,7 @@ func (s *Server) saveLayouts() {
 	// failing, and again if it fails after having worked. It counts as told
 	// only if a window was there to be told.
 	err := s.ws.SaveLayouts()
+	s.tellKept()
 	if err == nil {
 		s.saveFailShown = false
 		return
@@ -495,6 +496,21 @@ func (s *Server) saveLayouts() {
 	if !s.saveFailShown && s.ClientCount() > 0 {
 		s.notifyAll("the layout could not be saved, and it is tried again every half minute; if this goes on, check that the disk has room and that Flockdeck's state folder can be written to: "+err.Error(), true)
 		s.saveFailShown = true
+	}
+}
+
+// tellKept tells the windows about every state file a save has moved aside
+// because it could not be read, which is the first they hear of it: the
+// project whose layout it was came up on one fresh tab at start, with nothing
+// to say why, and the save half a minute later moved the user's tabs to a new
+// name. Each is told once, and only once a window is there to be told; until
+// then the store holds on to them.
+func (s *Server) tellKept() {
+	if s.ClientCount() == 0 {
+		return
+	}
+	for _, k := range store.TakeKept() {
+		s.notifyAll(k.What+" could not be read, so it was moved aside rather than saved over; it is kept as "+k.Path, true)
 	}
 }
 
