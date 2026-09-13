@@ -815,6 +815,72 @@ func TestARegenerationLeavesNothingStale(t *testing.T) {
 	servedAs(t, dir, "fonts/archivo.woff2")
 }
 
+// A page that was open before a deploy goes on asking for the files it names
+// after it, a lazy screenshot or another srcset candidate, and during a
+// rolling deploy an old page can ask a server already on the new image. So a
+// regeneration keeps the fingerprinted files the pages it replaces linked,
+// directly or through their stylesheet, and the next regeneration, whose
+// pages being replaced no longer link them, takes them out. A fingerprinted
+// file that no page before linked goes at once.
+func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The generation before: pages naming files whose content has changed
+	// since, one of them only through the stylesheet.
+	previous := []string{"site.aaaaaaaaaa.css", "fonts/archivo.bbbbbbbbbb.woff2", "deck.cccccccccc.png", "deck-1584.dddddddddd.png", "og.eeeeeeeeee.png"}
+	write("index.html", `<link rel="stylesheet" href="site.aaaaaaaaaa.css">`+
+		`<meta property="og:image" content="`+defaultURL+`/og.eeeeeeeeee.png">`+
+		`<img src="deck.cccccccccc.png" srcset="deck-1584.dddddddddd.png 1584w, deck.cccccccccc.png 3168w">`)
+	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/archivo.bbbbbbbbbb.woff2") }`)
+	for _, name := range previous[1:] {
+		write(name, "from before")
+	}
+	older := []string{"site.ffffffffff.css", "fonts/archivo.9999999999.woff2", "shot.8888888888.png"}
+	for _, name := range older {
+		write(name, "from long before")
+	}
+
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name)))
+		return err == nil
+	}
+	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, name := range previous {
+		if !exists(name) {
+			t.Errorf("%s, which the pages before this regeneration linked, was taken out", name)
+		}
+	}
+	for _, name := range older {
+		if exists(name) {
+			t.Errorf("%s, which no page before this regeneration linked, was left in the site", name)
+		}
+	}
+
+	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	for _, name := range previous {
+		if exists(name) {
+			t.Errorf("%s was left in the site a second regeneration after the pages that linked it", name)
+		}
+	}
+	// The site's own files are there, each once.
+	servedAs(t, dir, "site.css")
+	servedAs(t, dir, "fonts/archivo.woff2")
+	servedAs(t, dir, "og.png")
+}
+
 var (
 	widthAttr  = regexp.MustCompile(`\swidth="(\d+)"`)
 	heightAttr = regexp.MustCompile(`\sheight="(\d+)"`)

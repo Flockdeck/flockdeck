@@ -291,6 +291,11 @@ func run(out, repo, module, url string) error {
 		files[name] = body
 	}
 
+	// What the pages being replaced link is read before they are.
+	previous, err := linked(out)
+	if err != nil {
+		return err
+	}
 	written := map[string]bool{}
 	for name, body := range files {
 		if hashed, ok := names[name]; ok {
@@ -305,7 +310,7 @@ func run(out, repo, module, url string) error {
 		}
 		written[name] = true
 	}
-	if err := prune(out, names, written); err != nil {
+	if err := prune(out, names, written, previous); err != nil {
 		return err
 	}
 
@@ -344,32 +349,108 @@ func fingerprint(name string, body []byte) string {
 // hashedName matches a name fingerprint gives.
 var hashedName = regexp.MustCompile(`\.[0-9a-f]{10}\.[a-z0-9]+$`)
 
-// prune takes out of out what a run before this one wrote and this one did
-// not: a fingerprinted file whose content has changed since, and the plain
-// name an asset had before it was fingerprinted. out is the site's own
-// repository, and a file left there is served for as long as it stays.
-func prune(out string, names map[string]string, written map[string]bool) error {
-	for plain := range names {
-		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("remove the old %s: %w", plain, err)
-		}
-	}
+// hashedFiles are the fingerprinted files in out, by the names a page links
+// them by.
+func hashedFiles(out string) ([]string, error) {
+	var found []string
 	for _, dir := range []string{"", "fonts"} {
 		entries, err := os.ReadDir(filepath.Join(out, dir))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, e := range entries {
-			name := path.Join(dir, e.Name())
-			if e.IsDir() || written[name] || !hashedName.MatchString(name) {
-				continue
+			if name := path.Join(dir, e.Name()); !e.IsDir() && hashedName.MatchString(name) {
+				found = append(found, name)
 			}
-			if err := os.Remove(filepath.Join(out, filepath.FromSlash(name))); err != nil {
-				return fmt.Errorf("remove the stale %s: %w", name, err)
+		}
+	}
+	return found, nil
+}
+
+// linked is every fingerprinted file in out that the pages already there
+// link, and that the stylesheet they link asks for in turn: the generation of
+// the site before this one.
+//
+// prune leaves these for one more run. A page that was open before a deploy
+// goes on asking for its own generation's files after it: a lazy screenshot
+// scrolled to, or another srcset candidate once the window is resized. And
+// while a deploy rolls, a page served by a server still on the old image can
+// send its requests for its files to one already on the new. Were the old
+// files gone, each of those would be a 404 on a page that works.
+func linked(out string) (map[string]bool, error) {
+	hashed, err := hashedFiles(out)
+	if err != nil {
+		return nil, err
+	}
+	var texts [][]byte
+	for _, p := range pages {
+		name := p.Path
+		if name == "" {
+			name = "index.html"
+		}
+		body, err := os.ReadFile(filepath.Join(out, name))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read the %s being replaced: %w", name, err)
+		}
+		texts = append(texts, body)
+	}
+	keep := map[string]bool{}
+	mark := func() {
+		for _, name := range hashed {
+			for _, text := range texts {
+				if bytes.Contains(text, []byte(name)) {
+					keep[name] = true
+					break
+				}
 			}
+		}
+	}
+	mark()
+	// The fonts are named by the stylesheet, not by the pages.
+	for name := range keep {
+		if path.Ext(name) != ".css" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(name)))
+		if err != nil {
+			return nil, fmt.Errorf("read the %s being replaced: %w", name, err)
+		}
+		texts = append(texts, body)
+	}
+	mark()
+	return keep, nil
+}
+
+// prune takes out of out what a run before this one wrote and this one did
+// not: a fingerprinted file whose content has changed since, and the plain
+// name an asset had before it was fingerprinted. out is the site's own
+// repository, and a file left there is served for as long as it stays.
+//
+// A fingerprinted file the pages this run replaced still linked, previous, is
+// the exception (see linked): it stays for this run, and goes on the next,
+// when nothing links it any more.
+func prune(out string, names map[string]string, written, previous map[string]bool) error {
+	for plain := range names {
+		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove the old %s: %w", plain, err)
+		}
+	}
+	hashed, err := hashedFiles(out)
+	if err != nil {
+		return err
+	}
+	for _, name := range hashed {
+		if written[name] || previous[name] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(out, filepath.FromSlash(name))); err != nil {
+			return fmt.Errorf("remove the stale %s: %w", name, err)
 		}
 	}
 	return nil
