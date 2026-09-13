@@ -297,18 +297,24 @@ func run(out, repo, module, url string) error {
 		return err
 	}
 	written := map[string]bool{}
-	for name, body := range files {
-		if hashed, ok := names[name]; ok {
-			name = hashed
+	for plain, body := range files {
+		as := []string{plain}
+		if hashed, ok := names[plain]; ok {
+			as = []string{hashed}
+			if alsoByName[plain] {
+				as = append(as, plain)
+			}
 		}
-		path := filepath.Join(out, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("create the folder for %s: %w", name, err)
+		for _, name := range as {
+			path := filepath.Join(out, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return fmt.Errorf("create the folder for %s: %w", name, err)
+			}
+			if err := os.WriteFile(path, body, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", name, err)
+			}
+			written[name] = true
 		}
-		if err := os.WriteFile(path, body, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
-		}
-		written[name] = true
 	}
 	if err := prune(out, names, written, previous); err != nil {
 		return err
@@ -330,6 +336,18 @@ func lf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n
 var servedByName = map[string]bool{
 	"favicon.ico":          true,
 	"apple-touch-icon.png": true,
+}
+
+// alsoByName are the fingerprinted files written under their plain name as
+// well, for what asks for that name without a page to give it the other.
+//
+// og.png is the picture a link to the site shows in Slack, Discord or X. The
+// pages name its fingerprinted copy, but every link shared before names were
+// fingerprinted gave https://flockdeck.ai/og.png, and those services fetch the
+// picture again when their copy expires: were that address gone, those links
+// would lose it. nginx serves the plain name no-cache, like a page.
+var alsoByName = map[string]bool{
+	"og.png": true,
 }
 
 // fingerprint is name with the start of its content's SHA-256 put before the
@@ -437,6 +455,9 @@ func linked(out string) (map[string]bool, error) {
 // when nothing links it any more.
 func prune(out string, names map[string]string, written, previous map[string]bool) error {
 	for plain := range names {
+		if written[plain] {
+			continue // see alsoByName
+		}
 		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("remove the old %s: %w", plain, err)
 		}

@@ -881,6 +881,37 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	servedAs(t, dir, "og.png")
 }
 
+// Links to the site shared before its files were fingerprinted show the
+// picture at https://flockdeck.ai/og.png, and Slack, Discord and X fetch it
+// again when their copy expires. So the social card is written under that
+// name too, the same picture as the fingerprinted copy the pages name, and a
+// regeneration over a site that has it leaves it there.
+func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "og.png"), []byte("from before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+	want, err := assets.ReadFile("assets/shots/og.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"og.png", servedAs(t, dir, "og.png")} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Errorf("the site has no %s: %v", name, err)
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s is %d bytes, not the %d of the social card", name, len(got), len(want))
+		}
+	}
+}
+
 var (
 	widthAttr  = regexp.MustCompile(`\swidth="(\d+)"`)
 	heightAttr = regexp.MustCompile(`\sheight="(\d+)"`)
