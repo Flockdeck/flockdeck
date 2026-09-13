@@ -239,7 +239,9 @@ func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, err
 // as gradlew.bat.
 func (t *runCommand) program(name string) string {
 	path := name
-	if filepath.Base(name) != name && !filepath.IsAbs(name) && filepath.VolumeName(name) == "" &&
+	// An empty word -- the command `"" x` -- is no path, and there is no first
+	// character of it to look at.
+	if name != "" && filepath.Base(name) != name && !filepath.IsAbs(name) && filepath.VolumeName(name) == "" &&
 		!os.IsPathSeparator(name[0]) {
 		path = filepath.Join(t.root.Dir(), name)
 	}

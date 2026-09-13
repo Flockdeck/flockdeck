@@ -39,3 +39,12 @@ func TestNoStandingPermissionIsOfferedForAShell(t *testing.T) {
 		}
 	}
 }
+
+// A command whose first word is an empty quoted string names no program, and
+// is neither a question nor a standing permission worth failing over.
+func TestAnEmptyProgramNameIsNotAPanic(t *testing.T) {
+	tl := &runCommand{root: newRoot(t)}
+	args := rawArgs(t, map[string]any{"command": `"" x`})
+	tl.Approval(args)
+	tl.Prefix(args)
+}
