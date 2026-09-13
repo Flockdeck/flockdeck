@@ -66,6 +66,13 @@ jobs:
       # unable to check what it downloads. Other runs have no key to hold.
       #
       # The output is kept as well as shown, for the step after this one.
+      #
+      # -count=1 runs every test again rather than trusting a result the
+      # shared build cache kept from another run, which could have been on
+      # other files a test reads, or another machine's timing. -timeout
+      # names the limit rather than leaning on go test's ten minutes: the
+      # server's tests alone take three, and several times that under the
+      # race detector.
       - name: Test
         if: runner.os != 'Windows'
         shell: bash
@@ -73,7 +80,7 @@ jobs:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: |
           set -o pipefail
-          go test ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+          go test -count=1 -timeout 20m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
 
       # Windows runs the tests from the runner's own shell, PowerShell 7, as
       # it always has: moving them to Git's bash changed what they ran in, and
@@ -85,7 +92,7 @@ jobs:
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: |
-          cmd /c "go test ./... > `"$env:RUNNER_TEMP\go-test.log`" 2>&1"
+          cmd /c "go test -count=1 -timeout 20m ./... > `"$env:RUNNER_TEMP\go-test.log`" 2>&1"
           $status = $LASTEXITCODE
           Get-Content "$env:RUNNER_TEMP\go-test.log"
           exit $status
@@ -101,7 +108,7 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           set -o pipefail
-          go test -race ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"
+          go test -race -count=1 -timeout 20m ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"
 
       # A job's log can only be read signed in to GitHub, and its annotations
       # can be read by anyone, from the web or the API. So a failure is also
