@@ -1089,6 +1089,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 				Mode:     store.LoadPrefs().Spend.StatusLine,
 				Endpoint: w.hookSrv.UsageEndpoint(),
 				Cwd:      p.Cwd,
+				Home:     transcript.ClaudeHomeFor(spec),
 			}
 			settings, err := session.WriteHookSettingsWith(spec.Exe,
 				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token(), statusLine)

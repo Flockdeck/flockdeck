@@ -161,6 +161,27 @@ func TestUsersStatusLineIsFoundByClaudesPrecedence(t *testing.T) {
 	}
 }
 
+// A pane whose catalog entry moves Claude Code's folder elsewhere -- which is
+// how a second account is run -- reads the user's settings from there, so the
+// status line carried is the one that account has, not Flockdeck's own.
+func TestAPaneOnAnotherAccountCarriesThatAccountsStatusLine(t *testing.T) {
+	own := claudeHomeAt(t)
+	other := t.TempDir()
+	cwd := t.TempDir()
+	line := func(cmd string) string { return `{"statusLine":{"type":"command","command":"` + cmd + `"}}` }
+	writeJSON(t, filepath.Join(own, "settings.json"), line("from-flockdecks-account"))
+	writeJSON(t, filepath.Join(other, "settings.json"), line("from-the-panes-account"))
+
+	sl := writeSettings(t, StatusLine{Mode: StatusLineAuto, Endpoint: "http://127.0.0.1:1/usage", Cwd: cwd, Home: other})
+	if sl == nil {
+		t.Fatal("the pane's account has a status line, and it was not routed")
+	}
+	cmd, _ := sl["command"].(string)
+	if got := thenOf(t, cmd); got != "from-the-panes-account" {
+		t.Errorf("the bridge runs %q, want the pane's own account's status line", got)
+	}
+}
+
 // A settings file saved with a byte order mark -- which Notepad and Windows
 // PowerShell's Out-File both write -- is one Claude Code reads, taking the mark
 // off first. Passing it over as unparseable skipped the status line the user

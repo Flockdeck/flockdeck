@@ -102,6 +102,49 @@ func TestExistsDecidesWhetherResumeIsWorthAttempting(t *testing.T) {
 	}
 }
 
+// TestAPaneOnAnotherAccountIsReadFromThatAccount covers a catalog entry for
+// Claude that sets CLAUDE_CONFIG_DIR, which is how a second account is run.
+// The pane's transcripts are written under that folder, and reading
+// Flockdeck's own instead found nothing: a restart started the conversation
+// afresh and sent the task again, the history listed the other account's, and
+// a fan-out could not read the plan.
+func TestAPaneOnAnotherAccountIsReadFromThatAccount(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "repo")
+	own := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", own)
+	other := t.TempDir()
+	const id = "44444444-4444-4444-4444-444444444444"
+	path := writeTranscript(t, filepath.Join(other, "projects", projectSlug(cwd)), id,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"on the other account"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- the plan"}]}}`)
+
+	spec := claudeSpec
+	// The last setting of a name is the one the pane gets.
+	spec.Env = []string{"CLAUDE_CONFIG_DIR=" + own, "CLAUDE_CONFIG_DIR=" + other}
+
+	if got := For(spec).Path(spec, id); got != path {
+		t.Errorf("Path = %q, want the pane's account's %q", got, path)
+	}
+	if !Exists(spec, id) {
+		t.Error("the pane's conversation was not found to resume")
+	}
+	if got := For(spec).Replies(spec, id, 1); len(got) != 1 || !strings.Contains(got[0], "the plan") {
+		t.Errorf("Replies = %#v, want what the agent said on the pane's account", got)
+	}
+	convs, err := For(spec).Conversations(spec, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convs) != 1 || convs[0].ID != id {
+		t.Errorf("Conversations = %+v, want the pane's account's", convs)
+	}
+
+	// An entry that does not move the folder is read where Flockdeck's own is.
+	if Exists(claudeSpec, id) {
+		t.Error("a conversation on another account was found on Flockdeck's own")
+	}
+}
+
 // TestAllLabelsEveryConversationWithItsAgent covers the history overlay's
 // list. It draws several agents' conversations in one place, so each row has
 // to say whose it is, and the whole list has to be in one order rather than
