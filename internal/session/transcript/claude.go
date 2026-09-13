@@ -14,7 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -72,6 +74,10 @@ type transcriptFacts struct {
 	cwd string
 	// title is the name Claude Code gave the conversation.
 	title string
+	// customTitle is the name the user gave it with /rename, the last one it
+	// was given. It is found wherever it is in the file, since it is appended
+	// when it is given.
+	customTitle string
 	// prompted records that the summary is something a person typed rather
 	// than a name Claude Code gave the conversation or nothing at all.
 	prompted bool
@@ -431,6 +437,11 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func
 			Title:    facts[i].title,
 			Messages: facts[i].entries(),
 		}
+		// A name somebody gave the conversation is what they will look for
+		// it by, and it is what Claude Code's own /resume lists it as.
+		if facts[i].customTitle != "" {
+			c.Summary, c.Title = facts[i].customTitle, facts[i].customTitle
+		}
 		if c.Summary == "" {
 			c.Summary = NoPrompt
 		}
@@ -784,10 +795,12 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 		}
 		now.summary, now.cwd, now.newlines = prev.summary, prev.cwd, prev.newlines
 		now.title, now.prompted, now.headRead = prev.title, prev.prompted, prev.headRead
+		now.customTitle = prev.customTitle
 		tail = now.size - prev.size
 	}
+	from := now.size - tail
 
-	counted := &countingReader{r: io.LimitReader(f, tail), last: '\n'}
+	counted := &countingReader{r: io.LimitReader(f, tail), last: '\n', mark: customTitleMark, markAt: -1}
 	if !grown {
 		now.summary, now.title, now.cwd, now.headRead = openingPrompt(counted)
 		now.prompted = now.summary != ""
@@ -801,6 +814,14 @@ func describeTranscript(path string, info os.FileInfo, prev transcriptFacts) (tr
 
 	now.newlines += counted.newlines
 	now.partial = counted.last != '\n'
+	// The last rename in what was read is the name, and a read that met none
+	// leaves the one already known: renaming appends, and nothing takes a
+	// name away but another.
+	if counted.markAt >= 0 {
+		if name := customTitleAt(f, from+counted.markAt); name != "" {
+			now.customTitle = name
+		}
+	}
 	return now, true
 }
 
@@ -876,19 +897,119 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string, read bool) {
 // a file that ends without a line break still has an entry on that last line:
 // a transcript being written to at this moment usually does. last starts as a
 // line break so that a reader nothing is read from is not one entry.
+//
+// It can also look for a mark in what goes past, and remember where the last
+// one began. Everything read from the file goes through here exactly once,
+// whether the entries it is part of are parsed or only counted, so this is the
+// one place an entry can be found wherever it is without reading the file
+// twice.
 type countingReader struct {
 	r        io.Reader
 	newlines int
 	last     byte
+
+	// mark is what to look for, and markAt where its last occurrence began,
+	// counted from the first byte read, or -1. read is how many bytes have
+	// gone past, and carry the end of the last read -- carried bytes of it --
+	// where an occurrence split between two reads begins.
+	mark    []byte
+	markAt  int64
+	read    int64
+	carry   [maxMark]byte
+	carried int
 }
+
+// maxMark bounds the mark a countingReader can look for, so that what it
+// carries from one read to the next is held without allocating.
+const maxMark = 32
 
 func (c *countingReader) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
 	if n > 0 {
 		c.newlines += bytes.Count(p[:n], []byte{'\n'})
 		c.last = p[n-1]
+		if len(c.mark) > 0 {
+			c.findMark(p[:n])
+		}
+		c.read += int64(n)
 	}
 	return n, err
+}
+
+// findMark notes the last occurrence of the mark in p, or in the join of the
+// end of the read before it and the start of p.
+//
+// It searches forwards, with bytes.Index, rather than backwards: every byte
+// of every transcript listed goes past here, and only the forward search is
+// the vectorised one. Searching backwards made a first listing half as slow
+// again.
+func (c *countingReader) findMark(p []byte) {
+	keep := len(c.mark) - 1
+	if c.carried > 0 {
+		var joined [2 * maxMark]byte
+		n := copy(joined[:], c.carry[:c.carried])
+		n += copy(joined[n:], p[:min(len(p), keep)])
+		if i := lastIndex(joined[:n], c.mark); i >= 0 {
+			c.markAt = c.read - int64(c.carried) + int64(i)
+		}
+	}
+	if i := lastIndex(p, c.mark); i >= 0 {
+		c.markAt = c.read + int64(i)
+	}
+	// What is carried is the last keep bytes read so far, which is too few
+	// to hold the mark whole: one found there was found already.
+	if len(p) >= keep {
+		c.carried = copy(c.carry[:], p[len(p)-keep:])
+		return
+	}
+	var both [2 * maxMark]byte
+	n := copy(both[:], c.carry[:c.carried])
+	n += copy(both[n:], p)
+	c.carried = copy(c.carry[:], both[max(n-keep, 0):n])
+}
+
+// lastIndex is bytes.LastIndex, found by searching forwards.
+func lastIndex(s, sep []byte) int {
+	last := -1
+	for off := 0; ; {
+		i := bytes.Index(s[off:], sep)
+		if i < 0 {
+			return last
+		}
+		last = off + i
+		off = last + 1
+	}
+}
+
+// customTitleMark begins the entry Claude Code writes when a conversation is
+// renamed: {"type":"custom-title","customTitle":...}, in that order, from an
+// object literal (2.1.270, read from its executable). The same words quoted
+// inside a message are escaped there, and do not match.
+var customTitleMark = []byte(`"type":"custom-title"`)
+
+// customTitleAt reads the name out of the rename entry whose mark begins at
+// offset at, or "" if what is there is not one.
+func customTitleAt(f *os.File, at int64) string {
+	start := max(at-64, 0)
+	buf := make([]byte, 8<<10)
+	n, _ := f.ReadAt(buf, start)
+	buf = buf[:n]
+	mark := int(at - start)
+	if mark > len(buf) {
+		return ""
+	}
+	line := buf[bytes.LastIndexByte(buf[:mark], '\n')+1:]
+	if end := bytes.IndexByte(line, '\n'); end >= 0 {
+		line = line[:end]
+	}
+	var entry struct {
+		Type        string `json:"type"`
+		CustomTitle string `json:"customTitle"`
+	}
+	if json.Unmarshal(line, &entry) != nil || entry.Type != "custom-title" {
+		return ""
+	}
+	return firstPrompt(entry.CustomTitle)
 }
 
 // scratch hands out the buffers a transcript is read through.
@@ -978,12 +1099,39 @@ func firstPrompt(s string) string {
 	if isSyntheticPrompt(s) {
 		return ""
 	}
-	s = strings.Join(strings.Fields(s), " ")
-	if len([]rune(s)) > 160 {
-		s = string([]rune(s)[:160]) + "…"
+	// Runs of white space become one space, and the result is cut at
+	// promptRunes with an ellipsis -- worked out only as far as the cut.
+	// Splitting the whole prompt into words and counting it out in runes
+	// twice over was four milliseconds and seven megabytes for an opening
+	// prompt that was a pasted megabyte of log, of which a row shows a line.
+	var b strings.Builder
+	runes, gap := 0, false
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if unicode.IsSpace(r) {
+			gap, i = true, i+size
+			continue
+		}
+		if gap && runes > 0 {
+			if runes == promptRunes {
+				return b.String() + "…"
+			}
+			b.WriteByte(' ')
+			runes++
+		}
+		if runes == promptRunes {
+			return b.String() + "…"
+		}
+		// A byte that is not UTF-8 is written as the replacement character,
+		// which is what it reached the window as whichever way it went.
+		b.WriteRune(r)
+		gap, runes, i = false, runes+1, i+size
 	}
-	return s
+	return b.String()
 }
+
+// promptRunes is how much of a prompt is kept for a row in the history list.
+const promptRunes = 160
 
 // newTranscriptScanner returns a scanner able to cope with the long lines a
 // transcript contains. It is what the reply reader walks a transcript with,

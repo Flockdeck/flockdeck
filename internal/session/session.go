@@ -2,7 +2,9 @@ package session
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
@@ -216,6 +218,15 @@ func Start(cfg Config) (*Session, error) {
 	cfg.Cols, cfg.Rows = clampSize(cfg.Cols, cfg.Rows)
 	if len(cfg.Argv) == 0 {
 		return nil, fmt.Errorf("session %s: no command to run", cfg.ID)
+	}
+	// A folder that is not there is the usual reason a pane will not start --
+	// a worktree removed under a saved layout -- and what the operating system
+	// says about it is about the program instead: "The directory name is
+	// invalid" on Windows, a chdir error elsewhere. The caller names the folder.
+	if cfg.Cwd != "" {
+		if _, err := os.Stat(cfg.Cwd); errors.Is(err, fs.ErrNotExist) {
+			return nil, errors.New("the folder this pane works in is not there any more: put it back, or close the pane")
+		}
 	}
 
 	// go-pty resolves the executable relative to Cmd.Dir rather than searching

@@ -171,6 +171,24 @@ func TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries(t *testing.T) {
 	}
 }
 
+// TestRecentRepliesKeepsALineTheTailBeginsWith covers a transcript longer than
+// the tail that is read, whose tail happens to begin at the start of a line.
+// Only a line the cut lands in the middle of is a fragment; dropping the first
+// line regardless threw away a whole entry, here the only reply there is.
+func TestRecentRepliesKeepsALineTheTailBeginsWith(t *testing.T) {
+	head := `{"type":"user","message":{"role":"user","content":"give me a plan"}}`
+	open := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- the plan `
+	shut := `"}]}}`
+	// The reply and its line break are exactly the tail.
+	reply := open + strings.Repeat("x", replyTailBytes-1-len(open)-len(shut)) + shut
+	id := writeReplies(t, head, reply)
+
+	got := claudeReplies(id, 1)
+	if len(got) != 1 || !strings.HasPrefix(got[0], "- the plan") {
+		t.Fatalf("read %d turns, want the reply the tail begins with", len(got))
+	}
+}
+
 // TestTranscriptPathPrefersTheLiveCopy covers a conversation resumed from a
 // different working directory: Claude Code files it under the new directory's
 // folder and the old copy stays behind, so the same id matches twice.

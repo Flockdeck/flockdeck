@@ -161,6 +161,22 @@ func TestUsersStatusLineIsFoundByClaudesPrecedence(t *testing.T) {
 	}
 }
 
+// A settings file saved with a byte order mark -- which Notepad and Windows
+// PowerShell's Out-File both write -- is one Claude Code reads, taking the mark
+// off first. Passing it over as unparseable skipped the status line the user
+// had set there: by default the pane then had no limits to show, and with the
+// bridge always on, their line was replaced by a lower file's or by nothing.
+func TestUsersStatusLineIsReadPastAByteOrderMark(t *testing.T) {
+	home := claudeHomeAt(t)
+	cwd := t.TempDir()
+	bom := string([]byte{0xEF, 0xBB, 0xBF})
+	writeJSON(t, filepath.Join(home, "settings.json"), `{"statusLine":{"type":"command","command":"from-user"}}`)
+	writeJSON(t, filepath.Join(cwd, ".claude", "settings.json"), bom+`{"statusLine":{"type":"command","command":"from-project"}}`)
+	if got := userStatusLine(cwd, home)["command"]; got != "from-project" {
+		t.Errorf("got %v, want the project's own, read past its byte order mark", got)
+	}
+}
+
 // On Windows the command line has to run under Git Bash or PowerShell, and no
 // quoting is read alike by the two. A program under a folder with a space is
 // named by its short name, which needs none; where the volume keeps no short

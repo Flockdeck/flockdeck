@@ -352,8 +352,10 @@ func InheritTrust(from, to string) error {
 	}
 	defer release()
 
+	// A fan-out shows this after "could not carry over folder trust: ", so it
+	// is the reason, and what to do about it.
 	if !IsTrusted(from) {
-		return fmt.Errorf("%s is not itself trusted", filepath.Base(from))
+		return fmt.Errorf("nobody has answered Claude Code's trust question for %s, so there is no answer to carry over; open Claude Code there once and answer it", filepath.Base(from))
 	}
 	if IsTrusted(to) {
 		return nil
@@ -413,7 +415,7 @@ var (
 
 // errConfigBusy is what a carry-over reports when Claude Code held its lock
 // for longer than it would wait. Nothing is written without the lock.
-var errConfigBusy = errors.New("Claude Code was saving its configuration and did not finish in time, so trust was not carried over")
+var errConfigBusy = errors.New("Claude Code was saving its configuration and did not finish in time; each new agent will ask about trusting its folder itself")
 
 // lockClaudeConfig takes Claude Code's lock on its configuration at path, and
 // returns what releases it.

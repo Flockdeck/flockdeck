@@ -145,8 +145,8 @@ func chatRows(cwd string) ([]chatRow, error) {
 		if err != nil || info.Size() == 0 {
 			continue
 		}
-		f := describeChat(filepath.Join(dir, e.Name()))
-		if f.cwd == "" || !sameDir(f.cwd, cwd) {
+		f, ok := describeChat(filepath.Join(dir, e.Name()), func(ran string) bool { return sameDir(ran, cwd) })
+		if !ok {
 			continue
 		}
 		if f.summary == "" {
@@ -187,14 +187,18 @@ type chatFacts struct {
 //
 // All but the count are in the opening entries and the count is the whole
 // file, so they are found the way Claude's are -- parse the head, count the
-// line breaks of the rest -- except that there is no cache behind it. A chat is
-// Flockdeck's own writing rather than a conversation with every tool result
-// pasted into it, so the folder is small enough to read on each listing.
-func describeChat(path string) chatFacts {
-	var c chatFacts
+// line breaks of the rest -- except that there is no cache behind it.
+//
+// ok is false for a chat that did not run where belongs says, or that records
+// nowhere at all, and it is known as soon as the directory is: every project's
+// chats share the one folder, so most of what a listing opens is somebody
+// else's. Reading those to the end as well, parsing entries a quarter of a
+// megabyte long on the way, cost a listing of one project's ten chats among
+// two hundred some two seconds.
+func describeChat(path string, belongs func(cwd string) bool) (c chatFacts, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return c
+		return c, false
 	}
 	defer f.Close()
 
@@ -202,9 +206,10 @@ func describeChat(path string) chatFacts {
 	lines := newTranscriptReader(counted)
 	// The agent is not waited for: a chat that names one names it from the
 	// start, and one that does not would otherwise be read to the scan limit.
+	defer lines.release()
 	for i := 0; i < summaryScanLimit && (c.summary == "" || c.cwd == "" || c.model == ""); i++ {
-		raw, ok := lines.next()
-		if !ok {
+		raw, more := lines.next()
+		if !more {
 			break
 		}
 		var line chatLine
@@ -213,6 +218,9 @@ func describeChat(path string) chatFacts {
 		}
 		if c.cwd == "" {
 			c.cwd = line.Cwd
+			if c.cwd != "" && !belongs(c.cwd) {
+				return c, false
+			}
 		}
 		if c.model == "" {
 			c.model = line.Model
@@ -224,7 +232,11 @@ func describeChat(path string) chatFacts {
 			c.summary = firstPrompt(line.Text)
 		}
 	}
-	lines.release()
+	// A chat that records no directory is offered nowhere: in every project
+	// would be worse than in none.
+	if c.cwd == "" {
+		return c, false
+	}
 	drain(counted)
 
 	c.entries = counted.newlines
@@ -233,7 +245,7 @@ func describeChat(path string) chatFacts {
 		// is on that last line is still an entry.
 		c.entries++
 	}
-	return c
+	return c, true
 }
 
 // chatsDir returns the folder Flockdeck's chat client keeps its transcripts in.

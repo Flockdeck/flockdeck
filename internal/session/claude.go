@@ -99,22 +99,48 @@ var laterHooksSince = [3]int{2, 1, 269}
 // program is the claude on PATH. It is a variable so a test can say instead.
 var claudeVersion = cachedClaudeVersion
 
+// askClaudeVersion is how the question is put. It is a variable so a test can
+// answer it.
+var askClaudeVersion = installedClaudeVersion
+
+// versionRetry is how long a version question that got no answer stands before
+// it is asked again. It is a variable so a test can shorten it.
+//
+// Only an answer is kept for the rest of the run. A failure used to be kept as
+// well, and a failure is often passing: Claude Code starting cold after a boot
+// while antivirus scans it takes longer than versionTimeout, and while it
+// updates itself the program is briefly not there to ask. Every Claude pane
+// opened for the rest of the run was then written the hooks for an unknown
+// version -- the command line rather than exec form -- which on Windows
+// without Git Bash is no hook of any pane arriving, until Flockdeck was
+// restarted. A failure is still remembered for a while, because the question
+// is asked on the goroutine that owns the workspace, and a program that hangs
+// would otherwise cost every pane start the whole timeout.
+var versionRetry = time.Minute
+
 var claudeVersions struct {
 	sync.Mutex
-	byExe map[string]string
+	byExe map[string]versionAnswer
+}
+
+// versionAnswer is what one program said its version was, and when it was
+// asked.
+type versionAnswer struct {
+	version string
+	at      time.Time
 }
 
 func cachedClaudeVersion(exe string) string {
 	claudeVersions.Lock()
 	defer claudeVersions.Unlock()
-	if v, ok := claudeVersions.byExe[exe]; ok {
-		return v
+	if a, ok := claudeVersions.byExe[exe]; ok && (a.version != "" || time.Since(a.at) < versionRetry) {
+		return a.version
 	}
-	v := installedClaudeVersion(exe)
+	v := askClaudeVersion(exe)
 	if claudeVersions.byExe == nil {
-		claudeVersions.byExe = map[string]string{}
+		claudeVersions.byExe = map[string]versionAnswer{}
 	}
-	claudeVersions.byExe[exe] = v
+	claudeVersions.byExe[exe] = versionAnswer{version: v, at: time.Now()}
 	return v
 }
 
@@ -140,6 +166,12 @@ func installedClaudeVersion(exe string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "--version")
 	sysproc.NoWindow(cmd)
+	// Killing the program on the timeout is not the end of waiting for its
+	// output: that goes on until everything holding the pipe has let go, and
+	// an npm install on Windows is claude.cmd, whose cmd.exe is what gets
+	// killed while the node it started carries on holding it. This is asked
+	// on the goroutine that owns the workspace, so the wait is bounded too.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
