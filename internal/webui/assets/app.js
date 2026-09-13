@@ -4696,26 +4696,34 @@
   window.addEventListener("focus", closeNotification);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) closeNotification(); });
 
-  /** reportPresence tells the desktop whether this window is in front and in
-   *  use, which it asks before telling a paired phone of an agent waiting:
-   *  somebody at the desk with the window in front of them can see that for
-   *  themselves. It is said as the window connects, comes to the front or goes
-   *  behind, and again at most every half a minute while it is in front and
-   *  being typed in or clicked. Nothing of what is typed goes with it. A window
-   *  reached through the relay says it too, and the desktop pays it no mind. */
-  let presence = { front: null, said: 0 };
-  function reportPresence(used) {
-    const front = !document.hidden && document.hasFocus();
+  /** reportUsed tells the desktop that this window just saw real keyboard or
+   *  mouse input -- a keystroke, a click, a scroll, the pointer moving --
+   *  which a paired phone is not told of an agent waiting over if it happened
+   *  in the last couple of minutes. Coming to the front or gaining focus does
+   *  not count by itself: a window can sit there with nobody at the desk at
+   *  all. This is only ever the fallback, for a machine the desktop cannot
+   *  read its own idle time on; see push.go's deskInUse. Sent at most once
+   *  every half a minute, and pointer moves are thinned out well below that
+   *  before they are even offered to it. Nothing of what was typed goes with
+   *  it. A window reached through the relay says it too, and the desktop pays
+   *  it no mind. */
+  let lastUsedReport = 0;
+  function reportUsed() {
     const now = Date.now();
-    if (front === presence.front && !(front && used && now - presence.said >= 30000)) return;
-    presence = { front, said: now };
-    send({ cmd: "presence", kind: front ? "front" : "away" });
+    if (now - lastUsedReport < 30000) return;
+    lastUsedReport = now;
+    send({ cmd: "presence", kind: "used" });
   }
-  window.addEventListener("focus", () => reportPresence(true));
-  window.addEventListener("blur", () => reportPresence(false));
-  document.addEventListener("visibilitychange", () => reportPresence(false));
-  document.addEventListener("keydown", () => reportPresence(true), true);
-  document.addEventListener("pointerdown", () => reportPresence(true), true);
+  document.addEventListener("keydown", reportUsed, true);
+  document.addEventListener("pointerdown", reportUsed, true);
+  document.addEventListener("wheel", reportUsed, true);
+  let lastMoveCheck = 0;
+  document.addEventListener("pointermove", () => {
+    const now = Date.now();
+    if (now - lastMoveCheck < 1000) return;
+    lastMoveCheck = now;
+    reportUsed();
+  }, true);
 
   function askForNotifications() {
     if (prefs.notificationsOff) return; // asked and answered, for every run
@@ -4804,9 +4812,6 @@
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
-    // A desktop just connected to knows nothing of this window yet.
-    presence.front = null;
-    reportPresence(false);
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();

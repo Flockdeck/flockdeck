@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	osidle "github.com/jmwri/flockdeck/internal/idle"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -72,26 +73,43 @@ type pushState struct {
 	// say.
 	err atomic.Pointer[string]
 
-	// desk is, for each window on this machine that says it is in front,
-	// when it was last used there; see setPresence.
+	// idleSince asks the OS how long it has gone without keyboard or mouse
+	// input, anywhere, and whether it is locked; nil is idle.Since. A test
+	// replaces it, on the workspace goroutine, which is where it is read.
+	idleSince func() (d time.Duration, locked bool, ok bool)
+
+	// idleAsk is when the OS next needs asking, and idleNone whether it
+	// answered nothing when last asked; see deskInUse. Asking on Linux and
+	// macOS runs a command, and an agent can wait on somebody at the desk
+	// for hours, so an answer is kept until it could have changed.
+	idleMu   sync.Mutex
+	idleAsk  time.Time
+	idleNone bool
+
+	// desk is, for each window on this machine, when it last reported real
+	// keyboard or mouse input; see setDeskUsed. It backs deskInUse only when
+	// idleSince cannot say -- the OS asked has no answer for this machine.
 	deskMu sync.Mutex
 	desk   map[*controlClient]time.Time
 }
 
-// deskLook is how lately a window at the desk, in front, has to have been
-// used for the phone not to be told of a wait: see deskInUse.
+// deskLook is how lately this computer has to have seen keyboard or mouse
+// input, in any application, for the phone not to be told of a wait: see
+// deskInUse.
 const deskLook = 2 * time.Minute
 
-// setPresence records what a window says of itself: in front of whoever is at
-// the desk, and just used, or not. A window reached through the relay is not
-// the desk, and one that has gone says nothing more.
-func (s *Server) setPresence(c *controlClient, front bool) {
+// setDeskUsed records that a window on this machine just reported real
+// input -- a keystroke, a click, a scroll, the pointer moving -- as opposed
+// to merely coming to the front. It backs deskInUse for the platforms idle
+// cannot read; a window reached through the relay is not this desk, and one
+// that has gone reports nothing more.
+func (s *Server) setDeskUsed(c *controlClient, used bool) {
 	if c == nil || c.remote {
 		return
 	}
 	s.push.deskMu.Lock()
 	defer s.push.deskMu.Unlock()
-	if !front {
+	if !used {
 		delete(s.push.desk, c)
 		return
 	}
@@ -101,9 +119,10 @@ func (s *Server) setPresence(c *controlClient, front bool) {
 	s.push.desk[c] = time.Now()
 }
 
-// deskInUse reports whether somebody is at the desk: a window here in front,
-// and used within deskLook of now. They can see who is waiting there.
-func (s *Server) deskInUse(now time.Time) bool {
+// deskWindowUsed is deskInUse's fallback for when the OS cannot say how idle
+// this machine is: whether a Flockdeck window here has reported real input
+// within deskLook. Coming to the front does not, by itself, count as that.
+func (s *Server) deskWindowUsed(now time.Time) bool {
 	s.push.deskMu.Lock()
 	defer s.push.deskMu.Unlock()
 	for _, at := range s.push.desk {
@@ -112,6 +131,44 @@ func (s *Server) deskInUse(now time.Time) bool {
 		}
 	}
 	return false
+}
+
+// deskInUse reports whether somebody is at this desk: this computer has seen
+// keyboard or mouse input, in any application, within deskLook of now -- or,
+// where the OS cannot be asked, a Flockdeck window here has. Whether any
+// window is in front makes no difference either way. A locked screen is
+// always away, whatever the idle time.
+//
+// An idle time of d, under deskLook, cannot reach deskLook sooner than
+// deskLook-d from now, so the OS is not asked again before then; a screen
+// locked in the meantime is noticed at the latest when the idle time would
+// have been. An OS with no answer is asked again after a minute.
+func (s *Server) deskInUse(now time.Time) bool {
+	s.push.idleMu.Lock()
+	defer s.push.idleMu.Unlock()
+	if now.Before(s.push.idleAsk) {
+		if s.push.idleNone {
+			return s.deskWindowUsed(now)
+		}
+		return true
+	}
+	since := s.push.idleSince
+	if since == nil {
+		since = osidle.Since
+	}
+	d, locked, ok := since()
+	s.push.idleNone = !ok
+	switch {
+	case !ok:
+		s.push.idleAsk = now.Add(time.Minute)
+		return s.deskWindowUsed(now)
+	case locked || d >= deskLook:
+		s.push.idleAsk = time.Time{}
+		return false
+	default:
+		s.push.idleAsk = now.Add(deskLook - d)
+		return true
+	}
 }
 
 // pushDelay is how long a wait lasts before it is pushed.
@@ -214,11 +271,6 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	if !ok {
 		return nil
 	}
-	// Somebody at the desk with the window in front of them can see who is
-	// waiting. The phone is told if they leave it and the wait goes on.
-	if s.deskInUse(now) {
-		return nil
-	}
 	delay := pushDelay(s.prefs.Push)
 	var waits []waitingAgent
 	var names map[string]string
@@ -260,6 +312,13 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 		}
 	}
 	if !fresh || now.Sub(s.push.last) < minPushGap {
+		return nil
+	}
+	// Somebody at this desk can see who is waiting. The OS is asked how idle
+	// it is only now, since a push is otherwise due -- not on every tick of
+	// the wait loop, which would ask it once a second whether or not anyone
+	// is waiting at all.
+	if s.deskInUse(now) {
 		return nil
 	}
 	if s.push.pushed == nil {
