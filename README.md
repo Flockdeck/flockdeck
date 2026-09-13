@@ -385,7 +385,10 @@ default for this project* at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
 should still learn that Flockdeck would run it. An OpenAI-compatible endpoint
 is given its address there too: pick it, type where the model server answers,
-and one on this machine, which needs no key, is offered at once. Each model
+and one on this machine, which needs no key, is offered at once. `/v1` is
+added only to a bare address such as `http://127.0.0.1:11434`; one with a path
+of its own, such as a gateway's `https://gateway.example/openai`, is used as it
+stands. Each model
 shows its tier — *small*, *mid* or *top*, how capable and so how costly it is
 among that agent's own — and an API agent's models their published price per
 million tokens with the day it was read; a CLI agent's show none, since it may
