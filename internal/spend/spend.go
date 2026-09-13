@@ -186,7 +186,13 @@ func (b *Book) Add(r Report, now time.Time) {
 	if r.Account != "" && !slices.Contains(e.accounts, r.Account) {
 		e.accounts = append(e.accounts, r.Account)
 	}
+	before := e.tokens
 	b.addCost(e, r)
+	// Whether the pane has had an answer since it last reported: its totals
+	// move with every one. The windows a status line is handed are those of
+	// the session's last answer, so only then is a figure it sends again a
+	// reading taken now.
+	answered := e.tokens != before
 
 	for _, w := range r.Windows {
 		if w.Account == "" || w.Name == "" || w.expired(now) {
@@ -201,8 +207,18 @@ func (b *Book) Add(r Report, now time.Time) {
 		// of just now". Within one window usage only rises, so the larger figure
 		// is the fresher; a later reset time is a new window, whose reading
 		// replaces the old one however low it is.
+		//
+		// The same figure again is a fresh reading only from a pane that has
+		// just been answered. From one sitting idle it is the old reading sent
+		// back, and taking it as new kept every idle pane's reading "as of just
+		// now" for as long as its line refreshed, so the header never said how
+		// old it was.
 		old, ok := b.windows[w.key()]
-		if !ok || w.ResetsAt.After(old.ResetsAt) || (w.ResetsAt.Equal(old.ResetsAt) && w.Used >= old.Used) {
+		fresher := !ok || w.ResetsAt.After(old.ResetsAt)
+		if !fresher && w.ResetsAt.Equal(old.ResetsAt) {
+			fresher = w.Used > old.Used || (w.Used == old.Used && answered)
+		}
+		if fresher {
 			b.windows[w.key()] = w
 		}
 		if !slices.Contains(e.accounts, w.Account) {
