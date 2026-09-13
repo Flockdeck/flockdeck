@@ -35,7 +35,7 @@ func writeSettings(t *testing.T, sl StatusLine) map[string]any {
 	was := claudeVersion
 	t.Cleanup(func() { claudeVersion = was })
 	claudeVersion = func(string) string { return "2.1.269 (Claude Code)" }
-	path, err := WriteHookSettingsWith("", t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok", sl)
+	path, err := WriteHookSettingsWith("", t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", sl)
 	if err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
@@ -114,6 +114,12 @@ func TestStatusLineOnlyWhereItChangesNothingVisible(t *testing.T) {
 	if !strings.Contains(cmd, "statusline") || !strings.Contains(cmd, endpoint) || !strings.Contains(cmd, "pane-id") {
 		t.Errorf("command = %q, want the bridge with the endpoint and the pane", cmd)
 	}
+	// The status line runs after every answer, and a command line is there for
+	// anybody on the machine to read: the bridge takes the secret from the
+	// pane's environment instead.
+	if strings.Contains(cmd, "--token") {
+		t.Errorf("command = %q, which carries the secret on its command line", cmd)
+	}
 	if got := thenOf(t, cmd); got != "~/bin/line.sh --short" {
 		t.Errorf("the bridge runs %q, want the user's own command", got)
 	}
@@ -182,9 +188,9 @@ func TestUsersStatusLineIsReadPastAByteOrderMark(t *testing.T) {
 // named by its short name, which needs none; where the volume keeps no short
 // names it is quoted for whichever shell Claude Code will use.
 func TestWindowsCommandLineForBothShells(t *testing.T) {
-	args := []string{"statusline", "--endpoint", "http://127.0.0.1:5/usage", "--token", "ab12", "--session", "p-1"}
+	args := []string{"statusline", "--endpoint", "http://127.0.0.1:5/usage", "--session", "p-1"}
 	plain := windowsCommandLine(`C:\Tools\flockdeck.exe`, args, func(string) string { return "" }, true)
-	if plain != "C:/Tools/flockdeck.exe statusline --endpoint http://127.0.0.1:5/usage --token ab12 --session p-1" {
+	if plain != "C:/Tools/flockdeck.exe statusline --endpoint http://127.0.0.1:5/usage --session p-1" {
 		t.Errorf("a plain path: %q", plain)
 	}
 	spaced := `C:\Users\Jo Smith\AppData\Local\flockdeck\flockdeck.exe`
@@ -232,8 +238,8 @@ func TestBridgeCommandLineRunsUnderClaudesShells(t *testing.T) {
 
 	hasShort := shortPath(exe) != "" && plainForBoth(filepath.ToSlash(shortPath(exe)))
 	bash := GitBash()
-	line := bridgeCommand("windows", exe, "http://127.0.0.1:5/usage", "ab12", "p-1", "echo hi")
-	want := `args=["statusline" "--endpoint" "http://127.0.0.1:5/usage" "--token" "ab12" "--session" "p-1" "--then" "ZWNobyBoaQ"]`
+	line := bridgeCommand("windows", exe, "http://127.0.0.1:5/usage", "p-1", "echo hi")
+	want := `args=["statusline" "--endpoint" "http://127.0.0.1:5/usage" "--session" "p-1" "--then" "ZWNobyBoaQ"]`
 
 	type shell struct {
 		name string

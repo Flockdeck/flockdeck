@@ -50,10 +50,10 @@ type Launch struct {
 	// SettingsDir is where the generated settings file is written, for an agent
 	// whose arguments ask to be handed one.
 	SettingsDir string
-	// Endpoint and Token are where and how a pane reports its lifecycle back
-	// to Flockdeck.
+	// Endpoint is where a pane reports its lifecycle back to Flockdeck. The
+	// secret it reports with is not written into the settings: it is
+	// FLOCKDECK_TOKEN, in Env, which the hooks inherit.
 	Endpoint string
-	Token    string
 	// StripEnv is what to take out of the inherited environment. The caller
 	// passes the union across the whole catalog rather than this Spec's own
 	// list, so that a pane is a clean top-level session whatever is running in
@@ -93,7 +93,7 @@ func (l Launch) Config() (Config, error) {
 // is written: the path to it is one of the arguments, so there is no point in
 // writing one for an agent whose arguments never ask for it.
 func (l Launch) argv() ([]string, error) {
-	settings, err := Settings(l.Spec, l.SettingsDir, l.ID, l.SelfExe, l.Endpoint, l.Token)
+	settings, err := Settings(l.Spec, l.SettingsDir, l.ID, l.SelfExe, l.Endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -203,11 +203,11 @@ func Look(spec agent.Spec) (string, error) {
 // its environment -- because the path is only ever used as an argument, and
 // writing one anyway would leave a file in the state directory for every pane
 // ever opened that nothing would read.
-func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint, token string) (string, error) {
+func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint string) (string, error) {
 	if !spec.Caps.Hooks || endpoint == "" || !wantsSettings(spec) {
 		return "", nil
 	}
-	return WriteHookSettingsFor(spec.Exe, dir, sessionID, selfExe, endpoint, token)
+	return WriteHookSettingsFor(spec.Exe, dir, sessionID, selfExe, endpoint)
 }
 
 // wantsSettings reports whether an agent's arguments ever refer to a settings

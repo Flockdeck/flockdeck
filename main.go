@@ -419,7 +419,17 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if err != nil {
 		return err
 	}
-	if _, err := appwindow.Open(url, profile); err != nil {
+	// The browser is started at a one-time link rather than at the address
+	// with the token in it, which would stay on its command line for anybody
+	// on the machine to read (see server.WindowURL). Only an instance from an
+	// earlier build, which gives out no links, is opened the old way.
+	link, err := server.RequestWindowURL(base, inst.Token)
+	if errors.Is(err, server.ErrNoWindowLinks) {
+		link = url
+	} else if err != nil {
+		return fmt.Errorf("the flockdeck already running would not give a window a way in (%w); open this URL manually:\n  %s", err, url)
+	}
+	if _, err := appwindow.Open(link, profile); err != nil {
 		// The instance carries on without us, so its address stays good.
 		if errors.Is(err, appwindow.ErrNoBrowser) {
 			return fmt.Errorf("%w — set %s to one, or open this URL manually:\n  %s",
@@ -794,27 +804,7 @@ func run(opts options) error {
 // `flockdeck` attaches to and `flockdeck -quit` stops.
 func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*appwindow.Window, error) {
 	if opts.noWindow || opts.detach {
-		fmt.Println("flockdeck serving at:")
-		fmt.Println(" ", srv.URL())
-		switch {
-		case !recorded:
-			// A -solo run beside an instance that is answering leaves that
-			// one on record, so both commands the other messages name reach
-			// it, not this one: following them stopped the other instance and
-			// every agent in it. Opening the address is what works here, and
-			// on every platform.
-			fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
-			fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
-		case opts.detach:
-			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		case ctrlCStops():
-			fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
-		default:
-			// The Windows release borrows the terminal's console rather than
-			// having one of its own, and Ctrl+C typed there never reaches it,
-			// so the one way that works is all that is offered.
-			fmt.Println("Run `flockdeck -quit` to stop.")
-		}
+		printServing(opts, recorded, srv.URL())
 		return nil, nil
 	}
 
@@ -822,7 +812,11 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	if err != nil {
 		return nil, err
 	}
-	win, err := appwindow.Open(srv.URL(), profile)
+	// The window's browser is started at a one-time link, not at URL: the
+	// address stays on its command line all day, for anybody on the machine
+	// to read (see server.WindowURL). URL, with the token in it, is only ever
+	// printed, for the user to open by hand.
+	win, err := appwindow.Open(srv.WindowURL(), profile)
 	if err != nil {
 		// Unlike attaching, this server is ours and stops with us, so the
 		// address it was serving will not answer by the time anyone reads
@@ -835,18 +829,17 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	}
 
 	if win.AppMode {
-		// The window process ending is the user closing the application,
-		// unless they asked to leave the agents running — or unless it
-		// handed the window to a browser already running, which leaves
-		// only the connection below to tell when it closes.
-		go func() {
-			if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
-				return
+		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
+			fmt.Fprintln(os.Stderr, windowFailedNote(err))
+			// Better an ordinary tab than no interface at all, as when no
+			// app-mode browser is found. Whether or not one opens, the address
+			// is printed: a desktop that could not show the window may well
+			// not show a tab either.
+			if appwindow.OpenDefault(srv.WindowURL()) == nil {
+				fmt.Println("Trying your default browser instead.")
 			}
-			if !srv.Detached() {
-				stop()
-			}
-		}()
+			printServing(opts, recorded, srv.URL())
+		})
 	} else {
 		// A tab in the user's own browser cannot be watched, so fall back
 		// to shutting down when the page disconnects.
@@ -866,6 +859,62 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 		}()
 	}
 	return win, nil
+}
+
+// printServing says where a run without a window is serving, and how it is
+// stopped.
+func printServing(opts options, recorded bool, url string) {
+	fmt.Println("flockdeck serving at:")
+	fmt.Println(" ", url)
+	switch {
+	case !recorded:
+		// A -solo run beside an instance that is answering leaves that
+		// one on record, so both commands the other messages name reach
+		// it, not this one: following them stopped the other instance and
+		// every agent in it. Opening the address is what works here, and
+		// on every platform.
+		fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
+		fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
+	case opts.detach:
+		fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
+	case ctrlCStops():
+		fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
+	default:
+		// The Windows release borrows the terminal's console rather than
+		// having one of its own, and Ctrl+C typed there never reaches it,
+		// so the one way that works is all that is offered.
+		fmt.Println("Run `flockdeck -quit` to stop.")
+	}
+}
+
+// watchWindow waits for an app-mode window's browser to end, and stops the
+// application when that is the user closing the window -- unless they asked
+// to leave the agents running, or it handed the window to a browser already
+// running, which leaves only the connection to tell when it closes.
+//
+// A browser that failed as it started is neither: there never was a window
+// to close. It used to stop the application all the same, at once and without
+// a word -- on Linux with no display, say, where nothing else would have said
+// why. failed is told instead, and the application carries on without a
+// window, stopping as a run without one does.
+func watchWindow(wait func() error, detached func() bool, stop func(), failed func(error)) {
+	err := wait()
+	var start *appwindow.StartError
+	switch {
+	case errors.Is(err, appwindow.ErrHandedOff):
+	case errors.As(err, &start):
+		failed(err)
+	case !detached():
+		stop()
+	}
+}
+
+// windowFailedNote is what a run says when its window's browser failed as it
+// started.
+func windowFailedNote(err error) string {
+	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
+		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
+		err, appwindow.BrowserEnv)
 }
 
 // workingDir and loadSession are where a launch that names no project learns
@@ -1551,29 +1600,41 @@ var agentAvailable = agent.Available
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.
 // It must never fail loudly: a broken hook would disrupt the agent session it
 // is only meant to observe.
-func runHook(args []string) {
+func runHook(args []string) { hook(args, os.Stdin, os.Stdout, os.Stderr) }
+
+// hook is runHook reading and writing where it is told to.
+//
+// The shared secret comes from the pane's environment, FLOCKDECK_TOKEN, which
+// Claude Code passes on to the hooks it runs. It used to be given as --token,
+// on a command line anybody on the machine can read for as long as the hook
+// runs; --token is still taken, for the settings of a pane an earlier build
+// started, and wins where it is given.
+func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(stderr)
 	var (
 		endpoint = fs.String("endpoint", "", "Flockdeck hook endpoint")
-		token    = fs.String("token", "", "shared secret")
+		token    = fs.String("token", "", "shared secret; the pane's FLOCKDECK_TOKEN when not given")
 		sessID   = fs.String("session", "", "pane session id")
 		event    = fs.String("event", "", "lifecycle event name")
 	)
 	if err := fs.Parse(args); err != nil {
 		return
 	}
+	if *token == "" {
+		*token = paneEnv("TOKEN")
+	}
 	// Stderr is the one place a hook can complain: Claude Code shows it under
 	// --debug, and it neither fails the session nor lands in the stdout that
 	// SessionStart parses as JSON. Without it a hook that never arrives leaves
 	// no trace at all, only panes whose status stops changing.
 	if *endpoint == "" || *sessID == "" || *event == "" {
-		fmt.Fprintln(os.Stderr, "flockdeck hook: -endpoint, -session and -event are all required")
+		fmt.Fprintln(stderr, "flockdeck hook: -endpoint, -session and -event are all required")
 		return
 	}
-	ctx, err := hooks.Emit(os.Stdin, *endpoint, *token, *sessID, *event)
+	ctx, err := hooks.Emit(stdin, *endpoint, *token, *sessID, *event)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck hook:", err)
+		fmt.Fprintln(stderr, "flockdeck hook:", err)
 		return
 	}
 	if strings.TrimSpace(ctx) == "" {
@@ -1589,10 +1650,10 @@ func runHook(args []string) {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck hook: could not encode the session context:", err)
+		fmt.Fprintln(stderr, "flockdeck hook: could not encode the session context:", err)
 		return
 	}
-	_, _ = os.Stdout.Write(out)
+	_, _ = stdout.Write(out)
 }
 
 // hookOutput is the JSON a command hook prints to feed context back into the

@@ -112,7 +112,7 @@ func userStatusLine(cwd, home string) map[string]any {
 
 // statusLineSetting is the statusLine a pane's settings file carries, or nil
 // for none.
-func statusLineSetting(sl StatusLine, sessionID, selfExe, token string) map[string]any {
+func statusLineSetting(sl StatusLine, sessionID, selfExe string) map[string]any {
 	if sl.Mode == StatusLineOff || sl.Endpoint == "" {
 		return nil
 	}
@@ -124,12 +124,15 @@ func statusLineSetting(sl StatusLine, sessionID, selfExe, token string) map[stri
 	maps.Copy(out, user)
 	then, _ := user["command"].(string)
 	out["type"] = "command"
-	out["command"] = bridgeCommand(runtime.GOOS, ChatExe(selfExe), sl.Endpoint, token, sessionID, then)
+	out["command"] = bridgeCommand(runtime.GOOS, ChatExe(selfExe), sl.Endpoint, sessionID, then)
 	return out
 }
 
 // bridgeCommand is the command line that runs the status line bridge, which
 // Claude Code puts through a shell.
+//
+// It carries no secret: the bridge reads the pane's FLOCKDECK_TOKEN from the
+// environment it inherits, as the hooks do (see WriteHookSettings).
 //
 // The user's own command goes along encoded, in characters no shell does
 // anything with, rather than quoted: it is itself a command line for a shell,
@@ -139,8 +142,8 @@ func statusLineSetting(sl StatusLine, sessionID, selfExe, token string) map[stri
 //
 // On Windows the program is the console build beside the release, which
 // prints to the pipe Claude Code reads like any other console program.
-func bridgeCommand(goos, exe, endpoint, token, sessionID, then string) string {
-	args := []string{"statusline", "--endpoint", endpoint, "--token", token, "--session", sessionID}
+func bridgeCommand(goos, exe, endpoint, sessionID, then string) string {
+	args := []string{"statusline", "--endpoint", endpoint, "--session", sessionID}
 	if then != "" {
 		args = append(args, "--then", base64.RawURLEncoding.EncodeToString([]byte(then)))
 	}

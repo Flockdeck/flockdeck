@@ -99,10 +99,10 @@ func TestClaudeArgsResumeVsFresh(t *testing.T) {
 func TestHookSettingsRegisterSessionStart(t *testing.T) {
 	was := claudeVersion
 	t.Cleanup(func() { claudeVersion = was })
-	wantArgs := []string{"hook", "--endpoint", "http://127.0.0.1:1/hook", "--token", "tok", "--session", "pane-id", "--event", "SessionStart"}
+	wantArgs := []string{"hook", "--endpoint", "http://127.0.0.1:1/hook", "--session", "pane-id", "--event", "SessionStart"}
 	for _, version := range []string{"", "2.0.0 (Claude Code)", "2.1.269 (Claude Code)"} {
 		claudeVersion = func(string) string { return version }
-		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook")
 		if err != nil {
 			t.Fatalf("write settings: %v", err)
 		}
@@ -123,6 +123,14 @@ func TestHookSettingsRegisterSessionStart(t *testing.T) {
 		lineForm := len(h.Args) == 0 && strings.Contains(h.Command, "--event SessionStart")
 		if want := version == "2.1.269 (Claude Code)"; execForm != want || (!want && !lineForm) {
 			t.Errorf("%q: SessionStart hook = %q %q, want exec form %v", version, h.Command, h.Args, want)
+		}
+		// A command's arguments are there for anybody on the machine to read
+		// while it runs, so the secret is not among them: the hook reads it
+		// from the pane's environment.
+		for ev, matchers := range got.Hooks {
+			if h := matchers[0].Hooks[0]; strings.Contains(h.Command, "--token") || slices.Contains(h.Args, "--token") {
+				t.Errorf("%q: the %s hook carries the secret on its command line: %q %q", version, ev, h.Command, h.Args)
+			}
 		}
 	}
 }
@@ -165,7 +173,7 @@ func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
 	t.Cleanup(func() { claudeVersion = was })
 	for version, want := range map[string]bool{"2.1.269 (Claude Code)": true, "2.0.0 (Claude Code)": false} {
 		claudeVersion = func(string) string { return version }
-		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook")
 		if err != nil {
 			t.Fatalf("write settings: %v", err)
 		}
@@ -191,7 +199,7 @@ func TestLaterHookEventsOnlyForAClaudeCodeKnownToHaveThem(t *testing.T) {
 	}
 	spec := claudeLaunchSpec()
 	spec.Exe = filepath.Join(t.TempDir(), "pinned", "claude")
-	path, err := Settings(spec, t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+	path, err := Settings(spec, t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook")
 	if err != nil || path == "" {
 		t.Fatalf("settings: %q, %v", path, err)
 	}
@@ -233,7 +241,7 @@ func TestAnUnreadableVersionKeepsTheCommandLine(t *testing.T) {
 	t.Cleanup(func() { claudeVersion = was })
 	for _, version := range []string{"", "claude: command not found", "2.1", "v2.1.269", "Claude Code"} {
 		claudeVersion = func(string) string { return version }
-		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+		path, err := WriteHookSettings(t.TempDir(), "pane-id", "/bin/flockdeck", "http://127.0.0.1:1/hook")
 		if err != nil {
 			t.Fatalf("write settings: %v", err)
 		}

@@ -2,11 +2,15 @@ package appwindow
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // browserExit makes this test binary stand in for a browser: started with it
@@ -15,12 +19,31 @@ import (
 // looks like from here.
 const browserExit = "APPWINDOW_TEST_BROWSER_EXIT"
 
+// browserDir is where a stand-in browser started with browserExit set to
+// "term" says it is ready, and that it was asked to close.
+const browserDir = "APPWINDOW_TEST_BROWSER_DIR"
+
 func TestMain(m *testing.M) {
 	switch os.Getenv(browserExit) {
 	case "0":
 		os.Exit(0)
 	case "1":
+		// What Chromium says on Linux with nothing to open a window on.
+		fmt.Fprintln(os.Stderr, "[1:1:ERROR:ozone_platform_x11.cc(240)] Missing X server or $DISPLAY")
 		os.Exit(1)
+	case "term":
+		// A browser that closes when it is asked to, as Chromium does on
+		// SIGTERM, and says so before it goes.
+		asked := make(chan os.Signal, 1)
+		signal.Notify(asked, syscall.SIGTERM)
+		dir := os.Getenv(browserDir)
+		_ = os.WriteFile(filepath.Join(dir, "ready"), nil, 0o600)
+		select {
+		case <-asked:
+			_ = os.WriteFile(filepath.Join(dir, "asked"), nil, 0o600)
+		case <-time.After(30 * time.Second):
+		}
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
@@ -223,14 +246,74 @@ func TestWaitReportsAHandOff(t *testing.T) {
 	}
 }
 
+// Quitting killed the window's browser outright, and a browser killed saves
+// nothing: the window's size and place, which the next window opens at, were
+// lost. It is asked to close first, and killed only if it does not.
+func TestCloseAsksTheBrowserToCloseBeforeKillingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows process cannot be sent SIGTERM, so Close kills it there")
+	}
+	dir := t.TempDir()
+	t.Setenv(browserExit, "term")
+	t.Setenv(browserDir, dir)
+	w, err := startAppMode(os.Args[0], "http://127.0.0.1:1/", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.cmd.Process.Kill() })
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(dir, "ready")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in browser never started")
+		}
+	}
+	began := time.Now()
+	w.Close()
+	if _, err := os.Stat(filepath.Join(dir, "asked")); err != nil {
+		t.Error("the browser was killed without being asked to close first")
+	}
+	if took := time.Since(began); took >= closeGrace {
+		t.Errorf("Close took %v for a browser that closed when asked; it should not wait out the grace", took)
+	}
+}
+
+// cmd.exe reads & and % in an address for itself, and nothing quoted them for
+// it, so the default browser on Windows is reached without cmd.exe: the whole
+// address is one argument to a program that is not a shell.
+func TestTheDefaultBrowserIsGivenTheWholeAddress(t *testing.T) {
+	const page = "http://127.0.0.1:1/?a=1&b=%41"
+	for _, goos := range []string{"windows", "darwin", "linux"} {
+		name, args := defaultBrowserCommand(goos, page)
+		if strings.EqualFold(strings.TrimSuffix(filepath.Base(name), ".exe"), "cmd") || len(args) == 0 || args[len(args)-1] != page {
+			t.Errorf("%s: %s %q, want the address as the last argument, to something other than cmd.exe", goos, name, args)
+		}
+	}
+	if name, args := defaultBrowserCommand("windows", page); name != "rundll32" || args[0] != "url.dll,FileProtocolHandler" {
+		t.Errorf("windows: %s %q, want rundll32 url.dll,FileProtocolHandler", name, args)
+	}
+}
+
 // A browser that fails to start is not a hand-off: there is no window anywhere.
+// Nor is it the window being closed, which it used to read as, stopping the
+// application without a word: it is a failed start, with the exit code and
+// what the browser said about it.
 func TestWaitReportsABrowserThatFailed(t *testing.T) {
 	t.Setenv(browserExit, "1")
 	w, err := startAppMode(os.Args[0], "http://127.0.0.1:1/", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Wait(); err == nil || errors.Is(err, ErrHandedOff) {
-		t.Errorf("Wait = %v, want the browser's own failure", err)
+	err = w.Wait()
+	var failed *StartError
+	if !errors.As(err, &failed) {
+		t.Fatalf("Wait = %v, want a failed start", err)
+	}
+	if failed.Code != 1 || !strings.Contains(failed.Stderr, "Missing X server or $DISPLAY") {
+		t.Errorf("Wait = %+v, want exit code 1 and what the browser said", failed)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "code 1") || !strings.Contains(msg, "Missing X server") {
+		t.Errorf("the failure reads %q, want the code and what the browser said", msg)
 	}
 }

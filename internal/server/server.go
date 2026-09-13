@@ -1,8 +1,9 @@
 // Package server exposes the workspace to the browser front end.
 //
 // It listens on the loopback interface only and requires a token that is
-// generated per run and handed to the window in its URL, so nothing else on
-// the machine can drive the agents through it.
+// generated per run, so nothing else on the machine can drive the agents
+// through it. The window is handed it through a one-time link (see
+// WindowURL), never in the URL on its browser's command line.
 package server
 
 import (
@@ -73,6 +74,13 @@ const askedInterval = 5 * time.Millisecond
 type Server struct {
 	ws    *workspace.Workspace
 	token string
+
+	// links are the one-time links a window may be opened with, each with
+	// when it stops working, and linkLife is windowLinkLife, read once as the
+	// server is made. See WindowURL.
+	linkMu   sync.Mutex
+	links    map[string]time.Time
+	linkLife time.Duration
 
 	ln   net.Listener
 	http *http.Server
@@ -212,6 +220,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		ws:      ws,
 		prefs:   store.LoadPrefs(),
 		token:   hex.EncodeToString(raw),
+		links:   map[string]time.Time{},
 		ln:      ln,
 		clients: map[*controlClient]bool{},
 		cmds:    make(chan func(), 64),
@@ -220,6 +229,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 
+		linkLife:      windowLinkLife,
 		paneLookup:    paneLookup,
 		usageRefresh:  usageRefresh,
 		saveInterval:  layoutSaveInterval,
@@ -236,6 +246,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/open", s.handleOpen)
 	mux.HandleFunc("/quit", s.handleQuit)
+	mux.HandleFunc("/window", s.handleWindow)
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
 	s.mux = mux
 
@@ -253,10 +264,53 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	return s, nil
 }
 
-// URL is the address the window should open, including the token that
-// authorises it.
+// URL is the address of the interface, including the token that authorises
+// it, for somebody to open by hand: it is what a run without a window prints.
+// A window this program opens is given WindowURL instead.
 func (s *Server) URL() string {
 	return fmt.Sprintf("http://%s/?t=%s", s.ln.Addr().String(), s.token)
+}
+
+// linkParam is the query parameter a one-time link is carried in.
+const linkParam = "w"
+
+// windowLinkLife is how long a link from WindowURL can be used for. A variable
+// so a test need not wait it out; a server reads it once, as it is made.
+var windowLinkLife = time.Minute
+
+// WindowURL is an address for a window this program opens: a link that can
+// be used once, within windowLinkLife, and that the page exchanges for the
+// token, in a cookie, as it loads.
+//
+// The window used to be opened at URL, and the address a browser is started
+// with stays on its command line for as long as it runs -- all day, for the
+// window -- where any other user of the machine can read it, in ps or
+// /proc/<pid>/cmdline. With the token from it, a program of theirs could open
+// the control socket and drive every agent: a WebSocket client that is not a
+// browser sends no Origin to be turned away for. A link that has been used, or
+// has run out, opens nothing.
+func (s *Server) WindowURL() string {
+	link := rand.Text()
+	s.linkMu.Lock()
+	now := time.Now()
+	for l, until := range s.links {
+		if !now.Before(until) {
+			delete(s.links, l)
+		}
+	}
+	s.links[link] = now.Add(s.linkLife)
+	s.linkMu.Unlock()
+	return fmt.Sprintf("http://%s/?%s=%s", s.ln.Addr().String(), linkParam, link)
+}
+
+// redeemLink reports whether link is one WindowURL made that has been neither
+// used nor run out, and uses it up.
+func (s *Server) redeemLink(link string) bool {
+	s.linkMu.Lock()
+	defer s.linkMu.Unlock()
+	until, ok := s.links[link]
+	delete(s.links, link)
+	return ok && time.Now().Before(until)
 }
 
 // Addr returns the listening address.
@@ -534,25 +588,29 @@ func (s *Server) tokenMatches(t string) bool {
 	return subtle.ConstantTimeCompare([]byte(t), []byte(s.token)) == 1
 }
 
-// handleIndex serves the page, promoting a token in the URL to a cookie so
-// that later requests from the page carry it automatically.
+// handleIndex serves the page, promoting a token in the URL, or a one-time
+// link from WindowURL, to a cookie holding the token, so that later requests
+// from the page carry it automatically.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	if !s.authorised(r) {
+	link := r.URL.Query().Get(linkParam)
+	linked := link != "" && s.redeemLink(link)
+	if !linked && !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	// Only a token that is actually ours is promoted. The request may have
 	// been authorised by an existing cookie while carrying a stale `t` from a
 	// bookmarked URL of an earlier run, and storing that would replace a
-	// working cookie with one that no longer opens anything.
-	if t := r.URL.Query().Get("t"); s.tokenMatches(t) {
+	// working cookie with one that no longer opens anything. A window reloaded
+	// at a link it has already used is let in by its cookie in the same way.
+	if linked || s.tokenMatches(r.URL.Query().Get("t")) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     s.cookieName(),
-			Value:    t,
+			Value:    s.token,
 			Path:     "/",
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,

@@ -16,6 +16,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
@@ -63,10 +66,45 @@ var ErrHandedOff = errors.New("the window was handed to a browser already runnin
 // opens the window and closes it again inside this.
 const handOffWithin = 5 * time.Second
 
+// StartError is returned by Wait when the browser failed so soon after it was
+// started that its window cannot have opened: on Linux with no display to
+// open it on, say, or a snap-packaged Chromium refused its profile folder.
+type StartError struct {
+	// Program is the browser that was started, and Code what it exited with.
+	Program string
+	Code    int
+	// Stderr is the last few lines the browser printed, which is where it
+	// says why.
+	Stderr string
+}
+
+func (e *StartError) Error() string {
+	msg := fmt.Sprintf("the browser %s exited with code %d as it started, before its window opened", e.Program, e.Code)
+	if e.Stderr != "" {
+		msg += "; it said:\n  " + strings.ReplaceAll(e.Stderr, "\n", "\n  ")
+	}
+	return msg
+}
+
+// closeGrace is how long Close gives the browser to close its window itself
+// before it is killed.
+const closeGrace = 2 * time.Second
+
 // Window is a running UI window.
 type Window struct {
 	cmd     *exec.Cmd
 	started time.Time
+	// done is closed once the browser process has exited, with waitErr and
+	// exited set: one goroutine waits on the process, so that Wait and Close
+	// can both learn when it has gone.
+	done    chan struct{}
+	waitErr error
+	exited  time.Time
+	// stderr keeps the end of what the browser prints, for a StartError.
+	stderr *tail
+	// closing is set by Close, so that a browser it stopped is not taken
+	// for one that failed to start.
+	closing atomic.Bool
 	// AppMode reports whether the window is a dedicated app window rather than
 	// a tab in the user's ordinary browser.
 	AppMode bool
@@ -75,24 +113,57 @@ type Window struct {
 }
 
 // Wait blocks until an app-mode window is closed. It returns immediately for a
-// tab opened in the default browser, whose lifetime cannot be observed, and
-// returns ErrHandedOff for a window another browser process took over.
+// tab opened in the default browser, whose lifetime cannot be observed,
+// returns ErrHandedOff for a window another browser process took over, and a
+// *StartError for a browser that failed before its window could have opened.
+//
+// Such a browser used to come back as its own exit status, which reads the
+// same as the window being closed, and the application stopped with it -- at
+// once, and without a word, since what the browser had said went nowhere.
 func (w *Window) Wait() error {
 	if w == nil || w.cmd == nil || !w.AppMode {
 		return nil
 	}
-	err := w.cmd.Wait()
-	if err == nil && time.Since(w.started) < handOffWithin {
+	<-w.done
+	quick := w.exited.Sub(w.started) < handOffWithin
+	var exit *exec.ExitError
+	switch {
+	case w.waitErr == nil && quick:
 		return ErrHandedOff
+	case quick && !w.closing.Load() && errors.As(w.waitErr, &exit):
+		return &StartError{Program: w.Program, Code: exit.ExitCode(), Stderr: w.stderr.lastLines(stderrLines)}
 	}
-	return err
+	return w.waitErr
 }
 
-// Close terminates an app-mode window.
+// Close closes an app-mode window.
+//
+// The browser is asked first, with SIGTERM, which Chromium takes as being
+// told to close: it saves the window's size and place as it goes, which is
+// what the next window opens at (see placementArgs). Killed outright, as it
+// always was, it saved nothing, and could count the run as a crash. Only one
+// that has not gone after closeGrace is killed. A Windows process cannot be
+// sent SIGTERM, so there it is killed, as before.
 func (w *Window) Close() {
-	if w != nil && w.cmd != nil && w.cmd.Process != nil {
-		_ = w.cmd.Process.Kill()
+	if w == nil || w.cmd == nil || w.cmd.Process == nil {
+		return
 	}
+	w.closing.Store(true)
+	select {
+	case <-w.done:
+		return
+	default:
+	}
+	if w.cmd.Process.Signal(syscall.SIGTERM) == nil {
+		timer := time.NewTimer(closeGrace)
+		defer timer.Stop()
+		select {
+		case <-w.done:
+			return
+		case <-timer.C:
+		}
+	}
+	_ = w.cmd.Process.Kill()
 }
 
 // Open displays url in a window. profileDir holds the browser profile used for
@@ -232,11 +303,70 @@ func savedPlacement(profileDir, pageURL string) (placement, bool) {
 func startAppMode(path, url, profileDir string) (*Window, error) {
 	w, h := workArea()
 	cmd := exec.Command(path, windowArgs(url, profileDir, w, h)...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	stderr := &tail{max: stderrKeep}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, stderr
+	// What the browser prints is read through a pipe, which the processes it
+	// starts are handed too, and one of those can outlive it. Wait would wait
+	// for them all to let go; this lets it give up on them a moment after the
+	// browser itself has gone.
+	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", path, err)
 	}
-	return &Window{cmd: cmd, started: time.Now(), AppMode: true, Program: path}, nil
+	win := &Window{cmd: cmd, started: time.Now(), done: make(chan struct{}), stderr: stderr, AppMode: true, Program: path}
+	go func() {
+		err := cmd.Wait()
+		// ErrWaitDelay means the browser exited successfully and only a child
+		// of its own was still holding the pipe, which is no failure of the
+		// browser's.
+		if errors.Is(err, exec.ErrWaitDelay) {
+			err = nil
+		}
+		win.waitErr = err
+		win.exited = time.Now()
+		close(win.done)
+	}()
+	return win, nil
+}
+
+// stderrKeep is how much of the end of what the browser prints is kept, and
+// stderrLines how many lines of it a StartError gives.
+const (
+	stderrKeep  = 4096
+	stderrLines = 5
+)
+
+// tail keeps the last max bytes written to it.
+type tail struct {
+	mu  sync.Mutex
+	max int
+	buf []byte
+}
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if over := len(t.buf) - t.max; over > 0 {
+		t.buf = append(t.buf[:0], t.buf[over:]...)
+	}
+	return len(p), nil
+}
+
+// lastLines is the last n lines kept that have something on them.
+func (t *tail) lastLines(n int) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var lines []string
+	for _, l := range strings.Split(string(t.buf), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // candidates lists the browsers to try, in preference order, for this platform.
@@ -369,22 +499,38 @@ func resolvePinned(prog string) (string, error) {
 	return "", fmt.Errorf("%w, and no %s is installed where browsers are looked for either", err, prog)
 }
 
+// OpenDefault opens url in the user's default browser, as Open does when no
+// app-mode browser will start. The tab it opens cannot be watched.
+func OpenDefault(url string) error { return openDefaultBrowser(url) }
+
 // openDefaultBrowser hands the URL to the desktop's own handler.
 func openDefaultBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		// `start` needs a title argument before the URL, and cmd.exe treats &
-		// specially, so the URL is quoted.
-		cmd = exec.Command("cmd", "/c", "start", "", url)
-	case "darwin":
-		cmd = exec.Command("/usr/bin/open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
+	name, args := defaultBrowserCommand(runtime.GOOS, url)
+	cmd := exec.Command(name, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	// On Windows the handler is cmd, a console program, and a windowless
-	// Flockdeck would otherwise flash a terminal up just to pass the address on.
+	// rundll32 opens no console of its own, but a console program started from
+	// a windowless Flockdeck would flash a terminal up just to pass the address
+	// on, and saying so costs nothing.
 	sysproc.NoWindow(cmd)
 	return cmd.Start()
+}
+
+// defaultBrowserCommand is the program, and its arguments, that hands url to
+// the desktop's own handler on goos.
+//
+// On Windows that used to be `cmd /c start "" url`, and cmd.exe reads & and %
+// in what it is given for itself: an address with a second query parameter
+// would have been cut off at the &, and the rest run as a command of its own.
+// Nothing quoted it -- Go quotes an argument for the program's own parsing,
+// not for cmd.exe. rundll32 hands the URL to its handler as it stands, with no
+// shell in between.
+func defaultBrowserCommand(goos, url string) (string, []string) {
+	switch goos {
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		return "/usr/bin/open", []string{url}
+	default:
+		return "xdg-open", []string{url}
+	}
 }

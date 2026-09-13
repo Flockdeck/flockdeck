@@ -268,20 +268,27 @@ var execHooksSince = [3]int{2, 1, 269}
 // Which events it subscribes to depends on the Claude Code that will read it,
 // and this asks the claude on PATH; WriteHookSettingsFor asks the program the
 // pane will actually run.
-func WriteHookSettings(dir, sessionID, selfExe, endpoint, token string) (string, error) {
-	return WriteHookSettingsFor("", dir, sessionID, selfExe, endpoint, token)
+//
+// The shared secret is not written into the commands. A command's arguments
+// are there for any user of the machine to read, for as long as it runs, in
+// ps or /proc -- and a hook runs for every tool call of every pane. The pane
+// already carries the secret in its environment, as FLOCKDECK_TOKEN, and the
+// hook and the status line inherit it from Claude Code, which is where they
+// read it; an environment is readable by its owner alone.
+func WriteHookSettings(dir, sessionID, selfExe, endpoint string) (string, error) {
+	return WriteHookSettingsFor("", dir, sessionID, selfExe, endpoint)
 }
 
 // WriteHookSettingsFor is WriteHookSettings for a pane running a given Claude
 // Code program -- the one its Spec names -- which is the one asked what
 // events it has. An empty program is the claude on PATH.
-func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint, token string) (string, error) {
-	return WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, token, StatusLine{Mode: StatusLineOff})
+func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint string) (string, error) {
+	return WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, StatusLine{Mode: StatusLineOff})
 }
 
 // WriteHookSettingsWith is WriteHookSettingsFor with the pane's status line
 // routed through Flockdeck as sl says.
-func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, token string, sl StatusLine) (string, error) {
+func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint string, sl StatusLine) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create settings dir: %w", err)
 	}
@@ -295,15 +302,15 @@ func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, token string,
 		spec := hookSpec{Type: "command", Timeout: 5}
 		if execForm {
 			spec.Command = selfExe
-			spec.Args = []string{"hook", "--endpoint", endpoint, "--token", token, "--session", sessionID, "--event", ev}
+			spec.Args = []string{"hook", "--endpoint", endpoint, "--session", sessionID, "--event", ev}
 		} else {
-			spec.Command = fmt.Sprintf("%s hook --endpoint %s --token %s --session %s --event %s",
-				quoteArg(selfExe), quoteArg(endpoint), quoteArg(token), quoteArg(sessionID), ev)
+			spec.Command = fmt.Sprintf("%s hook --endpoint %s --session %s --event %s",
+				quoteArg(selfExe), quoteArg(endpoint), quoteArg(sessionID), ev)
 		}
 		hooks[ev] = []hookMatcher{{Hooks: []hookSpec{spec}}}
 	}
 
-	settings := settingsFile{Hooks: hooks, StatusLine: statusLineSetting(sl, sessionID, selfExe, token)}
+	settings := settingsFile{Hooks: hooks, StatusLine: statusLineSetting(sl, sessionID, selfExe)}
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("encode settings: %w", err)

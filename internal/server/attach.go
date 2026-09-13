@@ -198,11 +198,28 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleWindow gives another launch of the binary a one-time link to open its
+// window at (see WindowURL), so that the browser it starts, which may be the
+// one that runs all day, does not carry the token on its command line.
+func (s *Server) handleWindow(w http.ResponseWriter, r *http.Request) {
+	if !s.authorised(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !requirePost(w, r) || !s.requireURLToken(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(w, s.WindowURL())
+}
+
 // requireURLToken insists on the token in the request itself, rather than
 // accepting the cookie the page holds.
 //
-// These three endpoints are for another launch of the binary: they report on
-// the instance, hand it a project, or shut it down. The window's own page
+// These endpoints are for another launch of the binary: they report on the
+// instance, hand it a project, give it a window, or shut it down. The window's
+// own page
 // never calls any of them, and it matters that nothing else can. A cookie is
 // no evidence of who is asking: cookies are scoped to a host and take no
 // notice of the port, and a different port is not a different site, so
@@ -372,6 +389,41 @@ func RequestOpen(baseURL, token, path string) error {
 		return refused("open project", resp)
 	}
 	return nil
+}
+
+// ErrNoWindowLinks is what RequestWindowURL returns for an instance from a
+// build that gives out no one-time links, which knows no /window.
+var ErrNoWindowLinks = errors.New("the instance gives out no one-time links")
+
+// RequestWindowURL asks a running instance for a one-time link to open a
+// window at.
+func RequestWindowURL(baseURL, token string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/window?t="+token, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", ErrNoWindowLinks
+	}
+	if resp.StatusCode >= 300 {
+		return "", refused("window link", resp)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	link := strings.TrimSpace(string(body))
+	if !strings.HasPrefix(link, "http://") {
+		return "", fmt.Errorf("the instance answered with something that is not a link")
+	}
+	return link, nil
 }
 
 // refused is the error for a request the instance turned down. The handlers
