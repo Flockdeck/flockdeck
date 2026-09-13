@@ -93,6 +93,28 @@ func IsRevoked(err error) bool {
 	return errors.As(err, &api) && api.Revoked()
 }
 
+// hostGoneMessage is what the relay answers a token whose host it no longer
+// has any record of at all -- which it says the same way whether the host
+// went for having never connected, gone unheard from for 30 days, or been
+// removed from another device: nothing is kept to tell those apart. It is
+// mirrored here only so RevokedReason does not repeat it in parentheses when
+// it would add nothing past its own sentence.
+const hostGoneMessage = "this desktop is no longer registered with the relay"
+
+// RevokedReason explains, in one plain sentence, what err (which must satisfy
+// IsRevoked) means: this machine is no longer paired, and the two most likely
+// reasons why. When the relay said more than the boilerplate refusal above --
+// because it still had the tunnel open, and so knew, or the token was refused
+// with a reason of its own -- that is passed on too.
+func RevokedReason(err error) string {
+	reason := "this machine is no longer paired with the relay — it may have been removed after 30 days offline, or removed from another device"
+	var api *APIError
+	if errors.As(err, &api) && api.Message != "" && api.Message != hostGoneMessage {
+		reason += " (" + api.Message + ")"
+	}
+	return reason
+}
+
 // RegisterRequest enrols a machine. Join puts it in the account a host-kind
 // pairing code belongs to rather than a new one; Invite is what a relay that
 // does not take registrations from just anyone asks for.

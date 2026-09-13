@@ -548,6 +548,50 @@ func TestARevocationIsHeardWhenServeEndsWithTheTunnel(t *testing.T) {
 	}
 }
 
+// RevokedReason says plainly that this machine is no longer paired, with the
+// two likeliest reasons -- gone unheard from too long, or removed from
+// another device -- whether or not the relay said anything more specific
+// than the boilerplate every gone host is refused with alike. When it did
+// say more, because it still had the tunnel open and so genuinely knew, that
+// is passed on too.
+func TestRevokedReasonSaysWhatItMeans(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want []string
+		not  string
+	}{
+		{
+			name: "the relay just does not know this token any more",
+			err:  decodeError(http.StatusUnauthorized, []byte(`{"error":"this desktop is no longer registered with the relay"}`)),
+			want: []string{"no longer paired with the relay", "30 days offline", "another device"},
+			not:  "no longer registered with the relay)",
+		},
+		{
+			name: "the relay swept it for going unheard from too long",
+			err:  why(websocket.CloseError{Code: CloseRevoked, Reason: "this desktop was not heard from for 30 days, and has been removed"}),
+			want: []string{"no longer paired with the relay", "this desktop was not heard from for 30 days, and has been removed"},
+		},
+		{
+			name: "another device removed it from the account",
+			err:  why(websocket.CloseError{Code: CloseRevoked, Reason: "this desktop was removed from its account"}),
+			want: []string{"no longer paired with the relay", "this desktop was removed from its account"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RevokedReason(tc.err)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("RevokedReason(%v) = %q, want it to say %q", tc.err, got, want)
+				}
+			}
+			if tc.not != "" && strings.Contains(got, tc.not) {
+				t.Errorf("RevokedReason(%v) = %q, did not want it to say %q", tc.err, got, tc.not)
+			}
+		})
+	}
+}
+
 // revokedSays is what a machine the relay no longer accepts is told to do:
 // enrol again, by either of the ways there are.
 const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"

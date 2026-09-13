@@ -571,7 +571,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	fmt.Fprintln(rio.out, labelled("machine:", fmt.Sprintf("%s (%s)", name, cfg.HostID)))
 	switch {
 	case remote.IsRevoked(err):
-		fmt.Fprintln(rio.out, "state:   the relay no longer accepts this machine;\n         `flockdeck remote enable` enrols it again")
+		fmt.Fprintln(rio.out, labelled("state:", remote.RevokedReason(err))+";\n         `flockdeck remote enable` enrols it again")
 		return nil
 	case err != nil:
 		// A relay that answered with an error was reached, so this says only

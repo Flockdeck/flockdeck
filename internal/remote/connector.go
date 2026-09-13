@@ -268,12 +268,7 @@ func (c *Connector) run(ctx context.Context) {
 
 // revokedDetail says what a revoked host means, and what to do about it.
 func revokedDetail(err error) string {
-	msg := "the relay no longer accepts this machine — it was removed, or its account was"
-	var api *APIError
-	if errors.As(err, &api) && api.Message != "" {
-		msg += " (" + api.Message + ")"
-	}
-	return msg + "; enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
+	return RevokedReason(err) + "; enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
 }
 
 // jitter spreads retries between half and all of d, so that every desktop that
