@@ -39,6 +39,16 @@ GITHUB_API="https://api.github.com"
 say() { printf 'flockdeck: %s\n' "$*"; }
 die() { printf 'flockdeck: %s\n' "$*" >&2; exit 1; }
 
+# shell_word writes a path so that it pastes into a shell as one word: as it
+# is when it holds only what a plain path is made of, and otherwise in double
+# quotes, with what a shell still reads inside those escaped.
+shell_word() {
+	case $1 in
+		*[!A-Za-z0-9_./-]*) printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')" ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
 # fetch downloads a URL to a file with whichever of curl and wget is present.
 # A place that cannot be reached gives up in seconds rather than hanging, so
 # that the next one is tried.
@@ -207,7 +217,9 @@ main() {
 	case ":$PATH:" in
 		*":$dir:"*)
 			if [ -n "$shadowed" ]; then
-				say "start it with: $dir/flockdeck"
+				# Quoted when it has to be: a directory with a space in it
+				# pasted as two words.
+				say "start it with: $(shell_word "$dir/flockdeck")"
 			else
 				say "start it with: flockdeck"
 			fi ;;
