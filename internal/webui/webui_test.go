@@ -3456,7 +3456,7 @@ for (let i = 0; i < 30; i++) files.push({ path: "f" + i + ".go", label: "M", add
 const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", files };
 h.recv(tree);
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[20]);
-h.recv({ type: "diff", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
+h.recv({ type: "diff", cwd: "C:/repo", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
 const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
 const list = () => h.$("overlay-body").querySelector("div.rev-files");
 diff().scrollTop = 900;
@@ -3481,7 +3481,7 @@ const tree = (added) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasR
 h.recv(tree(1));
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[0]);
 const lines = (n) => Array.from({ length: n }, (_, i) => "+line " + i).join("\n");
-h.recv({ type: "diff", file: "a.go", text: lines(300) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.go", text: lines(300) });
 const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
 diff().scrollTop = 900;
 const diffs = () => h.commands().filter((c) => c.cmd === "diff");
@@ -3491,13 +3491,13 @@ h.recv(tree(40));
 assert.strictEqual(diffs().length, before + 1, "the tree changed and the diff on show was not read again");
 assert.deepStrictEqual(diffs().pop(), { cmd: "diff", path: "C:/repo", text: "a.go" });
 assert.ok(!/Loading/.test(diff().textContent), "the diff on show was taken away while the new one was read");
-h.recv({ type: "diff", file: "a.go", text: lines(340) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.go", text: lines(340) });
 assert.ok(/line 339/.test(diff().textContent), "the new diff is not shown");
 assert.strictEqual(diff().scrollTop, 900, "the new diff lost the reader's place");
 
 // Another file chosen starts at its top.
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[1]);
-h.recv({ type: "diff", file: "b.go", text: lines(300) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "b.go", text: lines(300) });
 assert.strictEqual(diff().scrollTop, 0, "a file just chosen did not start at its top");
 `)
 }

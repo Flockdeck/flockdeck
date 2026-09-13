@@ -97,6 +97,24 @@ assert.ok(h.$("rev-commit"), "a detached HEAD cannot be committed to from the pa
 `)
 }
 
+// A reply matched only by file name: a diff asked for in one checkout, landing
+// once another checkout's review was on show, was drawn beside a file of the
+// same name there.
+func TestADiffIsShownOnlyForTheCheckoutOnShow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const diff = () => h.$("overlay-body").querySelector("div.rev-diff").textContent;
+h.recv({ type: "diff", cwd: "C:/other", file: "a.go", text: "+from the other checkout" });
+assert.ok(!/other checkout/.test(diff()), "another checkout's diff was shown");
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.go", text: "+from this one" });
+assert.ok(/from this one/.test(diff()), "this checkout's diff was not shown");
+`)
+}
+
 // Arrowing down the list asked for the diff of every row it passed.
 func TestTheDiffIsAskedForOnlyWhereTheSelectionStops(t *testing.T) {
 	runFrontEnd(t, `

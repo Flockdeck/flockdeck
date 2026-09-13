@@ -5372,7 +5372,9 @@
   }
 
   function showDiff(msg) {
-    if (msg.file !== selectedFile) return; // a stale reply for another file
+    // A stale reply for another file -- or for a file of the same name in
+    // another checkout, reviewed a moment before this one.
+    if (msg.file !== selectedFile || !changes || msg.cwd !== changes.cwd) return;
     // A diff already on show is being read again, and the reader's place in
     // it is kept; a file just chosen starts at its top.
     const again = !!diffText;
