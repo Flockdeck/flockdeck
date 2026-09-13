@@ -86,7 +86,11 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	t.Setenv("HOME", dir)
 	goTelemetryOff(t)
 
-	ws, err := workspace.New(workspace.Options{Root: t.TempDir()})
+	// The project folder is where the pane's shell runs, so on Windows it is
+	// held for a moment after the workspace closes, as the state folder is:
+	// t.TempDir's cleanup failed TestAPanicDoesNotTakeTheAgentsDown on a
+	// Windows runner for it, after the test itself had passed.
+	ws, err := workspace.New(workspace.Options{Root: stateTempDir(t)})
 	if err != nil {
 		t.Fatalf("workspace: %v", err)
 	}
