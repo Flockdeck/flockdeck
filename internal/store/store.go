@@ -484,7 +484,7 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
-	if err := keepUnread(p); err != nil {
+	if err := keepUnread(p, "the saved layout for "+s.Root); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
 	if err := writeAtomic(p, data); err != nil {
@@ -513,7 +513,34 @@ const unreadSuffix = ".unread"
 var unreadFiles = struct {
 	sync.Mutex
 	paths map[string]bool
+	// kept is every one of them moved aside since TakeKept last looked.
+	kept []Kept
 }{paths: map[string]bool{}}
+
+// Kept is a state file this run could not read, moved aside before the save
+// that replaced it.
+type Kept struct {
+	// What names what the file held, as a sentence would: "the saved layout
+	// for /repo/a".
+	What string
+	// Path is where it is kept now.
+	Path string
+}
+
+// TakeKept returns the files moved aside since it was last called, and
+// forgets them.
+//
+// A file that could not be read at start is moved aside by the first save
+// after, and the project it held came up on one fresh tab: without this, the
+// only sign of either was a file with a new name in a folder nobody looks in.
+// Whoever can tell the user asks, and says where their file went.
+func TakeKept() []Kept {
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
+	kept := unreadFiles.kept
+	unreadFiles.kept = nil
+	return kept
+}
 
 // noteRead records how reading a state file went. A file read, or found not
 // to be there, has nothing left to keep.
@@ -528,10 +555,11 @@ func noteRead(p string, err error) {
 }
 
 // keepUnread moves a file this run could not read aside, ahead of the save
-// about to replace it. Where it cannot be moved either, the save is refused:
-// what is lost with it is what the user has just seen, and the file that
-// could not be read is what they have not.
-func keepUnread(p string) error {
+// about to replace it, and records it for TakeKept under what, which names
+// what it held. Where it cannot be moved either, the save is refused: what is
+// lost with it is what the user has just seen, and the file that could not be
+// read is what they have not.
+func keepUnread(p, what string) error {
 	unreadFiles.Lock()
 	defer unreadFiles.Unlock()
 	if !unreadFiles.paths[p] {
@@ -545,6 +573,9 @@ func keepUnread(p string) error {
 		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
 	}
 	delete(unreadFiles.paths, p)
+	if err == nil {
+		unreadFiles.kept = append(unreadFiles.kept, Kept{What: what, Path: aside})
+	}
 	return nil
 }
 
@@ -1147,7 +1178,7 @@ func writeRecents(list []Project) error {
 	// A damaged list that would not move aside is recorded as unread, and this
 	// write is what it has to be kept from: every directory the user has
 	// opened, replaced by the list read from it, which is nothing.
-	if err := keepUnread(filepath.Join(dir, recentsFile)); err != nil {
+	if err := keepUnread(filepath.Join(dir, recentsFile), "the list of recent projects"); err != nil {
 		return fmt.Errorf("write projects: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
@@ -1273,7 +1304,7 @@ func SaveSession(s *Session) error {
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, sessionFile)); err != nil {
+	if err := keepUnread(filepath.Join(dir, sessionFile), "the list of open projects"); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {

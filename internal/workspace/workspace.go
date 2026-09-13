@@ -204,6 +204,9 @@ type Workspace struct {
 	// lastTab remembers which tab each project was left on, so coming back to
 	// a project comes back to what you were doing in it.
 	lastTab map[string]string
+	// restoreErrs is what the restores since RestoreErrors was last asked
+	// could not read. See RestoreErrors.
+	restoreErrs []error
 	// lastKeyMove is the keyboard move just made, so that the opposite arrow
 	// can undo it.
 	lastKeyMove keyMove

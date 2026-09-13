@@ -637,10 +637,16 @@ func run(opts options) error {
 	// goroutine, so setting up here keeps startup free of that constraint.
 	restored := false
 	if !opts.fresh {
-		// A layout that fails to restore should never stop the app starting.
-		restored, _ = ws.Restore()
+		// A layout that fails to restore should never stop the app starting,
+		// but it is said: the project comes up without its tabs, and the
+		// windows hear of the file only once a save has moved it aside.
+		var restoreErr error
+		restored, restoreErr = ws.Restore()
 		// Bring back the other projects that were open last time, too.
 		ws.RestoreSession()
+		if err := errors.Join(restoreErr, ws.RestoreErrors()); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		}
 	}
 	if !restored {
 		ws.NewTab(firstPaneKind(opts.shell, ws.AgentSpec), root, "")

@@ -131,7 +131,7 @@ func SavePrefs(p Prefs) error {
 	if err != nil {
 		return fmt.Errorf("encode prefs: %w", err)
 	}
-	if err := keepUnread(filepath.Join(dir, prefsFile)); err != nil {
+	if err := keepUnread(filepath.Join(dir, prefsFile), "the preferences"); err != nil {
 		return fmt.Errorf("write prefs: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, prefsFile), data); err != nil {

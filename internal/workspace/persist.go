@@ -166,16 +166,37 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 
 // Restore rebuilds the initial project from its saved layout. It reports
 // whether anything was restored; when it returns false the caller should
-// create a fresh tab.
+// create a fresh tab. The error is every saved layout it could not read, this
+// project's and those of the projects its panes brought back with it; each of
+// those projects has still been opened, without its tabs.
 func (w *Workspace) Restore() (bool, error) {
-	return w.restoreProject(w.activeRoot) > 0, nil
+	n := w.restoreProject(w.activeRoot)
+	return n > 0, w.RestoreErrors()
+}
+
+// RestoreErrors returns what the restores since it was last asked could not
+// read, and forgets it: saved layouts, and the list of open projects that
+// RestoreSession reads.
+//
+// A file that cannot be read is restored as nothing, which should never stop
+// the app starting, and so was never said at all. The project came up on one
+// fresh tab, and the save half a minute later moved the user's file aside
+// under a new name, which nothing said either.
+func (w *Workspace) RestoreErrors() error {
+	err := errors.Join(w.restoreErrs...)
+	w.restoreErrs = nil
+	return err
 }
 
 // restoreProject loads a project's saved tabs and appends them, relaunching
 // each pane. An agent pane resumes its previous conversation where its agent
-// can. It returns how many tabs were restored.
+// can. It returns how many tabs were restored; a layout that could not be read
+// is noted for RestoreErrors.
 func (w *Workspace) restoreProject(root string) int {
 	st, err := store.Load(root)
+	if err != nil {
+		w.restoreErrs = append(w.restoreErrs, fmt.Errorf("the saved layout for %s could not be read, so it opens without it; the file is kept, and moved aside rather than written over when the layout is next saved: %w", root, err))
+	}
 	if err != nil || st == nil || len(st.Tabs) == 0 {
 		return 0
 	}
@@ -639,8 +660,14 @@ func parseDir(s string) layout.Dir {
 //
 // The project the user asked for stays active: reopening the rest is meant to
 // bring back context, not to move them somewhere they did not ask to be.
+//
+// A list that could not be read, and the layout of any project reopened that
+// could not be, are noted for RestoreErrors.
 func (w *Workspace) RestoreSession() int {
 	sess, err := store.LoadSession()
+	if err != nil {
+		w.restoreErrs = append(w.restoreErrs, fmt.Errorf("the list of open projects could not be read, so no others are reopened; the file is kept, and moved aside rather than written over when the list is next saved: %w", err))
+	}
 	if err != nil || sess == nil {
 		return 0
 	}
