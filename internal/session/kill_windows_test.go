@@ -45,9 +45,45 @@ func endProcess(pid int) {
 	_, _ = syscall.WaitForSingleObject(h, 5000)
 }
 
+// The windowed program starts the console program windowedChildEnv names, if
+// it is set, as this binary's "child", and writes its process id to the file
+// windowedPIDEnv names: an editor's terminal or language server.
+const (
+	windowedChildEnv = "FLOCKDECK_SESSION_TEST_WINDOWED_CHILD"
+	windowedPIDEnv   = "FLOCKDECK_SESSION_TEST_WINDOWED_PID"
+)
+
+const windowedSource = `package main
+
+import (
+	"os"
+	"os/exec"
+	"strconv"
+	"syscall"
+	"time"
+)
+
+func main() {
+	if exe := os.Getenv("` + windowedChildEnv + `"); exe != "" {
+		child := exec.Command(exe)
+		child.Env = append(os.Environ(), "` + treeEnv + `=child")
+		// CREATE_NO_WINDOW: a console program started by a windowed one
+		// otherwise gets a console window of its own.
+		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
+		if child.Start() == nil {
+			file := os.Getenv("` + windowedPIDEnv + `")
+			if os.WriteFile(file+".tmp", []byte(strconv.Itoa(child.Process.Pid)), 0o600) == nil {
+				_ = os.Rename(file+".tmp", file)
+			}
+		}
+	}
+	time.Sleep(time.Hour)
+}
+`
+
 // buildWindowedProgram builds a program with windows of its own, in its PE
 // header's terms -- it never opens one -- that waits an hour, and returns its
-// path.
+// path. See windowedSource for what else it does.
 func buildWindowedProgram(t *testing.T) string {
 	t.Helper()
 	goTool, err := exec.LookPath("go")
@@ -57,7 +93,7 @@ func buildWindowedProgram(t *testing.T) string {
 	dir := t.TempDir()
 	for name, body := range map[string]string{
 		"go.mod":  "module windowed\n\ngo 1.21\n",
-		"main.go": "package main\n\nimport \"time\"\n\nfunc main() { time.Sleep(time.Hour) }\n",
+		"main.go": windowedSource,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -91,6 +127,26 @@ func TestClosingAPaneLeavesItsWindowsOpen(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if !alive(child) {
 		t.Fatal("a windowed program the pane started was closed with the pane")
+	}
+}
+
+// TestClosingAPaneLeavesWhatItsWindowsStartedRunning covers `code .` in a
+// shell pane. The editor stayed open, but the console programs it runs -- the
+// terminal in it, its language servers, git -- are in the pane's job too, and
+// were ended with the pane, under the editor still on screen.
+func TestClosingAPaneLeavesWhatItsWindowsStartedRunning(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
+	s, _ := startTree(t, buildWindowedProgram(t), windowedChildEnv+"="+os.Args[0], windowedPIDEnv+"="+pidFile)
+	grandchild := waitForPID(t, s, pidFile)
+	if !alive(grandchild) {
+		t.Fatal("the windowed program's child had gone before the pane was closed")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if !alive(grandchild) {
+		t.Fatal("a console program a windowed one started was ended with the pane")
 	}
 }
 

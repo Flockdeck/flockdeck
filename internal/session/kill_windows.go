@@ -22,9 +22,12 @@ import (
 // Only console programs are ended. A program with windows of its own -- the
 // browser an agent opened for a login when none was running yet, an editor
 // started with `code .`, an Explorer window -- is the user's once it is on
-// screen, and closing a terminal does not close it. For the same reason the
-// job is not told to take its processes with it when it is closed: Flockdeck
-// exiting must not close somebody's browser either.
+// screen, and closing a terminal does not close it. Nor are the console
+// programs such a program starts, since they are its and not the pane's: the
+// terminal in an editor started with `code .`, the language servers and git it
+// runs. For the same reason the job is not told to take its processes with it
+// when it is closed: Flockdeck exiting must not close somebody's browser
+// either.
 
 var (
 	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
@@ -126,18 +129,67 @@ func openMember(job syscall.Handle, pid uint32) (syscall.Handle, bool) {
 	return h, true
 }
 
-// consoleProgram reports whether an open process is known to run in a console
-// rather than draw windows of its own. A process whose program cannot be read
-// is not known to be either, and is left alone.
-func consoleProgram(h syscall.Handle) bool {
+// programSubsystem reads, for an open process, whether its program runs in a
+// console or draws windows of its own. ok is false when the program cannot be
+// read, and then the process is known to be neither, and is left alone.
+func programSubsystem(h syscall.Handle) (sub uint16, ok bool) {
 	buf := make([]uint16, syscall.MAX_LONG_PATH)
 	n := uint32(len(buf))
 	if r, _, _ := procQueryFullProcessImageNameW.Call(uintptr(h), 0,
 		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&n))); r == 0 {
+		return 0, false
+	}
+	return peSubsystem(syscall.UTF16ToString(buf[:n]))
+}
+
+// jobMember is what endTree has read about a process in the pane's job.
+type jobMember struct {
+	windowed bool
+	// started is when the process was created, in file-time ticks.
+	started int64
+}
+
+// startedAt returns when an open process was created, in file-time ticks, or
+// zero when that cannot be read.
+func startedAt(h syscall.Handle) int64 {
+	var creation, exit, kernel, user syscall.Filetime
+	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
+		return 0
+	}
+	return filetimeTicks(creation)
+}
+
+// underWindow reports whether a process in the pane's job was started,
+// directly or through others, by a program with windows of its own that is
+// also in the job: a terminal in an editor started from the pane, or the
+// language servers the editor runs.
+//
+// The walk goes from parent to parent through members of the job only, and
+// stops at the pane's own process. A parent is only followed to a member
+// started before its child. A process keeps its parent's id after the parent
+// has ended, and by then the id may be another process's. A console program
+// whose windowed parent has already gone is not known to be the window's any
+// more, and is ended.
+func underWindow(pid uint32, pane int, parents map[int]int, members map[uint32]jobMember) bool {
+	child, ok := members[pid]
+	if !ok {
 		return false
 	}
-	sub, ok := peSubsystem(syscall.UTF16ToString(buf[:n]))
-	return ok && sub != imageSubsystemWindowsGUI
+	for i := 0; i < maxTreeProcs; i++ {
+		ppid, ok := parents[int(pid)]
+		if !ok || ppid == pane || ppid == int(pid) {
+			return false
+		}
+		parent, ok := members[uint32(ppid)]
+		if !ok || parent.started > child.started {
+			return false
+		}
+		if parent.windowed {
+			return true
+		}
+		pid, child = uint32(ppid), parent
+	}
+	return false
 }
 
 // peSubsystem reads the subsystem out of a program's PE header: the field of
@@ -189,9 +241,17 @@ func (s *Session) endTree() {
 	// is over.
 	var ending []syscall.Handle
 	if job != 0 {
+		pane := s.cmd.Process.Pid
 		seen := map[uint32]bool{}
+		members := map[uint32]jobMember{}
+		type console struct {
+			pid uint32
+			h   syscall.Handle
+		}
 		for pass := 0; pass < endPasses; pass++ {
-			more := false
+			// Every new member is read before any is ended, so that a console
+			// program's windowed parent is known whichever is listed first.
+			var consoles []console
 			for _, pid := range jobMemberIDs(job) {
 				if seen[pid] {
 					continue
@@ -201,12 +261,26 @@ func (s *Session) endTree() {
 				if !ok {
 					continue
 				}
-				if !consoleProgram(h) {
+				sub, known := programSubsystem(h)
+				m := jobMember{windowed: known && sub == imageSubsystemWindowsGUI, started: startedAt(h)}
+				members[pid] = m
+				if !known || m.windowed {
 					_ = syscall.CloseHandle(h)
 					continue
 				}
-				_ = syscall.TerminateProcess(h, 1)
-				ending = append(ending, h)
+				consoles = append(consoles, console{pid, h})
+			}
+			// Taken after the listing, so every process listed and still
+			// running is in it.
+			parents := procParents()
+			more := false
+			for _, c := range consoles {
+				if underWindow(c.pid, pane, parents, members) {
+					_ = syscall.CloseHandle(c.h)
+					continue
+				}
+				_ = syscall.TerminateProcess(c.h, 1)
+				ending = append(ending, c.h)
 				more = true
 			}
 			if !more {
