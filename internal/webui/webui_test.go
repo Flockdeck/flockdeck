@@ -6931,8 +6931,16 @@ class FakeTerm {
     // are kept apart: a reset reaches the screen ahead of bytes still queued.
     this.screen = []; this.queue = []; this.disposed = false; this.focused = false;
     this.buffer = { active: { viewportY: 0, baseY: 0 } };
+    // What is selected with the mouse, and what has been pasted through
+    // paste(), which is how xterm is given text that did not come from keys.
+    this.selection = ""; this.pasted = [];
     terms.push(this);
   }
+  attachCustomKeyEventHandler(fn) { this._keys = fn; }
+  hasSelection() { return !!this.selection; }
+  getSelection() { return this.selection; }
+  clearSelection() { this.selection = ""; }
+  paste(d) { this.pasted.push(d); }
   /** written is what the screen shows once everything written so far has
    *  been parsed: whatever follows the last full reset in the stream. */
   get written() {
@@ -6945,7 +6953,7 @@ class FakeTerm {
   parse() {
     for (const w of this.queue.splice(0)) { this.screen.push(w.data); if (w.cb) w.cb(); }
   }
-  loadAddon() {}
+  loadAddon(a) { if (a instanceof FakeWebgl) a.term = this; }
   open(host) { this.host = host; }
   onScroll(fn) { this._scroll = fn; }
   onWriteParsed(fn) { this._parsed = fn; }
@@ -6968,7 +6976,14 @@ class FakeSearch {
   clearDecorations() { this.cleared++; }
   onDidChangeResults(fn) { this.results = fn; }
 }
-class FakeWebgl { onContextLoss() {} dispose() {} }
+/** Every WebGL renderer made, with the terminal it was loaded into and
+ *  whether it has been given up since. */
+const webgls = [];
+class FakeWebgl {
+  constructor() { this.disposed = false; this.term = null; webgls.push(this); }
+  onContextLoss(fn) { this._lost = fn; }
+  dispose() { this.disposed = true; }
+}
 
 const notifications = [];
 class FakeNotification {
@@ -7082,7 +7097,7 @@ function unref(t) { t.unref(); return t; }
 function boot(opts) {
   opts = opts || {};
   sockets.length = 0; terms.length = 0; observers.length = 0; searchers.length = 0;
-  notifications.length = 0;
+  notifications.length = 0; webgls.length = 0;
   FakeNotification.permission = "granted";
   FakeNotification.asked = 0;
   const doc = new Doc();
@@ -7153,7 +7168,7 @@ function boot(opts) {
   vm.runInContext(src, ctx, { filename: "app.js" });
 
   const h = {
-    doc, win, sockets, terms, observers, searchers, notifications,
+    doc, win, sockets, terms, observers, searchers, notifications, webgls,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
     /** controls lists every control socket the page has opened, in order. */
