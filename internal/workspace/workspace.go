@@ -185,10 +185,12 @@ type Workspace struct {
 	// gitMu guards what RefreshGit keeps across refreshes, which overlap now
 	// that one no longer waits for another: gitBusy holds, by pathKey, the
 	// checkouts git is being asked about, and gitSlots bounds how many it is
-	// asked about at once. Both are made on first use.
-	gitMu    sync.Mutex
-	gitBusy  map[string]bool
-	gitSlots chan struct{}
+	// asked about at once. Both are made on first use, as is gitIndexAt,
+	// which holds when each checkout's index was last refreshed.
+	gitMu      sync.Mutex
+	gitBusy    map[string]bool
+	gitSlots   chan struct{}
+	gitIndexAt map[string]time.Time
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
@@ -1979,6 +1981,16 @@ var gitExited = gitx.Exited
 // out.
 var gitDeadline = 10 * time.Second
 
+// slowStatus is how long a checkout's status has to take before its index is
+// refreshed, and indexRefreshEvery how long after that the same checkout's
+// index may be refreshed again; indexRefresh does it (see RefreshGit). They
+// are variables so a test need not make a checkout slow.
+var (
+	slowStatus        = 2 * time.Second
+	indexRefreshEvery = 10 * time.Minute
+	indexRefresh      = gitx.RefreshIndex
+)
+
 // RefreshGit updates every pane's git summary.
 //
 // The git calls are made off the caller's goroutine and only the results are
@@ -2072,11 +2084,24 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 			// The deadline starts once git does, not while waiting for a
 			// slot: a checkout queued behind slow ones has not been slow.
 			slots <- struct{}{}
+			began := time.Now()
 			st, err := gitStatus(cwd, gitDeadline)
+			slow := err == nil && time.Since(began) >= slowStatus
 			<-slots
 			key := pathKey(cwd)
 			late := errors.Is(err, context.DeadlineExceeded)
 			apply(func() { w.applyGit(key, st, late) })
+			// A status that answered, but slowly, is most often one looking
+			// again at files touched since the index last recorded them,
+			// which it cannot record itself (see gitx.RefreshIndex). Its
+			// answer is shown first. The index is refreshed while the
+			// checkout is still marked busy, so no status runs beside it, and
+			// not again for a while: a checkout slow for some other reason
+			// gains nothing, and the refresh holds the lock an agent's commit
+			// needs for as long as it runs.
+			if slow && w.indexDue(key) {
+				_ = indexRefresh(cwd)
+			}
 			// A git given up on is answered for at once, but the checkout
 			// stays busy until it has really gone. Ending one stuck on a
 			// drive that has gone away takes as long as the drive does, and
@@ -2099,6 +2124,21 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 		}(cwd)
 	}
 	wg.Wait()
+}
+
+// indexDue reports whether the index of the checkout key names may be
+// refreshed now, and notes that it is being.
+func (w *Workspace) indexDue(key string) bool {
+	w.gitMu.Lock()
+	defer w.gitMu.Unlock()
+	if at, ok := w.gitIndexAt[key]; ok && time.Since(at) < indexRefreshEvery {
+		return false
+	}
+	if w.gitIndexAt == nil {
+		w.gitIndexAt = map[string]time.Time{}
+	}
+	w.gitIndexAt[key] = time.Now()
+	return true
 }
 
 // applyGit gives every pane in the checkout key names what git said about it,
