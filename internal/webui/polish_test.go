@@ -932,3 +932,30 @@ assert.strictEqual(h.$("rev-commit").textContent, "Commit 1 file");
 assert.ok(!h.$("overlay-body").querySelector("div.rev-omitted"), "a list with nothing left out says some were");
 `)
 }
+
+// A desktop notification was closed only when it was clicked. Answered from
+// the window instead, it stayed in the Action Center, and clicking it later
+// went to a pane that was no longer waiting. It goes when the window comes to
+// the front, and when nothing is waiting any more.
+func TestANotificationGoesOnceItIsAnswered(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.doc._hasFocus = false;
+const state = (status) => fixture({ waiting: status === "waiting" ? 1 : 0,
+  panes: { p1: pane("p1", { status }), p2: pane("p2") } });
+h.recv(state("working"));
+h.recv(state("waiting"));
+assert.strictEqual(h.notifications.length, 1, "no notification was raised");
+h.doc._hasFocus = true;
+h.win.dispatchEvent(new h.Ev("focus"));
+assert.ok(h.notifications[0].closed, "the notification outlived the window coming to the front");
+
+h.doc._hasFocus = false;
+h.recv(state("working"));
+h.recv(state("waiting"));
+assert.strictEqual(h.notifications.length, 2);
+h.doc.hidden = false;
+h.recv(state("working"));
+assert.ok(h.notifications[1].closed, "the notification outlived the wait it was about");
+`)
+}

@@ -4113,6 +4113,9 @@
   const lastProjectWaiting = new Map();
 
   function notifyAttention(s) {
+    // Nothing waiting anywhere: whatever the last notification asked has been
+    // answered, from this window or another.
+    if (!s.waiting && !(s.projects || []).some((p) => p.waiting)) closeNotification();
     const elsewhere = [];
     for (const p of s.projects || []) {
       const before = lastProjectWaiting.get(p.root);
@@ -4175,6 +4178,7 @@
       // place silently: an agent stopping to wait while an earlier
       // notification was still up made no sound and showed no banner.
       const n = new Notification(title, { body, tag: "flockdeck", renotify: true });
+      lastNotification = n;
       n.onclick = () => {
         window.focus();
         // Raising the window in front of whichever tab happened to be on
@@ -4183,9 +4187,23 @@
         if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
         else if (root) send({ cmd: "selectProject", root });
         n.close();
+        if (lastNotification === n) lastNotification = null;
       };
     } catch { /* notifications are best effort */ }
   }
+
+  /** The notification last raised. It was closed only when it was clicked:
+   *  answered from the window instead, it stayed in the Action Center, and
+   *  clicking it later went to a pane that was no longer waiting. It goes
+   *  when the window comes to the front, and when nothing waits any more. */
+  let lastNotification = null;
+  function closeNotification() {
+    if (!lastNotification) return;
+    try { lastNotification.close(); } catch { /* already gone */ }
+    lastNotification = null;
+  }
+  window.addEventListener("focus", closeNotification);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) closeNotification(); });
 
   function askForNotifications() {
     if (prefs.notificationsOff) return; // asked and answered, for every run
