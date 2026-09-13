@@ -700,6 +700,19 @@ func readState(path string) ([]byte, error) {
 // sharing violation exists only on Windows.
 var readFile = os.ReadFile
 
+// RenameWithRetry is renameWithRetry for files other packages keep in the
+// state directory. The key store is replaced the same way these files are and
+// opened just as often -- by every pane that starts, by the picker asking
+// whether an agent has a key, and by the virus scanner after each save -- so
+// on Windows a save of it failed "Access is denied" whenever one of those had
+// it open.
+func RenameWithRetry(src, dst string) error { return renameWithRetry(src, dst) }
+
+// ReadState is readState for files other packages keep in the state
+// directory, so a read of the key store made while a save is replacing it
+// waits the save out rather than reading as no key at all.
+func ReadState(path string) ([]byte, error) { return readState(path) }
+
 // hashRoot turns a path into a short stable filename component.
 func hashRoot(root string) string {
 	return hashString(normalizeRoot(root))

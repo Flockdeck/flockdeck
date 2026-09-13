@@ -49,7 +49,11 @@ func load() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(p)
+	// Read through the state directory's retry, as its other files are: on
+	// Windows a read made while another process replaces the store --
+	// `flockdeck keys set`, or the window saving a key as a pane starts -- is
+	// refused as a sharing violation, and the pane went without its key.
+	data, err := store.ReadState(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]string{}, nil
 	}
@@ -198,7 +202,12 @@ func save(keys map[string]string) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("write %s: %w", keysFile, err)
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	// storeMu keeps this process's own saves apart, but not a pane reading
+	// the store from a process of its own, the picker's availability probe,
+	// or the virus scanner that follows every write, and Windows refuses to
+	// replace a file any of them has open. Those holds last milliseconds, so
+	// the rename waits them out, as the state directory's other files do.
+	if err := store.RenameWithRetry(tmp, p); err != nil {
 		return fmt.Errorf("write %s: %w", keysFile, err)
 	}
 	return nil

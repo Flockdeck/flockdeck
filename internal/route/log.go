@@ -96,7 +96,10 @@ func AppendLog(dir string, entries ...LogEntry) error {
 		}
 		return nil
 	}
-	lines := bytes.SplitAfter(append(old, add.Bytes()...), []byte("\n"))
+	// data, not add: once the log is full every append comes this way, and
+	// a last line without its newline would otherwise still swallow the
+	// first new decision.
+	lines := bytes.SplitAfter(append(old, data...), []byte("\n"))
 	if n := len(lines); n > 0 && len(lines[n-1]) == 0 {
 		lines = lines[:n-1]
 	}

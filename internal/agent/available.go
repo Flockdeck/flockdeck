@@ -172,7 +172,11 @@ func keyIsSet(s Spec) bool {
 	if path == "" {
 		return false
 	}
-	data, err := os.ReadFile(path)
+	// Read through the state directory's retry: on Windows a read made while
+	// a save is replacing the store is refused as a sharing violation, and
+	// the picker, which asks on every refresh, greyed the agent out as having
+	// no key for as long as that answer was trusted.
+	data, err := store.ReadState(path)
 	if err != nil {
 		return false
 	}
