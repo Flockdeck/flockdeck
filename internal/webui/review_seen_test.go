@@ -136,3 +136,21 @@ await h.sleep(250);
 assert.deepStrictEqual(diffs(), ["a.go", "c.go"], "the row the selection stopped on was not asked about");
 `)
 }
+
+// Pull only fast-forwards, and was offered to a branch that had gone its own
+// way, where it could only answer with an error.
+func TestADivergedBranchIsOfferedNoPull(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = (ahead, behind) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true,
+  upstream: "origin/main", ahead, behind, files: [] });
+// Looked for on the page: an element drawn by the last render is not.
+const pull = () => h.$("overlay-body").querySelector("#rev-pull");
+h.recv(tree(0, 2));
+assert.ok(pull(), "a branch that is only behind was offered no pull");
+h.recv(tree(1, 2));
+assert.ok(!pull(), "a branch that has gone its own way was offered a pull");
+`)
+}

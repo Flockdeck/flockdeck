@@ -23,7 +23,7 @@ was started in a folder inside it, and a commit takes every file in its list.
 - **Fetch** and **Push** against the upstream.
 - **Pull**, which appears only when the upstream has commits this branch does
   not, and only ever fast-forwards: a branch that has gone its own way is left
-  for you to merge or rebase in a shell.
+  for you to merge or rebase in a shell, and is offered no Pull.
 
 Everything that talks to a remote is there only when the checkout has one. The
 first push sets the upstream, so a branch a fan-out invented does not need a

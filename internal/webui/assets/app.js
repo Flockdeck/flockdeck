@@ -5090,7 +5090,12 @@
         label.push(m.ahead + (m.ahead === 1 ? " commit ahead" : " commits ahead"));
       }
       if (m.behind) {
-        parts.push(TIPS.behind);
+        // Pull only fast-forwards, so a branch that is ahead as well is not
+        // offered one, and "Pull to catch up" would send the reader looking
+        // for a button that is not there.
+        parts.push(m.ahead
+          ? "Both have moved on, so this branch cannot simply catch up: merge or rebase in a terminal, then push."
+          : TIPS.behind);
         label.push(m.behind + (m.behind === 1 ? " commit behind" : " commits behind"));
       }
       const tr = el("span", "rev-track", track);
@@ -5127,7 +5132,9 @@
       fetch.id = "rev-fetch";
       fetch.onclick = () => { running(fetch, "Fetching…"); send({ cmd: "gitFetch", path: m.cwd }); };
       actions.append(fetch);
-      if (m.behind && !m.detached) {
+      // Pull only ever fast-forwards, which a branch with commits of its own
+      // as well cannot do: offered then, it could only answer with an error.
+      if (m.behind && !m.ahead && !m.detached) {
         const pull = el("button", "chip", "Pull " + m.behind);
         pull.id = "rev-pull";
         pull.title = "Fast-forward from " + m.upstream;
@@ -5138,7 +5145,9 @@
       if (!m.detached) {
         const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
         push.id = "rev-push";
-        push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
+        // The first push goes to origin, or to the only remote when there is
+        // no origin; "to origin" was wrong for a repository without one.
+        push.title = m.upstream ? "Push to " + m.upstream : "Push this branch for the first time, and track it on the remote from then on";
         push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
         actions.append(push);
       }
