@@ -63,7 +63,8 @@ func waitForKey(ctx context.Context, o Options) (string, error) {
 	}
 	// Waiting on the user is what turns a pane amber, the same as a tool's
 	// question does: of a dozen panes, this is the one they have to look at.
-	newReporter(o.API, o.Token, o.Session, o.Cwd).notification("")
+	r := newReporter(o.API, o.Token, o.Session, o.Cwd)
+	r.notification("")
 	for {
 		select {
 		case <-ctx.Done():
@@ -72,6 +73,12 @@ func waitForKey(ctx context.Context, o Options) (string, error) {
 		}
 		if key, from := lookupKey(o); key != "" {
 			fmt.Fprintf(o.Out, "(found a key %s; carrying on)\n", from)
+			// The wait is over, and nothing that follows says so: the
+			// SessionStart the chat opens with leaves a pane's status alone,
+			// so the pane stayed amber, counted among those waiting on the
+			// user, until somebody typed a prompt into it. It is at its
+			// prompt now, which is what a Stop reports.
+			r.stop()
 			return key, nil
 		}
 	}
