@@ -631,3 +631,26 @@ assert.ok(h.$("overlay-body").querySelector("div.rev-diff").textContent.includes
 `)
 	t.Log(out)
 }
+
+// Find asked for again, once the keyboard has moved to another pane, searches
+// that pane instead - and left the first pane's matches marked for good,
+// since only the pane being searched is ever cleared.
+func TestFindMovedToAnotherPaneClearsTheFirst(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = (focus) => ({ id: "t1", title: "pair", focus, zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) });
+const panes = { p1: pane("p1", { name: "reviewer" }), p2: pane("p2", { name: "builder" }) };
+h.recv(fixture({ tabs: [tab("p1")], panes }));
+h.press("findInTerminal");
+h.$("search-input").value = "error";
+h.key({ key: "Enter" });
+const first = h.searchers[0];
+assert.ok(first.forward.includes("error"), "the first pane was not searched");
+const cleared = first.cleared;
+h.recv(fixture({ tabs: [tab("p2")], panes }));
+h.press("findInTerminal");
+assert.strictEqual(h.$("search-label").textContent, "Find in builder", "Find did not move to the pane with the keyboard");
+assert.ok(first.cleared > cleared, "the first pane's matches were left marked");
+`)
+}

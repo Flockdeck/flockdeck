@@ -3967,7 +3967,15 @@
   let lastSearch = "";
 
   function openSearch() {
+    const was = searchPane;
     searchPane = focusedPaneId();
+    // Asked for again after the keyboard moved to another pane, the search
+    // moves with it, and it left the first pane's matches marked for good:
+    // only the pane being searched is ever cleared.
+    if (was && was !== searchPane) {
+      const old = panes.get(was);
+      if (old && old.search) { try { old.search.clearDecorations(); } catch {} }
+    }
     $("searchbar").hidden = false;
     // With six panes on screen, "Find" alone does not say where it is looking.
     const v = state && state.panes ? state.panes[searchPane] : null;
