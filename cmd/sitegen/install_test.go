@@ -15,32 +15,46 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 )
 
 // releases stands in for everywhere the install scripts download from, under
-// one server: the site at /dl, GitHub's downloads at /gh, GitHub's API at /api
-// and a mirror of somebody's own at /mirror. Every archive holds a program
-// saying which of them it came from, so a test can tell where an installation
-// was fetched.
+// one server: the site at /dl, GitHub's downloads at /gh and a mirror of
+// somebody's own at /mirror. Every place serves the same bytes for an
+// archive, as the real ones do, and the server records which place served
+// each, so a test can tell where an installation was fetched.
 type releases struct {
 	srv *httptest.Server
 
 	mu       sync.Mutex
 	onSite   map[string]bool // versions the site has; GitHub has every one
-	latest   string          // what the site's latest.json names
 	down     bool            // the site drops every connection
 	tampered bool            // the site serves an archive its checksums do not describe
+	forged   string          // a place that serves a tampered archive, and checksums to match it
 	asked    []string
+	served   []string // the places an archive was served from
 }
 
 var archiveName = regexp.MustCompile(`^flockdeck_(v[^_]+)_([a-z]+)_([a-z0-9]+)\.(tar\.gz|zip)$`)
 
+// testRelease is the release the tests generate the site for: v9.9.9, which
+// the site and GitHub both have, with the checksums of its archives as they
+// serve them.
+func testRelease() release {
+	rel := release{Version: "v9.9.9", Sums: map[string]string{}}
+	for _, name := range archives(rel.Version) {
+		sum := sha256.Sum256(installArchive(name))
+		rel.Sums[name] = hex.EncodeToString(sum[:])
+	}
+	return rel
+}
+
 func newReleases(t *testing.T) *releases {
 	t.Helper()
-	r := &releases{onSite: map[string]bool{"v9.9.9": true}, latest: "v9.9.9"}
+	r := &releases{onSite: map[string]bool{"v9.9.9": true, "v9.9.8": true}}
 	r.srv = httptest.NewServer(http.HandlerFunc(r.serve))
 	t.Cleanup(r.srv.Close)
 	return r
@@ -49,7 +63,7 @@ func newReleases(t *testing.T) *releases {
 func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.asked = append(r.asked, req.URL.Path)
-	onSite, latest, down, tampered := r.onSite, r.latest, r.down, r.tampered
+	onSite, down, tampered, forged := r.onSite, r.down, r.tampered, r.forged
 	r.mu.Unlock()
 
 	place, rest, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
@@ -62,13 +76,6 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 			conn.Close()
 		}
 		return
-	case place == "api" && rest == "repos/jmwri/flockdeck/releases/latest":
-		fmt.Fprint(w, `{"tag_name": "v9.9.9", "draft": false}`)
-		return
-	case (place == "dl" || place == "mirror") && rest == "latest.json":
-		// As cmd/release writes it: the version, and nothing else.
-		fmt.Fprintf(w, "{\"version\":%q}\n", latest)
-		return
 	case place != "dl" && place != "gh" && place != "mirror":
 		http.NotFound(w, req)
 		return
@@ -78,11 +85,17 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
+	// A tampered archive is another release's, served under this one's name.
+	evil := func(name string) string { return strings.Replace(name, version, version+"-evil", 1) }
 	if file == "checksums.txt" {
 		// Every platform, so that whatever machine runs the test finds its own.
 		for _, p := range []string{"linux_amd64.tar.gz", "linux_arm64.tar.gz", "darwin_amd64.tar.gz", "darwin_arm64.tar.gz", "windows_amd64.zip", "windows_arm64.zip"} {
 			name := "flockdeck_" + version + "_" + p
-			sum := sha256.Sum256(installArchive(name, place))
+			described := name
+			if place == forged {
+				described = evil(name)
+			}
+			sum := sha256.Sum256(installArchive(described))
 			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
 		}
 		return
@@ -91,10 +104,13 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	if place == "dl" && tampered {
-		file = strings.Replace(file, version, version+"-evil", 1)
+	if (place == "dl" && tampered) || place == forged {
+		file = evil(file)
 	}
-	w.Write(installArchive(file, place))
+	r.mu.Lock()
+	r.served = append(r.served, place)
+	r.mu.Unlock()
+	w.Write(installArchive(file))
 }
 
 // askedOf is every path requested under one place.
@@ -110,11 +126,18 @@ func (r *releases) askedOf(place string) []string {
 	return got
 }
 
-// installArchive is the archive of that name as a place serves it: the same
-// bytes every time, holding a program that names the place.
-func installArchive(name, place string) []byte {
+// servedFrom is every place that served an archive, in order.
+func (r *releases) servedFrom() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.served)
+}
+
+// installArchive is the archive of that name: the same bytes every time,
+// holding a program that names its version.
+func installArchive(name string) []byte {
 	var buf bytes.Buffer
-	body := []byte("flockdeck " + archiveName.FindStringSubmatch(name)[1] + " from " + place)
+	body := []byte("flockdeck " + archiveName.FindStringSubmatch(name)[1])
 	if strings.HasSuffix(name, ".zip") {
 		zw := zip.NewWriter(&buf)
 		w, _ := zw.Create("flockdeck.exe")
@@ -146,6 +169,19 @@ func pointAt(t *testing.T, script string, r *releases, lines map[string]string) 
 	return script
 }
 
+// shAddresses and ps1Addresses are where each script downloads from, and what
+// pointAt makes of each.
+var (
+	shAddresses = map[string]string{
+		`DL="https://dl.flockdeck.ai"`: `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:  `GITHUB="%s/gh"`,
+	}
+	ps1Addresses = map[string]string{
+		`$dl = 'https://dl.flockdeck.ai'`: `$dl = '%s/dl'`,
+		`$github = 'https://github.com'`:  `$github = '%s/gh'`,
+	}
+)
+
 // installCase is one run of an install script: what it is given, where the
 // program should come from, and what it should say.
 type installCase struct {
@@ -160,16 +196,29 @@ type installCase struct {
 
 func installCases() []installCase {
 	return []installCase{
-		{name: "from the site", from: "dl", version: "v9.9.9", never: []string{"gh", "api"}},
+		{name: "from the site", from: "dl", version: "v9.9.9", never: []string{"gh"}},
 		{name: "the site out of reach", setup: func(r *releases) { r.down = true },
-			from: "gh", version: "v9.9.9", says: "downloading from GitHub instead"},
-		{name: "the site naming no release", setup: func(r *releases) { r.latest = "<html>" },
-			from: "gh", version: "v9.9.9", says: "downloading from GitHub instead"},
+			from: "gh", version: "v9.9.9", says: "downloading it from GitHub instead"},
 		{name: "a release older than the site", env: map[string]string{"FLOCKDECK_VERSION": "0.1.0"},
-			from: "gh", version: "v0.1.0", says: "downloading it from GitHub instead", never: []string{"api"}},
+			from: "gh", version: "v0.1.0", says: "downloading it from GitHub instead"},
+		{name: "another release chosen by hand", env: map[string]string{"FLOCKDECK_VERSION": "v9.9.8"},
+			from: "dl", version: "v9.9.8", says: "checked only against the checksums.txt downloaded beside it", never: []string{"gh"}},
 		{name: "a mirror", env: map[string]string{"FLOCKDECK_DOWNLOAD": "%s/mirror/"},
-			from: "mirror", version: "v9.9.9", never: []string{"dl", "gh", "api"}},
+			from: "mirror", version: "v9.9.9", never: []string{"dl", "gh"}},
 		{name: "a tampered archive on the site", setup: func(r *releases) { r.tampered = true },
+			says: "does not match its published checksum", never: []string{"gh"}},
+		// The site's checksums.txt is replaced along with the archive, as it
+		// would be by whoever could write the one: the archive is still
+		// checked against the checksum the script itself carries.
+		{name: "a tampered archive on the site with checksums to match", setup: func(r *releases) { r.forged = "dl" },
+			says: "does not match its published checksum", never: []string{"gh"}},
+		{name: "a tampered archive of the script's own release chosen by hand", setup: func(r *releases) { r.forged = "dl" },
+			env:  map[string]string{"FLOCKDECK_VERSION": "9.9.9"},
+			says: "does not match its published checksum", never: []string{"gh"}},
+		{name: "a tampered archive on GitHub with checksums to match", setup: func(r *releases) { r.down, r.forged = true, "gh" },
+			says: "does not match its published checksum"},
+		{name: "a tampered archive of another release chosen by hand", setup: func(r *releases) { r.tampered = true },
+			env:  map[string]string{"FLOCKDECK_VERSION": "v9.9.8"},
 			says: "does not match its published checksum", never: []string{"gh"}},
 	}
 }
@@ -182,8 +231,13 @@ func (c installCase) check(t *testing.T, r *releases, installed string, out []by
 		if err == nil || readErr == nil {
 			t.Errorf("the script installed %q and exited %v; want it refused\n%s", got, err, out)
 		}
-	} else if err != nil || string(got) != "flockdeck "+c.version+" from "+c.from {
-		t.Errorf("installed %q (%v); want %s from %s\n%s", got, err, c.version, c.from, out)
+	} else {
+		if err != nil || string(got) != "flockdeck "+c.version {
+			t.Errorf("installed %q (%v); want %s\n%s", got, err, c.version, out)
+		}
+		if served := r.servedFrom(); !slices.Equal(served, []string{c.from}) {
+			t.Errorf("the archive was served from %v; want %s alone\n%s", served, c.from, out)
+		}
 	}
 	if c.says != "" && !strings.Contains(string(out), c.says) {
 		t.Errorf("the script said %q; want %q in it", out, c.says)
@@ -210,10 +264,12 @@ func installEnv(r *releases, extra map[string]string) []string {
 	return env
 }
 
-// install.sh finds the latest release in the site's latest.json, downloads it
-// and its checksums from the site, and goes to GitHub for either when the site
-// cannot give it; a mirror given by hand is the only place asked; and an
-// archive that does not match the site's checksums is never installed.
+// install.sh downloads the release it was published with from the site, and
+// goes to GitHub for it when the site cannot give it; a mirror given by hand is
+// the only place asked. An archive that does not match the checksum the script
+// carries is never installed, whatever the checksums.txt beside it says, and
+// one of another release chosen by hand is checked against that release's
+// checksums.txt.
 func TestInstallShDownloadsFromTheSite(t *testing.T) {
 	sh := installShRunner(t)
 	dir, _ := generate(t)
@@ -228,11 +284,7 @@ func TestInstallShDownloadsFromTheSite(t *testing.T) {
 			if c.setup != nil {
 				c.setup(r)
 			}
-			script := pointAt(t, string(shipped), r, map[string]string{
-				`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
-				`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
-				`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
-			})
+			script := pointAt(t, string(shipped), r, shAddresses)
 			home := t.TempDir()
 			path := filepath.Join(home, "install.sh")
 			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
@@ -284,11 +336,7 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newReleases(t)
-	script := pointAt(t, string(shipped), r, map[string]string{
-		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
-		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
-		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
-	})
+	script := pointAt(t, string(shipped), r, shAddresses)
 	for _, c := range []struct {
 		name string
 		// Each is given the test's home directory and says what to set:
@@ -351,11 +399,7 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newReleases(t)
-	script := pointAt(t, string(shipped), r, map[string]string{
-		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
-		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
-		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
-	})
+	script := pointAt(t, string(shipped), r, shAddresses)
 	home := t.TempDir()
 	path := filepath.Join(home, "install.sh")
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
@@ -383,7 +427,7 @@ func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
 	if !strings.Contains(string(out), "needs curl or wget") || strings.Contains(string(out), "could not reach") {
 		t.Errorf("with neither curl nor wget the script said:\n%s", out)
 	}
-	for _, p := range []string{"dl", "gh", "api"} {
+	for _, p := range []string{"dl", "gh"} {
 		if asked := r.askedOf(p); len(asked) > 0 {
 			t.Errorf("asked %v of %s", asked, p)
 		}
@@ -401,11 +445,7 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newReleases(t)
-	script := pointAt(t, string(shipped), r, map[string]string{
-		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
-		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
-		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
-	})
+	script := pointAt(t, string(shipped), r, shAddresses)
 	home := t.TempDir()
 	path := filepath.Join(home, "install.sh")
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
@@ -433,9 +473,9 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 	}
 }
 
-// install.ps1 does as install.sh does, reading latest.json with
-// ConvertFrom-Json. It runs where Windows PowerShell does, installing into a
-// temporary directory and leaving PATH and the Start menu alone.
+// install.ps1 does as install.sh does. It runs where Windows PowerShell does,
+// installing into a temporary directory and leaving PATH and the Start menu
+// alone.
 func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("install.ps1 reads the machine's architecture from the Windows registry")
@@ -456,11 +496,7 @@ func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
 			if c.setup != nil {
 				c.setup(r)
 			}
-			script := pointAt(t, string(shipped), r, map[string]string{
-				`$dl = 'https://dl.flockdeck.ai'`:       `$dl = '%s/dl'`,
-				`$github = 'https://github.com'`:        `$github = '%s/gh'`,
-				`$githubApi = 'https://api.github.com'`: `$githubApi = '%s/api'`,
-			})
+			script := pointAt(t, string(shipped), r, ps1Addresses)
 			home := t.TempDir()
 			path := filepath.Join(home, "install.ps1")
 			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
@@ -497,6 +533,62 @@ func TestInstallPs1NeedsNoScriptModules(t *testing.T) {
 			if strings.Contains(strings.ToLower(code), strings.ToLower(command)) {
 				t.Errorf("install.ps1:%d calls %s, which Windows PowerShell may not find when started from PowerShell 7: %s", i+1, command, code)
 			}
+		}
+	}
+}
+
+// Each install script carries the release the site was generated for, and the
+// SHA-256 of each of that release's archives it can download, taken from the
+// checksums sitegen was given, with no placeholder left over.
+func TestInstallScriptsCarryTheReleaseTheyWereGeneratedFor(t *testing.T) {
+	dir, _ := generate(t)
+	rel := testRelease()
+	for name, suffix := range map[string]string{"install.sh": ".tar.gz", "install.ps1": ".zip"} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := string(b)
+		if strings.Contains(script, "@RELEASE") {
+			t.Errorf("%s still has a placeholder in it", name)
+		}
+		if !strings.Contains(script, "'"+rel.Version+"'") && !strings.Contains(script, `"`+rel.Version+`"`) {
+			t.Errorf("%s does not name %s as its release", name, rel.Version)
+		}
+		for _, a := range archives(rel.Version) {
+			line := rel.Sums[a] + "  " + a + "\n"
+			if has := strings.Contains(script, line); has != strings.HasSuffix(a, suffix) {
+				t.Errorf("%s carries %q: %v", name, line, has)
+			}
+		}
+	}
+}
+
+// sitegen will not write install scripts without a release and its checksums
+// to put in them, nor from checksums that miss one of the release's archives
+// or a version that is not a release's tag.
+func TestSitegenWantsTheReleaseAndItsChecksums(t *testing.T) {
+	for _, c := range []struct{ version, path string }{{"", "checksums.txt"}, {"v1.2.3", ""}} {
+		if _, err := readRelease(c.version, c.path); err == nil || !strings.Contains(err.Error(), "-release and -checksums are both required") {
+			t.Errorf("readRelease(%q, %q) = %v; want both asked for", c.version, c.path, err)
+		}
+	}
+	var sums strings.Builder
+	for _, a := range archives("v1.2.3") {
+		fmt.Fprintf(&sums, "%s  %s\r\n", strings.Repeat("ab", 32), a)
+	}
+	rel, err := parseRelease("v1.2.3", []byte(sums.String()))
+	if err != nil || len(rel.Sums) != 6 {
+		t.Errorf("a whole checksums.txt, with CRLF, gave %v, %v", rel, err)
+	}
+	for _, c := range []struct{ version, sums, why string }{
+		{"v1.2.4", sums.String(), "another release's checksums"},
+		{"v1.2.3", strings.Replace(sums.String(), "_windows_arm64", "_windows_386", 1), "an archive missing"},
+		{"v1.2.3", strings.Replace(sums.String(), strings.Repeat("ab", 32)+"  flockdeck_v1.2.3_linux_amd64", "xyz  flockdeck_v1.2.3_linux_amd64", 1), "a checksum that is not one"},
+		{`v1.2.3"; rm -rf ~; "`, sums.String(), "a version that is not a tag"},
+	} {
+		if _, err := parseRelease(c.version, []byte(c.sums)); err == nil {
+			t.Errorf("%s was accepted", c.why)
 		}
 	}
 }

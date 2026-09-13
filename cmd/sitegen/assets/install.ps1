@@ -4,7 +4,7 @@
 #
 # It downloads the release archive for this machine from dl.flockdeck.ai, or
 # from GitHub, which carries every release too, when that cannot be reached;
-# checks it against the release's checksums.txt from the same place; and puts
+# checks it against the SHA-256 written into this script below; and puts
 # flockdeck.exe in
 # %LOCALAPPDATA%\Programs\flockdeck. That is a directory the user owns, which
 # matters later: the application updates itself in place, and it should never
@@ -13,13 +13,15 @@
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION         a release tag such as v0.2.8; the latest by default.
-#                             To stay on it, also set FLOCKDECK_UPDATE=off for
-#                             your user, or Flockdeck updates itself to the latest.
+#   FLOCKDECK_VERSION         a release tag such as v0.2.8; by default the
+#                             release named in $release below. Any other release
+#                             is checked only against the checksums.txt
+#                             downloaded beside it. To stay on it, also set
+#                             FLOCKDECK_UPDATE=off for your user, or Flockdeck
+#                             updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR     where flockdeck.exe goes
 #   FLOCKDECK_DOWNLOAD        a mirror to fetch the release files from instead,
-#                             laid out as <mirror>/<version>/<file>; the latest
-#                             is read from <mirror>/latest.json, or asked of GitHub
+#                             laid out as <mirror>/<version>/<file>
 #   FLOCKDECK_NO_MODIFY_PATH  set to 1 to leave PATH and the Start menu alone
 #
 # The archive names below are the ones cmd/release writes, and the updater in
@@ -41,7 +43,16 @@ function Install-Flockdeck {
     # point these at servers of their own.
     $dl = 'https://dl.flockdeck.ai'
     $github = 'https://github.com'
-    $githubApi = 'https://api.github.com'
+
+    # The release this script was published with, and the SHA-256 of each of
+    # its archives: cmd/sitegen writes both in from that release's
+    # checksums.txt when it generates the site. The archive is checked against
+    # these rather than against a checksums.txt fetched from where the archive
+    # was, because whoever could replace the archive there could replace that
+    # checksums.txt with it. These came with the script, from flockdeck.ai,
+    # over the connection it is already trusted over.
+    $release = '@RELEASE@'
+    $releaseSums = '@RELEASE_SUMS@'
 
     # The machine's own architecture, from the registry rather than from the
     # process: an x64 PowerShell on an ARM64 machine would otherwise install
@@ -62,35 +73,11 @@ function Install-Flockdeck {
         $fallback = "$github/$repo/releases/download"
     }
 
-    $version = $env:FLOCKDECK_VERSION
-    if (-not $version) {
-        # latest.json names the latest release, and holds nothing else:
-        # {"version":"v1.2.3"}. Anything that does not read as a release
-        # version is refused rather than downloaded.
-        try {
-            $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 "$primary/latest.json"
-            $text = if ($resp.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($resp.Content) } else { $resp.Content }
-            $version = ($text | ConvertFrom-Json).version
-        } catch {
-            $version = $null
-        }
-        if ($version -notmatch '^v\d+\.\d+\.\d+') {
-            if ($fallback) {
-                Write-Host "flockdeck: could not reach $primary; downloading from GitHub instead"
-                $primary = $fallback
-                $fallback = $null
-            }
-            try {
-                $version = (Invoke-RestMethod -UseBasicParsing "$githubApi/repos/$repo/releases/latest").tag_name
-            } catch {
-                throw "flockdeck: could not find the latest release; set FLOCKDECK_VERSION to choose one"
-            }
-            if (-not $version) { throw "flockdeck: GitHub's answer did not name a release" }
-        }
-    }
+    $version = if ($env:FLOCKDECK_VERSION) { $env:FLOCKDECK_VERSION } else { $release }
     # Releases are tagged v1.2.3, and a version is as often written without
     # the v; either finds the release rather than a download that is not there.
     if ($version -notmatch '^v') { $version = "v$version" }
+    $pinned = $version -ceq $release
 
     $dir = if ($env:FLOCKDECK_INSTALL_DIR) { $env:FLOCKDECK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\flockdeck' }
     $dest = Join-Path $dir 'flockdeck.exe'
@@ -100,16 +87,22 @@ function Install-Flockdeck {
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         Write-Host "flockdeck: downloading $archive"
-        # The archive and its checksums come from one place, so the one is
-        # always checked against that place's own copy of the other. A release
-        # from before dl.flockdeck.ai is only on GitHub, as is everything while
-        # the site cannot be reached. A version that was never released is the
-        # usual failure here, and Invoke-WebRequest's own error does not say
-        # which file it wanted.
+        # A release other than the one this script carries the checksums of
+        # needs its checksums.txt too, and takes it from the same place as the
+        # archive, so that the one is at least checked against that place's own
+        # copy of the other. A release from before dl.flockdeck.ai is only on
+        # GitHub, as is everything while the site cannot be reached. A version
+        # that was never released is the usual failure here, and
+        # Invoke-WebRequest's own error does not say which file it wanted.
+        $names = @($archive)
+        if (-not $pinned) {
+            Write-Host "flockdeck: $version is not the release this script was published with ($release), so it is checked only against the checksums.txt downloaded beside it"
+            $names += 'checksums.txt'
+        }
         $failure = $null
         foreach ($base in @($primary, $fallback) | Where-Object { $_ }) {
             try {
-                foreach ($name in $archive, 'checksums.txt') {
+                foreach ($name in $names) {
                     $failure = "could not download $base/$version/$name"
                     Invoke-WebRequest -UseBasicParsing "$base/$version/$name" -OutFile (Join-Path $tmp $name)
                 }
@@ -124,12 +117,16 @@ function Install-Flockdeck {
         }
         if ($failure) { throw "flockdeck: $failure" }
 
+        $sums = if ($pinned) { $releaseSums -split "`n" } else { Get-Content (Join-Path $tmp 'checksums.txt') }
         $want = $null
-        foreach ($line in Get-Content (Join-Path $tmp 'checksums.txt')) {
+        foreach ($line in $sums) {
             $fields = $line.Trim() -split '\s+'
             if ($fields.Count -ge 2 -and $fields[1] -eq $archive) { $want = $fields[0] }
         }
-        if (-not $want) { throw "flockdeck: checksums.txt for $version does not list $archive" }
+        if (-not $want) {
+            if ($pinned) { throw "flockdeck: this script carries no checksum for $archive" }
+            throw "flockdeck: checksums.txt for $version does not list $archive"
+        }
         # The archive is hashed and opened with .NET rather than Get-FileHash
         # and Expand-Archive. Those two live in script modules that PowerShell
         # loads on first use, from PSModulePath. A Windows PowerShell started

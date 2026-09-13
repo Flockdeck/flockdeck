@@ -375,13 +375,15 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      release is also on <a href="{{ .Repo }}/releases">GitHub</a>. macOS and
      Windows may ask before a downloaded copy first runs; the installers above
      don't.</p>
-  <p>The installer downloads the latest release for your machine, verifies it,
-     and installs it to <code>~/.local/bin</code>. On Windows it goes to
+  <p>The installer downloads the latest release for your machine, checks it
+     against the checksum written into the installer itself, and installs it
+     to <code>~/.local/bin</code>. On Windows it goes to
      <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
      shortcut. No admin rights needed, now or when Flockdeck updates itself.
      To pick a release or a directory, set <code>FLOCKDECK_VERSION</code> or
      <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
-     at the top. To stay on a release, also set
+     at the top. A release picked this way is checked against the
+     <code>checksums.txt</code> downloaded with it. To stay on a release, also set
      <code>FLOCKDECK_UPDATE=off</code>. View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
   <p>Using Go?</p>
@@ -461,9 +463,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>How do updates work?</summary>
       <p>Flockdeck checks dl.flockdeck.ai for new releases, with GitHub as a
-         mirror. It trusts only what the release key has signed there, verifies
-         each download against its published checksum and asks before it
-         restarts. If you
+         mirror. It verifies every download against its published checksum,
+         accepts a release from dl.flockdeck.ai only when the release key has
+         signed it, and asks before it restarts. If you
          don't restart, the new version goes in the next time you quit. To turn
          updates off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
     </details>

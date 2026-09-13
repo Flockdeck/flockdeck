@@ -157,7 +157,9 @@ anyone.
 
 flockdeck.ai sets no cookies, runs no analytics and loads nothing from third
 parties; its fonts are served from the site itself. The web server may keep
-standard access logs, as described above.
+standard access logs, as described above. Downloads from dl.flockdeck.ai
+may get its content delivery network's security cookie, as
+[Who else is involved](#who-else-is-involved) describes.
 
 ## Why this data is used (lawful basis)
 
@@ -173,8 +175,11 @@ standard access logs, as described above.
 The relay and this website are hosted by DigitalOcean, in its London region.
 DigitalOcean provides the servers, the database and DNS, and serves releases
 and update downloads from dl.flockdeck.ai through its content delivery
-network, which answers from locations around the world. GitHub mirrors every
-release. TLS certificates come from Let's Encrypt,
+network, which answers from locations around the world. That network is
+Cloudflare's, and Cloudflare sets a short-lived security cookie, `__cf_bm`,
+on downloads from dl.flockdeck.ai to tell people from bots. It is strictly
+necessary, it is set by Cloudflare rather than by Flockdeck, and the app's
+update checks send no cookies. GitHub mirrors every release. TLS certificates come from Let's Encrypt,
 which receives no personal data about you. These providers process data on
 our behalf or as independent services, under their own terms.
 

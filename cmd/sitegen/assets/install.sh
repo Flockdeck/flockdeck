@@ -5,20 +5,21 @@
 #
 # It downloads the release archive for this machine from dl.flockdeck.ai, or
 # from GitHub, which carries every release too, when that cannot be reached;
-# checks it against the release's checksums.txt from the same place; and puts
-# the one binary in ~/.local/bin. That is a directory the user owns, which
-# matters later: the application updates itself in place, and it should never
-# need a password to do it.
+# checks it against the SHA-256 written into this script below; and puts the
+# one binary in ~/.local/bin. That is a directory the user owns, which matters
+# later: the application updates itself in place, and it should never need a
+# password to do it.
 #
 # Settings, all optional, read from the environment:
 #
-#   FLOCKDECK_VERSION      a release tag such as v0.2.8; the latest by default.
+#   FLOCKDECK_VERSION      a release tag such as v0.2.8; by default the release
+#                          named in RELEASE below. Any other release is checked
+#                          only against the checksums.txt downloaded beside it.
 #                          To stay on it, also set FLOCKDECK_UPDATE=off where
 #                          Flockdeck runs, or it updates itself to the latest.
 #   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
 #   FLOCKDECK_DOWNLOAD     a mirror to fetch the release files from instead,
-#                          laid out as <mirror>/<version>/<file>; the latest is
-#                          read from <mirror>/latest.json, or asked of GitHub
+#                          laid out as <mirror>/<version>/<file>
 #
 # The archive names below are the ones cmd/release writes, and the updater in
 # internal/selfupdate reads. The three have to agree.
@@ -34,7 +35,16 @@ REPO="jmwri/flockdeck"
 # point these at servers of their own.
 DL="https://dl.flockdeck.ai"
 GITHUB="https://github.com"
-GITHUB_API="https://api.github.com"
+
+# The release this script was published with, and the SHA-256 of each of its
+# archives: cmd/sitegen writes both in from that release's checksums.txt when
+# it generates the site. The archive is checked against these rather than
+# against a checksums.txt fetched from where the archive was, because whoever
+# could replace the archive there could replace that checksums.txt with it.
+# These came with the script, from flockdeck.ai, over the connection it is
+# already trusted over.
+RELEASE="@RELEASE@"
+RELEASE_SUMS="@RELEASE_SUMS@"
 
 say() { printf 'flockdeck: %s\n' "$*"; }
 die() { printf 'flockdeck: %s\n' "$*" >&2; exit 1; }
@@ -122,30 +132,13 @@ detect_arch() {
 	esac
 }
 
-# latest_from prints the version the latest.json at $1 names, which is all the
-# file holds: {"version":"v1.2.3"}. There is no jq to lean on everywhere this
-# runs, and none is needed, and anything that does not read as a release
-# version is refused rather than downloaded.
-latest_from() {
-	fetch "$1/latest.json" "$tmp/latest.json" 2>/dev/null || return 1
-	v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
-	case "$v" in
-		v[0-9]*.[0-9]*.[0-9]*) echo "$v" ;;
-		*) return 1 ;;
-	esac
-}
-
-# latest_from_github prints the tag of the latest release on GitHub.
-latest_from_github() {
-	fetch "$GITHUB_API/repos/$REPO/releases/latest" "$tmp/release.json" || return 1
-	sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/release.json" | head -n 1
-}
-
-# download fetches the archive and its checksums from one place, $1, so that
-# the one is always checked against that place's own copy of the other.
+# download fetches the archive from one place, $1. A release other than the
+# one this script carries the checksums of needs its checksums.txt too, and
+# takes it from the same place, so that the one is at least checked against
+# that place's own copy of the other.
 download() {
-	fetch "$1/$version/$archive" "$tmp/$archive" &&
-		fetch "$1/$version/checksums.txt" "$tmp/checksums.txt"
+	fetch "$1/$version/$archive" "$tmp/$archive" || return 1
+	[ -n "$pinned" ] || fetch "$1/$version/checksums.txt" "$tmp/checksums.txt"
 }
 
 main() {
@@ -187,25 +180,18 @@ main() {
 	trap 'rm -rf "$tmp"' EXIT
 	trap 'exit 1' INT TERM
 
-	version=${FLOCKDECK_VERSION:-}
-	if [ -z "$version" ]; then
-		if ! version=$(latest_from "$primary"); then
-			if [ -n "$fallback" ]; then
-				say "could not reach $primary; downloading from GitHub instead"
-				primary=$fallback
-				fallback=
-			fi
-			version=$(latest_from_github) ||
-				die "could not find the latest release; set FLOCKDECK_VERSION to choose one"
-			[ -n "$version" ] || die "GitHub's answer did not name a release"
-		fi
-	fi
+	version=${FLOCKDECK_VERSION:-$RELEASE}
 	# Releases are tagged v1.2.3, and a version is as often written without
 	# the v; either finds the release rather than a download that is not there.
 	case "$version" in v*) ;; *) version="v$version" ;; esac
+	pinned=
+	if [ "$version" = "$RELEASE" ]; then pinned=1; fi
 
 	archive="flockdeck_${version}_${os}_${arch}.tar.gz"
 	say "downloading $archive"
+	if [ -z "$pinned" ]; then
+		say "$version is not the release this script was published with ($RELEASE), so it is checked only against the checksums.txt downloaded beside it"
+	fi
 	if [ -n "$fallback" ]; then
 		# A release from before dl.flockdeck.ai is only on GitHub, as is
 		# everything while the site cannot be reached.
@@ -217,8 +203,13 @@ main() {
 		download "$primary" || die "could not download $primary/$version/$archive"
 	fi
 
-	want=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/checksums.txt")
-	[ -n "$want" ] || die "checksums.txt for $version does not list $archive"
+	if [ -n "$pinned" ]; then
+		want=$(printf '%s\n' "$RELEASE_SUMS" | awk -v f="$archive" '$2 == f { print $1 }')
+		[ -n "$want" ] || die "this script carries no checksum for $archive"
+	else
+		want=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/checksums.txt")
+		[ -n "$want" ] || die "checksums.txt for $version does not list $archive"
+	fi
 	got=$(sha256 "$tmp/$archive")
 	[ "$got" = "$want" ] || die "$archive does not match its published checksum; nothing was installed"
 
