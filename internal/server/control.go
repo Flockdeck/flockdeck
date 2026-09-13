@@ -992,37 +992,37 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.remoteReconnect(c)
 		return
 	case "helpSeen":
-		s.markHelpSeen()
+		s.markHelpSeen(c)
 		return
 	case "dismissTip":
-		s.dismissTip(cmd.ID)
+		s.dismissTip(c, cmd.ID)
 		return
 	case "fontSize":
-		s.setFontSize(cmd.Size)
+		s.setFontSize(c, cmd.Size)
 		return
 	case "notifications":
-		s.setNotifications(cmd.Kind == "off")
+		s.setNotifications(c, cmd.Kind == "off")
 		return
 	case "scrollback":
-		s.setScrollback(cmd.Size)
+		s.setScrollback(c, cmd.Size)
 		return
 	case "updates":
-		s.setUpdates(cmd.Kind == "off")
+		s.setUpdates(c, cmd.Kind == "off")
 		return
 	case "resetTips":
-		s.resetTips()
+		s.resetTips(c)
 		return
 	case "cursorBlink":
-		s.setCursorSteady(cmd.Kind == "off")
+		s.setCursorSteady(c, cmd.Kind == "off")
 		return
 	case "cursorStyle":
-		s.setCursorStyle(cmd.Text)
+		s.setCursorStyle(c, cmd.Text)
 		return
 	case "statusLine":
-		s.setStatusLine(cmd.Text)
+		s.setStatusLine(c, cmd.Text)
 		return
 	case "fontFamily":
-		s.setFontFamily(cmd.Text)
+		s.setFontFamily(c, cmd.Text)
 		return
 	case "forgetRecent":
 		// On the workspace goroutine, where opening or switching to a project

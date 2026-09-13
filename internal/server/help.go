@@ -62,17 +62,30 @@ type prefsMsg struct {
 	Prefs store.Prefs `json:"prefs"`
 }
 
-// updatePrefs applies one change to the preferences and, where it changed
-// anything, saves them and tells every window.
+// updatePrefs applies one change, asked for by window c, to the preferences
+// and, where it changed anything, saves them and tells every window.
 //
 // The change is made to what is on disk, not to the copy read at start-up.
 // Written back whole, that copy undid whatever else had changed the file
 // since: with two instances running (-solo) whichever saved last put back the
 // other's old settings, and a start-up read that failed left defaults in
 // memory which the first save then wrote over every setting there was.
-func (s *Server) updatePrefs(change func(*store.Prefs) bool) {
+//
+// For the same reason nothing is saved when what is on disk could not be read
+// just now. That read gives the defaults, and the defaults with one change
+// saved over the file stood in for every setting the user had: the file itself
+// was moved aside and kept, but the window came back on the defaults at the
+// next start, with nothing to say where the rest had gone.
+func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 	s.do(func() {
-		p := store.LoadPrefs()
+		p, err := store.ReadPrefs()
+		if err != nil {
+			// Only the window that made the change is told. Every other window
+			// has nothing to do about it, and a phone reached through the relay
+			// would be shown an error for a hint dismissed on the desk.
+			c.notify("could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after flockdeck restarts: "+err.Error(), true)
+			return
+		}
 		if !change(&p) {
 			return
 		}
@@ -80,8 +93,9 @@ func (s *Server) updatePrefs(change func(*store.Prefs) bool) {
 			// Preferences are a convenience; failing to record one must not
 			// interrupt what the person was actually doing. But the window has
 			// already applied the change and said so, and it would go back at
-			// the next start with nothing to say why -- so that is said now.
-			s.notifyAll("could not save the setting, so it will not be kept after flockdeck restarts: "+err.Error(), true)
+			// the next start with nothing to say why -- so that is said now, to
+			// the window that made it.
+			c.notify("could not save the setting, so it will not be kept after flockdeck restarts: "+err.Error(), true)
 			return
 		}
 		s.prefs = p
@@ -103,8 +117,8 @@ func (s *Server) broadcastPrefs() {
 
 // markHelpSeen records that the help has been opened, so the first-run welcome
 // does not come back.
-func (s *Server) markHelpSeen() {
-	s.updatePrefs(func(p *store.Prefs) bool {
+func (s *Server) markHelpSeen(c *controlClient) {
+	s.updatePrefs(c, func(p *store.Prefs) bool {
 		if p.HelpSeen {
 			return false
 		}
@@ -114,17 +128,17 @@ func (s *Server) markHelpSeen() {
 }
 
 // dismissTip records that an inline hint has been sent away for good.
-func (s *Server) dismissTip(id string) {
-	s.updatePrefs(func(p *store.Prefs) bool { return p.Dismiss(id) })
+func (s *Server) dismissTip(c *controlClient, id string) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return p.Dismiss(id) })
 }
 
 // setFontSize records the size the terminals are drawn at. The window used to
 // keep it itself, in local storage, which forgot it on every run.
-func (s *Server) setFontSize(size int) {
+func (s *Server) setFontSize(c *controlClient, size int) {
 	if size < 8 || size > 28 {
 		return
 	}
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.FontSize, size) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FontSize, size) })
 }
 
 // setPref sets one preference and reports whether that changed it.
@@ -139,29 +153,29 @@ func setPref[T comparable](field *T, v T) bool {
 // setNotifications records whether the window raises desktop notifications.
 // The browser's own answer cannot stand in for this: it belongs to the page's
 // origin, which changes with the port on every run.
-func (s *Server) setNotifications(off bool) {
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.NotificationsOff, off) })
+func (s *Server) setNotifications(c *controlClient, off bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.NotificationsOff, off) })
 }
 
 // setScrollback records how many lines each terminal keeps, within what a
 // window will accept.
-func (s *Server) setScrollback(lines int) {
+func (s *Server) setScrollback(c *controlClient, lines int) {
 	if lines < 1000 || lines > 200000 {
 		return
 	}
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.Scrollback, lines) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Scrollback, lines) })
 }
 
 // setUpdates records whether the application checks for new releases, which
 // could otherwise only be turned off with an environment variable.
-func (s *Server) setUpdates(off bool) {
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.UpdatesOff, off) })
+func (s *Server) setUpdates(c *controlClient, off bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.UpdatesOff, off) })
 }
 
 // resetTips brings back every inline hint that was dismissed, which could
 // otherwise only be done by editing prefs.json.
-func (s *Server) resetTips() {
-	s.updatePrefs(func(p *store.Prefs) bool {
+func (s *Server) resetTips(c *controlClient) {
+	s.updatePrefs(c, func(p *store.Prefs) bool {
 		if len(p.DismissedTips) == 0 {
 			return false
 		}
@@ -172,14 +186,14 @@ func (s *Server) resetTips() {
 
 // setCursorSteady records whether the terminal cursors blink, which was fixed
 // in the source.
-func (s *Server) setCursorSteady(steady bool) {
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
+func (s *Server) setCursorSteady(c *controlClient, steady bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
 }
 
 // setCursorStyle records the shape of the terminal cursors. A block is the
 // default and is kept as nothing, so a file written before there was a choice
 // reads the same; a shape the terminals do not draw is refused.
-func (s *Server) setCursorStyle(style string) {
+func (s *Server) setCursorStyle(c *controlClient, style string) {
 	switch style {
 	case "block":
 		style = ""
@@ -187,24 +201,24 @@ func (s *Server) setCursorStyle(style string) {
 	default:
 		return
 	}
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.CursorStyle, style) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.CursorStyle, style) })
 }
 
 // setFontFamily records the typeface the terminals are drawn in; empty goes
 // back to the default. It arrives from a text field, so anything longer than
 // a font list could sensibly be is refused rather than kept.
-func (s *Server) setFontFamily(family string) {
+func (s *Server) setFontFamily(c *controlClient, family string) {
 	family = strings.TrimSpace(family)
 	if len(family) > 200 {
 		return
 	}
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
 }
 
 // setStatusLine records when a Claude pane's status line is routed through
 // Flockdeck. It takes effect for a pane when it next starts, which is when
 // its settings are written; a mode the panes do not know is refused.
-func (s *Server) setStatusLine(mode string) {
+func (s *Server) setStatusLine(c *controlClient, mode string) {
 	switch mode {
 	case "auto":
 		mode = ""
@@ -212,7 +226,7 @@ func (s *Server) setStatusLine(mode string) {
 	default:
 		return
 	}
-	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
 }
 
 // helpBody is what /help.json answers with, encoded the first time it is

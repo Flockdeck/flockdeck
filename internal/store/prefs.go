@@ -2,7 +2,9 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 )
 
@@ -75,12 +77,26 @@ func (p *Prefs) Dismiss(id string) bool {
 
 const prefsFile = "prefs.json"
 
-// LoadPrefs reads the preferences. Absent or damaged, they are the defaults:
-// nothing here is worth failing a start-up over.
+// LoadPrefs reads the preferences. Absent, damaged or unreadable, they are the
+// defaults: nothing here is worth failing a start-up over.
 func LoadPrefs() Prefs {
+	p, _ := ReadPrefs()
+	return p
+}
+
+// ReadPrefs is LoadPrefs for a caller about to write the preferences back with
+// one change made, which has to know whether what it read is what is there.
+//
+// Absent or damaged, they are the defaults and no error: there is nothing
+// there to lose. A file that could not be read is the defaults too, with the
+// read's own failure, because written back those defaults and one change
+// would stand in for every preference the user had set. The save would move
+// the file aside first and keep it, but the settings would still be gone from
+// the window until somebody went looking for the copy.
+func ReadPrefs() (Prefs, error) {
 	dir, err := Dir()
 	if err != nil {
-		return Prefs{}
+		return Prefs{}, err
 	}
 	file := filepath.Join(dir, prefsFile)
 	data, err := readState(file)
@@ -89,7 +105,10 @@ func LoadPrefs() Prefs {
 	// those defaults over every preference the user had set.
 	noteRead(file, err)
 	if err != nil {
-		return Prefs{}
+		if errors.Is(err, fs.ErrNotExist) {
+			return Prefs{}, nil
+		}
+		return Prefs{}, fmt.Errorf("read prefs: %w", err)
 	}
 	var p Prefs
 	if json.Unmarshal(data, &p) != nil {
@@ -97,9 +116,9 @@ func LoadPrefs() Prefs {
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
 		quarantine(filepath.Join(dir, prefsFile))
-		return Prefs{}
+		return Prefs{}, nil
 	}
-	return p
+	return p, nil
 }
 
 // SavePrefs writes the preferences.
