@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -106,6 +107,16 @@ func Merge(f *File) *Catalog {
 			// landed on and vanished inside it. So the lists of structs start
 			// empty, and get the built-in's back only where the entry named none.
 			merged.Args, merged.ResumeArgs, merged.Models = nil, nil, nil
+			// The lists of strings keep the built-in's elements where the entry
+			// names none, so they stay -- but as copies. The decoder writes a list
+			// over the elements already there and carries on past a value of the
+			// wrong kind, so an entry dropped below for one bad field had already
+			// written its lists into the built-in's own: Claude stopped stripping
+			// CLAUDECODE, and an API agent looked for its key somewhere else.
+			merged.StripEnv, merged.Env = slices.Clone(builtin.StripEnv), slices.Clone(builtin.Env)
+			merged.API.KeyEnv = slices.Clone(builtin.API.KeyEnv)
+			merged.Patterns.Waiting = slices.Clone(builtin.Patterns.Waiting)
+			merged.Patterns.Idle = slices.Clone(builtin.Patterns.Idle)
 			if err := json.Unmarshal(raw, &merged); err != nil {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it

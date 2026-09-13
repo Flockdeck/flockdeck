@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -449,6 +450,30 @@ func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
 	// An empty list is a deliberate one.
 	if codex, _ := c.Find("codex"); len(codex.Models) != 0 {
 		t.Errorf("an entry that empties the models should get none, got %+v", codex.Models)
+	}
+}
+
+// TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas: the decoder fills a list
+// by writing over the elements already there and carries on past a value of
+// the wrong kind, so an entry dropped for one bad field had already written its
+// lists into the built-in's own. Claude stopped stripping CLAUDECODE, and an
+// API agent stopped looking for its key where the built-in said.
+func TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "stripEnv": ["FOO"], "env": ["A=1"], "patterns": {"idle": ["x"]}, "models": "oops"}`),
+		json.RawMessage(`{"id": "anthropic", "api": {"keyEnv": ["MINE"]}, "caps": "oops"}`),
+		json.RawMessage(`{"id": "google", "api": {"keyEnv": ["ONE", "TWO"]}, "hidden": "oops"}`),
+	}})
+	for _, want := range normalizeAll(Builtins()) {
+		got, _ := c.Find(want.ID)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("built-in %q changed by an entry that was dropped:\n got %+v\nwant %+v", want.ID, got, want)
+		}
+	}
+	for _, id := range []string{"claude", "anthropic", "google"} {
+		if !strings.Contains(c.Notice, `agent "`+id+`"`) {
+			t.Errorf("notice %q should name the dropped entry %q", c.Notice, id)
+		}
 	}
 }
 
