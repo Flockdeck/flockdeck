@@ -8,7 +8,10 @@ on:
     tags:
       - "v*"
   # Cutting a release by hand is useful when a tag was pushed before the
-  # workflow existed, or when a run has to be repeated.
+  # workflow existed, or when a run has to be repeated. Start it from the tag
+  # itself, in "Use workflow from": the release job runs in the release
+  # environment, which only a v* tag may deploy to, so a run started from main
+  # is refused.
   workflow_dispatch:
     inputs:
       tag:
@@ -42,9 +45,17 @@ jobs:
   # on GitHub and missing from the site. The tests still run side by side;
   # only publishing takes turns. GitHub holds one run waiting, though, and a
   # third started meanwhile replaces it, so that one needs running again.
+  #
+  # The job runs in the release environment, which only a v* tag may deploy
+  # to, and which holds the signing key and the download bucket's credentials.
+  # Kept as repository secrets, any workflow run on any branch could read them,
+  # so anyone able to push a branch with a workflow that printed them could
+  # take the signing key. Named here, the secrets below are the environment's
+  # copies, and a run that is not on a v* tag is refused before it starts.
   release:
     needs: test
     runs-on: ubuntu-latest
+    environment: release
     concurrency:
       group: release
       cancel-in-progress: false
