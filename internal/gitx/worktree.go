@@ -499,17 +499,28 @@ func worktreeSegment(branch string) string {
 	return name
 }
 
+// detailLookups is how many worktrees ListDetailed asks git about at once.
+const detailLookups = 8
+
+// worktreeStatus reads one worktree's status for ListDetailed. It is a
+// variable so a test can count how many are read at once.
+var worktreeStatus = StatusOf
+
 // ListDetailed returns every worktree with its status filled in.
 //
 // Each worktree needs its own status call, so they are run concurrently: a
 // repository with several worktrees would otherwise make the panel wait for
-// them one after another.
+// them one after another. Only a few run at a time, though. A fan-out leaves
+// a dozen worktrees or more behind, and a whole-tree git status started for
+// every one of them in the same instant contends with the agents working in
+// them for answers that arrive no sooner.
 func ListDetailed(dir string) ([]Worktree, error) {
 	wts, err := List(dir)
 	if err != nil {
 		return nil, err
 	}
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, detailLookups)
 	for i := range wts {
 		// A worktree whose directory is gone has no status to read; asking
 		// only spends a process on an error.
@@ -519,7 +530,9 @@ func ListDetailed(dir string) ([]Worktree, error) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			wts[i].Status = StatusOf(wts[i].Path)
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			wts[i].Status = worktreeStatus(wts[i].Path)
 		}(i)
 	}
 	wg.Wait()
