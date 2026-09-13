@@ -63,7 +63,18 @@ func (r *Root) Resolve(p string) (string, error) {
 		abs = filepath.Join(r.dir, p)
 	}
 	if !within(r.dir, abs) {
-		return "", fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+		// The root is held as the file system resolves it, but the pane's
+		// directory as it was given -- which is what the model is told, and
+		// copies into the absolute paths it writes -- may be spelled another
+		// way: a mapped or subst drive, a junction, a short 8.3 name, /tmp for
+		// /private/tmp. Such a path is outside the root by name and inside it
+		// in fact, so it is judged by where it really leads, and taken there;
+		// one that leads out is refused as ever.
+		real := evalExisting(abs)
+		if !within(r.dir, real) {
+			return "", fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+		}
+		return real, nil
 	}
 	// A path may be inside the root by name and outside it in fact, because a
 	// link somewhere along it points away. The link has to be followed to see
