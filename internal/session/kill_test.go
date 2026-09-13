@@ -55,10 +55,11 @@ func init() {
 // startTree starts a pane running this binary as "parent", whose child is the
 // program child names ("" for this binary again), and returns the pane and the
 // child's process id. The child is ended when the test is, whatever it finds.
-func startTree(t *testing.T, child string) (*Session, int) {
+// env is added to the pane's environment.
+func startTree(t *testing.T, child string, env ...string) (*Session, int) {
 	t.Helper()
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	env := append(Env(), treeEnv+"=parent", treePIDEnv+"="+pidFile)
+	env = append(append(Env(), treeEnv+"=parent", treePIDEnv+"="+pidFile), env...)
 	if child != "" {
 		env = append(env, treeChildEnv+"="+child)
 	}
@@ -68,23 +69,32 @@ func startTree(t *testing.T, child string) (*Session, int) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
+	pid := waitForPID(t, s, pidFile)
+	if !alive(pid) {
+		t.Fatal("the child had gone before the pane was closed")
+	}
+	return s, pid
+}
+
+// waitForPID waits for something running in the pane s to write a process id
+// to file, and returns it. That process is ended when the test is, whatever
+// it finds.
+func waitForPID(t *testing.T, s *Session, file string) int {
+	t.Helper()
 	pid := 0
 	for deadline := time.Now().Add(30 * time.Second); pid == 0; {
-		if raw, err := os.ReadFile(pidFile); err == nil {
+		if raw, err := os.ReadFile(file); err == nil {
 			pid, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
 		}
 		if pid == 0 {
 			if time.Now().After(deadline) {
-				t.Fatalf("the pane's process never started its child; it printed:\n%s", s.RecentText(4096))
+				t.Fatalf("no process id was written to %s; the pane printed:\n%s", file, s.RecentText(4096))
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
 	t.Cleanup(func() { endProcess(pid) })
-	if !alive(pid) {
-		t.Fatal("the child had gone before the pane was closed")
-	}
-	return s, pid
+	return pid
 }
 
 // TestClosingAPaneEndsWhatItStarted covers closing a pane whose process has

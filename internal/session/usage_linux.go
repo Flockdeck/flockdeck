@@ -50,6 +50,33 @@ func procParents() map[int]int {
 	return out
 }
 
+// sessionMembers returns the processes in the session sid, other than sid
+// itself.
+//
+// A session's id stays reserved while any process is in it, so a process
+// listed here is one the session's leader or its descendants started, even if
+// the leader has gone.
+func sessionMembers(sid int) []int {
+	names, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, e := range names {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == sid {
+			continue
+		}
+		fields, ok := readStat(pid)
+		// Field 6 of /proc/<pid>/stat is the session.
+		if !ok || fields[5] != strconv.Itoa(sid) {
+			continue
+		}
+		out = append(out, pid)
+	}
+	return out
+}
+
 // procMetrics returns what the operating system says about one process. ok is
 // false once it is gone.
 func procMetrics(pid int) (procMetric, bool) {
