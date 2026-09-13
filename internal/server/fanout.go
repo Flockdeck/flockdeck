@@ -79,7 +79,9 @@ type fanoutAgentView struct {
 // workspace goroutine, where every window's commands would otherwise wait
 // behind it. Only the probing is: which agents there are, and which one a run
 // starts on, are read on that goroutine and handed in, because the default
-// depends on the active project, a field nothing else may read.
+// depends on the active project, a field nothing else may read. The probing
+// asks about each agent by its id, through AgentSpecByID, which reads nothing
+// of the workspace's but the catalog.
 func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 	out := make([]fanoutAgentView, 0, len(specs))
 	for _, spec := range specs {
@@ -90,7 +92,7 @@ func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 			ID: spec.ID, Name: spec.Name, Models: modelViews(spec),
 			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
 		}
-		if _, err := s.ws.AgentSpec(spec.ID); err != nil {
+		if _, err := s.ws.AgentSpecByID(spec.ID); err != nil {
 			view.Unavailable = err.Error()
 		}
 		out = append(out, view)
@@ -326,10 +328,9 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			if text := preparingNotice(len(jobs)); text != "" {
 				c.notify(text, false)
 			}
-			nameBranches(jobs, localBranches(repo))
-			makeWorktrees(jobs, func(branch string) (string, error) {
-				return s.ws.PrepareWorktree(baseCwd, branch)
-			})
+			if !prepareWorktrees(c, repo, jobs) {
+				return
+			}
 			if req.Trust {
 				inheritTrust(jobsAskingTrust(jobs, s.specOrDefault(in.def)), baseCwd, session.InheritTrust,
 					func(text string) { c.notify(text, true) })
@@ -391,8 +392,8 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			}
 			if r.err != nil {
 				msg := fmt.Sprintf("%s: %v", short(j.task), r.err)
-				if err := discardWorktree(repo, baseCwd, j); err != nil {
-					msg += fmt.Sprintf(" (its worktree %s could not be removed: %v)", filepath.Base(j.cwd), err)
+				if err := discardWorktree(repo, j, s.paneWorkingIn); err != nil {
+					msg += fmt.Sprintf(" (%v)", err)
 				}
 				c.notify(msg, true)
 				failed++
@@ -571,21 +572,54 @@ type fanoutJob struct {
 	// routed names the routing rule that chose model, for a row the dialog
 	// started on the model routing pre-filled.
 	routed string
-	// branch is the branch the agent gets when it is given a worktree.
+	// branch is the branch the agent gets when it is given a worktree, and
+	// path is where that worktree goes.
 	branch string
+	path   string
+	// created is whether this run made the job's worktree and its branch,
+	// which is what makes them this run's to discard.
+	created bool
 	// err is why this task could not be prepared. It is reported when the
 	// agents are started, so failures appear in the order of the plan rather
 	// than in whatever order the preparation happened to finish.
 	err error
 }
 
+// prepareWorktrees gives every job a branch and a worktree of its own, and
+// reports whether the fan-out can go on.
+//
+// Naming the branches, choosing where their worktrees go and creating them is
+// one step, held against everything else that makes worktrees in this
+// repository; see lockRepo. Every choice is made against what the repository
+// has at that moment, and a `flockdeck spawn --worktree` or a second fan-out
+// landing in between could make the same one.
+//
+// The branches are made here and never borrowed. A name somebody took in the
+// meantime fails its task rather than handing it their checkout -- which, when
+// its agent then failed to start, this run went on to force-delete, work and
+// all. So every worktree a job ends up with is one this run made, and only
+// those are ever discarded.
+func prepareWorktrees(c *controlClient, repo string, jobs []*fanoutJob) bool {
+	defer lockRepo(repo)()
+	taken, err := localBranches(repo)
+	if err != nil {
+		c.notify(fmt.Sprintf("could not read the branches of %s, so no worktrees were created: %v", filepath.Base(repo), err), true)
+		return false
+	}
+	nameBranches(jobs, taken)
+	placeWorktrees(repo, jobs)
+	makeWorktrees(jobs, func(branch, path string) error {
+		return gitx.AddNewBranch(repo, path, branch)
+	})
+	return true
+}
+
 // nameBranches gives each job a branch nothing else is using.
 //
 // Branch names are derived from the task text and then truncated, so two tasks
-// that begin alike would otherwise land on the same branch — and PrepareWorktree
-// reuses the worktree a branch already has, which would quietly put two agents
-// in one checkout. taken is what the repository already has, from
-// localBranches.
+// that begin alike would otherwise land on the same branch, and a branch the
+// repository already has is refused rather than made. taken is what the
+// repository already has, from localBranches.
 func nameBranches(jobs []*fanoutJob, taken map[string]bool) {
 	used := map[string]bool{}
 	for _, j := range jobs {
@@ -608,19 +642,36 @@ func nameBranches(jobs []*fanoutJob, taken map[string]bool) {
 // would not start. Where the filesystem does tell them apart, the only cost of
 // treating them as one is a branch that gets a number on the end it did not
 // strictly need.
-func localBranches(repo string) map[string]bool {
+//
+// A failure to read them is returned rather than taken for an empty list. Read
+// as nothing, every name looked free, and each task was handed whichever
+// existing branch its name matched -- and the worktree already checked out on
+// it.
+func localBranches(repo string) (map[string]bool, error) {
 	if repo == "" {
-		return nil
+		return nil, nil
 	}
 	branches, err := gitx.Branches(repo)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	taken := make(map[string]bool, len(branches))
 	for _, b := range branches {
 		taken[strings.ToLower(b.Name)] = true
 	}
-	return taken
+	return taken, nil
+}
+
+// placeWorktrees chooses where each job's worktree goes, all in one pass so
+// that no two are given the same directory; see gitx.WorktreePaths.
+func placeWorktrees(repo string, jobs []*fanoutJob) {
+	branches := make([]string, len(jobs))
+	for i, j := range jobs {
+		branches[i] = j.branch
+	}
+	for i, path := range gitx.WorktreePaths(repo, branches) {
+		jobs[i].path = path
+	}
 }
 
 // makeWorktrees creates every job's worktree, all at once.
@@ -631,22 +682,25 @@ func localBranches(repo string) map[string]bool {
 // a time that is a stretch of nothing happening before the first agent appears,
 // with the last arriving long after the user has looked away.
 //
-// They are independent: separate directories, separate branches nameBranches
-// has already made distinct, and one object store that is only read. What is
-// not independent stays out of here — naming the branches asks git what already
-// exists, and inheriting folder trust rewrites one shared configuration file.
-func makeWorktrees(jobs []*fanoutJob, prepare func(branch string) (string, error)) {
+// They are independent: separate directories placeWorktrees has already made
+// distinct, separate branches nameBranches has, and one object store that is
+// only read. What is not independent stays out of here — naming the branches
+// and choosing the directories ask git and the disk what already exists, and
+// inheriting folder trust rewrites one shared configuration file.
+//
+// create makes a job's worktree at its path on its new branch. A job it
+// succeeds for works there, and the worktree is marked as this run's own.
+func makeWorktrees(jobs []*fanoutJob, create func(branch, path string) error) {
 	var wg sync.WaitGroup
 	for _, j := range jobs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			path, err := prepare(j.branch)
-			if err != nil {
+			if err := create(j.branch, j.path); err != nil {
 				j.err = err
 				return
 			}
-			j.cwd = path
+			j.cwd, j.created = j.path, true
 		}()
 	}
 	wg.Wait()
@@ -661,23 +715,99 @@ func makeWorktrees(jobs []*fanoutJob, prepare func(branch string) (string, error
 // as somewhere work is going on, and the only way to find out otherwise is to
 // go and look.
 //
-// Removing it is safe in this one place because a fan-out never reuses a
-// checkout: nameBranches only hands out branches the repository does not
-// already have, so every worktree here was made moments ago and no agent has
-// ever run in it. That is also why the removal is forced — there is nothing in
-// it to lose, and a checkout can read as modified the instant it is made when
-// the repository and the platform disagree about line endings.
+// Only a worktree this run made is removed. It used to be assumed that every
+// one was, since nameBranches hands out only names the repository does not
+// have -- but the worktree for a name was reused wherever one existed, and a
+// name could be taken between the choosing and the making, or chosen blind
+// when the branch list could not be read. A failed spawn then force-deleted
+// somebody else's checkout, uncommitted work and all. Now a job's worktree is
+// either made by this run or not given to it at all; see prepareWorktrees.
+//
+// Nor is one removed while a pane is working in it. A `flockdeck spawn
+// --worktree` on the same branch reuses the checkout, and holds the same lock
+// while it starts its helper, so by the time the lock is had here the helper
+// is either in the list of panes or not in the checkout.
+//
+// With both settled, the removal is forced — there is nothing in it to lose,
+// and a checkout can read as modified the instant it is made when the
+// repository and the platform disagree about line endings.
 //
 // Its failure is returned rather than dropped. A freshly written checkout can
 // be held for a moment on Windows by whatever scans new files, and one left
 // behind that way is exactly the stray worktree this exists to prevent -- so
 // it is said, beside the failure that caused it, rather than found later.
-func discardWorktree(repo, baseCwd string, j *fanoutJob) error {
-	if repo == "" || j.cwd == "" || j.cwd == baseCwd {
+//
+// working reports whether a pane is working in a path, and whether that could
+// be told at all.
+func discardWorktree(repo string, j *fanoutJob, working func(path string) (bool, bool)) error {
+	if repo == "" || !j.created {
 		return nil
 	}
-	return gitx.Remove(repo, j.cwd, true)
+	defer lockRepo(repo)()
+	busy, known := working(j.cwd)
+	switch {
+	case !known:
+		return fmt.Errorf("its worktree %s was kept: whether a pane is working in it could not be told", filepath.Base(j.cwd))
+	case busy:
+		return nil
+	}
+	if err := gitx.Remove(repo, j.cwd, true); err != nil {
+		return fmt.Errorf("its worktree %s could not be removed: %w", filepath.Base(j.cwd), err)
+	}
+	// The branch goes with it. `git worktree add -b` made it for this job,
+	// so it is this run's as much as the directory was, and left behind it
+	// is half of the stray this is here to prevent: a branch with nothing on
+	// it, offered in every branch picker as though somebody had started it.
+	if err := gitx.DeleteBranch(repo, j.branch); err != nil {
+		return fmt.Errorf("its branch %s could not be deleted: %w", j.branch, err)
+	}
+	return nil
 }
+
+// paneWorkingIn reports whether any pane is working in path, and whether that
+// could be told at all.
+func (s *Server) paneWorkingIn(path string) (bool, bool) {
+	counts, ok := s.panesPerPath([]string{path})
+	return counts[path] > 0, ok
+}
+
+// lockRepo holds back everything else that makes worktrees in the repository
+// containing dir -- another fan-out, or a `flockdeck spawn --worktree` -- until
+// the function it returns is called.
+//
+// Fan-outs run on goroutines of their own, two windows can start one each, and
+// an agent can spawn a helper into a worktree at any moment. Each of those
+// asks the repository what is free and then takes it, which is two agents in
+// one checkout when two of them ask at once.
+//
+// The lock is the repository's, not the directory's: a pane inside a linked
+// worktree asks from there, and has to wait on the same lock as a fan-out
+// started from the main checkout.
+func lockRepo(dir string) func() {
+	key := dir
+	if common, err := gitx.CommonDir(dir); err == nil {
+		key = common
+	}
+	key = filepath.Clean(key)
+	if foldPathCase {
+		key = strings.ToLower(key)
+	}
+	repoLocks.Lock()
+	mu := repoLocks.held[key]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		repoLocks.held[key] = mu
+	}
+	repoLocks.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
+// repoLocks is lockRepo's lock for each repository, by its git directory.
+var repoLocks = struct {
+	sync.Mutex
+	held map[string]*sync.Mutex
+}{held: map[string]*sync.Mutex{}}
 
 // fanoutTabTitle names the tab a fan-out's children share, or "" to let the
 // tab be named the way any other spawned pane's is.
@@ -784,14 +914,16 @@ var trustWrites sync.Mutex
 // goroutine. A row on the run's default names no agent, and Workspace.AgentSpec
 // resolves an empty id from the active project -- a field only that goroutine
 // may read, written there on every project switch. So the default is read there
-// with the rest of the run's facts and filled in here, and the lookup only ever
-// sees a real id, which reads nothing of the workspace's own.
+// with the rest of the run's facts and filled in here, and the lookup is
+// AgentSpecByID, which takes only a real id and reads nothing of the
+// workspace's but the catalog. AgentSpec itself read the active project for
+// every id, empty or not, so asking it from here raced every switch.
 func (s *Server) specOrDefault(def string) func(id string) (agent.Spec, error) {
 	return func(id string) (agent.Spec, error) {
 		if id == "" {
 			id = def
 		}
-		return s.ws.AgentSpec(id)
+		return s.ws.AgentSpecByID(id)
 	}
 }
 
@@ -910,6 +1042,11 @@ func (s *Server) installSpawnHandler() {
 		cwd := in.cwd
 
 		if req.Branch != "" {
+			// Held until the helper is running in the worktree, which may be
+			// one a fan-out has just made. A fan-out whose own agent there
+			// fails to start discards the worktree under the same lock, and
+			// has to find this helper in it when it does; see discardWorktree.
+			defer lockRepo(cwd)()
 			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
 			if err != nil {
 				return hooks.SpawnResult{}, err

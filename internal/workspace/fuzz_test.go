@@ -35,9 +35,9 @@ func FuzzExtractTasks(f *testing.F) {
 			t.Fatalf("extracted %d tasks, more than the cap of %d", len(tasks), maxTasks)
 		}
 		for _, task := range tasks {
-			if n := utf8.RuneCountInString(task); n < minTaskRunes || n > maxTaskRunes {
-				t.Fatalf("task %q is %d runes, outside the %d..%d a task may be",
-					task, n, minTaskRunes, maxTaskRunes)
+			if n := utf8.RuneCountInString(task); n < minTaskRunes || len(task) > maxTaskBytes {
+				t.Fatalf("task %q is %d runes and %d bytes, outside the %d runes to %d bytes a task may be",
+					task, n, len(task), minTaskRunes, maxTaskBytes)
 			}
 			if strings.ContainsAny(task, "\n\r") {
 				t.Fatalf("task %q spans more than one line", task)

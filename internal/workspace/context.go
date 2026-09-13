@@ -556,8 +556,10 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 
 	fmt.Fprintf(b, "**Fan out turns your own output into agents.** %s reads the list your last "+
 		"message ends with, hands the user an editable copy of it, and starts one agent per "+
-		"line — up to twelve, each in a git worktree and branch of its own, each given its line "+
-		"as its opening prompt. A plan written as one self-contained task per line can be run "+
+		"line — up to twelve, each given its line as its opening prompt. In a git repository "+
+		"each is given a git worktree and branch of its own unless the user unticks the box "+
+		"for it, in which case they all work in this checkout together. A plan written as one "+
+		"self-contained task per line can be run "+
 		"as it stands; a plan written as prose has to be rewritten before it can be, so write "+
 		"one that way when it is going to be handed to other agents.\n\n", how("fanout"))
 
@@ -633,8 +635,9 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"closing the window and leaving the agents running is "+how("detach")+". "+
 		"`FLOCKDECK_BROWSER` picks the browser that "+
 		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
-		"a random port, behind a token generated for each run, and exposes nothing to the "+
-		"network.\n\n", flockdeck, flockdeck)
+		"a random port, behind a token generated for each run. Nothing else reaches it unless "+
+		"the user turns on remote access, which serves the same interface through Flockdeck's "+
+		"relay.\n\n", flockdeck, flockdeck)
 
 	b.WriteString("Your pane carries the rest in its environment:\n\n" +
 		"| Variable | What it is |\n" +

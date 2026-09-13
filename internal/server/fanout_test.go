@@ -25,15 +25,18 @@ import (
 // than be dropped.
 func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
 	notARepo := t.TempDir()
-	job := &fanoutJob{task: "never started", cwd: t.TempDir()}
-	if err := discardWorktree(notARepo, t.TempDir(), job); err == nil {
+	job := &fanoutJob{task: "never started", cwd: t.TempDir(), created: true}
+	if err := discardWorktree(notARepo, job, idle); err == nil {
 		t.Fatal("removing a worktree from somewhere that is not a repository reported nothing")
 	}
 	// Nothing was cut, so there is nothing to remove and nothing to say.
-	if err := discardWorktree("", notARepo, job); err != nil {
+	if err := discardWorktree("", job, idle); err != nil {
 		t.Errorf("a job with no worktree of its own reported %v", err)
 	}
 }
+
+// idle is a pane count that finds nobody working anywhere.
+func idle(string) (bool, bool) { return false, true }
 
 // TestFanoutCatalogSaysWhichAgentsAskAboutTrust covers the fan-out dialog's
 // offer to carry folder trust over, which is only worth making for a run whose
@@ -95,7 +98,7 @@ func TestRefusedSpawnCutsNoWorktree(t *testing.T) {
 	if wts, err := gitx.List(repo); err != nil || len(wts) != 1 {
 		t.Errorf("a refused spawn left the repository with worktrees %+v (%v)", wts, err)
 	}
-	if localBranches(repo)["fix-parser"] {
+	if taken, _ := localBranches(repo); taken["fix-parser"] {
 		t.Error("a refused spawn left its branch behind")
 	}
 }
@@ -116,11 +119,12 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 	)
 	work := make([]*fanoutJob, jobs)
 	for i := range work {
-		work[i] = &fanoutJob{task: fmt.Sprintf("task %d", i), branch: fmt.Sprintf("agent/t%d", i)}
+		branch := fmt.Sprintf("agent/t%d", i)
+		work[i] = &fanoutJob{task: fmt.Sprintf("task %d", i), branch: branch, path: `C:\repo-` + branch}
 	}
 
 	start := time.Now()
-	makeWorktrees(work, func(branch string) (string, error) {
+	makeWorktrees(work, func(branch, path string) error {
 		mu.Lock()
 		running++
 		if running > peak {
@@ -131,7 +135,7 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 		mu.Lock()
 		running--
 		mu.Unlock()
-		return `C:\repo-` + branch, nil
+		return nil
 	})
 	elapsed := time.Since(start)
 
@@ -146,8 +150,8 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 		if j.err != nil {
 			t.Errorf("job %d: %v", i, j.err)
 		}
-		if want := `C:\repo-agent/t` + fmt.Sprint(i); j.cwd != want {
-			t.Errorf("job %d: cwd = %q, want %q", i, j.cwd, want)
+		if want := `C:\repo-agent/t` + fmt.Sprint(i); j.cwd != want || !j.created {
+			t.Errorf("job %d: cwd = %q, created = %v, want %q, created", i, j.cwd, j.created, want)
 		}
 	}
 }
@@ -156,16 +160,16 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 // still prepared, and the failure is kept where the task order can report it.
 func TestMakeWorktreesKeepsFailuresWithTheirTask(t *testing.T) {
 	work := []*fanoutJob{
-		{task: "first", branch: "agent/first"},
-		{task: "second", branch: "agent/second"},
-		{task: "third", branch: "agent/third"},
+		{task: "first", branch: "agent/first", path: "/wt/agent/first"},
+		{task: "second", branch: "agent/second", path: "/wt/agent/second"},
+		{task: "third", branch: "agent/third", path: "/wt/agent/third"},
 	}
 	boom := errors.New("already checked out")
-	makeWorktrees(work, func(branch string) (string, error) {
+	makeWorktrees(work, func(branch, path string) error {
 		if branch == "agent/second" {
-			return "", boom
+			return boom
 		}
-		return "/wt/" + branch, nil
+		return nil
 	})
 
 	if work[0].cwd != "/wt/agent/first" || work[0].err != nil {
@@ -174,8 +178,8 @@ func TestMakeWorktreesKeepsFailuresWithTheirTask(t *testing.T) {
 	if !errors.Is(work[1].err, boom) {
 		t.Errorf("second err = %v, want the failure", work[1].err)
 	}
-	if work[1].cwd != "" {
-		t.Errorf("second cwd = %q, want it left alone", work[1].cwd)
+	if work[1].cwd != "" || work[1].created {
+		t.Errorf("second cwd = %q, created = %v, want it left alone and not its own", work[1].cwd, work[1].created)
 	}
 	if work[2].cwd != "/wt/agent/third" || work[2].err != nil {
 		t.Errorf("third = %+v, want its worktree; one failure must not cancel the rest", work[2])
@@ -222,7 +226,9 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 		t.Fatalf("worktree add: %v", err)
 	}
 
-	discardWorktree(repo, repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path})
+	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path, created: true}, idle); err != nil {
+		t.Errorf("discardWorktree: %v", err)
+	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("the worktree directory is still there: %v", err)
@@ -236,6 +242,10 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 			t.Errorf("git still lists the worktree at %s", wt.Path)
 		}
 	}
+	// The branch was made for the worktree, and is as stray without it.
+	if gitx.BranchExists(repo, "agent/never-started") {
+		t.Error("the worktree was removed and its branch left behind")
+	}
 }
 
 // The dangerous case: a fan-out without worktrees runs every agent in the
@@ -247,7 +257,7 @@ func TestDiscardWorktreeLeavesTheProjectAlone(t *testing.T) {
 	}
 	repo := newTestRepo(t)
 
-	discardWorktree(repo, repo, &fanoutJob{task: "x", cwd: repo})
+	discardWorktree(repo, &fanoutJob{task: "x", cwd: repo}, idle)
 
 	if _, err := os.Stat(filepath.Join(repo, "README.md")); err != nil {
 		t.Fatalf("the project checkout was removed: %v", err)
@@ -483,7 +493,10 @@ func TestLocalBranchesFoldCase(t *testing.T) {
 		t.Skipf("git branch failed (%v): %s", err, out)
 	}
 
-	taken := localBranches(repo)
+	taken, err := localBranches(repo)
+	if err != nil {
+		t.Fatalf("localBranches: %v", err)
+	}
 	if !taken[base] {
 		t.Fatalf("the repository has %s but localBranches reported %v", strings.ToUpper(base), taken)
 	}

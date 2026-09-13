@@ -28,9 +28,16 @@ const maxTasks = 12
 // limit is one number rather than one per fan-out path.
 const MaxTasks = maxTasks
 
-// maxTaskRunes bounds a task. Longer than this and the line is a paragraph that
-// happens to begin with a dash, not a job to hand to an agent.
-const maxTaskRunes = 600
+// cutMark ends a task that had to be cut short to fit within maxTaskBytes, so
+// that the person editing the list can see the rest of it is missing.
+//
+// A task used to be held to six hundred characters as well, past which it was
+// taken for a paragraph that happened to begin with a dash and dropped without
+// a word. But the briefing asks an agent for one self-contained task per line,
+// for helpers that inherit nothing else, and a line that carries its own
+// context is often longer than that: the fullest steps of a plan were the ones
+// that vanished from it.
+const cutMark = " …"
 
 // minTaskRunes is the shortest thing worth starting an agent for. Below it a
 // line is a fragment: the tail of a wrapped row, or a one-word status.
@@ -42,8 +49,21 @@ const minTaskRunes = 8
 // signal: bullets, numbers and checkboxes. Everything else is prose. The result
 // is a suggestion the user edits before anything is started, so it is better to
 // offer a few plausible lines than to guess cleverly.
-func ExtractTasks(text string) []string {
-	items, cues := listItems(text)
+//
+// text is read as a pane's screen, which is the harder of the two things a plan
+// is read from; see extractTasks.
+func ExtractTasks(text string) []string { return extractTasks(text, true) }
+
+// extractTasks is ExtractTasks, told whether text is a pane's screen or one of
+// the agent's replies from its transcript.
+//
+// A screen is the tail of a terminal: it can begin part way through a code
+// block, and it carries the interface the agent's CLI draws around what it
+// says. A reply is neither -- it is the whole of one message, and nothing but
+// what the agent wrote -- so the allowances made for a screen only cost a reply
+// the tasks they misread.
+func extractTasks(text string, screen bool) []string {
+	items, cues := listItems(text, screen)
 
 	// An agent's answer is rarely only its plan: it surveys what it read, notes
 	// what it found, and then says what it would do. All of that is bulleted,
@@ -77,6 +97,8 @@ func ExtractTasks(text string) []string {
 		}
 	}
 
+	items = promoteUnderLabels(items, base, screen)
+
 	var out []string
 	seen := map[string]bool{}
 	for i, it := range items {
@@ -84,22 +106,8 @@ func ExtractTasks(text string) []string {
 		if it.indent > base+1 {
 			continue
 		}
-		task := tidyTask(it.text)
-		// A step that ends on a colon is handing over to what is nested under
-		// it — "Fix the login bug:" over the bug itself — and dropped as
-		// detail, that left the agent a heading and nothing it headed. A step
-		// with no colon is whole without its detail, and keeps going without
-		// it; a plan heading is dropped below, its steps being the work.
-		if strings.HasSuffix(task, ":") && !isPlanCue(task) {
-			if full := withDetail(task, items[i+1:], base); isTask(full) {
-				task = full
-			}
-		}
-		// A lead-in written as an entry beside the steps, "Here's the plan:",
-		// heads nothing but is no task either. The colon is what hands over to
-		// a list: "Split this into two files" shares a phrase with a lead-in
-		// and is still a task.
-		if !isTask(task) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
+		task, ok := shallowTask(items, i, base, screen)
+		if !ok {
 			continue
 		}
 		key := strings.ToLower(task)
@@ -115,11 +123,76 @@ func ExtractTasks(text string) []string {
 	return out
 }
 
+// shallowTask reads items[i], one of the shallowest entries, as the task it
+// offers, and reports whether it offers one at all.
+func shallowTask(items []item, i, base int, screen bool) (string, bool) {
+	task := tidyTask(items[i].text)
+	// A step that ends on a colon is handing over to what is nested under
+	// it — "Fix the login bug:" over the bug itself — and dropped as
+	// detail, that left the agent a heading and nothing it headed. A step
+	// with no colon is whole without its detail, and keeps going without
+	// it; a plan heading is dropped below, its steps being the work.
+	if strings.HasSuffix(task, ":") && !isPlanCue(task) {
+		if full := withDetail(task, items[i+1:], base); isTask(full, screen) {
+			task = full
+		}
+	}
+	// A lead-in written as an entry beside the steps, "Here's the plan:",
+	// heads nothing but is no task either. The colon is what hands over to
+	// a list: "Split this into two files" shares a phrase with a lead-in
+	// and is still a task.
+	if !isTask(task, screen) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
+		return "", false
+	}
+	return task, true
+}
+
+// promoteUnderLabels lifts the entries nested under a shallowest entry that is
+// no task itself -- "1. Backend" over the steps for the backend -- to the depth
+// of the steps, and drops the label. base is the shallowest depth.
+//
+// Only the shallowest entries are tasks, since whatever is nested under a job
+// is detail about doing it. A plan grouped under labels puts the labels there,
+// and they are a word each and no job at all: dropping them and their detail
+// with them, the fan-out found nothing in a plan that was nothing but work. A
+// label's own entries are the jobs, and deeper ones are still their detail, so
+// the whole group moves up by the same amount.
+func promoteUnderLabels(items []item, base int, screen bool) []item {
+	for i := 0; i < len(items); i++ {
+		if items[i].indent > base+1 {
+			continue
+		}
+		end := i + 1
+		for end < len(items) && items[end].indent > base+1 {
+			end++
+		}
+		if end == i+1 {
+			continue
+		}
+		if _, ok := shallowTask(items, i, base, screen); ok {
+			continue
+		}
+		child := items[i+1].indent
+		for _, it := range items[i+1 : end] {
+			child = min(child, it.indent)
+		}
+		for j := i + 1; j < end; j++ {
+			items[j].indent -= child - base
+		}
+		items = append(items[:i], items[i+1:]...)
+		// The first of the label's entries is now at i, and may be a label
+		// over entries of its own.
+		i--
+	}
+	return items
+}
+
 // withDetail finishes a step that ends on a colon with the entries nested
 // under it, joined in order — "Fix the login bug: the refresh races with
 // logout; add a regression test" — for as many of them as keep the task
-// within maxTaskRunes. rest is every entry after the step; the step's own
-// entries are those indented past base+1 before the next step.
+// within maxTaskBytes, ending on cutMark where the rest had to be left off.
+// rest is every entry after the step; the step's own entries are those
+// indented past base+1 before the next step.
 func withDetail(task string, rest []item, base int) string {
 	full := task
 	added := false
@@ -135,7 +208,8 @@ func withDetail(task string, rest []item, base int) string {
 		if added {
 			sep = "; "
 		}
-		if utf8.RuneCountInString(full)+utf8.RuneCountInString(sep+part) > maxTaskRunes {
+		if len(full)+len(sep+part) > maxTaskBytes-len(cutMark) {
+			full += cutMark
 			break
 		}
 		full += sep + part
@@ -161,7 +235,10 @@ type item struct {
 // terminal breaks a long bullet across rows, and markdown lets one run on over
 // indented lines. Keeping only the first row of either would hand an agent a
 // task that stops mid-sentence.
-func listItems(text string) ([]item, []int) {
+//
+// screen says whether text is a pane's screen rather than a reply read from a
+// transcript; see extractTasks.
+func listItems(text string, screen bool) ([]item, []int) {
 	// A terminal redraws a row by returning to the start of it and writing
 	// over what was there, so one newline-delimited line of a pane history
 	// can hold several renderings of the same row — the last of which is how
@@ -179,7 +256,12 @@ func listItems(text string) ([]item, []int) {
 	// through a code block. An odd number of fences says that is what happened:
 	// the first marker is a closing one, and reading it as an opening one would
 	// bury the whole plan that follows it.
-	fenced := countFences(lines)%2 == 1
+	//
+	// A reply is a whole message, so its first marker is always an opening one.
+	// One that ends in a code block it never closed -- cut off, or written
+	// carelessly -- has an odd count too, and reading that as a screen's put
+	// the plan above the block inside it and offered nothing at all.
+	fenced := screen && countFences(lines)%2 == 1
 
 	for n, raw := range lines {
 		line := strings.TrimRight(raw, " \t")
@@ -226,15 +308,18 @@ func listItems(text string) ([]item, []int) {
 		}
 		// Text indented under the entry above it is the rest of that entry, but
 		// only while the join still reads as a task. isTask throws away
-		// anything past maxTaskRunes whole, so a continuation that tips an
-		// entry over the cap would cost the plan a real job rather than the
-		// tail of one. Stop at the last row that fits and close the entry.
+		// anything past maxTaskBytes whole, so a continuation that tips an
+		// entry over the limit would cost the plan a real job rather than the
+		// tail of one. Stop at the last row that fits, say the entry was cut
+		// there, and close it: a task that simply stops mid-sentence reads as
+		// the whole of what was asked.
 		if open >= 0 && indent >= items[open].indent+2 {
 			joined := items[open].text + " " + body
-			if utf8.RuneCountInString(joined) <= maxTaskRunes {
+			if len(joined) <= maxTaskBytes-len(cutMark) {
 				items[open].text = joined
 				continue
 			}
+			items[open].text += cutMark
 		}
 		open = -1
 	}
@@ -401,10 +486,11 @@ func isGlyphRune(r rune) bool {
 }
 
 // isTask reports whether a line reads as work rather than as the interface drawn
-// around it.
-func isTask(s string) bool {
+// around it. screen says whether it was read off a pane's screen, the only
+// place that interface can appear.
+func isTask(s string, screen bool) bool {
 	r := []rune(s)
-	if len(r) < minTaskRunes || len(r) > maxTaskRunes {
+	if len(r) < minTaskRunes || len(s) > maxTaskBytes {
 		return false
 	}
 	// A task is a phrase. One word is a spinner frame or the tail of a row that
@@ -430,27 +516,40 @@ func isTask(s string) bool {
 	if strings.HasSuffix(s, "?") {
 		return false
 	}
-	lower := strings.ToLower(s)
-	for _, phrase := range terminalChrome {
-		if strings.Contains(lower, phrase) {
-			return false
-		}
-	}
-	for _, prefix := range terminalChromeOpeners {
-		if strings.HasPrefix(lower, prefix) {
-			return false
-		}
+	// The interface is only ever drawn on the screen. A reply read from a
+	// transcript is what the agent wrote and nothing else, and "show the
+	// context left in the status bar" is a job there like any other.
+	if screen && isChrome(s) {
+		return false
 	}
 	// An agent bullets its findings as readily as its plan. A finding opens by
 	// naming the thing it is about — "The Go process owns the panes" — where an
 	// instruction opens with the doing, or with what is to be done to. Note
 	// that "I'll add …" and "We should …" are instructions, and stay.
+	lower := strings.ToLower(s)
 	for _, opener := range []string{"the ", "there ", "this ", "that ", "these ", "those ", "it "} {
 		if strings.HasPrefix(lower, opener) {
 			return false
 		}
 	}
-	return !isProgress(s)
+	return true
+}
+
+// isChrome reports whether a line is part of the interface an agent's CLI draws
+// around what it says: its status line, key hints and counters.
+func isChrome(s string) bool {
+	lower := strings.ToLower(s)
+	for _, phrase := range terminalChrome {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	for _, prefix := range terminalChromeOpeners {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return isProgress(s)
 }
 
 // spaceless reports whether s is written in a script that does not put spaces
@@ -674,14 +773,15 @@ func isDecoration(line string) bool {
 // the task nor the length as the problem. The same text is also written into
 // the saved layout, which is no place for a document.
 //
-// The limit is far above any brief anyone writes: the tasks a fan-out proposes
-// are capped at six hundred characters, and this is more than twenty times
-// that.
+// The limit is far above any brief anyone writes, and it is the only one a task
+// a fan-out proposes is held to: a step past it is offered cut short, and says
+// so, rather than offered whole only to be refused here.
 const maxTaskBytes = 16 << 10
 
 // AgentSpec resolves the agent a pane was asked to run, and says why it cannot
 // be run when it cannot. An empty id means the default agent of the project on
-// screen.
+// screen, which is a field only the goroutine that owns the workspace may read;
+// AgentSpecByID asks the same about an agent named by id, from anywhere.
 //
 // The question asked here is about one spec rather than about Claude. A
 // fan-out may now give four of its tasks to one agent and eight to another,
@@ -689,7 +789,22 @@ const maxTaskBytes = 16 << 10
 // other half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
-	spec, ok := w.specFor(w.activeRoot, id)
+	if id == "" {
+		id = w.defaultAgent()
+	}
+	return w.AgentSpecByID(id)
+}
+
+// AgentSpecByID is AgentSpec for an agent named by its id, and is safe to call
+// from any goroutine. It reads the catalog, which has a lock of its own, and
+// the claude CLI found when the workspace was made, and nothing else: not the
+// active project, which is written on the workspace goroutine at every project
+// switch. AgentSpec read that for every id -- empty or not, since it was an
+// argument -- so the fan-out dialog probing agents, and a fan-out deciding
+// which rows ask about folder trust, raced every switch. An empty id names no
+// agent here.
+func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
+	spec, ok := w.agents().Find(id)
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}
@@ -1070,7 +1185,7 @@ func (w *Workspace) PlanSourceFor(paneID string) PlanSource {
 // laid out a plan and then answered a follow-up should not lose the plan.
 func (s PlanSource) Tasks() ([]string, bool) {
 	for _, reply := range transcript.For(s.Spec).Replies(s.Spec, s.SessionID, planTurns) {
-		if tasks := ExtractTasks(reply); len(tasks) > 0 {
+		if tasks := extractTasks(reply, false); len(tasks) > 0 {
 			return tasks, true
 		}
 	}
