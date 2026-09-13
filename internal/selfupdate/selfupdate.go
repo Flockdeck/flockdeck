@@ -47,6 +47,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -114,22 +115,46 @@ type Pending struct {
 	Staged  time.Time `json:"staged"`
 }
 
-// client is given a timeout because an update is never urgent: a check that
-// hangs must not be able to hold a shutdown open or keep a goroutine for the
-// life of the process.
-var client = &http.Client{Timeout: 5 * time.Minute}
+// client bounds the whole of a request, because an update is never urgent: a
+// check that hangs must not be able to hold a shutdown open or keep a
+// goroutine for the life of the process. What stops one that hangs is
+// stallTimeout; this is only the outer bound, which a link slower than about
+// 3KB/s is the only thing to meet.
+//
+// It was five minutes, and it covers reading the body. The Windows archive is
+// 9.4MB, so on a link slower than about 31KB/s the download could never
+// finish, and the background check threw away up to five minutes of one
+// every time it tried.
+var client = &http.Client{Timeout: time.Hour}
+
+// stallTimeout is how long a request may go with nothing arriving -- no
+// answer, or no more of its body -- before it is given up on. A variable so a
+// test need not wait it out.
+var stallTimeout = time.Minute
 
 func get(ctx context.Context, url string) (*http.Response, error) {
+	// The request is cancelled once stallTimeout passes with nothing arriving,
+	// and every byte of the body that does arrive starts that wait again.
+	ctx, cancel := context.WithCancel(ctx)
+	var stalled atomic.Bool
+	timer := time.AfterFunc(stallTimeout, func() { stalled.Store(true); cancel() })
+	done := func() { timer.Stop(); cancel() }
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		done()
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "flockdeck-updater")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	resp, err := client.Do(req)
 	if err != nil {
+		done()
+		if stalled.Load() {
+			return nil, stallError(req.URL.Host)
+		}
 		return nil, err
 	}
+	resp.Body = &stallReader{body: resp.Body, timer: timer, stalled: &stalled, done: done, host: req.URL.Host}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		// GitHub turns away an address that has asked too often with a 403
@@ -145,6 +170,40 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	return resp, nil
+}
+
+// stallReader is a response body that starts get's wait for something to
+// arrive again with every byte that does, and says in words when that wait ran
+// out rather than passing on a cancelled context.
+type stallReader struct {
+	body    io.ReadCloser
+	timer   *time.Timer
+	stalled *atomic.Bool
+	done    func()
+	host    string
+}
+
+func (r *stallReader) Read(p []byte) (int, error) {
+	n, err := r.body.Read(p)
+	if n > 0 {
+		r.timer.Reset(stallTimeout)
+	}
+	if err != nil && err != io.EOF && r.stalled.Load() {
+		return n, stallError(r.host)
+	}
+	return n, err
+}
+
+func (r *stallReader) Close() error {
+	err := r.body.Close()
+	r.done()
+	return err
+}
+
+// stallError is what a request that went stallTimeout with nothing arriving
+// fails with.
+func stallError(host string) error {
+	return fmt.Errorf("%s stopped sending for %s, so the request was given up on; try again", host, stallTimeout)
 }
 
 // Latest returns the most recent published release: from the site when it

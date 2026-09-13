@@ -341,6 +341,50 @@ func TestSweepFindsWhatApplyMovedAsideThroughALink(t *testing.T) {
 	}
 }
 
+// A download that keeps arriving is not cut off for being slow, and one that
+// stops arriving is given up on. The client's deadline covered reading the
+// whole body, so below about 31KB/s the Windows archive could never finish.
+func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
+	old := stallTimeout
+	stallTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { stallTimeout = old })
+
+	// A byte every 25ms: a second and a half in all, five times what may pass
+	// with nothing arriving, and never that long without a byte.
+	body := bytes.Repeat([]byte("x"), 60)
+	hold := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for i := range body {
+			if r.URL.Path == "/stalls" && i == len(body)/2 {
+				select {
+				case <-hold:
+				case <-r.Context().Done():
+				}
+				return
+			}
+			w.Write(body[i : i+1])
+			w.(http.Flusher).Flush()
+			time.Sleep(25 * time.Millisecond)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(sync.OnceFunc(func() { close(hold) }))
+
+	h := sha256.Sum256(body)
+	want := hex.EncodeToString(h[:])
+	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want); err != nil {
+		t.Errorf("a download that kept arriving, slowly: %v", err)
+	}
+	start := time.Now()
+	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want)
+	if err == nil || !strings.Contains(err.Error(), "stopped sending") {
+		t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("giving up on a stalled download took %s", d)
+	}
+}
+
 func TestStageRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
 	name, archive := buildArchive(t, "the new program")
 	// A hash of something else entirely: what a corrupted or swapped download
