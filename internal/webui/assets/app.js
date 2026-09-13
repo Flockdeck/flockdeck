@@ -2174,7 +2174,9 @@
     // Focusing or tapping the terminal is using the pane in this window.
     if (term.textarea) term.textarea.addEventListener("focus", () => sendFocus(p));
     host.addEventListener("pointerdown", () => sendFocus(p));
-    term.onData((data) => sendInput(p, data));
+    // While the replay is being drawn, what the terminal says of its own
+    // accord is its answer to history, not to the program running now.
+    term.onData((data) => { if (!(p.replaying && isTerminalReply(data))) sendInput(p, data); });
     term.onBinary((data) => {
       const bytes = new Uint8Array(data.length);
       for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i) & 255;
@@ -2263,6 +2265,24 @@
     });
   }
 
+  /** isTerminalReply is the server's isTerminalReply: whether what the
+   *  terminal sends is it answering its program rather than somebody typing.
+   *  An OSC, DCS, APC or PM string answers a question about colours or
+   *  settings; a CSI ending in R, c, n or t is a cursor position, the device
+   *  attributes, a status or a window report; one ending in $y is a mode's
+   *  state; ESC [ I and ESC [ O report focus. Shift+F3 and a cursor report
+   *  can be the same bytes, and that key going nowhere while a replay is
+   *  drawn is the price. */
+  function isTerminalReply(s) {
+    if (s.length < 3 || s[0] !== "\x1b") return false;
+    if ("]P_^".includes(s[1])) return true;
+    if (s[1] !== "[") return false;
+    const last = s[s.length - 1];
+    if ("Rcnt".includes(last)) return true;
+    if (last === "I" || last === "O") return s.length === 3;
+    return last === "y" && s.includes("$");
+  }
+
   function sendInput(p, data) {
     sendBytes(p, new TextEncoder().encode(data));
   }
@@ -2316,10 +2336,28 @@
         // on the same socket - were drawn after it, on the fresh screen.
         if (!h.resumed) p.term.write("\x1bc");
         p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
+        // The bytes up to h.end are history, printed before this window
+        // connected, and the terminal answers the questions in them - what
+        // it is, where its cursor is, what colour it is - as though they had
+        // just been asked. Until it has drawn the last of them, its answers
+        // are kept from the program (see isTerminalReply). A server that does
+        // not say where the replay ends leaves them all to go through.
+        p.replayGen = (p.replayGen || 0) + 1;
+        p.replayEnd = h.end > h.offset ? h.end : 0;
+        p.replaying = p.replayEnd > 0;
         return;
       }
       if (p.stream) { p.stream.offset += ev.data.byteLength; p.stream.fresh = false; }
-      p.term.write(new Uint8Array(ev.data));
+      const bytes = new Uint8Array(ev.data);
+      if (p.replayEnd && p.stream && p.stream.offset >= p.replayEnd) {
+        // The last of the replay. Once the terminal has drawn it, answers
+        // are the program's again - unless another run has begun since.
+        p.replayEnd = 0;
+        const gen = p.replayGen;
+        p.term.write(bytes, () => { if (p.replayGen === gen) p.replaying = false; });
+        return;
+      }
+      p.term.write(bytes);
     };
     ws.onclose = () => {
       if (p.ws !== ws) return;

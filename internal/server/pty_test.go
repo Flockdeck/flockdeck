@@ -413,6 +413,51 @@ func readResumable(t *testing.T, conn *websocket.Conn, line, marker string, h *s
 	return seen.String()
 }
 
+// TestTheHeaderSaysWhereTheReplayEnds covers the bytes a window is sent from
+// history. They were printed before it connected, and its terminal answers the
+// questions in them -- what it is, where the cursor is -- as though they had
+// just been asked, so the window needs to know which bytes they are to keep
+// those answers from the program. The header says where they end.
+func TestTheHeaderSaysWhereTheReplayEnds(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ctl := dialControl(t, srv)
+	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
+
+	var h streamHeader
+	var held int64
+	first := dialResumable(t, srv, paneID, "&from=-1")
+	readResumable(t, first, "echo replay_marker\r", "replay_marker", &h, &held)
+	first.CloseNow()
+
+	second := dialResumable(t, srv, paneID, "&from=-1")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	typ, data, err := second.Read(ctx)
+	if err != nil || typ != websocket.MessageText {
+		t.Fatalf("the first frame was not a header: %v %q", err, data)
+	}
+	if err := json.Unmarshal(data, &h); err != nil {
+		t.Fatalf("header: %v", err)
+	}
+	if h.End <= h.Offset {
+		t.Fatalf("a stream starting afresh on a pane that has printed says its replay ends at %d, from %d", h.End, h.Offset)
+	}
+	var replay []byte
+	for int64(len(replay)) < h.End-h.Offset {
+		typ, data, err := second.Read(ctx)
+		if err != nil {
+			t.Fatalf("read the replay: %v", err)
+		}
+		if typ == websocket.MessageText {
+			t.Fatalf("a second header inside the replay: %q", data)
+		}
+		replay = append(replay, data...)
+	}
+	if !strings.Contains(string(replay), "replay_marker") {
+		t.Errorf("the %d bytes the header counts as replay do not hold what the pane printed:\n%s", h.End-h.Offset, replay)
+	}
+}
+
 // TestTerminalResumesWhereItWasCutOff covers a window whose terminal socket
 // drops and comes back -- a laptop waking, the relay blinking, or the server
 // hanging up on a window that fell behind. It used to reset the terminal and

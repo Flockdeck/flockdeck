@@ -154,7 +154,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				// Only the run the window was watching can be carried on from.
 				// One that replaces it after a restart starts from nothing.
 				from = -1
-				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed}
+				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed, End: start + int64(len(replay))}
 				if err := writeHeader(ctx, conn, h); err != nil {
 					if subID >= 0 {
 						sess.Unsubscribe(subID)
@@ -772,6 +772,11 @@ type streamHeader struct {
 	Epoch   int64 `json:"epoch"`
 	Offset  int64 `json:"offset"`
 	Resumed bool  `json:"resumed"`
+	// End is where the replay ends: the bytes from Offset up to here were
+	// printed before this window connected. Its terminal answers the questions
+	// in them -- what it is, where its cursor is -- as though they had just
+	// been asked, and the window keeps those answers from the program.
+	End int64 `json:"end"`
 }
 
 // writeHeader sends a streamHeader, as the only text frame a terminal socket
