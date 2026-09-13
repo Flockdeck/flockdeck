@@ -1570,6 +1570,27 @@ func TestProcessAliveKnowsThisProcess(t *testing.T) {
 	}
 }
 
+// TestARecordIsNotAnsweredForByAProcessThatStartedAfterIt covers an instance
+// that exited and whose process id the system has given out again since. The
+// id is alive, but the process behind it started after the record was made,
+// so it cannot be the one that made it -- and a launch waiting for that one to
+// finish shutting down would wait for a process that has nothing to do with it.
+func TestARecordIsNotAnsweredForByAProcessThatStartedAfterIt(t *testing.T) {
+	if _, ok := processStarted(os.Getpid()); !ok {
+		t.Skip("this system does not say when a process started")
+	}
+	if !(&Instance{PID: os.Getpid(), Started: time.Now()}).StillRunning() {
+		t.Error("the process that made the record reads as gone")
+	}
+	if !(&Instance{PID: os.Getpid()}).StillRunning() {
+		t.Error("a record with no start time reads as gone while its process runs")
+	}
+	// Made a day before this process started: the id has been given out since.
+	if (&Instance{PID: os.Getpid(), Started: time.Now().Add(-24 * time.Hour)}).StillRunning() {
+		t.Error("a process that started a day after the record was made reads as the one that made it")
+	}
+}
+
 // TestConfigDirFollowsTheInstanceThatWonTheUpgrade checks the run that loses
 // the race to rename the old state directory ends up in the same place as the
 // run that won it.

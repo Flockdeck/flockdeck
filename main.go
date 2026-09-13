@@ -360,9 +360,13 @@ func quitRunning() error {
 	h, err := server.Identify(inst.URL, inst.Token)
 	switch {
 	case err == nil, errors.Is(err, server.ErrNotReady):
-	case refusedConnection(err), errors.Is(err, server.ErrNotOurs):
-		// Nothing listening there, or not the instance on record: the record
-		// was left by one that has gone.
+	case refusedConnection(err):
+		// Nothing listening there: an instance that has gone, or one on its
+		// way out.
+		return quitWithNothingListening(inst)
+	case errors.Is(err, server.ErrNotOurs):
+		// Not the instance on record: the record was left by one that has
+		// gone.
 		_ = store.ClearInstance()
 		return errNoneRunning
 	default:
@@ -380,15 +384,67 @@ func quitRunning() error {
 		pid = h.PID
 	}
 	if err := server.RequestQuit(inst.URL, inst.Token, pid); err != nil {
-		// Gone between the question and the request.
+		// Gone between the question and the request, or on its way.
 		if refusedConnection(err) {
-			_ = store.ClearInstance()
-			return errNoneRunning
+			return quitWithNothingListening(inst)
 		}
 		return fmt.Errorf("ask the instance at %s to stop: %w", inst.URL, err)
 	}
 	fmt.Println("flockdeck: stopped")
 	return nil
+}
+
+// quitWithNothingListening is what -quit does when nothing listens at the
+// recorded address.
+//
+// That is not always an instance that has gone. One shutting down closes its
+// port first, and saves every project, stops the agents and clears its record
+// after. Saying nothing was running then let `flockdeck -quit && flockdeck`
+// start a second instance beside the first one's agents, still running, so
+// while the process that made the record runs, -quit waits for it to finish,
+// as it does for an instance it asked to stop.
+func quitWithNothingListening(inst *store.Instance) error {
+	if !instanceGoing(inst) {
+		_ = store.ClearInstance()
+		return errNoneRunning
+	}
+	if !waitForExit(inst) {
+		return fmt.Errorf("the instance at %s has stopped listening but is still running, as process %d", inst.URL, inst.PID)
+	}
+	_ = store.ClearInstance()
+	fmt.Println("flockdeck: stopped")
+	return nil
+}
+
+// instanceGoing reports whether the process that recorded inst is still
+// running, and is not this one. It is a variable so that a test can stand in
+// for an instance on its way out.
+var instanceGoing = func(inst *store.Instance) bool {
+	return inst.PID != os.Getpid() && inst.StillRunning()
+}
+
+// exitWait bounds how long a launch or -quit waits for an instance on its way
+// out to finish. That instance's shutdown is bounded by shutdownGrace, after
+// which it ends itself, so a little longer than that sees out any instance
+// that is going to go. It is a variable so that a test need not wait as long.
+var exitWait = shutdownGrace + 5*time.Second
+
+// waitForExit waits, up to exitWait, for the process that recorded inst to
+// exit, and reports whether it has.
+func waitForExit(inst *store.Instance) bool {
+	deadline := time.Now().Add(exitWait)
+	said := false
+	for instanceGoing(inst) {
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		if !said {
+			fmt.Fprintln(os.Stderr, "flockdeck: waiting for the instance that is shutting down to finish")
+			said = true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return true
 }
 
 // errNoneRunning is what -quit reports when there is nothing to stop.
@@ -415,6 +471,16 @@ func runningInstance() (*store.Instance, string, error) {
 		// mistake than a launch that has to wait or be told to try again.
 		if errors.Is(err, server.ErrNotReady) {
 			return inst, base, nil
+		}
+		// Nothing listening, while the process that made the record still
+		// runs, is an instance on its way out: its port is closed before it
+		// saves every project, stops the agents and clears its record. A
+		// launch that took that for a stale record started a rival, which
+		// restored the projects before the first had saved them, wrote over
+		// that save half a minute later, and resumed conversations the first
+		// one's agents still had open. So it waits for the first to finish.
+		if refusedConnection(err) && instanceGoing(inst) && !waitForExit(inst) {
+			return nil, "", fmt.Errorf("the flockdeck on record has stopped listening but is still running, as process %d, after %s", inst.PID, exitWait)
 		}
 		// The record is stale: the process died without clearing it.
 		_ = store.ClearInstance()

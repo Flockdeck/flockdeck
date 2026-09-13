@@ -1434,3 +1434,32 @@ var processAlive = func(pid int) bool {
 // is how `flockdeck -quit` tells that the instance it asked to stop has gone,
 // rather than only stopped listening.
 func ProcessAlive(pid int) bool { return processAlive(pid) }
+
+// StillRunning reports whether the process that made this record is still
+// running.
+//
+// Its id alone cannot say. Once that process has exited, the system is free to
+// give the id to any process started since, and asking after the id then
+// answers for that one. A process that started after the record was made
+// cannot be the one that made it, so where the system says when a process
+// started -- Windows and Linux -- that is checked as well. Elsewhere, and for a
+// record with no start time, a live process id is taken at its word.
+func (inst *Instance) StillRunning() bool {
+	if inst == nil || !processAlive(inst.PID) {
+		return false
+	}
+	if inst.Started.IsZero() {
+		return true
+	}
+	started, ok := processStarted(inst.PID)
+	if !ok {
+		return true
+	}
+	return !started.After(inst.Started.Add(startSlack))
+}
+
+// startSlack allows for the precision a process's start is known to: Linux
+// gives the boot time only to the second. A process given the id of an
+// instance that had exited inside that second of recording itself is not a
+// case worth more.
+const startSlack = 2 * time.Second

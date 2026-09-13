@@ -2,7 +2,10 @@
 
 package store
 
-import "syscall"
+import (
+	"syscall"
+	"time"
+)
 
 // processQueryLimitedInformation is the least access that answers
 // GetExitCodeProcess. Unlike PROCESS_QUERY_INFORMATION it is granted across
@@ -37,4 +40,19 @@ func pidAlive(pid int) bool {
 		return true
 	}
 	return code == stillActive
+}
+
+// processStarted reports when a process started. ok is false when it cannot
+// be asked, as for a process that is not there.
+func processStarted(pid int) (started time.Time, ok bool) {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer syscall.CloseHandle(h)
+	var created, exited, kernel, user syscall.Filetime
+	if err := syscall.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(0, created.Nanoseconds()), true
 }
