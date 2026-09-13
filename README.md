@@ -155,7 +155,10 @@ Every release is published at `https://dl.flockdeck.ai` under its version, as
 one archive per platform — a `.zip` for Windows, a `.tar.gz` elsewhere — with
 a `checksums.txt` and a `manifest.json` describing them. Both are signed with
 the release's Ed25519 key, whose public half is built into Flockdeck, and
-nothing under a version changes once it is published. `latest.json` names
+nothing under a version changes once it is published. A second, standby key
+has been trusted alongside it since v0.3.5: its private half is held offline,
+by hand, and never touches a build or a workflow, so it can sign one release
+if the first key is ever lost or compromised. `latest.json` names
 the latest release, `{"version":"v1.2.3"}`, and nothing more. It is not
 signed, and is not purged from the CDN when it moves, because it needs
 neither: all it can do is point at a release whose own manifest is signed. An
@@ -275,7 +278,11 @@ like an application. `FLOCKDECK_BROWSER` forces a specific one.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run. [Remote access](#remote-access), below, opens no port either: it
+generated fresh for each run. The browser is never started with that token, or
+the one-time link that stands in for it, on its command line — another
+account on the same machine can often read one process's command line from
+another's — so the link is written to a file only your account can read
+instead, and the browser is pointed at that file. [Remote access](#remote-access), below, opens no port either: it
 is a connection this machine makes outward, not one it accepts, and what
 arrives through it is let in because the relay has already checked the device,
 not by the token.
@@ -978,6 +985,17 @@ line) still insist on the local token, so no remote window can reach them. The
 credential the relay knows this machine by is in `remote.json` in the state
 directory, readable only by you.
 
+The shared relay gives every desktop's window its own address —
+`https://<desktop id>.d.flockdeck.ai/` — so a page from one desktop's window
+cannot reach another's: it runs on a different origin, with none of the
+account's own session, and so cannot list your devices, open another desktop,
+or make a code for one to join. Unpairing a device or revoking this machine
+ends its session at once, on the next request, with nothing left open behind
+it: the cookie that a window holds carries no permission of its own, only
+which device and desktop it was issued for, and both are checked again every
+time. A desktop not heard from in 30 days is removed from the relay on its
+own.
+
 A remote window needs Flockdeck running here. Closing the window on this
 machine still quits it, remote window or not — detach instead to leave the
 agents running for later. A remote window closing never stops anything.
@@ -985,6 +1003,44 @@ agents running for later. A remote window closing never stops anything.
 Coming soon, for companies: Enterprise, a licence to run the relay on your own
 infrastructure, with SSO and support, for a company whose rules don't allow a
 third party to decrypt its developers' terminal traffic.
+
+### Push notifications
+
+A paired phone can be told when an agent has been waiting on you, whether or
+not its browser is open on it and whether or not a window is open here — a
+run left detached reaches you too. On the phone, open a desktop and press
+**Notify me when an agent needs me**. On an iPhone or iPad, add the page to
+the Home Screen first — Share, then **Add to Home Screen** — since iOS and
+iPadOS send notifications only to web apps added that way, from version 16.4.
+Tapping a notification opens the pane that is waiting.
+
+Settings → **Remote access** says what is sent:
+
+- **Notify paired devices** turns notifications off for every device at once;
+  a device turns itself off again from its own **Notify me…** toggle.
+- **After waiting** is how long an agent has to have been waiting first: 30
+  seconds, unless you choose otherwise, from 5 seconds to an hour. Each wait
+  is told once, and an agent that is answered and then asks again is a new
+  wait. However many agents are waiting, the phone is sent one notification
+  that says how many, which replaces the one before it, and no more than one
+  a minute. It is sent once an agent has waited that long and nobody has used
+  this computer — keyboard or mouse, in any application — for two minutes, or
+  its screen is locked; a Flockdeck window being in front of you makes no
+  difference. Where the operating system's idle time can't be read, Flockdeck
+  falls back to typing and clicks in its own windows instead. Nothing is sent
+  about a pane you are using on the phone; if it is still waiting two minutes
+  after you leave it, you are told then.
+- **Send nothing identifying** has a notification say only "An agent on *this
+  machine* needs you", rather than naming the pane and its project — for a
+  lock screen others can see.
+
+Each notification is encrypted here, on this machine, for the device it goes
+to (Web Push, RFC 8291): the relay only signs it and passes it on, and cannot
+read it, nor can the push service that carries it — Apple's, Google's,
+Mozilla's or Microsoft's, whichever the browser uses. Every notification is
+the same size, however long the names in it, so even that leaks nothing.
+Whether you are at your computer is worked out here, on this machine, and
+never sent anywhere.
 
 ## Design notes
 
