@@ -132,7 +132,8 @@ func TestQuitEndpointStopsTheApplication(t *testing.T) {
 	stopped := make(chan struct{})
 	srv.OnQuit = func() { close(stopped); _ = srv.Close() }
 
-	if err := RequestQuit(srv.BaseURL(), srv.Token()); err != nil {
+	// No process to wait for: the instance here is this test's own.
+	if err := RequestQuit(srv.BaseURL(), srv.Token(), 0); err != nil {
 		t.Fatalf("request quit: %v", err)
 	}
 	select {

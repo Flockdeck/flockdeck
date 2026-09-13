@@ -353,7 +353,8 @@ func quitRunning() error {
 	// still ours -- and a wedged instance is exactly the one somebody reaches
 	// for -quit to stop, while the request to quit needs nothing from the
 	// workspace. So that is asked to quit, as one that answers is.
-	switch _, err := server.Identify(inst.URL, inst.Token); {
+	h, err := server.Identify(inst.URL, inst.Token)
+	switch {
 	case err == nil, errors.Is(err, server.ErrNotReady):
 	case refusedConnection(err), errors.Is(err, server.ErrNotOurs):
 		// Nothing listening there, or not the instance on record: the record
@@ -364,12 +365,17 @@ func quitRunning() error {
 		return fmt.Errorf("ask the instance at %s whether it is running: %w", inst.URL, err)
 	}
 
-	// RequestQuit returns only once the instance has stopped answering, not
-	// when it has taken the request: saving every project and stopping the
-	// agents comes after, with the instance still listening, and a
-	// `flockdeck -quit && flockdeck` would otherwise attach to one on its way
-	// out. So "stopped" below is true when it is printed.
-	if err := server.RequestQuit(inst.URL, inst.Token); err != nil {
+	// RequestQuit returns only once the instance has gone -- stopped
+	// answering, and then its process exited -- not when it has taken the
+	// request. It closes its port first and saves every project and stops the
+	// agents after, so a `flockdeck -quit && flockdeck` would otherwise attach
+	// to one on its way out, or start a second beside its agents. So "stopped"
+	// below is true when it is printed.
+	pid := 0
+	if h != nil {
+		pid = h.PID
+	}
+	if err := server.RequestQuit(inst.URL, inst.Token, pid); err != nil {
 		// Gone between the question and the request.
 		if refusedConnection(err) {
 			_ = store.ClearInstance()
