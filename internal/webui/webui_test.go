@@ -3058,6 +3058,34 @@ assert.strictEqual(asked(), opened + 2, "the last change was not asked for once 
 `)
 }
 
+// With screen reader support on, xterm keeps a live region in every terminal
+// and makes each one assertive, so in a tab of several agents they all read out
+// what they were sent at once, over each other and over what was being typed.
+// Only the focused pane's terminal speaks; the others' are off until the
+// keyboard goes to them.
+func TestOnlyTheFocusedTerminalSpeaks(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ screenReader: true });
+const both = (focus) => fixture({ tabs: [{ id: "t1", title: "one", focus, zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] });
+h.recv(both("p1"));
+// xterm puts a live region in each terminal it reads out.
+const regions = h.terms.map((t) => {
+  const r = h.doc.createElement("div");
+  r.className = "live-region";
+  r.setAttribute("aria-live", "assertive");
+  t.host.append(r);
+  return r;
+});
+h.recv(both("p1"));
+assert.strictEqual(regions[0].getAttribute("aria-live"), "assertive", "the focused terminal no longer speaks");
+assert.strictEqual(regions[1].getAttribute("aria-live"), "off", "a terminal without the keyboard reads out what it is sent");
+h.recv(both("p2"));
+assert.strictEqual(regions[0].getAttribute("aria-live"), "off", "the terminal the keyboard left went on speaking");
+assert.strictEqual(regions[1].getAttribute("aria-live"), "assertive", "the terminal the keyboard went to does not speak");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

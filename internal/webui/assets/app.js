@@ -2667,7 +2667,9 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
-      p.wrap.classList.toggle("focused", !!tab && tab.focus === id);
+      const focused = !!tab && tab.focus === id;
+      p.wrap.classList.toggle("focused", focused);
+      speakIfFocused(p, focused);
       renderPaneOverlay(p, v);
     }
   }
@@ -4198,6 +4200,22 @@
     for (const p of panes.values()) {
       if (p.term.options.screenReaderMode !== on) p.term.options.screenReaderMode = on;
     }
+    // xterm has made each terminal's live region by now, all of them loud.
+    for (const p of panes.values()) speakIfFocused(p, p.wrap.classList.contains("focused"));
+  }
+
+  /** speakIfFocused lets only the focused pane's terminal read out what it
+   *  is sent. With screen reader support on, xterm keeps a live region in
+   *  every terminal and makes each one assertive, so in a tab of several
+   *  agents they all talked at once, over each other and over what was being
+   *  typed. The others' are off until the keyboard goes to them. */
+  function speakIfFocused(p, focused) {
+    if (!prefs.screenReader) return;
+    if (!p.liveRegion || !p.liveRegion.isConnected) p.liveRegion = p.host.querySelector(".live-region");
+    const r = p.liveRegion;
+    if (!r) return;
+    const want = focused ? "assertive" : "off";
+    if (r.getAttribute("aria-live") !== want) r.setAttribute("aria-live", want);
   }
 
   /** The typeface the terminals are drawn in where nobody has chosen one. */
