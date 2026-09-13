@@ -295,6 +295,64 @@ func TestPublishScriptLeavesLatestAloneForAPreRelease(t *testing.T) {
 	}
 }
 
+// A release older than the one latest.json already names -- a fix to an older
+// line cut after a newer release, or an older tag published again -- goes up
+// under its version and moves nothing else. latest.json moved back handed the
+// site's buttons the older build, and had every copy that had staged the newer
+// one throw it away as withdrawn. The versions are compared as numbers, and a
+// release is newer than a candidate for it; the same release published again,
+// or a latest.json naming nothing, is moved as it always was.
+func TestPublishScriptNeverMovesLatestBack(t *testing.T) {
+	cases := []struct {
+		published string
+		moves     bool
+	}{
+		{"v9.9.10", false},
+		{"v9.10.0", false},
+		{"v10.0.0", false},
+		{"v9.9.9", true},
+		{"v9.9.8", true},
+		{"v9.8.10", true},
+		{"v9.9.9-rc.1", true},
+		{"latest", true},
+	}
+	for _, c := range cases {
+		t.Run(c.published, func(t *testing.T) {
+			p := newPublishing(t, "v9.9.9")
+			pointer := []byte(`{"version":"` + c.published + `"}` + "\n")
+			if err := os.WriteFile(filepath.Join(p.store, "latest.json"), pointer, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := p.run("v9.9.9", nil)
+			if err != nil {
+				t.Fatalf("publish: %v\n%s", err, out)
+			}
+			keys, how := p.puts()
+			var moved []string
+			for _, k := range keys {
+				if strings.HasPrefix(k, "latest") {
+					moved = append(moved, k)
+				}
+			}
+			if (len(moved) > 0) != c.moves {
+				t.Fatalf("over a latest.json naming %s, uploaded %v; want latest moved = %v\n%s", c.published, moved, c.moves, out)
+			}
+			if c.moves {
+				return
+			}
+			if got, _ := os.ReadFile(filepath.Join(p.store, "latest.json")); !bytes.Equal(got, pointer) {
+				t.Errorf("latest.json is %q, want it still naming %s", got, c.published)
+			}
+			if _, ok := how["v9.9.9/checksums.txt"]; !ok {
+				t.Errorf("v9.9.9 did not go up under its version: %v", keys)
+			}
+			if !strings.Contains(out, "newer than v9.9.9") {
+				t.Errorf("output %q does not say why latest was left alone", out)
+			}
+		})
+	}
+}
+
 // Every setting that is missing is named, all at once, before anything is
 // uploaded.
 func TestPublishScriptNamesWhatIsMissing(t *testing.T) {

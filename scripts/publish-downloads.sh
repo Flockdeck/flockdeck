@@ -20,7 +20,10 @@
 # every updater asks for first, so that a release switches over in one step
 # and never names files that are not there yet. A pre-release, such as
 # v1.4.0-rc.1, goes up under its version and moves nothing: it is never the
-# latest, here or on GitHub.
+# latest, here or on GitHub. Nor does a release older than the one latest.json
+# already names -- a fix to an older line cut after a newer release, or an
+# older tag published again -- which leaves latest.json and /latest/ naming
+# the newer one.
 #
 # Nothing is purged from the CDN, so this needs no DigitalOcean API token.
 # What is under a version never changes, and is cached for a year. latest.json
@@ -195,6 +198,48 @@ fi
 if [ -n "$pre" ]; then
 	say "$version is a pre-release: it is at $public/$version/, and latest.json and /latest/ are left as they are"
 	exit 0
+fi
+
+# newer a b: whether release a is newer than b, each vX.Y.Z, or vX.Y.Z-... for
+# a pre-release, which comes before vX.Y.Z. The parts are compared as numbers,
+# so v1.10.0 is newer than v1.9.0. Two pre-releases of one X.Y.Z are not
+# ordered, and neither is anything that is not a version: latest.json never
+# names a pre-release, and one that names nothing readable is only put right.
+newer() {
+	for v in "$1" "$2"; do
+		case "$v" in v*) ;; *) return 1 ;; esac
+		core=${v#v}
+		case "${core%%-*}" in
+			*[!0-9.]* | .* | *. | *..* | *.*.*.*) return 1 ;;
+			*.*.*) ;;
+			*) return 1 ;;
+		esac
+	done
+	a=${1#v} b=${2#v}
+	old_ifs=$IFS
+	IFS=.
+	# shellcheck disable=SC2086 # split on the dots, into X Y Z of each
+	set -- ${a%%-*} ${b%%-*} "$a" "$b"
+	IFS=$old_ifs
+	if [ "$1" -ne "$4" ]; then [ "$1" -gt "$4" ]; return; fi
+	if [ "$2" -ne "$5" ]; then [ "$2" -gt "$5" ]; return; fi
+	if [ "$3" -ne "$6" ]; then [ "$3" -gt "$6" ]; return; fi
+	case "$7" in *-*) return 1 ;; esac
+	case "$8" in *-*) return 0 ;; esac
+	return 1
+}
+
+# A release older than the one latest.json names already is at its version,
+# and that is all. Moving latest.json back would hand the site's download
+# buttons the older build, and every copy that had staged the newer one would
+# throw it away as withdrawn. The bucket is asked, not the public address,
+# whose copy can be a minute old.
+if fetch latest.json published-latest.json; then
+	published=$(sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' "$tmp/published-latest.json" | head -n 1)
+	if newer "$published" "$version"; then
+		say "$public/latest.json names $published, which is newer than $version: $version is at $public/$version/, and latest.json and /latest/ are left as they are"
+		exit 0
+	fi
 fi
 
 # 3. The site's download buttons, under names without the version.

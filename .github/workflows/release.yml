@@ -121,6 +121,12 @@ jobs:
       # What was signed goes up with the archives: checksums.txt.sig above
       # all, which the updater requires of a release it reads from GitHub.
       # latest.json does not; it only names the site's latest release.
+      #
+      # GitHub makes every new release its latest, and a release older than
+      # the latest there -- a fix to an older line cut after a newer release
+      # -- would then be what every copy reading GitHub is offered, and each
+      # would throw away the newer release it had staged as withdrawn. So one
+      # that is not newer is published without being made the latest.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,6 +134,13 @@ jobs:
         run: |
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
+          latest=""
+          current=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -z "$pre" ] && [ -n "$current" ] && [ "$current" != "$TAG" ] &&
+            [ "$(printf '%s\n' "$current" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
+            echo "$current is newer than $TAG, and stays GitHub's latest release"
+            latest="--latest=false"
+          fi
           set --
           for f in dist/*; do
             [ "${f##*/}" = latest.json ] || set -- "$@" "$f"
@@ -135,7 +148,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$@" --clobber
           else
-            gh release create "$TAG" "$@" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $pre
+            gh release create "$TAG" "$@" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $pre $latest
           fi
 
       # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
