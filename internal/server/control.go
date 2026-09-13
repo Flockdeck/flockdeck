@@ -1028,13 +1028,22 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "closeTab":
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
+			// A tab bar drawn before another window closed the tab: the click
+			// did nothing, and said nothing, as it now says it does.
+			if ws.Tab(cmd.ID) == nil {
+				c.notify(tabGone, true)
+				return
+			}
 			ws.SelectTab(cmd.ID)
 		case "nextTab":
 			ws.NextTab()
 		case "prevTab":
 			ws.PrevTab()
 		case "renameTab":
+			// The same for a rename dialog, where the name just typed simply
+			// vanished.
 			if ws.Tab(cmd.ID) == nil {
+				c.notify(tabGone, true)
 				return
 			}
 			// An emptied name is how a tab goes back to naming itself: it
@@ -1234,6 +1243,10 @@ func cmdName(cmd string) string {
 // paneGone is what a window is told when it acts on a pane that has since
 // been closed, most often because another window closed it first.
 const paneGone = "that pane is no longer open"
+
+// tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
+// dialog drawn before another window closed it.
+const tabGone = "that tab is no longer open"
 
 // focusFor moves focus onto the pane a command names and reports whether the
 // command should go ahead.
