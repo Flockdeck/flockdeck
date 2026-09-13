@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // releases stands in for everywhere the install scripts download from, under
@@ -697,12 +700,63 @@ func TestInstallScriptsCarryTheReleaseTheyWereGeneratedFor(t *testing.T) {
 	}
 }
 
+// sitegen takes a release's checksums only once the checksums.txt.sig beside
+// them is the release key's signature of them. They are what every install
+// from the site trusts in place of what it downloads, and checking the
+// signature was a step left to whoever ran sitegen.
+func TestSitegenChecksTheChecksumsSignature(t *testing.T) {
+	pub, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, other, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sums strings.Builder
+	for _, a := range archives("v1.2.3") {
+		fmt.Fprintf(&sums, "%s  %s\n", strings.Repeat("ab", 32), a)
+	}
+	signed := []byte(sums.String())
+	for _, c := range []struct {
+		name      string
+		sums, sig []byte
+		trusted   ed25519.PublicKey
+		ok        bool
+	}{
+		{"signed by the release key", signed, selfupdate.Sign(key, signed), pub, true},
+		{"with no signature beside it", signed, nil, pub, false},
+		{"signed by another key", signed, selfupdate.Sign(other, signed), pub, false},
+		{"changed after it was signed", []byte(strings.Replace(string(signed), "ab", "cd", 1)), selfupdate.Sign(key, signed), pub, false},
+		{"read by a build with no release key", signed, selfupdate.Sign(key, signed), nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "checksums.txt")
+			if err := os.WriteFile(path, c.sums, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if c.sig != nil {
+				if err := os.WriteFile(path+".sig", c.sig, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rel, err := readRelease("v1.2.3", path, c.trusted)
+			if c.ok && (err != nil || len(rel.Sums) != 6) {
+				t.Errorf("readRelease gave %v, %v; want the six checksums", rel, err)
+			}
+			if !c.ok && err == nil {
+				t.Errorf("the checksums were taken")
+			}
+		})
+	}
+}
+
 // sitegen will not write install scripts without a release and its checksums
 // to put in them, nor from checksums that miss one of the release's archives
 // or a version that is not a release's tag.
 func TestSitegenWantsTheReleaseAndItsChecksums(t *testing.T) {
 	for _, c := range []struct{ version, path string }{{"", "checksums.txt"}, {"v1.2.3", ""}} {
-		if _, err := readRelease(c.version, c.path); err == nil || !strings.Contains(err.Error(), "-release and -checksums are both required") {
+		if _, err := readRelease(c.version, c.path, nil); err == nil || !strings.Contains(err.Error(), "-release and -checksums are both required") {
 			t.Errorf("readRelease(%q, %q) = %v; want both asked for", c.version, c.path, err)
 		}
 	}

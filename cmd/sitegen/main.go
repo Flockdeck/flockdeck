@@ -26,14 +26,16 @@
 //
 // -release is the release the install scripts install by default, and
 // -checksums that release's checksums.txt, from
-// https://dl.flockdeck.ai/v1.2.3/checksums.txt once its checksums.txt.sig has
-// been checked against the release key. The SHA-256 of each archive is written
-// into the scripts, which check the archive they download against it; see
-// bake.
+// https://dl.flockdeck.ai/v1.2.3/checksums.txt, with its checksums.txt.sig
+// beside it: the signature is checked against the release key built into
+// this program before anything in the file is trusted. The SHA-256 of each
+// archive is written into the scripts, which check the archive they download
+// against it; see bake.
 package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -50,6 +52,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
@@ -120,10 +123,11 @@ func main() {
 	module := flag.String("module", defaultModule, "`path` the module is installed from")
 	url := flag.String("url", defaultURL, "`address` the site is served from, which the install lines name")
 	version := flag.String("release", "", "the release the install scripts install by default, such as v1.2.3 (`version`)")
-	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, its signature already checked")
+	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, with its checksums.txt.sig beside it")
 	flag.Parse()
 
-	rel, err := readRelease(*version, *sums)
+	key, _ := selfupdate.ReleaseKey()
+	rel, err := readRelease(*version, *sums, key)
 	if err == nil {
 		err = run(*out, *repo, *module, *url, rel)
 	}
@@ -158,19 +162,31 @@ func archives(version string) []string {
 }
 
 // readRelease is the release version, with the checksums the checksums.txt
-// at path gives its archives.
+// at path gives its archives, once the signature beside it at path+".sig" is
+// found to be key's: key is the release key.
 //
 // Neither may be left out. Without them the scripts would have nothing to
 // check an archive against but a checksums.txt fetched from wherever the
 // archive came from, and whoever could replace the one there could replace
 // the other with it.
-func readRelease(version, path string) (release, error) {
+//
+// The signature is checked here rather than left to whoever runs this. These
+// checksums are what every install from the site trusts in place of anything
+// it downloads, and a step done by hand is a step that can be skipped.
+func readRelease(version, path string, key ed25519.PublicKey) (release, error) {
 	if version == "" || path == "" {
-		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt and check checksums.txt.sig first")
+		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt, with checksums.txt.sig beside it")
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return release{}, fmt.Errorf("read the checksums: %w", err)
+	}
+	sig, err := os.ReadFile(path + ".sig")
+	if err != nil {
+		return release{}, fmt.Errorf("read the checksums' signature: %w; download checksums.txt.sig from %s/%s/ and put it beside them", err, downloadsURL, version)
+	}
+	if err := selfupdate.Verify(key, body, sig); err != nil {
+		return release{}, fmt.Errorf("%s.sig: %w, so the checksums are not the release's", path, err)
 	}
 	return parseRelease(version, body)
 }
