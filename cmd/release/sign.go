@@ -33,6 +33,30 @@ import (
 // checksums.txt.sig as well, so GitHub's copy has to carry it. The site's
 // other secrets are needed only after GitHub's copy is published, so a
 // missing one of those costs the site's copy and never GitHub's.
+//
+// A second, standby keypair (internal/selfupdate/releaseKeyStandby) is
+// trusted by every installed copy alongside the primary, but its private half
+// is never in FLOCKDECK_SIGNING_KEY, in Terraform, or in any other system:
+// `go run ./cmd/release -keygen -standby <file>` makes it, and the file goes
+// straight offline, with whoever holds it, and nowhere a build or a workflow
+// can reach. It exists for one emergency:
+//
+// If the primary key is ever lost or compromised:
+//
+//  1. Sign the release that fixes this with the standby, by putting its
+//     private half in FLOCKDECK_SIGNING_KEY for that run alone (never as the
+//     repository secret): every copy already installed still trusts it, since
+//     it was compiled in as releaseKeyStandby well before today.
+//  2. Make a new standby (-keygen -standby), and keep its file offline as
+//     before; the one just used is spent.
+//  3. Rotate: cut a release that carries the new pair, the compromised
+//     primary's replacement in releaseKey and the new standby's public half in
+//     releaseKeyStandby, signed with the standby key from step 1.
+//  4. Revoke the old primary: once the rotated release has shipped, take its
+//     public half out of releaseKey (back to the placeholder, or the new
+//     key). This only stops the old key being trusted by a copy that updates
+//     past the rotated release; one that never updates again goes on trusting
+//     whatever it already held, compromised key included.
 
 // signingKeyEnv holds the signing key: the PKCS#8 PEM Terraform writes there,
 // or the base64 seed -keygen writes to its file.
@@ -43,7 +67,12 @@ const signingKeyEnv = "FLOCKDECK_SIGNING_KEY"
 // could be the only copy of the key every installed copy trusts. Only the
 // public key is printed, on stdout, so it can be piped or pasted; what to do
 // with each half goes to stderr.
-func runKeygen(path string, stdout, stderr io.Writer) error {
+//
+// standby is true for a standby key: one made to sit offline against the day
+// the primary is lost or compromised, rather than to be stored anywhere a
+// build or a workflow can reach. Its stderr hints say so, and name
+// releaseKeyStandby instead of releaseKey; the primary's hints are unchanged.
+func runKeygen(path string, standby bool, stdout, stderr io.Writer) error {
 	pub, key, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return err
@@ -68,6 +97,14 @@ func runKeygen(path string, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintln(stdout, selfupdate.EncodePublicKey(pub))
+	if standby {
+		fmt.Fprintf(stderr, "release: the private key is in %s, readable only by you. Keep this file\n", path)
+		fmt.Fprintf(stderr, "release: offline only: never store it as a repository secret or in Terraform, since\n")
+		fmt.Fprintf(stderr, "release: that is exactly what the standby guards against losing. Copy it somewhere\n")
+		fmt.Fprintf(stderr, "release: offline, then delete the file from this machine.\n")
+		fmt.Fprintf(stderr, "release: the public key, printed above, goes in releaseKeyStandby in internal/selfupdate/releasekey.go.\n")
+		return nil
+	}
 	fmt.Fprintf(stderr, "release: the private key is in %s, readable only by you. Store its contents as the\n", path)
 	fmt.Fprintf(stderr, "release: repository secret %s, keep a copy somewhere offline, and delete the file.\n", signingKeyEnv)
 	fmt.Fprintf(stderr, "release: the public key, printed above, goes in releaseKey in internal/selfupdate/releasekey.go.\n")
@@ -108,12 +145,19 @@ func runSign(s signing) error {
 	}
 	pub := key.Public().(ed25519.PublicKey)
 	if !s.anyKey {
-		compiled, ok := selfupdate.ReleaseKey()
-		switch {
-		case !ok:
+		compiled := selfupdate.TrustedKeys()
+		if len(compiled) == 0 {
 			return errors.New("internal/selfupdate/releasekey.go still holds the placeholder, so nothing built from here could check a signature: put the release key's public half in releaseKey first, as `terraform output -raw flockdeck_release_public_key` prints it")
-		case !compiled.Equal(pub):
-			return fmt.Errorf("%s is not the key whose public half is in internal/selfupdate/releasekey.go, so the updater would refuse everything signed with it", signingKeyEnv)
+		}
+		matches := false
+		for _, k := range compiled {
+			if k.Equal(pub) {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			return fmt.Errorf("%s is not the public half of releaseKey or releaseKeyStandby in internal/selfupdate/releasekey.go, so the updater would refuse everything signed with it", signingKeyEnv)
 		}
 	}
 
@@ -149,7 +193,7 @@ func runSign(s signing) error {
 	}
 	manifest = append(manifest, '\n')
 	manifestSig := selfupdate.Sign(key, manifest)
-	if _, err := selfupdate.CheckManifest(pub, manifest, manifestSig); err != nil {
+	if _, err := selfupdate.CheckManifest([]ed25519.PublicKey{pub}, manifest, manifestSig); err != nil {
 		return fmt.Errorf("the updater would refuse the manifest.json written: %w", err)
 	}
 	pointer, err := json.Marshal(selfupdate.Pointer{Version: s.version})

@@ -67,6 +67,7 @@ func main() {
 		version = flag.String("version", "dev", "version to stamp into the binaries and the file names")
 		out     = flag.String("out", "dist", "directory to write the archives to")
 		keygen  = flag.String("keygen", "", "write a new release signing key to this `file`, print its public key, and stop")
+		standby = flag.Bool("standby", false, "with -keygen, make the standby key instead of the primary: for releaseKeyStandby, kept offline, never in a repository secret")
 		sign    = flag.Bool("sign", false, "sign the release already built in -out with the key in "+signingKeyEnv+", and write its manifest and latest.json")
 		base    = flag.String("base", selfupdate.Site, "where the download site serves releases, for the URLs in the manifest")
 		notes   = flag.String("notes", "", "a `file` of release notes to put in the manifest")
@@ -77,7 +78,7 @@ func main() {
 	var err error
 	switch {
 	case *keygen != "":
-		err = runKeygen(*keygen, os.Stdout, os.Stderr)
+		err = runKeygen(*keygen, *standby, os.Stdout, os.Stderr)
 	case *sign:
 		err = runSign(signing{
 			version: *version, out: *out, base: *base, notes: *notes,

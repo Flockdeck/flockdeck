@@ -779,11 +779,16 @@ func TestInstallScriptsCarryTheReleaseTheyWereGeneratedFor(t *testing.T) {
 }
 
 // sitegen takes a release's checksums only once the checksums.txt.sig beside
-// them is the release key's signature of them. They are what every install
-// from the site trusts in place of what it downloads, and checking the
-// signature was a step left to whoever ran sitegen.
+// them is one of its trusted keys' signature of them -- the primary's, or the
+// standby's once the build trusts that too. They are what every install from
+// the site trusts in place of what it downloads, and checking the signature
+// was a step left to whoever ran sitegen.
 func TestSitegenChecksTheChecksumsSignature(t *testing.T) {
 	pub, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standbyPub, standbyKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,16 +801,19 @@ func TestSitegenChecksTheChecksumsSignature(t *testing.T) {
 		fmt.Fprintf(&sums, "%s  %s\n", strings.Repeat("ab", 32), a)
 	}
 	signed := []byte(sums.String())
+	trusted := []ed25519.PublicKey{pub, standbyPub}
 	for _, c := range []struct {
 		name      string
 		sums, sig []byte
-		trusted   ed25519.PublicKey
+		trusted   []ed25519.PublicKey
 		ok        bool
 	}{
-		{"signed by the release key", signed, selfupdate.Sign(key, signed), pub, true},
-		{"with no signature beside it", signed, nil, pub, false},
-		{"signed by another key", signed, selfupdate.Sign(other, signed), pub, false},
-		{"changed after it was signed", []byte(strings.Replace(string(signed), "ab", "cd", 1)), selfupdate.Sign(key, signed), pub, false},
+		{"signed by the primary key", signed, selfupdate.Sign(key, signed), trusted, true},
+		{"signed by the standby key", signed, selfupdate.Sign(standbyKey, signed), trusted, true},
+		{"with no signature beside it", signed, nil, trusted, false},
+		{"signed by another key", signed, selfupdate.Sign(other, signed), trusted, false},
+		{"changed after it was signed", []byte(strings.Replace(string(signed), "ab", "cd", 1)), selfupdate.Sign(key, signed), trusted, false},
+		{"signed by the standby while it is not trusted", signed, selfupdate.Sign(standbyKey, signed), []ed25519.PublicKey{pub}, false},
 		{"read by a build with no release key", signed, selfupdate.Sign(key, signed), nil, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
