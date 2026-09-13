@@ -1087,8 +1087,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// Only an agent that reports its own lifecycle has anything to do with
 		// a settings file; for the rest the pane's status comes from watching
 		// what it prints, and writing one would leave a file behind per pane
-		// that nothing ever reads.
-		if spec.Caps.Hooks {
+		// that nothing ever reads. Nor does one whose arguments never name the
+		// file: `flockdeck chat` reports its lifecycle as well, but is told
+		// where in its environment, and every API pane wrote Claude Code's
+		// hook settings -- and could run `claude --version` to choose them.
+		if spec.Caps.Hooks && session.WantsSettings(spec) {
 			// Which events and which form of hook to write depend on the Claude
 			// Code that will read them, so the one asked is the program this
 			// pane runs, not whichever claude happens to be first on PATH.

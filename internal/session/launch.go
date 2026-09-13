@@ -204,15 +204,16 @@ func Look(spec agent.Spec) (string, error) {
 // writing one anyway would leave a file in the state directory for every pane
 // ever opened that nothing would read.
 func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint string) (string, error) {
-	if !spec.Caps.Hooks || endpoint == "" || !wantsSettings(spec) {
+	if !spec.Caps.Hooks || endpoint == "" || !WantsSettings(spec) {
 		return "", nil
 	}
 	return WriteHookSettingsFor(spec.Exe, dir, sessionID, selfExe, endpoint)
 }
 
-// wantsSettings reports whether an agent's arguments ever refer to a settings
-// file.
-func wantsSettings(spec agent.Spec) bool {
+// WantsSettings reports whether an agent's arguments ever refer to a settings
+// file -- Claude Code's do, and `flockdeck chat`'s, which is told where to
+// report in its environment, do not.
+func WantsSettings(spec agent.Spec) bool {
 	return mentionsToken(spec.Args, "settings") || mentionsToken(spec.ResumeArgs, "settings")
 }
 
