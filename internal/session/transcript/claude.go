@@ -163,20 +163,40 @@ func (f transcriptFacts) entries() int {
 // deleted from a folder drop out of it rather than accumulating.
 var transcriptCache = struct {
 	sync.Mutex
-	clock uint64
-	dirs  map[string]cachedFolder
+	clock    uint64
+	listings uint64
+	dirs     map[string]cachedFolder
 }{dirs: make(map[string]cachedFolder)}
 
-// cachedFolder is one folder's transcripts and when it was last listed.
+// cachedFolder is one folder's transcripts, when it was last listed, and by
+// which listing.
 type cachedFolder struct {
-	used  uint64
-	files map[string]transcriptFacts
+	used    uint64
+	listing uint64
+	files   map[string]transcriptFacts
 }
 
 // cachedFolderLimit bounds how many project folders are remembered at once,
 // so that someone who opens a great many projects in one sitting does not
 // grow the cache without end.
+//
+// It bounds what other listings leave behind, not one listing: a folder the
+// listing under way has already read is never what makes room. A project in
+// daily use gains a folder for every worktree an agent was put in, and one
+// with 80 of them listed each folder in turn and forgot the first it read to
+// make room for the last, so every refresh read every transcript again --
+// 589 MB of them, cold, on the machine it was measured on.
 const cachedFolderLimit = 64
+
+// newListing names one listing of a project's conversations, which is what
+// rememberFacts is told so that it does not make room by forgetting what the
+// same listing has just read.
+func newListing() uint64 {
+	transcriptCache.Lock()
+	defer transcriptCache.Unlock()
+	transcriptCache.listings++
+	return transcriptCache.listings
+}
 
 // cachedFacts returns what the last listing of a folder found. The map is
 // never written to once published, so reading it needs no lock of its own.
@@ -193,7 +213,12 @@ func cachedFacts(dir string) map[string]transcriptFacts {
 // -- a project's own and one for every worktree of it -- so a couple of
 // projects can fill the cache between them, and emptying the whole of it at
 // that point would put every project back to reading every transcript it has.
-func rememberFacts(dir string, facts map[string]transcriptFacts) {
+//
+// Nor is it ever a folder this listing has already read. Where the listing
+// draws on more folders than the cache holds, it keeps them all, over the
+// limit, rather than forgetting its own first folders to make room for its
+// last and reading them all again on the next refresh.
+func rememberFacts(dir string, facts map[string]transcriptFacts, listing uint64) {
 	transcriptCache.Lock()
 	defer transcriptCache.Unlock()
 
@@ -201,16 +226,22 @@ func rememberFacts(dir string, facts map[string]transcriptFacts) {
 		for len(transcriptCache.dirs) >= cachedFolderLimit {
 			oldest, oldestUsed := "", uint64(0)
 			for name, folder := range transcriptCache.dirs {
+				if folder.listing == listing {
+					continue
+				}
 				if oldest == "" || folder.used < oldestUsed {
 					oldest, oldestUsed = name, folder.used
 				}
+			}
+			if oldest == "" {
+				break
 			}
 			delete(transcriptCache.dirs, oldest)
 		}
 	}
 
 	transcriptCache.clock++
-	transcriptCache.dirs[dir] = cachedFolder{used: transcriptCache.clock, files: facts}
+	transcriptCache.dirs[dir] = cachedFolder{used: transcriptCache.clock, listing: listing, files: facts}
 }
 
 // transcriptLine is the part of a transcript entry that identifies the first
@@ -246,13 +277,14 @@ func claudeConversations(home, cwd string) ([]Conversation, error) {
 		return nil, nil
 	}
 	projects := filepath.Join(home, "projects")
+	listing := newListing()
 
 	dir := filepath.Join(projects, projectSlug(cwd))
 	entries, derr := os.ReadDir(dir)
-	out := conversationsIn(dir, entries, cwd, func(recorded string) bool {
+	out := conversationsIn(dir, entries, cwd, listing, func(recorded string) bool {
 		return ours(dir, recorded, cwd)
 	})
-	out = append(out, conversationsUnder(projects, cwd)...)
+	out = append(out, conversationsUnder(projects, cwd, listing)...)
 	if len(out) == 0 {
 		found, err := findProjectDir(projects, cwd)
 		if err != nil {
@@ -272,7 +304,7 @@ func claudeConversations(home, cwd string) ([]Conversation, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read conversations in %s: %w", found, err)
 		}
-		out = conversationsIn(found, entries, cwd, func(recorded string) bool {
+		out = conversationsIn(found, entries, cwd, listing, func(recorded string) bool {
 			return ours(found, recorded, cwd)
 		})
 	}
@@ -314,7 +346,7 @@ func claudeConversations(home, cwd string) ([]Conversation, error) {
 // work: a conversation that moved in from the project sorted after five of
 // those was never offered here. What conversationsIn reads is kept against the
 // folder, so the cost of reading all of them is paid once per transcript.
-func conversationsUnder(projects, cwd string) []Conversation {
+func conversationsUnder(projects, cwd string, listing uint64) []Conversation {
 	entries, err := os.ReadDir(projects)
 	if err != nil {
 		return nil
@@ -334,7 +366,7 @@ func conversationsUnder(projects, cwd string) []Conversation {
 		// Only what ran here. A transcript of the worktree's own work is the
 		// worktree's, and one that records nowhere at all was abandoned
 		// there rather than here.
-		out = append(out, conversationsIn(dir, files, cwd, func(recorded string) bool {
+		out = append(out, conversationsIn(dir, files, cwd, listing, func(recorded string) bool {
 			return recorded != "" && sameDir(recorded, cwd)
 		})...)
 	}
@@ -409,8 +441,9 @@ const describeReaders = 8
 
 // conversationsIn describes the transcripts in one project folder that belong
 // to cwd, in whatever order the folder was read. Which of them do is up to
-// the caller: it depends on how the folder was arrived at.
-func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func(recorded string) bool) []Conversation {
+// the caller: it depends on how the folder was arrived at. listing is the
+// listing this is part of, which rememberFacts keeps what it reads against.
+func conversationsIn(dir string, entries []os.DirEntry, cwd string, listing uint64, belongs func(recorded string) bool) []Conversation {
 	files := make([]os.FileInfo, 0, len(entries))
 	names := make([]string, 0, len(entries))
 	ids := make([]string, 0, len(entries))
@@ -477,7 +510,7 @@ func conversationsIn(dir string, entries []os.DirEntry, cwd string, belongs func
 		}
 		out = append(out, c)
 	}
-	rememberFacts(dir, fresh)
+	rememberFacts(dir, fresh, listing)
 	if len(out) == 0 {
 		return nil
 	}
