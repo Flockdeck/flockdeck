@@ -2233,7 +2233,7 @@ func TestEveryFieldSurvivesTheRoundTrip(t *testing.T) {
 						{Pane: &Pane{
 							ID: "pane-1", Kind: "claude", Cwd: `C:\repo\ünïcode`,
 							Name: "worker", Task: "fix the parser\nthen the lexer",
-							Root: `C:\other\project`,
+							Root: `C:\other\project`, Cols: 211, Rows: 57,
 						}, Weight: 0.7},
 						{
 							Dir:    "v",

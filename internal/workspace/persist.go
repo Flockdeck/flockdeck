@@ -128,6 +128,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			// Written only for a routed pane, like Root below.
 			Routed:     p.Routed,
 			RoutedFrom: p.RoutedFrom,
+			// Zero, and so left out, for a pane no window has measured.
+			Cols: p.Cols,
+			Rows: p.Rows,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -498,6 +501,15 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 		if p.ID == "" || p.Cwd == "" {
 			return nil
 		}
+		// The size the pane was last drawn at. A restore starts every pane
+		// before any window has opened to measure one, and an agent resuming a
+		// conversation prints it straight away: at the default size it came out
+		// wrapped at eighty columns, and what it had printed stayed that way
+		// once the window resized it. A size no terminal has is a file edited
+		// by hand, and the default is kept.
+		if c, r := n.Pane.Cols, n.Pane.Rows; c > 0 && r > 0 && c <= maxRestoredSize && r <= maxRestoredSize {
+			p.Cols, p.Rows = c, r
+		}
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Cwd)
 		}
@@ -566,6 +578,11 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	}
 	return node
 }
+
+// maxRestoredSize bounds the columns and rows a restored pane is started at.
+// It is far beyond any screen, and well inside what a terminal's size can be
+// told in.
+const maxRestoredSize = 4096
 
 func kindName(k session.Kind) string {
 	if k == session.KindShell {

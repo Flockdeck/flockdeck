@@ -1,7 +1,8 @@
 // Package store persists the window layout between runs.
 //
 // Only the shape of the workspace is saved — tabs, splits, working
-// directories, pane ids, and which agent and model each pane runs.
+// directories, pane ids, which agent and model each pane runs, and the size
+// each pane's terminal was last drawn at.
 // Conversation history lives in the agent's own transcript store and is
 // reattached by id, which is why pane ids are generated as UUIDs.
 package store
@@ -100,6 +101,11 @@ type Pane struct {
 	// under a new one after /clear. Absent means the pane's id, which is what
 	// every layout written before this meant.
 	Conversation string `json:"conversation,omitempty"`
+	// Cols and Rows are the size the pane's terminal was last drawn at, so a
+	// restored pane starts at that size rather than at eighty by twenty-four.
+	// Absent, which is every layout written before this, means the default.
+	Cols int `json:"cols,omitempty"`
+	Rows int `json:"rows,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.
