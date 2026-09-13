@@ -22,13 +22,24 @@ import (
 // end, so the frames a window would actually receive can be counted.
 func streamPair(t *testing.T, replay []byte, out <-chan []byte) *websocket.Conn {
 	t.Helper()
+	return streamPairFrom(t, false, replay, out)
+}
+
+// streamPairFrom is streamPair for a window that is either on this machine or,
+// when remote is set, reached through the relay -- with the request marked the
+// way RemoteHandler marks it, so the stream is sized as handlePTY sizes it.
+func streamPairFrom(t *testing.T, remote bool, replay []byte, out <-chan []byte) *websocket.Conn {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if remote {
+			r = r.WithContext(context.WithValue(r.Context(), remoteKey{}, true))
+		}
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer conn.CloseNow()
-		if streamOutput(r.Context(), conn, replay, out) {
+		if streamOutput(r.Context(), conn, replay, out, liveFrame(r)) {
 			_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
 		}
 	}))
@@ -129,6 +140,44 @@ func TestOutputBurstArrivesInFewFrames(t *testing.T) {
 	}
 }
 
+// TestARelayedWindowIsSentLiveOutputInReplaySizedFrames covers a phone on a
+// slow link watching a busy pane. The replay reaches it in frames sized for
+// that link, and a burst of live output merged into one four times the size
+// has no longer to arrive -- so a burst dropped the socket the replay was
+// bounded to keep, and the window came back for the whole history again.
+func TestARelayedWindowIsSentLiveOutputInReplaySizedFrames(t *testing.T) {
+	const chunks, size = 400, 1024
+	out := make(chan []byte, chunks)
+	var want []byte
+	for i := range chunks {
+		c := bytes.Repeat([]byte{byte('a' + i%26)}, size)
+		out <- c
+		want = append(want, c...)
+	}
+	close(out)
+	conn := streamPairFrom(t, true, nil, out)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var got []byte
+	for {
+		_, b, err := conn.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+				t.Fatalf("read after %d bytes: %v", len(got), err)
+			}
+			break
+		}
+		if len(b) > replayFrame {
+			t.Errorf("a live frame of %d bytes through the relay, want at most %d", len(b), replayFrame)
+		}
+		got = append(got, b...)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %d bytes, want %d, equal prefix %d", len(got), len(want), commonPrefix(got, want))
+	}
+}
+
 // TestStreamSendsTheLastOutputBeforeClosing covers a process that prints and
 // immediately exits. The bytes queued behind the final read are the last thing
 // it said -- a crash message, a shell's goodbye -- and noticing the closed
@@ -181,7 +230,7 @@ func TestStreamStopsWhenCancelled(t *testing.T) {
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		cancels <- cancel
-		streamOutput(ctx, conn, nil, out)
+		streamOutput(ctx, conn, nil, out, coalesceLimit)
 	}))
 	defer srv.Close()
 
@@ -228,7 +277,7 @@ func BenchmarkStreamBurst(b *testing.B) {
 					return
 				}
 				defer conn.CloseNow()
-				streamOutput(r.Context(), conn, nil, <-next)
+				streamOutput(r.Context(), conn, nil, <-next, coalesceLimit)
 			}))
 			defer srv.Close()
 			url := "ws" + strings.TrimPrefix(srv.URL, "http")
