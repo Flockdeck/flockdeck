@@ -477,13 +477,7 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 // installing into a temporary directory and leaving PATH and the Start menu
 // alone.
 func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("install.ps1 reads the machine's architecture from the Windows registry")
-	}
-	ps, err := exec.LookPath("powershell")
-	if err != nil {
-		t.Skip("no Windows PowerShell to run it with")
-	}
+	ps := installPs1Runner(t)
 	dir, _ := generate(t)
 	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
 	if err != nil {
@@ -507,6 +501,60 @@ func TestInstallPs1DownloadsFromTheSite(t *testing.T) {
 			cmd.Env = append(installEnv(r, c.env), "FLOCKDECK_INSTALL_DIR="+bin, "FLOCKDECK_NO_MODIFY_PATH=1")
 			out, err := cmd.CombinedOutput()
 			c.check(t, r, filepath.Join(bin, "flockdeck.exe"), out, err)
+		})
+	}
+}
+
+// installPs1Runner is the Windows PowerShell to run install.ps1 with, and
+// skips a test where there is none.
+func installPs1Runner(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("install.ps1 reads the machine's architecture from the Windows registry")
+	}
+	ps, err := exec.LookPath("powershell")
+	if err != nil {
+		t.Skip("no Windows PowerShell to run it with")
+	}
+	return ps
+}
+
+// With FLOCKDECK_NO_MODIFY_PATH=1, install.ps1 leaves PATH alone, and it said
+// nothing of how to start what it had installed, which `flockdeck` does not
+// find in a directory PATH does not name. It says to start it by its path,
+// quoted for PowerShell.
+func TestInstallPs1SaysHowToStartItWithPathLeftAlone(t *testing.T) {
+	ps := installPs1Runner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, dir string }{
+		{"a plain directory", "bin"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			script := pointAt(t, string(shipped), r, ps1Addresses)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.ps1")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, c.dir)
+			cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
+			// A PATH with no flockdeck on it, whatever this machine has.
+			sys := os.Getenv("SystemRoot")
+			cmd.Env = append(installEnv(r, nil), "FLOCKDECK_INSTALL_DIR="+bin, "FLOCKDECK_NO_MODIFY_PATH=1",
+				"PATH="+filepath.Join(sys, "System32")+string(os.PathListSeparator)+sys)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, out)
+			}
+			want := "flockdeck: start it with: & '" + strings.ReplaceAll(filepath.Join(bin, "flockdeck.exe"), "'", "''") + "'"
+			if !strings.Contains(string(out), want) {
+				t.Errorf("want %q in what the script said:\n%s", want, out)
+			}
 		})
 	}
 }

@@ -191,7 +191,14 @@ function Install-Flockdeck {
         $run = "& '$dest'"
     }
 
-    if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') { return }
+    # With PATH left alone, `flockdeck` finds this copy only where PATH
+    # already led to this directory. Anywhere else it is started by its path,
+    # and saying nothing left the reader to work that out.
+    if ($env:FLOCKDECK_NO_MODIFY_PATH -eq '1') {
+        if (-not $found) { $run = "& '$dest'" }
+        Write-Host "flockdeck: start it with: $run"
+        return
+    }
 
     # PATH is read and written through the registry, unexpanded, because
     # [Environment]::SetEnvironmentVariable would store it expanded and turn
