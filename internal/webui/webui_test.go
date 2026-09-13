@@ -6418,9 +6418,24 @@ class FakeTerm {
   constructor(opts) {
     this.options = Object.assign({}, opts);
     this.cols = 80; this.rows = 24;
-    this.written = []; this.disposed = false; this.focused = false;
+    // What has been drawn, and what has been written and not yet parsed.
+    // xterm's write() only queues while its reset() acts at once, so the two
+    // are kept apart: a reset reaches the screen ahead of bytes still queued.
+    this.screen = []; this.queue = []; this.disposed = false; this.focused = false;
     this.buffer = { active: { viewportY: 0, baseY: 0 } };
     terms.push(this);
+  }
+  /** written is what the screen shows once everything written so far has
+   *  been parsed: whatever follows the last full reset in the stream. */
+  get written() {
+    const all = this.screen.concat(this.queue.map((w) => w.data));
+    const at = all.lastIndexOf("\x1bc");
+    return at < 0 ? all : all.slice(at + 1);
+  }
+  /** parse is xterm getting round to what was written, calling back each
+   *  write as it finishes with it, in order. */
+  parse() {
+    for (const w of this.queue.splice(0)) { this.screen.push(w.data); if (w.cb) w.cb(); }
   }
   loadAddon() {}
   open(host) { this.host = host; }
@@ -6429,8 +6444,8 @@ class FakeTerm {
   scrollToBottom() { this.buffer.active.viewportY = this.buffer.active.baseY; if (this._scroll) this._scroll(this.buffer.active.viewportY); }
   onData(fn) { this._data = fn; }
   onBinary(fn) { this._bin = fn; }
-  write(d) { this.written.push(d); }
-  reset() { this.written.length = 0; }
+  write(d, cb) { this.queue.push({ data: d, cb }); }
+  reset() { this.screen.length = 0; }
   dispose() { this.disposed = true; }
   focus() { terms.forEach((t) => { t.focused = false; }); this.focused = true; }
   blur() { this.focused = false; }

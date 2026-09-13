@@ -2310,7 +2310,11 @@
       if (typeof ev.data === "string") {
         let h;
         try { h = JSON.parse(ev.data); } catch { return; }
-        if (!h.resumed) p.term.reset();
+        // Reset in the stream's own order, as RIS written to it. reset()
+        // acts at once while write() only queues, so bytes of the old run
+        // still queued - a slow window dropped and reconnected, or a restart
+        // on the same socket - were drawn after it, on the fresh screen.
+        if (!h.resumed) p.term.write("\x1bc");
         p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
         return;
       }
