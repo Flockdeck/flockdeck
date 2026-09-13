@@ -639,9 +639,10 @@ console.log("elements built to show a diff: " + built);
 	t.Log(strings.TrimSpace(out))
 }
 
-// The tally of who is waiting and who is working is a live region, so putting
-// it back unchanged is not free: a screen reader reads out whatever appears
-// there, and a status push arrives every time any agent moves.
+// The tally of who is waiting and who is working is rebuilt only when the
+// counts move: a status push arrives every time any agent moves. It is not a
+// live region any more - that read the counts out on every change of them,
+// and never said which agent; announceStatus says what matters instead.
 func TestTheSummaryIsOnlySpokenWhenItChanges(t *testing.T) {
 	out := runFrontEnd(t, `
 h.hello();
@@ -649,7 +650,7 @@ const busy = { p1: pane("p1", { status: "waiting" }), p2: pane("p2", { status: "
 h.recv(fixture({ waiting: 1, working: 1, panes: busy }));
 
 const box = h.$("summary");
-assert.strictEqual(box.getAttribute("aria-live"), "polite", "the summary is a live region");
+assert.strictEqual(box.getAttribute("aria-live"), null, "the summary reads its counts out on every change of them");
 assert.ok(box.textContent.includes("1 waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("1 working"), "got: " + box.textContent);
 assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
@@ -680,6 +681,38 @@ assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
 assert.strictEqual(h.doc.title, "flockdeck");
 `)
 	t.Log(strings.TrimSpace(out))
+}
+
+// The tally in the top bar was a live region, so every agent that started or
+// stopped working had the counts read out, and none of it said which agent.
+// What a screen reader is told now is the news that needs a person, by name:
+// an agent that has started waiting on you, or one whose process has exited.
+func TestAnAgentThatStartsWaitingIsAnnouncedByName(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const region = h.$("announcer");
+const said = () => region.textContent;
+assert.strictEqual(region.getAttribute("role"), "status", "there is no status region to announce anything in");
+assert.strictEqual(said(), "", "something was announced before anything happened");
+
+// Working and idle are not news.
+h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+h.recv(fixture({ panes: { p1: pane("p1"), p2: pane("p2") } }));
+assert.strictEqual(said(), "", "an agent starting and stopping work was announced: " + said());
+
+const waiting = { status: "waiting", name: "fix the parser" };
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", waiting), p2: pane("p2") } }));
+assert.ok(said().endsWith("fix the parser is waiting on you"), "the agent that stopped to wait was not named: " + said());
+
+// Still waiting is not news again.
+const lines = region.children.length;
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", Object.assign({ detail: "asking again" }, waiting)), p2: pane("p2") } }));
+assert.strictEqual(region.children.length, lines, "an agent still waiting was announced again");
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "exited", name: "fix the parser" }), p2: pane("p2") } }));
+assert.ok(said().endsWith("fix the parser has exited"), "the agent whose process exited was not named: " + said());
+`)
 }
 
 // The pane headers are the hottest part of the screen: one per agent, redrawn

@@ -59,7 +59,12 @@
         </span>
       </div>
       <div class="spacer"></div>
-      <button id="summary" class="summary" aria-live="polite"></button>
+      <!-- The tally is not a live region: every agent starting or stopping
+           work changed it, so the counts were read out all the time and
+           never said which agent. What is spoken is the region after it,
+           fed only when an agent starts waiting on you or exits. -->
+      <button id="summary" class="summary"></button>
+      <div id="announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="false"></div>
       <div class="divider-v summary-rule"></div>
       <!-- The palette, made visible: the keys are filled in from the action
            table, like every other binding on screen. -->

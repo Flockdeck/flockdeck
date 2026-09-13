@@ -935,6 +935,7 @@
     renderTabs(s);
     renderRail(s);
     renderSummary(s);
+    announceStatus(s);
     followAgents(s);
     followProjects(s);
     followWorktrees(s);
@@ -1547,13 +1548,41 @@
     link.href = ICONS[state];
   }
 
-  /** The counts the summary is currently showing. It is a live region, so
-   *  rewriting it is not free the way rewriting an ordinary element is: a
-   *  screen reader reads out whatever appears in it, and a status push arrives
-   *  every time any agent changes what it is doing. Left to rewrite itself
-   *  unconditionally it spoke the same tally over and over, which with several
-   *  agents running is continuously. */
+  /** The counts the summary is currently showing. A status push arrives every
+   *  time any agent changes what it is doing, and rewriting the tally
+   *  unconditionally rebuilt it over and over, which with several agents
+   *  running is continuously. It was a live region as well, which spoke the
+   *  counts on every change of them; announceStatus says what matters now. */
   let summaryShown = "";
+
+  /** What each pane was doing at the last push, for announceStatus. */
+  const announced = new Map();
+
+  /** announceStatus tells a screen reader, by name, about an agent that has
+   *  started waiting on you or whose process has exited: the two changes
+   *  that need a person. Working and idle are not news. Never on the first
+   *  sighting of a pane, since arriving at a workspace where agents already
+   *  wait is not the moment they stopped. */
+  function announceStatus(s) {
+    const said = [];
+    for (const [id, v] of Object.entries(s.panes || {})) {
+      const before = announced.get(id);
+      announced.set(id, v.status);
+      if (before === undefined || before === v.status) continue;
+      const name = v.name || "An agent";
+      if (v.status === "waiting") said.push(name + " is waiting on you");
+      else if (v.status === "exited") said.push(name + " has exited");
+    }
+    for (const id of [...announced.keys()]) {
+      if (!s.panes || !s.panes[id]) announced.delete(id);
+    }
+    if (!said.length) return;
+    // Each announcement is a line of its own, so the same words said twice
+    // are still an addition and are read again; only the last few are kept.
+    const box = $("announcer");
+    box.append(el("div", null, said.join(". ")));
+    while (box.children.length > 3) box.firstChild.remove();
+  }
 
   function renderSummary(s) {
     const shown = s.waiting + " " + s.working;
