@@ -72,6 +72,69 @@ func TestNoBindingsAreWrittenIntoTheInterface(t *testing.T) {
 	}
 }
 
+// A list of elements from the page is not an array. querySelectorAll gives a
+// NodeList, and children and getElementsBy* an HTMLCollection, and neither has
+// some, filter, map or find. The harness hands back plain arrays, so a call
+// like that passes every front-end test and throws in the window: that is how
+// the conversations dialog shipped unable to draw its list, and so with no
+// conversation that could be resumed. A list is spread into an array first,
+// as [...list], wherever an array's methods are wanted of it.
+func TestNoElementListIsTreatedAsAnArray(t *testing.T) {
+	app := readAsset(t, "app.js")
+	comment := regexp.MustCompile(`^\s*(//|\*|/\*)`)
+	lists := regexp.MustCompile(`\b(querySelectorAll|getElementsByClassName|getElementsByTagName|getElementsByTagNameNS|getElementsByName)\s*\(|\.(children|childNodes)\b`)
+	// What an array has and a NodeList or an HTMLCollection does not. The
+	// chain may go on to the next line.
+	arrayOnly := regexp.MustCompile(`^\s*\??\.\s*(some|filter|map|find|findIndex|findLast|findLastIndex|every|reduce|reduceRight|includes|indexOf|lastIndexOf|flatMap|flat|at|slice|concat|join)\s*\(`)
+
+	lines := strings.Split(app, "\n")
+	for _, m := range lists.FindAllStringIndex(app, -1) {
+		line := strings.Count(app[:m[0]], "\n")
+		if comment.MatchString(lines[line]) {
+			continue
+		}
+		end := m[1]
+		if app[end-1] == '(' {
+			end = closingParen(app, end-1)
+			if end < 0 {
+				t.Fatalf("app.js:%d: the call's parenthesis is never closed", line+1)
+			}
+		}
+		if call := arrayOnly.FindStringSubmatch(app[end:]); call != nil {
+			t.Errorf("app.js:%d calls %s on a list of elements, which a browser's NodeList and HTMLCollection do not have; spread it into an array first:\n\t%s",
+				line+1, call[1], strings.TrimSpace(lines[line]))
+		}
+	}
+}
+
+// closingParen returns the index just past the parenthesis that closes the
+// one at open, stepping over quoted strings, or -1 if it is never closed.
+func closingParen(src string, open int) int {
+	depth := 0
+	var quote byte
+	for i := open; i < len(src); i++ {
+		c := src[i]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
 // A custom property that was never defined is not an error anyone is told
 // about: the declaration using it is thrown away and the property falls back to
 // its initial value, so a background simply does not appear and a colour comes
