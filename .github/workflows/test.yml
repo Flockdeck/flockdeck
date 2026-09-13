@@ -36,9 +36,13 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # The token that fetched the code is not left in .git/config, where
+      # every test, and whatever a test runs, could read it. Nothing here
+      # needs it: the tests make their own repositories and fetch nothing.
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
+          persist-credentials: false
 
       - uses: actions/setup-go@v7
         with:

@@ -56,6 +56,11 @@ jobs:
           # but the full history costs little and keeps `make` usable in the
           # same checkout.
           fetch-depth: 0
+          # The token that fetched the code is not left in .git/config, where
+          # every later step, and whatever the build runs, could read it.
+          # Nothing here pushes: gh takes its token from GH_TOKEN, and the
+          # publish script is read from this checkout with git show.
+          persist-credentials: false
 
       # The release is built from nothing cached. The build cache is shared
       # with the test runs on main, which execute every test, dependencies'
