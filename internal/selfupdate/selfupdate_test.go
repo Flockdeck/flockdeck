@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -398,16 +399,46 @@ func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 
 	h := sha256.Sum256(body)
 	want := hex.EncodeToString(h[:])
-	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want); err != nil {
+	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want, int64(len(body))); err != nil {
 		t.Errorf("a download that kept arriving, slowly: %v", err)
 	}
 	start := time.Now()
-	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want)
+	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want, int64(len(body)))
 	if err == nil || !strings.Contains(err.Error(), "stopped sending") {
 		t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
 	}
 	if d := time.Since(start); d > 10*time.Second {
 		t.Errorf("giving up on a stalled download took %s", d)
+	}
+}
+
+// A download that goes on past the size its release gives is given up on as
+// soon as it does. The size is signed in the site's manifest, and a body that
+// never ended used to be written to disk until requestLimit, an hour, ran out,
+// on every check, since the hash can only be checked at the end.
+func TestADownloadLargerThanItsSizeIsCutOff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk := bytes.Repeat([]byte("x"), 32<<10)
+		for r.Context().Err() == nil {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	// Long enough for a download that is cut off, and far short of what an
+	// endless one read to the end would take.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dest := filepath.Join(t.TempDir(), "archive")
+	err := download(ctx, srv.URL, dest, sha([]byte("the release")), 1<<20)
+	var mismatch mismatchError
+	if !errors.As(err, &mismatch) || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("download of a body that never ends = %v, want it refused as larger than its size", err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("what was downloaded is still on disk: %v", err)
 	}
 }
 

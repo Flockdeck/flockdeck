@@ -337,7 +337,7 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	defer os.RemoveAll(work) // nothing left once it has become the staging
 
 	archive := filepath.Join(work, asset.Name)
-	if err := download(ctx, asset.URL, archive, want); err != nil {
+	if err := download(ctx, asset.URL, archive, want, asset.Size); err != nil {
 		return nil, err
 	}
 	if err := unpack(archive, filepath.Join(work, binaryName), binaryName); err != nil {
@@ -489,7 +489,16 @@ func sumIn(body []byte, name string) (string, error) {
 	return "", fmt.Errorf("checksums.txt does not list %s", name)
 }
 
-func download(ctx context.Context, url, dest, want string) error {
+// download writes url to dest and checks it against want, the SHA-256 it has
+// to have, and size, the bytes the release gives for it, or 0 for a release
+// that does not say.
+//
+// Nothing past size is read. The hash can only be checked once the body has
+// ended, so a body that never ended -- from a CDN serving something other than
+// the release -- was written to disk for as long as requestLimit allowed, on
+// every check. The size is signed in the site's manifest, so one byte more is
+// already enough to know the download is not the release.
+func download(ctx context.Context, url, dest, want string, size int64) error {
 	resp, err := get(ctx, url)
 	if err != nil {
 		return err
@@ -500,14 +509,22 @@ func download(ctx context.Context, url, dest, want string) error {
 	if err != nil {
 		return err
 	}
+	var body io.Reader = resp.Body
+	if size > 0 {
+		body = io.LimitReader(resp.Body, size+1)
+	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	n, err := io.Copy(io.MultiWriter(f, h), body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		os.Remove(dest)
 		return err
+	}
+	if size > 0 && n > size {
+		os.Remove(dest)
+		return mismatchError{fmt.Sprintf("download is larger than the %d bytes published for it", size)}
 	}
 
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
