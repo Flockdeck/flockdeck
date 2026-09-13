@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -221,6 +222,37 @@ type agentCatalog struct {
 	// line in the picker and nothing more: the built-ins carry on, because
 	// refusing to start over a preferences file would be absurd.
 	Err string `json:"err,omitempty"`
+
+	// raw is the catalog already encoded, kept by encoded. See MarshalJSON.
+	raw []byte
+}
+
+// MarshalJSON writes the catalog as it was encoded when it was built.
+//
+// Every snapshot carries the catalog, and it is most of one: five of the six
+// kilobytes a one-pane workspace sends, and five-sixths of the time spent
+// encoding it -- the models, their prices and the routing rules, for every
+// agent there is. Snapshots are encoded up to ten times a second on the
+// goroutine that owns the workspace, while the catalog changes only when it
+// is probed again, about once a minute. So it is encoded once, as it is built,
+// and handed over as it stands after that.
+func (c agentCatalog) MarshalJSON() ([]byte, error) {
+	if c.raw != nil {
+		return c.raw, nil
+	}
+	type plain agentCatalog
+	return json.Marshal(plain(c))
+}
+
+// encoded returns the catalog with its encoding kept beside it, for
+// MarshalJSON. It is called once per catalog built, before the catalog is
+// stored, and nothing changes a catalog after that.
+func (c agentCatalog) encoded() agentCatalog {
+	type plain agentCatalog
+	if data, err := json.Marshal(plain(c)); err == nil {
+		c.raw = data
+	}
+	return c
 }
 
 // agentProbeInterval is how long the catalog a snapshot carries is believed
@@ -251,7 +283,7 @@ func (s *Server) catalog() agentCatalog {
 	if s.agentsAt.IsZero() {
 		// The first window is about to draw a picker with nothing in it, and
 		// has nothing else to draw it from. This one is worth waiting for.
-		s.agents, s.agentsRoot, s.agentsAt = buildCatalog(s.ws.Catalog(), root), root, time.Now()
+		s.agents, s.agentsRoot, s.agentsAt = buildCatalog(s.ws.Catalog(), root).encoded(), root, time.Now()
 		return s.agents
 	}
 	if s.agentsRoot != root || time.Since(s.agentsAt) >= agentProbeInterval {
@@ -276,7 +308,8 @@ func (s *Server) probeAgents(root string) {
 		// here means the catalog the picker offers and the catalog a pane is
 		// started from stay the same object rather than two reads of one file.
 		s.ws.ReloadAgents()
-		built := buildCatalog(s.ws.Catalog(), root)
+		// Encoded here too, off the workspace goroutine, like the probing.
+		built := buildCatalog(s.ws.Catalog(), root).encoded()
 		s.do(func() {
 			s.agents, s.agentsRoot, s.agentsAt = built, root, time.Now()
 			s.agentsProbing = false
@@ -401,9 +434,16 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 	}
 	go func() {
 		defer s.survive("saving an agent's address")
+		// The address is written into the same agents.json as the defaults
+		// and the routing, read and written back whole, so it waits for
+		// those saves as they wait for one another. Saved beside one of them
+		// from another window, whichever wrote second put back a copy without
+		// the other's change, after both windows were told theirs was saved.
 		path, err := agent.ConfigPath()
 		if err == nil {
+			defaultWrites.Lock()
 			err = agent.SetBaseURL(filepath.Dir(path), id, address)
+			defaultWrites.Unlock()
 		}
 		if err != nil {
 			reply(err.Error())

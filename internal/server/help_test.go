@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -54,6 +55,21 @@ func TestHelpIsServedToAuthorisedWindows(t *testing.T) {
 		if p.Title == "" || p.HTML == "" || p.Text == "" {
 			t.Errorf("%s came back incomplete: %+v", p.Slug, p)
 		}
+	}
+}
+
+// BenchmarkHelp measures answering /help.json, which a window asks for once
+// per page load and the first one opens unasked.
+func BenchmarkHelp(b *testing.B) {
+	if _, err := help.Pages(); err != nil {
+		b.Fatal(err)
+	}
+	s := &Server{token: "t"}
+	req := httptest.NewRequest(http.MethodGet, "/help.json?t=t", nil)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.handleHelp(httptest.NewRecorder(), req)
 	}
 }
 

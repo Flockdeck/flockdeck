@@ -12,10 +12,10 @@ import (
 // and the second could not be done at all.
 func TestThePickerSetsEitherDefaultAndUndoesAProjects(t *testing.T) {
 	stateDir(t)
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextHello(t, conn)
-	root := ws.ActiveRoot()
+	root := srv.activeRoot()
 
 	// waitFor polls the file, because the command is answered on a goroutine
 	// of the server's and says nothing back but a notice.

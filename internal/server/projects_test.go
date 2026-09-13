@@ -80,8 +80,8 @@ func TestOpenAndSwitchProjects(t *testing.T) {
 		}
 		return false
 	})
-	if len(ws.Tabs) != 2 {
-		t.Errorf("expected both projects' tabs to survive, got %d", len(ws.Tabs))
+	if n, _ := ask(srv, func() int { return len(ws.Tabs) }); n != 2 {
+		t.Errorf("expected both projects' tabs to survive, got %d", n)
 	}
 
 	// Closing a project removes it.
@@ -91,7 +91,7 @@ func TestOpenAndSwitchProjects(t *testing.T) {
 
 // TestRecentsAndBrowse covers the picker's two data sources.
 func TestRecentsAndBrowse(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
 
@@ -100,8 +100,9 @@ func TestRecentsAndBrowse(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "recents"})
 	readUntil(t, conn, "recents", &rec)
 	found := false
+	active := srv.activeRoot()
 	for _, r := range rec.Items {
-		if r.Root == ws.ActiveRoot() {
+		if r.Root == active {
 			found = true
 			if !r.Open {
 				t.Error("the active project should be marked as open")

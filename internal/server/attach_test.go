@@ -99,17 +99,17 @@ func TestProbeFailsWhenNothingIsListening(t *testing.T) {
 // TestRequestOpenAddsAProject covers `flockdeck -C dir` attaching to a
 // running instance and handing it the directory.
 func TestRequestOpenAddsAProject(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	other := t.TempDir()
 
 	if err := RequestOpen(srv.BaseURL(), srv.Token(), other); err != nil {
 		t.Fatalf("request open: %v", err)
 	}
-	if got := len(ws.Projects()); got != 2 {
+	if got := len(srv.projectRoots(t)); got != 2 {
 		t.Fatalf("projects = %d, want 2", got)
 	}
-	if ws.ActiveRoot() != other {
-		t.Errorf("active root = %q, want the newly opened %q", ws.ActiveRoot(), other)
+	if root := srv.activeRoot(); root != other {
+		t.Errorf("active root = %q, want the newly opened %q", root, other)
 	}
 }
 
@@ -255,10 +255,10 @@ func TestProbeWaitsOutABusyInstance(t *testing.T) {
 // accident, an address filled in from history — must not open a project or
 // stop the agents.
 func TestActingEndpointsNeedAPost(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	srv.OnQuit = func() { t.Error("a GET should not have stopped the application") }
 
-	before := len(ws.Projects())
+	before := len(srv.projectRoots(t))
 	urls := []string{
 		srv.BaseURL() + "/quit?t=" + srv.Token(),
 		srv.BaseURL() + "/open?t=" + srv.Token() + "&path=" + queryEscape(t.TempDir()),
@@ -276,7 +276,7 @@ func TestActingEndpointsNeedAPost(t *testing.T) {
 			t.Errorf("GET %s Allow = %q, want POST", url, allow)
 		}
 	}
-	if n := len(ws.Projects()); n != before {
+	if n := len(srv.projectRoots(t)); n != before {
 		t.Errorf("projects = %d, want %d — a GET opened one", n, before)
 	}
 }
@@ -315,10 +315,10 @@ func TestQuitAnswersBeforeItActs(t *testing.T) {
 // cross-origin POST, and one of these stops every agent the user is running.
 // The token has to be in the request itself, which such a page cannot know.
 func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
-	srv, ws := newTestServer(t)
+	srv, _ := newTestServer(t)
 	srv.OnQuit = func() { t.Error("a page was allowed to stop the application") }
 
-	before := len(ws.Projects())
+	before := len(srv.projectRoots(t))
 	posts := []string{
 		srv.BaseURL() + "/quit",
 		srv.BaseURL() + "/open?path=" + queryEscape(t.TempDir()),
@@ -329,7 +329,7 @@ func TestActingEndpointsRefuseTheCookieAlone(t *testing.T) {
 			t.Errorf("POST %s with only the cookie = %d, want 403", url, resp.StatusCode)
 		}
 	}
-	if n := len(ws.Projects()); n != before {
+	if n := len(srv.projectRoots(t)); n != before {
 		t.Errorf("projects = %d, want %d — a page opened one", n, before)
 	}
 
@@ -452,13 +452,14 @@ func TestOpenSaysSoWhenItCannotBeTakenAtAll(t *testing.T) {
 	defer func(d time.Duration) { openTimeout = d }(openTimeout)
 	openTimeout = 300 * time.Millisecond
 
-	srv, ws := newTestServer(t)
-	before := len(ws.Projects())
+	srv, _ := newTestServer(t)
+	before := len(srv.projectRoots(t))
 
 	release := make(chan struct{})
 	var backlog sync.WaitGroup
 	defer backlog.Wait()
-	defer close(release)
+	stop := sync.OnceFunc(func() { close(release) })
+	defer stop()
 	srv.do(func() { <-release })
 	for range cap(srv.cmds) * 2 {
 		backlog.Add(1)
@@ -481,7 +482,10 @@ func TestOpenSaysSoWhenItCannotBeTakenAtAll(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("the launch waited %v for an answer, want one within the instance's budget", elapsed)
 	}
-	if n := len(ws.Projects()); n != before {
+	// Counted on the workspace goroutine once it is free again. A request
+	// refused as busy was never queued, so freeing it cannot open one now.
+	stop()
+	if n := len(srv.projectRoots(t)); n != before {
 		t.Errorf("projects = %d, want %d", n, before)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -77,7 +78,10 @@ func (s *Server) updatePrefs(change func(*store.Prefs) bool) {
 		}
 		if err := store.SavePrefs(p); err != nil {
 			// Preferences are a convenience; failing to record one must not
-			// interrupt what the person was actually doing.
+			// interrupt what the person was actually doing. But the window has
+			// already applied the change and said so, and it would go back at
+			// the next start with nothing to say why -- so that is said now.
+			s.notifyAll("could not save the setting, so it will not be kept after flockdeck restarts: "+err.Error(), true)
 			return
 		}
 		s.prefs = p
@@ -211,20 +215,27 @@ func (s *Server) setStatusLine(mode string) {
 	s.updatePrefs(func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
 }
 
+// helpBody is what /help.json answers with, encoded the first time it is
+// asked for. The pages are compiled in and rendered once already (help.Pages);
+// encoding them afresh for every request cost half a millisecond and half a
+// megabyte each time, for the same bytes.
+var helpBody = sync.OnceValues(func() ([]byte, error) {
+	pages, err := help.Pages()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"pages": pages})
+})
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	pages, err := help.Pages()
+	data, err := helpBody()
 	if err != nil {
 		http.Error(w, "the help pages could not be rendered", http.StatusInternalServerError)
-		return
-	}
-	data, err := json.Marshal(map[string]any{"pages": pages})
-	if err != nil {
-		http.Error(w, "the help pages could not be encoded", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

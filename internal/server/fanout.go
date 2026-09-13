@@ -831,21 +831,34 @@ func (s *Server) installContextHandler() {
 	}
 	hookSrv.SetContextHandler(func(paneID string) string {
 		out := make(chan string, 1)
-		s.do(func() {
+		// Claude Code is held up until this hook answers, so a busy or wedged
+		// workspace loop must not be able to stall a pane's startup: give up
+		// and let the agent begin without knowing where it is.
+		//
+		// One budget covers handing the question over and getting the answer,
+		// as it does for the health endpoint. s.do waits without a deadline
+		// for room in the queue in front of the workspace, and that queue
+		// fills exactly when the workspace is slow: a deadline started after
+		// it bounded nothing, and the hook gave up first.
+		deadline := time.After(contextDeadline)
+		select {
+		case s.cmds <- func() {
 			c, ok := s.ws.PaneContext(paneID)
 			if !ok {
 				out <- ""
 				return
 			}
 			out <- c.Render()
-		})
-		// Claude Code is held up until this hook answers, so a busy or wedged
-		// workspace loop must not be able to stall a pane's startup: give up
-		// and let the agent begin without knowing where it is.
+		}:
+		case <-deadline:
+			return ""
+		case <-s.closed:
+			return ""
+		}
 		select {
 		case text := <-out:
 			return text
-		case <-time.After(contextDeadline):
+		case <-deadline:
 			return ""
 		case <-s.closed:
 			return ""

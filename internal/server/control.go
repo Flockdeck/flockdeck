@@ -118,11 +118,24 @@ func (s *Server) notifyAll(text string, isErr bool) {
 // clientList is the windows connected at this moment, copied out so that
 // sending to them does not hold the lock a window connecting or leaving needs.
 func (s *Server) clientList() []*controlClient {
+	return s.listClients(false)
+}
+
+// greetedClients is clientList without the windows still waiting for their
+// hello, which is who a snapshot is broadcast to: no state may reach a window
+// before its key table (see handleControl). A notice may, as it always could.
+func (s *Server) greetedClients() []*controlClient {
+	return s.listClients(true)
+}
+
+func (s *Server) listClients(greetedOnly bool) []*controlClient {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clients := make([]*controlClient, 0, len(s.clients))
-	for c := range s.clients {
-		clients = append(clients, c)
+	for c, greeted := range s.clients {
+		if greeted || !greetedOnly {
+			clients = append(clients, c)
+		}
 	}
 	return clients
 }
@@ -582,7 +595,7 @@ func (s *Server) broadcastState() {
 			return
 		}
 		s.lastState = data
-		for _, c := range s.clientList() {
+		for _, c := range s.greetedClients() {
 			c.sendState(data)
 		}
 	})
@@ -685,8 +698,12 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	if isRemote {
 		c.device = r.Header.Get("Flockdeck-Remote-Device")
 	}
+	// The window counts from the moment its socket opens: whether the last
+	// window has gone is decided by counting them, and a page being reloaded
+	// while the workspace is busy -- opening a project, say -- would otherwise
+	// look like nobody there at all. It is sent no state until its hello.
 	s.mu.Lock()
-	s.clients[c] = struct{}{}
+	s.clients[c] = false
 	s.mu.Unlock()
 	// The git summaries are only kept current while somebody is looking, so
 	// this window's arrival is what makes them current again.
@@ -711,6 +728,21 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// first keystroke. The state follows so the window can render.
 	s.do(func() {
 		s.sendHello(c)
+		// The window is sent the state only from now, with its hello queued
+		// ahead of any snapshot. Every broadcast is made on this goroutine,
+		// so none can reach it first. Sent them from the moment
+		// its socket opened, it was handed the snapshot of a broadcast
+		// already queued here before its hello was even queued -- one
+		// connection in a few dozen, whenever git or an agent had just
+		// changed something.
+		//
+		// A window that has gone again while this waited its turn is no
+		// longer on the list, and is not put back on it.
+		s.mu.Lock()
+		if _, ok := s.clients[c]; ok {
+			s.clients[c] = true
+		}
+		s.mu.Unlock()
 		data, err := json.Marshal(s.snapshot())
 		if err == nil {
 			c.sendState(data)
@@ -1014,13 +1046,22 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "closeTab":
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
+			// A tab bar drawn before another window closed the tab: the click
+			// did nothing, and said nothing, as it now says it does.
+			if ws.Tab(cmd.ID) == nil {
+				c.notify(tabGone, true)
+				return
+			}
 			ws.SelectTab(cmd.ID)
 		case "nextTab":
 			ws.NextTab()
 		case "prevTab":
 			ws.PrevTab()
 		case "renameTab":
+			// The same for a rename dialog, where the name just typed simply
+			// vanished.
 			if ws.Tab(cmd.ID) == nil {
+				c.notify(tabGone, true)
 				return
 			}
 			// An emptied name is how a tab goes back to naming itself: it
@@ -1041,15 +1082,27 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// working in drop off the tab bar until they think to close it
 			// again. Everything the page sends here comes from a directory
 			// listing or the recent list and is absolute already.
-			if !filepath.IsAbs(cmd.Path) {
+			// Quotes around it -- Explorer's "Copy as path" puts them there --
+			// are not part of it.
+			path := unquotePath(cmd.Path)
+			if !filepath.IsAbs(path) {
 				c.notify("a project has to be named by its full path", true)
 				return
 			}
-			if err := ws.OpenProject(cmd.Path); err != nil {
+			// The recent-projects list and the folder browser open a project
+			// by its path whether it is open already or not, and one that is
+			// is only switched to. "opened app" said for that reads as a
+			// second copy of it having been started.
+			before := len(ws.Projects())
+			if err := ws.OpenProject(path); err != nil {
 				c.notify(err.Error(), true)
 				return
 			}
-			c.notify("opened "+filepath.Base(cmd.Path), false)
+			if len(ws.Projects()) == before {
+				c.notify("switched to "+filepath.Base(path)+", which was already open", false)
+			} else {
+				c.notify("opened "+filepath.Base(path), false)
+			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
 		case "closeProject":
@@ -1213,6 +1266,10 @@ func cmdName(cmd string) string {
 // paneGone is what a window is told when it acts on a pane that has since
 // been closed, most often because another window closed it first.
 const paneGone = "that pane is no longer open"
+
+// tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
+// dialog drawn before another window closed it.
+const tabGone = "that tab is no longer open"
 
 // focusFor moves focus onto the pane a command names and reports whether the
 // command should go ahead.

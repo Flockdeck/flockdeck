@@ -16,7 +16,7 @@ import (
 // the preview was asked about.
 func TestFanoutPreviewKeepsItsProjectsDefault(t *testing.T) {
 	srv, ws := newTestServer(t)
-	first := ws.ActiveRoot()
+	first := srv.activeRoot()
 	second := t.TempDir()
 	if _, ok := ws.Catalog().Find("anthropic"); !ok {
 		t.Skip("no built-in anthropic agent to give the second project")

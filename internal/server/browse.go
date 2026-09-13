@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,6 +52,14 @@ func (s *Server) browse(c *controlClient, path string) {
 		defer s.survive("listing a folder")
 		msg := browseMsg{Type: "browse"}
 
+		path = unquotePath(path)
+		// "D:" names a drive everywhere else on Windows, but as a path it is
+		// that drive's current directory -- for the drive flockdeck runs on,
+		// the directory it was started in -- which is not what was meant.
+		if runtime.GOOS == "windows" && len(path) == 2 && path[1] == ':' &&
+			'a' <= path[0]|0x20 && path[0]|0x20 <= 'z' {
+			path += `\`
+		}
 		if path == "" {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = home
@@ -76,6 +86,21 @@ func (s *Server) browse(c *controlClient, path string) {
 		entries, err := os.ReadDir(abs)
 		if err != nil {
 			msg.Error = err.Error()
+			// A path that names a file -- pasted from an editor's title bar,
+			// say -- fails in the operating system's words for opening a file
+			// as a folder, which never say that it is a file; on Windows they
+			// say the path cannot be found. The way up is offered already.
+			//
+			// A folder that is not there -- a slip in a typed path -- is said
+			// as opening a project says it, rather than in words that begin
+			// with the call that failed and on Windows speak of a file. The
+			// file is looked for first: listing one fails as "not found" there.
+			switch fi, serr := os.Stat(abs); {
+			case serr == nil && !fi.IsDir():
+				msg.Error = filepath.Base(abs) + " is a file, not a folder — go up to the one it is in"
+			case errors.Is(serr, fs.ErrNotExist):
+				msg.Error = abs + " does not exist"
+			}
 			c.sendJSON(msg)
 			return
 		}
@@ -168,6 +193,20 @@ func expandHome(path string) string {
 		return path
 	}
 	return filepath.Join(home, path[1:])
+}
+
+// unquotePath takes the spaces and one pair of quotes off a path typed or
+// pasted into the picker. Windows Explorer's "Copy as path" -- the usual way
+// to copy a folder's path there -- wraps it in double quotes, and a shell
+// writes a path with a space in it inside single ones; neither is part of the
+// name, and taken as it stood the path was looked for inside the directory
+// flockdeck was started in.
+func unquotePath(path string) string {
+	path = strings.TrimSpace(path)
+	if len(path) >= 2 && (path[0] == '"' || path[0] == '\'') && path[len(path)-1] == path[0] {
+		return strings.TrimSpace(path[1 : len(path)-1])
+	}
+	return path
 }
 
 // isRepoDir reports whether dir is the top of a git repository. Checking for

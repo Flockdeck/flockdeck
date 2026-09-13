@@ -77,8 +77,12 @@ type Server struct {
 	ln   net.Listener
 	http *http.Server
 
-	mu      sync.Mutex
-	clients map[*controlClient]struct{}
+	mu sync.Mutex
+	// clients is every window connected, from the moment its socket opens,
+	// and whether it has been handed its hello: only a window that has is
+	// sent the state (see greetedClients), while every one of them counts
+	// and is sent notices.
+	clients map[*controlClient]bool
 
 	// lastState is the encoded snapshot that was last broadcast, kept so an
 	// unchanged one is not sent again. broadcastState sets it and a window
@@ -205,7 +209,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		prefs:   store.LoadPrefs(),
 		token:   hex.EncodeToString(raw),
 		ln:      ln,
-		clients: map[*controlClient]struct{}{},
+		clients: map[*controlClient]bool{},
 		cmds:    make(chan func(), 64),
 		dirty:   make(chan struct{}, 1),
 		asked:   make(chan struct{}, 1),

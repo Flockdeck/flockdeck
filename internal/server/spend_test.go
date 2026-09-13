@@ -15,7 +15,7 @@ import (
 // kept nowhere.
 func TestReportedSpendReachesThePaneHeader(t *testing.T) {
 	srv, ws := newTestServer(t)
-	pane := ws.CurrentTab().Focus
+	pane := srv.firstPaneID(t)
 	hookSrv := ws.HookServer()
 
 	report := func(r spend.Report) {
