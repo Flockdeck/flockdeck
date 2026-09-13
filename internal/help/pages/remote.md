@@ -9,7 +9,8 @@ a VPN.
 Flockdeck dials *out* to the relay and holds one connection open while it runs.
 Each connection a paired browser makes is carried down it and answered by the
 same server the window on your desk uses, so the remote window is not a lesser
-copy: it is this window, with every pane, every dialog and every keystroke.
+copy: it is this window, with every pane, every dialog and every keystroke —
+bar the few things done only at the desk, listed below.
 
 A pane open in two windows at once, the one on your desk and a phone say, takes
 the size of whichever window last typed into it or focused it. Glancing at it
@@ -23,6 +24,25 @@ device asking is paired with your account, and nothing else can put a request
 on that connection. The few things only another launch of the binary may do —
 open a project from the command line, quit the instance — still insist on the
 token, so a remote window cannot reach them.
+
+## Done only at the desk
+
+A window reached through the relay is not offered these, and Flockdeck refuses
+them from one:
+
+- quitting Flockdeck, or restarting it, including to install an update;
+- turning remote access off, or on again against another relay;
+- making a code for another desktop to join this account;
+- setting or clearing an API key — one typed on a phone would pass through
+  the relay, which can read it;
+- changing where an API agent sends its prompts, its address, since its key
+  goes wherever that says;
+- turning the check for updates on or off.
+
+These keep a phone in a pocket from doing any of them by accident. They are
+not a security boundary: a remote window can open a shell pane, and from a
+shell it can do anything you can at this machine, `flockdeck remote disable`
+included. A paired device has everything your user account here has.
 
 ## Turning it on
 
@@ -40,7 +60,8 @@ The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
 `flockdeck remote pair -desktop` on the first, given to the second — in the
 dialog under **Joining an account, or invited?**, or as
-`flockdeck remote enable -join <code>` — so one paired device can reach both.
+`flockdeck remote enable -join <code>`. Every device paired with the account
+then reaches every desktop on it: pairing with one is pairing with them all.
 
 ## Pairing a device
 
@@ -51,7 +72,8 @@ device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.
 
 A link works once and expires after a few minutes. Until then, whoever opens it
-can drive every agent here, so treat it like a password.
+can drive every agent on every desktop on this account, and open a shell on
+any of them, so treat it like a password.
 
 On a phone, when an agent stops to ask a question with set answers, the relay's
 own client shows its choices as buttons, so you can answer with a tap rather
@@ -73,10 +95,14 @@ Traffic is encrypted between your browser and the relay, and between the relay
 and this machine. The relay decrypts it to route it, so it is **trusted**: this
 is not end-to-end encryption, and whoever runs the relay could read what passes
 through it. The relay never sees this machine's local token or the API keys
-kept here, though a key typed into a remote window passes through it like
-anything else typed there; what it holds for this machine is a credential of
-its own, kept here in `remote.json` in the state directory and readable only
-by you.
+kept here, though anything typed into a remote window, a shell pane's included,
+passes through it; what it holds for this machine is a credential of its own,
+kept here in `remote.json` in the state directory and readable only by you.
+
+Reading is not all it could do. The relay is what decides which devices are
+paired, so whoever runs it can open a window on any desktop that is connected
+to it and use it as a paired device would: type to every agent, and open a
+shell. Use a relay you would trust with this machine.
 
 The shared relay at `https://remote.flockdeck.ai` has a
 [privacy policy](https://flockdeck.ai/privacy.html), which says what it stores
@@ -123,3 +149,22 @@ cannot take itself off, and would be listed as offline for good. Remove it from
 the **Devices** page of a paired device instead: no device can reach it after
 that, and its credential stops working, so a copy of Flockdeck restored from a
 backup cannot connect with it either.
+
+## If a device is lost
+
+1. **Unpair** it in the dialog, or with `flockdeck remote revoke <id or name>`.
+   That ends its session at once, and it cannot get back in with the same
+   pairing.
+2. Look down the dialog's lists for a device you did not pair or a desktop you
+   did not add. Flockdeck is not told when a device pairs or a desktop joins,
+   so those lists are where either shows. Unpair a device you do not know,
+   and remove a desktop you do not know from the **Devices** page of a paired
+   device.
+3. If the device could have opened a shell here, it could have copied this
+   machine's credential out of `remote.json`. Turn remote access off and on
+   again: this machine is enrolled afresh, and the old credential stops
+   working. If this is the account's only desktop, turning it off also
+   unpairs every device, and each of them pairs again with a new link.
+
+A pairing link or join code that was made and not used stops working on its
+own after a few minutes.

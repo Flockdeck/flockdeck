@@ -111,7 +111,9 @@ beside it is the same program built with one.
 When a new version has been downloaded, an **Update** button appears at the
 right of the top bar. It offers **Restart now**, which saves and reopens your
 layout but stops the running agents, or **Later**, which installs it when
-Flockdeck next quits.
+Flockdeck next quits. A window reached through the relay is not shown the
+button, and cannot turn the check for updates on or off: both are done at the
+desk.
 
 Releases are published at `dl.flockdeck.ai` as one archive per platform, with
 a `checksums.txt` beside them, signed with the release key that is built into
