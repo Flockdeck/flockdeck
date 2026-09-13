@@ -4729,7 +4729,8 @@
   function renderChanges(msg) {
     // Where the file list and the diff were scrolled to, to put back below if
     // the same file is still the one shown.
-    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop };
+    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop,
+      panel: changeView.diff };
     changeView = null;
     if (msg) {
       changes = msg;
@@ -4865,11 +4866,16 @@
       });
       split.append(list);
 
-      const diff = el("div", "rev-diff");
+      // The panel already showing this file's diff is kept rather than
+      // drawn again. The tree is read again whenever an agent writes to it,
+      // and the diff on show - up to three thousand lines - was built afresh
+      // each time, while it was being read, for the same lines.
+      const keep = was && selectedFile && was.file === selectedFile && diffText ? was.panel : null;
+      const diff = keep || el("div", "rev-diff");
       split.append(diff);
       body.append(split);
       changeView = { rows, diff, list };
-      fillDiff();
+      if (!keep) fillDiff();
       // A refresh, a fetch or a push answers with the working tree again, and
       // drawing it afresh put a long diff back at its first line under the
       // person reading it, and the file list back at its top.
@@ -4977,7 +4983,12 @@
     // A diff already on show is being read again, and the reader's place in
     // it is kept; a file just chosen starts at its top.
     const again = !!diffText;
-    diffText = msg.error ? msg.error : msg.text;
+    const text = msg.error ? msg.error : msg.text;
+    // The diff on show is read again whenever the tree moves, and it is
+    // most often just as it was - an agent wrote to some other file - so
+    // drawing its lines again would change nothing on screen.
+    if (again && text === diffText && changeView && changeView.diff.childNodes.length) return;
+    diffText = text;
     if (changeView) fillDiff(again);
     else renderChanges();
   }

@@ -591,3 +591,43 @@ commitFrom(false);
 assert.ok(h.doc.activeElement === h.$("rev-refresh"), "with no remote, the keyboard did not land in the dialog");
 `)
 }
+
+// The review reads the tree again whenever an agent writes to it, and each
+// time it drew the diff on show twice more - once with the dialog, once when
+// the same diff came back - three thousand lines each, while it was being
+// read. An unchanged diff stays as it is drawn, with the reader's place in it.
+func TestARefreshDoesNotDrawTheDiffOnShowAgain(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const NL = String.fromCharCode(10);
+const tree = (n) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "big.go", label: "M", added: 3000, removed: 0 }, { path: "other.go", label: "M", added: n, removed: 0 }] });
+h.recv(tree(1));
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const lines = [];
+for (let i = 0; i < 3000; i++) lines.push("+line " + i);
+const text = lines.join(NL);
+h.recv({ type: "diff", cwd: "C:/repo", file: "big.go", text });
+const panel = h.$("overlay-body").querySelector("div.rev-diff");
+panel.scrollTop = 900;
+
+const before = h.made();
+h.recv(tree(2));
+h.recv({ type: "diff", cwd: "C:/repo", file: "big.go", text });
+const built = h.made() - before;
+console.log("a refresh with an unchanged 3,000-line diff on show built " + built + " elements");
+assert.ok(built < 200, "the diff on show was drawn again: " + built + " elements");
+const now = h.$("overlay-body").querySelector("div.rev-diff");
+assert.ok(now === panel, "the diff panel was built again");
+assert.strictEqual(now.scrollTop, 900, "the reader's place in the diff was lost");
+assert.ok(now.textContent.includes("+line 2999"), "the diff is no longer shown");
+
+// A diff that did change is drawn.
+h.recv(tree(3));
+h.recv({ type: "diff", cwd: "C:/repo", file: "big.go", text: "@@ -1 +1 @@" + NL + "+changed" });
+assert.ok(h.$("overlay-body").querySelector("div.rev-diff").textContent.includes("+changed"), "a changed diff was not drawn");
+`)
+	t.Log(out)
+}
