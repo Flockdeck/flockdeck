@@ -792,7 +792,9 @@ each file with what happened to it and how many lines moved, a coloured diff of
 whichever file you select, and the branch's position against its upstream.
 From there you can commit, commit and push, pull or fetch. The first push sets
 the upstream, so a branch a fan-out invented does not need a hand-typed command
-to leave the machine.
+to leave the machine. A commit takes the files the list showed you; one that
+arrives or is written to again after you looked is marked, and a commit made
+before you have seen it is refused.
 
 The worktree panel has a **Review** action per checkout, which is usually how
 you get here: see which agent produced something, then look at what it did.
@@ -1093,8 +1095,11 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 - Spend figures are estimates, kept in memory only, and only Claude Code and
   the built-in API agents report them. There is no history of them yet, by
   day or by month.
-- Commits take the working tree as it stands; there is no selective staging in
-  the Changes panel. A shell pane is the answer for anything finer.
+- A commit from the Changes panel takes every file in its list, whole; there is
+  no selective staging, and a shell pane is the answer for anything finer. A
+  commit is refused when the tree has moved since you looked, but a file
+  written to again is noticed by its size and modification time, not its
+  content, so an edit that changes neither goes through.
 - The window needs a browser engine present. Every supported platform ships one
   or has one in practice, but on a bare Linux install with no browser at all
   there is nothing to display the interface in.

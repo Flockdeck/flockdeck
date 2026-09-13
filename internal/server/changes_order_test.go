@@ -39,9 +39,9 @@ func TestAReviewListingDoesNotLandOnTopOfANewerOne(t *testing.T) {
 	}
 
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.listChanges(c, slow)
+	srv.listChanges(c, slow, false)
 	<-held
-	srv.listChanges(c, quick)
+	srv.listChanges(c, quick, false)
 	if got, ok := listed(c, 5*time.Second); !ok || got != quick {
 		t.Fatalf("the second checkout's listing was %q (arrived: %v); want %q", got, ok, quick)
 	}

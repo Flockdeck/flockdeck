@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -72,7 +73,7 @@ func TestAPanicIsToldOnlyToTheWindowThatAsked(t *testing.T) {
 // was closed.
 func TestACommitThatPanicsStillAnswersThePanel(t *testing.T) {
 	old := commitReviewed
-	commitReviewed = func(string, string, []string, int) error { panic("a commit nobody expected") }
+	commitReviewed = func(string, string, gitx.Reviewed) error { panic("a commit nobody expected") }
 	t.Cleanup(func() { commitReviewed = old })
 
 	srv, _ := newTestServer(t)

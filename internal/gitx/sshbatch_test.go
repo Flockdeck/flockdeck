@@ -72,3 +72,39 @@ func TestNetworkCommandsKeepSSHFromAskingUnlessTheUserChoseTheirOwn(t *testing.T
 		t.Errorf("with GIT_SSH_COMMAND set, git is given %s; want the user's own", got)
 	}
 }
+
+// TestAnSSHFailureSaysHowToGetPastIt covers what ssh says once it is kept
+// from asking anything. A host it had not been told to trust, and a key whose
+// passphrase it could not ask for, came out as its own shorthand followed by
+// git's "make sure you have the correct access rights", which sent people
+// checking the wrong thing. An ssh that fails as the real one does stands in
+// for it, so nothing goes out to the network.
+func TestAnSSHFailureSaysHowToGetPastIt(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "remote", "add", "origin", "git@example.invalid:team/repo.git")
+	t.Setenv("GIT_SSH_VARIANT", "ssh")
+	for _, tc := range []struct {
+		said []string
+		want []string
+	}{
+		{[]string{"No ED25519 host key is known for example.invalid and you have requested strict checking.", "Host key verification failed."},
+			[]string{"trust example.invalid yet", "git fetch once from a terminal in " + repo}},
+		{[]string{"git@example.invalid: Permission denied (publickey)."},
+			[]string{"ssh-add", "git fetch from a terminal in " + repo}},
+	} {
+		script := "printf '%s\\n'"
+		for _, line := range tc.said {
+			script += " '" + line + "'"
+		}
+		t.Setenv("GIT_SSH_COMMAND", script+" >&2; exit 255;")
+		_, err := Fetch(repo)
+		if err == nil {
+			t.Fatalf("a fetch whose ssh said %q succeeded", tc.said)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("ssh said %q, and the error is %q; want it to say %q", tc.said, err, want)
+			}
+		}
+	}
+}

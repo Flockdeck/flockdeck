@@ -1320,7 +1320,9 @@ assert.ok(rows[1].classList.contains("sel"), "the row was not chosen");
 assert.strictEqual(rows[1].getAttribute("aria-current"), "true", "nothing says which file the diff is of");
 assert.strictEqual(rows[0].getAttribute("aria-current"), "false");
 
-// Space works the same way, and does not scroll the dialog instead.
+// Space works the same way, and does not scroll the dialog instead. A diff
+// asked for hard on the heels of another waits out a short gap.
+await h.sleep(200);
 rows[2].focus();
 const ev = h.key({ key: " " });
 assert.ok(ev.defaultPrevented, "Space scrolled the dialog rather than choosing the file");
@@ -3534,6 +3536,7 @@ const down = h.key({ key: "ArrowDown" });
 assert.ok(down.defaultPrevented, "Down scrolled the dialog instead");
 assert.ok(h.doc.activeElement === rows[1], "Down did not move to the next file");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "b.go" });
+await h.sleep(200); // past the gap a diff asked for straight after another waits out
 h.key({ key: "End" });
 assert.ok(h.doc.activeElement === rows[2], "End did not reach the last file");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "diff", path: "C:/repo", text: "c.go" });
@@ -3984,7 +3987,7 @@ for (let i = 0; i < 30; i++) files.push({ path: "f" + i + ".go", label: "M", add
 const tree = { type: "changes", cwd: "C:/repo", branch: "main", hasRemote: true, upstream: "origin/main", files };
 h.recv(tree);
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[20]);
-h.recv({ type: "diff", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
+h.recv({ type: "diff", cwd: "C:/repo", file: "f20.go", text: Array.from({ length: 500 }, (_, i) => "+line " + i).join("\n") });
 const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
 const list = () => h.$("overlay-body").querySelector("div.rev-files");
 diff().scrollTop = 900;
@@ -4009,7 +4012,7 @@ const tree = (added) => ({ type: "changes", cwd: "C:/repo", branch: "main", hasR
 h.recv(tree(1));
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[0]);
 const lines = (n) => Array.from({ length: n }, (_, i) => "+line " + i).join("\n");
-h.recv({ type: "diff", file: "a.go", text: lines(300) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.go", text: lines(300) });
 const diff = () => h.$("overlay-body").querySelector("div.rev-diff");
 diff().scrollTop = 900;
 const diffs = () => h.commands().filter((c) => c.cmd === "diff");
@@ -4019,13 +4022,13 @@ h.recv(tree(40));
 assert.strictEqual(diffs().length, before + 1, "the tree changed and the diff on show was not read again");
 assert.deepStrictEqual(diffs().pop(), { cmd: "diff", path: "C:/repo", text: "a.go" });
 assert.ok(!/Loading/.test(diff().textContent), "the diff on show was taken away while the new one was read");
-h.recv({ type: "diff", file: "a.go", text: lines(340) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.go", text: lines(340) });
 assert.ok(/line 339/.test(diff().textContent), "the new diff is not shown");
 assert.strictEqual(diff().scrollTop, 900, "the new diff lost the reader's place");
 
 // Another file chosen starts at its top.
 h.click(h.$("overlay-body").querySelectorAll("div.rev-file")[1]);
-h.recv({ type: "diff", file: "b.go", text: lines(300) });
+h.recv({ type: "diff", cwd: "C:/repo", file: "b.go", text: lines(300) });
 assert.strictEqual(diff().scrollTop, 0, "a file just chosen did not start at its top");
 `)
 }
@@ -6032,7 +6035,7 @@ assert.strictEqual(asked(), before, "the tree was read again although its counts
 
 h.recv(fixture({ panes: panesWith(3) }));
 assert.strictEqual(asked(), before + 1, "an agent writing more files left the review as it was");
-assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo" });
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo", follow: true });
 h.recv(tree);
 
 // While a push is under way its buttons stay disabled: no redraw is asked for.

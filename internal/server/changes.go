@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
 )
@@ -20,6 +21,9 @@ type changeView struct {
 	Added     int    `json:"added"`
 	Removed   int    `json:"removed"`
 	Untracked bool   `json:"untracked"`
+	// Stamp is gitx.Stamp of the file as it was listed, which a commit made
+	// from this list sends back so that a file written to since is noticed.
+	Stamp string `json:"stamp,omitempty"`
 }
 
 type changesMsg struct {
@@ -31,10 +35,26 @@ type changesMsg struct {
 	Behind    int          `json:"behind"`
 	HasRemote bool         `json:"hasRemote"`
 	Files     []changeView `json:"files"`
+	// Detached is a checkout with no branch in HEAD, and Head the commit it
+	// is on. Operation is "rebasing" or "bisecting" when it is detached for
+	// one of those, with Branch the branch that will be back at the end of
+	// it. The panel showed such a checkout as a branch with "no upstream yet"
+	// and a Push that could only fail.
+	Detached  bool   `json:"detached,omitempty"`
+	Head      string `json:"head,omitempty"`
+	Operation string `json:"operation,omitempty"`
 	// Omitted counts the changed files left out of Files, which happens
 	// only on a checkout with more of them than a list can usefully hold.
 	Omitted int    `json:"omitted,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Reason says why this listing was sent, which is what the window's
+	// record of what somebody has looked at goes by: "asked" for one it
+	// asked to be shown -- the panel opening, or Refresh -- "refused" for the
+	// tree as it is after a commit refused because it had moved, and
+	// "committed" after a commit was made. It is empty for the rest: a
+	// listing the panel asked for itself because the tree moved, and the one
+	// after a push, pull or fetch.
+	Reason string `json:"reason,omitempty"`
 }
 
 type diffMsg struct {
@@ -106,25 +126,36 @@ var changeListings = newNewestAnswer()
 var readChanges = collectChanges
 
 // listChanges answers a request for what has changed in a working tree.
-func (s *Server) listChanges(c *controlClient, path string) {
+// follow is a request the panel made by itself because the tree moved,
+// rather than one somebody made by opening it or pressing Refresh.
+func (s *Server) listChanges(c *controlClient, path string, follow bool) {
 	asked := changeListings.asked(c)
-	s.sendChanges(c, s.reviewDir(path), asked)
+	reason := "asked"
+	if follow {
+		reason = ""
+	}
+	s.sendChanges(c, s.reviewDir(path), asked, reason)
 }
 
 // sendChanges lists a checkout for a window, unless the window has asked for
-// another listing since the request numbered asked.
-func (s *Server) sendChanges(c *controlClient, dir string, asked uint64) {
+// another listing since the request numbered asked. reason goes out as the
+// listing's Reason.
+func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason string) {
 	go func() {
 		defer s.surviveFor(c, "reading what changed")
 		msg := readChanges(dir)
+		msg.Reason = reason
 		if !changeListings.answer(c, asked) {
 			return
 		}
 		c.sendJSON(msg)
-		if msg.Omitted > 0 {
-			// Said out loud, because a list that stops at two thousand rows
-			// looks exactly like a working tree with two thousand changes in
-			// it, and the difference matters to someone about to commit.
+		// Said out loud, because a list that stops at two thousand rows looks
+		// exactly like a working tree with two thousand changes in it, and the
+		// difference matters to someone about to commit. Only for a listing
+		// somebody asked to see, though: the window shows one notice at a time,
+		// and this one came straight after -- and replaced -- the error saying
+		// why a commit, push or pull had failed.
+		if msg.Omitted > 0 && reason == "asked" {
 			c.notify(fmt.Sprintf("showing %d of %d changed files — the rest are left out to keep the list usable",
 				len(msg.Files), len(msg.Files)+msg.Omitted), false)
 		}
@@ -179,6 +210,10 @@ func collectChangesUpTo(dir string, limit int) changesMsg {
 
 	msg.Branch, msg.Upstream = st.Branch, st.Upstream
 	msg.Ahead, msg.Behind = st.Ahead, st.Behind
+	msg.Detached, msg.Operation = st.Detached, st.Operation
+	if st.Detached {
+		msg.Head = st.Head
+	}
 	if ferr != nil {
 		msg.Error = ferr.Error()
 		return msg
@@ -191,6 +226,7 @@ func collectChangesUpTo(dir string, limit int) changesMsg {
 		msg.Files = append(msg.Files, changeView{
 			Path: f.Path, Status: f.Status, Label: f.Label,
 			Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
+			Stamp: gitx.Stamp(root, f.Path),
 		})
 	}
 	return msg
@@ -220,6 +256,13 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 		text, err := gitx.Diff(dir, file)
 		if err != nil {
 			msg.Error = err.Error()
+		} else if strings.TrimSpace(text) == "" && notUTF8Name(dir, file) {
+			// The window was sent this name as JSON, with its bytes that are not
+			// UTF-8 replaced, and the name it asks about is not a file at all:
+			// the diff was empty, and was explained as a file that matches the
+			// last commit.
+			msg.Text = "(this file's name is not valid UTF-8, so its diff cannot be shown here — look at it in a terminal. " +
+				"A commit still includes it.)"
 		} else if strings.TrimSpace(text) == "" {
 			// Binary content is not the explanation it once looked like: git
 			// says "Binary files differ" for a tracked one and gitx renders an
@@ -233,6 +276,17 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 	}()
 }
 
+// notUTF8Name reports whether a name the window asked about carries the
+// replacement character JSON put in place of bytes that were not UTF-8, and
+// names nothing in the working tree as it is spelled.
+func notUTF8Name(dir, file string) bool {
+	if !strings.ContainsRune(file, utf8.RuneError) {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(file)))
+	return err != nil
+}
+
 // commitChanges stages everything in a working tree and commits it, optionally
 // pushing afterwards.
 //
@@ -241,7 +295,7 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 // is refused when what it would record is no longer what was listed, and the
 // answer that follows is the tree as it is now. A window that sends no list
 // commits everything, as the button always did.
-func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, unlisted int) {
+func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -255,17 +309,22 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 		answered := false
 		defer func() {
 			if !answered {
-				s.sendChanges(c, dir, asked)
+				s.sendChanges(c, dir, asked, "")
 			}
 		}()
 		dir = repoRoot(dir)
 		commit := func() error { return gitx.CommitAll(dir, message) }
 		if listed != nil {
-			commit = func() error { return commitReviewed(dir, message, listed, unlisted) }
+			r := gitx.Reviewed{Files: listed, Stamps: stamps, Unlisted: unlisted}
+			commit = func() error { return commitReviewed(dir, message, r) }
 		}
 		if err := commit(); err != nil {
 			c.notify(err.Error(), true)
-			s.sendChanges(c, dir, asked)
+			reason := ""
+			if gitx.IsMoved(err) {
+				reason = "refused"
+			}
+			s.sendChanges(c, dir, asked, reason)
 			answered = true
 			return
 		}
@@ -277,7 +336,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 				c.notify(remoteSummary("push", out), false)
 			}
 		}
-		s.sendChanges(c, dir, asked)
+		s.sendChanges(c, dir, asked, "committed")
 		answered = true
 		// The pane headers show the same counts, so refresh them too. Asking
 		// the git loop rather than sweeping here keeps one sweep running at a
@@ -317,7 +376,7 @@ func (s *Server) runRemote(c *controlClient, action, path string) {
 		} else {
 			c.notify(remoteSummary(action, out), false)
 		}
-		s.sendChanges(c, dir, asked)
+		s.sendChanges(c, dir, asked, "")
 		s.RefreshGitNow()
 	}()
 }

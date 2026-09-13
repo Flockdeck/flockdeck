@@ -390,10 +390,15 @@ type command struct {
 	Join   string `json:"join"`
 	Invite string `json:"invite"`
 	// Files and Omitted are the review panel's list as a commit is asked for
-	// from it: the files it showed, and how many more it left out. The commit
-	// is refused when the tree no longer matches them.
-	Files   []string `json:"files"`
-	Omitted int      `json:"omitted"`
+	// from it: the files it showed, and how many more it left out. Stamps are
+	// those files' stamps as they were listed. The commit is refused when the
+	// tree no longer matches them.
+	Files   []string          `json:"files"`
+	Omitted int               `json:"omitted"`
+	Stamps  map[string]string `json:"stamps"`
+	// Follow marks a listing the review panel asked for by itself, because
+	// the pane counts moved, rather than one somebody opened or refreshed.
+	Follow bool `json:"follow"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1046,13 +1051,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.revealPane(c, cmd.Root, cmd.Node, cmd.ID)
 		return
 	case "changes":
-		s.listChanges(c, cmd.Path)
+		s.listChanges(c, cmd.Path, cmd.Follow)
 		return
 	case "diff":
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Omitted)
+		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted)
 		return
 	case "gitPush":
 		s.runRemote(c, "push", cmd.Path)

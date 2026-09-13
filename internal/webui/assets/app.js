@@ -5192,7 +5192,46 @@
     const now = countsIn(s, changes.cwd);
     if (now === changesCounts) return;
     changesCounts = now;
-    send({ cmd: "changes", path: changes.cwd });
+    // follow, so the server knows nobody asked to see this one: its new rows
+    // are marked rather than taken as looked at (see reviewSeen).
+    send({ cmd: "changes", path: changes.cwd, follow: true });
+  }
+
+  /** What somebody has looked at in the review, as the commit made from it
+   *  sends back: the checkout, each listed file's stamp by path, and how many
+   *  more the list left out.
+   *
+   *  The panel reads the tree again by itself whenever an agent moves it, and
+   *  the commit sent whatever the latest reading held, so a file an agent
+   *  added a moment before the press joined the commit with nobody having
+   *  seen it. The list the commit sends is the one shown when the panel
+   *  opened or Refresh was pressed; the server refuses it when the tree has
+   *  moved since, and answers with the tree as it is, which is then the list
+   *  to check. reviewBase is the list the rows are marked against, which the
+   *  refusal leaves alone so the rows that moved stay marked. */
+  let reviewSeen = null;
+  let reviewBase = null;
+
+  function reviewOf(msg) {
+    return { cwd: msg.cwd, stamps: new Map((msg.files || []).map((f) => [f.path, f.stamp || ""])), omitted: msg.omitted || 0 };
+  }
+
+  function noteReview(msg) {
+    const listing = reviewOf(msg);
+    if (!reviewSeen || reviewSeen.cwd !== msg.cwd || msg.reason === "asked" || msg.reason === "committed") {
+      reviewSeen = reviewBase = listing;
+    } else if (msg.reason === "refused") {
+      reviewSeen = listing;
+    }
+  }
+
+  /** How a file differs from the list somebody last looked at: "new", "edited"
+   *  or "" for not at all. */
+  function reviewMark(f) {
+    if (!reviewBase || !changes || reviewBase.cwd !== changes.cwd) return "";
+    if (!reviewBase.stamps.has(f.path)) return "new";
+    const was = reviewBase.stamps.get(f.path);
+    return was && f.stamp && was !== f.stamp ? "edited" : "";
   }
   /** The two parts of the dialog that change on their own: the file rows, so
    *  the chosen one can be marked, and the panel the diff is drawn in. Picking
@@ -5222,6 +5261,7 @@
     changeView = null;
     if (msg) {
       changes = msg;
+      noteReview(msg);
       // Whatever was under way has answered, and this is the tree the counts
       // are now measured against.
       changesBusy = false;
@@ -5247,8 +5287,22 @@
 
     // --- branch and remote state ------------------------------------------
     const head = el("div", "rev-head");
-    head.append(describe(el("span", "rev-branch", m.branch || "detached"), TIPS.branch));
-    if (m.upstream) {
+    // A rebase or a bisect runs on a detached HEAD, and the listing names
+    // the branch it will go back to: shown as that branch, with "no upstream
+    // yet" and a Push that could only fail.
+    if (m.operation) {
+      head.append(describe(el("span", "rev-branch", m.operation + " " + (m.branch || "a detached HEAD")),
+        "This checkout is in the middle of " + (m.operation === "rebasing" ? "a rebase" : "a bisect") +
+        ", with no branch checked out, so there is nothing to push. Finish or abort it in a terminal."));
+    } else if (m.detached) {
+      head.append(describe(el("span", "rev-branch", "detached at " + (m.head || "HEAD")),
+        "No branch is checked out here, so there is nothing to push. Check out a branch in a terminal to push from it."));
+    } else {
+      head.append(describe(el("span", "rev-branch", m.branch || "detached"), TIPS.branch));
+    }
+    if (m.detached) {
+      // Nothing about an upstream applies: there is no branch to have one.
+    } else if (m.upstream) {
       let track = m.upstream;
       if (m.ahead) track += "  ↑" + m.ahead;
       if (m.behind) track += "  ↓" + m.behind;
@@ -5261,7 +5315,12 @@
         label.push(m.ahead + (m.ahead === 1 ? " commit ahead" : " commits ahead"));
       }
       if (m.behind) {
-        parts.push(TIPS.behind);
+        // Pull only fast-forwards, so a branch that is ahead as well is not
+        // offered one, and "Pull to catch up" would send the reader looking
+        // for a button that is not there.
+        parts.push(m.ahead
+          ? "Both have moved on, so this branch cannot simply catch up: merge or rebase in a terminal, then push."
+          : TIPS.behind);
         label.push(m.behind + (m.behind === 1 ? " commit behind" : " commits behind"));
       }
       const tr = el("span", "rev-track", track);
@@ -5298,18 +5357,25 @@
       fetch.id = "rev-fetch";
       fetch.onclick = () => { running(fetch, "Fetching…"); send({ cmd: "gitFetch", path: m.cwd }); };
       actions.append(fetch);
-      if (m.behind) {
+      // Pull only ever fast-forwards, which a branch with commits of its own
+      // as well cannot do: offered then, it could only answer with an error.
+      if (m.behind && !m.ahead && !m.detached) {
         const pull = el("button", "chip", "Pull " + m.behind);
         pull.id = "rev-pull";
         pull.title = "Fast-forward from " + m.upstream;
         pull.onclick = () => { running(pull, "Pulling…"); send({ cmd: "gitPull", path: m.cwd }); };
         actions.append(pull);
       }
-      const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
-      push.id = "rev-push";
-      push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
-      push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
-      actions.append(push);
+      // With no branch checked out there is nothing to push.
+      if (!m.detached) {
+        const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
+        push.id = "rev-push";
+        // The first push goes to origin, or to the only remote when there is
+        // no origin; "to origin" was wrong for a repository without one.
+        push.title = m.upstream ? "Push to " + m.upstream : "Push this branch for the first time, and track it on the remote from then on";
+        push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
+        actions.append(push);
+      }
     }
     const refresh = el("button", "chip", "Refresh");
     refresh.id = "rev-refresh";
@@ -5326,13 +5392,21 @@
       const split = el("div", "rev-body");
       const list = el("div", "rev-files");
       const rows = new Map();
+      let moved = 0; // rows marked as changed since the list was looked at
       files.forEach((f) => {
-        const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
+        const mark = reviewMark(f);
+        if (mark) moved++;
+        const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : "") + (mark ? " moved" : ""));
         // A prefix of its own: the dialog's buttons are rev-push, rev-pull and
         // the rest, and a file called push at the top of the tree was named
         // as the Push button, which a redraw put the keyboard back on.
         row.id = "rev-file-" + encodeURIComponent(f.path);
         row.append(el("span", "rev-kind", f.label));
+        if (mark) {
+          row.append(describe(el("span", "rev-mark", mark), mark === "new"
+            ? "Not in the list when you last looked at it."
+            : "Written to again since you last looked at it."));
+        }
         // Long paths are elided from the left, keeping the file name visible.
         const name = el("span", "rev-name", f.path);
         name.title = f.path;
@@ -5384,8 +5458,10 @@
       const box = el("textarea");
       box.id = "commit-message";
       box.placeholder = "Commit message (Ctrl+Enter commits)";
-      box.value = commitDraft;
-      box.oninput = () => { commitDraft = box.value; };
+      // A draft belongs to the checkout it was written for: one draft for
+      // them all carried a message into the review of another worktree.
+      box.value = commitDrafts.get(m.cwd) || "";
+      box.oninput = () => { commitDrafts.set(m.cwd, box.value); };
       const buttons = el("div", "rev-commit-buttons");
       const doCommit = (btn, push) => {
         // The buttons wait while anything is out, and the message box, which
@@ -5395,12 +5471,18 @@
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
-        // What was listed goes with the commit. Agents go on writing while
-        // the list is read, and the commit staged whatever was in the tree
-        // when it was pressed; the server now refuses a tree that has moved.
-        send({ cmd: "commit", path: m.cwd, text: message, push,
-          files: files.map((f) => f.path), omitted: m.omitted || 0 });
+        // What was looked at goes with the commit, stamps and all, rather
+        // than whatever the latest reading of the tree holds: the server
+        // refuses a tree that has moved since.
+        const seen = reviewSeen && reviewSeen.cwd === m.cwd ? reviewSeen : reviewOf(m);
+        const cmd = { cmd: "commit", path: m.cwd, text: message, push, files: [...seen.stamps.keys()], omitted: seen.omitted };
+        // Only the files that were stamped: a server that stamps nothing is
+        // sent the commit it always was.
+        const stamps = [...seen.stamps].filter(([, s]) => s);
+        if (stamps.length) cmd.stamps = Object.fromEntries(stamps);
+        send(cmd);
         commitPending = true;
+        commitPendingCwd = m.cwd;
       };
       // The server lists at most two thousand files and counts the rest, and
       // the button counted only the ones listed while the commit records every
@@ -5409,6 +5491,14 @@
       const total = files.length + (m.omitted || 0);
       if (m.omitted) {
         body.append(el("div", "rev-omitted", m.omitted.toLocaleString("en") + " more not listed — the commit includes them"));
+      }
+      const gone = reviewBase && reviewBase.cwd === m.cwd
+        ? [...reviewBase.stamps.keys()].filter((p) => !rows.has(p)).length : 0;
+      if (moved || gone) {
+        const parts = [];
+        if (moved) parts.push(moved + (moved === 1 ? " marked file has" : " marked files have") + " changed since you looked");
+        if (gone) parts.push(gone + (gone === 1 ? " file you saw is" : " files you saw are") + " no longer changed");
+        body.append(el("div", "rev-moved", parts.join(", and ") + ". Check the list before committing."));
       }
       const c1 = el("button", "chip primary", "Commit " + total + " file" + (total === 1 ? "" : "s"));
       c1.id = "rev-commit";
@@ -5422,7 +5512,7 @@
         doCommit(c1, false);
       };
       buttons.append(c1);
-      if (m.hasRemote) {
+      if (m.hasRemote && !m.detached) {
         const c2 = el("button", "chip", "Commit and push");
         c2.id = "rev-commit-push";
         c2.onclick = () => doCommit(c2, true);
@@ -5437,7 +5527,8 @@
     body.append(tools);
   }
 
-  let commitDraft = "";
+  /** The commit message being written for each checkout, by its root. */
+  const commitDrafts = new Map();
   /** Whether a commit has been asked for and not yet answered. The message
    *  stays in the box until it has: a commit that fails - a hook refusing it,
    *  an identity git has not been given - answers by redrawing the dialog, and
@@ -5445,12 +5536,20 @@
    *  the redraw and had to be written again. The server's first word on a
    *  commit is a notice saying whether it was made. */
   let commitPending = false;
+  let commitPendingCwd = "";
 
   function commitAnswered(isError) {
     if (!commitPending) return;
     commitPending = false;
-    if (!isError) commitDraft = "";
+    if (!isError) commitDrafts.delete(commitPendingCwd);
   }
+
+  /** The diff of a row chosen within diffGap of the last one asked for waits
+   *  for the rest of that gap, and only the row the selection is on by then
+   *  is asked about. */
+  const diffGap = 150;
+  let diffTimer = 0;
+  let diffAskedAt = 0;
 
   /** selectChangedFile shows one file's diff. Only the marking on the rows and
    *  the diff panel change: rebuilding the dialog would take the commit box
@@ -5462,7 +5561,21 @@
     diffText = "";
     markSelectedFile();
     fillDiff();
-    send({ cmd: "diff", path: cwd, text: path });
+    // Arrowing down the list asked for the diff of every row passed on the
+    // way, each one a git process or two on the far side. A row chosen on
+    // its own is still asked about at once; one chosen hard on the heels of
+    // another waits out the gap, and only the row the selection has reached
+    // by then is asked about.
+    clearTimeout(diffTimer);
+    const ask = () => {
+      diffTimer = 0;
+      if (dialog !== "changes" || selectedFile !== path) return;
+      diffAskedAt = Date.now();
+      send({ cmd: "diff", path: cwd, text: path });
+    };
+    const wait = diffAskedAt + diffGap - Date.now();
+    if (wait <= 0) ask();
+    else diffTimer = setTimeout(ask, wait);
   }
 
   function markSelectedFile() {
@@ -5493,7 +5606,9 @@
   }
 
   function showDiff(msg) {
-    if (msg.file !== selectedFile) return; // a stale reply for another file
+    // A stale reply for another file -- or for a file of the same name in
+    // another checkout, reviewed a moment before this one.
+    if (msg.file !== selectedFile || !changes || msg.cwd !== changes.cwd) return;
     // A diff already on show is being read again, and the reader's place in
     // it is kept; a file just chosen starts at its top.
     const again = !!diffText;
