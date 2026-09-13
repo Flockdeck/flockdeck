@@ -126,3 +126,39 @@ func TestRelIsAlwaysSlashSeparated(t *testing.T) {
 		t.Errorf("Rel = %q, want internal/chat/tool.go", got)
 	}
 }
+
+// A link whose target is not there yet cannot be followed to see where it
+// leads, but writing through it creates that target: a link in the pane to a
+// file outside it, not yet made, would have had it made there. The target is
+// where the path leads, so one outside is refused and one inside is not.
+func TestALinkToAFileNotYetMadeIsJudgedByWhereItLeads(t *testing.T) {
+	root, outside := newRoot(t), t.TempDir()
+	target := filepath.Join(outside, "made.txt")
+	if err := os.Symlink(target, filepath.Join(root.Dir(), "out")); err != nil {
+		t.Skipf("cannot make a link here: %v", err)
+	}
+	if err := os.Symlink("made.txt", filepath.Join(root.Dir(), "in")); err != nil {
+		t.Fatal(err)
+	}
+	w := &writeFile{root: root}
+
+	if _, err := root.Resolve("out"); !errors.Is(err, ErrOutsideRoot) {
+		t.Errorf("Resolve(out) = %v; want a refusal", err)
+	}
+	if q := w.Approval(rawArgs(t, map[string]any{"path": "out", "content": "x"})); q != "" {
+		t.Errorf("the write through the link out was put to the user: %q", q)
+	}
+	if _, err := call(t, w, map[string]any{"path": "out", "content": "x"}); !errors.Is(err, ErrOutsideRoot) {
+		t.Errorf("writing through the link out: %v; want a refusal", err)
+	}
+	if _, err := os.Lstat(target); err == nil {
+		t.Errorf("%s was made outside the working directory", target)
+	}
+
+	if _, err := call(t, w, map[string]any{"path": "in", "content": "x"}); err != nil {
+		t.Errorf("writing through the link to a file inside: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root.Dir(), "made.txt")); err != nil || string(got) != "x" {
+		t.Errorf("the file inside holds %q, %v", got, err)
+	}
+}
