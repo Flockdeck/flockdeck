@@ -431,13 +431,47 @@ func AddNewBranch(repoDir, path, branch string) error {
 	if branchExists(repoDir, branch) {
 		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
 	}
-	_, err := run(repoDir, "worktree", "add", "-b", branch, "--no-track", "--", path)
-	if err != nil && branchExists(repoDir, branch) {
+	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, "worktree", "add", "-b", branch, "--no-track", "--", path)
+	if err != nil {
+		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
+			return fmt.Errorf("%w (%v)", err, uerr)
+		}
+	}
+	return err
+}
+
+// undoNewBranch takes back what a failed AddNewBranch left of its worktree and
+// its branch.
+//
+// A checkout given up on part way -- at worktreeTimeout, or killed with
+// Flockdeck -- leaves the worktree registered and locked "initializing", with
+// the new branch checked out in it. git will not delete a branch a worktree
+// has checked out, so deleting the branch alone failed and left both. The
+// worktree goes first, with the doubled force git asks for to remove a locked
+// one.
+//
+// Only a worktree at path on this call's branch is removed. The branch was not
+// there before the call, and git checks a branch out in one worktree at a
+// time, so that worktree is the one this call made; anything else at path is
+// somebody else's.
+func undoNewBranch(repoDir, path, branch string) error {
+	if wts, err := List(repoDir); err == nil {
+		for _, wt := range wts {
+			if wt.Branch != branch || !samePath(wt.Path, path) {
+				continue
+			}
+			if _, _, err := runCapture(context.Background(), worktreeTimeout, repoDir,
+				"worktree", "remove", "-f", "-f", "--", wt.Path); err != nil {
+				return fmt.Errorf("its unfinished worktree at %s could not be removed: %w", path, err)
+			}
+		}
+	}
+	if branchExists(repoDir, branch) {
 		// git will not delete a branch some worktree has checked out, so one
 		// that another checkout has taken in the moment since is left alone.
 		_ = DeleteBranch(repoDir, branch)
 	}
-	return err
+	return nil
 }
 
 // DeleteBranch deletes a local branch whether or not it has been merged. git
@@ -593,7 +627,9 @@ func AddFrom(repoDir, path, branch, base string) error {
 			args = append(args, base)
 		}
 	}
-	_, err := run(repoDir, args...)
+	// Under the worktree deadline, as AddNewBranch is: this too writes out a
+	// whole working tree.
+	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, args...)
 	if err != nil && branch != "" {
 		// A branch still recorded as checked out in a worktree whose directory
 		// has gone cannot be checked out again until that record is cleared,

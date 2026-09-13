@@ -33,6 +33,20 @@ const commandTimeout = 20 * time.Second
 // It is a variable so a test can shorten it; nothing else assigns to it.
 var networkTimeout = 10 * time.Minute
 
+// worktreeTimeout bounds `git worktree add`, which writes out a whole working
+// tree.
+//
+// That is no quick local read. A repository of thirty thousand files took
+// longer than commandTimeout, and git killed at the deadline is not the end of
+// it: the checkout runs in a child git starts, which goes on writing files
+// after its parent has gone, and the worktree it leaves is registered, locked
+// "initializing", with the new branch checked out in it, so that the branch
+// cannot be deleted. Nothing is waiting on it -- a fan-out makes its worktrees
+// off the UI thread -- so it is given as long as a push.
+//
+// It is a variable so a test can shorten it; nothing else assigns to it.
+var worktreeTimeout = 10 * time.Minute
+
 // pipeGrace is how long git's output is waited for once git has exited.
 const pipeGrace = 2 * time.Second
 
