@@ -49,6 +49,31 @@ shell_word() {
 	esac
 }
 
+# trim_slashes writes a path without the slashes on its end, which name the
+# same directory it names without them; / is left as it is.
+trim_slashes() {
+	p=$1
+	while [ "$p" != / ] && [ "${p%/}" != "$p" ]; do p=${p%/}; done
+	printf '%s' "$p"
+}
+
+# on_path reports whether the directory $1, given without slashes on its end,
+# is one of those on PATH, which may be written with them.
+on_path() {
+	# Split on the colons alone, and with nothing in an entry read as a
+	# pattern to expand.
+	set -f
+	old_ifs=$IFS
+	IFS=:
+	on=1
+	for entry in $PATH; do
+		if [ "$(trim_slashes "$entry")" = "$1" ]; then on=0; fi
+	done
+	IFS=$old_ifs
+	set +f
+	return $on
+}
+
 # fetch downloads a URL to a file with whichever of curl and wget is present.
 # A place that cannot be reached gives up in seconds rather than hanging, so
 # that the next one is tried.
@@ -138,12 +163,16 @@ main() {
 	if [ -z "${FLOCKDECK_INSTALL_DIR:-}" ] && [ -z "${HOME:-}" ]; then
 		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
 	fi
-	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
 	# A slash on the end names the same directory, and compared as typed it
 	# did not: /usr/local/bin/ was "not on your PATH" while it was, and the
-	# flockdeck just put there was "not this one". A HOME ending in one did
-	# the same to the default.
-	while [ "$dir" != / ] && [ "${dir%/}" != "$dir" ]; do dir=${dir%/}; done
+	# flockdeck just put there was "not this one". A HOME ending in one made
+	# the default ~//.local/bin, which did the same.
+	if [ -n "${FLOCKDECK_INSTALL_DIR:-}" ]; then
+		dir=$(trim_slashes "$FLOCKDECK_INSTALL_DIR")
+	else
+		dir="$(trim_slashes "$HOME")"
+		dir="${dir%/}/.local/bin"
+	fi
 
 	# A mirror given by hand is the only place files are fetched from.
 	if [ -n "${FLOCKDECK_DOWNLOAD:-}" ]; then
@@ -209,25 +238,28 @@ main() {
 
 	# A copy found first on PATH -- a go install, say -- is the one that runs,
 	# so it is not the one to be told to start.
+	# What PATH names is compared without the slashes on its end, as $dir is:
+	# /opt/bin/ on it is where /opt/bin is, and the shell finds the copy there
+	# as /opt/bin//flockdeck.
 	found=$(command -v flockdeck 2>/dev/null || true)
 	shadowed=
-	if [ -n "$found" ] && [ "$found" != "$dir/flockdeck" ]; then
+	if [ -n "$found" ] && [ "$(trim_slashes "${found%/*}")" != "$dir" ]; then
 		shadowed=1
 	fi
-	case ":$PATH:" in
-		*":$dir:"*)
-			if [ -n "$shadowed" ]; then
-				# Quoted when it has to be: a directory with a space in it
-				# pasted as two words.
-				say "start it with: $(shell_word "$dir/flockdeck")"
-			else
-				say "start it with: flockdeck"
-			fi ;;
-		*) say "$dir is not on your PATH; add this line to your shell's profile:"
-			# Escaped for the double quotes it is printed in, so a directory with
-			# a quote, a dollar or a backslash in its name still pastes as itself.
-			printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')" ;;
-	esac
+	if on_path "$dir"; then
+		if [ -n "$shadowed" ]; then
+			# Quoted when it has to be: a directory with a space in it
+			# pasted as two words.
+			say "start it with: $(shell_word "$dir/flockdeck")"
+		else
+			say "start it with: flockdeck"
+		fi
+	else
+		say "$dir is not on your PATH; add this line to your shell's profile:"
+		# Escaped for the double quotes it is printed in, so a directory with
+		# a quote, a dollar or a backslash in its name still pastes as itself.
+		printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')"
+	fi
 	if [ -n "$shadowed" ]; then
 		say "note: the flockdeck your shell finds first is $found, not this one"
 	fi

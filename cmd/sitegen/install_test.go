@@ -272,9 +272,10 @@ func installShRunner(t *testing.T) string {
 	return sh
 }
 
-// A directory given with a slash on the end is the same directory. Compared
-// as typed, one on PATH was "not on your PATH", and the flockdeck just put
-// there was "not this one".
+// A directory given with a slash on the end is the same directory, and so is
+// one on PATH written with one. Compared as typed, one on PATH was "not on
+// your PATH", and the flockdeck just put there was "not this one". A HOME
+// ending in a slash made the default ~//.local/bin, which did the same.
 func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 	sh := installShRunner(t)
 	dir, _ := generate(t)
@@ -288,22 +289,53 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
 		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
 	})
-	home := t.TempDir()
-	path := filepath.Join(home, "install.sh")
-	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(home, "bin")
-	cmd := exec.Command(sh, path)
-	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin+"/",
-		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("install: %v\n%s", err, out)
-	}
-	if !strings.Contains(string(out), "start it with: flockdeck\n") ||
-		strings.Contains(string(out), "not on your PATH") || strings.Contains(string(out), "not this one") {
-		t.Errorf("installing into %s/ with %s on PATH said:\n%s", bin, bin, out)
+	for _, c := range []struct {
+		name string
+		// Each is given the test's home directory and says what to set:
+		// HOME, the install directory ("" for the default), and the
+		// directory on PATH.
+		env func(home string) (homeVar, installDir, onPath string)
+	}{
+		{"given with a slash", func(home string) (string, string, string) {
+			return home, home + "/bin/", home + "/bin"
+		}},
+		{"given and on PATH with a slash", func(home string) (string, string, string) {
+			return home, home + "/bin/", home + "/bin/"
+		}},
+		{"on PATH with a slash", func(home string) (string, string, string) {
+			return home, home + "/bin", home + "/bin//"
+		}},
+		{"the default under a HOME with a slash", func(home string) (string, string, string) {
+			return home + "/", "", home + "/.local/bin"
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			path := filepath.Join(home, "install.sh")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			homeVar, installDir, onPath := c.env(home)
+			cmd := exec.Command(sh, path)
+			cmd.Env = append(installEnv(r, nil), "HOME="+homeVar,
+				"PATH="+onPath+string(os.PathListSeparator)+os.Getenv("PATH"))
+			want := filepath.Join(home, ".local", "bin", "flockdeck")
+			if installDir != "" {
+				cmd.Env = append(cmd.Env, "FLOCKDECK_INSTALL_DIR="+installDir)
+				want = filepath.Join(home, "bin", "flockdeck")
+			}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, out)
+			}
+			if _, err := os.Stat(want); err != nil {
+				t.Errorf("nothing installed at %s: %v\n%s", want, err, out)
+			}
+			if !strings.Contains(string(out), "start it with: flockdeck\n") ||
+				strings.Contains(string(out), "not on your PATH") || strings.Contains(string(out), "not this one") {
+				t.Errorf("HOME=%s, FLOCKDECK_INSTALL_DIR=%s, and %s on PATH said:\n%s", homeVar, installDir, onPath, out)
+			}
+		})
 	}
 }
 
