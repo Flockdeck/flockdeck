@@ -881,6 +881,76 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	servedAs(t, dir, "og.png")
 }
 
+// The site is deployed from its repository's commits, so the generation being
+// served is the committed one. Two regenerations before a commit took each
+// other's pages as the generation before, and the second took out the files
+// the committed pages, the ones being served, still link. A regeneration keeps
+// those until a commit no longer links them.
+func TestARegenerationKeepsWhatTheCommittedPagesLink(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git to commit the site with")
+	}
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=sitegen test",
+			"-c", "user.email=sitegen@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name)))
+		return err == nil
+	}
+	// The generation being served: committed, with a page naming files one
+	// of them only through the stylesheet.
+	served := []string{"site.aaaaaaaaaa.css", "fonts/archivo.bbbbbbbbbb.woff2", "deck.cccccccccc.png"}
+	git("init", "-q")
+	write("index.html", `<link rel="stylesheet" href="site.aaaaaaaaaa.css"><img src="deck.cccccccccc.png">`)
+	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/archivo.bbbbbbbbbb.woff2") }`)
+	for _, name := range served[1:] {
+		write(name, "from the commit")
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "the generation being served")
+
+	for i := 1; i <= 2; i++ {
+		if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		for _, name := range served {
+			if !exists(name) {
+				t.Errorf("%s, which the committed pages link, was taken out by regeneration %d before a commit", name, i)
+			}
+		}
+	}
+
+	// Once the new generation is committed, nothing being served links the
+	// old one, and the next regeneration takes it out.
+	git("add", "-A")
+	git("commit", "-q", "-m", "the next generation")
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
+		t.Fatalf("run after the commit: %v", err)
+	}
+	for _, name := range served {
+		if exists(name) {
+			t.Errorf("%s was left in the site after a commit whose pages no longer link it", name)
+		}
+	}
+	servedAs(t, dir, "site.css")
+}
+
 // Links to the site shared before its files were fingerprinted show the
 // picture at https://flockdeck.ai/og.png, and Slack, Discord and X fetch it
 // again when their copy expires. So the social card is written under that

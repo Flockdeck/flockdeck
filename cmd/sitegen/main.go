@@ -44,6 +44,7 @@ import (
 	"html/template"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -488,8 +489,9 @@ func hashedFiles(out string) ([]string, error) {
 }
 
 // linked is every fingerprinted file in out that the pages already there
-// link, and that the stylesheet they link asks for in turn: the generation of
-// the site before this one.
+// link, or that the pages as out's repository last committed them link, and
+// that the stylesheet they link asks for in turn: the generation of the site
+// before this one, and the generation being served.
 //
 // prune leaves these for one more run. A page that was open before a deploy
 // goes on asking for its own generation's files after it: a lazy screenshot
@@ -497,6 +499,12 @@ func hashedFiles(out string) ([]string, error) {
 // while a deploy rolls, a page served by a server still on the old image can
 // send its requests for its files to one already on the new. Were the old
 // files gone, each of those would be a 404 on a page that works.
+//
+// The committed pages count as well as the ones on disk because the site is
+// deployed from its commits, not from the working tree. Two regenerations
+// before a commit, a release tried twice say, would otherwise take each
+// other's pages as the generation before, and the second would take out the
+// files the site being served still links.
 func linked(out string) (map[string]bool, error) {
 	hashed, err := hashedFiles(out)
 	if err != nil {
@@ -507,6 +515,9 @@ func linked(out string) (map[string]bool, error) {
 		name := p.Path
 		if name == "" {
 			name = "index.html"
+		}
+		if body, ok := committed(out, name); ok {
+			texts = append(texts, body)
 		}
 		body, err := os.ReadFile(filepath.Join(out, name))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -542,6 +553,16 @@ func linked(out string) (map[string]bool, error) {
 	}
 	mark()
 	return keep, nil
+}
+
+// committed is the file name in out as out's repository last committed it,
+// and false where out is not a repository, git is not installed, or the last
+// commit has no such file: then there is no committed generation to keep.
+// "HEAD:./" names the file relative to out, which need not be the top of its
+// repository.
+func committed(out, name string) ([]byte, bool) {
+	body, err := exec.Command("git", "-C", out, "show", "HEAD:./"+name).Output()
+	return body, err == nil
 }
 
 // prune takes out of out what a run before this one wrote and this one did
