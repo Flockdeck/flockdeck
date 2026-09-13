@@ -39,11 +39,11 @@ type replyLine struct {
 // spinner frames and token counters sitting exactly where a list item would be,
 // and thinking the agent was only musing with. A plan is markdown, and the
 // transcript is where the markdown is.
-func claudeReplies(sessionID string, maxTurns int) []string {
+func claudeReplies(home, sessionID string, maxTurns int) []string {
 	if sessionID == "" || maxTurns <= 0 {
 		return nil
 	}
-	path := claudePath(sessionID)
+	path := claudePath(home, sessionID)
 	if path == "" {
 		return nil
 	}
@@ -210,11 +210,10 @@ func isPromptContent(raw json.RawMessage) bool {
 // pattern, so a home directory with a bracket in its name -- "C:\Users\[dev]",
 // or a CLAUDE_CONFIG_DIR pointed anywhere at all -- matched nothing, and every
 // restored pane started an empty conversation instead of resuming its own.
-func claudePath(sessionID string) string {
+func claudePath(home, sessionID string) string {
 	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) {
 		return ""
 	}
-	home := claudeHome()
 	if home == "" {
 		return ""
 	}

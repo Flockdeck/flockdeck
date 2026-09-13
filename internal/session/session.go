@@ -116,6 +116,9 @@ type Session struct {
 
 	pty pty.Pty
 	cmd *pty.Cmd
+	// tree is what closing the pane ends besides its own process: see
+	// endTree.
+	tree procTree
 
 	// OnChange is invoked (often from a reader goroutine) whenever the session
 	// changes state. It must be cheap and must not call back into the session.
@@ -151,6 +154,10 @@ type Session struct {
 	// because the status machinery below runs on every chunk a pane prints and
 	// must not go looking anything up to do it.
 	patterns agent.Patterns
+	// answeredAt is how much the pane had printed when it was last answered,
+	// as written counts it. The patterns are only read in what came after it:
+	// see patternStatus.
+	answeredAt int64
 	// sawInput records that the user has typed into this pane, and startedAt
 	// when it was launched. Claude rings the bell while starting up, so
 	// without one of the two a freshly opened pane would announce that it
@@ -276,6 +283,7 @@ func Start(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("start %s: %w", cfg.Argv[0], err)
 	}
 	s.cmd = cmd
+	s.tree = containTree(cmd.Process.Pid)
 
 	go s.pumpOutput()
 	go s.wait()
@@ -683,6 +691,7 @@ func (s *Session) Write(p []byte) (int, error) {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
 		s.toolQuestion = false
+		s.answeredAt = s.written
 		if !s.hooksSeen && !s.settling {
 			s.settling = true
 			go s.settleIdle()
@@ -700,12 +709,31 @@ func (s *Session) Write(p []byte) (int, error) {
 // CSI O), and the wheel turning or the pointer moving, in the SGR (CSI <) and
 // X10 (CSI M) mouse encodings. A click is not one of them: in a program drawn
 // for the mouse, clicking an option is how a question gets answered.
+//
+// Nor are a terminal's answers to what its program asked -- where the cursor
+// is, what the terminal is, what colour the background is -- which are the
+// replies the server's isTerminalReply already tells from typing, read here a
+// sequence at a time. An agent asks those as it starts and draws, and the
+// questions are in the replay every window attaching to the pane is fed, so
+// every window answered them again: a pane with no hooks, waiting on a
+// question, was marked as answered by somebody opening the window.
 func terminalReport(p []byte) bool {
 	// passive is a mouse report's button code saying the wheel or a movement.
 	passive := func(button int) bool { return button&(64|32) != 0 }
 	for len(p) > 0 {
-		if len(p) < 3 || p[0] != 0x1b || p[1] != '[' {
+		if len(p) < 3 || p[0] != 0x1b {
 			return false
+		}
+		if n := stringReply(p); n > 0 {
+			p = p[n:]
+			continue
+		}
+		if p[1] != '[' {
+			return false
+		}
+		if n := csiReply(p); n > 0 {
+			p = p[n:]
+			continue
 		}
 		switch p[2] {
 		case 'I', 'O':
@@ -730,6 +758,57 @@ func terminalReport(p []byte) bool {
 		}
 	}
 	return true
+}
+
+// stringReply returns the length of the string sequence p begins with -- OSC,
+// DCS, APC or PM, ended by BEL or ST -- which is how a terminal answers a
+// colour query or a request for a setting, or 0 when p does not begin with a
+// whole one. Alt and a bracket or a letter send the same two bytes as the
+// start of one, but nothing typed ends them the way a reply is ended.
+func stringReply(p []byte) int {
+	switch p[1] {
+	case ']', 'P', '_', '^':
+	default:
+		return 0
+	}
+	for i := 2; i < len(p); i++ {
+		switch p[i] {
+		case 0x07:
+			return i + 1
+		case 0x1b:
+			if i+1 < len(p) && p[i+1] == '\\' {
+				return i + 2
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+// csiReply returns the length of the control sequence p begins with when it
+// is a terminal's answer -- a cursor position (R), device attributes (c), a
+// status (n), a window report (t), a mode's state ($y) -- or 0 when it is not.
+// These are the finals isTerminalReply takes for replies. Shift+F3 and a cursor
+// report can be the same bytes; that one key not counting as typing is the
+// price, as it is there.
+func csiReply(p []byte) int {
+	for i := 2; i < len(p); i++ {
+		c := p[i]
+		if c >= 0x40 && c <= 0x7e {
+			switch {
+			case c == 'R', c == 'c', c == 'n', c == 't':
+				return i + 1
+			case c == 'y' && p[i-1] == '$':
+				return i + 1
+			}
+			return 0
+		}
+		// Parameters and intermediates only; anything else is not one sequence.
+		if c < 0x20 || c > 0x3f {
+			return 0
+		}
+	}
+	return 0
 }
 
 // WriteString sends text to the process.
@@ -872,8 +951,9 @@ func (s *Session) Size() (cols, rows int) {
 	return s.cols, s.rows
 }
 
-// Close terminates the process and releases the PTY. It is safe to call on a
-// pane that has already exited, which releases the PTY on its own.
+// Close terminates the process, and what it started, and releases the PTY. It
+// is safe to call on a pane that has already exited, which releases the PTY on
+// its own.
 //
 // It returns once the process is gone, or after closeGrace. On Windows killing
 // a process only begins its end, and until that is over it holds its working
@@ -882,13 +962,33 @@ func (s *Session) Size() (cols, rows int) {
 // process" in four runs out of ten.
 func (s *Session) Close() error {
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		if s.reaped != nil {
-			select {
-			case <-s.reaped:
-			case <-time.After(closeGrace):
-			}
-		}
+		s.endTree()
 	}
 	return s.releasePTY()
+}
+
+// closedChan reports whether ch has been closed. A nil channel, which a
+// session built without a process has, never is.
+func closedChan(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitClosed waits for ch to be closed, for at most d. A nil channel is not
+// waited on.
+func waitClosed(ch <-chan struct{}, d time.Duration) {
+	if ch == nil || d <= 0 {
+		return
+	}
+	select {
+	case <-ch:
+	case <-time.After(d):
+	}
 }

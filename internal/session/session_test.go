@@ -1107,6 +1107,61 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	}
 }
 
+// TestATerminalsRepliesAreNotAnAnswer covers what a window says back to the
+// questions a program puts to its terminal: where the cursor is, what the
+// terminal is, what colour the background is. The questions are in the replay,
+// so every window attaching to the pane answers them again, and a pane with no
+// hooks waiting on a question was taken out of the count of agents needing you
+// by somebody opening a window on it.
+func TestATerminalsRepliesAreNotAnAnswer(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.startedAt = time.Now().Add(-time.Hour)
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+
+	s.publish([]byte("overwrite main.go?\x07"))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v, want waiting", st)
+	}
+	for _, reply := range []string{
+		"\x1b[12;40R",                        // the cursor's position
+		"\x1b[?1;2c",                         // primary device attributes
+		"\x1b[>0;276;0c",                     // secondary device attributes
+		"\x1b[0n",                            // status: fine
+		"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\",   // the background colour, ended by ST
+		"\x1b]10;rgb:d4d4/d4d4/d4d4\x07",     // the foreground colour, ended by BEL
+		"\x1b[?2004;1$y",                     // a mode's state
+		"\x1b[12;40R\x1b[?1;2c\x1b[I",        // several at once
+		"\x1bP>|xterm.js(5.5.0)\x1b\\",       // the terminal's name and version
+		"\x1b[8;24;80t",                      // the window's size
+		"\x1b[?62;4c\x1b]11;rgb:0/0/0\x1b\\", // a reply of each kind together
+	} {
+		if err := s.WriteString(reply); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if st, _ := s.Status(); st != StatusWaiting {
+			t.Fatalf("status = %v after the terminal replied %q; nothing was answered", st, reply)
+		}
+	}
+	s.mu.RLock()
+	typed := s.sawInput
+	s.mu.RUnlock()
+	if typed {
+		t.Error("the terminal's replies were taken for somebody typing")
+	}
+
+	// Typing behind a reply is still typing.
+	if err := s.WriteString("\x1b[12;40Ry"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after typing behind a reply, want working", st)
+	}
+}
+
 // TestEnterAnswersAPermissionPrompt covers the one question no hook reports
 // the answer to. Claude asks permission for a tool after the PreToolUse naming
 // it, and after approving it says nothing more until the tool has finished, so
@@ -1445,6 +1500,52 @@ func TestPatternsSharpenTheFallback(t *testing.T) {
 	s.publish([]byte("\noverwrite config.go? (y/n) "))
 	if st, detail := s.Status(); st != StatusWorking || detail != "Bash" {
 		t.Errorf("status = %v/%q; a reported lifecycle beats a pattern", st, detail)
+	}
+}
+
+// TestAnAnsweredQuestionIsNotAskedAgain covers the output that follows an
+// answer to a question the patterns found. The question is still on screen --
+// the answer is echoed on the end of its line -- so the next chunk the pane
+// printed read it again and put the pane back to waiting, on a fresh clock,
+// for a question nobody was being asked any more.
+func TestAnAnsweredQuestionIsNotAskedAgain(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	s.sawInput = true
+	s.startedAt = time.Now()
+	s.status = StatusIdle
+	s.idleAfter = time.Minute
+	s.patterns = foldPatterns(agent.Patterns{Waiting: []string{"(y/n)"}, Idle: []string{"ready."}})
+
+	s.publish([]byte("writing main.go\noverwrite main.go? (y/n) "))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Fatalf("status = %v at a question, want waiting", st)
+	}
+	if err := s.WriteString("y\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Fatalf("status = %v after answering, want working", st)
+	}
+
+	// The echo of the answer, and a little of the work it allowed.
+	for _, chunk := range []string{"y\r\n", "wrote main.go\r\n"} {
+		s.publish([]byte(chunk))
+		if st, _ := s.Status(); st != StatusWorking {
+			t.Fatalf("status = %v after %q; the question was answered", st, chunk)
+		}
+	}
+
+	// What the pane says after the answer is still read.
+	s.publish([]byte("Ready."))
+	if st, _ := s.Status(); st != StatusIdle {
+		t.Errorf("status = %v back at its prompt, want idle", st)
+	}
+	s.publish([]byte("\noverwrite go.mod? (y/n) "))
+	if st, _ := s.Status(); st != StatusWaiting {
+		t.Errorf("status = %v at the next question, want waiting", st)
 	}
 }
 

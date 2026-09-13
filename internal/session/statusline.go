@@ -52,6 +52,12 @@ type StatusLine struct {
 	// Cwd is where the pane runs, which is where Claude Code looks for the
 	// project's own settings.
 	Cwd string
+	// Home is Claude Code's own folder as the pane will have it, which is where
+	// it looks for the user's settings. A catalog entry that sets
+	// CLAUDE_CONFIG_DIR -- the usual way to run a second account -- moves it
+	// away from Flockdeck's own, and reading Flockdeck's carried the other
+	// account's status line. Empty is Flockdeck's own.
+	Home string
 }
 
 // utf8BOM is the byte order mark some Windows editors put at the start of a
@@ -116,7 +122,11 @@ func statusLineSetting(sl StatusLine, sessionID, selfExe string) map[string]any 
 	if sl.Mode == StatusLineOff || sl.Endpoint == "" {
 		return nil
 	}
-	user := userStatusLine(sl.Cwd, transcript.ClaudeHome())
+	home := sl.Home
+	if home == "" {
+		home = transcript.ClaudeHome()
+	}
+	user := userStatusLine(sl.Cwd, home)
 	if user == nil && sl.Mode != StatusLineOn {
 		return nil
 	}

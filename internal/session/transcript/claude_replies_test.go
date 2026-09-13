@@ -32,11 +32,11 @@ func TestPathIsFoundUnderAHomeWithBrackets(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"hello"}}`)
 
 	want := filepath.Join(home, "projects", "C--Users-dev-repo", id+".jsonl")
-	if got := claudePath(id); got != want {
+	if got := claudePath(claudeHome(), id); got != want {
 		t.Errorf("claudePath = %q, want %q", got, want)
 	}
 	// An id is a file name and nothing more.
-	if got := claudePath(`..\` + id); got != "" {
+	if got := claudePath(claudeHome(), `..\`+id); got != "" {
 		t.Errorf("claudePath of a path = %q, want nothing", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestPathPrefersACopyWithSomethingInIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := claudePath(id); got != full {
+	if got := claudePath(claudeHome(), id); got != full {
 		t.Errorf("claudePath = %q, want the copy with the conversation in it, %q", got, full)
 	}
 	if !Exists(claudeSpec, id) {
@@ -86,7 +86,7 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"You are welcome."}]}}`,
 	)
 
-	got := claudeReplies(id, 4)
+	got := claudeReplies(claudeHome(), id, 4)
 	if len(got) != 2 {
 		t.Fatalf("read %d turns, want 2: %#v", len(got), got)
 	}
@@ -111,7 +111,7 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 
 	// A tool result must not split a turn: everything said in reply to one
 	// prompt belongs together.
-	if n := len(claudeReplies(id, 1)); n != 1 {
+	if n := len(claudeReplies(claudeHome(), id, 1)); n != 1 {
 		t.Errorf("asked for 1 turn, got %d", n)
 	}
 }
@@ -120,10 +120,10 @@ func TestRecentRepliesReadsWhatTheAgentSaid(t *testing.T) {
 // has not said anything yet.
 func TestRecentRepliesWithoutATranscript(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "does-not-exist"))
-	if got := claudeReplies("11111111-2222-3333-4444-555555555555", 4); got != nil {
+	if got := claudeReplies(claudeHome(), "11111111-2222-3333-4444-555555555555", 4); got != nil {
 		t.Errorf("RecentReplies = %#v, want nothing", got)
 	}
-	if got := claudeReplies("", 4); got != nil {
+	if got := claudeReplies(claudeHome(), "", 4); got != nil {
 		t.Errorf("RecentReplies with no session = %#v, want nothing", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestRecentRepliesSkipsUnparseableLines(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the thing"}]}}`,
 		`{"type":"assistant","message":{"role":"assist`,
 	)
-	got := claudeReplies(id, 4)
+	got := claudeReplies(claudeHome(), id, 4)
 	if len(got) != 1 || !strings.Contains(got[0], "Do the thing") {
 		t.Errorf("RecentReplies = %#v", got)
 	}
@@ -157,7 +157,7 @@ func TestRecentRepliesKeepsATurnWholeAcrossSyntheticEntries(t *testing.T) {
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- Do the second thing"}]}}`,
 	)
 
-	got := claudeReplies(id, 4)
+	got := claudeReplies(claudeHome(), id, 4)
 	if len(got) != 1 {
 		t.Fatalf("read %d turns, want 1: %#v", len(got), got)
 	}
@@ -183,7 +183,7 @@ func TestRecentRepliesKeepsALineTheTailBeginsWith(t *testing.T) {
 	reply := open + strings.Repeat("x", replyTailBytes-1-len(open)-len(shut)) + shut
 	id := writeReplies(t, head, reply)
 
-	got := claudeReplies(id, 1)
+	got := claudeReplies(claudeHome(), id, 1)
 	if len(got) != 1 || !strings.HasPrefix(got[0], "- the plan") {
 		t.Fatalf("read %d turns, want the reply the tail begins with", len(got))
 	}
@@ -208,10 +208,10 @@ func TestTranscriptPathPrefersTheLiveCopy(t *testing.T) {
 	touch(t, stale, now.Add(-24*time.Hour))
 	touch(t, live, now)
 
-	if got := claudePath(id); got != live {
+	if got := claudePath(claudeHome(), id); got != live {
 		t.Errorf("TranscriptPath = %q, want the most recently written copy %q", got, live)
 	}
-	got := claudeReplies(id, 1)
+	got := claudeReplies(claudeHome(), id, 1)
 	if len(got) != 1 || !strings.Contains(got[0], "live answer") {
 		t.Errorf("RecentReplies read the stale transcript: %#v", got)
 	}

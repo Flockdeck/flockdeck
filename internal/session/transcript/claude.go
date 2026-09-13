@@ -23,21 +23,21 @@ import (
 
 // Claude reads the transcripts Claude Code writes: one JSONL file per session,
 // under a folder per working directory, below Claude Code's own state
-// directory. None of that comes from the Spec, because it is Claude Code's
-// arrangement rather than Flockdeck's, and Flockdeck only reproduces enough of it to
-// find the files.
+// directory. Only where that state directory is comes from the Spec: the rest
+// is Claude Code's arrangement rather than Flockdeck's, and Flockdeck only
+// reproduces enough of it to find the files.
 type Claude struct{}
 
-func (Claude) Path(_ agent.Spec, sessionID string) string {
-	return claudePath(sessionID)
+func (Claude) Path(spec agent.Spec, sessionID string) string {
+	return claudePath(ClaudeHomeFor(spec), sessionID)
 }
 
-func (Claude) Replies(_ agent.Spec, sessionID string, n int) []string {
-	return claudeReplies(sessionID, n)
+func (Claude) Replies(spec agent.Spec, sessionID string, n int) []string {
+	return claudeReplies(ClaudeHomeFor(spec), sessionID, n)
 }
 
 func (Claude) Conversations(spec agent.Spec, cwd string) ([]Conversation, error) {
-	found, err := claudeConversations(cwd)
+	found, err := claudeConversations(ClaudeHomeFor(spec), cwd)
 	return label(spec.ID, found), err
 }
 
@@ -45,9 +45,42 @@ func (Claude) Conversations(spec agent.Spec, cwd string) ([]Conversation, error)
 // settings, and the login whose limits every Claude pane shares.
 func ClaudeHome() string { return claudeHome() }
 
+// ClaudeHomeFor returns the directory Claude Code keeps its state in for a
+// pane running spec.
+//
+// A catalog entry may set CLAUDE_CONFIG_DIR, which is the usual way to run a
+// second Claude account, and the entry's environment is laid over Flockdeck's
+// own in the pane, the last setting of a name winning. Reading Flockdeck's own
+// instead looked for the pane's transcripts under the other account: a restart
+// found nothing to resume and started the conversation again, task and all,
+// and the history listed the wrong account's. The catalog has already expanded
+// the variables in the value.
+func ClaudeHomeFor(spec agent.Spec) string {
+	for i := len(spec.Env) - 1; i >= 0; i-- {
+		name, value, ok := strings.Cut(spec.Env[i], "=")
+		if ok && sameEnvName(name, "CLAUDE_CONFIG_DIR") {
+			return homeFrom(value)
+		}
+	}
+	return claudeHome()
+}
+
+// sameEnvName compares environment variable names the way the platform does:
+// without regard to case on Windows, exactly everywhere else.
+func sameEnvName(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 // claudeHome returns the directory Claude Code keeps its state in.
-func claudeHome() string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+func claudeHome() string { return homeFrom(os.Getenv("CLAUDE_CONFIG_DIR")) }
+
+// homeFrom returns the directory Claude Code keeps its state in when
+// CLAUDE_CONFIG_DIR says dir, which it takes as unset when it is empty.
+func homeFrom(dir string) string {
+	if dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()
@@ -204,12 +237,11 @@ type transcriptLine struct {
 // each one records. If nothing in there is ours the folders are searched for
 // one whose transcripts record this directory, which is where a folder Claude
 // named differently turns up.
-func claudeConversations(cwd string) ([]Conversation, error) {
+func claudeConversations(home, cwd string) ([]Conversation, error) {
 	// A directory named with a separator on the end is the same directory,
 	// but it derives a folder name with a dash on the end, and the folders of
 	// the worktrees inside it no longer start with that name.
 	cwd = filepath.Clean(cwd)
-	home := claudeHome()
 	if home == "" {
 		return nil, nil
 	}
@@ -273,10 +305,15 @@ func claudeConversations(cwd string) ([]Conversation, error) {
 //
 // A directory inside cwd derives a folder whose name begins with cwd's own,
 // which is what these are found by. That also matches a sibling whose name
-// merely starts the same way, so each candidate is asked what its transcripts
-// record before it is read; the answer is the one the folder search already
-// keeps, so a folder that is nothing to do with us costs a couple of reads
-// once.
+// merely starts the same way, and which transcripts in either are ours is
+// decided per transcript, by what each records.
+//
+// Not by asking the folder first. The folder search reads only the first few
+// transcripts in a folder, in the order the folder lists them -- which, with
+// session ids for names, is no order at all -- and a worktree is mostly its own
+// work: a conversation that moved in from the project sorted after five of
+// those was never offered here. What conversationsIn reads is kept against the
+// folder, so the cost of reading all of them is paid once per transcript.
 func conversationsUnder(projects, cwd string) []Conversation {
 	entries, err := os.ReadDir(projects)
 	if err != nil {
@@ -290,15 +327,8 @@ func conversationsUnder(projects, cwd string) []Conversation {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		records, files := folderRecords(dir)
-		mentions := false
-		for _, got := range records {
-			if sameDir(got, cwd) {
-				mentions = true
-				break
-			}
-		}
-		if !mentions {
+		files, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
 		// Only what ran here. A transcript of the worktree's own work is the

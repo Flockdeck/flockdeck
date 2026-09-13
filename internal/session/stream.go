@@ -641,8 +641,21 @@ func (s *Session) patternStatus() (Status, bool) {
 	if len(s.patterns.Waiting) == 0 && len(s.patterns.Idle) == 0 {
 		return StatusIdle, false
 	}
-	raw, truncated := s.history.tail(patternBytes)
-	if truncated {
+	// Only what the pane has printed since it was last answered. A question
+	// stays on screen after it is answered -- "Overwrite main.go? (y/n)" with
+	// the "y" echoed after it -- so the next few bytes of output read it again
+	// and put the pane straight back to waiting, with a clock started afresh
+	// on a question nobody is being asked any more.
+	n := int64(patternBytes)
+	cut := true
+	if since := s.written - s.answeredAt; s.answeredAt > 0 && since < n {
+		if since <= 0 {
+			return StatusIdle, false
+		}
+		n, cut = since, false
+	}
+	raw, truncated := s.history.tail(int(n))
+	if truncated && cut {
 		raw = dropPartialLine(raw)
 	}
 	return matchPatterns(stripANSI(raw), s.patterns)
