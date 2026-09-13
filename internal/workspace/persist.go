@@ -676,6 +676,12 @@ func (w *Workspace) RestoreSession() int {
 	} else {
 		w.focusFirstTabOf(w.activeRoot)
 	}
+	// Every project reopened here was recorded as used as it came back, after
+	// the one this run was started on, and so went ahead of it in the recent
+	// list: the picker led with whichever project happened to be last in the
+	// saved session rather than the one the user is in. It is put back at the
+	// front, which is only a read when it is there already.
+	_ = store.TouchRecent(w.activeRoot)
 	return opened
 }
 
