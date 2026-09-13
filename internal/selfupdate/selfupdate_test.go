@@ -1009,7 +1009,15 @@ func TestApplyWaitsOutAMomentsHoldOnTheNewProgram(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("only Windows refuses to rename a file that is open")
 	}
-	dir, install := t.TempDir(), t.TempDir()
+	// Apply resolves the program's path before landing the new one beside it,
+	// and on Windows that spells out a temporary directory given by its short
+	// name, as CI's runners give theirs. The hold is looked for under the name
+	// Apply will use, or it is never taken there.
+	install, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
 	exe := filepath.Join(install, binaryName)
 	if err := os.WriteFile(exe, []byte("the old program"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1025,6 +1033,8 @@ func TestApplyWaitsOutAMomentsHoldOnTheNewProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The hold is taken in the hook itself, before the rename it wraps runs,
+	// so it is always in place when the rename comes.
 	took := holdWhileRenamed(t, func(src string) bool { return src == exe+".new" })
 	if err := Apply(dir, exe); err != nil {
 		t.Fatalf("Apply with the new program held open for a moment: %v", err)
