@@ -99,3 +99,62 @@ func TestAnEmptyProgramNameIsNotAPanic(t *testing.T) {
 	tl.Approval(args)
 	tl.Prefix(args)
 }
+
+// "Always" for two words is agreed to for what those two words do. A later
+// option that writes a file wherever it says or runs a program it names goes
+// further, and so does a subcommand whose later words say what it runs: none
+// is offered standing permission, and a call answering "" is asked about even
+// after "always" for its first two words.
+func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
+	tl := &runCommand{root: newRoot(t)}
+	for _, c := range []struct{ command, want string }{
+		// git options that write where they say or run what they name.
+		{"git log --output=../elsewhere/log.txt", ""},
+		{"git log --output=log.txt", ""},
+		{"git log --out=../elsewhere/log.txt", ""},
+		{"git format-patch --output-directory ../elsewhere HEAD~1", ""},
+		{"git format-patch -o ../elsewhere HEAD~1", ""},
+		{"git format-patch -o../elsewhere HEAD~1", ""},
+		{"git format-patch -ko ../elsewhere HEAD~1", ""},
+		{"git format-patch -o .git/hooks HEAD~1", ""},
+		{"git fetch --upload-pack=touch .", ""},
+		{"git push --receive-pack=touch origin", ""},
+		{"git difftool --extcmd=touch", ""},
+		{"git grep -Otouch needle", ""},
+		{"git grep --open-files-in-pager=touch needle", ""},
+		// git subcommands whose later words say what runs.
+		{"git config core.fsmonitor touch", ""},
+		{"git submodule foreach touch x", ""},
+		{"git rebase -x touch main", ""},
+		{"git bisect run touch", ""},
+		{"git clone -u touch . copy", ""},
+		// go flags that run what they name, even set for later.
+		{"go test -exec=touch ./...", ""},
+		{"go test -toolexec touch ./...", ""},
+		{"go vet --vettool=touch ./...", ""},
+		{"go env -w GOFLAGS=-toolexec=touch", ""},
+		// npm and docker subcommands that run anything.
+		{"npm exec touch", ""},
+		{"npm x touch", ""},
+		{"npm exe touch", ""},
+		{"docker run -v /:/host alpine", ""},
+		{"docker exec box sh", ""},
+		{"docker container run alpine", ""},
+		{"docker compose run web sh", ""},
+		// What goes no further keeps its standing permission.
+		{"git log --oneline", "git log"},
+		{"git format-patch -o patches HEAD~1", "git format-patch"},
+		{"git grep -o needle", "git grep"},
+		{"git commit -o main.go -m tidy", "git commit"},
+		{"git log -- --output", "git log"},
+		{"go test -run TestExec ./...", "go test"},
+		{"go build ./cmd/foo-exec", "go build"},
+		{"npm run build", "npm run"},
+		{"docker ps", "docker ps"},
+		{"docker compose up", "docker compose"},
+	} {
+		if got := tl.Prefix(rawArgs(t, map[string]any{"command": c.command})); got != c.want {
+			t.Errorf("Prefix(%q) = %q, want %q", c.command, got, c.want)
+		}
+	}
+}

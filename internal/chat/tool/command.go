@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
@@ -107,7 +108,11 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 		return ""
 	}
 	argv, err := splitCommand(a.Command)
-	if err != nil || runsAnything(t.programNames(argv[0]), argv) {
+	if err != nil {
+		return ""
+	}
+	names := t.programNames(argv[0])
+	if runsAnything(names, argv) {
 		return ""
 	}
 	// An option in the second place names no subcommand, so the two words
@@ -116,7 +121,142 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	if len(argv) > 1 && strings.HasPrefix(argv[1], "-") {
 		return ""
 	}
+	// The prefix is what the chat loop remembers and matches later calls by,
+	// so a call answering "" here is asked about even after "always" for its
+	// first two words: that is how a standing permission is kept from a call
+	// that goes further than it.
+	if len(argv) > 1 && t.goesFurther(names, strings.ToLower(argv[1]), argv[2:]) {
+		return ""
+	}
 	return commandPrefix(argv)
+}
+
+// goesFurther reports whether a command does more than "always" for its first
+// two words was agreed to, because of what its second word is or what comes
+// after it. "Always for `git log`" was agreed to while reading a log, not for
+// `git log --output=<anywhere>`, which writes a file there; "always for `go
+// test`" not for `go test -exec <anything>`, which runs it.
+//
+// The lists are short and explicit, not complete: each entry is a way a
+// command otherwise worth agreeing to for good runs a program named in its
+// later words, or writes outside the pane.
+func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool {
+	for _, prog := range names {
+		switch prog {
+		case "git":
+			switch sub {
+			// config writes .git/config, which names programs git runs later:
+			// core.fsmonitor at the next status, core.pager, core.sshCommand.
+			// submodule foreach, rebase --exec (or -x) and bisect run run a
+			// command given in their later words, and clone -u runs one as it
+			// clones, into whatever directory it is told.
+			case "config", "submodule", "rebase", "bisect", "clone":
+				return true
+			}
+			if t.gitGoesFurther(rest) {
+				return true
+			}
+		case "go":
+			if goGoesFurther(rest) {
+				return true
+			}
+		case "npm":
+			// npm exec, and its alias x, run any package's program, as npx
+			// does. npm takes an unambiguous abbreviation of a command, so exe
+			// is exec too; explore runs a command in a package's directory.
+			if sub == "x" || strings.HasPrefix(sub, "exe") || strings.HasPrefix(sub, "explo") {
+				return true
+			}
+		case "docker":
+			// docker run and exec run a command in a container, which can be
+			// handed the host's whole file system with -v; `docker container
+			// run` and `docker compose run` are the same by longer names.
+			if sub == "run" || sub == "exec" {
+				return true
+			}
+			if sub == "container" || sub == "compose" {
+				for _, a := range rest {
+					if a == "run" || a == "exec" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// gitFurther are git's long options that write a file where they say or run a
+// program they name: log, diff and format-patch's --output, and
+// format-patch's --output-directory; fetch, pull and ls-remote's
+// --upload-pack; push's --receive-pack and --exec; difftool's --extcmd; and
+// grep's --open-files-in-pager.
+var gitFurther = []string{"output", "upload-pack", "receive-pack", "exec", "extcmd", "open-files-in-pager"}
+
+// gitGoesFurther reports whether the words after a git subcommand hold one of
+// gitFurther, or a -o or -O that goes as far.
+func (t *runCommand) gitGoesFurther(rest []string) bool {
+	for i, a := range rest {
+		if a == "--" {
+			// What follows is paths, not options.
+			break
+		}
+		if long, ok := strings.CutPrefix(a, "--"); ok {
+			name, _, _ := strings.Cut(long, "=")
+			for _, f := range gitFurther {
+				// git takes any unambiguous abbreviation of a long option, so
+				// --out is --output; --output-directory is --output's longer
+				// relation.
+				if name != "" && (strings.HasPrefix(f, name) || strings.HasPrefix(name, f)) {
+					return true
+				}
+			}
+			continue
+		}
+		short, ok := strings.CutPrefix(a, "-")
+		if !ok || short == "" {
+			continue
+		}
+		// Short options run together, the last taking its value attached or
+		// as the next word. -O is grep's --open-files-in-pager, and runs the
+		// program it names.
+		if strings.Contains(short, "O") {
+			return true
+		}
+		// -o is where format-patch and archive write; elsewhere it is
+		// harmless -- commit's --only, grep's --only-matching, push's
+		// --push-option -- and so it is judged by the file it would write: one
+		// that "always" for edits would cover, inside the pane and outside a
+		// repository's own directory, goes no further than the pane already
+		// lets a command go.
+		if _, val, ok := strings.Cut(short, "o"); ok {
+			if val == "" && i+1 < len(rest) {
+				val = rest[i+1]
+			}
+			if editPrefix(t.root, val) == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// goGoesFurther reports whether the words after a go subcommand name a
+// program for it to run: build, test, run and vet's -exec and -toolexec, and
+// vet's -vettool. Each word is looked inside as well, at every part of it
+// after an = or a space, because `go env -w GOFLAGS=-toolexec=<anything>`
+// sets one for every go command after it.
+func goGoesFurther(rest []string) bool {
+	for _, a := range rest {
+		parts := strings.FieldsFunc(a, func(r rune) bool { return r == '=' || unicode.IsSpace(r) })
+		for _, p := range parts {
+			name := strings.TrimLeft(p, "-")
+			if len(name) < len(p) && (name == "exec" || name == "toolexec" || name == "vettool") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runsAnything reports whether a command's first two words leave what will run

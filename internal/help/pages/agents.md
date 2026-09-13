@@ -52,7 +52,11 @@ model, its token counts and, for a model in the price table, the running cost,
 and tools for reading files, editing them and
 running commands; the ones that write a file or run a command ask before they
 act. A command can be let through for the rest of the session by answering
-*always*; a write is asked about every time. Anthropic, OpenAI and
+*always*; a write is asked about every time. *Always* is not offered for a
+command that can run anything at all — a shell, `git config`, `npm exec`,
+`docker run` — and a command with an option that writes a file wherever it
+says or runs a program it names, such as `git log --output` or
+`go test -exec`, is asked about even after *always*. Anthropic, OpenAI and
 Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
 a local server — Ollama, LM Studio, vLLM — or a gateway becomes an agent.
 
