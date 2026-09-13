@@ -96,7 +96,10 @@ Here, Settings › **Remote access** says what is sent:
   seconds, unless you choose otherwise. Each wait is told once, and an agent
   that is answered and then asks again is a new wait. However many agents are
   waiting, the phone is sent one notification that says how many, which
-  replaces the one before it, and no more than one a minute.
+  replaces the one before it, and no more than one a minute. Nothing is sent
+  while this window is in front of you and in use, nor about a pane you are
+  using on the phone; if it is still waiting two minutes after you leave it,
+  you are told then.
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 

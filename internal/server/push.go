@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -70,6 +71,47 @@ type pushState struct {
 	// err is why the last push asked for failed, or empty, for Settings to
 	// say.
 	err atomic.Pointer[string]
+
+	// desk is, for each window on this machine that says it is in front,
+	// when it was last used there; see setPresence.
+	deskMu sync.Mutex
+	desk   map[*controlClient]time.Time
+}
+
+// deskLook is how lately a window at the desk, in front, has to have been
+// used for the phone not to be told of a wait: see deskInUse.
+const deskLook = 2 * time.Minute
+
+// setPresence records what a window says of itself: in front of whoever is at
+// the desk, and just used, or not. A window reached through the relay is not
+// the desk, and one that has gone says nothing more.
+func (s *Server) setPresence(c *controlClient, front bool) {
+	if c == nil || c.remote {
+		return
+	}
+	s.push.deskMu.Lock()
+	defer s.push.deskMu.Unlock()
+	if !front {
+		delete(s.push.desk, c)
+		return
+	}
+	if s.push.desk == nil {
+		s.push.desk = map[*controlClient]time.Time{}
+	}
+	s.push.desk[c] = time.Now()
+}
+
+// deskInUse reports whether somebody is at the desk: a window here in front,
+// and used within deskLook of now. They can see who is waiting there.
+func (s *Server) deskInUse(now time.Time) bool {
+	s.push.deskMu.Lock()
+	defer s.push.deskMu.Unlock()
+	for _, at := range s.push.desk {
+		if now.Sub(at) < deskLook {
+			return true
+		}
+	}
+	return false
 }
 
 // pushDelay is how long a wait lasts before it is pushed.
@@ -170,6 +212,11 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	}
 	st, ok := ra.Status()
 	if !ok {
+		return nil
+	}
+	// Somebody at the desk with the window in front of them can see who is
+	// waiting. The phone is told if they leave it and the wait goes on.
+	if s.deskInUse(now) {
 		return nil
 	}
 	delay := pushDelay(s.prefs.Push)

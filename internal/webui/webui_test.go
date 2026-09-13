@@ -4413,6 +4413,27 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 `)
 }
 
+// The window tells the desktop whether it is in front and being used, which
+// the desktop asks before telling a paired phone of an agent waiting: as it
+// connects, comes to the front or goes behind, and not again for every key.
+func TestTheWindowSaysWhetherItIsInFront(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "front" }, "a window in front did not say so as it connected");
+h.doc._hasFocus = false;
+h.win.dispatchEvent(new h.Ev("blur"));
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "away" }, "a window gone behind did not say so");
+h.doc._hasFocus = true;
+h.win.dispatchEvent(new h.Ev("focus"));
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "front" }, "a window come to the front did not say so");
+const said = h.presence().length;
+h.key({ key: "a" });
+h.key({ key: "b" });
+assert.strictEqual(h.presence().length, said, "a window in front said so again for every key");
+assert.ok(!h.commands().some((c) => c.cmd === "presence"), "what the window says of itself is among the commands");
+`)
+}
+
 // Settings › Remote access has the switch for push notifications to paired
 // devices, how long a wait lasts before they are told, and the option to send
 // nothing identifying. Each reaches its setting at once, follows another
@@ -7545,7 +7566,13 @@ function boot(opts) {
     /** commands is everything the page has sent up the control connection, in
      *  order, across a reconnect as well as within one. */
     commands() {
-      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s));
+      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s)).filter((c) => c.cmd !== "presence");
+    },
+    /** presence is what the page has said of itself -- in front, or not -- up
+     *  the control connection, which commands leaves out: it is said as the
+     *  window is used, and is not what a case pressing keys is asking about. */
+    presence() {
+      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s)).filter((c) => c.cmd === "presence");
     },
     /** click presses something. A disabled control is not clicked at all — the
      *  browser does not dispatch the event — which is the whole point of

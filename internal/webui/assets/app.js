@@ -4695,6 +4695,27 @@
   window.addEventListener("focus", closeNotification);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) closeNotification(); });
 
+  /** reportPresence tells the desktop whether this window is in front and in
+   *  use, which it asks before telling a paired phone of an agent waiting:
+   *  somebody at the desk with the window in front of them can see that for
+   *  themselves. It is said as the window connects, comes to the front or goes
+   *  behind, and again at most every half a minute while it is in front and
+   *  being typed in or clicked. Nothing of what is typed goes with it. A window
+   *  reached through the relay says it too, and the desktop pays it no mind. */
+  let presence = { front: null, said: 0 };
+  function reportPresence(used) {
+    const front = !document.hidden && document.hasFocus();
+    const now = Date.now();
+    if (front === presence.front && !(front && used && now - presence.said >= 30000)) return;
+    presence = { front, said: now };
+    send({ cmd: "presence", kind: front ? "front" : "away" });
+  }
+  window.addEventListener("focus", () => reportPresence(true));
+  window.addEventListener("blur", () => reportPresence(false));
+  document.addEventListener("visibilitychange", () => reportPresence(false));
+  document.addEventListener("keydown", () => reportPresence(true), true);
+  document.addEventListener("pointerdown", () => reportPresence(true), true);
+
   function askForNotifications() {
     if (prefs.notificationsOff) return; // asked and answered, for every run
     if (!("Notification" in window) || Notification.permission !== "default") return;
@@ -4782,6 +4803,9 @@
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
+    // A desktop just connected to knows nothing of this window yet.
+    presence.front = null;
+    reportPresence(false);
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();

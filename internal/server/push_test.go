@@ -204,6 +204,51 @@ func TestAPaneUsedAtTheDeskIsStillPushed(t *testing.T) {
 	}
 }
 
+// While a window here is in front and being used, whoever is at the desk can
+// see the agents waiting, and the phone is not told; once the window has gone
+// behind something, or been left a while, it is. A window reached through the
+// relay is not the desk.
+func TestNoPushWhileTheDeskIsInUse(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+	id, since := waitingPane(t, srv, ws)
+	sendCmd(t, conn, command{Cmd: "presence", Kind: "front"})
+	waitFor(t, func() bool { return srv.deskInUse(time.Now()) })
+	if n := due(srv, since.Add(30*time.Second)); n != nil {
+		t.Errorf("pushed while the window at the desk was in front and in use: %+v", n)
+	}
+	if n := due(srv, time.Now().Add(deskLook+time.Second)); n == nil {
+		t.Error("not pushed once the window at the desk had been left a while")
+	}
+
+	// Put behind something: told at once, of a new wait.
+	answer(srv, ws, id)
+	time.Sleep(2 * time.Millisecond)
+	again := waitIn(t, srv, ws, id)
+	sendCmd(t, conn, command{Cmd: "presence", Kind: "front"})
+	waitFor(t, func() bool { return srv.deskInUse(time.Now()) })
+	sendCmd(t, conn, command{Cmd: "presence", Kind: "away"})
+	waitFor(t, func() bool { return !srv.deskInUse(time.Now()) })
+	if n := due(srv, again.Add(30*time.Second+deskLook+minPushGap)); n == nil {
+		t.Error("not pushed once the window at the desk went behind")
+	}
+
+	// A window through the relay saying it is in front is not the desk.
+	ts := remoteServer(t, srv)
+	remote, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.CloseNow()
+	sendCmd(t, remote, command{Cmd: "presence", Kind: "front"})
+	time.Sleep(100 * time.Millisecond)
+	if srv.deskInUse(time.Now()) {
+		t.Error("a window through the relay was taken for the desk")
+	}
+}
+
 // The delay is a setting, within bounds, and sent anonymously a push says only
 // how many agents are waiting, and on which machine.
 func TestThePushSettingsShapeWhatIsSent(t *testing.T) {
