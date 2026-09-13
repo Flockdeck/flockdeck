@@ -427,8 +427,16 @@ const damagedSuffix = ".damaged"
 // quarantine moves a state file out of the way, best effort. Only one copy is
 // kept per name; a second one replacing the first is no loss, because a file
 // only becomes unreadable again after a good one has been written over it.
+//
+// A file that will not move — held for a moment by the virus scanner that
+// reads every file in the state directory, or blocked by whatever stands at
+// the name it is going to — was left where the next save wrote straight over
+// it, which is the loss moving it was for. It is recorded as unread instead,
+// so that save moves it aside first, or is refused if it still cannot.
 func quarantine(path string) {
-	_ = os.Rename(path, path+damagedSuffix)
+	if err := os.Rename(path, path+damagedSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		noteRead(path, err)
+	}
 }
 
 // Save writes the state atomically so an interrupted write cannot leave a
