@@ -16,8 +16,8 @@ The extracted tasks appear in an editable box, one per line. **Nothing runs
 until you say so** — the list is a suggestion, not a decision. Edit it, delete
 the items you did not mean, add ones the agent missed. <kbd>Enter</kbd> in the
 box starts a new line rather than the run: the **Start** button under it, which
-counts the agents, is what starts them, and <kbd>Esc</kbd> closes the dialog
-without starting any.
+counts the agents, is what starts them, as does <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+in the box, and <kbd>Esc</kbd> closes the dialog without starting any.
 
 These choices go with it:
 

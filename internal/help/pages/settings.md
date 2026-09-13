@@ -51,8 +51,8 @@ word. On a narrow screen the sections go across the top.
   usage limits** in the settings. Kept in `prefs.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
   `flockdeck keys set <agent>`. Kept in `keys.json`.
-- **A tab's name** — double-click the tab, or **Rename this tab…** in the
-  command palette. An empty name, or **Use the automatic title** there, goes
+- **A tab's name** — double-click the tab, press F2 while the keyboard is on
+  it, or **Rename this tab…** in the command palette. An empty name, or **Use the automatic title** there, goes
   back to the title the tab gives itself. Kept with the layout.
 - **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
   button in each pane header; [Broadcast and the prompt bar](#broadcast) has the
