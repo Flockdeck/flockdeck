@@ -443,7 +443,7 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 		return
 	}
 	go func() {
-		defer s.survive("saving an agent's address")
+		defer s.surviveFor(c, "saving an agent's address")
 		// The address is written into the same agents.json as the defaults
 		// and the routing, read and written back whole, so it waits for
 		// those saves as they wait for one another. Saved beside one of them

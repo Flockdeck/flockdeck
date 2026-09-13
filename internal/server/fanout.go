@@ -145,7 +145,7 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 	}
 
 	go func() {
-		defer s.survive("reading the pane's plan")
+		defer s.surviveFor(c, "reading the pane's plan")
 		// Reading the transcript touches the disk and asking about the agents
 		// searches PATH, which is why both happen here rather than on the
 		// goroutine that owns the workspace.
@@ -244,7 +244,7 @@ func overrideAt(list []string, i int) string {
 // slow and the workspace goroutine also serves every window's state.
 func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 	go func() {
-		defer s.survive("fanning out")
+		defer s.surviveFor(c, "fanning out")
 		if len(req.Tasks) == 0 {
 			c.notify(fanoutSummary(0, 0))
 			return

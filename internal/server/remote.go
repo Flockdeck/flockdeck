@@ -249,7 +249,7 @@ type remotePairMsg struct {
 // it is done off the connection's own goroutine.
 func (s *Server) remoteDevices(c *controlClient) {
 	go func() {
-		defer s.survive("listing paired devices")
+		defer s.surviveFor(c, "listing paired devices")
 		msg := remoteDevicesMsg{
 			Type: "remoteDevices", Devices: []remote.Device{}, Hosts: []remote.Host{},
 			Current: c.device,
@@ -300,7 +300,7 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 		return
 	}
 	go func() {
-		defer s.survive("pairing a device")
+		defer s.surviveFor(c, "pairing a device")
 		msg := remotePairMsg{Type: "remotePair", Kind: kind}
 		cl, err := s.remoteClient()
 		if err != nil {
@@ -337,7 +337,7 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 		return
 	}
 	go func() {
-		defer s.survive("unpairing a device")
+		defer s.surviveFor(c, "unpairing a device")
 		cl, err := s.remoteClient()
 		if err != nil {
 			c.notify(err.Error(), true)
@@ -366,7 +366,7 @@ func (s *Server) remoteRename(c *controlClient, kind, id, name string) {
 		return
 	}
 	go func() {
-		defer s.survive("renaming")
+		defer s.surviveFor(c, "renaming")
 		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
 		defer cancel()
 		what := "this machine"
@@ -494,7 +494,7 @@ func (s *Server) remoteReconnect(c *controlClient) {
 // it and the roster again, which turning remote access on or off changes.
 func (s *Server) remoteCall(c *controlClient, action, what string, call func(context.Context, RemoteAccess, *remoteOutcomeMsg)) {
 	go func() {
-		defer s.survive(what)
+		defer s.surviveFor(c, what)
 		msg := remoteOutcomeMsg{Type: "remoteOutcome", Action: action}
 		ra := s.remoteAccess()
 		if ra == nil {

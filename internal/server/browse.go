@@ -49,7 +49,7 @@ type recentView struct {
 // from this side.
 func (s *Server) browse(c *controlClient, path string) {
 	go func() {
-		defer s.survive("listing a folder")
+		defer s.surviveFor(c, "listing a folder")
 		msg := browseMsg{Type: "browse"}
 
 		path = unquotePath(path)
@@ -280,7 +280,7 @@ func places() []dirEntry {
 // owns the workspace.
 func (s *Server) recents(c *controlClient) {
 	go func() {
-		defer s.survive("reading the recent projects")
+		defer s.surviveFor(c, "reading the recent projects")
 		open, ok := ask(s, func() map[string]bool {
 			open := map[string]bool{}
 			for _, p := range s.ws.Projects() {

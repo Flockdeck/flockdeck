@@ -78,7 +78,7 @@ var readWorktrees = collectWorktrees
 // asked for another listing since the request numbered asked.
 func (s *Server) sendWorktrees(c *controlClient, root string, asked uint64) {
 	go func() {
-		defer s.survive("listing worktrees")
+		defer s.surviveFor(c, "listing worktrees")
 		msg := readWorktrees(root)
 		if msg.Error == "" {
 			paths := make([]string, 0, len(msg.Items))
@@ -256,7 +256,7 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	// opened on another project meanwhile is not drawn over.
 	asked := worktreeListings.asked(c)
 	go func() {
-		defer s.survive("creating a worktree")
+		defer s.surviveFor(c, "creating a worktree")
 		// The listing is sent however this ends, a refusal included. Asking
 		// for it above made any listing the panel was still waiting on out of
 		// date, and one that never came left the panel on "Loading…" -- or on
@@ -282,7 +282,7 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	root := s.activeRoot()
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
-		defer s.survive("removing a worktree")
+		defer s.surviveFor(c, "removing a worktree")
 		defer s.sendWorktrees(c, root, asked) // as addWorktree's
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
@@ -317,7 +317,7 @@ func (s *Server) pruneWorktrees(c *controlClient) {
 	root := s.activeRoot()
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
-		defer s.survive("pruning worktrees")
+		defer s.surviveFor(c, "pruning worktrees")
 		defer s.sendWorktrees(c, root, asked) // as addWorktree's
 		pruned, err := gitx.Prune(root)
 		if err != nil {

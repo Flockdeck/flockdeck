@@ -31,7 +31,7 @@ func (s *Server) listKeys(c *controlClient) {
 		return
 	}
 	go func() {
-		defer s.survive("reading the API keys")
+		defer s.surviveFor(c, "reading the API keys")
 		visible := slices.DeleteFunc(slices.Clone(specs), func(sp agent.Spec) bool { return sp.Hidden })
 		items := creds.StatusAll(visible)
 		// A key stored for an agent that has since left the catalog has no row
@@ -60,7 +60,7 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 		return
 	}
 	go func() {
-		defer s.survive("saving a key")
+		defer s.surviveFor(c, "saving a key")
 		keyWrites.Lock()
 		err := creds.Set(agentID, key)
 		keyWrites.Unlock()
@@ -107,7 +107,7 @@ func (s *Server) clearKey(c *controlClient, agentID string) {
 		return
 	}
 	go func() {
-		defer s.survive("clearing a key")
+		defer s.surviveFor(c, "clearing a key")
 		keyWrites.Lock()
 		had, err := creds.Clear(agentID)
 		keyWrites.Unlock()
