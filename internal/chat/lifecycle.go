@@ -79,6 +79,7 @@ func (r *reporter) usage(model string, u Usage) {
 		Tokens: spending.Tokens{
 			In: int64(u.In), Out: int64(u.Out),
 			CacheRead: int64(u.CacheRead), CacheWrite5m: int64(u.CacheWrite),
+			Reasoning: int64(u.Reasoning),
 		},
 	}
 	// The rate and the day it was read come from the one price table

@@ -86,6 +86,9 @@ type Usage struct {
 	Out        int
 	CacheRead  int
 	CacheWrite int
+	// Reasoning is the part of Out a thinking model spent reasoning, where
+	// the API says how much that was.
+	Reasoning int
 }
 
 // Add accumulates one turn's usage into a running total.
@@ -94,6 +97,7 @@ func (u *Usage) Add(v Usage) {
 	u.Out += v.Out
 	u.CacheRead += v.CacheRead
 	u.CacheWrite += v.CacheWrite
+	u.Reasoning += v.Reasoning
 }
 
 // Schema is a tool's arguments described as JSON Schema. Each wire translates

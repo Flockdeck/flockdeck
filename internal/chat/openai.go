@@ -168,6 +168,11 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				PromptTokensDetails struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
+				// The part of the answer a reasoning model spent thinking,
+				// which is billed as output and counted within it.
+				CompletionTokensDetails struct {
+					ReasoningTokens int `json:"reasoning_tokens"`
+				} `json:"completion_tokens_details"`
 			} `json:"usage"`
 			Error struct {
 				Message string `json:"message"`
@@ -181,7 +186,8 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		}
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens,
-				CacheRead: chunk.Usage.PromptTokensDetails.CachedTokens}
+				CacheRead: chunk.Usage.PromptTokensDetails.CachedTokens,
+				Reasoning: chunk.Usage.CompletionTokensDetails.ReasoningTokens}
 		}
 		for _, ch := range chunk.Choices {
 			if ch.FinishReason != "" {

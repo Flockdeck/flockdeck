@@ -158,6 +158,7 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				In:  chunk.UsageMetadata.PromptTokenCount,
 				Out:       chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
 				CacheRead: chunk.UsageMetadata.CachedContentTokenCount,
+				Reasoning: chunk.UsageMetadata.ThoughtsTokenCount,
 			}
 		}
 		if chunk.PromptFeedback.BlockReason != "" {
