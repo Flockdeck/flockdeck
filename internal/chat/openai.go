@@ -141,7 +141,10 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	var usage Usage
 	var finish string
 	done := false
+	// Calls are kept in the order they began, and at says which of them the
+	// fragments of each index the stream names are filling now.
 	calls := map[int]*callBuffer{}
+	at := map[int]int{}
 	err = readSSE(rc, func(event, data string) error {
 		// The end of the stream is a sentinel rather than the end of the body,
 		// and it is not JSON.
@@ -152,9 +155,12 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content   string           `json:"content"`
-					Reasoning string           `json:"reasoning_content"`
-					ToolCalls []openaiToolCall `json:"tool_calls"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
+					// ReasoningAlt is the same thing under the name OpenRouter,
+					// Ollama and the newer vLLM send it by.
+					ReasoningAlt string           `json:"reasoning"`
+					ToolCalls    []openaiToolCall `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -196,14 +202,18 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 			if ch.Delta.Content != "" {
 				emit(Event{Kind: EventText, Text: ch.Delta.Content})
 			}
-			if ch.Delta.Reasoning != "" {
-				emit(Event{Kind: EventThinking, Text: ch.Delta.Reasoning})
+			if r := firstNonEmpty(ch.Delta.Reasoning, ch.Delta.ReasoningAlt); r != "" {
+				emit(Event{Kind: EventThinking, Text: r})
 			}
 			for _, tc := range ch.Delta.ToolCalls {
-				c := calls[tc.Index]
-				if c == nil {
-					c = &callBuffer{}
-					calls[tc.Index] = c
+				// A server that leaves the index out has every call at 0, and
+				// gives each its own id: a new id where the call there already
+				// has one is a new call, not more of the last one's arguments.
+				k, seen := at[tc.Index]
+				c := calls[k]
+				if !seen || (tc.ID != "" && c.id != "" && tc.ID != c.id) {
+					k, c = len(calls), &callBuffer{}
+					calls[k], at[tc.Index] = c, k
 				}
 				// Only the first chunk of a call carries its id and name; the
 				// rest are arguments arriving a few characters at a time.
