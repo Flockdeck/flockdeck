@@ -197,6 +197,10 @@ type projectView struct {
 	Tabs    int    `json:"tabs"`
 	Waiting int    `json:"waiting"`
 	Working int    `json:"working"`
+	// Panes counts every pane in the project, so the agents list, which the
+	// window asks for again when this summary moves, follows a split or a
+	// closed idle pane as well as a change of status.
+	Panes int `json:"panes"`
 }
 
 type tabView struct {
@@ -331,6 +335,11 @@ type command struct {
 	Name   string `json:"name"`
 	Join   string `json:"join"`
 	Invite string `json:"invite"`
+	// Files and Omitted are the review panel's list as a commit is asked for
+	// from it: the files it showed, and how many more it left out. The commit
+	// is refused when the tree no longer matches them.
+	Files   []string `json:"files"`
+	Omitted int      `json:"omitted"`
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +376,7 @@ func (s *Server) snapshot() stateMsg {
 		names[p.Root] = p.Name
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
-			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working,
+			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
 		})
 	}
 
@@ -969,7 +978,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push)
+		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Omitted)
 		return
 	case "gitPush":
 		s.runRemote(c, "push", cmd.Path)

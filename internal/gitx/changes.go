@@ -74,6 +74,19 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		counts = nil
 	}
 
+	files := parseStatus(out)
+	for i := range files {
+		if n, ok := counts[files[i].Path]; ok {
+			files[i].Added, files[i].Removed = n.added, n.removed
+		}
+	}
+	countUntracked(dir, files, limit)
+	return files, nil
+}
+
+// parseStatus reads the records of `git status --porcelain -z` into the files
+// a commit would record, without their line counts.
+func parseStatus(out string) []FileChange {
 	var files []FileChange
 	records := strings.Split(out, "\x00")
 	for i := 0; i < len(records); i++ {
@@ -113,13 +126,9 @@ func changes(dir string, limit int) ([]FileChange, error) {
 			Unstaged:  code[1] != ' ' && code[1] != '?',
 			Untracked: code == "??",
 		}
-		if n, ok := counts[path]; ok {
-			fc.Added, fc.Removed = n.added, n.removed
-		}
 		files = append(files, fc)
 	}
-	countUntracked(dir, files, limit)
-	return files, nil
+	return files
 }
 
 // countUntracked fills in the line counts of the new files.

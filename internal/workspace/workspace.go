@@ -160,6 +160,10 @@ type Project struct {
 	Tabs    int
 	Waiting int
 	Working int
+	// Panes counts every pane in the project's tabs, idle ones included, so
+	// that a split or a closed pane changes the summary as it changes the
+	// agents list.
+	Panes int
 }
 
 // Workspace is the whole application state.
@@ -403,7 +407,7 @@ func (w *Workspace) Projects() []Project {
 		}
 		for _, id := range t.Tree.Panes() {
 			pane := w.panes[id]
-			if pane == nil || pane.Sess == nil {
+			if pane == nil {
 				continue
 			}
 			root := pane.Root
@@ -412,6 +416,10 @@ func (w *Workspace) Projects() []Project {
 			}
 			i := indexOf(root)
 			if i < 0 {
+				continue
+			}
+			out[i].Panes++
+			if pane.Sess == nil {
 				continue
 			}
 			switch st, _ := pane.Sess.Status(); st {

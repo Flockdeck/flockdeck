@@ -1879,7 +1879,7 @@ box.oninput();
 const commit = h.$("rev-commit");
 h.click(commit);
 assert.deepStrictEqual(h.commands().pop(),
-  { cmd: "commit", path: "C:/repo", text: "webui: a change", push: false });
+  { cmd: "commit", path: "C:/repo", text: "webui: a change", push: false, files: ["app.js"], omitted: 0 });
 assert.strictEqual(commit.textContent, "Committing\u2026");
 const twice = h.commands().length;
 h.click(commit);
@@ -2610,9 +2610,26 @@ h.hello();
 h.recv(fixture());
 h.key({ key: "é", code: "Digit2", altKey: true });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
-// The keypad has no row to read and types a digit everywhere.
-h.key({ key: "1", code: "Numpad1", altKey: true });
+// A key that says no position still picks by the digit it typed.
+h.key({ key: "1", code: "", altKey: true });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
+`)
+}
+
+// Alt held while digits are typed on the keypad is how Windows types a
+// character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
+// so typing é switched to tab 2 and then tab 3, and the character never
+// arrived.
+func TestAltCodesOnTheKeypadAreNotTabNumbers(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const before = h.commands().length;
+for (const d of ["0", "2", "3", "3"]) {
+  const ev = h.key({ key: d, code: "Numpad" + d, altKey: true });
+  assert.ok(!ev.defaultPrevented, "Alt+Numpad" + d + " was kept from the input method");
+}
+assert.deepStrictEqual(h.commands().slice(before), [], "typing an Alt code switched tabs");
 `)
 }
 
@@ -2777,7 +2794,7 @@ box.value = "webui: a message worth keeping";
 box.oninput();
 h.click(h.$("rev-commit"));
 assert.deepStrictEqual(h.commands().pop(),
-  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false });
+  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false, files: ["a.go"], omitted: 0 });
 
 // The hook refuses it; the server says so and sends the tree back.
 h.recv({ type: "notice", text: "pre-commit hook failed", error: true });
@@ -3375,7 +3392,7 @@ const plain = h.key({ key: "Enter" });
 assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the message");
 const ev = h.key({ key: "Enter", ctrlKey: true });
 assert.ok(ev.defaultPrevented);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false, files: ["a.go"], omitted: 0 });
 `)
 }
 
@@ -3507,6 +3524,25 @@ assert.strictEqual(asked(), before + 1, "an agent stopping to wait did not bring
 h.recv(list("waiting"));
 assert.ok(h.$("overlay-body").textContent.includes("waiting"), "the overview still says the agent is working");
 assert.ok(h.doc.activeElement === h.$("agent-p1"), "the row lost the keyboard when its status changed");
+`)
+}
+
+// A split adds an idle pane and closing one in a tab of several takes one
+// away, and neither moved the tabs, waiting or working counts the overview was
+// asked for again by: the open list went stale, and a closed pane's row
+// answered a click with an error.
+func TestTheAgentsOverviewFollowsASplit(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const projects = (panes) => [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0, panes }];
+h.recv(fixture({ projects: projects(2) }));
+h.click(h.$("summary"));
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const before = asked();
+h.recv(fixture({ projects: projects(3) }));
+assert.strictEqual(asked(), before + 1, "a split did not bring the overview up to date");
+h.recv(fixture({ projects: projects(2) }));
+assert.strictEqual(asked(), before + 2, "a closed pane did not bring the overview up to date");
 `)
 }
 
@@ -4305,6 +4341,91 @@ h.dispatch(run, new h.Ev("change", { target: run }));
 assert.strictEqual(tags().length, 0, "routes for the old model stayed on the rows");
 await h.sleep(300);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "routeTasks", tasks: ask.tasks, agent: "claude", model: "opus" });
+`)
+}
+
+// A choice for one row is held by the task's text, so two rows with the same
+// text share it. Only the row chosen on was redrawn: the other went on saying
+// "Same as the run" while Start sent the new choice for both of them.
+func TestTwoRowsWithTheSameTaskShowTheChoiceTheyShare(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["write the tests", "write the tests"], isRepo: false,
+  cwd: "C:/repo", agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] }] });
+const body = h.$("overlay-body");
+const sels = () => body.querySelectorAll("div.fan-row").map((r) => r.querySelector("select"));
+const s = sels()[0];
+s.value = "claude\nopus";
+h.dispatch(s, new h.Ev("change", { target: s }));
+assert.deepStrictEqual(sels().map((x) => x.value), ["claude\nopus", "claude\nopus"],
+  "the second row does not show the choice Start will send for it");
+assert.ok(sels()[0] === s, "the row being chosen on was built again under the keyboard");
+body.querySelector("button.primary").onclick();
+assert.deepStrictEqual(h.commands().pop().taskModels, ["opus", "opus"]);
+`)
+}
+
+// The server reads a pane's plan off the workspace goroutine and answers when
+// it has, so an answer can arrive late. One for the dialog opened on the
+// first pane replaced the dialog opened again on the second, and Start then
+// started the first pane's plan in the first pane's tab.
+func TestAFanOutTakesOnlyTheAnswerItAskedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const preview = (paneId, task) => ({ type: "fanoutPreview", paneId, tasks: [task], isRepo: false, cwd: "C:/repo",
+  agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }] }] });
+const box = () => h.$("overlay-body").querySelector("textarea.fan-tasks");
+
+h.press("fanout");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p1" });
+h.key({ key: "Escape" });
+h.recv(fixture({ activeTab: "t2" }));
+h.press("fanout");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p2" });
+
+h.recv(preview("p1", "the first pane's plan"));
+assert.ok(!box(), "the answer about another pane was drawn in this dialog");
+h.recv(preview("p2", "the second pane's plan"));
+assert.strictEqual(box().value, "the second pane's plan");
+h.recv(preview("p2", "a second answer"));
+assert.strictEqual(box().value, "the second pane's plan", "a repeated answer replaced the one being edited");
+
+h.$("overlay-body").querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.strictEqual(sent.id, "p2", "Start used the other pane");
+assert.deepStrictEqual(sent.tasks, ["the second pane's plan"]);
+`)
+}
+
+// An agent's control holds agent and model together, and an empty model means
+// whichever model the agent is set to. For an agent whose models have no empty
+// entry - the model APIs - nothing matched, and the control fell back to its
+// first entry: another agent, or one not installed. Settings showed the wrong
+// default, and a fan-out could start the wrong agent.
+func TestAnAgentChosenWithoutAModelShowsItsOwnDefault(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const api = { id: "anthropic", name: "Anthropic API", runner: "api", available: true, defaultModel: "claude-sonnet",
+  models: [{ id: "claude-opus", name: "Opus" }, { id: "claude-sonnet", name: "Sonnet" }] };
+h.recv(fixture({ agents: catalog({ items: catalog().items.concat([api]),
+  default: { agent: "anthropic", model: "" }, project: { agent: "anthropic", model: "retired" } }) }));
+h.press("settings");
+h.click(h.$("settings-tab-agents"));
+assert.strictEqual(h.$("set-agent-all").value, "anthropic\nclaude-sonnet",
+  "the default for every project is not shown as the agent's own default model");
+assert.strictEqual(h.$("set-agent-project").value, "anthropic\nclaude-opus",
+  "a model the agent no longer has was shown as another agent");
+
+h.key({ key: "Escape" });
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["a task"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
+  agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
+           { id: "anthropic", name: "Anthropic API", default: "retired", models: [{ id: "claude-opus" }, { id: "claude-sonnet" }] }] });
+const run = h.$("overlay-body").querySelector("div.fan-agent").querySelector("select");
+assert.strictEqual(run.value, "anthropic\nclaude-opus", "the run would start another agent");
 `)
 }
 
@@ -6559,9 +6680,24 @@ class FakeTerm {
   constructor(opts) {
     this.options = Object.assign({}, opts);
     this.cols = 80; this.rows = 24;
-    this.written = []; this.disposed = false; this.focused = false;
+    // What has been drawn, and what has been written and not yet parsed.
+    // xterm's write() only queues while its reset() acts at once, so the two
+    // are kept apart: a reset reaches the screen ahead of bytes still queued.
+    this.screen = []; this.queue = []; this.disposed = false; this.focused = false;
     this.buffer = { active: { viewportY: 0, baseY: 0 } };
     terms.push(this);
+  }
+  /** written is what the screen shows once everything written so far has
+   *  been parsed: whatever follows the last full reset in the stream. */
+  get written() {
+    const all = this.screen.concat(this.queue.map((w) => w.data));
+    const at = all.lastIndexOf("\x1bc");
+    return at < 0 ? all : all.slice(at + 1);
+  }
+  /** parse is xterm getting round to what was written, calling back each
+   *  write as it finishes with it, in order. */
+  parse() {
+    for (const w of this.queue.splice(0)) { this.screen.push(w.data); if (w.cb) w.cb(); }
   }
   loadAddon() {}
   open(host) { this.host = host; }
@@ -6570,8 +6706,8 @@ class FakeTerm {
   scrollToBottom() { this.buffer.active.viewportY = this.buffer.active.baseY; if (this._scroll) this._scroll(this.buffer.active.viewportY); }
   onData(fn) { this._data = fn; }
   onBinary(fn) { this._bin = fn; }
-  write(d) { this.written.push(d); }
-  reset() { this.written.length = 0; }
+  write(d, cb) { this.queue.push({ data: d, cb }); }
+  reset() { this.screen.length = 0; }
   dispose() { this.disposed = true; }
   focus() { terms.forEach((t) => { t.focused = false; }); this.focused = true; }
   blur() { this.focused = false; }

@@ -2251,7 +2251,9 @@
     // Focusing or tapping the terminal is using the pane in this window.
     if (term.textarea) term.textarea.addEventListener("focus", () => sendFocus(p));
     host.addEventListener("pointerdown", () => sendFocus(p));
-    term.onData((data) => sendInput(p, data));
+    // While the replay is being drawn, what the terminal says of its own
+    // accord is its answer to history, not to the program running now.
+    term.onData((data) => { if (!(p.replaying && isTerminalReply(data))) sendInput(p, data); });
     term.onBinary((data) => {
       const bytes = new Uint8Array(data.length);
       for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i) & 255;
@@ -2340,6 +2342,24 @@
     });
   }
 
+  /** isTerminalReply is the server's isTerminalReply: whether what the
+   *  terminal sends is it answering its program rather than somebody typing.
+   *  An OSC, DCS, APC or PM string answers a question about colours or
+   *  settings; a CSI ending in R, c, n or t is a cursor position, the device
+   *  attributes, a status or a window report; one ending in $y is a mode's
+   *  state; ESC [ I and ESC [ O report focus. Shift+F3 and a cursor report
+   *  can be the same bytes, and that key going nowhere while a replay is
+   *  drawn is the price. */
+  function isTerminalReply(s) {
+    if (s.length < 3 || s[0] !== "\x1b") return false;
+    if ("]P_^".includes(s[1])) return true;
+    if (s[1] !== "[") return false;
+    const last = s[s.length - 1];
+    if ("Rcnt".includes(last)) return true;
+    if (last === "I" || last === "O") return s.length === 3;
+    return last === "y" && s.includes("$");
+  }
+
   function sendInput(p, data) {
     sendBytes(p, new TextEncoder().encode(data));
   }
@@ -2387,12 +2407,34 @@
       if (typeof ev.data === "string") {
         let h;
         try { h = JSON.parse(ev.data); } catch { return; }
-        if (!h.resumed) p.term.reset();
+        // Reset in the stream's own order, as RIS written to it. reset()
+        // acts at once while write() only queues, so bytes of the old run
+        // still queued - a slow window dropped and reconnected, or a restart
+        // on the same socket - were drawn after it, on the fresh screen.
+        if (!h.resumed) p.term.write("\x1bc");
         p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
+        // The bytes up to h.end are history, printed before this window
+        // connected, and the terminal answers the questions in them - what
+        // it is, where its cursor is, what colour it is - as though they had
+        // just been asked. Until it has drawn the last of them, its answers
+        // are kept from the program (see isTerminalReply). A server that does
+        // not say where the replay ends leaves them all to go through.
+        p.replayGen = (p.replayGen || 0) + 1;
+        p.replayEnd = h.end > h.offset ? h.end : 0;
+        p.replaying = p.replayEnd > 0;
         return;
       }
       if (p.stream) { p.stream.offset += ev.data.byteLength; p.stream.fresh = false; }
-      p.term.write(new Uint8Array(ev.data));
+      const bytes = new Uint8Array(ev.data);
+      if (p.replayEnd && p.stream && p.stream.offset >= p.replayEnd) {
+        // The last of the replay. Once the terminal has drawn it, answers
+        // are the program's again - unless another run has begun since.
+        p.replayEnd = 0;
+        const gen = p.replayGen;
+        p.term.write(bytes, () => { if (p.replayGen === gen) p.replaying = false; });
+        return;
+      }
+      p.term.write(bytes);
     };
     ws.onclose = () => {
       if (p.ws !== ws) return;
@@ -4132,7 +4174,19 @@
   let lastSearch = "";
 
   function openSearch() {
+    const input = $("search-input");
     const was = searchPane;
+    const open = !$("searchbar").hidden;
+    // Asked for again while the bar is up on the same pane, it only takes the
+    // keyboard back: filling the box again replaced what had been typed with
+    // the last search, and left the typed words' matches marked under it.
+    if (open && was === focusedPaneId()) {
+      input.focus();
+      if (input.select) input.select();
+      return;
+    }
+    // Moving to another pane, what was typed is the search it carries.
+    if (open) lastSearch = input.value;
     searchPane = focusedPaneId();
     // Asked for again after the keyboard moved to another pane, the search
     // moves with it, and it left the first pane's matches marked for good:
@@ -4145,7 +4199,6 @@
     // With six panes on screen, "Find" alone does not say where it is looking.
     const v = state && state.panes ? state.panes[searchPane] : null;
     $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
-    const input = $("search-input");
     input.value = lastSearch;
     noMatch(false);
     showMatchCount(null);
@@ -4214,6 +4267,9 @@
   const lastProjectWaiting = new Map();
 
   function notifyAttention(s) {
+    // Nothing waiting anywhere: whatever the last notification asked has been
+    // answered, from this window or another.
+    if (!s.waiting && !(s.projects || []).some((p) => p.waiting)) closeNotification();
     const elsewhere = [];
     for (const p of s.projects || []) {
       const before = lastProjectWaiting.get(p.root);
@@ -4276,6 +4332,7 @@
       // place silently: an agent stopping to wait while an earlier
       // notification was still up made no sound and showed no banner.
       const n = new Notification(title, { body, tag: "flockdeck", renotify: true });
+      lastNotification = n;
       n.onclick = () => {
         window.focus();
         // Raising the window in front of whichever tab happened to be on
@@ -4284,9 +4341,23 @@
         if (paneID) send({ cmd: "revealPane", node: tabIdOfPane(paneID), id: paneID });
         else if (root) send({ cmd: "selectProject", root });
         n.close();
+        if (lastNotification === n) lastNotification = null;
       };
     } catch { /* notifications are best effort */ }
   }
+
+  /** The notification last raised. It was closed only when it was clicked:
+   *  answered from the window instead, it stayed in the Action Center, and
+   *  clicking it later went to a pane that was no longer waiting. It goes
+   *  when the window comes to the front, and when nothing waits any more. */
+  let lastNotification = null;
+  function closeNotification() {
+    if (!lastNotification) return;
+    try { lastNotification.close(); } catch { /* already gone */ }
+    lastNotification = null;
+  }
+  window.addEventListener("focus", closeNotification);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) closeNotification(); });
 
   function askForNotifications() {
     if (prefs.notificationsOff) return; // asked and answered, for every run
@@ -5099,10 +5170,22 @@
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
-        send({ cmd: "commit", path: m.cwd, text: message, push });
+        // What was listed goes with the commit. Agents go on writing while
+        // the list is read, and the commit staged whatever was in the tree
+        // when it was pressed; the server now refuses a tree that has moved.
+        send({ cmd: "commit", path: m.cwd, text: message, push,
+          files: files.map((f) => f.path), omitted: m.omitted || 0 });
         commitPending = true;
       };
-      const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
+      // The server lists at most two thousand files and counts the rest, and
+      // the button counted only the ones listed while the commit records every
+      // one of them: "Commit 2000 files" committed thousands more. The count
+      // takes them in, and a line that stays says they are there.
+      const total = files.length + (m.omitted || 0);
+      if (m.omitted) {
+        body.append(el("div", "rev-omitted", m.omitted.toLocaleString("en") + " more not listed — the commit includes them"));
+      }
+      const c1 = el("button", "chip primary", "Commit " + total + " file" + (total === 1 ? "" : "s"));
       c1.id = "rev-commit";
       c1.onclick = () => doCommit(c1, false);
       // The message is the last thing written, and a box like this commits on
@@ -5211,8 +5294,10 @@
   /** renderDiffInto colours a unified diff without a syntax highlighter. */
   function renderDiffInto(host, text) {
     const lines = text.split("\n");
+    const kinds = diffKinds(lines);
+    const diffLine = (i) => el("div", kinds[i], lines[i] || " ");
     const shown = Math.min(lines.length, DIFF_LINES);
-    for (let i = 0; i < shown; i++) host.append(diffLine(lines[i]));
+    for (let i = 0; i < shown; i++) host.append(diffLine(i));
     if (shown === lines.length) return;
 
     const rest = lines.length - shown;
@@ -5225,7 +5310,7 @@
       const had = document.activeElement === more;
       note.remove();
       more.remove();
-      for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+      for (let i = shown; i < lines.length; i++) host.append(diffLine(i));
       if (had) {
         // A stop on Tab's way round, as renderChanges made it: -1 would take
         // it off that way for as long as the dialog stayed open.
@@ -5236,14 +5321,22 @@
     host.append(note, more);
   }
 
-  function diffLine(line) {
-    let cls = "";
-    if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
-    else if (line.startsWith("@@")) cls = "hunk";
-    else if (line.startsWith("+")) cls = "add";
-    else if (line.startsWith("-")) cls = "del";
-    else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
-    return el("div", cls, line || " ");
+  /** diffKinds says how each line of a unified diff is drawn. A line starting
+   *  with --- or +++ is a file's header only above that file's first hunk:
+   *  after it, "--- comment" is a removed SQL comment, "----" a removed
+   *  Markdown rule and "+++i;" an added increment, and all of them were drawn
+   *  grey as headers. A hunk's lines start with a space, + or -, so "diff "
+   *  at the start of one always begins the next file. */
+  function diffKinds(lines) {
+    let header = true;
+    return lines.map((line) => {
+      if (line.startsWith("diff ")) { header = true; return "meta"; }
+      if (line.startsWith("@@")) { header = false; return "hunk"; }
+      if (header && (line.startsWith("+++") || line.startsWith("---") || line.startsWith("index "))) return "meta";
+      if (line.startsWith("+")) return "add";
+      if (line.startsWith("-")) return "del";
+      return "";
+    });
   }
 
   // ---------------------------------------------------------------- agents
@@ -5256,7 +5349,10 @@
    *  push shows the counts it lists moving, in any project. */
   let agentsKey = "";
   function followAgents(s) {
-    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs).join("|");
+    // The panes are counted too: a split adds an idle pane and closing one in
+    // a tab of several takes one away, and neither moves the other counts, so
+    // the list went on showing a pane that had gone.
+    const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs + ":" + p.panes).join("|");
     if (key === agentsKey) return;
     agentsKey = key;
     if (dialog === "agents") send({ cmd: "agents" });
@@ -6597,8 +6693,15 @@
     openOverlay("Fan out", "fanout");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Reading this pane's output…"));
-    send({ cmd: "fanoutPreview", id: paneID || focusedPaneId() });
+    fanoutAsked = paneID || focusedPaneId();
+    send({ cmd: "fanoutPreview", id: fanoutAsked });
   }
+  /** The pane the open dialog asked about. The server answers from a
+   *  goroutine of its own, so a late answer for a dialog opened on one pane
+   *  could arrive after it had been opened again on another, and replaced it:
+   *  Start then used the first pane's plan and started in its tab. Empty
+   *  when no pane was focused, and the server chose. */
+  let fanoutAsked = "";
 
   /** agentOption is one entry of an agentSelect: what it reads as, and the
    *  agent and model it stands for. */
@@ -6638,12 +6741,31 @@
       });
       sel.append(group);
     });
-    sel.value = value || "";
+    sel.value = agentValue(agents, value);
     // A choice naming an agent the catalog no longer has leaves the control
     // showing nothing at all, which reads as a control that is broken rather
     // than as one whose agent has gone.
     if (sel.selectedIndex < 0) sel.selectedIndex = 0;
     return sel;
+  }
+
+  /** agentValue is the entry of an agentSelect that stands for value. An empty
+   *  model is whatever the agent is set to, and for an agent whose models have
+   *  no empty entry - the model APIs - it matched nothing, so the control fell
+   *  back to its first entry: another agent, or one not installed. Settings
+   *  then showed the wrong default and a fan-out could start the wrong agent.
+   *  An empty model is the agent's default model where that is one of its
+   *  entries, and an agent found without the model named is on its own first
+   *  model rather than on somebody else's. */
+  function agentValue(agents, value) {
+    const [id, model] = pickParts(value);
+    const a = (agents || []).find((x) => x.id === id);
+    if (!a) return value || "";
+    const ids = (a.models && a.models.length ? a.models : [{ id: a.default || "" }]).map((mo) => mo.id || "");
+    let pick = ids[0];
+    if (ids.includes(model)) pick = model;
+    else if (!model && ids.includes(a.default || "")) pick = a.default || "";
+    return a.id + "\n" + pick;
   }
 
   /** modelLabel is a model as one line of a select: its name and note, then in
@@ -6673,7 +6795,12 @@
   }
 
   function renderFanout(msg) {
-    if (msg) fanout = msg;
+    if (msg) {
+      // Only the answer to what the open dialog asked, and only the first:
+      // another would redraw the list under whatever was being typed in it.
+      if (dialog !== "fanout" || fanout || (fanoutAsked && msg.paneId !== fanoutAsked)) return;
+      fanout = msg;
+    }
     if (dialog !== "fanout") return; // see openWorktrees
     const m = fanout || {};
     const body = $("overlay-body");
@@ -6958,6 +7085,10 @@
         if (tag) tag.remove();
         // What the row shows now, so the next drawing keeps it.
         d.key = rowKey(task);
+        // The choice is held by the task's text, so every row with the same
+        // text now has it. Only this row was redrawn, and the other went on
+        // showing "Same as the run" while Start sent the new choice for both.
+        renderRows();
         updateCount();
       };
       row.append(sel);
@@ -7442,6 +7573,12 @@
       return;
     }
     if (e.key === "Tab" && trapTab(e)) return;
+    // Nothing behind the disconnected panel can be used, and the shortcuts
+    // went on running under it: the palette opened out of sight and took what
+    // was typed into its hidden field, and Escape closed a dialog behind the
+    // panel and put the keyboard in a terminal. Tab is kept inside the panel
+    // above, and Enter is left to press its button.
+    if (!$("disconnected").hidden) return;
     if (!$("palette").hidden) { paletteKey(e); return; }
     if (e.key === "Escape" && railMenuOpen() && $("overlay").hidden) { e.preventDefault(); closeRailMenu(true); return; }
     // Anywhere in the bar, not only in its field: after a click on one of its
@@ -7514,10 +7651,12 @@
     // one thing the table cannot express and this has to spell out.
     // The digit row is read by position where it can be: on AZERTY it types
     // & é " ' and gives digits only with Shift held, so Alt+1 arrived as Alt+&
-    // and no tab could be picked by number. The keypad has no position to
-    // read and types its digits on every layout.
+    // and no tab could be picked by number. The keypad is left alone: Alt
+    // held while digits are typed there is how Windows types a character by
+    // its code, and Alt+0233 for é switched to tab 2 and then to tab 3.
     const row = /^Digit([1-9])$/.exec(e.code || "");
-    const n = row ? row[1] : (/^[1-9]$/.test(e.key || "") ? e.key : "");
+    const keypad = /^Numpad/.test(e.code || "");
+    const n = row ? row[1] : (!keypad && /^[1-9]$/.test(e.key || "") ? e.key : "");
     if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
       claimKey(e);
       runAction("selectTab", n);

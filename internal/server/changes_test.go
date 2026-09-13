@@ -147,6 +147,65 @@ func TestCommitWithoutMessageIsRefused(t *testing.T) {
 	}
 }
 
+// TestACommitIsOfTheFilesThatWereListed covers the panel's list going stale
+// under it. Agents keep writing while somebody reads the list, and the commit
+// staged whatever was there when it was pressed, so a file that arrived after
+// the list was read was committed unseen. The window sends the list it drew,
+// and a tree that has moved since is refused and listed again.
+func TestACommitIsOfTheFilesThatWereListed(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\nreviewed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var ch changesMsg
+	sendCmd(t, conn, command{Cmd: "changes", Path: repo})
+	readUntil(t, conn, "changes", &ch)
+	paths := func() []string {
+		out := make([]string, 0, len(ch.Files))
+		for _, f := range ch.Files {
+			out = append(out, f.Path)
+		}
+		return out
+	}
+	listed := paths()
+
+	if err := os.WriteFile(filepath.Join(repo, "late.go"), []byte("package late\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sendCmd(t, conn, command{Cmd: "commit", Path: repo, Text: "reviewed", Files: listed})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "1 file changed since you looked") {
+		t.Fatalf("a commit of a tree that moved after it was listed: notice %+v, want a refusal", note)
+	}
+	readUntil(t, conn, "changes", &ch)
+	if len(ch.Files) != 2 {
+		t.Fatalf("the answer to a refused commit is not the tree as it is now: %+v", ch.Files)
+	}
+	log := func() string {
+		out, err := exec.Command("git", "-C", repo, "log", "-1", "--pretty=%s").CombinedOutput()
+		if err != nil {
+			t.Fatalf("git log: %v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := log(); got != "initial" {
+		t.Fatalf("a refused commit was made: the last commit is %q", got)
+	}
+
+	sendCmd(t, conn, command{Cmd: "commit", Path: repo, Text: "reviewed", Files: paths()})
+	readUntil(t, conn, "notice", &note)
+	if note.Error {
+		t.Fatalf("committing the tree as listed: %s", note.Text)
+	}
+	if got := log(); got != "reviewed" {
+		t.Errorf("the tree as listed was not committed: the last commit is %q", got)
+	}
+}
+
 // TestChangesOutsideARepository covers a project that is not version
 // controlled.
 func TestChangesOutsideARepository(t *testing.T) {

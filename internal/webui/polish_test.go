@@ -846,3 +846,173 @@ assert.ok(!clearOf(rows[1]), "a key only from the environment was offered Clear"
 assert.ok(!rows[1].textContent.includes("a stored key"), "a key only from the environment says one is stored");
 `)
 }
+
+// Find pressed again while the bar was up filled the box with the last search,
+// which is only kept when the bar closes, so what had just been typed was
+// replaced by an older search and its matches were left marked. On the pane it
+// is already searching the bar just takes the keyboard back; moved to another
+// pane, it carries what was typed.
+func TestFindPressedAgainKeepsWhatWasTyped(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = (focus) => ({ id: "t1", title: "one", focus, zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) });
+h.recv(fixture({ tabs: [tab("p1")] }));
+const input = h.$("search-input");
+h.press("findInTerminal");
+input.value = "panic";
+h.key({ key: "Escape" });
+
+h.press("findInTerminal");
+input.value = "deadlock";
+h.doc.body.focus();
+h.press("findInTerminal");
+assert.strictEqual(input.value, "deadlock", "pressing Find again replaced what was typed with the last search");
+assert.ok(h.doc.activeElement === input, "the bar did not take the keyboard back");
+assert.deepStrictEqual([input.selectionStart, input.selectionEnd], [0, 8], "what was typed is not selected");
+
+h.recv(fixture({ tabs: [tab("p2")] }));
+h.doc.body.focus();
+h.press("findInTerminal");
+assert.strictEqual(input.value, "deadlock", "moving the bar to another pane dropped what was typed");
+`)
+}
+
+// The disconnected panel covers the whole window, and the shortcuts went on
+// running under it: a binding opened the palette or the find bar out of sight,
+// and Escape closed the dialog behind the panel and put the keyboard in a
+// terminal nobody could see. While it is up, only Tab and Enter do anything,
+// and they do it in the panel.
+func TestNothingBehindTheDisconnectedPanelAnswersTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+h.control.close();
+assert.ok(!h.$("disconnected").hidden, "the panel did not come up");
+h.terms.forEach((t) => { t.focused = false; });
+
+h.key({ key: "Escape" });
+assert.ok(!h.$("overlay").hidden, "Escape closed the dialog behind the disconnected panel");
+assert.ok(!h.terms.some((t) => t.focused), "Escape put the keyboard in a terminal behind the panel");
+h.press("findInTerminal");
+assert.ok(h.$("searchbar").hidden, "a shortcut ran behind the disconnected panel");
+assert.ok(h.doc.activeElement === h.$("retry"), "the keyboard left the panel");
+
+const before = h.controls().length;
+h.key({ key: "Enter" });
+assert.strictEqual(h.controls().length, before + 1, "Enter no longer presses Reconnect");
+`)
+}
+
+// A line starting with --- or +++ is a file's header only before its first
+// hunk. After it, "--- comment" is a removed SQL comment, "----" a removed
+// Markdown rule and "+++i;" an added increment, and all three were drawn grey
+// as though they were headers, among lines that were plainly removed and added.
+func TestADiffLineIsAHeaderOnlyAboveItsFirstHunk(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+         files: [{ path: "a.sql", label: "M", added: 1, removed: 2 }] });
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const NL = String.fromCharCode(10);
+const text = [
+  "diff --git a/a.sql b/a.sql", "index 1111111..2222222 100644", "--- a/a.sql", "+++ b/a.sql",
+  "@@ -1,3 +1,2 @@", "--- comment", "----", "+++i;", " select 1;",
+  "diff --git a/b.md b/b.md", "--- a/b.md", "+++ b/b.md", "@@ -1 +1 @@", "-was", "+is",
+].join(NL);
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.sql", text });
+const panel = h.$("overlay-body").querySelector("div.rev-diff");
+const kinds = panel.children.map((c) => c.className);
+assert.deepStrictEqual(kinds, [
+  "meta", "meta", "meta", "meta", "hunk", "del", "del", "add", "",
+  "meta", "meta", "meta", "hunk", "del", "add",
+]);
+`)
+}
+
+// The review's file names are elided from the left with direction: rtl, which
+// moves a neutral character at either end of a name to the other end. A mark
+// led the name, so ".gitignore" stayed put, and nothing followed it, so
+// "report (1)" was drawn as "(report (1". The harness lays no text out, so
+// this holds the style sheet to a mark on both sides.
+func TestAFileNameKeepsThePunctuationAtItsEnd(t *testing.T) {
+	runFrontEnd(t, `
+const css = h.css();
+assert.ok(/\.rev-name::before[^{]*\{[^}]*content:\s*"\\200E"/.test(css), "nothing leads a file name");
+assert.ok(/\.rev-name::after[^{]*\{[^}]*content:\s*"\\200E"/.test(css),
+  "nothing follows a file name, so a bracket at its end is drawn at its start");
+`)
+}
+
+// Agents go on writing while somebody reads the review, and the commit staged
+// whatever was in the tree when it was pressed, listed or not. The commit says
+// which files were listed, and how many more the list left out, so the server
+// can refuse a tree that has moved since.
+func TestACommitSaysWhichFilesItWasShown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, omitted: 3,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }, { path: "b.go", label: "A", added: 2, removed: 0 }] });
+const box = h.$("commit-message");
+box.value = "webui: reviewed";
+box.oninput();
+h.click(h.$("rev-commit"));
+const sent = h.commands().filter((c) => c.cmd === "commit").pop();
+assert.deepStrictEqual(sent.files, ["a.go", "b.go"], "the commit does not say which files were listed");
+assert.strictEqual(sent.omitted, 3, "the commit does not say how many files the list left out");
+`)
+}
+
+// The server sends at most two thousand changed files and counts the rest,
+// which the page never read: the button said "Commit 2000 files" over a
+// commit of every changed file in the tree, and nothing on the dialog said
+// any were missing once the server's notice had gone.
+func TestTheReviewCountsTheFilesItLeavesOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, omitted: 2500,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }, { path: "b.go", label: "A", added: 2, removed: 0 }] });
+assert.strictEqual(h.$("rev-commit").textContent, "Commit 2502 files", "the button counts only the files listed");
+const note = h.$("overlay-body").querySelector("div.rev-omitted");
+assert.ok(note && note.textContent.includes("2,500 more not listed"), "nothing on the dialog says files were left out");
+
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+assert.strictEqual(h.$("rev-commit").textContent, "Commit 1 file");
+assert.ok(!h.$("overlay-body").querySelector("div.rev-omitted"), "a list with nothing left out says some were");
+`)
+}
+
+// A desktop notification was closed only when it was clicked. Answered from
+// the window instead, it stayed in the Action Center, and clicking it later
+// went to a pane that was no longer waiting. It goes when the window comes to
+// the front, and when nothing is waiting any more.
+func TestANotificationGoesOnceItIsAnswered(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.doc._hasFocus = false;
+const state = (status) => fixture({ waiting: status === "waiting" ? 1 : 0,
+  panes: { p1: pane("p1", { status }), p2: pane("p2") } });
+h.recv(state("working"));
+h.recv(state("waiting"));
+assert.strictEqual(h.notifications.length, 1, "no notification was raised");
+h.doc._hasFocus = true;
+h.win.dispatchEvent(new h.Ev("focus"));
+assert.ok(h.notifications[0].closed, "the notification outlived the window coming to the front");
+
+h.doc._hasFocus = false;
+h.recv(state("working"));
+h.recv(state("waiting"));
+assert.strictEqual(h.notifications.length, 2);
+h.doc.hidden = false;
+h.recv(state("working"));
+assert.ok(h.notifications[1].closed, "the notification outlived the wait it was about");
+`)
+}
