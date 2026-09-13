@@ -3036,6 +3036,28 @@ assert.strictEqual(live(0), 1, "a pane whose renderer lost its context never got
 `)
 }
 
+// The agents overview is asked for again whenever a push shows the counts it
+// lists moving, and with agents busy in several projects that is several times
+// a second, each answer rebuilding the whole list under the pointer and the
+// keyboard. The first change is asked for at once; after that it is at most
+// once a second, and the last change is not lost.
+func TestTheAgentsOverviewIsAskedForAtMostOnceASecond(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("agents");
+const asked = () => h.commands().filter((c) => c.cmd === "agents").length;
+const opened = asked();
+assert.ok(opened >= 1, "opening the overview did not ask for it");
+for (let i = 1; i <= 5; i++) {
+  h.recv(fixture({ working: i, projects: [{ root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: i }] }));
+}
+assert.strictEqual(asked(), opened + 1, "the overview was asked for again on every push");
+await h.sleep(1150);
+assert.strictEqual(asked(), opened + 2, "the last change was not asked for once the second had passed");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
@@ -3962,6 +3984,8 @@ const before = asked();
 h.recv(fixture({ projects: projects(3) }));
 assert.strictEqual(asked(), before + 1, "a split did not bring the overview up to date");
 h.recv(fixture({ projects: projects(2) }));
+// Asked for at most once a second, so the second change waits for it.
+await h.sleep(1150);
 assert.strictEqual(asked(), before + 2, "a closed pane did not bring the overview up to date");
 `)
 }

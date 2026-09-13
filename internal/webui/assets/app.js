@@ -5525,7 +5525,28 @@
     const key = (s.projects || []).map((p) => p.root + ":" + p.waiting + ":" + p.working + ":" + p.tabs + ":" + p.panes).join("|");
     if (key === agentsKey) return;
     agentsKey = key;
-    if (dialog === "agents") send({ cmd: "agents" });
+    askAgents();
+  }
+
+  /** When the overview was last asked for because something it lists moved,
+   *  and the ask waiting for the second to pass. Each answer rebuilds the
+   *  whole list, and with agents busy in several projects the counts move
+   *  several times a second: asked for on every move, the list was rebuilt
+   *  under the pointer and the keyboard as fast as it could be drawn. The
+   *  first move is asked for at once, so an agent that stops to wait shows
+   *  straight away; after that it is at most once a second, and a move inside
+   *  the second is asked for when the second is up. */
+  const AGENTS_EVERY_MS = 1000;
+  let agentsAsked = 0;
+  let agentsTimer = 0;
+  function askAgents() {
+    clearTimeout(agentsTimer);
+    agentsTimer = 0;
+    if (dialog !== "agents") return;
+    const wait = agentsAsked + AGENTS_EVERY_MS - Date.now();
+    if (wait > 0) { agentsTimer = setTimeout(askAgents, wait); return; }
+    agentsAsked = Date.now();
+    send({ cmd: "agents" });
   }
 
   /** openAgents lists every pane in every open project. The tab bar only shows
@@ -5536,6 +5557,8 @@
     openOverlay("Agents", "status");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    clearTimeout(agentsTimer);
+    agentsTimer = 0;
     send({ cmd: "agents" });
   }
 
