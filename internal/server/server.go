@@ -777,7 +777,14 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// so the cookie goes with the request -- and then lay a decoy over the
 	// window to have the person click Quit or type into an agent for it. The
 	// sockets refuse such a page; this keeps it from borrowing the window.
-	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+	// Through the relay there is no cookie of this server's own to ride on --
+	// the tunnel is what authorises a request there -- so nothing legitimate
+	// frames this page at all, and the policy says so outright.
+	csp := "frame-ancestors 'self'"
+	if fromRemote(r) {
+		csp = "frame-ancestors 'none'"
+	}
+	w.Header().Set("Content-Security-Policy", csp)
 	_, _ = w.Write(data)
 }
 

@@ -223,10 +223,11 @@
 
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
   /** basePath is the directory the page was served from, ending in a slash.
-   *  Locally that is always "/", but through the relay the page lives under
-   *  the machine's own prefix — /h/<machine>/ — and everything it asks for has
-   *  to be asked for there, or it reaches the relay's own routes instead. So
-   *  nothing here names a path from the root: every URL is built on this. */
+   *  Locally, and through the relay at this machine's own address, that is
+   *  "/"; through the relay under a path instead -- /h/<machine>/ -- it is
+   *  that prefix, and everything asked for has to be asked for there, or it
+   *  reaches the relay's own routes instead. So nothing here names a path
+   *  from the root: every URL is built on this. */
   const basePath = (location.pathname || "/").replace(/[^/]*$/, "");
 
   /** Live pane records, keyed by pane id. */
