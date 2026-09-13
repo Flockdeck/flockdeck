@@ -104,7 +104,7 @@ func extractTasks(text string, screen bool) []string {
 		// with no colon is whole without its detail, and keeps going without
 		// it; a plan heading is dropped below, its steps being the work.
 		if strings.HasSuffix(task, ":") && !isPlanCue(task) {
-			if full := withDetail(task, items[i+1:], base); isTask(full) {
+			if full := withDetail(task, items[i+1:], base); isTask(full, screen) {
 				task = full
 			}
 		}
@@ -112,7 +112,7 @@ func extractTasks(text string, screen bool) []string {
 		// heads nothing but is no task either. The colon is what hands over to
 		// a list: "Split this into two files" shares a phrase with a lead-in
 		// and is still a task.
-		if !isTask(task) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
+		if !isTask(task, screen) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
 			continue
 		}
 		key := strings.ToLower(task)
@@ -422,8 +422,9 @@ func isGlyphRune(r rune) bool {
 }
 
 // isTask reports whether a line reads as work rather than as the interface drawn
-// around it.
-func isTask(s string) bool {
+// around it. screen says whether it was read off a pane's screen, the only
+// place that interface can appear.
+func isTask(s string, screen bool) bool {
 	r := []rune(s)
 	if len(r) < minTaskRunes || len(r) > maxTaskRunes {
 		return false
@@ -451,27 +452,40 @@ func isTask(s string) bool {
 	if strings.HasSuffix(s, "?") {
 		return false
 	}
-	lower := strings.ToLower(s)
-	for _, phrase := range terminalChrome {
-		if strings.Contains(lower, phrase) {
-			return false
-		}
-	}
-	for _, prefix := range terminalChromeOpeners {
-		if strings.HasPrefix(lower, prefix) {
-			return false
-		}
+	// The interface is only ever drawn on the screen. A reply read from a
+	// transcript is what the agent wrote and nothing else, and "show the
+	// context left in the status bar" is a job there like any other.
+	if screen && isChrome(s) {
+		return false
 	}
 	// An agent bullets its findings as readily as its plan. A finding opens by
 	// naming the thing it is about — "The Go process owns the panes" — where an
 	// instruction opens with the doing, or with what is to be done to. Note
 	// that "I'll add …" and "We should …" are instructions, and stay.
+	lower := strings.ToLower(s)
 	for _, opener := range []string{"the ", "there ", "this ", "that ", "these ", "those ", "it "} {
 		if strings.HasPrefix(lower, opener) {
 			return false
 		}
 	}
-	return !isProgress(s)
+	return true
+}
+
+// isChrome reports whether a line is part of the interface an agent's CLI draws
+// around what it says: its status line, key hints and counters.
+func isChrome(s string) bool {
+	lower := strings.ToLower(s)
+	for _, phrase := range terminalChrome {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	for _, prefix := range terminalChromeOpeners {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return isProgress(s)
 }
 
 // spaceless reports whether s is written in a script that does not put spaces

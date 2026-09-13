@@ -66,3 +66,26 @@ func TestAReplyEndingInAnOpenCodeBlockKeepsItsPlan(t *testing.T) {
 		t.Errorf("tasks = %q, want %q", got, want)
 	}
 }
+
+// TestAReplyKeepsTasksThatReadLikeTheCLIsStatusLine covers the filters that
+// keep Claude Code's interface out of a plan read off the screen. A reply from
+// a transcript has none of that interface in it, and the same filters threw
+// away real work that happened to mention it.
+func TestAReplyKeepsTasksThatReadLikeTheCLIsStatusLine(t *testing.T) {
+	plan := "Here's the plan:\n\n" +
+		"1. Show the context left in the status bar\n" +
+		"2. Add an auto-accept toggle to the settings page\n" +
+		"3. Explain bypass permissions mode on the help page\n"
+	want := []string{
+		"Show the context left in the status bar",
+		"Add an auto-accept toggle to the settings page",
+		"Explain bypass permissions mode on the help page",
+	}
+	if got := tasksFromReply(t, plan); !reflect.DeepEqual(got, want) {
+		t.Errorf("from a reply, tasks = %q, want %q", got, want)
+	}
+	// On the screen the same words are the CLI's own, and still left out.
+	if got := ExtractTasks(plan); len(got) != 0 {
+		t.Errorf("from the screen, tasks = %q, want none", got)
+	}
+}
