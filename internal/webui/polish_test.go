@@ -13,22 +13,39 @@ import (
 // its offset together.
 func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
 	css := stripComments(readAsset(t, "app.css"))
-	px := func(body, prop string) int {
-		m := regexp.MustCompile(`(?:^|[;\s])` + prop + `:\s*(\d+)px`).FindStringSubmatch(body)
-		if m == nil {
-			return 0
-		}
-		n, _ := strconv.Atoi(m[1])
-		return n
-	}
 	ring := ruleBody(css, ".tab:focus-visible")
 	if ring == "" {
 		t.Fatal("app.css has no focus ring for .tab")
 	}
-	need := px(ring, "outline") + px(ring, "outline-offset")
-	if got := px(ruleBody(css, "#tabs"), "padding"); got < need {
+	need := cssPx(ring, "outline") + cssPx(ring, "outline-offset")
+	if got := cssPx(ruleBody(css, "#tabs"), "padding"); got < need {
 		t.Errorf("the tab strip is padded %dpx, and a tab's focus ring reaches %dpx outside it, so the strip cuts it off", got, need)
 	}
+}
+
+// The buttons in a pane's header - fan out, broadcast, restart, zoom and close -
+// were about twenty pixels tall, under the 24 a target needs to be hit without
+// care. They have to be at least that, and still fit inside the header, whose
+// height includes its one-pixel rule.
+func TestAPaneHeadersButtonsAreBigEnoughToHit(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	tall := cssPx(ruleBody(css, ".pane-actions button"), "min-height")
+	if tall < 24 {
+		t.Errorf("a pane header's buttons are %dpx tall at least, short of 24px", tall)
+	}
+	if header := cssPx(ruleBody(css, ":root"), "--header-h"); tall > header-1 {
+		t.Errorf("a pane header's buttons are %dpx tall, and the %dpx header has room for %dpx", tall, header, header-1)
+	}
+}
+
+// cssPx reads a length in pixels that a block gives a property, or 0.
+func cssPx(body, prop string) int {
+	m := regexp.MustCompile(`(?:^|[;\s])` + prop + `:\s*(\d+)px`).FindStringSubmatch(body)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // A text field's automatic minimum width is its default size, about twenty
