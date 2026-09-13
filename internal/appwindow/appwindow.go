@@ -512,7 +512,15 @@ func openDefaultBrowser(url string) error {
 	// a windowless Flockdeck would flash a terminal up just to pass the address
 	// on, and saying so costs nothing.
 	sysproc.NoWindow(cmd)
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// xdg-open, open and rundll32 hand the address on and exit, and nothing
+	// waited for them: on Linux and macOS every fall back to the default
+	// browser left a zombie behind for as long as Flockdeck ran. Waiting is
+	// what reaps one; letting the process go, on Unix, does not.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // defaultBrowserCommand is the program, and its arguments, that hands url to
