@@ -508,7 +508,14 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 		// once the window resized it. A size no terminal has is a file edited
 		// by hand, and the default is kept.
 		if c, r := n.Pane.Cols, n.Pane.Rows; c > 0 && r > 0 && c <= maxRestoredSize && r <= maxRestoredSize {
-			p.Cols, p.Rows = c, r
+			// Never smaller than the default, though. The size saved is the
+			// one the pane last followed, which can be a phone reached
+			// through the relay and asked to fit the pane to its screen, and
+			// a pane started at a phone's forty columns prints its resumed
+			// conversation narrower than the default ever did, before the
+			// window on the desk has measured it. A pane that really is
+			// narrow shrinks a moment later, as every pane used to.
+			p.Cols, p.Rows = max(c, defaultCols), max(r, defaultRows)
 		}
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Cwd)
@@ -583,6 +590,10 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 // It is far beyond any screen, and well inside what a terminal's size can be
 // told in.
 const maxRestoredSize = 4096
+
+// defaultCols and defaultRows are the size a pane starts at when nothing has
+// measured it.
+const defaultCols, defaultRows = 80, 24
 
 func kindName(k session.Kind) string {
 	if k == session.KindShell {

@@ -37,6 +37,33 @@ func TestARestoredPaneStartsAtTheSizeItWasDrawnAt(t *testing.T) {
 	}
 }
 
+// TestARestoredPaneNeverStartsSmallerThanTheDefault covers a size last
+// measured by a phone through the relay. Started at it, a resumed conversation
+// was printed at forty columns, narrower than any pane started before sizes
+// were saved; each dimension is kept to at least the default instead.
+func TestARestoredPaneNeverStartsSmallerThanTheDefault(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	saved := &store.State{Tabs: []store.Tab{{
+		Title: "one",
+		Root:  &store.Node{Pane: &store.Pane{ID: "phone", Kind: "shell", Cwd: root, Cols: 40, Rows: 50}},
+	}}}
+	if err := store.Save(root, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	ws := newTestWorkspace(t, root)
+	if ok, err := ws.Restore(); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	p := ws.Pane("phone")
+	if p == nil || p.Sess == nil {
+		t.Fatalf("the pane did not come back running: %+v", p)
+	}
+	if cols, rows := p.Sess.Size(); cols != 80 || rows != 50 {
+		t.Errorf("a pane saved at 40x50 started at %dx%d, want 80x50: never narrower than the default, and as tall as it was", cols, rows)
+	}
+}
+
 // TestARestoredSizeNoTerminalHasIsIgnored checks a size from a file edited by
 // hand does not reach the terminal.
 func TestARestoredSizeNoTerminalHasIsIgnored(t *testing.T) {

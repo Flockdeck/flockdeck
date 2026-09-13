@@ -1012,7 +1012,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	// the first time gets a conventional default until the viewer measures it.
 	cols, rows := p.Cols, p.Rows
 	if cols <= 0 || rows <= 0 {
-		cols, rows = 80, 24
+		cols, rows = defaultCols, defaultRows
 	}
 
 	var argv, env []string
