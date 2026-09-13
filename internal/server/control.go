@@ -810,7 +810,12 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// times out, and with the agents quiet nothing is written: it went on
 	// being counted, among the windows through the relay the desk is shown,
 	// for as long as the instance ran.
-	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
+	//
+	// Its gauge counts nothing: the control socket's own writes are small and
+	// go out through writeLoop, so no frame of its is ever long enough on the
+	// way for a ping to have to wait behind it, and it is pinged on every
+	// interval, as a terminal socket was before gauges.
+	go keepalive(ctx, cancel, conn, new(writeGauge), s.pingInterval, s.pingTimeout)
 
 	// The key table and the preferences come first: the palette and the
 	// first-run hints are drawn from them, and both are wanted before the
