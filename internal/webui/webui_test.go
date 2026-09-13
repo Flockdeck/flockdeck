@@ -4237,6 +4237,29 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "routeTasks", tasks: ask.tasks
 `)
 }
 
+// A choice for one row is held by the task's text, so two rows with the same
+// text share it. Only the row chosen on was redrawn: the other went on saying
+// "Same as the run" while Start sent the new choice for both of them.
+func TestTwoRowsWithTheSameTaskShowTheChoiceTheyShare(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fanout");
+h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["write the tests", "write the tests"], isRepo: false,
+  cwd: "C:/repo", agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] }] });
+const body = h.$("overlay-body");
+const sels = () => body.querySelectorAll("div.fan-row").map((r) => r.querySelector("select"));
+const s = sels()[0];
+s.value = "claude\nopus";
+h.dispatch(s, new h.Ev("change", { target: s }));
+assert.deepStrictEqual(sels().map((x) => x.value), ["claude\nopus", "claude\nopus"],
+  "the second row does not show the choice Start will send for it");
+assert.ok(sels()[0] === s, "the row being chosen on was built again under the keyboard");
+body.querySelector("button.primary").onclick();
+assert.deepStrictEqual(h.commands().pop().taskModels, ["opus", "opus"]);
+`)
+}
+
 // A pane started on a routed model says so in its header, and which way.
 func TestAPaneOnARoutedModelSaysSo(t *testing.T) {
 	runFrontEnd(t, `

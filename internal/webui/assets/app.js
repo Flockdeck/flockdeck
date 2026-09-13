@@ -6786,6 +6786,10 @@
         if (tag) tag.remove();
         // What the row shows now, so the next drawing keeps it.
         d.key = rowKey(task);
+        // The choice is held by the task's text, so every row with the same
+        // text now has it. Only this row was redrawn, and the other went on
+        // showing "Same as the run" while Start sent the new choice for both.
+        renderRows();
         updateCount();
       };
       row.append(sel);
