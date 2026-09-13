@@ -83,9 +83,9 @@ func (s *Server) browse(c *controlClient, path string) {
 			msg.Parent = parent
 		}
 
-		entries, err := os.ReadDir(abs)
+		entries, err := readDir(abs)
 		if err != nil {
-			msg.Error = err.Error()
+			msg.Error = listingError(abs, err)
 			// A path that names a file -- pasted from an editor's title bar,
 			// say -- fails in the operating system's words for opening a file
 			// as a folder, which never say that it is a file; on Windows they
@@ -167,6 +167,28 @@ func (s *Server) browse(c *controlClient, path string) {
 				len(msg.Entries), len(msg.Entries)+omitted, filepath.Base(abs)), false)
 		}
 	}()
+}
+
+// readDir lists a folder for the picker. It is a variable so a test can have a
+// listing refused, which a folder cannot be made to do alike on every system
+// the tests run on.
+var readDir = os.ReadDir
+
+// listingError says why a folder could not be listed. The operating system's
+// own words begin with the call that failed and repeat the whole path --
+// "open C:\Users\sam\private: Access is denied." -- which is its account of
+// the failure rather than the picker's. A folder this user may not look into,
+// the likeliest reason there is, is said as that; anything else keeps the
+// system's reason, after the folder it was about.
+func listingError(abs string, err error) string {
+	if errors.Is(err, fs.ErrPermission) {
+		return "flockdeck is not allowed to look inside " + abs + " — go up, or choose another folder"
+	}
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		err = pe.Err
+	}
+	return "could not list " + abs + ": " + err.Error()
 }
 
 // maxBrowseEntries bounds how many folders one listing offers. It is a
