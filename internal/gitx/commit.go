@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,20 +23,21 @@ func CommitAll(dir, message string) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
-	// git refuses to commit while a merge has files in conflict, and "add
-	// --all" is what tells it they are resolved -- so the button committed a
-	// merge with the conflict markers still in it. A file that has been sorted
-	// out and merely not added is fine: committing is how the panel adds it.
-	if left := conflicted(dir); len(left) > 0 {
-		names := strings.Join(left[:min(len(left), 3)], ", ")
-		if len(left) > 3 {
-			names += fmt.Sprintf(" and %d more", len(left)-3)
-		}
-		return &gitError{"still in conflict: " + names + " — resolve the <<<<<<< markers first, then commit"}
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	if err != nil {
+		return err
+	}
+	if err := unresolved(dir, statusRecords(out)); err != nil {
+		return err
 	}
 	if err := writingIndex(dir, "", "add", "--all"); err != nil {
 		return err
 	}
+	return commitIndex(dir, message)
+}
+
+// commitIndex commits what has been staged.
+func commitIndex(dir, message string) error {
 	// The message goes in on stdin: on the command line a long one was more
 	// than Windows would start a program with.
 	err := writingIndex(dir, message, "commit", "-F", "-")
@@ -117,6 +120,51 @@ func changedSince(dir string, listed []string, unlisted int) (int, error) {
 	return moved, nil
 }
 
+// statusRecord is one entry of `git status --porcelain -z`: its two-letter
+// code, its name, and for a rename or a copy the name it came from.
+type statusRecord struct{ code, path, from string }
+
+// statusRecords reads the records of `git status --porcelain -z`.
+func statusRecords(out string) []statusRecord {
+	var recs []statusRecord
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		entry := records[i]
+		if len(entry) < 4 {
+			continue
+		}
+		rec := statusRecord{code: entry[:2], path: entry[3:]}
+		if rec.code[0] == 'R' || rec.code[0] == 'C' {
+			i++ // the name it came from follows as its own record
+			if i < len(records) {
+				rec.from = records[i]
+			}
+		}
+		recs = append(recs, rec)
+	}
+	return recs
+}
+
+// shown is the name the panel lists a record under, and false for a record it
+// leaves out.
+func (r statusRecord) shown() (string, bool) {
+	switch {
+	case r.code == "AD" || r.code == "CD":
+		// Staged as new -- or as a copy -- then deleted: the last commit
+		// never had it, and the working tree no longer does, so a commit
+		// does nothing with it. It was listed as a deletion of content
+		// that was never committed.
+		return "", false
+	case r.code == "RD" && r.from != "":
+		// Renamed, then the new name deleted: what a commit does is delete
+		// the old one. It was listed under the new name, which the last
+		// commit never had, with an empty diff -- while the file actually
+		// going, the old name, had no row at all.
+		return r.from, true
+	}
+	return r.path, true
+}
+
 // lockWait is how long a command that writes the index waits for another git
 // process to let go of it. It is a variable so a test can shorten it.
 var lockWait = 3 * time.Second
@@ -177,35 +225,145 @@ func indexHeld(lock string) error {
 		"If nothing is running, " + lock + " was left behind by one that stopped part way, and deleting it lets git go on."}
 }
 
-// conflicted names the files a merge left unresolved that still hold the
-// markers git wrote into them.
-func conflicted(dir string) []string {
-	out, err := run(dir, "diff", "--name-only", "--diff-filter=U", "-z")
-	if err != nil {
+// unresolved refuses a commit while a merge has left a file in conflict that
+// committing from the panel would settle with a side nobody chose.
+//
+// git refuses to commit while a merge has files in conflict, and "add --all"
+// is what tells it they are resolved. A text file both sides changed is fine
+// once its markers are gone: it has been sorted out and merely not added, and
+// committing is how the panel adds it. The rest have no markers to look for,
+// so there is no telling from here whether anyone chose: a binary file, which
+// git leaves as this side's copy; a file one side deleted or only one side
+// added; and a file whose merge attribute keeps git from writing markers. Each
+// of those was committed as it happened to lie.
+func unresolved(dir string, recs []statusRecord) error {
+	type left struct{ path, why string }
+	var (
+		stuck []left
+		both  []string // changed on both sides, which may hold markers
+	)
+	for _, rec := range recs {
+		switch rec.code {
+		case "UD", "DU":
+			stuck = append(stuck, left{rec.path, "deleted on one side"})
+		case "AU", "UA":
+			stuck = append(stuck, left{rec.path, "added on one side"})
+		case "UU", "AA":
+			both = append(both, rec.path)
+		}
+		// DD is both sides deleting it, which is a choice already made.
+	}
+	if len(both) > 0 {
+		attrs := mergeAttrs(dir, both)
+		for _, p := range both {
+			full := filepath.Join(dir, filepath.FromSlash(p))
+			switch a := attrs[p]; {
+			case isBinaryFile(full):
+				stuck = append(stuck, left{p, "binary"})
+			case a.noMarkers:
+				stuck = append(stuck, left{p, "merged without markers"})
+			case hasConflictMarkers(full, a.markerSize):
+				stuck = append(stuck, left{p, ""})
+			}
+		}
+	}
+	if len(stuck) == 0 {
 		return nil
 	}
 	var names []string
-	for _, name := range strings.Split(out, "\x00") {
-		if name != "" && hasConflictMarkers(filepath.Join(dir, name)) {
-			names = append(names, name)
+	markersOnly := true
+	for _, s := range stuck[:min(len(stuck), 3)] {
+		if s.why == "" {
+			names = append(names, s.path)
+			continue
 		}
+		markersOnly = false
+		names = append(names, s.path+" ("+s.why+")")
 	}
-	return names
+	for _, s := range stuck[min(len(stuck), 3):] {
+		markersOnly = markersOnly && s.why == ""
+	}
+	list := strings.Join(names, ", ")
+	if len(stuck) > 3 {
+		list += fmt.Sprintf(" and %d more", len(stuck)-3)
+	}
+	if markersOnly {
+		return &gitError{"still in conflict: " + list + " — resolve the <<<<<<< markers first, then commit"}
+	}
+	return &gitError{"still in conflict: " + list + " — a conflict with no markers to edit cannot be settled from here. " +
+		"In a terminal, keep the side you want (git checkout --ours or --theirs, or git rm) and git add it, then commit"}
 }
 
-// hasConflictMarkers reports whether a file has a line git starts a conflict
-// with, or ends one with. It reads a line at a time, since a conflicted file
-// can be large and is only wanted for the answer.
-func hasConflictMarkers(path string) bool {
+// mergeAttr is what a file's attributes say about how git merges it.
+type mergeAttr struct {
+	markerSize int  // how long git's conflict markers are in it
+	noMarkers  bool // merged as binary, or not merged at all: no markers are written
+}
+
+// mergeAttrs reads the merge attributes of the files named. A
+// conflict-marker-size attribute makes git write markers of that length, and
+// they were not recognised as markers at all.
+func mergeAttrs(dir string, paths []string) map[string]mergeAttr {
+	attrs := make(map[string]mergeAttr, len(paths))
+	for _, p := range paths {
+		attrs[p] = mergeAttr{markerSize: 7}
+	}
+	args := append([]string{"check-attr", "-z", "conflict-marker-size", "merge", "--"}, paths...)
+	out, err := run(dir, args...)
+	if err != nil {
+		return attrs
+	}
+	f := strings.Split(out, "\x00")
+	for i := 0; i+2 < len(f); i += 3 {
+		path, name, value := f[i], f[i+1], f[i+2]
+		a, ok := attrs[path]
+		if !ok {
+			continue
+		}
+		switch name {
+		case "conflict-marker-size":
+			if n, err := strconv.Atoi(value); err == nil && n > 0 {
+				a.markerSize = n
+			}
+		case "merge":
+			a.noMarkers = value == "binary" || value == "unset"
+		}
+		attrs[path] = a
+	}
+	return attrs
+}
+
+// isBinaryFile applies looksBinary to the start of a file.
+func isBinaryFile(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
+	buf := make([]byte, 8000)
+	n, _ := io.ReadFull(f, buf)
+	return looksBinary(buf[:n])
+}
+
+// hasConflictMarkers reports whether a file has a line git starts a conflict
+// with, or ends one with, size characters long. It reads a line at a time,
+// since a conflicted file can be large and is only wanted for the answer.
+func hasConflictMarkers(path string, size int) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	start := []byte(strings.Repeat("<", size))
+	end := []byte(strings.Repeat(">", size))
+	isMarker := func(line, marker []byte) bool {
+		rest, ok := bytes.CutPrefix(line, marker)
+		return ok && (len(rest) == 0 || rest[0] == ' ' || rest[0] == '\n' || rest[0] == '\r')
+	}
 	r := bufio.NewReader(f)
 	for {
 		line, err := r.ReadSlice('\n')
-		if bytes.HasPrefix(line, []byte("<<<<<<< ")) || bytes.HasPrefix(line, []byte(">>>>>>> ")) {
+		if isMarker(line, start) || isMarker(line, end) {
 			return true
 		}
 		// The rest of a line too long for the buffer is not the start of one.
