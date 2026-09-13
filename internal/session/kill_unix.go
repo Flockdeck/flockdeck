@@ -40,8 +40,9 @@ func containTree(int) procTree { return procTree{} }
 // editor's window started from a shell -- has left the session, and is left
 // alone as a terminal closing leaves it.
 //
-// The session is only signalled while the pane's process has not been
-// reaped. Until then its id cannot be anybody else's; after, it may be.
+// While the pane's process has not been reaped its id cannot be anybody
+// else's. Once it has -- a shell told `exit`, with a job still running -- what
+// it left is found through signalLeftBehind instead.
 func (s *Session) endTree() {
 	pid := s.cmd.Process.Pid
 	if !closedChan(s.reaped) {
@@ -50,6 +51,9 @@ func (s *Session) endTree() {
 		// Whatever ignored the hangup. The pane's process may have been reaped
 		// in the grace, but an id given back is not handed out again within it.
 		signalSession(pid, syscall.SIGKILL)
+	} else if signalLeftBehind(pid, syscall.SIGHUP) {
+		time.Sleep(hangupGrace)
+		signalLeftBehind(pid, syscall.SIGKILL)
 	}
 	_ = s.cmd.Process.Kill()
 	waitClosed(s.reaped, closeGrace)
@@ -62,4 +66,25 @@ func signalSession(sid int, sig syscall.Signal) {
 	for _, pid := range sessionMembers(sid) {
 		_ = syscall.Kill(pid, sig)
 	}
+}
+
+// signalLeftBehind sends sig to what is still running of the session and
+// group sid led, once its leader has been reaped, and reports whether
+// anything was.
+//
+// While any process is in the session or the leader's group, the leader's id
+// is not handed out again, so what is in them is what the pane left running.
+// If the id is a running process's again, they had all ended first, and a
+// session or group by that id is somebody else's, so nothing is signalled.
+func signalLeftBehind(sid int, sig syscall.Signal) bool {
+	if err := syscall.Kill(sid, 0); err != syscall.ESRCH {
+		return false
+	}
+	found := syscall.Kill(-sid, sig) == nil
+	for _, pid := range sessionMembers(sid) {
+		if syscall.Kill(pid, sig) == nil {
+			found = true
+		}
+	}
+	return found
 }
