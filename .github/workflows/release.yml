@@ -34,9 +34,20 @@ jobs:
       # carrying the key its signatures are checked with.
       release: true
 
+  # One release is published at a time. Two at once -- a fix to an older line
+  # cut beside a new release -- would each read the latest release before
+  # either had moved it, on GitHub and on the site, and whichever finished
+  # last would be the latest, older or not. So a second run waits for the
+  # first rather than cancelling it: a release stopped part way is published
+  # on GitHub and missing from the site. The tests still run side by side;
+  # only publishing takes turns. GitHub holds one run waiting, though, and a
+  # third started meanwhile replaces it, so that one needs running again.
   release:
     needs: test
     runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
