@@ -419,7 +419,17 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	if err != nil {
 		return err
 	}
-	if _, err := appwindow.Open(url, profile); err != nil {
+	// The browser is started at a one-time link rather than at the address
+	// with the token in it, which would stay on its command line for anybody
+	// on the machine to read (see server.WindowURL). Only an instance from an
+	// earlier build, which gives out no links, is opened the old way.
+	link, err := server.RequestWindowURL(base, inst.Token)
+	if errors.Is(err, server.ErrNoWindowLinks) {
+		link = url
+	} else if err != nil {
+		return fmt.Errorf("the flockdeck already running would not give a window a way in (%w); open this URL manually:\n  %s", err, url)
+	}
+	if _, err := appwindow.Open(link, profile); err != nil {
 		// The instance carries on without us, so its address stays good.
 		if errors.Is(err, appwindow.ErrNoBrowser) {
 			return fmt.Errorf("%w — set %s to one, or open this URL manually:\n  %s",
@@ -796,7 +806,11 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	if err != nil {
 		return nil, err
 	}
-	win, err := appwindow.Open(srv.URL(), profile)
+	// The window's browser is started at a one-time link, not at URL: the
+	// address stays on its command line all day, for anybody on the machine
+	// to read (see server.WindowURL). URL, with the token in it, is only ever
+	// printed, for the user to open by hand.
+	win, err := appwindow.Open(srv.WindowURL(), profile)
 	if err != nil {
 		// Unlike attaching, this server is ours and stops with us, so the
 		// address it was serving will not answer by the time anyone reads
@@ -815,7 +829,7 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 			// app-mode browser is found. Whether or not one opens, the address
 			// is printed: a desktop that could not show the window may well
 			// not show a tab either.
-			if appwindow.OpenDefault(srv.URL()) == nil {
+			if appwindow.OpenDefault(srv.WindowURL()) == nil {
 				fmt.Println("Trying your default browser instead.")
 			}
 			printServing(opts, recorded, srv.URL())

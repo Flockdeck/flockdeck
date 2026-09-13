@@ -120,6 +120,7 @@ var everyRoute = []string{
 	"/health",
 	"/open?path=/tmp",
 	"/quit",
+	"/window",
 	"/remote/reload",
 }
 
