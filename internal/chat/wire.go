@@ -134,13 +134,30 @@ func post(ctx context.Context, url string, header http.Header, body any) (io.Rea
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		resp.Body.Close()
-		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
-		if secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && secs > 0 {
-			e.RetryAfter = time.Duration(secs) * time.Second
-		}
+		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg),
+			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 		return nil, e
 	}
 	return resp.Body, nil
+}
+
+// retryAfter is how long a Retry-After header asks to be left, or 0 where it
+// says nothing that can be read. The header is a number of seconds or a date,
+// and a proxy in front of an API sends the date as often as not: read only as
+// seconds, a date was no request at all, and the API was asked again two
+// seconds later.
+func retryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	if secs, err := strconv.Atoi(h); err == nil {
+		if secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+		return 0
+	}
+	if at, err := http.ParseTime(h); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
 }
 
 // apiError is a request the API answered with a failure, kept whole rather
