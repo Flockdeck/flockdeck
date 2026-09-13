@@ -65,3 +65,41 @@ func TestExtractTasksKeepsAColonsDetailWithinTheLimit(t *testing.T) {
 		t.Errorf("first task is %d bytes, past the limit of %d", n, maxTaskBytes)
 	}
 }
+
+// TestExtractTasksFindsTheStepsUnderGroupLabels covers a plan grouped under
+// labels, with the real steps nested beneath. Only the shallowest entries were
+// taken as tasks, the labels are a word each and no task, and so a plan made of
+// nothing but work offered nothing at all.
+func TestExtractTasksFindsTheStepsUnderGroupLabels(t *testing.T) {
+	for name, tc := range map[string]struct {
+		plan string
+		want []string
+	}{
+		"numbered labels": {
+			"1. Backend\n" +
+				"   - Add the /health endpoint\n" +
+				"   - Add tests for it\n" +
+				"2. Frontend\n" +
+				"   - Add a status button\n",
+			[]string{"Add the /health endpoint", "Add tests for it", "Add a status button"},
+		},
+		"a step's own detail stays with it": {
+			"- **Backend**\n" +
+				"  - Add the /health endpoint\n" +
+				"    - report the version and the uptime\n" +
+				"  - Add tests for it\n",
+			[]string{"Add the /health endpoint", "Add tests for it"},
+		},
+		"labels inside labels": {
+			"1. Server\n" +
+				"   - API\n" +
+				"     - Add the /health endpoint\n" +
+				"   - Add a timeout to the control socket\n",
+			[]string{"Add the /health endpoint", "Add a timeout to the control socket"},
+		},
+	} {
+		if got := ExtractTasks(tc.plan); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: extracted %q, want %q", name, got, tc.want)
+		}
+	}
+}

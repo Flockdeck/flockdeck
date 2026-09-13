@@ -97,6 +97,8 @@ func extractTasks(text string, screen bool) []string {
 		}
 	}
 
+	items = promoteUnderLabels(items, base, screen)
+
 	var out []string
 	seen := map[string]bool{}
 	for i, it := range items {
@@ -104,22 +106,8 @@ func extractTasks(text string, screen bool) []string {
 		if it.indent > base+1 {
 			continue
 		}
-		task := tidyTask(it.text)
-		// A step that ends on a colon is handing over to what is nested under
-		// it — "Fix the login bug:" over the bug itself — and dropped as
-		// detail, that left the agent a heading and nothing it headed. A step
-		// with no colon is whole without its detail, and keeps going without
-		// it; a plan heading is dropped below, its steps being the work.
-		if strings.HasSuffix(task, ":") && !isPlanCue(task) {
-			if full := withDetail(task, items[i+1:], base); isTask(full, screen) {
-				task = full
-			}
-		}
-		// A lead-in written as an entry beside the steps, "Here's the plan:",
-		// heads nothing but is no task either. The colon is what hands over to
-		// a list: "Split this into two files" shares a phrase with a lead-in
-		// and is still a task.
-		if !isTask(task, screen) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
+		task, ok := shallowTask(items, i, base, screen)
+		if !ok {
 			continue
 		}
 		key := strings.ToLower(task)
@@ -133,6 +121,70 @@ func extractTasks(text string, screen bool) []string {
 		}
 	}
 	return out
+}
+
+// shallowTask reads items[i], one of the shallowest entries, as the task it
+// offers, and reports whether it offers one at all.
+func shallowTask(items []item, i, base int, screen bool) (string, bool) {
+	task := tidyTask(items[i].text)
+	// A step that ends on a colon is handing over to what is nested under
+	// it — "Fix the login bug:" over the bug itself — and dropped as
+	// detail, that left the agent a heading and nothing it headed. A step
+	// with no colon is whole without its detail, and keeps going without
+	// it; a plan heading is dropped below, its steps being the work.
+	if strings.HasSuffix(task, ":") && !isPlanCue(task) {
+		if full := withDetail(task, items[i+1:], base); isTask(full, screen) {
+			task = full
+		}
+	}
+	// A lead-in written as an entry beside the steps, "Here's the plan:",
+	// heads nothing but is no task either. The colon is what hands over to
+	// a list: "Split this into two files" shares a phrase with a lead-in
+	// and is still a task.
+	if !isTask(task, screen) || isPlanHeading(task) || (strings.HasSuffix(task, ":") && isPlanCue(task)) {
+		return "", false
+	}
+	return task, true
+}
+
+// promoteUnderLabels lifts the entries nested under a shallowest entry that is
+// no task itself -- "1. Backend" over the steps for the backend -- to the depth
+// of the steps, and drops the label. base is the shallowest depth.
+//
+// Only the shallowest entries are tasks, since whatever is nested under a job
+// is detail about doing it. A plan grouped under labels puts the labels there,
+// and they are a word each and no job at all: dropping them and their detail
+// with them, the fan-out found nothing in a plan that was nothing but work. A
+// label's own entries are the jobs, and deeper ones are still their detail, so
+// the whole group moves up by the same amount.
+func promoteUnderLabels(items []item, base int, screen bool) []item {
+	for i := 0; i < len(items); i++ {
+		if items[i].indent > base+1 {
+			continue
+		}
+		end := i + 1
+		for end < len(items) && items[end].indent > base+1 {
+			end++
+		}
+		if end == i+1 {
+			continue
+		}
+		if _, ok := shallowTask(items, i, base, screen); ok {
+			continue
+		}
+		child := items[i+1].indent
+		for _, it := range items[i+1 : end] {
+			child = min(child, it.indent)
+		}
+		for j := i + 1; j < end; j++ {
+			items[j].indent -= child - base
+		}
+		items = append(items[:i], items[i+1:]...)
+		// The first of the label's entries is now at i, and may be a label
+		// over entries of its own.
+		i--
+	}
+	return items
 }
 
 // withDetail finishes a step that ends on a colon with the entries nested
