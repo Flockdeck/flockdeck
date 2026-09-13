@@ -230,7 +230,8 @@ flockdeck keys set openai # give an API agent a key, read from stdin
 flockdeck keys list       # which agents have one, not what it is
 flockdeck keys clear openai # forget the key Flockdeck stored
 flockdeck keys check openai # ask the API whether it takes the key
-flockdeck keys endpoint local <url>  # point an API agent at another address
+flockdeck keys endpoint openai-compatible <url>  # point an API agent at another address
+flockdeck keys endpoint openai default  # back to the vendor's own address
 
 flockdeck remote enable   # reach this machine from another device, via a relay
 flockdeck remote pair     # a one-time link and QR code that pairs a device
