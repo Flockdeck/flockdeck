@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -830,11 +831,39 @@ func TestAQuietWindowThatStoppedListeningIsLetGo(t *testing.T) {
 	ctl := dialControl(t, srv)
 	paneID := nextState(t, ctl, nil).Tabs[0].Root.Pane
 
+	// Output going out is taken as the window being there, so it is not pinged
+	// while the pane prints -- and a shell still starting up on a slow machine
+	// prints for a while. A second window that reads everything says when the
+	// pane has gone quiet; without it the test could start reading, and so
+	// answering pings, before the server ever sent one.
+	watch := dialPTY(t, srv, paneID)
+	var last atomic.Int64
+	last.Store(time.Now().UnixNano())
+	go func() {
+		for {
+			if _, _, err := watch.Read(context.Background()); err != nil {
+				return
+			}
+			last.Store(time.Now().UnixNano())
+		}
+	}()
+	settle := pingInterval + pingTimeout + 500*time.Millisecond
+	deadline := time.Now().Add(30 * time.Second)
+	awaitQuiet := func(since time.Time) {
+		t.Helper()
+		for time.Since(since) < settle || time.Since(time.Unix(0, last.Load())) < settle {
+			if time.Now().After(deadline) {
+				t.Fatal("the pane never went quiet")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	awaitQuiet(time.Time{})
+
 	// Dialled and then never read from, so the window never answers a ping --
 	// which is what a window whose reader has stopped looks like from here.
 	pty := dialPTY(t, srv, paneID)
-
-	time.Sleep(pingInterval + pingTimeout + 500*time.Millisecond)
+	awaitQuiet(time.Now())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
