@@ -2761,6 +2761,38 @@ assert.strictEqual(m.terms[0]._keys(termKey({ key: "v", code: "KeyV", ctrlKey: t
 `)
 }
 
+// A paste is sent between the markers of bracketed paste, so that the program
+// knows it is text rather than keys, and the markers were sent as they were
+// found in the text: a copied ESC[201~ ended the paste early, and whatever
+// followed it was typed at the program as keys - a command and its Enter.
+func TestAPasteCannotCloseTheBracketsItIsSentIn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+t.host.append(typing);
+const reached = [];
+typing.addEventListener("paste", () => reached.push("xterm"));
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: (type) => (type === "text/plain" ? text : "") } });
+  h.dispatch(typing, ev);
+  return ev;
+};
+
+const ev = paste("echo safe\x1b[201~rm -rf ~\n\x1b[200~\x9b201~");
+assert.deepStrictEqual(t.pasted, ["echo safe[201~rm -rf ~\n[200~201~"], "the paste kept its escape characters");
+assert.deepStrictEqual(reached, [], "xterm pasted the text as it was as well");
+assert.ok(ev.defaultPrevented, "the browser pasted the text as it was as well");
+
+// Ordinary text is xterm's to paste, as it always was.
+paste("git status\n");
+assert.deepStrictEqual(reached, ["xterm"], "an ordinary paste did not reach xterm");
+assert.strictEqual(t.pasted.length, 1, "an ordinary paste was pasted twice");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

@@ -2229,6 +2229,20 @@
     }
     term.open(host);
     term.attachCustomKeyEventHandler((ev) => terminalKey(term, ev));
+    // A paste goes to a program that asked for bracketed paste between two
+    // markers, so it can tell text from keys, and xterm sends the text between
+    // them as it was. A copied ESC[201~ ended the paste early, and whatever
+    // followed it - a command and its newline - was typed at the program as
+    // keys. No escape character in a paste is anything a person means to
+    // send, so text holding one is pasted without them. Caught on the way down
+    // to xterm's own textarea, before its handler sees the event.
+    host.addEventListener("paste", (ev) => {
+      const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
+      if (!text || !/[\x1b\x9b]/.test(text)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      term.paste(text.replace(/[\x1b\x9b]/g, ""));
+    }, true);
     // Scrolled back to read what an agent wrote earlier, a pane went on
     // showing the old lines with nothing to say newer ones had arrived below,
     // and the only way back down was the wheel, however far that was.
