@@ -41,6 +41,13 @@ type Entry struct {
 
 	// compaction.turns
 	Turns *int `json:"turns,omitempty"`
+
+	// image.mediaType, image.bytes, image.width, image.height (image.hasDetail
+	// is the shared HasDetail field above, and is always true for this kind).
+	MediaType string `json:"mediaType,omitempty"`
+	Bytes     int    `json:"bytes,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
 }
 
 // Kinds an Entry can be, per the protocol.
@@ -52,6 +59,7 @@ const (
 	KindSubagent   = "subagent"
 	KindCompaction = "compaction"
 	KindNotice     = "notice"
+	KindImage      = "image"
 )
 
 // Tool and subagent statuses.
@@ -62,11 +70,16 @@ const (
 )
 
 // Detail is the full body of an entry that arrived trimmed: a tool's full
-// output or diff, a thinking block's text, or a subagent's own transcript.
+// output or diff, a thinking block's text, a subagent's own transcript, or an
+// image's own bytes.
 type Detail struct {
 	Text    string  `json:"text,omitempty"`
 	Diff    string  `json:"diff,omitempty"`
 	Entries []Entry `json:"entries,omitempty"`
+	// Data is an image entry's bytes, base64, in the entry's own mediaType --
+	// never sent inline on the entry itself, so a page listing several
+	// pictures stays small until one is actually drawn.
+	Data string `json:"data,omitempty"`
 }
 
 // Size caps from the protocol contract: a tool result over ToolOutputCap

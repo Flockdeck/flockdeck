@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -205,6 +206,15 @@ type rawBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"is_error"`
+	// image, the same shape as an Anthropic Messages API image block. Only a
+	// base64 source can be read here; a file reference (source.type "file")
+	// names bytes on Anthropic's own servers, not on this machine, and is
+	// dropped the same way a media type this build does not draw is.
+	Source *struct {
+		Type      string `json:"type"`
+		MediaType string `json:"media_type"`
+		Data      string `json:"data"`
+	} `json:"source,omitempty"`
 }
 
 // applyLine translates one transcript line into zero or more Entry values,
@@ -241,15 +251,19 @@ func (s *claudeStream) applyUser(line streamLine) []Entry {
 	}
 	var changed []Entry
 	var texts []string
-	for _, b := range blocks {
+	for i, b := range blocks {
 		switch b.Type {
 		case "tool_result":
-			if e, ok := s.applyToolResult(b); ok {
-				changed = append(changed, e)
-			}
+			changed = append(changed, s.applyToolResult(b, line.Timestamp)...)
 		case "text":
 			if b.Text != "" {
 				texts = append(texts, b.Text)
+			}
+		case "image":
+			// A pasted screenshot: an image block sitting directly in the
+			// user message, not inside a tool_result.
+			if e, ok := s.addImage(fmt.Sprintf("%s:%d", s.lineID(line.UUID), i), line.Timestamp, b); ok {
+				changed = append(changed, e)
 			}
 		}
 	}
@@ -398,13 +412,17 @@ func (s *claudeStream) startTool(id, name string, rawInput json.RawMessage, ts s
 	return s.add(e)
 }
 
-func (s *claudeStream) applyToolResult(b rawBlock) (Entry, bool) {
+// applyToolResult folds a tool_result block into the tool call it answers,
+// and, per the design's §1, into a standalone image entry for each image the
+// result itself carries -- the Read tool on a picture file, above all.
+func (s *claudeStream) applyToolResult(b rawBlock, ts string) []Entry {
 	status := StatusOK
 	if b.IsError {
 		status = StatusError
 	}
 	text := blockText(b.Content)
-	return s.update(b.ToolUseID, func(e *Entry) {
+	var changed []Entry
+	if e, ok := s.update(b.ToolUseID, func(e *Entry) {
 		e.Status = status
 		switch e.Kind {
 		case KindSubagent:
@@ -427,7 +445,59 @@ func (s *claudeStream) applyToolResult(b rawBlock) (Entry, bool) {
 				s.detail[e.ID] = Detail{Text: text}
 			}
 		}
-	})
+	}); ok {
+		changed = append(changed, e)
+	}
+	for i, img := range imageBlocksIn(b.Content) {
+		id := fmt.Sprintf("%s:image:%d", b.ToolUseID, i)
+		if e, ok := s.addImage(id, ts, img); ok {
+			changed = append(changed, e)
+		}
+	}
+	return changed
+}
+
+// addImage turns one image content block into an image Entry, its bytes kept
+// apart in detail so the page carrying it stays small (§2's "keeping it
+// small"). ok is false for anything prepareImage refuses, or a block that is
+// not a readable base64 image at all -- a file reference above all, which
+// names bytes on Anthropic's own servers that this machine cannot read.
+func (s *claudeStream) addImage(id, ts string, b rawBlock) (Entry, bool) {
+	if b.Source == nil || b.Source.Type != "base64" || b.Source.Data == "" {
+		return Entry{}, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(b.Source.Data)
+	if err != nil {
+		return Entry{}, false
+	}
+	mediaType, data, width, height, ok := prepareImage(b.Source.MediaType, raw)
+	if !ok {
+		return Entry{}, false
+	}
+	e := Entry{ID: id, Kind: KindImage, TS: ts, MediaType: mediaType, Bytes: len(data), Width: width, Height: height, HasDetail: true}
+	s.detail[id] = Detail{Data: base64.StdEncoding.EncodeToString(data)}
+	return s.add(e), true
+}
+
+// imageBlocksIn reads a tool_result's own content for any image blocks it
+// carries alongside its text, per the design's §1: content is either a plain
+// string or an array of typed blocks, the same shape parseContent reads for a
+// message.
+func imageBlocksIn(raw json.RawMessage) []rawBlock {
+	if len(raw) == 0 {
+		return nil
+	}
+	var blocks []rawBlock
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil
+	}
+	var out []rawBlock
+	for _, b := range blocks {
+		if b.Type == "image" {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func isEditFamily(name string) bool {

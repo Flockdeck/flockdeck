@@ -379,6 +379,49 @@ func TestConversationOpenRefusesAPaneItCannotSee(t *testing.T) {
 	expectNoMessage(t, c, 500*time.Millisecond)
 }
 
+// TestConversationDetailReturnsAnImagesBytes covers the phone's fetch-on-tap
+// path for a picture: the page carries only the entry's size and dimensions,
+// and conversationDetail is what actually hands over the bytes to draw.
+func TestConversationDetailReturnsAnImagesBytes(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	const tinyPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`+tinyPNGBase64+`"}}]}}`,
+	)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if len(page.Entries) != 1 {
+		t.Fatalf("entries = %+v", page.Entries)
+	}
+	img := page.Entries[0]
+	if img.Kind != transcript.KindImage || img.MediaType != "image/png" || !img.HasDetail {
+		t.Fatalf("image entry = %+v", img)
+	}
+	if strings.Contains(page.Cursor, tinyPNGBase64) {
+		t.Fatal("the image bytes must not travel in the page")
+	}
+
+	srv.conversationDetailReq(c, paneID, img.ID)
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationDetail" {
+		t.Fatalf("got %s, want conversationDetail", raw)
+	}
+	var d conversationDetailMsg
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Detail.Data != tinyPNGBase64 {
+		t.Errorf("detail data = %q, want the picture's own base64", d.Detail.Data)
+	}
+}
+
 func appendJSONL(t *testing.T, path string, lines ...string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
