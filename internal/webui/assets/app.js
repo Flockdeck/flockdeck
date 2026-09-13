@@ -299,7 +299,13 @@
     // normally settles it; this is what settles the events already in flight.
     ws.onopen = () => {
       if (control !== ws) return;
-      $("disconnected").hidden = true;
+      const panel = $("disconnected");
+      // The panel took the keyboard as it went up, and hiding it left the
+      // keyboard on a button nobody could see: nothing typed went anywhere
+      // until something was clicked.
+      const held = !panel.hidden && panel.contains(document.activeElement);
+      panel.hidden = true;
+      if (held) giveKeyboardBack();
       // Whatever a dialog is showing was read before the connection went, and
       // the working tree it describes has had time to move on. Asking again is
       // also what releases a button left waiting for a reply that the drop
@@ -334,11 +340,20 @@
       }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
-      else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
+      // A commit that worked answers with a tree with nothing to commit, and
+      // the message box and its buttons go with the keyboard in them: to
+      // Push, which is what comes next, or Refresh where there is no remote.
+      else if (msg.type === "changes") {
+        keepFocus(() => renderChanges(msg), (body) => body.querySelector("#rev-push") || body.querySelector("#rev-refresh"));
+      }
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
-      else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
+      // A Clear pressed goes with the key it cleared; the keyboard goes to
+      // that row's own button rather than out of the dialog.
+      else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "agentAddress") addressAnswered(msg);
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote); }
+      // An unpaired device's row goes with its Unpair button, and the
+      // keyboard with it: to Pair a device, rather than out of the dialog.
+      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
       else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
@@ -361,13 +376,34 @@
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
       if (detaching) return; // the window is on its way out
+      // Where the keyboard was, for the first failure only: the attempts
+      // after it find the panel already up with the keyboard on its button.
+      if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
       $("disconnected").hidden = false;
+      // The title is what the taskbar shows of a window behind others, and it
+      // went on counting agents waiting in a Flockdeck that had stopped.
+      document.title = "Disconnected · flockdeck";
       // Nothing behind this can be used and the terminal it is covering has
       // the keyboard, so typing would go nowhere until the pointer was used.
       $("retry").focus();
       reconnectTimer = setTimeout(connectControl, 1500);
     };
     ws.onerror = () => ws.close();
+  }
+
+  /** Where the keyboard was when the disconnected panel took it. */
+  let beforeDisconnect = null;
+
+  /** giveKeyboardBack returns the keyboard to where it was before the
+   *  connection went: a field or a dialog still on screen, or else whatever
+   *  dialog is open, or else the terminal. */
+  function giveKeyboardBack() {
+    const back = beforeDisconnect;
+    beforeDisconnect = null;
+    if (back && back.isConnected && back !== document.body && back.offsetParent !== null) { back.focus(); return; }
+    const root = modalRoot();
+    if (root) root.focus();
+    else focusTerminal();
   }
 
   /** renderUpdate shows the chip when a release has been downloaded.
@@ -554,6 +590,13 @@
       link.setAttribute("aria-label", "Pairing link");
       link.onfocus = () => link.select();
       text.append(link);
+      // Sending the link to the device, as a message to yourself, is the
+      // usual way it gets there, and copying it meant clicking into the
+      // field, selecting all of it and pressing the copy key.
+      const copy = el("button", "chip", "Copy link");
+      copy.id = "remote-copy";
+      copy.onclick = () => copyText(p.url, link, "Copied the pairing link");
+      text.append(copy);
       text.append(el("p", "fan-hint", "Whoever opens it can drive every agent here, so treat it like a password until then."));
       box.append(text);
       pair.append(box);
@@ -568,9 +611,11 @@
     // otherwise lose it across the redraw.
     go.id = "remote-pair";
     go.disabled = !!(p && p.pending);
+    // These buttons draw the dialog again themselves, and drawn without
+    // keepFocus it took the keyboard with the button that was pressed.
     go.onclick = () => {
       remotePairing = { pending: true };
-      renderRemote();
+      keepFocus(renderRemote);
       send({ cmd: "remotePair", kind: "device" });
     };
     row.append(go);
@@ -691,7 +736,7 @@
       remoteOutcome = null;
       send({ cmd: "remoteEnable", relay: d.relay.trim(), name: d.name.trim(),
         join: d.more ? d.join.trim() : "", invite: d.more ? d.invite.trim() : "" });
-      renderRemote();
+      keepFocus(renderRemote);
     };
     const row = el("div", "update-row");
     const go = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
@@ -700,7 +745,12 @@
     go.onclick = enable;
     const more = el("button", "chip", d.more ? "No codes" : "Joining an account, or invited?");
     more.id = "remote-more";
-    more.onclick = () => { d.more = !d.more; renderRemote(); };
+    more.onclick = () => {
+      d.more = !d.more;
+      keepFocus(renderRemote);
+      // Opened, the codes are what the press was for.
+      if (d.more && $("remote-join")) $("remote-join").focus();
+    };
     row.append(go, more);
     box.append(row);
     if (o && o.action === "enable" && o.error) box.append(el("p", "remote-error", o.error));
@@ -737,7 +787,7 @@
         remoteBusy = "reconnect";
         remoteOutcome = null;
         send({ cmd: "remoteReconnect" });
-        renderRemote();
+        keepFocus(renderRemote);
       };
       row.append(retry);
     }
@@ -785,6 +835,21 @@
     return box;
   }
 
+  /** copyText puts text on the clipboard and says so. Where the browser will
+   *  not - a page it does not count as secure, a permission refused - the
+   *  text is selected in the field it is shown in, so the copy key does it. */
+  function copyText(text, field, done) {
+    const selectInstead = () => {
+      if (field) { field.focus(); field.select(); }
+      notice("The clipboard could not be reached, so the link is selected: copy it from there", true);
+    };
+    try {
+      const clip = window.navigator && window.navigator.clipboard;
+      if (!clip || !clip.writeText) { selectInstead(); return; }
+      clip.writeText(text).then(() => notice(done, false), selectInstead);
+    } catch { selectInstead(); }
+  }
+
   /** remoteRename asks for a new name for this machine or a paired device,
    *  starting from the one it has. The name is what every device and machine
    *  on the account lists it as. An answer left empty goes too, to be refused
@@ -801,7 +866,7 @@
     remoteBusy = "disable";
     remoteOutcome = null;
     send({ cmd: "remoteDisable", force });
-    renderRemote();
+    keepFocus(renderRemote);
   }
 
   /** remoteAgo says how long since a time the relay reported, roughly. A time
@@ -1015,6 +1080,16 @@
       target.style.flexBasis = "0";
     }
     (node.children || []).forEach(walkWeights);
+    // The separators say how each pair shares the space, which is how a
+    // screen reader learns it. Written only by a drag or an arrow key, a
+    // split restored with the layout had no value at all, and one resized
+    // from another window kept the old one.
+    if (!node.pane && target) {
+      const kids = target.children;
+      for (let i = 1; i < kids.length - 1; i++) {
+        if (kids[i].classList.contains("divider")) sayShare(kids[i], kids[i - 1], kids[i + 1]);
+      }
+    }
   }
   /** The split containers by node id, recorded as they are built. Weights are
    *  applied on every state push, and every push arrives while agents are
@@ -1051,7 +1126,8 @@
   function sayShare(d, a, b) {
     const aGrow = parseFloat(a.style.flexGrow) || 1;
     const bGrow = parseFloat(b.style.flexGrow) || 1;
-    d.setAttribute("aria-valuenow", String(Math.round((aGrow / (aGrow + bGrow)) * 100)));
+    const now = String(Math.round((aGrow / (aGrow + bGrow)) * 100));
+    if (d.getAttribute("aria-valuenow") !== now) d.setAttribute("aria-valuenow", now);
   }
 
   /** One press of an arrow key moves this much of the pair across. */
@@ -1250,8 +1326,16 @@
         // A title is cut short at the tab's width, and the ones written from
         // an agent's task usually are. The bubble is the only place the rest
         // can be read, and the only thing saying how to change it.
-        describe(node.btn, title + " — double-click to rename");
+        describe(node.btn, title + " — double-click, or press F2, to rename");
+        // The close button said only "Close tab", a dozen times over across
+        // the strip, and nothing said that closing one stops its agents.
+        describe(node.close, "Close tab: " + title + ". Every agent in it stops.");
       }
+      // Named by its title, and the agent waiting in it. Named from what it
+      // holds, a tab said the button inside it as well - "one, Close tab" -
+      // every time the keyboard reached it.
+      const name = title + (tab.attention ? ", an agent here is waiting on you" : "");
+      if (node.btn.getAttribute("aria-label") !== name) node.btn.setAttribute("aria-label", name);
       const active = tab.id === s.activeTab;
       node.btn.classList.toggle("active", active);
       node.btn.setAttribute("aria-selected", String(active));
@@ -1292,6 +1376,11 @@
    *  switch tab: switching means switching agent, and arrowing past four of
    *  them to reach the fifth should not visit all four on the way. */
   function tabStripKey(ev, id) {
+    // F2 renames the tab the keyboard is on, as it renames a file in nearly
+    // every file manager and editor. From the strip, renaming was otherwise a
+    // double-click or a trip through the palette, and the palette's entry is
+    // for the tab on screen rather than the one arrowed to.
+    if (ev.key === "F2") { ev.preventDefault(); ev.stopPropagation(); renameTab(id); return; }
     const tabs = state ? state.tabs : [];
     const at = tabs.findIndex((t) => t.id === id);
     if (at < 0 || !tabs.length) return;
@@ -1460,11 +1549,22 @@
       // The gap between the two is the eye's; a screen reader needs a pause.
       if (s.waiting > 0 && s.working > 0) box.append(el("span", "sr-only", ", "));
       if (s.working > 0) box.append(tally("working", s.working, TIPS.working));
-      document.title = s.waiting > 0
-        ? `▲ ${s.waiting} waiting · flockdeck`
-        : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
+      // The button was named from the action table while it was still empty,
+      // and a name set that way outlasts the counts written into it after:
+      // tabbed to, it said what it opens and never who was waiting.
+      const counts = [s.waiting > 0 && s.waiting + " waiting", s.working > 0 && s.working + " working"]
+        .filter(Boolean).join(", ");
+      const name = [counts, actionTip("agents")].filter(Boolean).join(" — ");
+      if (name) box.setAttribute("aria-label", name);
+      else box.removeAttribute("aria-label");
       setFavicon(s.waiting > 0 ? "waiting" : (s.working > 0 ? "working" : "idle"));
     }
+    // Outside the counts' own check, so a window that said it was
+    // disconnected says what it holds again with the first push after.
+    const title = s.waiting > 0
+      ? `▲ ${s.waiting} waiting · flockdeck`
+      : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
+    if (document.title !== title) document.title = title;
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
     renderProjectChip(s);
@@ -2579,14 +2679,21 @@
    *  the chat's own status line does: a turn of a few hundred tokens costs a
    *  fraction of a cent, and two places would show it as costing nothing. */
   function formatUSD(v) {
-    return "~$" + (v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : v.toFixed(4));
+    // The places are chosen by the figure as it will be written, so an
+    // amount a hair under a boundary is written like the one it rounds to:
+    // $0.9999 is "~$1.00" beside $1.01's "~$1.01", not "~$1.000".
+    if (Math.round(v * 100) >= 100) return "~$" + v.toFixed(2);
+    if (Math.round(v * 1000) >= 10) return "~$" + v.toFixed(3);
+    return "~$" + v.toFixed(4);
   }
 
-  /** formatTokens writes a count the way somebody glancing at it reads it. */
+  /** formatTokens writes a count the way somebody glancing at it reads it.
+   *  Cut rather than rounded at every size, as the thousands already were,
+   *  so 9,999 is "9.9k" beside 10,001's "10k" rather than "10.0k". */
   function formatTokens(n) {
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e6) return (Math.floor(n / 1e5) / 10).toFixed(1) + "M";
     if (n >= 1e4) return Math.floor(n / 1000) + "k";
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    if (n >= 1e3) return (Math.floor(n / 100) / 10).toFixed(1) + "k";
     return String(n);
   }
 
@@ -2597,7 +2704,12 @@
     const units = ["B", "KB", "MB", "GB", "TB"];
     let i = 0;
     while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + units[i];
+    // Rounded before it is written, and the unit settled on what rounding
+    // gives: 1023.8 KB is 1.0 MB rather than "1024 KB", and 99.97 MB is
+    // 100 MB rather than a fourth figure.
+    let r = n >= 100 || i === 0 ? Math.round(n) : Math.round(n * 10) / 10;
+    if (r >= 1024 && i < units.length - 1) { r = Math.round((n / 1024) * 10) / 10; i++; }
+    return (r >= 100 || i === 0 ? String(Math.round(r)) : r.toFixed(1)) + " " + units[i];
   }
 
   /** renderPaneOverlay covers the terminal when the pane has no live process. */
@@ -2607,9 +2719,18 @@
       if (p.overlay) { p.overlay.remove(); p.overlay = null; }
       return;
     }
-    if (p.overlay) return;
+    const text = v.err || "The process exited.";
+    if (p.overlay) {
+      // The error can change under a cover already up - a pane that exited
+      // and then failed to restart, or failed again for another reason - and
+      // the cover went on showing the first. Only the words change, so the
+      // Restart button keeps the keyboard if it has it.
+      if (p.overlayText.textContent !== text) p.overlayText.textContent = text;
+      return;
+    }
     const box = el("div", "pane-error");
-    box.append(el("div", null, v.err || "The process exited."));
+    p.overlayText = el("div", null, text);
+    box.append(p.overlayText);
     const row = el("div");
     const restart = el("button", "chip primary", "Restart");
     restart.onclick = () => send({ cmd: "restartPane", id: p.id });
@@ -2908,8 +3029,17 @@
     body.scrollTop = top;
     if (pane && pane.isConnected) pane.scrollTop = paneTop;
     if (!key) return;
-    for (const node of body.querySelectorAll("button, input, textarea, select, [tabindex]")) {
+    const all = [...body.querySelectorAll("button, input, textarea, select, [tabindex]")];
+    for (const node of all) {
       if (identify(node) !== key) continue;
+      // A control the redraw disabled - the font stepper at its limit, a
+      // button whose work is done - cannot hold the keyboard: the browser
+      // drops it onto nothing. It goes to the nearest control that can.
+      if (node.disabled) {
+        const near = nearestEnabled(all, node, body);
+        if (near) near.focus();
+        return;
+      }
       node.focus();
       if (at != null && node.setSelectionRange) {
         try { node.setSelectionRange(at, at); } catch { /* not that kind of field */ }
@@ -2924,10 +3054,28 @@
     if (next) next.focus();
   }
 
+  /** nearestEnabled is the control to hand the keyboard to in place of one
+   *  that has been disabled: one beside it in the same group, else the next
+   *  one along, else the one before. */
+  function nearestEnabled(all, node, root) {
+    const usable = (n) => {
+      if (n === node || n.disabled || n.getAttribute("tabindex") === "-1") return false;
+      for (let p = n; p && p !== root; p = p.parentElement) if (p.hidden) return false;
+      return true;
+    };
+    const at = all.indexOf(node);
+    return all.find((n) => n.parentElement === node.parentElement && usable(n)) ||
+      all.slice(at + 1).find(usable) || all.slice(0, at).reverse().find(usable) || null;
+  }
+
   /** identify is what makes a control the same control across a redraw. An id
    *  is that on its own; otherwise it is what the control is and what it says,
    *  which is how a person finds it again too. A control whose wording changes
-   *  while it is working needs the id. */
+   *  while it is working needs the id, and so does a row whose words carry a
+   *  figure that moves on its own - a project's waiting count, a file's
+   *  changed lines, how long ago a conversation was: the redraws come
+   *  because those moved, and found by its words the row lost the keyboard
+   *  each time. */
   function identify(node) {
     if (node.id) return "#" + node.id;
     // A control repeated on every row - Clear, Unpair, a project's close - is
@@ -3317,6 +3465,7 @@
       // Enter, and the icon buttons beside it could not have been nested
       // inside something that claimed to be a button itself.
       const go = el("button", "proj-go");
+      go.id = "open-" + encodeURIComponent(p.root);
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
       // Cut from the end with an ellipsis, and paths differ at the end.
@@ -3818,7 +3967,15 @@
   let lastSearch = "";
 
   function openSearch() {
+    const was = searchPane;
     searchPane = focusedPaneId();
+    // Asked for again after the keyboard moved to another pane, the search
+    // moves with it, and it left the first pane's matches marked for good:
+    // only the pane being searched is ever cleared.
+    if (was && was !== searchPane) {
+      const old = panes.get(was);
+      if (old && old.search) { try { old.search.clearDecorations(); } catch {} }
+    }
     $("searchbar").hidden = false;
     // With six panes on screen, "Find" alone does not say where it is looking.
     const v = state && state.panes ? state.panes[searchPane] : null;
@@ -3949,7 +4106,11 @@
     if (prefs.notificationsOff) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const n = new Notification(title, { body, tag: "flockdeck" });
+      // One tag, so a newer notification replaces the one before rather than
+      // piling up; and renotify, because a replacement is otherwise put in
+      // place silently: an agent stopping to wait while an earlier
+      // notification was still up made no sound and showed no banner.
+      const n = new Notification(title, { body, tag: "flockdeck", renotify: true });
       n.onclick = () => {
         window.focus();
         // Raising the window in front of whichever tab happened to be on
@@ -4454,6 +4615,7 @@
     field.oninput = () => {
       historyQuery = field.value;
       for (const row of wrap.querySelectorAll("div.conv-row")) row.hidden = !holds(row.dataset.hay);
+      sayNone();
     };
     field.onkeydown = (ev) => {
       if (ev.key !== "ArrowDown") return;
@@ -4465,6 +4627,7 @@
     const wrap = section("Resume a conversation");
     m.items.forEach((c) => {
       const row = el("div", "conv-row" + (c.open ? " open" : ""));
+      row.id = "conv-" + encodeURIComponent(c.id);
       row.dataset.hay = (c.summary + " " + c.id).toLowerCase();
       row.hidden = !holds(row.dataset.hay);
       const main = el("div", "conv-main");
@@ -4504,6 +4667,13 @@
       }
       wrap.append(row);
     });
+    // Narrowed to nothing, the list simply went blank, which reads the same
+    // as a project with no conversations or a list still being read.
+    const none = el("div", "dir-empty", "No conversation matches that.");
+    none.id = "history-none";
+    const sayNone = () => { none.hidden = wrap.querySelectorAll("div.conv-row").some((r) => !r.hidden); };
+    wrap.append(none);
+    sayNone();
     body.append(wrap);
 
     const tools = el("div", "wt-tools");
@@ -4571,7 +4741,8 @@
   function renderChanges(msg) {
     // Where the file list and the diff were scrolled to, to put back below if
     // the same file is still the one shown.
-    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop };
+    const was = changeView && { file: selectedFile, list: changeView.list.scrollTop, diff: changeView.diff.scrollTop,
+      panel: changeView.diff };
     changeView = null;
     if (msg) {
       changes = msg;
@@ -4681,6 +4852,7 @@
       const rows = new Map();
       files.forEach((f) => {
         const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
+        row.id = "rev-" + encodeURIComponent(f.path);
         row.append(el("span", "rev-kind", f.label));
         // Long paths are elided from the left, keeping the file name visible.
         const name = el("span", "rev-name", f.path);
@@ -4706,11 +4878,16 @@
       });
       split.append(list);
 
-      const diff = el("div", "rev-diff");
+      // The panel already showing this file's diff is kept rather than
+      // drawn again. The tree is read again whenever an agent writes to it,
+      // and the diff on show - up to three thousand lines - was built afresh
+      // each time, while it was being read, for the same lines.
+      const keep = was && selectedFile && was.file === selectedFile && diffText ? was.panel : null;
+      const diff = keep || el("div", "rev-diff");
       split.append(diff);
       body.append(split);
       changeView = { rows, diff, list };
-      fillDiff();
+      if (!keep) fillDiff();
       // A refresh, a fetch or a push answers with the working tree again, and
       // drawing it afresh put a long diff back at its first line under the
       // person reading it, and the file list back at its top.
@@ -4725,6 +4902,10 @@
       box.oninput = () => { commitDraft = box.value; };
       const buttons = el("div", "rev-commit-buttons");
       const doCommit = (btn, push) => {
+        // The buttons wait while anything is out, and the message box, which
+        // commits on Ctrl+Enter, did not: pressed twice it sent the same
+        // commit again while the first was still running.
+        if (changesBusy) return;
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
@@ -4814,7 +4995,12 @@
     // A diff already on show is being read again, and the reader's place in
     // it is kept; a file just chosen starts at its top.
     const again = !!diffText;
-    diffText = msg.error ? msg.error : msg.text;
+    const text = msg.error ? msg.error : msg.text;
+    // The diff on show is read again whenever the tree moves, and it is
+    // most often just as it was - an agent wrote to some other file - so
+    // drawing its lines again would change nothing on screen.
+    if (again && text === diffText && changeView && changeView.diff.childNodes.length) return;
+    diffText = text;
     if (changeView) fillDiff(again);
     else renderChanges();
   }
@@ -4839,9 +5025,17 @@
     const note = el("div", "meta", rest + " more lines are not drawn.");
     const more = el("button", "chip", "Show them");
     more.onclick = () => {
+      // The button goes with the note, and pressed from the keyboard it took
+      // the keyboard with it. It goes to the diff instead, which is what the
+      // press was for, where the arrow keys scroll the lines just drawn.
+      const had = document.activeElement === more;
       note.remove();
       more.remove();
       for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+      if (had) {
+        if (!host.hasAttribute("tabindex")) host.tabIndex = -1;
+        host.focus();
+      }
     };
     host.append(note, more);
   }
@@ -5447,6 +5641,16 @@
    *  rest of the session, and losing a half-typed key to a redraw is the
    *  cheaper of the two mistakes. */
   let keyEditing = null;
+  /** The agent whose key was last saved, put away or cleared. What the
+   *  keyboard was on went with it - the field, its Cancel, the Clear - and
+   *  it goes back to that row's Set or Replace button instead. */
+  let keyActed = null;
+  /** Puts the open key form away, for the window's Escape to call. */
+  let keyCancel = null;
+  function keySetButton(agent) {
+    const b = agent ? $("key-set-" + encodeURIComponent(agent)) : null;
+    return b && b.isConnected ? b : null;
+  }
 
   /** openKeys shows which agents have an API key.
    *
@@ -5519,6 +5723,8 @@
 
       const actions = el("div", "wt-actions");
       const set = el("button", "chip", k.set ? "Replace…" : "Set…");
+      // An id, because its wording changes when a key is saved.
+      set.id = "key-set-" + encodeURIComponent(k.agent);
       set.onclick = () => { keyEditing = k.agent; renderKeys(); };
       actions.append(set);
       // Only a stored key can be forgotten. A key that came from the
@@ -5526,7 +5732,7 @@
       // business unsetting a variable it did not set.
       if (k.set && k.source === "store") {
         const clear = el("button", "chip danger", "Clear");
-        clear.onclick = () => send({ cmd: "keyClear", id: k.agent });
+        clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
         actions.append(clear);
       }
       row.append(actions);
@@ -5553,23 +5759,34 @@
     field.autocomplete = "off";
     field.spellcheck = false;
 
+    // The form goes, and the keyboard with it unless it is put back: on the
+    // row's own button, where the next Enter replaces the key again.
+    const done = () => {
+      keyActed = k.agent;
+      renderKeys();
+      const b = keySetButton(k.agent);
+      if (b) b.focus();
+    };
     const save = () => {
       const value = field.value.trim();
       field.value = "";
       keyEditing = null;
-      if (!value) { renderKeys(); return; }
-      send({ cmd: "keySet", id: k.agent, text: value });
+      if (value) send({ cmd: "keySet", id: k.agent, text: value });
       // Drawn again without waiting for the reply, so the field goes as
       // soon as it is sent rather than sitting there emptied.
-      renderKeys();
+      done();
     };
-    const cancel = () => { field.value = ""; keyEditing = null; renderKeys(); };
+    const cancel = () => { field.value = ""; keyEditing = null; done(); };
+    keyCancel = cancel;
+    field.id = "key-field";
 
+    // Escape closes the whole overlay everywhere else, which here would take
+    // a half-typed key with it and leave the user wondering what was saved.
+    // It is the window's key handler that puts the form away instead: it
+    // sees the key before this field does, and an Escape handled here never
+    // arrived - the dialog had already closed.
     field.onkeydown = (ev) => {
-      if (ev.key === "Enter") { ev.preventDefault(); save(); return; }
-      // Escape closes the whole overlay everywhere else, which here would take
-      // a half-typed key with it and leave the user wondering what was saved.
-      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); cancel(); }
+      if (ev.key === "Enter") { ev.preventDefault(); save(); }
     };
 
     const ok = el("button", "chip primary", "Save");
@@ -6300,6 +6517,7 @@
       routeClear = el("button", "chip", "Use the run's model for every task");
       routeClear.id = "fan-route-clear";
       routeClear.onclick = () => {
+        const had = document.activeElement === routeClear;
         taskLines().forEach((t) => {
           const r = activeRoute(t);
           if (!r) return;
@@ -6308,6 +6526,10 @@
         });
         renderRows();
         updateCount();
+        // The button hides itself once nothing is left routed, and hid
+        // itself with the keyboard on it, which then went nowhere. It goes to
+        // the run's own select, which is what the button was about.
+        if (had && routeClear.hidden) runSel.focus();
       };
       line.append(routeText, routeClear);
       body.append(line);
@@ -6466,39 +6688,70 @@
       updateCount();
     };
 
+    /* The row drawn for each task, by its text, with what its select and tag
+     * were drawn from. The box is typed into a line at a time, and building
+     * every row again for each keystroke - each with a select holding every
+     * model of every agent - was nearly all a keystroke cost: twelve tasks
+     * over three agents of four models were 240 elements a key. A row is kept
+     * while its task and what it shows are unchanged. */
+    let drawn = new Map();
+    const rowKey = (task) => {
+      const r = activeRoute(task);
+      return effective(task) + "\n" + (r ? [r.model, !!r.up, r.rule, r.reason].join("|") : "");
+    };
     const renderRows = () => {
-      rows.textContent = "";
+      const kept = new Map();
+      const order = [];
       taskLines().forEach((task, i) => {
-        const row = el("div", "fan-row");
-        row.append(el("span", "fan-row-n", String(i + 1)));
-        const text = el("span", "fan-row-task", task);
-        text.title = task;
-        row.append(text);
-        const sel = agentSelect(catalog, effective(task), "Same as the run");
-        const r = activeRoute(task);
-        let tag = null;
-        if (r) {
-          tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
-            r.reason + ". Choose another model here to decide this row yourself.");
-        }
-        sel.onchange = () => {
-          // Changing a routed row makes it the user's: the tag goes, and
-          // routing leaves the row alone from here on, even on "Same as the
-          // run".
-          const was = activeRoute(task);
-          if (was) {
-            overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
-              chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
-          }
-          if (sel.value || was) overrides.set(task, sel.value);
-          else overrides.delete(task);
-          if (tag) tag.remove();
-          updateCount();
-        };
-        row.append(sel);
-        if (tag) row.append(tag);
-        rows.append(row);
+        const key = rowKey(task);
+        const pool = drawn.get(task) || [];
+        const at = pool.findIndex((d) => d.key === key);
+        const d = at >= 0 ? pool.splice(at, 1)[0] : buildRow(task, key);
+        if (d.n.textContent !== String(i + 1)) d.n.textContent = String(i + 1);
+        if (!kept.has(task)) kept.set(task, []);
+        kept.get(task).push(d);
+        order.push(d.row);
       });
+      drawn = kept;
+      // Into place, moving only what is out of it; what is left over after
+      // the last row is what went from the box.
+      order.forEach((row, i) => { if (rows.children[i] !== row) rows.insertBefore(row, rows.children[i] || null); });
+      while (rows.children.length > order.length) rows.children[rows.children.length - 1].remove();
+    };
+    const buildRow = (task, key) => {
+      const row = el("div", "fan-row");
+      const n = el("span", "fan-row-n");
+      row.append(n);
+      const d = { row, n, key };
+      const text = el("span", "fan-row-task", task);
+      text.title = task;
+      row.append(text);
+      const sel = agentSelect(catalog, effective(task), "Same as the run");
+      const r = activeRoute(task);
+      let tag = null;
+      if (r) {
+        tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
+          r.reason + ". Choose another model here to decide this row yourself.");
+      }
+      sel.onchange = () => {
+        // Changing a routed row makes it the user's: the tag goes, and
+        // routing leaves the row alone from here on, even on "Same as the
+        // run".
+        const was = activeRoute(task);
+        if (was) {
+          overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
+            chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
+        }
+        if (sel.value || was) overrides.set(task, sel.value);
+        else overrides.delete(task);
+        if (tag) tag.remove();
+        // What the row shows now, so the next drawing keeps it.
+        d.key = rowKey(task);
+        updateCount();
+      };
+      row.append(sel);
+      if (tag) row.append(tag);
+      return d;
     };
 
     const start = el("button", "chip primary", "Start agents");
@@ -6903,6 +7156,13 @@
    *  push you started before turning to another pane. */
   const NOTICE_MS = 4000;
   const ERROR_MS = 12000;
+  /** How long a message stays once the pointer has left it. */
+  const NOTICE_AFTER_MS = 1500;
+  /** Whether the pointer is resting on the message. A message is read with
+   *  the pointer on it as often as not, and it went on its own timer
+   *  regardless: a long git error was taken away mid-sentence. It stays while
+   *  the pointer is there, and for a moment after it leaves. */
+  let noticeHeld = false;
 
   function notice(text, isError) {
     const n = $("notice");
@@ -6915,7 +7175,7 @@
     n.textContent = text;
     n.hidden = false;
     clearTimeout(notice.timer);
-    notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
+    if (!noticeHeld) notice.timer = setTimeout(hideNotice, isError ? ERROR_MS : NOTICE_MS);
   }
 
   /** hideNotice takes the message away. It is also what a click on it does:
@@ -6923,6 +7183,7 @@
    *  meant for the pane underneath was going nowhere at all. */
   function hideNotice() {
     clearTimeout(notice.timer);
+    noticeHeld = false;
     $("notice").hidden = true;
   }
 
@@ -6983,6 +7244,13 @@
       if (f && f.id === "agent-address") {
         e.preventDefault();
         closeAddress();
+        return;
+      }
+      // So is an API key being typed: the form goes, with what was typed in
+      // it, and the dialog stays.
+      if (f && f.id === "key-field" && keyCancel) {
+        e.preventDefault();
+        keyCancel();
         return;
       }
       closeOverlay();
@@ -7114,6 +7382,13 @@
     searchTimer = setTimeout(() => runSearch(false, true), 120);
   };
   $("notice").onclick = hideNotice;
+  $("notice").addEventListener("pointerenter", () => { noticeHeld = true; clearTimeout(notice.timer); });
+  $("notice").addEventListener("pointerleave", () => {
+    noticeHeld = false;
+    if ($("notice").hidden) return;
+    clearTimeout(notice.timer);
+    notice.timer = setTimeout(hideNotice, NOTICE_AFTER_MS);
+  });
   // A link out of the application - the help has one, to where Claude Code is
   // installed from - followed in place replaces the application with the page
   // it points to. This is an app window, with no address bar and no back

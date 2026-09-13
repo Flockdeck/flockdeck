@@ -5955,6 +5955,11 @@ class Element {
   get title() { return this.attributes.get("title") || ""; }
   set title(v) { this.attributes.set("title", String(v)); }
 
+  // Reflected as a browser reflects it, so input[type=password] finds a field
+  // whose type was set as a property.
+  get type() { return this.attributes.get("type") || ""; }
+  set type(v) { this.attributes.set("type", String(v)); }
+
   get tabIndex() { return Number(this.attributes.get("tabindex") || 0); }
   set tabIndex(v) { this.attributes.set("tabindex", String(v)); }
 
@@ -6448,6 +6453,9 @@ function boot(opts) {
     prompt: () => win._prompt,
     close: () => { win._closed = true; },
     focus: () => {},
+    // The clipboard a Copy button writes to; a case reads what it was given
+    // back as _copied.
+    navigator: { clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
     _listeners: new Map(),
   };
   win.window = win;
