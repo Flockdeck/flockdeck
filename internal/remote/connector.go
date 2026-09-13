@@ -74,9 +74,14 @@ var (
 	keepAliveTimeout = 45 * time.Second
 )
 
-// smuxConfig is the multiplexer's configuration, which has to agree with the
-// relay's: the version must match, and the buffers are what keep one busy
-// terminal from starving every other stream on the tunnel.
+// smuxConfig is the multiplexer's configuration. The version has to match the
+// relay's; the buffers need not, since each end's are about what it is sent.
+// A stream's sender keeps within the window its receiver announces, which is
+// the receiver's MaxStreamBuffer, so these bound what the relay may send a
+// stream here before it is read -- what browsers type, which is little. What
+// keeps one busy terminal from starving the other streams is the relay's own
+// per-stream buffer, a quarter of a megabyte against four for the tunnel,
+// since terminal output goes the other way.
 func smuxConfig() *smux.Config {
 	cfg := smux.DefaultConfig()
 	cfg.Version = 2
