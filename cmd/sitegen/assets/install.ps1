@@ -80,6 +80,12 @@ function Install-Flockdeck {
     $pinned = $version -ceq $release
 
     $dir = if ($env:FLOCKDECK_INSTALL_DIR) { $env:FLOCKDECK_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\flockdeck' }
+    # A slash on the end names the same directory, and compared as typed it
+    # did not: C:\Tools\ was added to PATH again beside the C:\Tools already
+    # on it. A drive's root keeps its slash, without which C: names another
+    # directory, the one current on that drive.
+    $trimmed = $dir.TrimEnd('\', '/')
+    if ($trimmed -and -not $trimmed.EndsWith(':')) { $dir = $trimmed }
     $dest = Join-Path $dir 'flockdeck.exe'
     $archive = "flockdeck_${version}_windows_$arch.zip"
 
@@ -212,7 +218,10 @@ function Install-Flockdeck {
     $key = Get-Item 'HKCU:\Environment'
     $path = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
     $parts = @($path -split ';' | Where-Object { $_ })
-    if ($parts -notcontains $dir) {
+    # What PATH names is compared without the slashes on its end, as $dir is:
+    # C:\Tools\ on it is where C:\Tools is.
+    $bare = @($parts | ForEach-Object { $_.TrimEnd('\', '/') })
+    if ($bare -notcontains $dir.TrimEnd('\', '/')) {
         $kind = if ($path -match '%') { 'ExpandString' } else { 'String' }
         Set-ItemProperty 'HKCU:\Environment' -Name Path -Value (($parts + $dir) -join ';') -Type $kind
         # Writing the registry tells nobody. Setting and clearing a variable

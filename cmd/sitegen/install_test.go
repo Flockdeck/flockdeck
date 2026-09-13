@@ -647,6 +647,84 @@ func TestInstallPs1SaysHowToStartItWithPathLeftAlone(t *testing.T) {
 	}
 }
 
+// A directory given with a slash on the end is the same directory, and so is
+// one on PATH written with one. Compared as typed, C:\Tools\ was added to the
+// user's PATH beside the C:\Tools already on it, and C:\Tools beside a
+// C:\Tools\. The script's PATH, Start menu shortcut and change broadcast are
+// pointed at a scratch registry key and folder here, so that the user's own
+// are left alone.
+func TestInstallPs1TakesADirectoryWithASlashOnTheEnd(t *testing.T) {
+	ps := installPs1Runner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	powershell := func(script string) string {
+		t.Helper()
+		out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("powershell: %v\n%s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, c := range []struct{ name, given, onPath string }{
+		{"given with a slash", `bin\`, `bin`},
+		{"on PATH with a slash", `bin`, `bin\`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			home := t.TempDir()
+			// Joined by hand: filepath.Join would take the slash off.
+			given, onPath := home+`\`+c.given, home+`\`+c.onPath
+			key := `HKCU:\Software\FlockdeckInstallTest-` + filepath.Base(filepath.Dir(home))
+			programs := filepath.Join(home, "Programs")
+			if err := os.Mkdir(programs, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			script := pointAt(t, string(shipped), r, ps1Addresses)
+			for from, to := range map[string]string{
+				`'HKCU:\Environment'`:                      "'" + key + "'",
+				`[Environment]::GetFolderPath('Programs')`: "'" + programs + "'",
+				`'FLOCKDECK_INSTALLING', '1', 'User'`:      `'FLOCKDECK_INSTALLING', '1', 'Process'`,
+				`'FLOCKDECK_INSTALLING', $null, 'User'`:    `'FLOCKDECK_INSTALLING', $null, 'Process'`,
+			} {
+				if !strings.Contains(script, from) {
+					t.Fatalf("the script no longer says %s, which this test points elsewhere", from)
+				}
+				script = strings.ReplaceAll(script, from, to)
+			}
+			path := filepath.Join(home, "install.ps1")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			const others = `C:\Windows`
+			powershell(fmt.Sprintf(`New-Item -Path '%s' -Force | Out-Null; Set-ItemProperty -Path '%s' -Name Path -Value '%s' -Type String`,
+				key, key, onPath+";"+others))
+			t.Cleanup(func() {
+				exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", "Remove-Item -Path '"+key+"' -Recurse -Force").Run()
+			})
+
+			cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
+			// A PATH with no flockdeck on it, whatever this machine has.
+			sys := os.Getenv("SystemRoot")
+			cmd.Env = append(installEnv(r, nil), "FLOCKDECK_INSTALL_DIR="+given,
+				"PATH="+filepath.Join(sys, "System32")+string(os.PathListSeparator)+sys)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install: %v\n%s", err, out)
+			}
+			if _, err := os.Stat(filepath.Join(home, "bin", "flockdeck.exe")); err != nil {
+				t.Errorf("nothing installed: %v\n%s", err, out)
+			}
+			got := powershell(fmt.Sprintf(`(Get-Item '%s').GetValue('Path', '', 'DoNotExpandEnvironmentNames')`, key))
+			if want := onPath + ";" + others; got != want {
+				t.Errorf("FLOCKDECK_INSTALL_DIR=%s with %s on PATH made PATH %q; want it left as %q\n%s", given, onPath, got, want, out)
+			}
+		})
+	}
+}
+
 // install.ps1 calls nothing that PowerShell loads from a script module on
 // first use. Windows PowerShell looks those up on PSModulePath, and one started
 // from PowerShell 7 inherits a PSModulePath that finds PowerShell 7's copies
