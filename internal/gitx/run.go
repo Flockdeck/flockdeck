@@ -36,6 +36,18 @@ var networkTimeout = 10 * time.Minute
 // pipeGrace is how long git's output is waited for once git has exited.
 const pipeGrace = 2 * time.Second
 
+// ownConfig goes ahead of every git command Flockdeck runs.
+//
+// core.fsmonitor may name a command, which git status then runs, and a
+// repository's own .git/config can set it. Flockdeck reads the status of every
+// checkout a pane is opened in, in the background, the moment the pane opens:
+// a repository unpacked from an archive somebody sent had a command of its
+// choosing run before anybody had looked at it, let alone told an agent to
+// trust it. An empty value turns the monitor off: git since 2.36 reads it as
+// false, and older git as no command at all, where "false" would be run as
+// one.
+var ownConfig = []string{"-c", "core.fsmonitor="}
+
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
 	out, _, err := runCapture(context.Background(), commandTimeout, dir, args...)
@@ -185,7 +197,7 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{}, ownConfig...), args...)...)
 	cmd.Dir = dir
 	// Flockdeck on Windows is a GUI program with no console of its own, so
 	// without this every one of these -- and the branch labels alone run one
