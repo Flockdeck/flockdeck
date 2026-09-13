@@ -123,7 +123,10 @@ For each device you pair:
 - the name you gave it, or one guessed from its browser (such as "iPhone
   Safari");
 - when it was paired, when it was last used and when its sign-in expires;
-- its sign-in token, stored only as a one-way hash.
+- its sign-in token, stored only as a one-way hash;
+- if you turn on notifications on it, its notification subscription: the
+  address its browser's push service gave it, and the two keys the browser
+  gave for encrypting messages to it.
 
 The relay also stores pairing codes, as hashes, until they are used. One that
 is never used expires after ten minutes, and is deleted within ten more.
@@ -138,6 +141,14 @@ routing chose for it. Remote access is **not end-to-end encrypted.**
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
+
+Notifications are the exception. When an agent needs you and you aren't
+using that pane, your desktop encrypts a notification for each device you
+turned notifications on for, with that device's own keys, before it leaves
+your computer. The relay adds its signature and posts it to the device's push
+service, and neither can read it. It says which pane needs you, with its
+project, and on which desktop; if you choose notifications without names, it
+says only how many agents need you, and on which desktop.
 
 When a paired device reaches your desktop, the relay passes your desktop the
 device's IP address, its identifier and its name, along with the headers its
@@ -169,6 +180,10 @@ in memory.
   the same way, whether or not it ever connected. When the last desktop in
   an account is removed, the account and all its devices go with it.
 - **Pairing codes** expire after ten minutes.
+- **A device's notification subscription** is deleted when the device is
+  removed or signs out, when its browser's push service says it no longer
+  exists, or when the relay's notification key changes. Turning
+  notifications off on the device deletes it too.
 
 To delete everything the relay holds about you, turn remote access off on each
 of your desktops (`flockdeck remote disable`). If a desktop can no longer be
@@ -195,7 +210,8 @@ may get its content delivery network's security cookie, as
 ## Why this data is used (lawful basis)
 
 - **To provide remote access,** which you asked for: the account, desktop and
-  device records, and the sign-in cookie. The basis is performance of a
+  device records, the sign-in cookie, and the notification subscription of a
+  device you turned notifications on for. The basis is performance of a
   contract (the relay's [terms](terms.html)).
 - **To keep the relay secure and working:** rate limiting, logs and access
   logs. The basis is our legitimate interest in running a secure and reliable
@@ -213,6 +229,14 @@ necessary, it is set by Cloudflare rather than by Flockdeck, and the app's
 update checks send no cookies. GitHub mirrors every release. TLS certificates come from Let's Encrypt,
 which receives no personal data about you. These providers process data on
 our behalf or as independent services, under their own terms.
+
+If you turn on notifications on a device, each notification goes through the
+push service that device's browser uses: Google's for Chrome and most
+Android browsers, Apple's for Safari, Mozilla's for Firefox, and Microsoft's
+for Edge on Windows. It receives the notification encrypted, the device's
+push address, and when it was sent, and it cannot read the notification. You
+chose that service when you chose your browser, and it works under its own
+terms.
 
 DigitalOcean and GitHub are United States companies. Where your data is
 handled outside the UK, it is protected by the safeguards UK law requires,
