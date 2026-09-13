@@ -169,7 +169,9 @@ func (s *Server) routeTasks(c *controlClient, cmd command) {
 		Routes: routes, Routing: mode, RouteNote: note})
 }
 
-// routingLogDir is where the routing log is kept. A test points it elsewhere.
+// routingLogDir is where the routing log is kept: Flockdeck's state
+// directory. The tests move it by moving the state directory itself, as they
+// do for every other file kept there; nothing reassigns this.
 var routingLogDir = store.Dir
 
 // logRoutes adds a fan-out's routed rows to the routing log. The log is for the
