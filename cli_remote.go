@@ -421,16 +421,16 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 	return err
 }
 
-// renaming reports whether name, given to enable on a machine already
-// enrolled, is not the name it is enrolled under.
 // cliWord writes one argument of a command the user is told to run so that it
 // can be pasted as it stands: bare when it is made only of what a URL or a
 // code is, and quoted otherwise, since a name like "Jim's laptop" split in
 // two, or left a shell waiting on the closing quote of its apostrophe.
 func cliWord(s string) string {
 	// Single quotes keep every character, where double quotes still let sh
-	// read a $, a backtick or a double quote inside them.
-	if strings.ContainsAny(s, "$`\"") {
+	// read a $, a backtick, a double quote or a backslash inside them -- a
+	// name ending in a backslash escaped the closing quote and left the shell
+	// waiting on another -- and let bash and zsh read a ! as a history event.
+	if strings.ContainsAny(s, "$`\"\\!") {
 		return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`
 	}
 	if s != "" && !strings.ContainsFunc(s, func(r rune) bool {
@@ -441,6 +441,8 @@ func cliWord(s string) string {
 	return `"` + s + `"`
 }
 
+// renaming reports whether name, given to enable on a machine already
+// enrolled, is not the name it is enrolled under.
 func renaming(name string) bool {
 	if strings.TrimSpace(name) == "" {
 		return false

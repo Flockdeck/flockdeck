@@ -249,8 +249,9 @@ func TestADetachedRebaseIsNoBranch(t *testing.T) {
 		_ = abort.Run()
 	})
 
-	if st := StatusOf(repo); !st.Detached || st.Branch != "" {
-		t.Errorf("status = %+v; want detached, with no branch", st)
+	// Still a rebase, though there is no branch to name as the one it is on.
+	if st := StatusOf(repo); !st.Detached || st.Branch != "" || st.Operation != "rebasing" {
+		t.Errorf("status = %+v; want detached and rebasing, with no branch", st)
 	}
 	if got := DefaultBase(repo); got == "detached HEAD" {
 		t.Errorf("default base = %q, which is no reference", got)
