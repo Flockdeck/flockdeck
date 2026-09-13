@@ -6425,8 +6425,15 @@
     openOverlay("Fan out", "fanout");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Reading this pane's output…"));
-    send({ cmd: "fanoutPreview", id: paneID || focusedPaneId() });
+    fanoutAsked = paneID || focusedPaneId();
+    send({ cmd: "fanoutPreview", id: fanoutAsked });
   }
+  /** The pane the open dialog asked about. The server answers from a
+   *  goroutine of its own, so a late answer for a dialog opened on one pane
+   *  could arrive after it had been opened again on another, and replaced it:
+   *  Start then used the first pane's plan and started in its tab. Empty
+   *  when no pane was focused, and the server chose. */
+  let fanoutAsked = "";
 
   /** agentOption is one entry of an agentSelect: what it reads as, and the
    *  agent and model it stands for. */
@@ -6501,7 +6508,12 @@
   }
 
   function renderFanout(msg) {
-    if (msg) fanout = msg;
+    if (msg) {
+      // Only the answer to what the open dialog asked, and only the first:
+      // another would redraw the list under whatever was being typed in it.
+      if (dialog !== "fanout" || fanout || (fanoutAsked && msg.paneId !== fanoutAsked)) return;
+      fanout = msg;
+    }
     if (dialog !== "fanout") return; // see openWorktrees
     const m = fanout || {};
     const body = $("overlay-body");

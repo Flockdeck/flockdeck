@@ -4260,6 +4260,39 @@ assert.deepStrictEqual(h.commands().pop().taskModels, ["opus", "opus"]);
 `)
 }
 
+// The server reads a pane's plan off the workspace goroutine and answers when
+// it has, so an answer can arrive late. One for the dialog opened on the
+// first pane replaced the dialog opened again on the second, and Start then
+// started the first pane's plan in the first pane's tab.
+func TestAFanOutTakesOnlyTheAnswerItAskedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const preview = (paneId, task) => ({ type: "fanoutPreview", paneId, tasks: [task], isRepo: false, cwd: "C:/repo",
+  agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }] }] });
+const box = () => h.$("overlay-body").querySelector("textarea.fan-tasks");
+
+h.press("fanout");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p1" });
+h.key({ key: "Escape" });
+h.recv(fixture({ activeTab: "t2" }));
+h.press("fanout");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p2" });
+
+h.recv(preview("p1", "the first pane's plan"));
+assert.ok(!box(), "the answer about another pane was drawn in this dialog");
+h.recv(preview("p2", "the second pane's plan"));
+assert.strictEqual(box().value, "the second pane's plan");
+h.recv(preview("p2", "a second answer"));
+assert.strictEqual(box().value, "the second pane's plan", "a repeated answer replaced the one being edited");
+
+h.$("overlay-body").querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.strictEqual(sent.id, "p2", "Start used the other pane");
+assert.deepStrictEqual(sent.tasks, ["the second pane's plan"]);
+`)
+}
+
 // A pane started on a routed model says so in its header, and which way.
 func TestAPaneOnARoutedModelSaysSo(t *testing.T) {
 	runFrontEnd(t, `
