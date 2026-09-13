@@ -1091,7 +1091,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 				Cwd:      p.Cwd,
 			}
 			settings, err := session.WriteHookSettingsWith(spec.Exe,
-				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), w.hookSrv.Token(), statusLine)
+				w.settingsDir, p.ID, w.selfExe, w.hookSrv.Endpoint(), statusLine)
 			if err != nil {
 				p.Err = err
 				return

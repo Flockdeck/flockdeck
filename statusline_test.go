@@ -133,6 +133,22 @@ func TestStatuslineWithNoApplicationStillPrintsTheUsersLine(t *testing.T) {
 	}
 }
 
+// The pane's settings no longer put the secret on the bridge's command line,
+// where anybody on the machine could read it: the bridge takes it from the
+// pane's environment, which Claude Code passes on.
+func TestStatuslineTakesTheSecretFromThePane(t *testing.T) {
+	srv, got := usageServer(t)
+	t.Setenv("FLOCKDECK_TOKEN", srv.Token())
+	var errs bytes.Buffer
+	statusline([]string{"--endpoint", srv.UsageEndpoint(), "--session", "pane-1"},
+		strings.NewReader(statusJSON), &bytes.Buffer{}, &errs)
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("nothing was reported with the secret in the environment alone: %s", errs.String())
+	}
+}
+
 // With no command of the user's, the bridge prints nothing and still reports:
 // that is somebody who turned the status line on to see their limits.
 func TestStatuslineWithNoCommandPrintsNothing(t *testing.T) {

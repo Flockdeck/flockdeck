@@ -54,12 +54,19 @@ func statusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		endpoint = fs.String("endpoint", "", "where to post the figures")
-		token    = fs.String("token", "", "shared secret")
+		token    = fs.String("token", "", "shared secret; the pane's FLOCKDECK_TOKEN when not given")
 		sessID   = fs.String("session", "", "pane session id")
 		then     = fs.String("then", "", "the user's own status line command, base64url")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	// The secret comes from the pane's environment, which Claude Code passes on
+	// to its status line, rather than from a command line anybody on the
+	// machine can read. --token is still taken, for a pane an earlier build
+	// started.
+	if *token == "" {
+		*token = paneEnv("TOKEN")
 	}
 	input, _ := io.ReadAll(io.LimitReader(stdin, maxStatusInput))
 

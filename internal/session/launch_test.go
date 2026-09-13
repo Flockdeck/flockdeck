@@ -71,7 +71,6 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 				SelfExe:     "/bin/flockdeck",
 				SettingsDir: dir,
 				Endpoint:    "http://127.0.0.1:1/hook",
-				Token:       "tok",
 			}.Config()
 			if err != nil {
 				t.Fatalf("config: %v", err)
@@ -168,7 +167,7 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			got, err := Settings(tc.spec, dir, testSession, "/bin/flockdeck", "http://127.0.0.1:1/hook", "tok")
+			got, err := Settings(tc.spec, dir, testSession, "/bin/flockdeck", "http://127.0.0.1:1/hook")
 			if err != nil {
 				t.Fatalf("settings: %v", err)
 			}

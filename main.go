@@ -1541,29 +1541,41 @@ var agentAvailable = agent.Available
 // runHook implements the hidden `hook` subcommand invoked by Claude Code.
 // It must never fail loudly: a broken hook would disrupt the agent session it
 // is only meant to observe.
-func runHook(args []string) {
+func runHook(args []string) { hook(args, os.Stdin, os.Stdout, os.Stderr) }
+
+// hook is runHook reading and writing where it is told to.
+//
+// The shared secret comes from the pane's environment, FLOCKDECK_TOKEN, which
+// Claude Code passes on to the hooks it runs. It used to be given as --token,
+// on a command line anybody on the machine can read for as long as the hook
+// runs; --token is still taken, for the settings of a pane an earlier build
+// started, and wins where it is given.
+func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
+	fs.SetOutput(stderr)
 	var (
 		endpoint = fs.String("endpoint", "", "Flockdeck hook endpoint")
-		token    = fs.String("token", "", "shared secret")
+		token    = fs.String("token", "", "shared secret; the pane's FLOCKDECK_TOKEN when not given")
 		sessID   = fs.String("session", "", "pane session id")
 		event    = fs.String("event", "", "lifecycle event name")
 	)
 	if err := fs.Parse(args); err != nil {
 		return
 	}
+	if *token == "" {
+		*token = paneEnv("TOKEN")
+	}
 	// Stderr is the one place a hook can complain: Claude Code shows it under
 	// --debug, and it neither fails the session nor lands in the stdout that
 	// SessionStart parses as JSON. Without it a hook that never arrives leaves
 	// no trace at all, only panes whose status stops changing.
 	if *endpoint == "" || *sessID == "" || *event == "" {
-		fmt.Fprintln(os.Stderr, "flockdeck hook: -endpoint, -session and -event are all required")
+		fmt.Fprintln(stderr, "flockdeck hook: -endpoint, -session and -event are all required")
 		return
 	}
-	ctx, err := hooks.Emit(os.Stdin, *endpoint, *token, *sessID, *event)
+	ctx, err := hooks.Emit(stdin, *endpoint, *token, *sessID, *event)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck hook:", err)
+		fmt.Fprintln(stderr, "flockdeck hook:", err)
 		return
 	}
 	if strings.TrimSpace(ctx) == "" {
@@ -1579,10 +1591,10 @@ func runHook(args []string) {
 		},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck hook: could not encode the session context:", err)
+		fmt.Fprintln(stderr, "flockdeck hook: could not encode the session context:", err)
 		return
 	}
-	_, _ = os.Stdout.Write(out)
+	_, _ = stdout.Write(out)
 }
 
 // hookOutput is the JSON a command hook prints to feed context back into the
