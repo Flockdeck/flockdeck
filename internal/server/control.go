@@ -1035,6 +1035,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.setScrollback(c, cmd.Size)
 		return
 	case "updates":
+		// Whether releases are fetched and staged is the desk's to say, as
+		// restarting onto one is: a switch flipped on a phone changed what
+		// the machine downloads and puts in place. The window has already
+		// moved its switch, so it is sent the preferences as they stand,
+		// which moves it back.
+		if c.remote {
+			c.notify("whether flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
+			return
+		}
 		s.setUpdates(c, cmd.Kind == "off")
 		return
 	case "resetTips":

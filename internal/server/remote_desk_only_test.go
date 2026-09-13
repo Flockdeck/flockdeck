@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // TestRemoteAccessIsTurnedOffOrMovedOnlyAtTheDesk covers the Remote access
@@ -95,6 +98,60 @@ func TestAKeyIsSetOnlyAtTheDesk(t *testing.T) {
 	}
 	if !slices.Contains(names, "anthropic") {
 		t.Error("a window through the relay cleared a key stored at the desk")
+	}
+}
+
+// TestUpdateChecksAreTurnedOnAndOffOnlyAtTheDesk covers the Check for updates
+// switch on a phone. Whether releases are fetched and staged on the machine is
+// the desk's to say, as restarting onto one is. The phone's switch has already
+// moved when it asks, so it is sent the preferences as they stand.
+func TestUpdateChecksAreTurnedOnAndOffOnlyAtTheDesk(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer phone.CloseNow()
+	nextState(t, phone, nil)
+
+	sendCmd(t, phone, command{Cmd: "updates", Kind: "off"})
+	// Refused or not, the phone is sent the preferences; a refusal is said
+	// before them.
+	var note noticeMsg
+	var prefs prefsMsg
+	for prefs.Type == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, data, err := phone.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("waiting for the preferences: %v", err)
+		}
+		var probe struct{ Type string }
+		_ = json.Unmarshal(data, &probe)
+		switch probe.Type {
+		case "notice":
+			_ = json.Unmarshal(data, &note)
+		case "prefs":
+			_ = json.Unmarshal(data, &prefs)
+		}
+	}
+	if prefs.Prefs.UpdatesOff {
+		t.Error("the phone was sent preferences with update checks off")
+	}
+	if !note.Error || !strings.Contains(note.Text, "machine") {
+		t.Errorf("turning update checks off through the relay was told %+v, want it refused", note)
+	}
+	if p, err := store.ReadPrefs(); err != nil || p.UpdatesOff {
+		t.Errorf("after a refusal the saved preferences read %+v, %v; want update checks still on", p, err)
+	}
+
+	// The desk still can.
+	desk := dialControl(t, srv)
+	sendCmd(t, desk, command{Cmd: "updates", Kind: "off"})
+	readUntil(t, desk, "prefs", &prefs)
+	if !prefs.Prefs.UpdatesOff {
+		t.Error("the desk turning update checks off was not kept")
 	}
 }
 
