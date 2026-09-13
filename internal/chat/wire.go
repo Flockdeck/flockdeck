@@ -235,6 +235,61 @@ func busyWords(e *apiError) string {
 	return "the API is failing on its side (" + strings.TrimSpace(e.Status) + ")"
 }
 
+// streamErrorCodes are the statuses the APIs answer with, before a stream
+// starts, for the errors they can also send part-way through one -- by the
+// name each gives the error in the stream.
+var streamErrorCodes = map[string]int{
+	// Anthropic's error types.
+	"overloaded_error": 529,
+	"api_error":        http.StatusInternalServerError,
+	"rate_limit_error": http.StatusTooManyRequests,
+	// OpenAI's, which the servers that copy its wire copy too.
+	"server_error":        http.StatusInternalServerError,
+	"rate_limit_exceeded": http.StatusTooManyRequests,
+	// Gemini's statuses, which are Google's RPC codes.
+	"RESOURCE_EXHAUSTED": http.StatusTooManyRequests,
+	"INTERNAL":           http.StatusInternalServerError,
+	"UNAVAILABLE":        http.StatusServiceUnavailable,
+	"DEADLINE_EXCEEDED":  http.StatusGatewayTimeout,
+}
+
+// streamFailure is an error the OpenAI and Gemini wires send part-way through
+// a stream, as the whole of a chunk. OpenAI's has a type and a code that is a
+// name, a number or null; Gemini's a numeric code and a status.
+type streamFailure struct {
+	Message string          `json:"message"`
+	Type    string          `json:"type"`
+	Status  string          `json:"status"`
+	Code    json.RawMessage `json:"code"`
+}
+
+// err is the failure as an error, or nil for a chunk that carried none.
+//
+// An error sent in the stream is the same failure the API sends as a status
+// before one starts -- overloaded, rate-limited, failing on its own side --
+// and is kept in the same shape where it can be told apart, so that the loop
+// asks again when nothing of the answer came. Read as words alone, a 503 in
+// the stream was never asked again, where the same 503 a moment earlier was.
+func (f streamFailure) err() error {
+	code := strings.Trim(strings.TrimSpace(string(f.Code)), `"`)
+	if code == "null" {
+		code = ""
+	}
+	if f.Message == "" && f.Type == "" && f.Status == "" && code == "" {
+		return nil
+	}
+	msg := firstNonEmpty(f.Message, f.Status, f.Type, code, "the stream reported an error")
+	for _, name := range []string{f.Status, f.Type, code} {
+		if n := streamErrorCodes[name]; n != 0 {
+			return &apiError{Code: n, Status: name, Msg: msg}
+		}
+	}
+	if n, err := strconv.Atoi(code); err == nil && n >= 400 && n <= 599 {
+		return &apiError{Code: n, Status: firstNonEmpty(f.Status, strconv.Itoa(n)+" "+http.StatusText(n)), Msg: msg}
+	}
+	return fmt.Errorf("%s", redactKeys(msg))
+}
+
 // cutOffError is an answer that stopped because it reached a limit on its
 // length. What was written of it stands, and is the start of the answer rather
 // than a failed one: the way on is to ask for the rest, not to ask again.

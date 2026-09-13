@@ -141,15 +141,13 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				// price.
 				CachedContentTokenCount int `json:"cachedContentTokenCount"`
 			} `json:"usageMetadata"`
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
+			Error streamFailure `json:"error"`
 		}
 		if json.Unmarshal([]byte(data), &chunk) != nil {
 			return nil
 		}
-		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
+		if err := chunk.Error.err(); err != nil {
+			return err
 		}
 		// Every chunk repeats the counts for the whole answer so far, so they
 		// are taken rather than added up.

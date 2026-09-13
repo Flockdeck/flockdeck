@@ -33,14 +33,6 @@ func (w *anthropicWire) header() http.Header {
 // not the model's version and does not move when models do.
 const anthropicVersion = "2023-06-01"
 
-// streamErrorCodes are the statuses the API answers with for the errors it can
-// also send part-way through a stream.
-var streamErrorCodes = map[string]int{
-	"overloaded_error": 529,
-	"api_error":        http.StatusInternalServerError,
-	"rate_limit_error": http.StatusTooManyRequests,
-}
-
 // anthropicBlock is one piece of content, in the request and in the reply. The
 // three shapes -- text, a tool call, a tool's answer -- share a struct because
 // the wire tells them apart by their type field.
