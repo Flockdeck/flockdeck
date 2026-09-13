@@ -398,23 +398,18 @@ func run(out, repo, module, url string, rel release) error {
 	}
 	written := map[string]bool{}
 	for plain, body := range files {
-		as := []string{plain}
+		name := plain
 		if hashed, ok := names[plain]; ok {
-			as = []string{hashed}
-			if alsoByName[plain] {
-				as = append(as, plain)
-			}
+			name = hashed
 		}
-		for _, name := range as {
-			path := filepath.Join(out, filepath.FromSlash(name))
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				return fmt.Errorf("create the folder for %s: %w", name, err)
-			}
-			if err := os.WriteFile(path, body, 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", name, err)
-			}
-			written[name] = true
+		path := filepath.Join(out, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create the folder for %s: %w", name, err)
 		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+		written[name] = true
 	}
 	if err := prune(out, names, written, previous); err != nil {
 		return err
@@ -433,21 +428,17 @@ func lf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n
 // /apple-touch-icon.png. Every other stylesheet, font and image is served
 // under a fingerprinted name. (favicon.svg is a text file, and keeps its name
 // too: the site's CI asks for it by name.)
+//
+// og.png is the picture a link to the site shows in Slack, Discord or X, and
+// the pages name it by its plain address, which nginx serves no-cache. Those
+// services keep the address a link gave them and fetch the picture from it
+// again when their copy expires. A fingerprinted address would be taken out
+// two regenerations after the picture next changed, and every link shared
+// before that would lose its picture.
 var servedByName = map[string]bool{
 	"favicon.ico":          true,
 	"apple-touch-icon.png": true,
-}
-
-// alsoByName are the fingerprinted files written under their plain name as
-// well, for what asks for that name without a page to give it the other.
-//
-// og.png is the picture a link to the site shows in Slack, Discord or X. The
-// pages name its fingerprinted copy, but every link shared before names were
-// fingerprinted gave https://flockdeck.ai/og.png, and those services fetch the
-// picture again when their copy expires: were that address gone, those links
-// would lose it. nginx serves the plain name no-cache, like a page.
-var alsoByName = map[string]bool{
-	"og.png": true,
+	"og.png":               true,
 }
 
 // fingerprint is name with the start of its content's SHA-256 put before the
@@ -575,9 +566,6 @@ func committed(out, name string) ([]byte, bool) {
 // when nothing links it any more.
 func prune(out string, names map[string]string, written, previous map[string]bool) error {
 	for plain := range names {
-		if written[plain] {
-			continue // see alsoByName
-		}
 		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("remove the old %s: %w", plain, err)
 		}

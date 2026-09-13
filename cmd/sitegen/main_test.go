@@ -772,12 +772,6 @@ func TestEveryLinkedFileCarriesItsFingerprint(t *testing.T) {
 	if checked < 10 {
 		t.Errorf("only %d fingerprinted files are linked; the stylesheet, both fonts and the screenshots should be", checked)
 	}
-	og := defaultURL + "/" + servedAs(t, dir, "og.png")
-	for name, page := range pages {
-		if !strings.Contains(page, `<meta property="og:image" content="`+og+`">`) {
-			t.Errorf("%s does not give %s as its image for a shared link", name, og)
-		}
-	}
 }
 
 // The site is generated into its own repository, over what was there. A file
@@ -878,7 +872,6 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	// The site's own files are there, each once.
 	servedAs(t, dir, "site.css")
 	servedAs(t, dir, "fonts/archivo.woff2")
-	servedAs(t, dir, "og.png")
 }
 
 // The site is deployed from its repository's commits, so the generation being
@@ -951,11 +944,12 @@ func TestARegenerationKeepsWhatTheCommittedPagesLink(t *testing.T) {
 	servedAs(t, dir, "site.css")
 }
 
-// Links to the site shared before its files were fingerprinted show the
-// picture at https://flockdeck.ai/og.png, and Slack, Discord and X fetch it
-// again when their copy expires. So the social card is written under that
-// name too, the same picture as the fingerprinted copy the pages name, and a
-// regeneration over a site that has it leaves it there.
+// Slack, Discord and X keep the picture address a shared link gave them, and
+// fetch the picture from it again when their copy expires. The pages named a
+// fingerprinted copy, which a regeneration takes out two after the picture
+// changes, so links shared before then went blank. Every page names the
+// social card at https://flockdeck.ai/og.png, which stays, and a
+// regeneration over a site that has it writes the card there.
 func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "og.png"), []byte("from before"), 0o644); err != nil {
@@ -970,14 +964,23 @@ func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"og.png", servedAs(t, dir, "og.png")} {
-		got, err := os.ReadFile(filepath.Join(dir, name))
+	got, err := os.ReadFile(filepath.Join(dir, "og.png"))
+	if err != nil {
+		t.Fatalf("the site has no og.png: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("og.png is %d bytes, not the %d of the social card", len(got), len(want))
+	}
+	og := defaultURL + "/og.png"
+	for _, name := range []string{"index.html", "privacy.html", "terms.html", "licences.html"} {
+		page, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
-			t.Errorf("the site has no %s: %v", name, err)
-			continue
+			t.Fatal(err)
 		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s is %d bytes, not the %d of the social card", name, len(got), len(want))
+		for _, meta := range []string{`<meta property="og:image" content="` + og + `">`, `<meta name="twitter:image" content="` + og + `">`} {
+			if !strings.Contains(string(page), meta) {
+				t.Errorf("%s does not give %s as its image for a shared link: want %s", name, og, meta)
+			}
 		}
 	}
 }
