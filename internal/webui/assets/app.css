@@ -303,6 +303,8 @@ body { flex-direction: row; }
 .divider:focus-visible,
 .help-item:focus-visible,
 .rev-file:focus-visible,
+.rev-diff:focus-visible,
+.update-notes:focus-visible,
 .agent-row:focus-visible,
 .conv-row:focus-visible,
 .proj-go:focus-visible,

@@ -443,7 +443,16 @@
     openOverlay("Update to " + u.version, "cli");
     const body = $("overlay-body");
     body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
-    if (u.notes) body.append(el("pre", "update-notes", u.notes));
+    if (u.notes) {
+      // The notes scroll inside a box of their own, and a box nothing can
+      // focus cannot be scrolled from the keyboard: the part below its
+      // bottom edge was out of reach without a mouse.
+      const notes = el("pre", "update-notes", u.notes);
+      notes.tabIndex = 0;
+      notes.setAttribute("role", "region");
+      notes.setAttribute("aria-label", "Release notes");
+      body.append(notes);
+    }
     if (u.url) {
       const a = el("a", "", "Release notes on GitHub");
       a.href = u.url; a.target = "_blank"; a.rel = "noreferrer noopener";
@@ -4928,6 +4937,13 @@
       // each time, while it was being read, for the same lines.
       const keep = was && selectedFile && was.file === selectedFile && diffText ? was.panel : null;
       const diff = keep || el("div", "rev-diff");
+      // It scrolls on its own, three hundred pixels of a diff that can run
+      // to thousands of lines, and a box that cannot be focused cannot be
+      // scrolled from the keyboard. fillDiff names it after its file.
+      if (!keep) {
+        diff.tabIndex = 0;
+        diff.setAttribute("role", "region");
+      }
       split.append(diff);
       body.append(split);
       changeView = { rows, diff, list };
@@ -5027,6 +5043,10 @@
     if (!changeView) return;
     const diff = changeView.diff;
     const top = diff.scrollTop;
+    // Named after the file it shows, since it is a stop of its own on the way
+    // round the dialog and the list beside it is where the name was.
+    const name = selectedFile ? "Diff of " + selectedFile : "Diff";
+    if (diff.getAttribute("aria-label") !== name) diff.setAttribute("aria-label", name);
     diff.textContent = "";
     if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
     else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
@@ -5077,7 +5097,9 @@
       more.remove();
       for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
       if (had) {
-        if (!host.hasAttribute("tabindex")) host.tabIndex = -1;
+        // A stop on Tab's way round, as renderChanges made it: -1 would take
+        // it off that way for as long as the dialog stayed open.
+        if (host.getAttribute("tabindex") !== "0") host.tabIndex = 0;
         host.focus();
       }
     };

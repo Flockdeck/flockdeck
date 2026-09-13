@@ -2422,6 +2422,56 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// The release notes and a file's diff each scroll inside a box of their own,
+// and neither box could be focused, so what was past its bottom edge was out
+// of reach from the keyboard. Each is a named stop on Tab's way round its
+// dialog now, and drawing the rest of a long diff keeps it one.
+func TestTheDiffAndTheReleaseNotesCanBeScrolledFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
+const stops = () => {
+  const seen = [];
+  for (let i = 0; i < 40; i++) { h.key({ key: "Tab" }); seen.push(h.doc.activeElement); }
+  return seen;
+};
+
+h.click(h.$("btn-update"));
+const notes = h.$("overlay-body").querySelector("pre.update-notes");
+assert.strictEqual(notes.getAttribute("tabindex"), "0", "the release notes cannot be focused, so they cannot be scrolled from the keyboard");
+assert.strictEqual(notes.getAttribute("role"), "region");
+assert.strictEqual(notes.getAttribute("aria-label"), "Release notes");
+assert.ok(stops().includes(notes), "Tab never reaches the release notes");
+h.key({ key: "Escape" });
+
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a/one.go", label: "M", added: 1, removed: 0 }, { path: "a/two.go", label: "M", added: 1, removed: 0 }] });
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+h.click(rows[0]);
+const NL = String.fromCharCode(10);
+const long = ["@@ -1,4000 +1,4000 @@"];
+for (let i = 0; i < 4000; i++) long.push("+line " + i);
+h.recv({ type: "diff", cwd: "C:/repo", file: "a/one.go", text: long.join(NL) });
+const diff = h.$("overlay-body").querySelector("div.rev-diff");
+assert.strictEqual(diff.getAttribute("tabindex"), "0", "the diff cannot be focused, so it cannot be scrolled from the keyboard");
+assert.strictEqual(diff.getAttribute("role"), "region");
+assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/one.go");
+assert.ok(stops().includes(diff), "Tab never reaches the diff");
+
+// Drawing the rest from the keyboard puts the keyboard on the diff, which
+// stays a stop on the way round.
+const more = diff.querySelectorAll("button").find((b) => b.textContent === "Show them");
+more.focus();
+h.key({ key: "Enter" });
+assert.ok(h.doc.activeElement === diff, "the keyboard did not go to the diff");
+assert.strictEqual(diff.getAttribute("tabindex"), "0", "drawing the rest took the diff off Tab's way round");
+
+h.click(rows[1]);
+assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/two.go", "the diff is still named after the file before");
+`)
+}
+
 // The help links out to where Claude Code is installed from. Followed in
 // place, that page replaced the application in its own window, which has no
 // address bar or back button to return by.
