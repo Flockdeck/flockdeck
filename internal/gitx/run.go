@@ -228,12 +228,27 @@ func gitLabel(args []string) string {
 //
 // git's "fatal: " goes too. The toast is already an error, and the word only
 // stands between the reader and what went wrong.
+//
+// So does who owns what, in git's refusal of a repository that belongs to
+// another user: on Windows it names the owner and the current user, a SID on a
+// line of its own under each, and those four lines came before -- and pushed
+// out of the toast -- the `git config --global --add safe.directory` line that
+// is the way past it.
 func withoutHints(msg string) string {
 	var kept []string
+	owner := false // the line before was one of the ownership report's headings
 	for _, line := range strings.Split(msg, "\n") {
-		if !strings.HasPrefix(line, "hint:") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "hint:"):
+		case strings.HasSuffix(trimmed, "is owned by:") || trimmed == "but the current user is:":
+			owner = true
+			continue
+		case owner && strings.HasPrefix(line, "\t"):
+		default:
 			kept = append(kept, strings.TrimPrefix(line, "fatal: "))
 		}
+		owner = false
 	}
 	if len(kept) == 0 {
 		return msg
