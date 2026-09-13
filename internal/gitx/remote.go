@@ -202,6 +202,21 @@ func Fetch(dir string) (string, error) {
 	return runVerbose(dir, "fetch", "--prune")
 }
 
+// unknownHost picks the host out of ssh's "No ED25519 host key is known for
+// github.com and you have requested strict checking", with a space after it,
+// or "the remote's host " when ssh did not name it.
+func unknownHost(msg string) string {
+	_, rest, ok := strings.Cut(msg, " is known for ")
+	if !ok {
+		return "the remote's host "
+	}
+	host, _, ok := strings.Cut(rest, " and ")
+	if !ok || host == "" || strings.ContainsAny(host, "\r\n") {
+		return "the remote's host "
+	}
+	return host + " "
+}
+
 // HasRemote reports whether the repository has anywhere to push to. A
 // substring test for "origin" used to be enough here, but it also matched a
 // remote merely named "my-origin" and missed a repository whose only remote is

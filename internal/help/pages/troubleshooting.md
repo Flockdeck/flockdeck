@@ -98,6 +98,26 @@ them — and when the agent has no model in the tier the rule asks for. The
 dialog says so when routing can do nothing for the run's model.
 [Agents and models](#agents) has the rules.
 
+## Push, pull or fetch fails over ssh
+
+The Changes panel's git has nowhere to ask you anything, so ssh is told not
+to ask: it fails at once, rather than waiting for an answer nobody can give.
+Two failures come from that, and the panel says which it was.
+
+- **ssh has not been told to trust the host.** The first connection to a
+  server asks whether to trust it. Run `git fetch` once from a terminal in
+  that checkout and answer yes; the panel connects after that.
+- **The remote refused the ssh key.** A key with a passphrase cannot be
+  unlocked without asking for it. Add it to your ssh agent with `ssh-add`, and
+  the panel uses it from there. If it still fails, the remote does not know the
+  key, and `git fetch` from a terminal says more.
+
+An ssh command of your own — `core.sshCommand` in git's config, or
+`GIT_SSH_COMMAND` or `GIT_SSH` in the environment — is left as it is, without
+that setting. Where ssh can ask for a passphrase in a window of its own, as on
+some Linux desktops, `git config core.sshCommand ssh` in the checkout is how
+to keep that window.
+
 ## The window looks like a browser tab
 
 The interface is a local web page shown in a chromeless application window,

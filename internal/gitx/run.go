@@ -62,14 +62,28 @@ func runVerbose(dir string, args ...string) (string, error) {
 	errText, err := runToEnv(context.Background(), networkTimeout, dir, batchSSH(dir), nil, &outb, args...)
 	out := outb.String()
 	if err != nil {
+		msg := err.Error()
 		// A remote that wants a login, on a machine with no credential
 		// helper to supply one, is refused a prompt here -- there is no
 		// terminal to type into -- and git says only that it "could not read
 		// Username ... terminal prompts disabled". Saying how to get past it
 		// is the useful part: sign in once where git can ask.
-		if strings.Contains(err.Error(), "terminal prompts disabled") {
-			return "", &gitError{"the remote " + quotedURL(err.Error()) + "wants a login, and git cannot ask for one from inside Flockdeck. " +
+		if strings.Contains(msg, "terminal prompts disabled") {
+			return "", &gitError{"the remote " + quotedURL(msg) + "wants a login, and git cannot ask for one from inside Flockdeck. " +
 				"Sign in once from a terminal in " + dir + " (git fetch will do), or set up a credential helper; the panel then uses the saved login."}
+		}
+		// ssh is kept from asking anything here (see batchSSH), and what it
+		// says instead is its own shorthand followed by git's advice to check
+		// the access rights -- the wrong lead for a host it has simply not
+		// been told to trust, or a key it could not unlock.
+		if strings.Contains(msg, "Host key verification failed") && !strings.Contains(msg, "HOST IDENTIFICATION HAS CHANGED") {
+			return "", &gitError{"ssh has not been told to trust " + unknownHost(msg) + "yet, and cannot ask whether to from inside Flockdeck. " +
+				"Run git fetch once from a terminal in " + dir + " and answer yes when ssh asks; the panel then connects."}
+		}
+		if strings.Contains(msg, "Permission denied (publickey") {
+			return "", &gitError{"the remote refused the ssh key offered. If your key has a passphrase, ssh cannot ask for it from inside Flockdeck: " +
+				"add it to your ssh agent (ssh-add) and try again. Otherwise the remote does not know this key; git fetch from a terminal in " +
+				dir + " says more."}
 		}
 		return "", err
 	}
