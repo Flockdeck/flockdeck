@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMatchGlob(t *testing.T) {
@@ -143,5 +144,39 @@ func TestGlob(t *testing.T) {
 	}
 	if _, err := call(t, tl, map[string]any{}); err == nil {
 		t.Error("a glob with no pattern must be refused")
+	}
+}
+
+// A pattern of many ** in a row means no more than one does, and matching it
+// against a deep path that does not match takes no longer than one would.
+// Tried every way the stars could share the path out between them, forty of
+// them against a path thirty deep never finished, and a glob stuck on one file
+// is past the reach of Ctrl+C. Nor does a pattern with ** between other
+// segments take longer than its length says.
+func TestManyDoubleStarsMatchInTheTimeOfOne(t *testing.T) {
+	deep := strings.Repeat("d/", 30) + "main.go"
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, p := range []string{strings.Repeat("**/", 40) + "*.txt", strings.Repeat("**/*/", 20) + "*.txt"} {
+			if matchGlob(p, deep) {
+				t.Errorf("%s matched %s", p, deep)
+			}
+		}
+		// The same patterns still match what they should.
+		if !matchGlob(strings.Repeat("**/", 40)+"*.go", deep) {
+			t.Errorf("forty ** did not match %s", deep)
+		}
+		if !matchGlob(strings.Repeat("**/*/", 15)+"*.go", deep) {
+			t.Errorf("fifteen **/* did not match %s", deep)
+		}
+		if matchGlob(strings.Repeat("**/*/", 31)+"*.go", deep) {
+			t.Errorf("thirty-one **/* matched %s, which has only thirty directories", deep)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("matching ran for more than ten seconds")
 	}
 }

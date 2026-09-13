@@ -231,30 +231,52 @@ func validGlob(pattern string) error {
 	return nil
 }
 
+// matchSegments matches a pattern against a name a segment at a time.
+//
+// Each ** tries every number of segments it could take, and without a record
+// of what has failed a pattern with many of them tried every way of sharing
+// the name out between them: forty against a path thirty deep never finished,
+// on one file, where Ctrl+C cannot reach. What is left to match after a ** is
+// only ever some later part of the pattern against some later part of the
+// name, so a combination that failed once is remembered and not tried again,
+// which bounds the work by the two lengths rather than by how many ** there are.
 func matchSegments(pat, name []string) bool {
-	for len(pat) > 0 {
-		if pat[0] == "**" {
-			// A trailing ** matches whatever is left, including nothing.
-			if len(pat) == 1 {
-				return true
-			}
-			for i := 0; i <= len(name); i++ {
-				if matchSegments(pat[1:], name[i:]) {
+	var failed []bool // by pattern index and name index, once a ** is met
+	var match func(p, n int) bool
+	match = func(p, n int) bool {
+		for p < len(pat) {
+			if pat[p] == "**" {
+				// A trailing ** matches whatever is left, including nothing.
+				if p == len(pat)-1 {
 					return true
 				}
+				if failed == nil {
+					failed = make([]bool, len(pat)*(len(name)+1))
+				}
+				key := p*(len(name)+1) + n
+				if failed[key] {
+					return false
+				}
+				for i := n; i <= len(name); i++ {
+					if match(p+1, i) {
+						return true
+					}
+				}
+				failed[key] = true
+				return false
 			}
-			return false
+			if n == len(name) {
+				return false
+			}
+			ok, err := path.Match(pat[p], name[n])
+			if err != nil || !ok {
+				return false
+			}
+			p, n = p+1, n+1
 		}
-		if len(name) == 0 {
-			return false
-		}
-		ok, err := path.Match(pat[0], name[0])
-		if err != nil || !ok {
-			return false
-		}
-		pat, name = pat[1:], name[1:]
+		return n == len(name)
 	}
-	return len(name) == 0
+	return match(0, 0)
 }
 
 // walkStart is where a walk for pattern under base begins, and the part of the
