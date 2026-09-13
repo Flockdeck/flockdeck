@@ -288,6 +288,17 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 	if kind != remote.KindHost {
 		kind = remote.KindDevice
 	}
+	// A join code takes another desktop into this account, after which every
+	// device paired with it reaches this machine and that one reaches every
+	// agent here. Asked for from a window reached through the relay -- a
+	// phone left unlocked, say -- it is a way back in that outlasts unpairing
+	// the phone. The dialog there offers only a device code; this is for a
+	// window that sends it anyway.
+	if kind == remote.KindHost && c.remote {
+		c.sendJSON(remotePairMsg{Type: "remotePair", Kind: kind, Error: deskOnlyJoin})
+		c.notify(deskOnlyJoin, true)
+		return
+	}
 	go func() {
 		defer s.survive("pairing a device")
 		msg := remotePairMsg{Type: "remotePair", Kind: kind}
@@ -314,6 +325,10 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 		c.sendJSON(msg)
 	}()
 }
+
+// deskOnlyJoin is what a window reached through the relay is told when it asks
+// for a code that takes another desktop into this account.
+const deskOnlyJoin = "a code for another desktop to join this account is made on the machine flockdeck runs on, not from a window reached through the relay"
 
 // remoteRevoke unpairs a device and sends the list again.
 func (s *Server) remoteRevoke(c *controlClient, id string) {

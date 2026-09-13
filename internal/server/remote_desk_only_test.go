@@ -101,6 +101,41 @@ func TestAKeyIsSetOnlyAtTheDesk(t *testing.T) {
 	}
 }
 
+// TestAJoinCodeIsMadeOnlyAtTheDesk covers a phone asking for the code that
+// takes another desktop into this account. Every device paired with that
+// desktop would then reach this one, so the code is a way back in that
+// outlasts unpairing the phone that asked for it. A device code is still the
+// phone's to ask for.
+func TestAJoinCodeIsMadeOnlyAtTheDesk(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.SetRemote(&fakeRemote{})
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer phone.CloseNow()
+
+	sendCmd(t, phone, command{Cmd: "remotePair", Kind: "host"})
+	var pair remotePairMsg
+	readUntil(t, phone, "remotePair", &pair)
+	if pair.Code != "" || pair.Kind != "host" || !strings.Contains(pair.Error, "join this account") {
+		t.Errorf("a join code asked for through the relay was answered %+v, want it refused", pair)
+	}
+	var note noticeMsg
+	readUntil(t, phone, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "machine") {
+		t.Errorf("a join code asked for through the relay was told %+v, want to ask on the machine itself", note)
+	}
+
+	// A device code goes on to remote access, which here has none to give.
+	sendCmd(t, phone, command{Cmd: "remotePair", Kind: "device"})
+	readUntil(t, phone, "remotePair", &pair)
+	if pair.Kind != "device" || strings.Contains(pair.Error, "join this account") {
+		t.Errorf("a device code asked for through the relay was answered %+v, want it asked for", pair)
+	}
+}
+
 // TestUpdateChecksAreTurnedOnAndOffOnlyAtTheDesk covers the Check for updates
 // switch on a phone. Whether releases are fetched and staged on the machine is
 // the desk's to say, as restarting onto one is. The phone's switch has already
