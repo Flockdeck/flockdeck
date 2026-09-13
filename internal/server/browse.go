@@ -51,6 +51,13 @@ func (s *Server) browse(c *controlClient, path string) {
 		msg := browseMsg{Type: "browse"}
 
 		path = unquotePath(path)
+		// "D:" names a drive everywhere else on Windows, but as a path it is
+		// that drive's current directory -- for the drive flockdeck runs on,
+		// the directory it was started in -- which is not what was meant.
+		if runtime.GOOS == "windows" && len(path) == 2 && path[1] == ':' &&
+			'a' <= path[0]|0x20 && path[0]|0x20 <= 'z' {
+			path += `\`
+		}
 		if path == "" {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = home
