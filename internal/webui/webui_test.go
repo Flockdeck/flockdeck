@@ -2888,6 +2888,41 @@ assert.ok(h.terms[0].focused, "the terminal no longer takes the keyboard once it
 `)
 }
 
+// Windows high contrast replaces every colour with a system one, and much of
+// this window is told apart by colour alone: the chosen row of a list, whether
+// a switch is on, the focused pane's border, a pressed toggle, the tab and the
+// project on screen, and each pane's status dot all came out like their
+// neighbours. Only the focus ring was looked after. Each is drawn in the
+// system's own colours there, after the rules it overrides.
+func TestHighContrastStillShowsWhatIsChosenAndWhatIsOn(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	forced := mediaBlock(t, css, `\(forced-colors:\s*active\)`)
+	for _, want := range []string{
+		`\.pal-row\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.pick-row\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.rev-file\.sel[^{]*\{[^}]*background:\s*Highlight`,
+		`\.switch\.on\s*\{[^}]*background:\s*Highlight`,
+		`\.switch \.knob\s*\{[^}]*background:\s*ButtonText`,
+		`\.pane\.focused\s*\{[^}]*border-color:\s*Highlight`,
+		`\[aria-pressed="true"\][^{]*\{[^}]*Highlight`,
+		`\.tab\.active[^{]*\{[^}]*Highlight`,
+		`\.rail-tile\.current[^{]*\{[^}]*Highlight`,
+		`\.dot\s*\{[^}]*forced-color-adjust:\s*none`,
+	} {
+		if !regexp.MustCompile(want).MatchString(forced) {
+			t.Errorf("in high contrast app.css does not give %s", want)
+		}
+	}
+	// Written earlier in the sheet, a rule of the same weight is overridden by
+	// the ordinary one after it, and high contrast changes nothing.
+	last := strings.LastIndex(css, "@media (forced-colors: active)")
+	for _, ordinary := range []string{".switch .knob {", ".pane.focused {", ".pal-row.sel {"} {
+		if at := strings.Index(css, ordinary); at < 0 || at > last {
+			t.Errorf("%s comes after the high-contrast rules, so it wins over them", ordinary)
+		}
+	}
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
