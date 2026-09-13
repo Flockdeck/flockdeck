@@ -23,13 +23,24 @@ import (
 // layout" is no help at all when several projects are open.
 func (w *Workspace) SaveAll() error {
 	var errs []error
+	if err := w.SaveLayouts(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := w.SaveSession(); err != nil {
+		errs = append(errs, fmt.Errorf("open projects: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// SaveLayouts writes the layout of every open project and leaves the list of
+// which ones are open alone. It is what is saved while the app runs; SaveAll,
+// which records that list as well, is what is saved as it stops.
+func (w *Workspace) SaveLayouts() error {
+	var errs []error
 	for _, root := range w.openRoots {
 		if err := w.SaveProject(root); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", root, err))
 		}
-	}
-	if err := w.SaveSession(); err != nil {
-		errs = append(errs, fmt.Errorf("open projects: %w", err))
 	}
 	return errors.Join(errs...)
 }
@@ -117,6 +128,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			// Written only for a routed pane, like Root below.
 			Routed:     p.Routed,
 			RoutedFrom: p.RoutedFrom,
+			// Zero, and so left out, for a pane no window has measured.
+			Cols: p.Cols,
+			Rows: p.Rows,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -170,6 +184,9 @@ func (w *Workspace) restoreProject(root string) int {
 		if tree == nil {
 			continue
 		}
+		// A layout saved by an older build can nest a row in a row, which
+		// looks like one row and splits and resizes like two.
+		tree.Flatten()
 		tab := &Tab{
 			ID:    uuid.NewString(),
 			Root:  root,
@@ -484,6 +501,22 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 		if p.ID == "" || p.Cwd == "" {
 			return nil
 		}
+		// The size the pane was last drawn at. A restore starts every pane
+		// before any window has opened to measure one, and an agent resuming a
+		// conversation prints it straight away: at the default size it came out
+		// wrapped at eighty columns, and what it had printed stayed that way
+		// once the window resized it. A size no terminal has is a file edited
+		// by hand, and the default is kept.
+		if c, r := n.Pane.Cols, n.Pane.Rows; c > 0 && r > 0 && c <= maxRestoredSize && r <= maxRestoredSize {
+			// Never smaller than the default, though. The size saved is the
+			// one the pane last followed, which can be a phone reached
+			// through the relay and asked to fit the pane to its screen, and
+			// a pane started at a phone's forty columns prints its resumed
+			// conversation narrower than the default ever did, before the
+			// window on the desk has measured it. A pane that really is
+			// narrow shrinks a moment later, as every pane used to.
+			p.Cols, p.Rows = max(c, defaultCols), max(r, defaultRows)
+		}
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Cwd)
 		}
@@ -553,6 +586,15 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	return node
 }
 
+// maxRestoredSize bounds the columns and rows a restored pane is started at.
+// It is far beyond any screen, and well inside what a terminal's size can be
+// told in.
+const maxRestoredSize = 4096
+
+// defaultCols and defaultRows are the size a pane starts at when nothing has
+// measured it.
+const defaultCols, defaultRows = 80, 24
+
 func kindName(k session.Kind) string {
 	if k == session.KindShell {
 		return "shell"
@@ -601,6 +643,7 @@ func (w *Workspace) RestoreSession() int {
 	// any of them runs.
 	wasOn := w.activeTab
 	opened := 0
+	var reopened []string
 	for _, saved := range sess.Open {
 		// Every other way into the workspace puts a project through
 		// filepath.Abs and the window then compares roots exactly — isOpen,
@@ -625,8 +668,8 @@ func (w *Workspace) RestoreSession() int {
 		// recent list is capped: without this, the projects that are always
 		// open are exactly the ones that age out of the picker, because only
 		// the one named on the command line and the ones opened by hand are
-		// ever recorded as used.
-		_ = store.TouchRecent(root)
+		// ever recorded as used. They are recorded together, below.
+		reopened = append(reopened, root)
 		if w.restoreProject(root) == 0 {
 			// It was open but had no saved tabs; give it one so switching to
 			// it shows something.
@@ -645,6 +688,13 @@ func (w *Workspace) RestoreSession() int {
 	} else {
 		w.focusFirstTabOf(w.activeRoot)
 	}
+	// The projects reopened here are recorded as used all at once, behind the
+	// one this run was started on. Recorded as each came back they went ahead
+	// of it, so the picker led with whichever happened to be last in the saved
+	// session rather than the one the user is in, and each was a rewrite of
+	// the list of its own. A start that reopens what the one before did finds
+	// them in this order already, and writes nothing.
+	_ = store.TouchRecents(append([]string{w.activeRoot}, reopened...)...)
 	return opened
 }
 

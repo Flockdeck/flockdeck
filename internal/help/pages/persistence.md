@@ -18,8 +18,10 @@ the one you were in. Your home folder opens as a project only when there were
 none; to open it on purpose, run `flockdeck -C ~`.
 
 A layout is written when the window closes or reloads, when you detach,
-restart or quit, and when a project is closed — not as you work, so if
-Flockdeck is killed or crashes, the changes since then are lost.
+restart or quit, when a project is closed, and every half minute while
+Flockdeck runs — so if it is killed or crashes, it comes back as it was at
+most half a minute before. Which projects were open is written only as
+Flockdeck stops, so a crash reopens the ones that were open the time before.
 
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity

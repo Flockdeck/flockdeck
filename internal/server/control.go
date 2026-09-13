@@ -1053,7 +1053,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
 		case "closeProject":
-			ws.CloseProject(cmd.Root)
+			if err := ws.CloseProject(cmd.Root); err != nil {
+				c.notify(err.Error(), true)
+			}
 		case "splitPane":
 			if !focusFor(ws, cmd.ID) {
 				c.notify(paneGone, true)

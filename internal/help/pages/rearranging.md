@@ -49,8 +49,9 @@ starts its agents in.
 [[key:movePaneLeft]], [[key:movePaneRight]], [[key:movePaneUp]] and
 [[key:movePaneDown]] move the focused pane past its neighbour in that
 direction. The neighbour is chosen by what is on screen rather than by tree
-order, so the opposite arrow puts it back — except where two panes are equally
-near, when the upper or the left one is taken.
+order, and where two panes are equally near, the upper or the left one is
+taken. The opposite arrow puts a move back, whatever the sizes of the panes it
+passed, as long as nothing else in the tab has moved since.
 
 The command palette carries the same moves, and [[action:movePaneToNewTab]]
 for the one dragging does by dropping a pane on `+`. It also has two that

@@ -79,12 +79,22 @@ func ExtractTasks(text string) []string {
 
 	var out []string
 	seen := map[string]bool{}
-	for _, it := range items {
+	for i, it := range items {
 		// A single space of drift is alignment, not nesting.
 		if it.indent > base+1 {
 			continue
 		}
 		task := tidyTask(it.text)
+		// A step that ends on a colon is handing over to what is nested under
+		// it — "Fix the login bug:" over the bug itself — and dropped as
+		// detail, that left the agent a heading and nothing it headed. A step
+		// with no colon is whole without its detail, and keeps going without
+		// it; a plan heading is dropped below, its steps being the work.
+		if strings.HasSuffix(task, ":") && !isPlanCue(task) {
+			if full := withDetail(task, items[i+1:], base); isTask(full) {
+				task = full
+			}
+		}
 		// A lead-in written as an entry beside the steps, "Here's the plan:",
 		// heads nothing but is no task either. The colon is what hands over to
 		// a list: "Split this into two files" shares a phrase with a lead-in
@@ -103,6 +113,35 @@ func ExtractTasks(text string) []string {
 		}
 	}
 	return out
+}
+
+// withDetail finishes a step that ends on a colon with the entries nested
+// under it, joined in order — "Fix the login bug: the refresh races with
+// logout; add a regression test" — for as many of them as keep the task
+// within maxTaskRunes. rest is every entry after the step; the step's own
+// entries are those indented past base+1 before the next step.
+func withDetail(task string, rest []item, base int) string {
+	full := task
+	added := false
+	for _, d := range rest {
+		if d.indent <= base+1 {
+			break
+		}
+		part := tidyTask(d.text)
+		if part == "" {
+			continue
+		}
+		sep := " "
+		if added {
+			sep = "; "
+		}
+		if utf8.RuneCountInString(full)+utf8.RuneCountInString(sep+part) > maxTaskRunes {
+			break
+		}
+		full += sep + part
+		added = true
+	}
+	return full
 }
 
 // item is one list entry, how far it was indented, and which line it came from.
@@ -878,7 +917,17 @@ func (w *Workspace) worktreeFor(cwd, branch string) (string, error) {
 	}
 	repo, err := gitx.Root(cwd)
 	if err != nil {
-		return "", fmt.Errorf("%s is not a git repository", cwd)
+		// Only git's plain "not a git repository (or any of the parent
+		// directories)" means there is no repository here. Every other
+		// refusal is about one that is here — a worktree whose repository
+		// has moved, a .git file that is not what it should be, a checkout
+		// git will not trust because another account owns it — and calling
+		// all of them "not a git repository" sent the user looking for a
+		// repository they could see was there. git's own words say which.
+		if strings.Contains(err.Error(), "or any of the parent directories") {
+			return "", fmt.Errorf("%s is not a git repository", cwd)
+		}
+		return "", fmt.Errorf("a worktree cannot be made from %s: %w", cwd, err)
 	}
 	// A branch that already has a worktree is reused rather than duplicated.
 	if wts, err := gitx.List(repo); err == nil {

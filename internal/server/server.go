@@ -156,6 +156,14 @@ type Server struct {
 
 	// book is what the panes' agents have said they spent. See spend.go.
 	book *spend.Book
+
+	// saveFailShown records that the windows have been told the timed layout
+	// save is failing, so a save that fails every half minute is reported once
+	// rather than every time, until one works again. It is a flag rather than
+	// the error it was told: a failed save names the temporary file it could
+	// not rename, which is a new name every time. Only the workspace goroutine
+	// touches it.
+	saveFailShown bool
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -227,6 +235,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.pushLoop()
 	go s.gitLoop()
 	go s.usageLoop()
+	go s.saveLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()
@@ -416,6 +425,65 @@ func (s *Server) usageLoop() {
 				s.Wake()
 			}
 		}
+	}
+}
+
+// layoutSaveInterval is how often every open project's layout is written while
+// the app runs. A variable so a test need not wait it out.
+var layoutSaveInterval = 30 * time.Second
+
+// saveLoop writes every open project's layout on a timer.
+//
+// Layouts were written only as the app stopped, as a project closed, and as a
+// window detached or reloaded. A run that was killed, crashed or lost its
+// machine to a power cut came back as the layout it had started with: every
+// tab opened, pane split and agent spawned since was gone, which is exactly
+// the work a restore is there to bring back. A layout that has not changed is
+// not rewritten (store.writeAtomic compares first), so a quiet workspace costs
+// an encoding and a comparison per project.
+//
+// Which projects are open is left to the save at the end, as it always was.
+// A -new run puts back the list it skipped only once that save has been
+// made, and a list written here in between would be all a crash left of it.
+func (s *Server) saveLoop() {
+	tick := time.NewTicker(layoutSaveInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-tick.C:
+			s.do(s.saveLayouts)
+		}
+	}
+}
+
+// saveLayouts is one turn of saveLoop, run on the workspace goroutine.
+//
+// Work queued before the server closed can still be run after it, and by then
+// the app is saving for the last time and closing the panes on another
+// goroutine. A save here would be reading the workspace while that one tore
+// it down, for layouts the last save writes anyway, so it stands aside.
+func (s *Server) saveLayouts() {
+	select {
+	case <-s.closed:
+		return
+	default:
+	}
+	// A save that keeps failing — a state folder that cannot be written to,
+	// a disk with no room left — used to be heard of only as the app stopped,
+	// on a terminal the window had long since hidden. The windows are told
+	// while there is still something to be done about it: once when it starts
+	// failing, and again if it fails after having worked. It counts as told
+	// only if a window was there to be told.
+	err := s.ws.SaveLayouts()
+	if err == nil {
+		s.saveFailShown = false
+		return
+	}
+	if !s.saveFailShown && s.ClientCount() > 0 {
+		s.notifyAll("the layout could not be saved, and it is tried again every half minute; if this goes on, check that the disk has room and that Flockdeck's state folder can be written to: "+err.Error(), true)
+		s.saveFailShown = true
 	}
 }
 

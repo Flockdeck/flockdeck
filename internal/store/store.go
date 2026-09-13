@@ -1,7 +1,8 @@
 // Package store persists the window layout between runs.
 //
 // Only the shape of the workspace is saved — tabs, splits, working
-// directories, pane ids, and which agent and model each pane runs.
+// directories, pane ids, which agent and model each pane runs, and the size
+// each pane's terminal was last drawn at.
 // Conversation history lives in the agent's own transcript store and is
 // reattached by id, which is why pane ids are generated as UUIDs.
 package store
@@ -100,6 +101,11 @@ type Pane struct {
 	// under a new one after /clear. Absent means the pane's id, which is what
 	// every layout written before this meant.
 	Conversation string `json:"conversation,omitempty"`
+	// Cols and Rows are the size the pane's terminal was last drawn at, so a
+	// restored pane starts at that size rather than at eighty by twenty-four.
+	// Absent, which is every layout written before this, means the default.
+	Cols int `json:"cols,omitempty"`
+	Rows int `json:"rows,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.
@@ -308,6 +314,7 @@ func Load(root string) (*State, error) {
 		return nil, err
 	}
 	data, err := readState(p)
+	noteRead(p, err)
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
@@ -420,8 +427,16 @@ const damagedSuffix = ".damaged"
 // quarantine moves a state file out of the way, best effort. Only one copy is
 // kept per name; a second one replacing the first is no loss, because a file
 // only becomes unreadable again after a good one has been written over it.
+//
+// A file that will not move — held for a moment by the virus scanner that
+// reads every file in the state directory, or blocked by whatever stands at
+// the name it is going to — was left where the next save wrote straight over
+// it, which is the loss moving it was for. It is recorded as unread instead,
+// so that save moves it aside first, or is refused if it still cannot.
 func quarantine(path string) {
-	_ = os.Rename(path, path+damagedSuffix)
+	if err := os.Rename(path, path+damagedSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		noteRead(path, err)
+	}
 }
 
 // Save writes the state atomically so an interrupted write cannot leave a
@@ -437,9 +452,63 @@ func Save(root string, s *State) error {
 	if err != nil {
 		return fmt.Errorf("encode layout: %w", err)
 	}
+	if err := keepUnread(p); err != nil {
+		return fmt.Errorf("write layout: %w", err)
+	}
 	if err := writeAtomic(p, data); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
+	return nil
+}
+
+// unreadSuffix marks a state file this run could not read, moved out of the
+// way of the save that replaced it. Like damagedSuffix it is neither ".json"
+// nor ".tmp", so nothing looks for it again and nothing sweeps it away.
+const unreadSuffix = ".unread"
+
+// unreadFiles holds the state files this run looked for and could not read,
+// for a reason other than their not being there: layouts, the list of open
+// projects, and the preferences.
+//
+// A file that cannot be read is taken as empty — a project that opens with no
+// tabs or with the one fresh tab the caller gives it, a start that reopens no
+// other project, the default preferences — and the next save used to write
+// that over the file nobody had been able to read. What the user had saved was
+// lost to a moment's trouble reading it: a file held past the retry budget, a
+// drive that was slow to wake, a permission put right by the next run. The
+// file is still theirs, so it is moved aside before it is written over, and
+// kept.
+var unreadFiles = struct {
+	sync.Mutex
+	paths map[string]bool
+}{paths: map[string]bool{}}
+
+// noteRead records how reading a state file went. A file read, or found not
+// to be there, has nothing left to keep.
+func noteRead(p string, err error) {
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		unreadFiles.paths[p] = true
+		return
+	}
+	delete(unreadFiles.paths, p)
+}
+
+// keepUnread moves a file this run could not read aside, ahead of the save
+// about to replace it. Where it cannot be moved either, the save is refused:
+// what is lost with it is what the user has just seen, and the file that
+// could not be read is what they have not.
+func keepUnread(p string) error {
+	unreadFiles.Lock()
+	defer unreadFiles.Unlock()
+	if !unreadFiles.paths[p] {
+		return nil
+	}
+	if err := renameWithRetry(p, p+unreadSuffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("what was saved there before could not be read, and could not be moved aside either, so it has been left as it was rather than written over: %w", err)
+	}
+	delete(unreadFiles.paths, p)
 	return nil
 }
 
@@ -614,7 +683,7 @@ func readState(path string) ([]byte, error) {
 	deadline := time.Now().Add(contentionBudget)
 	delay := time.Millisecond
 	for {
-		data, err := os.ReadFile(path)
+		data, err := readFile(path)
 		if err == nil {
 			return data, nil
 		}
@@ -624,6 +693,12 @@ func readState(path string) ([]byte, error) {
 		delay = backOff(delay)
 	}
 }
+
+// readFile reads a whole file. It is a variable so a test can stand in for a
+// read that fails for a reason other than the file not being there, which no
+// test can arrange portably: permissions stop nobody running as root, and a
+// sharing violation exists only on Windows.
+var readFile = os.ReadFile
 
 // hashRoot turns a path into a short stable filename component.
 func hashRoot(root string) string {
@@ -874,11 +949,33 @@ func Recents() ([]Project, error) {
 }
 
 // TouchRecent records that a project was opened, moving it to the front.
-func TouchRecent(root string) error {
-	// An empty root is not a project. It would be stored as "." and then
-	// offered in the picker as a directory that opens somewhere unpredictable.
-	if strings.TrimSpace(root) == "" {
-		return errors.New("recent project: empty path")
+func TouchRecent(root string) error { return TouchRecents(root) }
+
+// TouchRecents records that several projects were opened, moving them to the
+// front in the order given, the first given first.
+//
+// It is one read of the list and at most one write. Recording them one at a
+// time was a write each, and a start records every project it reopens around
+// the one it was started on: on Windows each write came to eleven
+// milliseconds of the start.
+func TouchRecents(roots ...string) error {
+	var clean []string
+	for _, root := range roots {
+		// An empty root is not a project. It would be stored as "." and then
+		// offered in the picker as a directory that opens somewhere
+		// unpredictable.
+		if strings.TrimSpace(root) == "" {
+			return errors.New("recent project: empty path")
+		}
+		// Store the tidied path, not whatever spelling this run happened to
+		// use: the picker shows these to the user verbatim.
+		c := filepath.Clean(root)
+		if !containsRoot(clean, c) {
+			clean = append(clean, c)
+		}
+	}
+	if len(clean) == 0 {
+		return nil
 	}
 	// The rewrite below replaces the whole file, so a list we could not read
 	// has to stop us: carrying on would quietly discard every other project
@@ -888,12 +985,34 @@ func TouchRecent(root string) error {
 	if err != nil {
 		return err
 	}
-	out := make([]Project, 0, len(list)+1)
-	// Store the tidied path, not whatever spelling this run happened to use:
-	// the picker shows these to the user verbatim.
-	out = append(out, Project{Root: filepath.Clean(root), LastUsed: time.Now()})
+	// Projects already at the front in this order, spelled as they would be
+	// written, are where the rewrite would put them: the times only order the
+	// list, and nothing shows them. Rewriting it anyway is a file created,
+	// flushed to the device and renamed on every switch between projects,
+	// eleven milliseconds on Windows spent on the goroutine that owns the
+	// workspace -- and at every start that reopens the same projects as the
+	// one before.
+	if len(list) >= len(clean) {
+		first := true
+		for i, c := range clean {
+			if list[i].Root != c {
+				first = false
+				break
+			}
+		}
+		if first {
+			return nil
+		}
+	}
+	now := time.Now()
+	out := make([]Project, 0, len(list)+len(clean))
+	for i, c := range clean {
+		// A nanosecond apart, so the list comes back in the order given
+		// however it is sorted.
+		out = append(out, Project{Root: c, LastUsed: now.Add(-time.Duration(i))})
+	}
 	for _, p := range list {
-		if !sameRoot(p.Root, root) {
+		if !containsRoot(clean, p.Root) {
 			out = append(out, p)
 		}
 	}
@@ -901,6 +1020,16 @@ func TouchRecent(root string) error {
 		out = out[:maxRecents]
 	}
 	return writeRecents(out)
+}
+
+// containsRoot reports whether roots names the same project as root.
+func containsRoot(roots []string, root string) bool {
+	for _, r := range roots {
+		if sameRoot(r, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // ForgetRecent drops a project from the remembered list.
@@ -961,6 +1090,7 @@ func LoadSession() (*Session, error) {
 		return nil, err
 	}
 	data, err := readState(filepath.Join(dir, sessionFile))
+	noteRead(filepath.Join(dir, sessionFile), err)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -1053,6 +1183,9 @@ func SaveSession(s *Session) error {
 	data, err := json.MarshalIndent(tidySession(s), "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
+	}
+	if err := keepUnread(filepath.Join(dir, sessionFile)); err != nil {
+		return fmt.Errorf("write session: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(dir, sessionFile), data); err != nil {
 		return fmt.Errorf("write session: %w", err)

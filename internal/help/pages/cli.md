@@ -21,10 +21,10 @@ Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
 window onto it. `-solo` is the escape hatch when you genuinely want two.
 
-`-new` is not a way to glance at an empty window. When that run ends, its
-layout is saved over the one it skipped, and the list of other open projects is
-replaced too, so they are not reopened next time either — their own layouts are
-kept, and come back when you open them.
+`-new` is not a way to glance at an empty window. Its layout is saved over the
+one it skipped within half a minute of starting, and again when the run ends.
+The other projects you had open are left alone: the next start reopens them as
+before, around the one this run was started on, which is where it lands.
 
 ## spawn
 

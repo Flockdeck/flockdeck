@@ -579,12 +579,21 @@ func (w *Workspace) SelectProject(root string) {
 // CloseProject saves a project's layout, closes its tabs and removes it. The
 // last open project cannot be closed, since the window would have nothing to
 // show.
-func (w *Workspace) CloseProject(root string) {
+//
+// A layout that cannot be saved does not keep the project open: closing it is
+// what was asked for, and its agents are stopped either way. It is reported
+// instead. The save was the one record of what the project had open, and
+// dropped without a word the project simply came back as it was the time
+// before, with nothing to say why.
+func (w *Workspace) CloseProject(root string) error {
 	root, ok := w.openRootFor(root)
 	if !ok || len(w.openRoots) <= 1 {
-		return
+		return nil
 	}
-	_ = w.SaveProject(root)
+	var saveErr error
+	if err := w.SaveProject(root); err != nil {
+		saveErr = fmt.Errorf("%s was closed, but its layout could not be saved, so it will not open as it was left: %w", filepath.Base(root), err)
+	}
 
 	kept := make([]*Tab, 0, len(w.Tabs))
 	// Tabs made to hold agents that were being shown here but belong to a
@@ -673,6 +682,7 @@ func (w *Workspace) CloseProject(root string) {
 	}
 	w.focusFirstTabOf(w.activeRoot)
 	w.wake()
+	return saveErr
 }
 
 func (w *Workspace) isOpen(root string) bool {
@@ -1002,7 +1012,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	// the first time gets a conventional default until the viewer measures it.
 	cols, rows := p.Cols, p.Rows
 	if cols <= 0 || rows <= 0 {
-		cols, rows = 80, 24
+		cols, rows = defaultCols, defaultRows
 	}
 
 	var argv, env []string
@@ -1030,8 +1040,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
 			// from a machine that had it. That is this pane's problem and no
-			// other's, so it is reported in place.
-			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
+			// other's, so it is reported in place, with the way out of it:
+			// told only that the agent was not configured, the user was left
+			// to work out where agents are configured, and that the pane can
+			// be restarted once it is.
+			p.Err = fmt.Errorf("no agent named %q is configured on this machine, so this pane cannot start. Add it to agents.json and restart the pane, or close it", agentID)
 			return
 		}
 		// A CLI runner is somebody else's program and may simply not be on the
@@ -1142,6 +1155,15 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// This is shown in the pane in place of a terminal, so it has to name
 		// the directory: a worktree removed under a pane is the usual reason a
 		// session will not start, and the error itself never says which one.
+		//
+		// Where that is the reason it is said outright. The operating system's
+		// own account of it — "The directory name is invalid", on Windows —
+		// reads as a path mistyped somewhere, not as a directory that has gone,
+		// and says nothing about what to do next.
+		if _, statErr := os.Stat(p.Cwd); errors.Is(statErr, os.ErrNotExist) {
+			p.Err = fmt.Errorf("the directory this pane works in, %s, no longer exists; it is most often a worktree removed while the pane was closed. Put the directory back and restart the pane, or close it", p.Cwd)
+			return
+		}
 		p.Err = fmt.Errorf("%w (working directory %s)", err, p.Cwd)
 		return
 	}
