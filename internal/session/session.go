@@ -116,6 +116,9 @@ type Session struct {
 
 	pty pty.Pty
 	cmd *pty.Cmd
+	// tree is what closing the pane ends besides its own process: see
+	// endTree.
+	tree procTree
 
 	// OnChange is invoked (often from a reader goroutine) whenever the session
 	// changes state. It must be cheap and must not call back into the session.
@@ -280,6 +283,7 @@ func Start(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("start %s: %w", cfg.Argv[0], err)
 	}
 	s.cmd = cmd
+	s.tree = containTree(cmd.Process.Pid)
 
 	go s.pumpOutput()
 	go s.wait()
@@ -947,8 +951,9 @@ func (s *Session) Size() (cols, rows int) {
 	return s.cols, s.rows
 }
 
-// Close terminates the process and releases the PTY. It is safe to call on a
-// pane that has already exited, which releases the PTY on its own.
+// Close terminates the process, and what it started, and releases the PTY. It
+// is safe to call on a pane that has already exited, which releases the PTY on
+// its own.
 //
 // It returns once the process is gone, or after closeGrace. On Windows killing
 // a process only begins its end, and until that is over it holds its working
@@ -957,13 +962,33 @@ func (s *Session) Size() (cols, rows int) {
 // process" in four runs out of ten.
 func (s *Session) Close() error {
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		if s.reaped != nil {
-			select {
-			case <-s.reaped:
-			case <-time.After(closeGrace):
-			}
-		}
+		s.endTree()
 	}
 	return s.releasePTY()
+}
+
+// closedChan reports whether ch has been closed. A nil channel, which a
+// session built without a process has, never is.
+func closedChan(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitClosed waits for ch to be closed, for at most d. A nil channel is not
+// waited on.
+func waitClosed(ch <-chan struct{}, d time.Duration) {
+	if ch == nil || d <= 0 {
+		return
+	}
+	select {
+	case <-ch:
+	case <-time.After(d):
+	}
 }
