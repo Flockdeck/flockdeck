@@ -45,6 +45,21 @@ func TestUnpricedTokensMakeAFloor(t *testing.T) {
 	}
 }
 
+// A chat talking to an address of the user's own is not priced, whatever its
+// model is listed at, and says so. The view carries the reason, so the header
+// does not tell the user that a model it has a price for has none.
+func TestTokensThroughAGatewaySayWhyTheyAreNotPriced(t *testing.T) {
+	b := NewBook()
+	b.Add(Report{Pane: "gw", Model: "claude-opus-5", Tokens: Tokens{In: 500, Out: 50}, Cost: Cost{Source: "gateway"}}, t0)
+	if v := b.Pane("gw", t0); v == nil || !v.Unpriced || v.UnpricedWhy != "gateway" || v.USD != 0 {
+		t.Errorf("got %+v, want 550 tokens, unpriced because of the gateway", v)
+	}
+	b.Add(Report{Pane: "local", Model: "llama3", Tokens: Tokens{In: 5}}, t0)
+	if v := b.Pane("local", t0); v == nil || !v.Unpriced || v.UnpricedWhy != "" {
+		t.Errorf("got %+v, want tokens unpriced for want of a price, with no other reason given", v)
+	}
+}
+
 // Claude Code's status line gives running totals, which replace what was known
 // rather than adding to it, and a tick before the first answer says nothing
 // about cost and takes nothing away.

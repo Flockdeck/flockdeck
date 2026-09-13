@@ -52,7 +52,10 @@ type Cost struct {
 	Known bool `json:"known,omitempty"`
 	// Source is "table" for tokens priced from Flockdeck's own table, and
 	// "agent" for a figure the agent reported about itself at its own list
-	// prices -- Claude Code's session cost is one.
+	// prices -- Claude Code's session cost is one. On a cost that is not
+	// Known it says why, where the agent knows: "gateway" for calls through
+	// an address of the user's own, which charges what it charges whatever
+	// the model is listed at.
 	Source string `json:"source,omitempty"`
 	// Checked is the date the price table was read from the vendor's page, for
 	// a "table" cost.
@@ -150,9 +153,11 @@ type paneEntry struct {
 	tokens   Tokens
 	usd      float64
 	unpriced bool
-	source   string
-	checked  string
-	accounts []string
+	// unpricedWhy is the reason the last unpriced call gave, if it gave one.
+	unpricedWhy string
+	source      string
+	checked     string
+	accounts    []string
 }
 
 // NewBook returns an empty book.
@@ -248,6 +253,9 @@ func (b *Book) addCost(e *paneEntry, r Report) {
 	if !r.Cost.Known {
 		// Tokens nobody here can price. What is known is a floor from now on.
 		e.unpriced = true
+		if r.Cost.Source != "" {
+			e.unpricedWhy = r.Cost.Source
+		}
 		return
 	}
 	e.usd += r.Cost.USD
@@ -274,8 +282,12 @@ type PaneView struct {
 	// USD is the session's cost in dollars, an estimate: Source says whose.
 	USD      float64 `json:"usd,omitempty"`
 	Unpriced bool    `json:"unpriced,omitempty"`
-	Source   string  `json:"source,omitempty"`
-	Checked  string  `json:"checked,omitempty"`
+	// UnpricedWhy says why tokens went unpriced, where the agent said:
+	// "gateway" for calls through an address of the user's own. Empty is a
+	// model with no price here, which is what the tooltip said of both.
+	UnpricedWhy string `json:"unpricedWhy,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Checked     string `json:"checked,omitempty"`
 	// Tokens is everything read and written, and the four after it the parts
 	// the tooltip names.
 	Tokens    int64        `json:"tokens,omitempty"`
@@ -312,6 +324,9 @@ func (b *Book) Pane(id string, now time.Time) *PaneView {
 		In:     e.tokens.In, Out: e.tokens.Out,
 		CacheRead: e.tokens.CacheRead, Reasoning: e.tokens.Reasoning,
 		Unpriced: e.unpriced && e.tokens.total() > 0,
+	}
+	if v.Unpriced {
+		v.UnpricedWhy = e.unpricedWhy
 	}
 	if e.usd > 0 {
 		// A ten-thousandth of a dollar is finer than the header ever writes.

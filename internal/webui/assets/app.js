@@ -2751,7 +2751,9 @@
       lines.push(sp.tokens.toLocaleString("en-US") + " tokens in this conversation.");
     }
     if (moneyWords) lines.push(moneyWords);
-    else if (sp.tokens) lines.push("There is no price here for this model, so it is shown in tokens.");
+    else if (sp.tokens) lines.push(sp.unpricedWhy === "gateway"
+      ? "This agent talks to an address of your own, which charges its own prices, so it is shown in tokens."
+      : "There is no price here for this model, so it is shown in tokens.");
     const text = lines.join(" ");
     p.spend.setAttribute("role", "img");
     p.spend.setAttribute("aria-label", shown === money
@@ -2771,7 +2773,9 @@
     }
     if (subscriber) words += ", which is what these tokens would cost on the API, not what your plan charges";
     words += ".";
-    if (sp.unpriced) words += " Some tokens were used by a model with no price here, so this is a floor.";
+    if (sp.unpriced) words += sp.unpricedWhy === "gateway"
+      ? " Some tokens went through an address of your own, which charges its own prices, so this is a floor."
+      : " Some tokens were used by a model with no price here, so this is a floor.";
     return words + " An estimate at published prices, not your bill.";
   }
 
