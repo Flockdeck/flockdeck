@@ -354,7 +354,17 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 			if already.Err != nil {
 				disable += " -force"
 			}
-			return fmt.Errorf("%v; to move this machine to %s, run `%s`, then `flockdeck remote enable -relay %s`", err, want, disable, want)
+			// The second step is this command again, with everything else it
+			// was given. Without -join it enrolled into an account of its own,
+			// out of reach of the devices paired with the machine it was
+			// meant to join; without -invite it was refused all over again.
+			again := "flockdeck remote enable -relay " + cliWord(want)
+			for _, fl := range [][2]string{{"name", f.name}, {"join", f.join}, {"invite", f.invite}} {
+				if v := strings.TrimSpace(fl[1]); v != "" {
+					again += " -" + fl[0] + " " + cliWord(v)
+				}
+			}
+			return fmt.Errorf("%v; to move this machine to %s, run `%s`, then `%s`", err, want, disable, again)
 		}
 	}
 	switch {
@@ -366,7 +376,10 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// A new name is something to do, and rename does it without enrolling
 		// again, which would cost the account's devices if this is its only
 		// machine; the cost is said, for whoever meant to enrol again anyway.
-		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote disable`, unpairs its devices if it is the account's only machine", err, strings.TrimSpace(f.name))
+		// Quoted when it has to be: "Jim's laptop" pasted as it stood left the
+		// shell waiting on the closing quote of its apostrophe, and a name of
+		// two words renamed the machine to the first.
+		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote disable`, unpairs its devices if it is the account's only machine", err, cliWord(strings.TrimSpace(f.name)))
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
@@ -410,6 +423,24 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 
 // renaming reports whether name, given to enable on a machine already
 // enrolled, is not the name it is enrolled under.
+// cliWord writes one argument of a command the user is told to run so that it
+// can be pasted as it stands: bare when it is made only of what a URL or a
+// code is, and quoted otherwise, since a name like "Jim's laptop" split in
+// two, or left a shell waiting on the closing quote of its apostrophe.
+func cliWord(s string) string {
+	// Single quotes keep every character, where double quotes still let sh
+	// read a $, a backtick or a double quote inside them.
+	if strings.ContainsAny(s, "$`\"") {
+		return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`
+	}
+	if s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._-:/@+=", r))
+	}) {
+		return s
+	}
+	return `"` + s + `"`
+}
+
 func renaming(name string) bool {
 	if strings.TrimSpace(name) == "" {
 		return false

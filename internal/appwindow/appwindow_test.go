@@ -98,8 +98,41 @@ func TestDarwinCandidatesLookInTheUsersApplications(t *testing.T) {
 	if at[sys] == 0 || at[own] == 0 || at[own] < at[sys] {
 		t.Errorf("candidates = %q, want %q and then %q", got, sys, own)
 	}
-	if len(darwinCandidates("")) != 4 {
-		t.Errorf("with no home directory known, want the four system paths only")
+	if len(darwinCandidates("")) != 5 {
+		t.Errorf("with no home directory known, want the five system paths only")
+	}
+}
+
+// The usage offers FLOCKDECK_BROWSER=vivaldi on every platform, and Vivaldi
+// was looked for on Linux alone: named on Windows or macOS, where it is on no
+// PATH, the window did not open at all.
+func TestPinningVivaldiByName(t *testing.T) {
+	var where string
+	switch runtime.GOOS {
+	case "windows":
+		base := t.TempDir()
+		t.Setenv("ProgramFiles", "")
+		t.Setenv("ProgramFiles(x86)", "")
+		t.Setenv("LocalAppData", base)
+		where = filepath.Join(base, `Vivaldi\Application\vivaldi.exe`)
+	case "darwin":
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		where = filepath.Join(home, "Applications", "Vivaldi.app", "Contents", "MacOS", "Vivaldi")
+	default:
+		t.Skip("Vivaldi is on PATH here, under its own name")
+	}
+	if err := os.MkdirAll(filepath.Dir(where), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(where, []byte("a browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Installed where the test put it, or already in the same place under the
+	// system's own folders.
+	suffix := where[len(filepath.Dir(filepath.Dir(filepath.Dir(where)))):]
+	if got, err := resolvePinned("vivaldi"); err != nil || !strings.HasSuffix(got, suffix) {
+		t.Errorf("resolvePinned(vivaldi) = %q, %v; want the browser installed as …%s", got, err, suffix)
 	}
 }
 

@@ -51,6 +51,26 @@ func TestErrorsKeepTheLineThatSaysWhatHappened(t *testing.T) {
 	}
 }
 
+// TestARepositoryOfAnotherUsersKeepsTheWayPast: git refuses a repository that
+// belongs to another user -- a drive formatted elsewhere, a clone made as an
+// administrator -- and on Windows says who owns it and who is asking, a SID
+// under each, before the command that lets it through. The lines kept for a
+// toast were the report, and the command was cut off.
+func TestARepositoryOfAnotherUsersKeepsTheWayPast(t *testing.T) {
+	refusal := "fatal: detected dubious ownership in repository at 'D:/work/api'\n" +
+		"'D:/work/api' is owned by:\n\t'S-1-5-32-544'\n" +
+		"but the current user is:\n\t'S-1-5-21-1004336348-1177238915-682003330-1001'\n" +
+		"To add an exception for this directory, call:\n\n" +
+		"\tgit config --global --add safe.directory D:/work/api"
+	got := firstLines(withoutHints(refusal), 5)
+	if !strings.Contains(got, "git config --global --add safe.directory D:/work/api") {
+		t.Errorf("the refusal reads %q, without the command that gets past it", got)
+	}
+	if strings.Contains(got, "S-1-5") {
+		t.Errorf("the refusal still spends its lines on who owns what: %q", got)
+	}
+}
+
 // TestErrorsSkipBlankLines: git spaces its longer answers out, and the blank
 // lines used up the few a toast has room for.
 func TestErrorsSkipBlankLines(t *testing.T) {

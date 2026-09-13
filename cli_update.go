@@ -458,10 +458,14 @@ func updateFlagSet(f *updateFlags) *flag.FlagSet {
 	fs.Usage = func() {
 		out := fs.Output()
 		fmt.Fprintf(out, "Usage: flockdeck update [-check]\n\n")
+		// The signature is claimed only for what the site gave: a release
+		// read from GitHub's API, when the site could not be read at all, has
+		// a checksums.txt that nothing signs, and is taken as it is.
 		fmt.Fprintf(out, "Downloads the latest release from dl.flockdeck.ai, or from GitHub when\n")
-		fmt.Fprintf(out, "that cannot be used, checks it against its published SHA-256, signed\n")
-		fmt.Fprintf(out, "by the release key, and puts it in place. A running instance keeps\n")
-		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
+		fmt.Fprintf(out, "that cannot be used, checks it against its published SHA-256 (signed\n")
+		fmt.Fprintf(out, "by the release key when dl.flockdeck.ai gave it), and puts it in\n")
+		fmt.Fprintf(out, "place. A running instance keeps going; the new version is used from\n")
+		fmt.Fprintf(out, "its next start.\n\nFlags:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(out, "\nA running Flockdeck also downloads new releases in the background and\n")
 		fmt.Fprintf(out, "offers them in the top bar. Set %s=off to stop it doing that.\n", updateEnv)

@@ -422,6 +422,18 @@ func setAgentEndpoint(dir, agentID, address string) error {
 			ID string `json:"id"`
 		}
 		if json.Unmarshal(raw, &head) == nil && head.ID == agentID {
+			// Going back to the vendor's endpoint takes the address out of
+			// every entry for the agent, not only the last: each is merged
+			// over the one before, so an address an earlier entry gave -- one
+			// the last entry never mentions -- was still the one panes used,
+			// after being told the vendor's was back.
+			if address == "" && at >= 0 {
+				cleared, err := withoutBaseURL(f.Agents[at])
+				if err != nil {
+					return fmt.Errorf("%s: the entry for %s: %w", agent.ConfigName, agentID, err)
+				}
+				f.Agents[at] = cleared
+			}
 			entry, at = nil, i
 			if err := json.Unmarshal(raw, &entry); err != nil {
 				return fmt.Errorf("%s: the entry for %s: %w", agent.ConfigName, agentID, err)
@@ -458,6 +470,34 @@ func setAgentEndpoint(dir, agentID, address string) error {
 		f.Agents = append(f.Agents, raw)
 	}
 	return agent.WriteConfig(dir, f)
+}
+
+// withoutBaseURL is an agents.json entry with its api.baseURL taken out, and
+// its api with it when nothing else is left there. Everything else in the entry
+// is kept as it was written.
+func withoutBaseURL(raw json.RawMessage) (json.RawMessage, error) {
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil, err
+	}
+	apiRaw, ok := entry["api"]
+	if !ok {
+		return raw, nil
+	}
+	var api map[string]json.RawMessage
+	if err := json.Unmarshal(apiRaw, &api); err != nil {
+		return nil, err
+	}
+	if _, ok := api["baseURL"]; !ok {
+		return raw, nil
+	}
+	delete(api, "baseURL")
+	if len(api) == 0 {
+		delete(entry, "api")
+	} else {
+		entry["api"], _ = json.Marshal(api)
+	}
+	return json.Marshal(entry)
 }
 
 // keyAgentSpec is the catalog's entry for an agent that takes a key, or an

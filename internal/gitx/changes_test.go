@@ -1550,6 +1550,21 @@ func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
 	}
 }
 
+// TestASubmoduleIsNamedAsItIsSpelled: the commit refused for work inside a
+// submodule named it as git quotes it, "s\303\274b", rather than as süb.
+func TestASubmoduleIsNamedAsItIsSpelled(t *testing.T) {
+	inner := newRepo(t)
+	outer := newRepo(t)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "süb")
+	gitRun(t, outer, "commit", "-qm", "add süb")
+	write(t, filepath.Join(outer, "süb"), "scratch.txt", "left by an agent\n")
+
+	err := CommitAll(outer, "from the panel")
+	if err == nil || !strings.Contains(err.Error(), "inside süb, a submodule") {
+		t.Errorf("commit err = %v, want it to name süb as it is spelled", err)
+	}
+}
+
 // TestPushDoesNotPublishAnUnpushedSubmoduleCommit: the push went through and
 // recorded a submodule commit its remote did not have, which nobody fetching
 // the result could then get.

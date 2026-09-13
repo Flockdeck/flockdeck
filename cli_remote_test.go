@@ -307,6 +307,12 @@ func TestRemoteLifecycle(t *testing.T) {
 		!strings.Contains(err.Error(), "to move this machine to "+other.URL+", run `flockdeck remote disable`, then `flockdeck remote enable -relay "+other.URL+"`") {
 		t.Errorf("enabling with another relay = %v, want it to say how to move", err)
 	}
+	// The second step is the same command, so what else it was given comes
+	// with it: without the join code it enrolled into an account of its own.
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", other.URL, "-join", "fdp_other", "-name", "Jim's desk"); err == nil ||
+		!strings.Contains(err.Error(), "then `flockdeck remote enable -relay "+other.URL+` -name "Jim's desk" -join fdp_other`+"`") {
+		t.Errorf("moving with a join code and a name = %v, want both in the command it gives", err)
+	}
 
 	out, _, err = runRemoteCmd(t, "pair")
 	if err != nil || !strings.Contains(out, f.URL+"/pair#fdp_code") || !strings.Contains(out, "█") {
@@ -890,8 +896,14 @@ func TestRemoteEnableWithANewName(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "; to give this machine a new name, run `flockdeck remote rename new desk`, which keeps what is paired") {
+	// The name is quoted so the command pastes as it stands: unquoted, "new
+	// desk" renamed the machine "new", and "Jim's desk" left the shell waiting
+	// on a closing quote.
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "; to give this machine a new name, run `flockdeck remote rename \"new desk\"`, which keeps what is paired") {
 		t.Errorf("enable with a new name = %v, want it to name the rename that does it", err)
+	}
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "Jim's desk"); err == nil || !strings.Contains(err.Error(), "run `flockdeck remote rename \"Jim's desk\"`") {
+		t.Errorf("enable with a name holding an apostrophe = %v, want it quoted in the rename", err)
 	}
 	if _, _, err := runRemoteCmd(t, "enable", "-name", "desk"); err == nil || !strings.Contains(err.Error(), "nothing to do") || strings.Contains(err.Error(), "rename") {
 		t.Errorf("enable with the name it has = %v, want nothing to do", err)

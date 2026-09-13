@@ -401,6 +401,39 @@ func TestKeysEndpointChangesOnlyTheAddress(t *testing.T) {
 	}
 }
 
+// Each entry for an agent is merged over the one before, so an address an
+// earlier entry gives is the one used unless a later entry changes it. Going
+// back to the vendor's endpoint took the address out of the last entry alone,
+// said the vendor's was back, and left panes talking to the earlier address.
+func TestKeysEndpointDefaultClearsEveryEntryForTheAgent(t *testing.T) {
+	isolateKeys(t)
+	path, err := agent.ConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"agents":[`+
+		`{"id":"anthropic","api":{"baseURL":"http://10.0.0.9/v1"}},`+
+		`{"id":"anthropic","name":"Mine"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := keysAgent(t, "anthropic").API.BaseURL; got != "http://10.0.0.9/v1" {
+		t.Fatalf("the earlier entry's address is not in use to begin with: %q", got)
+	}
+	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "default"); err != nil {
+		t.Fatalf("keys endpoint default: %v\n%s", err, out)
+	}
+	after := keysAgent(t, "anthropic")
+	if after.API.BaseURL == "http://10.0.0.9/v1" {
+		t.Errorf("default said the vendor's endpoint was back, and panes still use %q", after.API.BaseURL)
+	}
+	if after.Name != "Mine" {
+		t.Errorf("the rest of the entries was not kept: %+v", after)
+	}
+}
+
 // A key in the environment is used before a stored one, and storing a key
 // while one is there says so, naming the variable and never either key.
 func TestKeysSetSaysWhenTheEnvironmentWins(t *testing.T) {

@@ -20,6 +20,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -209,6 +211,177 @@ func TestStageUnpacksTheBinaryAndRecordsIt(t *testing.T) {
 	loaded, ok := Load(dir)
 	if !ok || loaded.Version != "v9.9.9" {
 		t.Errorf("Load = %+v, %v; want the staged update", loaded, ok)
+	}
+}
+
+// Two downloads can be under way at once -- `flockdeck update` while the
+// application's own check is downloading -- and each began by clearing the
+// one work directory there was, the other's half-written archive with it.
+func TestTwoStagingsAtOnceBothFinish(t *testing.T) {
+	const body = "the new program"
+	name, archive := buildArchive(t, body)
+	h := sha256.Sum256(archive)
+
+	// The first download stays under way, its file open and half written,
+	// until the second has finished.
+	started, hold := make(chan struct{}), make(chan struct{})
+	var downloads atomic.Int32
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		if downloads.Add(1) > 1 {
+			w.Write(archive)
+			return
+		}
+		w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		close(started)
+		<-hold
+		w.Write(archive[len(archive)/2:])
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(h[:]), name)
+	})
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Release{Version: "v9.9.9", Assets: []Asset{
+			{Name: name, URL: srv.URL + "/archive"},
+			{Name: "checksums.txt", URL: srv.URL + "/checksums.txt"},
+		}})
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	letGo := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(letGo) // before the server closes, which waits for the handler
+
+	dir := t.TempDir()
+	first := make(chan error, 1)
+	go func() {
+		_, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first download never started")
+	}
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err != nil {
+		t.Errorf("staging while another download was under way: %v", err)
+	}
+	letGo()
+	if err := <-first; err != nil {
+		t.Errorf("the download that was under way, once the other had finished: %v", err)
+	}
+	p, ok := Load(dir)
+	if !ok {
+		t.Fatal("nothing is staged")
+	}
+	if got, err := os.ReadFile(p.Binary); err != nil || string(got) != body {
+		t.Errorf("staged binary = %q, %v; want %q", got, err, body)
+	}
+}
+
+// What an interrupted download left is cleared once it is old enough that
+// nothing can still be writing it, and not before: a young one may be another
+// download's, under way.
+func TestStageClearsWhatAnInterruptedDownloadLeft(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+
+	dir := t.TempDir()
+	old, young := filepath.Join(dir, "staging.new"), filepath.Join(dir, "staging.new-123")
+	for _, d := range []string{old, young} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-2 * abandonedWork)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the work directory of a download interrupted long ago is still there")
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Errorf("a work directory another download may be writing was cleared: %v", err)
+	}
+}
+
+// Apply moves aside the file a link leads to, and the sweep looked beside the
+// link: started through one, as macOS reports a program, the old program was
+// never cleared away.
+func TestSweepFindsWhatApplyMovedAsideThroughALink(t *testing.T) {
+	dir := t.TempDir()
+	realDir, linkDir := filepath.Join(dir, "real"), filepath.Join(dir, "bin")
+	for _, d := range []string{realDir, linkDir} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	program := filepath.Join(realDir, binaryName)
+	if err := os.WriteFile(program, []byte("the program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, binaryName)
+	if err := os.Symlink(program, link); err != nil {
+		t.Skipf("links cannot be made here: %v", err)
+	}
+	if err := os.WriteFile(program+".old", []byte("the old program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Sweep(link)
+	if _, err := os.Stat(program + ".old"); err == nil {
+		t.Error("the program an update moved aside is still there, beside the file the link leads to")
+	}
+	if _, err := os.Stat(program); err != nil {
+		t.Errorf("the program itself went: %v", err)
+	}
+}
+
+// A download that keeps arriving is not cut off for being slow, and one that
+// stops arriving is given up on. The client's deadline covered reading the
+// whole body, so below about 31KB/s the Windows archive could never finish.
+func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
+	old := stallTimeout
+	stallTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { stallTimeout = old })
+
+	// A byte every 25ms: a second and a half in all, five times what may pass
+	// with nothing arriving, and never that long without a byte.
+	body := bytes.Repeat([]byte("x"), 60)
+	hold := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for i := range body {
+			if r.URL.Path == "/stalls" && i == len(body)/2 {
+				select {
+				case <-hold:
+				case <-r.Context().Done():
+				}
+				return
+			}
+			w.Write(body[i : i+1])
+			w.(http.Flusher).Flush()
+			time.Sleep(25 * time.Millisecond)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(sync.OnceFunc(func() { close(hold) }))
+
+	h := sha256.Sum256(body)
+	want := hex.EncodeToString(h[:])
+	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want); err != nil {
+		t.Errorf("a download that kept arriving, slowly: %v", err)
+	}
+	start := time.Now()
+	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want)
+	if err == nil || !strings.Contains(err.Error(), "stopped sending") {
+		t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("giving up on a stalled download took %s", d)
 	}
 }
 

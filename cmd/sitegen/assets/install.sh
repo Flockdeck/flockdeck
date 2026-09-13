@@ -39,6 +39,16 @@ GITHUB_API="https://api.github.com"
 say() { printf 'flockdeck: %s\n' "$*"; }
 die() { printf 'flockdeck: %s\n' "$*" >&2; exit 1; }
 
+# shell_word writes a path so that it pastes into a shell as one word: as it
+# is when it holds only what a plain path is made of, and otherwise in double
+# quotes, with what a shell still reads inside those escaped.
+shell_word() {
+	case $1 in
+		*[!A-Za-z0-9_./-]*) printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')" ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
 # fetch downloads a URL to a file with whichever of curl and wget is present.
 # A place that cannot be reached gives up in seconds rather than hanging, so
 # that the next one is tried.
@@ -116,12 +126,24 @@ download() {
 main() {
 	os=$(detect_os)
 	arch=$(detect_arch "$os")
+	# Asked once, here, rather than by the first fetch: that one's complaint
+	# is thrown away with the rest of what an unreachable site says, and the
+	# reader was told the site could not be reached, and that GitHub was being
+	# tried instead, before hearing what was actually missing.
+	if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+		die "downloading the release needs curl or wget, and neither is installed; install one and run this again"
+	fi
 	# Run from a service or under env -i there may be no HOME, and set -u
 	# would stop on it with nothing to say what to do instead.
 	if [ -z "${FLOCKDECK_INSTALL_DIR:-}" ] && [ -z "${HOME:-}" ]; then
 		die "HOME is not set; set FLOCKDECK_INSTALL_DIR to the directory to install into"
 	fi
 	dir=${FLOCKDECK_INSTALL_DIR:-"$HOME/.local/bin"}
+	# A slash on the end names the same directory, and compared as typed it
+	# did not: /usr/local/bin/ was "not on your PATH" while it was, and the
+	# flockdeck just put there was "not this one". A HOME ending in one did
+	# the same to the default.
+	while [ "$dir" != / ] && [ "${dir%/}" != "$dir" ]; do dir=${dir%/}; done
 
 	# A mirror given by hand is the only place files are fetched from.
 	if [ -n "${FLOCKDECK_DOWNLOAD:-}" ]; then
@@ -195,7 +217,9 @@ main() {
 	case ":$PATH:" in
 		*":$dir:"*)
 			if [ -n "$shadowed" ]; then
-				say "start it with: $dir/flockdeck"
+				# Quoted when it has to be: a directory with a space in it
+				# pasted as two words.
+				say "start it with: $(shell_word "$dir/flockdeck")"
 			else
 				say "start it with: flockdeck"
 			fi ;;

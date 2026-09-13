@@ -267,7 +267,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
 	fmt.Fprintf(out, "        flockdeck's own chat client, which an API agent's pane runs; chat -h for its flags\n")
-	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>]\n")
+	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url>]]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
@@ -1127,7 +1127,12 @@ func runSpawn(args []string) error {
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a flockdeck pane")
+		// Said with what is missing and the way round it: somebody who typed
+		// this in a terminal of their own was told only where it works, and
+		// an agent in a pane whose environment had lost them had nothing to
+		// go on at all.
+		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
 	}
 
 	res, err := hooks.Spawn(api, token, pane, req)
@@ -1256,7 +1261,14 @@ func orderSpawnArgs(fs *flag.FlagSet, args []string) []string {
 		if len(arg) > 1 && arg[0] == '-' {
 			flags = append(flags, arg)
 			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-			if !hasValue && takesValue(fs, name) && i+1 < len(args) {
+			if !hasValue && takesValue(fs, name) {
+				if i+1 == len(args) {
+					// A value flag with nothing after it is left last, alone, so
+					// the flag set says it needs an argument. Followed by the
+					// separator below, it took "--" as its value: `spawn "fix
+					// it" --worktree` asked for a worktree on a branch called --.
+					return flags
+				}
 				i++
 				flags = append(flags, args[i])
 			}

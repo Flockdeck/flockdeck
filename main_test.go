@@ -269,6 +269,34 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 	}
 }
 
+// Outside a pane the answer says what is missing and how to start an agent
+// from where the user is: it said only where the command works.
+func TestSpawnOutsideAPaneSaysWhatToDoInstead(t *testing.T) {
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_API", "PERCH_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	err := runSpawn([]string{"watch the build"})
+	if err == nil || !strings.Contains(err.Error(), "FLOCKDECK_API") || !strings.Contains(err.Error(), "run `flockdeck` to open the window") {
+		t.Errorf("spawn outside a pane = %v, want it to name what is missing and what to do", err)
+	}
+}
+
+// A value flag given last with no value has to be reported as missing one.
+// The separator the reordering adds used to follow it, and the flag set took
+// "--" for its value: a worktree on a branch called --, and no complaint.
+func TestSpawnValueFlagWithNothingAfterItIsAnError(t *testing.T) {
+	for _, args := range [][]string{
+		{"watch the build", "--worktree"},
+		{"watch the build", "--agent"},
+		{"--split", "watch the build", "-model"},
+	} {
+		req, err := parseSpawn(args)
+		if err == nil {
+			t.Errorf("parseSpawn(%q) = %+v, want an error for the missing value", args, req)
+		}
+	}
+}
+
 // One Ctrl+C asks for an orderly stop. A second, arriving while that is still
 // going, has to be acted on: signal.Notify has taken the key away from the
 // runtime, so nothing else will.
@@ -394,6 +422,34 @@ func TestUsageNamesEveryFlag(t *testing.T) {
 	for name := range cliFlagNames() {
 		if !strings.Contains(buf.String(), "-"+name) {
 			t.Errorf("-%s is missing from the usage message", name)
+		}
+	}
+}
+
+// The usage's line for keys is a hand-written copy of keys' own list, and it
+// had fallen behind it: check and endpoint were in `flockdeck keys` and in the
+// help, and somebody reading `flockdeck -h` never learned either existed.
+func TestUsageNamesEveryKeysCommand(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "keys ") {
+			line = l
+		}
+	}
+	var own bytes.Buffer
+	keysUsage(&own)
+	for _, l := range strings.Split(own.String(), "\n") {
+		// keysUsage lists each command as "  <name> ..." under "Commands:".
+		if !strings.HasPrefix(l, "  ") || strings.HasPrefix(l, "   ") {
+			continue
+		}
+		name := strings.Fields(l)[0]
+		if !strings.Contains(line, name) {
+			t.Errorf("the usage's keys line %q does not name %q, which keys offers", line, name)
 		}
 	}
 }

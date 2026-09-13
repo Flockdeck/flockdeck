@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -195,6 +196,10 @@ func TestLoadRefusesARelayWithoutTLS(t *testing.T) {
 		"http://relay.example":  false,
 		"http://127.0.0.1:9":    true, // a relay being developed, on this machine
 		"https://relay.example": true,
+		// The tunnel is dialled at the address as it stands, and ws:// is
+		// plain HTTP to the WebSocket library.
+		"ws://relay.example": false,
+		"ws://127.0.0.1:9":   true,
 	} {
 		if err := (&Config{Relay: relay, HostID: "h1", Token: "fdh_test"}).Save(); err != nil {
 			t.Fatal(err)
@@ -1096,6 +1101,49 @@ func TestManagerReload(t *testing.T) {
 	m.load = func() (*Config, error) { return nil, errors.New("broken") }
 	if err := m.Reload(); err == nil {
 		t.Error("a broken enrolment was reloaded without a word")
+	}
+}
+
+// A reload that arrives once the manager is closed -- a rename, or a
+// `flockdeck remote` finishing while the instance shuts down -- starts nothing:
+// it used to open a fresh tunnel that nothing would serve, dialling the relay
+// until the process exited.
+func TestAReloadAfterCloseStartsNothing(t *testing.T) {
+	cfg := &Config{Relay: "http://127.0.0.1:1", HostID: "h1", Token: "fdh_test", Name: "desk"}
+	m := NewManager("v", func(l net.Listener) error { return http.Serve(l, http.NotFoundHandler()) }, nil)
+	m.load = func() (*Config, error) { return cfg, nil }
+	t.Cleanup(m.Close)
+
+	m.Close()
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := m.Status(); ok {
+		t.Errorf("after Close, a reload started a tunnel (%v)", s.State)
+	}
+}
+
+// A registration that cannot be saved is taken back off the relay, even when
+// the caller's time has run out by then: the window gives the whole of an
+// Enable one budget, and a relay slow to register can use all of it. The
+// cleanup went on that same context, failed at once, and left a host on the
+// relay that nothing here could speak for.
+func TestARegistrationThatCannotBeSavedIsTakenBackWhenTimeHasRunOut(t *testing.T) {
+	isolate(t)
+	f := newFakeRelay(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	saveConfig = func(*Config) error { cancel(); return errors.New("the disk is full") }
+	t.Cleanup(func() { saveConfig = (*Config).Save })
+
+	if _, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"}); err == nil || !strings.Contains(err.Error(), "the disk is full") {
+		t.Fatalf("Enable = %v, want the save's failure", err)
+	}
+	f.mu.Lock()
+	calls := append([]string(nil), f.calls...)
+	f.mu.Unlock()
+	if !slices.Contains(calls, "DELETE /api/v1/host") {
+		t.Errorf("the registration was left on the relay; it saw:\n%s", strings.Join(calls, "\n"))
 	}
 }
 

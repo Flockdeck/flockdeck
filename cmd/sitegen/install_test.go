@@ -215,24 +215,7 @@ func installEnv(r *releases, extra map[string]string) []string {
 // cannot give it; a mirror given by hand is the only place asked; and an
 // archive that does not match the site's checksums is never installed.
 func TestInstallShDownloadsFromTheSite(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("install.sh sends Windows to install.ps1")
-	}
-	sh, err := exec.LookPath("sh")
-	if err != nil {
-		t.Skip("no sh to run it with")
-	}
-	for _, tools := range [][]string{{"curl", "wget"}, {"sha256sum", "shasum"}, {"tar"}} {
-		found := false
-		for _, tool := range tools {
-			if _, err := exec.LookPath(tool); err == nil {
-				found = true
-			}
-		}
-		if !found {
-			t.Skipf("no %s to run install.sh with", strings.Join(tools, " or "))
-		}
-	}
+	sh := installShRunner(t)
 	dir, _ := generate(t)
 	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
 	if err != nil {
@@ -261,6 +244,160 @@ func TestInstallShDownloadsFromTheSite(t *testing.T) {
 			out, err := cmd.CombinedOutput()
 			c.check(t, r, filepath.Join(bin, "flockdeck"), out, err)
 		})
+	}
+}
+
+// installShRunner is the sh to run install.sh with, and skips a test on a
+// machine without it or the tools the script needs.
+func installShRunner(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("install.sh sends Windows to install.ps1")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh to run it with")
+	}
+	for _, tools := range [][]string{{"curl", "wget"}, {"sha256sum", "shasum"}, {"tar"}} {
+		found := false
+		for _, tool := range tools {
+			if _, err := exec.LookPath(tool); err == nil {
+				found = true
+			}
+		}
+		if !found {
+			t.Skipf("no %s to run install.sh with", strings.Join(tools, " or "))
+		}
+	}
+	return sh
+}
+
+// A directory given with a slash on the end is the same directory. Compared
+// as typed, one on PATH was "not on your PATH", and the flockdeck just put
+// there was "not this one".
+func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReleases(t)
+	script := pointAt(t, string(shipped), r, map[string]string{
+		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
+		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
+	})
+	home := t.TempDir()
+	path := filepath.Join(home, "install.sh")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	cmd := exec.Command(sh, path)
+	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin+"/",
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "start it with: flockdeck\n") ||
+		strings.Contains(string(out), "not on your PATH") || strings.Contains(string(out), "not this one") {
+		t.Errorf("installing into %s/ with %s on PATH said:\n%s", bin, bin, out)
+	}
+}
+
+// With neither curl nor wget, the first fetch's complaint was thrown away with
+// the rest of what an unreachable site says: the script said the site could
+// not be reached and that it was going to GitHub instead, before saying what
+// was missing.
+func TestInstallShSaysWhenItHasNothingToDownloadWith(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReleases(t)
+	script := pointAt(t, string(shipped), r, map[string]string{
+		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
+		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
+	})
+	home := t.TempDir()
+	path := filepath.Join(home, "install.sh")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Every program the script uses, but neither of the two that download.
+	tools := filepath.Join(home, "tools")
+	if err := os.Mkdir(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"uname", "sysctl", "mktemp", "rm", "sed", "head", "cut", "awk",
+		"tar", "sha256sum", "shasum", "mkdir", "cp", "chmod", "mv"} {
+		if p, err := exec.LookPath(name); err == nil {
+			if err := os.Symlink(p, filepath.Join(tools, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	cmd := exec.Command(sh, path)
+	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+filepath.Join(home, "bin"), "PATH="+tools)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the script succeeded with nothing to download with:\n%s", out)
+	}
+	if !strings.Contains(string(out), "needs curl or wget") || strings.Contains(string(out), "could not reach") {
+		t.Errorf("with neither curl nor wget the script said:\n%s", out)
+	}
+	for _, p := range []string{"dl", "gh", "api"} {
+		if asked := r.askedOf(p); len(asked) > 0 {
+			t.Errorf("asked %v of %s", asked, p)
+		}
+	}
+}
+
+// With another flockdeck first on PATH, the script says to start the one it
+// installed by its path, and a directory with a space in it split that path
+// into two words when pasted.
+func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReleases(t)
+	script := pointAt(t, string(shipped), r, map[string]string{
+		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
+		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/api"`,
+	})
+	home := t.TempDir()
+	path := filepath.Join(home, "install.sh")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Another flockdeck, found first: a go install, say.
+	other := filepath.Join(home, "other")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "flockdeck"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "my bin")
+	cmd := exec.Command(sh, path)
+	sep := string(os.PathListSeparator)
+	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin,
+		"PATH="+other+sep+bin+sep+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if want := `start it with: "` + filepath.Join(bin, "flockdeck") + `"`; !strings.Contains(string(out), want) {
+		t.Errorf("want %q in what the script said:\n%s", want, out)
 	}
 }
 
