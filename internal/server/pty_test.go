@@ -39,7 +39,7 @@ func streamPairFrom(t *testing.T, remote bool, replay []byte, out <-chan []byte)
 			return
 		}
 		defer conn.CloseNow()
-		if streamOutput(r.Context(), conn, replay, out, liveFrame(r)) {
+		if streamOutput(r.Context(), conn, replay, out, liveFrame(r), nil) {
 			_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
 		}
 	}))
@@ -230,7 +230,7 @@ func TestStreamStopsWhenCancelled(t *testing.T) {
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		cancels <- cancel
-		streamOutput(ctx, conn, nil, out, coalesceLimit)
+		streamOutput(ctx, conn, nil, out, coalesceLimit, nil)
 	}))
 	defer srv.Close()
 
@@ -277,7 +277,7 @@ func BenchmarkStreamBurst(b *testing.B) {
 					return
 				}
 				defer conn.CloseNow()
-				streamOutput(r.Context(), conn, nil, <-next, coalesceLimit)
+				streamOutput(r.Context(), conn, nil, <-next, coalesceLimit, nil)
 			}))
 			defer srv.Close()
 			url := "ws" + strings.TrimPrefix(srv.URL, "http")

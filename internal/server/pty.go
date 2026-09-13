@@ -41,9 +41,13 @@ var paneLookup = 5 * time.Second
 // pingTimeout how long the answer is waited for. They are variables so a test
 // does not have to sit through half a minute of quiet; a server reads them once,
 // as it is made, into its own fields.
+//
+// The answer is given as long as a frame of output is given to arrive. A ping
+// can go out behind a frame already on its way, and a window allowed less for
+// the one than the other was dropped for a frame it was still taking.
 var (
 	pingInterval = 30 * time.Second
-	pingTimeout  = 10 * time.Second
+	pingTimeout  = writeBudget
 )
 
 // handlePTY streams one pane's terminal: process output down, keystrokes up.
@@ -137,7 +141,8 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
 	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
-	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
+	var writes writeGauge
+	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
 	for {
 		if sess != nil {
@@ -156,7 +161,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				// One that replaces it after a restart starts from nothing.
 				from = -1
 				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed, End: start + int64(len(replay))}
-				if err := writeHeader(ctx, conn, h); err != nil {
+				if err := writeHeader(ctx, conn, &writes, h); err != nil {
 					if subID >= 0 {
 						sess.Unsubscribe(subID)
 					}
@@ -166,7 +171,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				subID, replay, out = sess.Subscribe()
 			}
 			s.armRepaint(ctx, &repaint, id, viewer, sess, fresh)
-			ended := streamOutput(ctx, conn, replay, out, liveFrame(r))
+			ended := streamOutput(ctx, conn, replay, out, liveFrame(r), &writes)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
 			}
@@ -195,7 +200,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// for itself while a restart still cost it a reconnection. A pane that
 		// never started anything has nothing to undo.
 		if sess != nil {
-			if err := writeChunk(ctx, conn, termReset); err != nil {
+			if err := writeChunk(ctx, conn, &writes, termReset); err != nil {
 				return
 			}
 		}
@@ -218,7 +223,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 // A ping has to be answered by the window's own read loop, so it also tells
 // the difference between a window that is merely quiet and one that has
 // stopped listening.
-func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, interval, timeout time.Duration) {
+//
+// A socket that is being written to is not pinged. Output still getting
+// through is answer enough that the window is there, and a ping sent then goes
+// out behind the frame on its way: a replay's frame can take a phone on a slow
+// link most of the write budget, and the ping waiting it out had the window
+// dropped part way through the replay, to reconnect and be sent the same
+// replay again, and never get past it. Nothing is lost by it, because writes
+// hold themselves to account: one that stalls runs out of its budget and
+// drops the connection anyway.
+func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, writes *writeGauge, interval, timeout time.Duration) {
 	defer cancel()
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
@@ -227,9 +241,19 @@ func keepalive(ctx context.Context, cancel context.CancelFunc, conn *websocket.C
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+			if writes.writingWithin(interval) {
+				continue
+			}
+			before := writes.finished.Load()
 			pingCtx, done := context.WithTimeout(ctx, timeout)
 			err := conn.Ping(pingCtx)
 			done()
+			// A frame that started just after the look above holds the ping
+			// up all the same, and one that got through while the ping
+			// waited says as much as its answer would have.
+			if err != nil && ctx.Err() == nil && (writes.busy.Load() > 0 || writes.finished.Load() != before) {
+				continue
+			}
 			if err != nil {
 				return
 			}
@@ -541,10 +565,11 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 // prints from here on.
 //
 // Live output is merged into frames of at most frame bytes: see liveFrame.
+// Every frame is counted on writes, for keepalive.
 //
 // It returns true when the session's stream ended, leaving the connection
 // usable, and false when the connection itself went away.
-func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte, frame int) bool {
+func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte, frame int, writes *writeGauge) bool {
 	// The replay goes out a frame at a time, and each frame has the write's
 	// budget to itself. Sent whole, half a megabyte of history on a slow link
 	// -- a phone reaching this through the relay -- outlasted that budget, the
@@ -552,7 +577,7 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 	// replay again, never once getting as far as the live output.
 	for len(replay) > 0 {
 		n := min(len(replay), replayFrame)
-		if err := writeChunk(ctx, conn, replay[:n]); err != nil {
+		if err := writeChunk(ctx, conn, writes, replay[:n]); err != nil {
 			return false
 		}
 		replay = replay[n:]
@@ -582,7 +607,7 @@ func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out 
 			// frames no larger.
 			for rest := buf; len(rest) > 0; {
 				n := min(len(rest), frame)
-				if err := writeChunk(ctx, conn, rest[:n]); err != nil {
+				if err := writeChunk(ctx, conn, writes, rest[:n]); err != nil {
 					return false
 				}
 				rest = rest[n:]
@@ -847,18 +872,53 @@ type streamHeader struct {
 
 // writeHeader sends a streamHeader, as the only text frame a terminal socket
 // ever carries.
-func writeHeader(ctx context.Context, conn *websocket.Conn, h streamHeader) error {
+func writeHeader(ctx context.Context, conn *websocket.Conn, writes *writeGauge, h streamHeader) error {
 	data, err := json.Marshal(h)
 	if err != nil {
 		return err
 	}
-	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	return conn.Write(writeCtx, websocket.MessageText, data)
+	return writes.write(ctx, conn, websocket.MessageText, data)
 }
 
-func writeChunk(ctx context.Context, conn *websocket.Conn, data []byte) error {
-	writeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+func writeChunk(ctx context.Context, conn *websocket.Conn, writes *writeGauge, data []byte) error {
+	return writes.write(ctx, conn, websocket.MessageBinary, data)
+}
+
+// writeBudget is how long one frame down a terminal socket has to arrive.
+const writeBudget = 15 * time.Second
+
+// writeGauge follows one terminal socket's writes, so that keepalive can tell
+// a window still taking its output from one that has gone.
+type writeGauge struct {
+	// busy is how many frames are being written now, and finished how many
+	// ever have been; last is when the latest of them finished, in Unix
+	// nanoseconds.
+	busy     atomic.Int32
+	finished atomic.Int64
+	last     atomic.Int64
+}
+
+// write sends one frame within the write budget. A nil gauge counts nothing.
+func (g *writeGauge) write(ctx context.Context, conn *websocket.Conn, typ websocket.MessageType, data []byte) error {
+	writeCtx, cancel := context.WithTimeout(ctx, writeBudget)
 	defer cancel()
-	return conn.Write(writeCtx, websocket.MessageBinary, data)
+	if g == nil {
+		return conn.Write(writeCtx, typ, data)
+	}
+	// Counted as finished before it stops being busy, so there is no moment
+	// at which a frame that went out looks like nothing at all.
+	g.busy.Add(1)
+	defer g.busy.Add(-1)
+	err := conn.Write(writeCtx, typ, data)
+	if err == nil {
+		g.last.Store(time.Now().UnixNano())
+		g.finished.Add(1)
+	}
+	return err
+}
+
+// writingWithin reports whether a frame is being written now, or one finished
+// less than d ago.
+func (g *writeGauge) writingWithin(d time.Duration) bool {
+	return g.busy.Load() > 0 || time.Since(time.Unix(0, g.last.Load())) < d
 }
