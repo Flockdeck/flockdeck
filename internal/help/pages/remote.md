@@ -145,10 +145,11 @@ From a terminal:
 | `flockdeck remote disable` | Removes this machine from the relay |
 
 A machine that was wiped or lost before remote access was turned off on it
-cannot take itself off, and would be listed as offline for good. Remove it from
-the **Devices** page of a paired device instead: no device can reach it after
-that, and its credential stops working, so a copy of Flockdeck restored from a
-backup cannot connect with it either.
+cannot take itself off. Remove it from the **Devices** page of a paired device
+instead, rather than wait: no device can reach it after that, and its
+credential stops working, so a copy of Flockdeck restored from a backup cannot
+connect with it either. Left alone, the relay removes it on its own once it
+has gone 30 days without being heard from.
 
 ## If a device is lost
 

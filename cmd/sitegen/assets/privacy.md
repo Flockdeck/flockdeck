@@ -165,8 +165,9 @@ in memory.
   days after it was last used.
 - **A desktop** is kept until you turn remote access off on it or remove it
   from another of your devices. One that never connects to the relay
-  is removed after seven days. When the last desktop in an account is
-  removed, the account and all its devices go with it.
+  is removed after seven days, and one not heard from for 30 days is removed
+  the same way, whether or not it ever connected. When the last desktop in
+  an account is removed, the account and all its devices go with it.
 - **Pairing codes** expire after ten minutes.
 
 To delete everything the relay holds about you, turn remote access off on each
