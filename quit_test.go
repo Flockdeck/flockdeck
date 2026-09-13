@@ -59,7 +59,13 @@ func TestQuitWaitsForAStartUnderWay(t *testing.T) {
 	}
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/quit" {
+		switch r.URL.Path {
+		case "/health":
+			// Asked who it is before it is asked to quit, as a real instance
+			// is, and answering as one.
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"app":"flockdeck","ready":true}`))
+		case "/quit":
 			w.WriteHeader(http.StatusNoContent)
 			go func() { time.Sleep(50 * time.Millisecond); srv.Close() }()
 		}

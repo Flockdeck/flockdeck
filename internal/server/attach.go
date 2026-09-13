@@ -312,6 +312,18 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	}
 }
 
+// Identify asks what answers at a recorded address who it is, once: Probe
+// without its patience for an instance that is busy. It is what `flockdeck
+// -quit` asks before asking anything to stop, and a wedged instance is the one
+// it most needs to reach.
+//
+// An instance that answers but is not ready comes back with ErrNotReady and
+// what it said of itself, its process id among it. Anything that is not this
+// user's flockdeck comes back with ErrNotOurs.
+func Identify(baseURL, token string) (*healthMsg, error) {
+	return probeOnce(baseURL, token)
+}
+
 // ErrNotReady marks the one failure worth waiting out: flockdeck is listening on
 // that address, it just cannot answer for its workspace this moment.
 //
@@ -320,6 +332,12 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 // busy, and taking it for a stale record would start a rival set of agents
 // beside the ones it is busy with.
 var ErrNotReady = errors.New("the instance is not ready")
+
+// ErrNotOurs marks an answer from something other than the instance on
+// record: a service of another kind that has taken the port since, or another
+// user's flockdeck, which refuses this token. Either way the record the
+// address came from is stale, and nothing there is to be asked to quit.
+var ErrNotOurs = errors.New("what answers there is not the instance on record")
 
 func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -341,15 +359,16 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
 		if decodeErr == nil && h.App == "flockdeck" {
-			return nil, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
+			// Busy, and saying who it is: its process id is in what it said.
+			return &h, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
 		}
-		return nil, fmt.Errorf("instance replied %s", resp.Status)
+		return nil, fmt.Errorf("instance replied %s: %w", resp.Status, ErrNotOurs)
 	}
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, fmt.Errorf("%w: %v", ErrNotOurs, decodeErr)
 	}
 	if h.App != "flockdeck" {
-		return nil, fmt.Errorf("something else is listening on that address")
+		return nil, fmt.Errorf("something else is listening on that address: %w", ErrNotOurs)
 	}
 	return &h, nil
 }
