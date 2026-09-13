@@ -269,6 +269,18 @@ var defaultStripEnv = []string{
 	"CLAUDE_CODE_DONT_INHERIT_ENV",
 }
 
+// chatEndpointEnv are the variables `flockdeck chat` takes its wire, address
+// and key names from where no flag says them, under both spellings it reads.
+// Set in the environment Flockdeck itself was started from -- to try a local
+// model by hand, say -- every API pane inherited them, and a vendor's pane,
+// given no --base-url of its own, sent its requests and its key to that
+// address instead. A pane meant to have them is given them in its Spec.Env,
+// which is added after the inherited environment is stripped.
+var chatEndpointEnv = []string{
+	"FLOCKDECK_BASE_URL", "FLOCKDECK_WIRE", "FLOCKDECK_KEY_ENV",
+	"PERCH_BASE_URL", "PERCH_WIRE", "PERCH_KEY_ENV",
+}
+
 // terminalEnv is what a pane is told about the terminal it runs in, and what
 // it inherits about another terminal that has to go, on a given platform.
 //
@@ -331,8 +343,8 @@ func envFrom(goos string, base, strip, extra []string) []string {
 		extra = layerEnv(termSet, extra)
 	}
 
-	drop := make(map[string]bool, len(defaultStripEnv)+len(termStrip)+len(strip)+len(extra))
-	for _, name := range append(append(slices.Clip(defaultStripEnv), termStrip...), strip...) {
+	drop := make(map[string]bool, len(defaultStripEnv)+len(chatEndpointEnv)+len(termStrip)+len(strip)+len(extra))
+	for _, name := range append(append(append(slices.Clip(defaultStripEnv), chatEndpointEnv...), termStrip...), strip...) {
 		drop[envKey(name)] = true
 	}
 	for _, kv := range extra {
