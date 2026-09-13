@@ -194,6 +194,7 @@ func Run(ctx context.Context, o Options) error {
 	for _, t := range o.Tools {
 		s.tools[t.Name()] = t
 	}
+	s.reporter.unpriced = o.BaseURL != ""
 
 	signals := o.Signals
 	if signals == nil {
@@ -657,7 +658,13 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	}
 	s.out.endMessage()
 	s.total.Add(usage)
-	s.spent.add(s.model, usage)
+	if s.opts.BaseURL == "" {
+		s.spent.add(s.model, usage)
+	} else if usage != (Usage{}) {
+		// Through an address of its own the vendor's list price is not what
+		// is paid, and a figure from it would be a guess shown as a cost.
+		s.spent.unpriced = true
+	}
 	// The pane header shows what the conversation has cost, as the line
 	// under it does; this is what it is told.
 	s.reporter.usage(s.model, usage)

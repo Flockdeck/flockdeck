@@ -41,6 +41,11 @@ type reporter struct {
 	// events, and report the client half that sends it.
 	usageEndpoint string
 	report        func(endpoint, token string, r spending.Report, timeout time.Duration) error
+	// unpriced is set while the chat talks to an address of its own -- a
+	// gateway, a server of the user's -- which charges what it charges rather
+	// than the vendor's list price. Its calls are reported in tokens alone, as
+	// the picker and the routing notes already refuse to price them.
+	unpriced bool
 }
 
 func newReporter(api, token, session, cwd string) *reporter {
@@ -85,7 +90,7 @@ func (r *reporter) usage(model string, u Usage) {
 	// The rate and the day it was read come from the one price table
 	// together, so the pane header says how old this very price is rather
 	// than a date kept beside it that could drift from it.
-	if rate, ok := pricing.Lookup(model, time.Now()); ok {
+	if rate, ok := pricing.Lookup(model, time.Now()); ok && !r.unpriced {
 		usd := rate.Cost(pricing.Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
 		rep.Cost = spending.Cost{USD: usd, Known: true, Source: "table", Checked: rate.Checked}
 	}
