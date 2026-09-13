@@ -181,7 +181,7 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 		return ""
 	}
 	abs, err := t.root.ResolveFile(a.Path)
-	if err != nil {
+	if err != nil || deviceName(t.root, abs) != nil {
 		return ""
 	}
 	// The question shows what is being written, not only how much of it: a
@@ -285,6 +285,9 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	if err != nil {
 		return "", err
 	}
+	if err := deviceName(t.root, abs); err != nil {
+		return "", err
+	}
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", t.root.Rel(abs))
 	} else if err == nil {
@@ -310,6 +313,14 @@ func (t *writeFile) Run(_ context.Context, args json.RawMessage) (string, error)
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return "", t.root.explain(err)
+	}
+	// Looked at again now that its directory is there. Before, in a directory
+	// not yet made, a device's name had nothing behind it to see; deviceName
+	// knows the names, and this is for whatever other spelling of one there is.
+	if info, err := os.Stat(abs); err == nil {
+		if err := regularFile(t.root, abs, info); err != nil {
+			return "", err
+		}
 	}
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
 		return "", t.root.explain(err)

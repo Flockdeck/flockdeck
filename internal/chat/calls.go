@@ -270,12 +270,14 @@ func leadLine(out string) string {
 }
 
 // isResultLine reports whether the last line of a tool's output is its result,
-// which the tools put last: a command's exit status, or how much a search
-// found. The first line of such an output -- what a command printed first, a
-// search's first match -- says nothing of how it went.
+// which the tools put last: a command's exit status, that it was killed or
+// stopped by the user, or how much a search found. The first line of such an
+// output -- what a command printed first, a search's first match -- says
+// nothing of how it went.
 func isResultLine(s string) bool {
 	return strings.HasPrefix(s, "[exit status") || strings.HasPrefix(s, "[killed after") ||
-		strings.HasPrefix(s, "[stopped at") || searchTally.MatchString(s)
+		strings.HasPrefix(s, "[stopped at") || strings.HasPrefix(s, "[stopped: ") ||
+		searchTally.MatchString(s)
 }
 
 // searchTally is the line grep ends with: "2 matches in 2 files.", or "1

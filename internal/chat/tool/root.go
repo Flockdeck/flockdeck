@@ -63,7 +63,18 @@ func (r *Root) Resolve(p string) (string, error) {
 		abs = filepath.Join(r.dir, p)
 	}
 	if !within(r.dir, abs) {
-		return "", fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+		// The root is held as the file system resolves it, but the pane's
+		// directory as it was given -- which is what the model is told, and
+		// copies into the absolute paths it writes -- may be spelled another
+		// way: a mapped or subst drive, a junction, a short 8.3 name, /tmp for
+		// /private/tmp. Such a path is outside the root by name and inside it
+		// in fact, so it is judged by where it really leads, and taken there;
+		// one that leads out is refused as ever.
+		real := evalExisting(abs)
+		if !within(r.dir, real) {
+			return "", fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+		}
+		return real, nil
 	}
 	// A path may be inside the root by name and outside it in fact, because a
 	// link somewhere along it points away. The link has to be followed to see
@@ -120,25 +131,38 @@ func within(root, p string) bool {
 	if root == p {
 		return true
 	}
-	rel, err := filepath.Rel(root, p)
-	if err != nil {
-		return false
+	// Compared as strings, not with filepath.Rel: on Windows that matches the
+	// parts of two paths with strings.EqualFold, which takes the Kelvin sign
+	// for a k just as strings.ToLower did (see normCase).
+	if !strings.HasSuffix(root, string(filepath.Separator)) {
+		root += string(filepath.Separator)
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
-	}
-	return !filepath.IsAbs(rel)
+	return strings.HasPrefix(p, root)
 }
 
 // normCase folds a path for comparison on the platforms whose file names are
 // case-insensitive, so that C:\Repo and c:\repo are not read as two places.
 // Only the comparison is folded; the path handed back to the caller, and to
 // the operating system, keeps the case it arrived with.
+//
+// Only ASCII letters are folded. Unicode lower-cases the Kelvin sign to k and
+// a dotted capital I to i, but the file system keeps each apart from the
+// letter it resembles: folded with strings.ToLower, a folder named with one
+// of them in place of a k or an i in the root's name compared equal to the
+// root, and a write to a file in it -- a sibling of the root, outside it --
+// was let through. Folding less can only make a path spelled another way
+// outside the ASCII letters compare unequal, which refuses it.
 func normCase(p string) string {
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		return strings.ToLower(p)
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return p
 	}
-	return p
+	b := []byte(p)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
 }
 
 // evalExisting resolves the links in the longest prefix of p that exists, and

@@ -38,3 +38,25 @@ func TestTheFileToolsRefuseWhatIsNotARegularFile(t *testing.T) {
 		}
 	}
 }
+
+// In a directory write_file has yet to make there is nothing to look at, so a
+// device's name there looked like a new file: newdir/NUL was asked about as
+// one, and once newdir was made the write went to the device and was reported
+// as written. Windows keeps the names, so they are refused by name.
+func TestAWriteToADeviceNameInANewDirectoryIsRefused(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the device names are Windows'")
+	}
+	root := newRoot(t)
+	w := &writeFile{root: root}
+	for _, name := range []string{"newdir/NUL", "other/nul.", "third/con.txt", "fourth/COM1"} {
+		args := map[string]any{"path": name, "content": "gone"}
+		if q := w.Approval(rawArgs(t, args)); q != "" {
+			t.Errorf("asked %q about a write it will refuse", q)
+		}
+		out, err := call(t, w, args)
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("write_file %s = %q, %v; want a refusal", name, out, err)
+		}
+	}
+}

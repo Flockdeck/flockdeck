@@ -3,6 +3,10 @@ package tool
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"unicode/utf8"
 )
 
 // notAFile reports whether a mode is a named pipe, a socket or a device: what
@@ -32,4 +36,39 @@ func regularFile(root *Root, abs string, info os.FileInfo) error {
 		what = "a socket"
 	}
 	return fmt.Errorf("%s is not a regular file but %s, which the file tools do not read or write", root.Rel(abs), what)
+}
+
+// deviceName refuses, on Windows, a file name the system keeps for a device:
+// CON, PRN, AUX, NUL, COM0 to COM9 and LPT0 to LPT9 (and the superscript
+// COM¹ to LPT³), CONIN$ and CONOUT$. Windows drops a trailing dot or space,
+// and Windows 10 also reads such a name as the device whatever extension
+// follows, so nul., "nul " and nul.txt are counted too.
+//
+// regularFile can only look at what is there, and in a directory write_file
+// has yet to make there is nothing to look at: a write to newdir/NUL was
+// taken for a new file, and once the directory was made it went to the device
+// and was reported as written.
+func deviceName(root *Root, abs string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	name := strings.TrimRight(filepath.Base(abs), ". ")
+	name, _, _ = strings.Cut(name, ".")
+	name, _, _ = strings.Cut(name, ":")
+	name = strings.ToUpper(strings.TrimRight(name, " "))
+	device := false
+	switch name {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		device = true
+	default:
+		if n, ok := strings.CutPrefix(name, "COM"); ok {
+			device = strings.Contains("0123456789¹²³", n) && utf8.RuneCountInString(n) == 1
+		} else if n, ok := strings.CutPrefix(name, "LPT"); ok {
+			device = strings.Contains("0123456789¹²³", n) && utf8.RuneCountInString(n) == 1
+		}
+	}
+	if !device {
+		return nil
+	}
+	return fmt.Errorf("%s is not a regular file but a name Windows keeps for a device, which the file tools do not read or write", root.Rel(abs))
 }
