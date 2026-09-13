@@ -86,6 +86,15 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	t.Setenv("HOME", dir)
 	goTelemetryOff(t)
 
+	// The test's own t.TempDir folders are all removed by one cleanup, which
+	// the first call registers. It is called here, before the workspace's
+	// cleanup is registered, so that it runs after the workspace has closed:
+	// a test that opens a project in a t.TempDir of its own has a shell
+	// running there until then, and on Windows the folder cannot be removed
+	// while it does. Leaving the first call to the test put the removal ahead
+	// of the close, and failed nine tests on a Windows runner.
+	_ = t.TempDir()
+
 	// The project folder is where the pane's shell runs, so on Windows it is
 	// held for a moment after the workspace closes, as the state folder is:
 	// t.TempDir's cleanup failed TestAPanicDoesNotTakeTheAgentsDown on a

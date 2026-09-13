@@ -77,28 +77,54 @@ jobs:
       # names the limit rather than leaning on go test's ten minutes: the
       # server's tests alone take three, and several times that under the
       # race detector.
+      #
+      # A package that fails is run once more on its own before the step
+      # fails (.github/scripts/go-test-once-more.sh). One that fails twice
+      # still fails it; one that passes the second time is named in a warning
+      # with the tests that failed, to be fixed rather than forgotten. Six
+      # release candidates of v0.3.4 in a row were stopped by a different
+      # test each, every one of them the runner's timing.
       - name: Test
         if: runner.os != 'Windows'
         shell: bash
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
-        run: |
-          set -o pipefail
-          go test -count=1 -timeout 20m ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+        run: bash .github/scripts/go-test-once-more.sh "$RUNNER_TEMP/go-test.log" -count=1 -timeout 20m
 
       # Windows runs the tests from the runner's own shell, PowerShell 7, as
       # it always has: moving them to Git's bash changed what they ran in, and
       # one failed there that had never failed before. cmd does the
       # redirection, so that nothing depends on how PowerShell treats a
       # program writing to stderr; the output is shown once the tests end.
+      # A failed package is run once more, as go-test-once-more.sh does
+      # elsewhere.
       - name: Test
         if: runner.os == 'Windows'
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: |
-          cmd /c "go test -count=1 -timeout 20m ./... > `"$env:RUNNER_TEMP\go-test.log`" 2>&1"
+          $log = "$env:RUNNER_TEMP\go-test.log"
+          cmd /c "go test -count=1 -timeout 20m ./... > `"$log`" 2>&1"
           $status = $LASTEXITCODE
-          Get-Content "$env:RUNNER_TEMP\go-test.log"
+          Get-Content $log
+          if ($status -ne 0) {
+            $failed = @(Get-Content $log | Select-String -Pattern '^FAIL\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
+            if ($failed.Count -gt 0) {
+              $first = @(Get-Content $log | Select-String -Pattern '--- FAIL' | ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique)
+              $rerun = "$env:RUNNER_TEMP\go-test-again.log"
+              Write-Output "::group::Running the packages that failed once more: $($failed -join ' ')"
+              cmd /c "go test -count=1 -timeout 20m $($failed -join ' ') > `"$rerun`" 2>&1"
+              $status = $LASTEXITCODE
+              Get-Content $rerun
+              Write-Output "::endgroup::"
+              Add-Content $log "===== once more: $($failed -join ' ')"
+              Add-Content $log (Get-Content $rerun)
+              if ($status -eq 0) {
+                $body = ((@("Failed, then passed when run again:") + $failed + @("") + $first) -join "`n").Replace('%', '%25').Replace("`n", '%0A')
+                Write-Output "::warning title=Tests that passed only when run again on Windows::$body"
+              }
+            }
+          }
           exit $status
 
       # The workspace is reached from many goroutines through one owner, and a
@@ -114,9 +140,9 @@ jobs:
         shell: bash
         env:
           CGO_ENABLED: "1"
-        run: |
-          set -o pipefail
-          go test -race -count=1 -timeout 20m ./... 2>&1 | tee "$RUNNER_TEMP/go-race.log"
+        # A package that fails is run once more, as in the Test step. A data
+        # race the second run does not hit is named in its warning too.
+        run: bash .github/scripts/go-test-once-more.sh "$RUNNER_TEMP/go-race.log" -race -count=1 -timeout 20m
 
       # A job's log can only be read signed in to GitHub, and its annotations
       # can be read by anyone, from the web or the API. So a failure is also
