@@ -273,10 +273,15 @@ func claudeConversations(cwd string) ([]Conversation, error) {
 //
 // A directory inside cwd derives a folder whose name begins with cwd's own,
 // which is what these are found by. That also matches a sibling whose name
-// merely starts the same way, so each candidate is asked what its transcripts
-// record before it is read; the answer is the one the folder search already
-// keeps, so a folder that is nothing to do with us costs a couple of reads
-// once.
+// merely starts the same way, and which transcripts in either are ours is
+// decided per transcript, by what each records.
+//
+// Not by asking the folder first. The folder search reads only the first few
+// transcripts in a folder, in the order the folder lists them -- which, with
+// session ids for names, is no order at all -- and a worktree is mostly its own
+// work: a conversation that moved in from the project sorted after five of
+// those was never offered here. What conversationsIn reads is kept against the
+// folder, so the cost of reading all of them is paid once per transcript.
 func conversationsUnder(projects, cwd string) []Conversation {
 	entries, err := os.ReadDir(projects)
 	if err != nil {
@@ -290,15 +295,8 @@ func conversationsUnder(projects, cwd string) []Conversation {
 			continue
 		}
 		dir := filepath.Join(projects, e.Name())
-		records, files := folderRecords(dir)
-		mentions := false
-		for _, got := range records {
-			if sameDir(got, cwd) {
-				mentions = true
-				break
-			}
-		}
-		if !mentions {
+		files, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
 		// Only what ran here. A transcript of the worktree's own work is the

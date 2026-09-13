@@ -51,6 +51,34 @@ func TestProjectSlugMatchesClaudeCode(t *testing.T) {
 	}
 }
 
+// TestAConversationBehindAWorktreesOwnWorkIsFound covers a conversation that
+// moved into a worktree whose folder already held more of the worktree's own
+// work than the folder search opens. Whether the folder was read at all was
+// decided by the first few transcripts in it, in the order the folder listed
+// them, so the conversation the project was looking for was never reached.
+func TestAConversationBehindAWorktreesOwnWorkIsFound(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	project := filepath.Join(t.TempDir(), "repo")
+	worktree := filepath.Join(project, ".claude-worktrees", "busy")
+	under := filepath.Join(home, "projects", projectSlug(worktree))
+	// Named so that every one of the worktree's own sorts first.
+	for i := 0; i <= cwdProbeLimit; i++ {
+		writeTranscript(t, under, fmt.Sprintf("%08d-0000-0000-0000-000000000000", i),
+			`{"type":"user","cwd":"`+jsonPath(worktree)+`","message":{"role":"user","content":"the worktree's own work"}}`)
+	}
+	writeTranscript(t, under, "ffffffff-ffff-ffff-ffff-ffffffffffff",
+		`{"type":"user","cwd":"`+jsonPath(project)+`","message":{"role":"user","content":"started in the project"}}`)
+
+	got, err := claudeConversations(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Summary != "started in the project" {
+		t.Errorf("the project listed %+v, want only the conversation it started", got)
+	}
+}
+
 // TestConversationsWithATrailingSeparator covers a project named with a
 // separator on the end, which is the same directory but derives a folder name
 // with a dash on the end: the conversation stored under a worktree's folder
