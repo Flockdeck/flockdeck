@@ -475,3 +475,45 @@ h.recv({ type: "remoteDevices", enabled: true, hosts, devices: [] });
 assert.ok(h.doc.activeElement === h.$("remote-pair"), "unpairing a device dropped the keyboard out of the dialog");
 `)
 }
+
+// Saving a key, putting its form away or clearing it takes away what the
+// keyboard was on - the field, Cancel, Clear - and the keyboard went with
+// it. It goes back to the row's Set or Replace button, across the reply that
+// renames that button as well.
+func TestTheKeyboardStaysOnAKeysRow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("settings");
+h.click(h.$("settings-tab-keys"));
+const keys = (aSet) => ({ type: "keys", items: [
+  { agent: "anthropic", name: "Anthropic API", set: aSet, source: aSet ? "store" : "", vars: ["ANTHROPIC_API_KEY"] },
+  { agent: "openai", name: "OpenAI API", set: false, source: "", vars: ["OPENAI_API_KEY"] }] });
+h.recv(keys(false));
+const row = () => h.$("overlay-body").querySelectorAll("div.wt-row")[0];
+const setBtn = () => row().querySelector("button");
+setBtn().focus();
+h.key({ key: "Enter" });
+const field = h.$("overlay-body").querySelector("input[type=password]");
+assert.ok(field && h.doc.activeElement === field, "the key field did not take the keyboard");
+field.value = "sk-test";
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keySet", id: "anthropic", text: "sk-test" });
+assert.ok(h.doc.activeElement === setBtn(), "saving a key dropped the keyboard with the field");
+h.recv(keys(true));
+assert.strictEqual(setBtn().textContent, "Replace…");
+assert.ok(h.doc.activeElement === setBtn(), "the reply took the keyboard off the row when Set became Replace");
+
+row().querySelectorAll("button")[1].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "keyClear", id: "anthropic" });
+h.recv(keys(false));
+assert.ok(h.doc.activeElement === setBtn(), "clearing a key dropped the keyboard");
+
+h.key({ key: "Enter" });
+const cancel = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Cancel");
+cancel.focus();
+h.key({ key: "Enter" });
+assert.ok(h.doc.activeElement === setBtn(), "Cancel dropped the keyboard with the form");
+`)
+}

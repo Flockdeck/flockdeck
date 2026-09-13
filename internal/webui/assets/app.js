@@ -342,7 +342,9 @@
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
-      else if (msg.type === "keys") keepFocus(() => renderKeys(msg));
+      // A Clear pressed goes with the key it cleared; the keyboard goes to
+      // that row's own button rather than out of the dialog.
+      else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
@@ -5603,6 +5605,14 @@
    *  rest of the session, and losing a half-typed key to a redraw is the
    *  cheaper of the two mistakes. */
   let keyEditing = null;
+  /** The agent whose key was last saved, put away or cleared. What the
+   *  keyboard was on went with it - the field, its Cancel, the Clear - and
+   *  it goes back to that row's Set or Replace button instead. */
+  let keyActed = null;
+  function keySetButton(agent) {
+    const b = agent ? $("key-set-" + encodeURIComponent(agent)) : null;
+    return b && b.isConnected ? b : null;
+  }
 
   /** openKeys shows which agents have an API key.
    *
@@ -5675,6 +5685,8 @@
 
       const actions = el("div", "wt-actions");
       const set = el("button", "chip", k.set ? "Replace…" : "Set…");
+      // An id, because its wording changes when a key is saved.
+      set.id = "key-set-" + encodeURIComponent(k.agent);
       set.onclick = () => { keyEditing = k.agent; renderKeys(); };
       actions.append(set);
       // Only a stored key can be forgotten. A key that came from the
@@ -5682,7 +5694,7 @@
       // business unsetting a variable it did not set.
       if (k.set && k.source === "store") {
         const clear = el("button", "chip danger", "Clear");
-        clear.onclick = () => send({ cmd: "keyClear", id: k.agent });
+        clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
         actions.append(clear);
       }
       row.append(actions);
@@ -5709,17 +5721,24 @@
     field.autocomplete = "off";
     field.spellcheck = false;
 
+    // The form goes, and the keyboard with it unless it is put back: on the
+    // row's own button, where the next Enter replaces the key again.
+    const done = () => {
+      keyActed = k.agent;
+      renderKeys();
+      const b = keySetButton(k.agent);
+      if (b) b.focus();
+    };
     const save = () => {
       const value = field.value.trim();
       field.value = "";
       keyEditing = null;
-      if (!value) { renderKeys(); return; }
-      send({ cmd: "keySet", id: k.agent, text: value });
+      if (value) send({ cmd: "keySet", id: k.agent, text: value });
       // Drawn again without waiting for the reply, so the field goes as
       // soon as it is sent rather than sitting there emptied.
-      renderKeys();
+      done();
     };
-    const cancel = () => { field.value = ""; keyEditing = null; renderKeys(); };
+    const cancel = () => { field.value = ""; keyEditing = null; done(); };
 
     field.onkeydown = (ev) => {
       if (ev.key === "Enter") { ev.preventDefault(); save(); return; }

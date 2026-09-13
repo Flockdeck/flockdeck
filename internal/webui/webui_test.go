@@ -5955,6 +5955,11 @@ class Element {
   get title() { return this.attributes.get("title") || ""; }
   set title(v) { this.attributes.set("title", String(v)); }
 
+  // Reflected as a browser reflects it, so input[type=password] finds a field
+  // whose type was set as a property.
+  get type() { return this.attributes.get("type") || ""; }
+  set type(v) { this.attributes.set("type", String(v)); }
+
   get tabIndex() { return Number(this.attributes.get("tabindex") || 0); }
   set tabIndex(v) { this.attributes.set("tabindex", String(v)); }
 
