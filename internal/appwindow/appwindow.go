@@ -110,6 +110,52 @@ type Window struct {
 	AppMode bool
 	// Program is the browser that was launched, for diagnostics.
 	Program string
+
+	// redirectFile is where a one-time link was written into a local
+	// redirect page for the browser to read, rather than carry on its
+	// command line (see writeRedirectFile), and "" where none was: no
+	// private place could be found for this browser, and it was started at
+	// the link directly. cancelCleanup stops redirectFile's own backstop
+	// timer, once Close removes it itself.
+	redirectFile  string
+	cancelCleanup func()
+}
+
+// RedirectFile is where the one-time link this window was opened at was
+// written into a local redirect file for the browser to read, or "" where
+// none was and the browser was started at the link itself. A caller that can
+// say precisely when that link stops working -- see server.SetLinkFile --
+// should remove the file itself at that moment, rather than leave it to this
+// package's own backstop timer.
+func (w *Window) RedirectFile() string {
+	if w == nil {
+		return ""
+	}
+	return w.redirectFile
+}
+
+// arm records that file is this window's redirect file, if it has one, and
+// starts its backstop cleanup timer.
+func (w *Window) arm(file string) {
+	if file == "" {
+		return
+	}
+	w.redirectFile = file
+	w.cancelCleanup = scheduleCleanup(file, redirectFileLife)
+}
+
+// removeRedirectFile cancels this window's backstop timer and removes its
+// redirect file itself: closing the window is as good a moment as the file
+// is ever going to get, and there is no reason left to wait for the timer.
+func (w *Window) removeRedirectFile() {
+	if w.cancelCleanup != nil {
+		w.cancelCleanup()
+		w.cancelCleanup = nil
+	}
+	if w.redirectFile != "" {
+		_ = os.Remove(w.redirectFile)
+		w.redirectFile = ""
+	}
 }
 
 // Wait blocks until an app-mode window is closed. It returns immediately for a
@@ -145,7 +191,11 @@ func (w *Window) Wait() error {
 // that has not gone after closeGrace is killed. A Windows process cannot be
 // sent SIGTERM, so there it is killed, as before.
 func (w *Window) Close() {
-	if w == nil || w.cmd == nil || w.cmd.Process == nil {
+	if w == nil {
+		return
+	}
+	w.removeRedirectFile()
+	if w.cmd == nil || w.cmd.Process == nil {
 		return
 	}
 	w.closing.Store(true)
@@ -166,34 +216,52 @@ func (w *Window) Close() {
 	_ = w.cmd.Process.Kill()
 }
 
-// Open displays url in a window. profileDir holds the browser profile used for
-// app mode, keeping it separate from the user's own browsing profile so the
-// window opens clean and does not disturb their session.
-func Open(url, profileDir string) (*Window, error) {
+// Open displays target in a window. profileDir holds the browser profile
+// used for app mode, keeping it separate from the user's own browsing
+// profile so the window opens clean and does not disturb their session.
+//
+// target is not necessarily what the browser is started at: where a private
+// place could be found for whichever browser this turns out to use, it is
+// wrapped in a local redirect file first (see writeRedirectFile), so that
+// target -- a one-time link, in practice -- never sits on that browser's own
+// command line, for as long as it runs, where any other user of the machine
+// could read it (R3.7.2). The returned Window's RedirectFile names that file,
+// for a caller able to remove it the moment target itself stops working.
+func Open(target, profileDir string) (*Window, error) {
 	if prog, from := pinnedBrowser(); prog != "" {
 		path, err := resolvePinned(prog)
 		if err != nil {
 			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
+		wrapped, file := wrapForLaunch(target, path, classifyBrowser(path))
 		// One that is found but will not start is named too: without it,
 		// nothing in the message says the choice of browser was the user's
 		// own setting rather than something Flockdeck got wrong.
-		w, err := startAppMode(path, url, profileDir)
+		w, err := startAppMode(path, wrapped, profileDir)
 		if err != nil {
+			abandon(file)
 			return nil, fmt.Errorf("%s=%q: %w", from, prog, err)
 		}
+		w.arm(file)
 		return w, nil
 	}
 	if path := findBrowser(); path != "" {
-		if w, err := startAppMode(path, url, profileDir); err == nil {
+		wrapped, file := wrapForLaunch(target, path, classifyBrowser(path))
+		if w, err := startAppMode(path, wrapped, profileDir); err == nil {
+			w.arm(file)
 			return w, nil
 		}
+		abandon(file)
 	}
 	// Better an ordinary tab than no interface at all.
-	if err := openDefaultBrowser(url); err != nil {
+	wrapped, file := wrapForLaunch(target, "", kindDefault)
+	if err := openDefaultBrowser(wrapped); err != nil {
+		abandon(file)
 		return nil, fmt.Errorf("%w: %v", ErrNoBrowser, err)
 	}
-	return &Window{AppMode: false, Program: "default browser"}, nil
+	win := &Window{AppMode: false, Program: "default browser"}
+	win.arm(file)
+	return win, nil
 }
 
 // defaultWidth and defaultHeight are the window's size where the screen has
@@ -335,6 +403,26 @@ func startAppMode(path, url, profileDir string) (*Window, error) {
 	return win, nil
 }
 
+// snapName is the snap package's name for a browser at path -- chromium,
+// brave, and so on -- and whether path is a snap at all. A snap is laid out
+// as /snap/<name>/<revision>/... or, on the bin shim PATH puts first,
+// /snap/bin/<name>.
+func snapName(path string) (name string, ok bool) {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/snap/") {
+		return "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(p, "/snap/"), "/")
+	name = parts[0]
+	if name == "bin" && len(parts) > 1 {
+		name = parts[1]
+	}
+	if name == "" || name == "bin" {
+		return "", false
+	}
+	return name, true
+}
+
 // profileFor is the profile folder the browser at path is started on:
 // profileDir, except for a browser installed as a snap. Snap confines one to
 // its own corner of the home folder and will not let it use a hidden folder in
@@ -342,16 +430,11 @@ func startAppMode(path, url, profileDir string) (*Window, error) {
 // to open at all. It is given a folder where snap lets it write instead:
 // ~/snap/<name>/common/flockdeck-window.
 func profileFor(path, profileDir, home string) string {
-	p := filepath.ToSlash(path)
-	if home == "" || !strings.HasPrefix(p, "/snap/") {
+	if home == "" {
 		return profileDir
 	}
-	parts := strings.Split(strings.TrimPrefix(p, "/snap/"), "/")
-	name := parts[0]
-	if name == "bin" && len(parts) > 1 {
-		name = parts[1]
-	}
-	if name == "" || name == "bin" {
+	name, ok := snapName(path)
+	if !ok {
 		return profileDir
 	}
 	return filepath.Join(home, "snap", name, "common", "flockdeck-window")
@@ -545,9 +628,20 @@ func resolvePinned(prog string) (string, error) {
 	return "", fmt.Errorf("%w, and no %s is installed where browsers are looked for either", err, prog)
 }
 
-// OpenDefault opens url in the user's default browser, as Open does when no
-// app-mode browser will start. The tab it opens cannot be watched.
-func OpenDefault(url string) error { return openDefaultBrowser(url) }
+// OpenDefault opens target in the user's default browser, as Open does when
+// no app-mode browser will start. The tab it opens cannot be watched, so
+// unlike Open's own use of this fallback there is no Window to remove a
+// redirect file the moment its link stops working -- this relies on that
+// file's own backstop timer alone (see redirectFileLife).
+func OpenDefault(target string) error {
+	wrapped, file := wrapForLaunch(target, "", kindDefault)
+	if err := openDefaultBrowser(wrapped); err != nil {
+		abandon(file)
+		return err
+	}
+	scheduleCleanup(file, redirectFileLife)
+	return nil
+}
 
 // openDefaultBrowser hands the URL to the desktop's own handler.
 func openDefaultBrowser(url string) error {

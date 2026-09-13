@@ -615,6 +615,13 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	// with the token in it, which would stay on its command line for anybody
 	// on the machine to read (see server.WindowURL). Only an instance from an
 	// earlier build, which gives out no links, is opened the old way.
+	//
+	// appwindow.Open goes further still and keeps that link itself off the
+	// browser's command line, in a local redirect file where it can (see
+	// R3.7.2); its own backstop timer removes that file once the link has
+	// had time to be used or to run out, since this launch has no window of
+	// its own onto the running instance to say precisely when either happens
+	// -- unlike showWindow's own use of Open, which does.
 	asked := time.Now()
 	link, err := server.RequestWindowURL(base, inst.Token)
 	if errors.Is(err, server.ErrNoWindowLinks) {
@@ -1039,7 +1046,16 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	// address stays on its command line all day, for anybody on the machine
 	// to read (see server.WindowURL). URL, with the token in it, is only ever
 	// printed, for the user to open by hand.
-	win, err := appwindow.Open(srv.WindowURL(), profile)
+	//
+	// appwindow.Open itself keeps that link off the browser's own command
+	// line in turn, writing it into a local redirect file where it can (see
+	// R3.7.2); win.RedirectFile names that file, when there is one, so it can
+	// be removed the moment link stops working rather than left to that
+	// package's own backstop timer -- this server can say precisely when
+	// that is, which nothing reached over /window (attach's own launch of a
+	// window, elsewhere) can.
+	url, link := srv.NewWindowLink()
+	win, err := appwindow.Open(url, profile)
 	if err != nil {
 		// Unlike attaching, this server is ours and stops with us, so the
 		// address it was serving will not answer by the time anyone reads
@@ -1049,6 +1065,11 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 				err, appwindow.BrowserEnv)
 		}
 		return nil, fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
+	}
+	if file := win.RedirectFile(); file != "" && !srv.SetLinkFile(link, file) {
+		// Redeemed or run out already, in the moment between the file being
+		// written and this being asked: nothing else is going to remove it.
+		_ = os.Remove(file)
 	}
 
 	if win.AppMode {

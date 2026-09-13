@@ -140,6 +140,16 @@ the assets and both WebSockets — must carry a token generated fresh for each
 run. A second launch of the binary reaches the running instance through that
 same loopback address.
 
+The window's own browser is never started with that token, or even with the
+one-time link that stands in for it, on its command line: another account on
+the same machine can often read one process's command line from another's,
+and a moment's head start with either would be enough to open a window onto
+your agents. The link is written into a file only your account can read
+instead, and the browser is pointed at that file. If a window ever shows "This
+link has already been used" and you did not just open one yourself, someone
+else on this computer may have — quit Flockdeck and start it again, which ends
+that session along with whichever window got to it first.
+
 Remote access, once you turn it on, is a connection this machine makes out to
 the relay. A request arriving through it is let in without the token, because
 the relay has already checked that the device asking is paired — [Remote
