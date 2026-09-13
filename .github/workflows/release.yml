@@ -34,9 +34,20 @@ jobs:
       # carrying the key its signatures are checked with.
       release: true
 
+  # One release is published at a time. Two at once -- a fix to an older line
+  # cut beside a new release -- would each read the latest release before
+  # either had moved it, on GitHub and on the site, and whichever finished
+  # last would be the latest, older or not. So a second run waits for the
+  # first rather than cancelling it: a release stopped part way is published
+  # on GitHub and missing from the site. The tests still run side by side;
+  # only publishing takes turns. GitHub holds one run waiting, though, and a
+  # third started meanwhile replaces it, so that one needs running again.
   release:
     needs: test
     runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,6 +56,11 @@ jobs:
           # but the full history costs little and keeps `make` usable in the
           # same checkout.
           fetch-depth: 0
+          # The token that fetched the code is not left in .git/config, where
+          # every later step, and whatever the build runs, could read it.
+          # Nothing here pushes: gh takes its token from GH_TOKEN, and the
+          # publish script is read from this checkout with git show.
+          persist-credentials: false
 
       # The release is built from nothing cached. The build cache is shared
       # with the test runs on main, which execute every test, dependencies'
@@ -102,16 +118,24 @@ jobs:
       # shows them as it did when the updater read them from GitHub. They are
       # generated here, before the release exists, and the release is made
       # with the same notes; a release being published again keeps its own.
+      # Only GitHub's answer that there is no such release counts as there
+      # being none. Any other failure to ask stops the run: taken for none, a
+      # release published before would be given fresh notes, and below it
+      # would be created again.
       - name: Sign
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
-          else
+          if gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md" 2> "$RUNNER_TEMP/gh.err"; then
+            echo "$TAG is already released on GitHub, and keeps its notes"
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
             gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$RUNNER_TEMP/notes.md"
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub whether $TAG is released already, so nothing has been signed or published"
+            exit 1
           fi
           go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
 
@@ -131,6 +155,10 @@ jobs:
       # -- would then be what every copy reading GitHub is offered, and each
       # would throw away the newer release it had staged as withdrawn. So one
       # that is not newer is published without being made the latest.
+      #
+      # As in signing, only GitHub's answer that there is no release counts as
+      # there being none. A failure to ask for the latest release taken for
+      # there being none would make any release the latest, older or not.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,7 +167,15 @@ jobs:
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
           latest=""
-          current=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          if current=$(gh release view --json tagName --jq .tagName 2> "$RUNNER_TEMP/gh.err"); then
+            :
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
+            current=""
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub for its latest release, so whether $TAG may become it is not known; nothing has been published"
+            exit 1
+          fi
           if [ -z "$pre" ] && [ -n "$current" ] && [ "$current" != "$TAG" ] &&
             [ "$(printf '%s\n' "$current" "$TAG" | sort -V | tail -n 1)" != "$TAG" ]; then
             echo "$current is newer than $TAG, and stays GitHub's latest release"
@@ -149,10 +185,32 @@ jobs:
           for f in dist/*; do
             [ "${f##*/}" = latest.json ] || set -- "$@" "$f"
           done
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --json tagName >/dev/null 2> "$RUNNER_TEMP/gh.err"; then
             gh release upload "$TAG" "$@" --clobber
-          else
+          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
             gh release create "$TAG" "$@" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $pre $latest
+          else
+            cat "$RUNNER_TEMP/gh.err" >&2
+            echo "::error::could not ask GitHub whether $TAG is released already, so it has been neither created nor added to"
+            exit 1
+          fi
+          # gh release create has not always carried --latest=false through
+          # to GitHub: with files to upload it makes a draft and publishes it
+          # afterwards, and the flag has been lost on the way. So the release
+          # is told again, through the API by its id, that it is not the
+          # latest, and the latest is asked for: if it is not the newer
+          # release any more, that one is made the latest again.
+          if [ -n "$latest" ]; then
+            id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+            case "$id" in "" | *[!0-9]*) echo "::error::could not find $TAG's release id, to keep $current the latest"; exit 1 ;; esac
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f make_latest=false >/dev/null
+            now=$(gh release view --json tagName --jq .tagName)
+            if [ "$now" != "$current" ]; then
+              echo "GitHub's latest release is $now; making $current the latest again"
+              id=$(gh release view "$current" --json databaseId --jq .databaseId)
+              case "$id" in "" | *[!0-9]*) echo "::error::could not find $current's release id, to make it the latest again"; exit 1 ;; esac
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f make_latest=true >/dev/null
+            fi
           fi
 
       # From here the release goes to dl.flockdeck.ai, the DigitalOcean Space
@@ -185,6 +243,15 @@ jobs:
       # The script says why the order is what it is. It is kept in the
       # repository so that it can be run by hand, and tried against any
       # S3-compatible store. The aws CLI is already on the runner.
+      #
+      # The script is run as this workflow's own commit has it, not as the
+      # tag's. For a pushed tag they are one commit. A release run by hand,
+      # though, builds an older tag with the workflow on main, and the tag's
+      # copy of the script predates whatever it has learned since: one from
+      # before it compared versions moves latest.json and /latest/ back to the
+      # older release, and every copy that had staged the newer one throws it
+      # away as withdrawn. The checkout above fetched every branch, so the
+      # commit is here to read it from.
       - name: Publish to dl.flockdeck.ai
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -192,4 +259,9 @@ jobs:
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
           DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
-        run: sh scripts/publish-downloads.sh "$TAG" dist
+        run: |
+          if ! git show "$GITHUB_SHA:scripts/publish-downloads.sh" > "$RUNNER_TEMP/publish-downloads.sh"; then
+            echo "::error::$TAG is published on GitHub, but the publish script could not be read from $GITHUB_SHA, the workflow's own commit"
+            exit 1
+          fi
+          sh "$RUNNER_TEMP/publish-downloads.sh" "$TAG" dist
