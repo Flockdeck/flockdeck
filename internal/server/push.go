@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -106,7 +107,7 @@ func (s *Server) notifyRelay(ctx context.Context, n remote.Notification) error {
 	if err != nil {
 		return err
 	}
-	_, err = cl.Notify(ctx, n)
+	_, err = cl.Push(ctx, n)
 	return err
 }
 
@@ -171,7 +172,7 @@ func (s *Server) pushesDue(now time.Time) []remote.Notification {
 					names[pr.Root] = pr.Name
 				}
 			}
-			due = append(due, pushFor(p.ID, p.Name, projectLabel(names, s.ws.RootOf(p.ID)), st.Name, s.prefs.Push.Anonymous))
+			due = append(due, pushFor(st.HostID, p.ID, p.Name, projectLabel(names, s.ws.RootOf(p.ID)), st.Name, s.prefs.Push.Anonymous))
 		}
 	}
 	// A pane no longer waiting, or gone, has its next wait pushed afresh.
@@ -185,14 +186,19 @@ func (s *Server) pushesDue(now time.Time) []remote.Notification {
 
 // pushFor is what a push about one pane says: its name and project, and the
 // machine it is on -- or, sent anonymously, only that an agent on the machine
-// needs you. The pane's id goes either way, since it is what a tap opens, and
-// names nothing.
-func pushFor(paneID, pane, project, desktop string, anonymous bool) remote.Notification {
+// needs you. The pane's page goes either way, since it is what a tap opens,
+// and its ids name nothing.
+func pushFor(hostID, paneID, pane, project, desktop string, anonymous bool) remote.Notification {
 	if desktop == "" {
 		desktop = "your desktop"
 	}
+	n := remote.Notification{
+		URL: "/d/" + url.PathEscape(hostID) + "/" + url.PathEscape(paneID),
+		Tag: "flockdeck-" + hostID + "-" + paneID,
+	}
 	if anonymous {
-		return remote.Notification{PaneID: paneID, Title: "An agent on " + desktop + " needs you"}
+		n.Title = "An agent on " + desktop + " needs you"
+		return n
 	}
 	title := pane
 	if title == "" {
@@ -201,7 +207,8 @@ func pushFor(paneID, pane, project, desktop string, anonymous bool) remote.Notif
 	if project != "" {
 		title += " · " + project
 	}
-	return remote.Notification{PaneID: paneID, Title: title + " needs you", Body: "On " + desktop}
+	n.Title, n.Body = title+" needs you", "On "+desktop
+	return n
 }
 
 // setPushOff records whether the paired devices are notified.

@@ -46,7 +46,7 @@ func TestAWaitThatLastsIsPushedOnce(t *testing.T) {
 		t.Errorf("a wait of 29 seconds was pushed: %+v", n)
 	}
 	n := due(srv, since.Add(30*time.Second))
-	if len(n) != 1 || n[0].PaneID != id || !strings.HasSuffix(n[0].Title, " needs you") || n[0].Body != "On desk" {
+	if len(n) != 1 || n[0].URL != "/d/h1/"+id || !strings.HasSuffix(n[0].Title, " needs you") || n[0].Body != "On desk" {
 		t.Fatalf("a wait of 30 seconds: %+v", n)
 	}
 	name, _ := ask(srv, func() string { return ws.Pane(id).Name })

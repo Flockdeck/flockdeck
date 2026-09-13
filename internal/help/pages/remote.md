@@ -98,12 +98,14 @@ Here, Settings › **Remote access** says what is sent:
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 
-The relay encrypts each notification for the device it goes to, so the push
-service that carries it — Apple's, Google's, Mozilla's or Microsoft's, which
-is the browser's to choose — sees only that one was sent, and when. The relay
-itself sees what it says, as it sees everything that passes through it. A relay
-that does not send notifications, or an account whose plan does not include
-them, is said under the switch in the relay's own words.
+Each notification is encrypted here, on this machine, for the device it goes
+to, and the relay only passes it on: neither the relay nor the push service
+that carries it — Apple's, Google's, Mozilla's or Microsoft's, which is the
+browser's to choose — can read what it says, since the key that opens it never
+leaves the phone. They see that one was sent, and when; every notification is
+the same size, however long the names in it. A relay that does not send
+notifications, or an account whose plan does not include them, is said under
+the switch in the relay's own words.
 
 ## Renaming
 

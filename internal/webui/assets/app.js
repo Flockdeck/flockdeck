@@ -6830,7 +6830,7 @@
 
     box.append(settingRow("Send nothing identifying",
       "Notifications say only “An agent on " + machine + " needs you”, rather than naming the pane and its project: " +
-      "for a lock screen others can see, and to keep those names from the relay. The push service carries either encrypted.",
+      "for a lock screen others can see. Either way it is encrypted here for each device, and neither the relay nor the push service can read it.",
       switchControl("set-push-anonymous", !!push.anonymous, (on) => setPushAnonymous(on))));
   }
 
