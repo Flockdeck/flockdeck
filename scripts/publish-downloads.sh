@@ -24,8 +24,11 @@
 #
 # Nothing is purged from the CDN, so this needs no DigitalOcean API token.
 # What is under a version never changes, and is cached for a year. latest.json
-# and /latest/ are cached for a minute, so for that long an edge or a browser
-# may go on naming the release before. That holds an update back and does no harm:
+# and /latest/ tell a browser a minute. The CDN's edge keeps them for its own
+# TTL whatever they say (seen 2026-09-13: latest.json at Age 598 under
+# max-age=300 before it moved to v0.3.1), and that TTL is terrawost's
+# digitalocean_cdn "ttl": so for that long plus a minute, an edge and a
+# browser may go on naming the release before. That holds an update back and does no harm:
 # latest.json is not signed, and needs neither a signature nor a purge,
 # because all it does is name a version, whose own signed manifest the
 # updater checks before believing any of it.
