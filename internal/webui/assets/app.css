@@ -870,6 +870,11 @@ textarea:focus-visible {
 .rev-plus { color: var(--working); font-size: 11px; }
 .rev-minus { color: var(--exited); font-size: 11px; }
 .rev-omitted { color: var(--fg-dim); font-size: 11px; padding: 4px 2px; }
+/* A row that is not as it was when the list was last looked at. */
+.rev-file.moved { box-shadow: inset 3px 0 0 var(--accent); }
+.rev-mark { color: var(--accent); font-size: 10px; }
+.rev-file.sel .rev-mark { color: #06101f; }
+.rev-moved { color: var(--fg); font-size: 11px; padding: 4px 2px; }
 
 .rev-diff {
   flex: 1 1 auto; min-width: 0; max-height: 320px; overflow: auto;

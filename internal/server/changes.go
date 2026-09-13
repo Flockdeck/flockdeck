@@ -20,6 +20,9 @@ type changeView struct {
 	Added     int    `json:"added"`
 	Removed   int    `json:"removed"`
 	Untracked bool   `json:"untracked"`
+	// Stamp is gitx.Stamp of the file as it was listed, which a commit made
+	// from this list sends back so that a file written to since is noticed.
+	Stamp string `json:"stamp,omitempty"`
 }
 
 type changesMsg struct {
@@ -35,6 +38,14 @@ type changesMsg struct {
 	// only on a checkout with more of them than a list can usefully hold.
 	Omitted int    `json:"omitted,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Reason says why this listing was sent, which is what the window's
+	// record of what somebody has looked at goes by: "asked" for one it
+	// asked to be shown -- the panel opening, or Refresh -- "refused" for the
+	// tree as it is after a commit refused because it had moved, and
+	// "committed" after a commit was made. It is empty for the rest: a
+	// listing the panel asked for itself because the tree moved, and the one
+	// after a push, pull or fetch.
+	Reason string `json:"reason,omitempty"`
 }
 
 type diffMsg struct {
@@ -106,17 +117,25 @@ var changeListings = newNewestAnswer()
 var readChanges = collectChanges
 
 // listChanges answers a request for what has changed in a working tree.
-func (s *Server) listChanges(c *controlClient, path string) {
+// follow is a request the panel made by itself because the tree moved,
+// rather than one somebody made by opening it or pressing Refresh.
+func (s *Server) listChanges(c *controlClient, path string, follow bool) {
 	asked := changeListings.asked(c)
-	s.sendChanges(c, s.reviewDir(path), asked)
+	reason := "asked"
+	if follow {
+		reason = ""
+	}
+	s.sendChanges(c, s.reviewDir(path), asked, reason)
 }
 
 // sendChanges lists a checkout for a window, unless the window has asked for
-// another listing since the request numbered asked.
-func (s *Server) sendChanges(c *controlClient, dir string, asked uint64) {
+// another listing since the request numbered asked. reason goes out as the
+// listing's Reason.
+func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason string) {
 	go func() {
 		defer s.survive("reading what changed")
 		msg := readChanges(dir)
+		msg.Reason = reason
 		if !changeListings.answer(c, asked) {
 			return
 		}
@@ -191,6 +210,7 @@ func collectChangesUpTo(dir string, limit int) changesMsg {
 		msg.Files = append(msg.Files, changeView{
 			Path: f.Path, Status: f.Status, Label: f.Label,
 			Added: f.Added, Removed: f.Removed, Untracked: f.Untracked,
+			Stamp: gitx.Stamp(root, f.Path),
 		})
 	}
 	return msg
@@ -241,7 +261,7 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 // is refused when what it would record is no longer what was listed, and the
 // answer that follows is the tree as it is now. A window that sends no list
 // commits everything, as the button always did.
-func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, unlisted int) {
+func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -251,11 +271,16 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 		dir = repoRoot(dir)
 		commit := func() error { return gitx.CommitAll(dir, message) }
 		if listed != nil {
-			commit = func() error { return gitx.CommitReviewed(dir, message, listed, unlisted) }
+			r := gitx.Reviewed{Files: listed, Stamps: stamps, Unlisted: unlisted}
+			commit = func() error { return gitx.CommitReviewed(dir, message, r) }
 		}
 		if err := commit(); err != nil {
 			c.notify(err.Error(), true)
-			s.sendChanges(c, dir, asked)
+			reason := ""
+			if gitx.IsMoved(err) {
+				reason = "refused"
+			}
+			s.sendChanges(c, dir, asked, reason)
 			return
 		}
 		c.notify("committed in "+shortName(dir), false)
@@ -266,7 +291,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 				c.notify(remoteSummary("push", out), false)
 			}
 		}
-		s.sendChanges(c, dir, asked)
+		s.sendChanges(c, dir, asked, "committed")
 		// The pane headers show the same counts, so refresh them too. Asking
 		// the git loop rather than sweeping here keeps one sweep running at a
 		// time: each one shells out to git for every open checkout, and a
@@ -301,7 +326,7 @@ func (s *Server) runRemote(c *controlClient, action, path string) {
 		} else {
 			c.notify(remoteSummary(action, out), false)
 		}
-		s.sendChanges(c, dir, asked)
+		s.sendChanges(c, dir, asked, "")
 		s.RefreshGitNow()
 	}()
 }

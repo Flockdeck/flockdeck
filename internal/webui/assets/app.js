@@ -4967,7 +4967,46 @@
     const now = countsIn(s, changes.cwd);
     if (now === changesCounts) return;
     changesCounts = now;
-    send({ cmd: "changes", path: changes.cwd });
+    // follow, so the server knows nobody asked to see this one: its new rows
+    // are marked rather than taken as looked at (see reviewSeen).
+    send({ cmd: "changes", path: changes.cwd, follow: true });
+  }
+
+  /** What somebody has looked at in the review, as the commit made from it
+   *  sends back: the checkout, each listed file's stamp by path, and how many
+   *  more the list left out.
+   *
+   *  The panel reads the tree again by itself whenever an agent moves it, and
+   *  the commit sent whatever the latest reading held, so a file an agent
+   *  added a moment before the press joined the commit with nobody having
+   *  seen it. The list the commit sends is the one shown when the panel
+   *  opened or Refresh was pressed; the server refuses it when the tree has
+   *  moved since, and answers with the tree as it is, which is then the list
+   *  to check. reviewBase is the list the rows are marked against, which the
+   *  refusal leaves alone so the rows that moved stay marked. */
+  let reviewSeen = null;
+  let reviewBase = null;
+
+  function reviewOf(msg) {
+    return { cwd: msg.cwd, stamps: new Map((msg.files || []).map((f) => [f.path, f.stamp || ""])), omitted: msg.omitted || 0 };
+  }
+
+  function noteReview(msg) {
+    const listing = reviewOf(msg);
+    if (!reviewSeen || reviewSeen.cwd !== msg.cwd || msg.reason === "asked" || msg.reason === "committed") {
+      reviewSeen = reviewBase = listing;
+    } else if (msg.reason === "refused") {
+      reviewSeen = listing;
+    }
+  }
+
+  /** How a file differs from the list somebody last looked at: "new", "edited"
+   *  or "" for not at all. */
+  function reviewMark(f) {
+    if (!reviewBase || !changes || reviewBase.cwd !== changes.cwd) return "";
+    if (!reviewBase.stamps.has(f.path)) return "new";
+    const was = reviewBase.stamps.get(f.path);
+    return was && f.stamp && was !== f.stamp ? "edited" : "";
   }
   /** The two parts of the dialog that change on their own: the file rows, so
    *  the chosen one can be marked, and the panel the diff is drawn in. Picking
@@ -4997,6 +5036,7 @@
     changeView = null;
     if (msg) {
       changes = msg;
+      noteReview(msg);
       // Whatever was under way has answered, and this is the tree the counts
       // are now measured against.
       changesBusy = false;
@@ -5101,13 +5141,21 @@
       const split = el("div", "rev-body");
       const list = el("div", "rev-files");
       const rows = new Map();
+      let moved = 0; // rows marked as changed since the list was looked at
       files.forEach((f) => {
-        const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
+        const mark = reviewMark(f);
+        if (mark) moved++;
+        const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : "") + (mark ? " moved" : ""));
         // A prefix of its own: the dialog's buttons are rev-push, rev-pull and
         // the rest, and a file called push at the top of the tree was named
         // as the Push button, which a redraw put the keyboard back on.
         row.id = "rev-file-" + encodeURIComponent(f.path);
         row.append(el("span", "rev-kind", f.label));
+        if (mark) {
+          row.append(describe(el("span", "rev-mark", mark), mark === "new"
+            ? "Not in the list when you last looked at it."
+            : "Written to again since you last looked at it."));
+        }
         // Long paths are elided from the left, keeping the file name visible.
         const name = el("span", "rev-name", f.path);
         name.title = f.path;
@@ -5170,11 +5218,16 @@
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
-        // What was listed goes with the commit. Agents go on writing while
-        // the list is read, and the commit staged whatever was in the tree
-        // when it was pressed; the server now refuses a tree that has moved.
-        send({ cmd: "commit", path: m.cwd, text: message, push,
-          files: files.map((f) => f.path), omitted: m.omitted || 0 });
+        // What was looked at goes with the commit, stamps and all, rather
+        // than whatever the latest reading of the tree holds: the server
+        // refuses a tree that has moved since.
+        const seen = reviewSeen && reviewSeen.cwd === m.cwd ? reviewSeen : reviewOf(m);
+        const cmd = { cmd: "commit", path: m.cwd, text: message, push, files: [...seen.stamps.keys()], omitted: seen.omitted };
+        // Only the files that were stamped: a server that stamps nothing is
+        // sent the commit it always was.
+        const stamps = [...seen.stamps].filter(([, s]) => s);
+        if (stamps.length) cmd.stamps = Object.fromEntries(stamps);
+        send(cmd);
         commitPending = true;
       };
       // The server lists at most two thousand files and counts the rest, and
@@ -5184,6 +5237,14 @@
       const total = files.length + (m.omitted || 0);
       if (m.omitted) {
         body.append(el("div", "rev-omitted", m.omitted.toLocaleString("en") + " more not listed — the commit includes them"));
+      }
+      const gone = reviewBase && reviewBase.cwd === m.cwd
+        ? [...reviewBase.stamps.keys()].filter((p) => !rows.has(p)).length : 0;
+      if (moved || gone) {
+        const parts = [];
+        if (moved) parts.push(moved + (moved === 1 ? " marked file has" : " marked files have") + " changed since you looked");
+        if (gone) parts.push(gone + (gone === 1 ? " file you saw is" : " files you saw are") + " no longer changed");
+        body.append(el("div", "rev-moved", parts.join(", and ") + ". Check the list before committing."));
       }
       const c1 = el("button", "chip primary", "Commit " + total + " file" + (total === 1 ? "" : "s"));
       c1.id = "rev-commit";

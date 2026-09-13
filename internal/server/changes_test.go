@@ -178,7 +178,7 @@ func TestACommitIsOfTheFilesThatWereListed(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "commit", Path: repo, Text: "reviewed", Files: listed})
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
-	if !note.Error || !strings.Contains(note.Text, "1 file changed since you looked") {
+	if !note.Error || !strings.Contains(note.Text, "1 file changed since the list was read") {
 		t.Fatalf("a commit of a tree that moved after it was listed: notice %+v, want a refusal", note)
 	}
 	readUntil(t, conn, "changes", &ch)

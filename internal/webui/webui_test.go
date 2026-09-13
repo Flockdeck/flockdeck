@@ -5499,7 +5499,7 @@ assert.strictEqual(asked(), before, "the tree was read again although its counts
 
 h.recv(fixture({ panes: panesWith(3) }));
 assert.strictEqual(asked(), before + 1, "an agent writing more files left the review as it was");
-assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo" });
+assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "changes").pop(), { cmd: "changes", path: "C:/repo", follow: true });
 h.recv(tree);
 
 // While a push is under way its buttons stay disabled: no redraw is asked for.

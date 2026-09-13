@@ -4,9 +4,98 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestAReviewedFileWrittenToAgainIsNotCommittedUnseen covers a file that was
+// listed, then written to again before Commit was pressed. Only the names were
+// compared, so the commit took content nobody had looked at. Its stamp from
+// the listing now goes back with the commit, and one that no longer matches is
+// refused -- here with the size kept the same, so it is the modification time
+// that gives it away.
+func TestAReviewedFileWrittenToAgainIsNotCommittedUnseen(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "README.md", "reviewed\n")
+	listed := Reviewed{Files: []string{"README.md"}, Stamps: map[string]string{"README.md": Stamp(repo, "README.md")}}
+
+	write(t, repo, "README.md", "reviewes\n")
+	later := time.Now().Add(5 * time.Second)
+	if err := os.Chtimes(filepath.Join(repo, "README.md"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	err := CommitReviewed(repo, "reviewed", listed)
+	if err == nil || !IsMoved(err) || !strings.Contains(err.Error(), "1 file changed since the list was read") {
+		t.Fatalf("a listed file written to after the listing: err = %v, want a refusal saying one file changed", err)
+	}
+	if got := strings.TrimSpace(gitRun(t, repo, "log", "-1", "--pretty=%s")); got != "initial" {
+		t.Fatalf("the refused commit was made: the last commit is %q", got)
+	}
+
+	// Listed again, it is what is committed.
+	listed.Stamps["README.md"] = Stamp(repo, "README.md")
+	if err := CommitReviewed(repo, "reviewed", listed); err != nil {
+		t.Fatalf("committing the file as listed again: %v", err)
+	}
+}
+
+// TestAReviewedCommitStagesWhatWasCheckedAndNoMore covers the moment between
+// the check that the tree is as listed and the staging. That staging was "add
+// --all", so a file written in that moment was committed unseen. What is
+// staged now is exactly what was checked -- which has to get right the entries
+// "add --all" handled by itself: a staged deletion, a rename whose new name
+// was deleted, and a file staged as new and then deleted, which the list does
+// not show and the commit must not add back. A name that reads as a pattern
+// is staged as itself, and not as the file it would match.
+func TestAReviewedCommitStagesWhatWasCheckedAndNoMore(t *testing.T) {
+	repo := newRepo(t)
+	write(t, repo, "old.txt", "old\n")
+	write(t, repo, "gone.txt", "gone\n")
+	write(t, repo, "report1.csv", "1\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-qm", "base")
+
+	write(t, repo, "README.md", "reviewed\n")
+	write(t, repo, "report[1].csv", "a second download\n")
+	gitRun(t, repo, "rm", "-q", "gone.txt")
+	gitRun(t, repo, "mv", "old.txt", "new.txt")
+	if err := os.Remove(filepath.Join(repo, "new.txt")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, repo, "brief.txt", "staged, then deleted\n")
+	gitRun(t, repo, "add", "brief.txt")
+	if err := os.Remove(filepath.Join(repo, "brief.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Changes(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, f := range files {
+		listed = append(listed, f.Path)
+	}
+	afterCheck = func() {
+		write(t, repo, "late.txt", "written between the check and the staging\n")
+		write(t, repo, "report1.csv", "changed between the check and the staging\n")
+	}
+	t.Cleanup(func() { afterCheck = func() {} })
+
+	if err := CommitReviewed(repo, "reviewed", Reviewed{Files: listed}); err != nil {
+		t.Fatalf("committing the tree as listed: %v", err)
+	}
+	tree := strings.Fields(gitRun(t, repo, "ls-tree", "-r", "--name-only", "HEAD"))
+	sort.Strings(tree)
+	if got, want := strings.Join(tree, " "), "README.md report1.csv report[1].csv"; got != want {
+		t.Errorf("the commit holds %s; want %s", got, want)
+	}
+	if got := gitRun(t, repo, "show", "HEAD:report1.csv"); got != "1\n" {
+		t.Errorf("report1.csv was committed as %q, written after the check", got)
+	}
+}
 
 // TestCommitRefusesAConflictWithNoMarkersToEdit covers a merge's conflicts
 // that the marker check could not see. "add --all" is what tells git a

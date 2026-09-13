@@ -900,8 +900,8 @@ func TestCommitReviewedRefusesATreeThatMoved(t *testing.T) {
 	listed := []string{"README.md", "seen.txt"}
 
 	write("late.txt", "written after the list was read\n")
-	err := CommitReviewed(repo, "reviewed work", listed, 0)
-	if err == nil || !strings.Contains(err.Error(), "1 file changed since you looked") {
+	err := CommitReviewed(repo, "reviewed work", Reviewed{Files: listed})
+	if err == nil || !IsMoved(err) || !strings.Contains(err.Error(), "1 file changed since the list was read") {
 		t.Fatalf("a file written after the list was read: err = %v, want a refusal saying one file changed", err)
 	}
 	if out := gitRun(t, repo, "diff", "--cached", "--name-only"); strings.TrimSpace(out) != "" {
@@ -915,13 +915,13 @@ func TestCommitReviewedRefusesATreeThatMoved(t *testing.T) {
 	if err := os.Remove(filepath.Join(repo, "seen.txt")); err != nil {
 		t.Fatal(err)
 	}
-	err = CommitReviewed(repo, "reviewed work", listed, 0)
-	if err == nil || !strings.Contains(err.Error(), "2 files changed since you looked") {
+	err = CommitReviewed(repo, "reviewed work", Reviewed{Files: listed})
+	if err == nil || !strings.Contains(err.Error(), "2 files changed since the list was read") {
 		t.Fatalf("one file gone and one arrived: err = %v, want a refusal saying two files changed", err)
 	}
 
 	// The list read again is the list committed.
-	if err := CommitReviewed(repo, "reviewed work", []string{"README.md", "late.txt"}, 0); err != nil {
+	if err := CommitReviewed(repo, "reviewed work", Reviewed{Files: []string{"README.md", "late.txt"}}); err != nil {
 		t.Fatalf("committing the tree as listed: %v", err)
 	}
 	if files, _ := Changes(repo); len(files) != 0 {
@@ -931,12 +931,12 @@ func TestCommitReviewedRefusesATreeThatMoved(t *testing.T) {
 	// A list that left some out is held to how many it left out.
 	write("a.txt", "1\n")
 	write("b.txt", "2\n")
-	if err := CommitReviewed(repo, "partly listed", []string{"a.txt"}, 1); err != nil {
+	if err := CommitReviewed(repo, "partly listed", Reviewed{Files: []string{"a.txt"}, Unlisted: 1}); err != nil {
 		t.Fatalf("a list that left one file out, as it was: %v", err)
 	}
 	write("c.txt", "3\n")
 	write("d.txt", "4\n")
-	if err := CommitReviewed(repo, "partly listed", []string{"c.txt"}, 0); err == nil {
+	if err := CommitReviewed(repo, "partly listed", Reviewed{Files: []string{"c.txt"}}); err == nil {
 		t.Error("a file the list neither showed nor counted was committed")
 	}
 }

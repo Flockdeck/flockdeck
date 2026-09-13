@@ -3,8 +3,10 @@ package gitx
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -57,67 +59,144 @@ func commitIndex(dir, message string) error {
 	return err
 }
 
+// Reviewed is what the review panel showed of a working tree, as a commit made
+// from it sends back.
+type Reviewed struct {
+	// Files are the paths the panel listed, spelled as the window has them.
+	Files []string
+	// Stamps holds each listed file's Stamp from when it was listed. A file
+	// with none is held only to being listed.
+	Stamps map[string]string
+	// Unlisted counts the changed files the list left out.
+	Unlisted int
+}
+
 // CommitReviewed commits the files somebody was shown, and refuses when they
 // are no longer what a commit would record.
 //
 // The review panel lists the tree when it is read and commits when a button is
 // pressed, and agents go on writing in between. CommitAll stages whatever is
 // there at that moment, so a file written after the list was read went into a
-// commit nobody had looked at. listed are the paths the panel showed and
-// unlisted how many more it left out. When the files git would now record are
-// not those, nothing is staged, and the error says how many moved so that the
-// list can be read again.
-func CommitReviewed(dir, message string, listed []string, unlisted int) error {
+// commit nobody had looked at. When the files git would now record are not
+// those listed -- one has arrived, one has gone, or one has been written to
+// again since its Stamp was taken -- nothing is staged, and the error says how
+// many moved. IsMoved tells that refusal apart from any other.
+//
+// What is staged is then exactly what was checked, rather than "add --all"
+// again a moment later: a file written in between is left for the next commit.
+func CommitReviewed(dir, message string, r Reviewed) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
-	moved, err := changedSince(dir, listed, unlisted)
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
 	if err != nil {
 		return err
 	}
-	if moved == 1 {
-		return &gitError{"1 file changed since you looked — refresh"}
+	recs := statusRecords(out)
+	if moved := changedSince(dir, recs, r); moved > 0 {
+		return &movedError{moved}
 	}
-	if moved > 0 {
-		return &gitError{fmt.Sprintf("%d files changed since you looked — refresh", moved)}
+	if err := unresolved(dir, recs); err != nil {
+		return err
 	}
-	return CommitAll(dir, message)
+	afterCheck()
+	if paths := toStage(recs); len(paths) > 0 {
+		var spec strings.Builder
+		for _, p := range paths {
+			spec.WriteString(pathspec(p))
+			spec.WriteByte(0)
+		}
+		if err := writingIndex(dir, spec.String(), "add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
+			return err
+		}
+	}
+	return commitIndex(dir, message)
+}
+
+// afterCheck runs between CommitReviewed's check and its staging, so a test
+// can write a file in that moment. Nothing else assigns to it.
+var afterCheck = func() {}
+
+// movedError is CommitReviewed refusing a tree that is no longer the one
+// listed. The panel has been sent the tree as it is now by the time anyone
+// reads it, with what moved marked, so the words send the reader to that
+// list rather than to a Refresh that has in effect already happened.
+type movedError struct{ n int }
+
+func (e *movedError) Error() string {
+	if e.n == 1 {
+		return "nothing was committed: 1 file changed since the list was read. The list now shows it; check it and commit again."
+	}
+	return fmt.Sprintf("nothing was committed: %d files changed since the list was read. "+
+		"The list now shows them; check it and commit again.", e.n)
+}
+
+// IsMoved reports whether err is CommitReviewed refusing a tree that moved
+// after it was listed.
+func IsMoved(err error) bool {
+	var m *movedError
+	return errors.As(err, &m)
 }
 
 // changedSince counts the files that differ between what a list showed and
 // what a commit would record now: those listed that no longer differ from the
-// last commit, those that now differ and were not listed, and -- for a list
-// that left some out -- how far the count of the ones it left out has moved.
-// A listed file written to again is not counted; it is the same file.
-func changedSince(dir string, listed []string, unlisted int) (int, error) {
-	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
-	if err != nil {
-		return 0, err
-	}
-	shown := make(map[string]bool, len(listed))
-	for _, p := range listed {
+// last commit, those that now differ and were not listed, those listed that
+// have been written to since, and -- for a list that left some out -- how far
+// the count of the ones it left out has moved.
+func changedSince(dir string, recs []statusRecord, r Reviewed) int {
+	shown := make(map[string]bool, len(r.Files))
+	for _, p := range r.Files {
 		shown[p] = true
 	}
 	now := make(map[string]bool)
-	extra := 0
-	for _, f := range parseStatus(out) {
-		now[f.Path] = true
-		if !shown[f.Path] {
+	extra, moved := 0, 0
+	for _, rec := range recs {
+		path, ok := rec.shown()
+		if !ok {
+			continue
+		}
+		name := path
+		now[name] = true
+		if !shown[name] {
 			extra++
+			continue
+		}
+		if want := r.Stamps[name]; want != "" && Stamp(dir, path) != want {
+			moved++
 		}
 	}
-	moved := 0
 	for p := range shown {
 		if !now[p] {
 			moved++
 		}
 	}
-	if extra > unlisted {
-		moved += extra - unlisted
+	if extra > r.Unlisted {
+		moved += extra - r.Unlisted
 	} else {
-		moved += unlisted - extra
+		moved += r.Unlisted - extra
 	}
-	return moved, nil
+	return moved
+}
+
+// Stamp is what a changed file looks like on disk, taken when the file is
+// listed so a commit can tell whether it has been written to since: its size,
+// its modification time and its mode, or "gone" for one that is not there.
+// It is "" for what it cannot speak for -- a directory, which is how a
+// repository inside this one is listed -- and that is not checked.
+//
+// It is not a hash of the content. Reading every file on every listing is
+// what the panel cannot afford, and an edit that leaves both the size and the
+// modification time as they were -- possible where the file system keeps
+// times to the second or coarser -- goes unnoticed.
+func Stamp(dir, path string) string {
+	fi, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(path)))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "gone"
+	case err != nil, fi.IsDir():
+		return ""
+	}
+	return fmt.Sprintf("%d:%d:%o", fi.Size(), fi.ModTime().UnixNano(), uint32(fi.Mode()))
 }
 
 // statusRecord is one entry of `git status --porcelain -z`: its two-letter
@@ -163,6 +242,25 @@ func (r statusRecord) shown() (string, bool) {
 		return r.from, true
 	}
 	return r.path, true
+}
+
+// toStage names what "add --all" limited to these records has to be given for
+// the index to hold what a commit of them records: every record whose working
+// tree differs from the index, under the name it has there -- for a rename,
+// the new one. A record staged in full already needs nothing, and naming it
+// would fail, since a staged deletion matches no file at all.
+//
+// A file staged as new and then deleted is named although the panel does not
+// list it: left alone, the index would still hold it and the commit would add
+// it back.
+func toStage(recs []statusRecord) []string {
+	var paths []string
+	for _, rec := range recs {
+		if rec.code == "??" || rec.code[1] != ' ' {
+			paths = append(paths, rec.path)
+		}
+	}
+	return paths
 }
 
 // lockWait is how long a command that writes the index waits for another git
