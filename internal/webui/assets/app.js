@@ -257,6 +257,11 @@
    *  The palette, the keyboard and the help pages are all drawn from it, so a
    *  binding cannot be changed in one of them and left stale in the others. */
   let keyTable = [];
+  /** remoteWindow is whether this window was reached through the relay, as
+   *  the hello says. Such a window is not offered what the desk alone may
+   *  do: restarting onto an update, turning remote access off or on, and
+   *  setting API keys. The server refuses each of them from here anyway. */
+  let remoteWindow = false;
   /** Normalised binding → action id, built from the same table. */
   let bindings = new Map();
   /** What this person has already been shown. Kept by the Go side, because a
@@ -412,7 +417,9 @@
    *  which arrive several times a second while agents are working. */
   let updateShown = null;
   function renderUpdate(s) {
-    const u = s.update || null;
+    // Installing is a restart, which stops every agent at the desk; a window
+    // reached through the relay is not offered it (see remoteWindow).
+    const u = remoteWindow ? null : (s.update || null);
     const key = u ? u.version : "";
     if (key === updateShown) return;
     updateShown = key;
@@ -433,7 +440,7 @@
    *  a live process and restarting stops it. Saying so here is the difference
    *  between a restart the user chose and one they regret. */
   function openUpdate() {
-    const u = state && state.update;
+    const u = !remoteWindow && state && state.update;
     if (!u) return;
     // Named like every other dialog, so that the one it replaced — whose answer
     // may still be on its way — no longer thinks the panel is its own.
@@ -4212,6 +4219,7 @@
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
     keyTable = msg.keys || [];
+    remoteWindow = !!msg.remote;
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();
@@ -6070,7 +6078,8 @@
       "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
       switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
 
-    const u = state && state.update;
+    // Not offered in a window reached through the relay: see remoteWindow.
+    const u = !remoteWindow && state && state.update;
     let install = null;
     if (u) {
       install = el("button", "chip primary", "Install " + u.version + "…");

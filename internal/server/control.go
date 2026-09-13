@@ -1257,6 +1257,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			_ = ws.SaveAll()
 			go s.requestQuit()
 		case "restart":
+			// A restart is a quit that comes back, and stops every agent on
+			// the way just as quitting does -- and a relaunch that fails leaves
+			// nothing a phone can start again. So it is the desk's, as Quit is.
+			// The window hides the offer; this is for one that sends it anyway.
+			if c.remote {
+				c.notify("a window reached through the relay cannot restart flockdeck — restart it on the machine it runs on", true)
+				return
+			}
 			// The layout is saved here as well as by the shutdown, because a
 			// restart is the one quit the user expects to come back to exactly
 			// what they were looking at.
