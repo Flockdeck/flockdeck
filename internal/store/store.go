@@ -949,11 +949,33 @@ func Recents() ([]Project, error) {
 }
 
 // TouchRecent records that a project was opened, moving it to the front.
-func TouchRecent(root string) error {
-	// An empty root is not a project. It would be stored as "." and then
-	// offered in the picker as a directory that opens somewhere unpredictable.
-	if strings.TrimSpace(root) == "" {
-		return errors.New("recent project: empty path")
+func TouchRecent(root string) error { return TouchRecents(root) }
+
+// TouchRecents records that several projects were opened, moving them to the
+// front in the order given, the first given first.
+//
+// It is one read of the list and at most one write. Recording them one at a
+// time was a write each, and a start records every project it reopens around
+// the one it was started on: on Windows each write came to eleven
+// milliseconds of the start.
+func TouchRecents(roots ...string) error {
+	var clean []string
+	for _, root := range roots {
+		// An empty root is not a project. It would be stored as "." and then
+		// offered in the picker as a directory that opens somewhere
+		// unpredictable.
+		if strings.TrimSpace(root) == "" {
+			return errors.New("recent project: empty path")
+		}
+		// Store the tidied path, not whatever spelling this run happened to
+		// use: the picker shows these to the user verbatim.
+		c := filepath.Clean(root)
+		if !containsRoot(clean, c) {
+			clean = append(clean, c)
+		}
+	}
+	if len(clean) == 0 {
+		return nil
 	}
 	// The rewrite below replaces the whole file, so a list we could not read
 	// has to stop us: carrying on would quietly discard every other project
@@ -963,22 +985,34 @@ func TouchRecent(root string) error {
 	if err != nil {
 		return err
 	}
-	// Store the tidied path, not whatever spelling this run happened to use:
-	// the picker shows these to the user verbatim.
-	clean := filepath.Clean(root)
-	// A project that is already first, spelled as it would be written, is
-	// where the rewrite would put it: the times only order the list, and
-	// nothing shows them. Rewriting it anyway is a file created, flushed to
-	// the device and renamed on every switch between projects, which on
-	// Windows came to eleven milliseconds on the goroutine that owns the
-	// workspace, spent going back and forth between the same two projects.
-	if len(list) > 0 && list[0].Root == clean {
-		return nil
+	// Projects already at the front in this order, spelled as they would be
+	// written, are where the rewrite would put them: the times only order the
+	// list, and nothing shows them. Rewriting it anyway is a file created,
+	// flushed to the device and renamed on every switch between projects,
+	// eleven milliseconds on Windows spent on the goroutine that owns the
+	// workspace -- and at every start that reopens the same projects as the
+	// one before.
+	if len(list) >= len(clean) {
+		first := true
+		for i, c := range clean {
+			if list[i].Root != c {
+				first = false
+				break
+			}
+		}
+		if first {
+			return nil
+		}
 	}
-	out := make([]Project, 0, len(list)+1)
-	out = append(out, Project{Root: clean, LastUsed: time.Now()})
+	now := time.Now()
+	out := make([]Project, 0, len(list)+len(clean))
+	for i, c := range clean {
+		// A nanosecond apart, so the list comes back in the order given
+		// however it is sorted.
+		out = append(out, Project{Root: c, LastUsed: now.Add(-time.Duration(i))})
+	}
 	for _, p := range list {
-		if !sameRoot(p.Root, root) {
+		if !containsRoot(clean, p.Root) {
 			out = append(out, p)
 		}
 	}
@@ -986,6 +1020,16 @@ func TouchRecent(root string) error {
 		out = out[:maxRecents]
 	}
 	return writeRecents(out)
+}
+
+// containsRoot reports whether roots names the same project as root.
+func containsRoot(roots []string, root string) bool {
+	for _, r := range roots {
+		if sameRoot(r, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // ForgetRecent drops a project from the remembered list.

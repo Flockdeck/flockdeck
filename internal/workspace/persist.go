@@ -632,6 +632,7 @@ func (w *Workspace) RestoreSession() int {
 	// any of them runs.
 	wasOn := w.activeTab
 	opened := 0
+	var reopened []string
 	for _, saved := range sess.Open {
 		// Every other way into the workspace puts a project through
 		// filepath.Abs and the window then compares roots exactly — isOpen,
@@ -656,8 +657,8 @@ func (w *Workspace) RestoreSession() int {
 		// recent list is capped: without this, the projects that are always
 		// open are exactly the ones that age out of the picker, because only
 		// the one named on the command line and the ones opened by hand are
-		// ever recorded as used.
-		_ = store.TouchRecent(root)
+		// ever recorded as used. They are recorded together, below.
+		reopened = append(reopened, root)
 		if w.restoreProject(root) == 0 {
 			// It was open but had no saved tabs; give it one so switching to
 			// it shows something.
@@ -676,12 +677,13 @@ func (w *Workspace) RestoreSession() int {
 	} else {
 		w.focusFirstTabOf(w.activeRoot)
 	}
-	// Every project reopened here was recorded as used as it came back, after
-	// the one this run was started on, and so went ahead of it in the recent
-	// list: the picker led with whichever project happened to be last in the
-	// saved session rather than the one the user is in. It is put back at the
-	// front, which is only a read when it is there already.
-	_ = store.TouchRecent(w.activeRoot)
+	// The projects reopened here are recorded as used all at once, behind the
+	// one this run was started on. Recorded as each came back they went ahead
+	// of it, so the picker led with whichever happened to be last in the saved
+	// session rather than the one the user is in, and each was a rewrite of
+	// the list of its own. A start that reopens what the one before did finds
+	// them in this order already, and writes nothing.
+	_ = store.TouchRecents(append([]string{w.activeRoot}, reopened...)...)
 	return opened
 }
 
