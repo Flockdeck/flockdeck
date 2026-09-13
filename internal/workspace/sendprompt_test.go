@@ -21,11 +21,27 @@ func TestThePromptBarStillReachesThePane(t *testing.T) {
 		t.Fatalf("the shell did not start: %v", p.Err)
 	}
 
+	// Typed while the shell is still starting, the line is partly lost to it:
+	// a loaded macOS runner echoed "rompt-bar-reached-me" and never ran it. So
+	// the prompt goes once the shell has printed something and then gone
+	// quiet, which is its prompt waiting for a line.
+	deadline := time.Now().Add(15 * time.Second)
+	for text, since := "", time.Now(); ; time.Sleep(50 * time.Millisecond) {
+		if now := p.Sess.RecentText(8192); now != text {
+			text, since = now, time.Now()
+		} else if text != "" && time.Since(since) >= 500*time.Millisecond {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the shell never settled to take a line; it shows:\n%s", p.Sess.RecentText(8192))
+		}
+	}
+
 	ws.SendPrompt("echo prompt-bar-reached-me", true)
 
 	// The command's output, not the echo of what was typed: only a submitted
 	// line prints the text twice.
-	deadline := time.Now().Add(15 * time.Second)
+	deadline = time.Now().Add(15 * time.Second)
 	for strings.Count(p.Sess.RecentText(8192), "prompt-bar-reached-me") < 2 {
 		if time.Now().After(deadline) {
 			t.Fatalf("the prompt never ran in the pane; it shows:\n%s", p.Sess.RecentText(8192))
