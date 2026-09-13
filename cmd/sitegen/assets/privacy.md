@@ -32,7 +32,22 @@ conversations with built-in API agents, any API keys you give it, and a
 record of which models routing chose for a fan-out's tasks (the rules' names
 and the models, never the tasks) in Flockdeck's configuration folder on your
 computer. The routing record also names each fan-out's project folder, by its
-full path, and the pane each task ran in. If the app fails to start, it writes
+full path, and the pane each task ran in.
+
+The same folder also holds:
+
+- the folders you have opened recently, by their full paths and when each
+  was last used, and which were open when the app last quit;
+- a record of the running app, with its process number, the local address
+  its window uses and the token that address asks for, so that starting it
+  again joins it;
+- the settings it hands each Claude Code pane, which name that address;
+- updates it has downloaded and not yet installed;
+- if you turn on remote access, the relay's address, the random identifiers
+  of this desktop and its account, the name you gave the desktop, and the
+  token it signs in to the relay with.
+
+If the app fails to start, it writes
 the error to a file there, `error.log`, which can include the paths of files
 and folders on your computer. Nothing there is sent anywhere by Flockdeck.
 
@@ -67,8 +82,9 @@ The app makes these network connections of its own.
 - **Model providers**, only if you use a built-in API agent (Claude API,
   OpenAI API, Gemini API, or an endpoint you name). The app then sends your
   conversation to the provider you chose, using your own API key. That
-  includes the files and command output the agent reads, and the working
-  folder's path. What the provider does with it is governed by your agreement
+  includes the files and command output the agent reads, the working
+  folder's path, and your operating system's name. What the provider does
+  with it is governed by your agreement
   with them.
 
 Flockdeck also starts programs you choose, such as Claude Code, Codex or
@@ -134,7 +150,8 @@ in memory.
   write them to its database.
 - **Relay logs.** The relay's own logs record events such as "desktop
   connected" or "device paired" against the random identifiers above, not
-  names or addresses.
+  names or addresses. A desktop tells the relay which version of Flockdeck
+  it runs when it connects, and that version is logged with the connection.
 - **Front-end server logs.** The servers in front of the relay and this
   website may keep standard access logs, which include IP addresses,
   temporarily, for security and troubleshooting.
