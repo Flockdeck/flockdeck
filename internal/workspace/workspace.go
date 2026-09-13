@@ -1994,6 +1994,26 @@ var gitDeadline = 10 * time.Second
 // as though nothing were wrong. Now a checkout holds up only its own panes,
 // for gitDeadline at most, and they are marked when it runs out.
 func (w *Workspace) RefreshGit(apply func(func())) {
+	w.refreshGit(apply, nil)
+}
+
+// RefreshGitOf is RefreshGit for the checkouts of the panes named only.
+//
+// Every checkout of every open project was read every refresh, a whole-tree
+// git status each, while only the panes on screen show what was read. With a
+// few projects open that was dozens of processes every fifteen seconds for
+// headers nobody could see.
+func (w *Workspace) RefreshGitOf(apply func(func()), ids []string) {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	w.refreshGit(apply, func(p *Pane) bool { return want[p.ID] })
+}
+
+// refreshGit is RefreshGit for the panes keep accepts, or for every pane when
+// keep is nil.
+func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 	if !gitx.Available() {
 		return
 	}
@@ -2006,7 +2026,7 @@ func (w *Workspace) RefreshGit(apply func(func())) {
 	rep := map[string]string{}
 	w.mu.RLock()
 	for _, p := range w.panes {
-		if p.Cwd == "" {
+		if p.Cwd == "" || (keep != nil && !keep(p)) {
 			continue
 		}
 		if _, ok := rep[pathKey(p.Cwd)]; ok {

@@ -112,6 +112,13 @@ type Server struct {
 	gitNow chan struct{}
 	once   sync.Once
 
+	// gitShown is the project whose checkouts the git loop was last asked to
+	// read as the one on screen, and gitAllAt when every open project's were
+	// last read for the overview of every pane. Both belong to the workspace
+	// goroutine.
+	gitShown string
+	gitAllAt time.Time
+
 	// loopDone is closed when the workspace goroutine returns. See Stopped.
 	loopDone chan struct{}
 
@@ -452,9 +459,9 @@ func (s *Server) gitLoop() {
 		case <-s.closed:
 			return
 		case <-first:
-			go s.ws.RefreshGit(s.do)
+			s.refreshShownGit()
 		case <-s.gitNow:
-			go s.ws.RefreshGit(s.do)
+			s.refreshShownGit()
 		case <-tick.C:
 			// Nothing is reading the branch labels while every window is
 			// closed, and a detached run can sit like that for hours: polling
@@ -463,9 +470,24 @@ func (s *Server) gitLoop() {
 			if s.ClientCount() == 0 {
 				continue
 			}
-			go s.ws.RefreshGit(s.do)
+			s.refreshShownGit()
 		}
 	}
+}
+
+// refreshShownGit refreshes the checkouts of the panes on screen: those on the
+// tabs of the project being shown, which are the only pane headers a window
+// draws. The panes of the other open projects are read when their project is
+// brought on screen (see snapshot) and when the overview of every pane opens
+// (see listAgents), which are the only places they are shown.
+func (s *Server) refreshShownGit() {
+	s.do(func() {
+		var ids []string
+		for _, t := range s.ws.VisibleTabs() {
+			ids = append(ids, t.Tree.Panes()...)
+		}
+		go s.ws.RefreshGitOf(s.do, ids)
+	})
 }
 
 // usageRefresh is how often a snapshot is rebuilt while a window is open, so
