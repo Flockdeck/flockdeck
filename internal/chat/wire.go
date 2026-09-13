@@ -37,7 +37,28 @@ func NewWire(name, baseURL, key string) (Wire, error) {
 //
 // It has no timeout of its own on purpose: a streamed turn can take minutes,
 // and what ends one early is the context -- which is what Ctrl+C cancels.
-var httpClient = &http.Client{}
+var httpClient = &http.Client{CheckRedirect: keepToTheAddress}
+
+// keepToTheAddress follows a redirect only on the host that was asked, and
+// never from https down to plain http.
+//
+// Go carries a request's own headers across a redirect, and the key travels in
+// one of them -- x-api-key, x-goog-api-key -- which Go does not know to drop
+// the way it drops Authorization. A redirect to anywhere else handed the key
+// to that address; one to plain http sent it in the clear.
+func keepToTheAddress(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	asked := via[0].URL
+	switch {
+	case !strings.EqualFold(req.URL.Host, asked.Host):
+		return fmt.Errorf("the endpoint redirected to %s, which is not followed: the key would be sent there", req.URL.Host)
+	case asked.Scheme == "https" && req.URL.Scheme != "https":
+		return errors.New("the endpoint redirected from https to plain http, which is not followed: the key would be sent unencrypted")
+	}
+	return nil
+}
 
 // endpoint builds a request URL for the Anthropic and Gemini wires from a base
 // that may or may not already name the API version.
