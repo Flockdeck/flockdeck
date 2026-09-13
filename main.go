@@ -973,8 +973,11 @@ func run(opts options) error {
 	// this was run from: -detach's address and how to stop it, the notes on
 	// flags that had no effect, a failure to start. A run that goes on without
 	// the terminal lets it go now, so that closing it does not end the run;
-	// -no-window has the terminal as its only interface and keeps it.
-	if !opts.noWindow {
+	// -no-window has the terminal as its only interface and keeps it, unless
+	// -detach says to go on without it too. That pair kept it as well: the
+	// prompt never came back on macOS and Linux, and closing the terminal
+	// ended the detached run on Windows.
+	if !opts.noWindow || opts.detach {
 		releaseConsole()
 	}
 

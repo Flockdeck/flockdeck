@@ -60,6 +60,28 @@ func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
 	}
 }
 
+// -detach with -no-window as well kept the terminal's console, since only a
+// run with a window let it go, and closing the terminal ended the run and
+// every agent in it: detached, and gone with the terminal all the same.
+func TestReleaseBuildDetachedWithoutAWindowOutlivesItsTerminal(t *testing.T) {
+	exe := releaseBuild(t)
+	state := t.TempDir()
+	t.Setenv("APPDATA", state)
+	t.Setenv("LOCALAPPDATA", state)
+	t.Setenv(updateEnv, "off")
+
+	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-no-window", "-shell", "-C", t.TempDir())
+	holdRecordedInstance(t)
+	if !ok {
+		t.Errorf("flockdeck -detach -no-window in a terminal showed %q, want its address and how to stop it", got)
+	}
+	// The terminal has been closed by now.
+	out, err := exec.Command(exe, "-quit").CombinedOutput()
+	if err != nil || strings.Contains(string(out), "nothing is running") {
+		t.Errorf("-quit once the terminal had closed: %v, %q; want the detached run still there to stop", err, out)
+	}
+}
+
 // A -no-window run from a terminal offered Ctrl+C to stop it, and the key
 // never reaches the release, which borrows the terminal's console. It says
 // to run `flockdeck -quit`, the way that works.
