@@ -296,11 +296,17 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 	// A default naming an agent the catalog no longer has -- an entry since
 	// deleted from agents.json -- is a pane that cannot start, and it is
 	// every new pane rather than one: each asks for the default and was told
-	// "no agent named ... is configured". It is treated as no default at all,
-	// and the model chosen for the other agent does not come with it.
+	// "no agent named ... is configured". The installation's default is
+	// taken instead where it names an agent there is -- a project entry
+	// misspelt "Codx" opened Claude in that project while every other one
+	// opened Codex -- and otherwise there is no default at all. Either way
+	// the model chosen for the missing agent does not come with it.
 	if d.Agent != "" {
 		if _, ok := c.Find(d.Agent); !ok && len(c.Specs) > 0 {
 			d = Defaults{}
+			if _, ok := c.Find(c.Defaults.Agent); ok || c.Defaults.Agent == "" {
+				d = c.Defaults
+			}
 		}
 	}
 	if d.Agent == "" {

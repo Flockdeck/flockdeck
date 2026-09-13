@@ -492,6 +492,22 @@ func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
 	}
 }
 
+// TestAProjectDefaultNamingNoAgentFallsToTheInstallations: a project entry
+// misspelt "Codx" opened Claude in that project while every other project
+// opened the agent the installation's default names.
+func TestAProjectDefaultNamingNoAgentFallsToTheInstallations(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Agent: "codex", Model: "gpt-5"},
+		Projects: map[string]Defaults{"/work/app": {Agent: "Codx", Model: "x"}},
+	})
+	if got := c.DefaultsFor("/work/app"); got != (Defaults{Agent: "codex", Model: "gpt-5"}) {
+		t.Errorf("DefaultsFor = %+v, want the installation's codex/gpt-5", got)
+	}
+	if !strings.Contains(c.Notice, `"Codx" for /work/app`) {
+		t.Errorf("notice %q should still name the misspelt default", c.Notice)
+	}
+}
+
 // TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered: an agents.json that
 // hides Claude and names no default went on opening Claude in every new pane,
 // and the picker marked as the default an agent it did not list.
