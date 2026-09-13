@@ -46,10 +46,14 @@ jobs:
           # same checkout.
           fetch-depth: 0
 
+      # The release is built from nothing cached. The build cache is shared
+      # with the test runs on main, which execute every test, dependencies'
+      # included, and a release restored from it would be built from what
+      # they left there, and then signed.
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       # The tag reaches every script through the environment rather than being
       # written into it. A hand-run release takes it as free text, and pasted
