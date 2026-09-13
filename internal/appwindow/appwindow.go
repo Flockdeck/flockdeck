@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -64,6 +66,26 @@ var ErrHandedOff = errors.New("the window was handed to a browser already runnin
 // opens the window and closes it again inside this.
 const handOffWithin = 5 * time.Second
 
+// StartError is returned by Wait when the browser failed so soon after it was
+// started that its window cannot have opened: on Linux with no display to
+// open it on, say, or a snap-packaged Chromium refused its profile folder.
+type StartError struct {
+	// Program is the browser that was started, and Code what it exited with.
+	Program string
+	Code    int
+	// Stderr is the last few lines the browser printed, which is where it
+	// says why.
+	Stderr string
+}
+
+func (e *StartError) Error() string {
+	msg := fmt.Sprintf("the browser %s exited with code %d as it started, before its window opened", e.Program, e.Code)
+	if e.Stderr != "" {
+		msg += "; it said:\n  " + strings.ReplaceAll(e.Stderr, "\n", "\n  ")
+	}
+	return msg
+}
+
 // closeGrace is how long Close gives the browser to close its window itself
 // before it is killed.
 const closeGrace = 2 * time.Second
@@ -78,6 +100,11 @@ type Window struct {
 	done    chan struct{}
 	waitErr error
 	exited  time.Time
+	// stderr keeps the end of what the browser prints, for a StartError.
+	stderr *tail
+	// closing is set by Close, so that a browser it stopped is not taken
+	// for one that failed to start.
+	closing atomic.Bool
 	// AppMode reports whether the window is a dedicated app window rather than
 	// a tab in the user's ordinary browser.
 	AppMode bool
@@ -86,15 +113,25 @@ type Window struct {
 }
 
 // Wait blocks until an app-mode window is closed. It returns immediately for a
-// tab opened in the default browser, whose lifetime cannot be observed, and
-// returns ErrHandedOff for a window another browser process took over.
+// tab opened in the default browser, whose lifetime cannot be observed,
+// returns ErrHandedOff for a window another browser process took over, and a
+// *StartError for a browser that failed before its window could have opened.
+//
+// Such a browser used to come back as its own exit status, which reads the
+// same as the window being closed, and the application stopped with it -- at
+// once, and without a word, since what the browser had said went nowhere.
 func (w *Window) Wait() error {
 	if w == nil || w.cmd == nil || !w.AppMode {
 		return nil
 	}
 	<-w.done
-	if w.waitErr == nil && w.exited.Sub(w.started) < handOffWithin {
+	quick := w.exited.Sub(w.started) < handOffWithin
+	var exit *exec.ExitError
+	switch {
+	case w.waitErr == nil && quick:
 		return ErrHandedOff
+	case quick && !w.closing.Load() && errors.As(w.waitErr, &exit):
+		return &StartError{Program: w.Program, Code: exit.ExitCode(), Stderr: w.stderr.lastLines(stderrLines)}
 	}
 	return w.waitErr
 }
@@ -111,6 +148,7 @@ func (w *Window) Close() {
 	if w == nil || w.cmd == nil || w.cmd.Process == nil {
 		return
 	}
+	w.closing.Store(true)
 	select {
 	case <-w.done:
 		return
@@ -265,17 +303,70 @@ func savedPlacement(profileDir, pageURL string) (placement, bool) {
 func startAppMode(path, url, profileDir string) (*Window, error) {
 	w, h := workArea()
 	cmd := exec.Command(path, windowArgs(url, profileDir, w, h)...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	stderr := &tail{max: stderrKeep}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, stderr
+	// What the browser prints is read through a pipe, which the processes it
+	// starts are handed too, and one of those can outlive it. Wait would wait
+	// for them all to let go; this lets it give up on them a moment after the
+	// browser itself has gone.
+	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", path, err)
 	}
-	win := &Window{cmd: cmd, started: time.Now(), done: make(chan struct{}), AppMode: true, Program: path}
+	win := &Window{cmd: cmd, started: time.Now(), done: make(chan struct{}), stderr: stderr, AppMode: true, Program: path}
 	go func() {
-		win.waitErr = cmd.Wait()
+		err := cmd.Wait()
+		// ErrWaitDelay means the browser exited successfully and only a child
+		// of its own was still holding the pipe, which is no failure of the
+		// browser's.
+		if errors.Is(err, exec.ErrWaitDelay) {
+			err = nil
+		}
+		win.waitErr = err
 		win.exited = time.Now()
 		close(win.done)
 	}()
 	return win, nil
+}
+
+// stderrKeep is how much of the end of what the browser prints is kept, and
+// stderrLines how many lines of it a StartError gives.
+const (
+	stderrKeep  = 4096
+	stderrLines = 5
+)
+
+// tail keeps the last max bytes written to it.
+type tail struct {
+	mu  sync.Mutex
+	max int
+	buf []byte
+}
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if over := len(t.buf) - t.max; over > 0 {
+		t.buf = append(t.buf[:0], t.buf[over:]...)
+	}
+	return len(p), nil
+}
+
+// lastLines is the last n lines kept that have something on them.
+func (t *tail) lastLines(n int) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var lines []string
+	for _, l := range strings.Split(string(t.buf), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // candidates lists the browsers to try, in preference order, for this platform.
@@ -407,6 +498,10 @@ func resolvePinned(prog string) (string, error) {
 	}
 	return "", fmt.Errorf("%w, and no %s is installed where browsers are looked for either", err, prog)
 }
+
+// OpenDefault opens url in the user's default browser, as Open does when no
+// app-mode browser will start. The tab it opens cannot be watched.
+func OpenDefault(url string) error { return openDefaultBrowser(url) }
 
 // openDefaultBrowser hands the URL to the desktop's own handler.
 func openDefaultBrowser(url string) error {

@@ -2,6 +2,7 @@ package appwindow
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,6 +28,8 @@ func TestMain(m *testing.M) {
 	case "0":
 		os.Exit(0)
 	case "1":
+		// What Chromium says on Linux with nothing to open a window on.
+		fmt.Fprintln(os.Stderr, "[1:1:ERROR:ozone_platform_x11.cc(240)] Missing X server or $DISPLAY")
 		os.Exit(1)
 	case "term":
 		// A browser that closes when it is asked to, as Chromium does on
@@ -293,13 +296,24 @@ func TestTheDefaultBrowserIsGivenTheWholeAddress(t *testing.T) {
 }
 
 // A browser that fails to start is not a hand-off: there is no window anywhere.
+// Nor is it the window being closed, which it used to read as, stopping the
+// application without a word: it is a failed start, with the exit code and
+// what the browser said about it.
 func TestWaitReportsABrowserThatFailed(t *testing.T) {
 	t.Setenv(browserExit, "1")
 	w, err := startAppMode(os.Args[0], "http://127.0.0.1:1/", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Wait(); err == nil || errors.Is(err, ErrHandedOff) {
-		t.Errorf("Wait = %v, want the browser's own failure", err)
+	err = w.Wait()
+	var failed *StartError
+	if !errors.As(err, &failed) {
+		t.Fatalf("Wait = %v, want a failed start", err)
+	}
+	if failed.Code != 1 || !strings.Contains(failed.Stderr, "Missing X server or $DISPLAY") {
+		t.Errorf("Wait = %+v, want exit code 1 and what the browser said", failed)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "code 1") || !strings.Contains(msg, "Missing X server") {
+		t.Errorf("the failure reads %q, want the code and what the browser said", msg)
 	}
 }

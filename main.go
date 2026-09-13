@@ -788,27 +788,7 @@ func run(opts options) error {
 // `flockdeck` attaches to and `flockdeck -quit` stops.
 func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*appwindow.Window, error) {
 	if opts.noWindow || opts.detach {
-		fmt.Println("flockdeck serving at:")
-		fmt.Println(" ", srv.URL())
-		switch {
-		case !recorded:
-			// A -solo run beside an instance that is answering leaves that
-			// one on record, so both commands the other messages name reach
-			// it, not this one: following them stopped the other instance and
-			// every agent in it. Opening the address is what works here, and
-			// on every platform.
-			fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
-			fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
-		case opts.detach:
-			fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
-		case ctrlCStops():
-			fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
-		default:
-			// The Windows release borrows the terminal's console rather than
-			// having one of its own, and Ctrl+C typed there never reaches it,
-			// so the one way that works is all that is offered.
-			fmt.Println("Run `flockdeck -quit` to stop.")
-		}
+		printServing(opts, recorded, srv.URL())
 		return nil, nil
 	}
 
@@ -829,18 +809,17 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	}
 
 	if win.AppMode {
-		// The window process ending is the user closing the application,
-		// unless they asked to leave the agents running — or unless it
-		// handed the window to a browser already running, which leaves
-		// only the connection below to tell when it closes.
-		go func() {
-			if errors.Is(win.Wait(), appwindow.ErrHandedOff) {
-				return
+		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
+			fmt.Fprintln(os.Stderr, windowFailedNote(err))
+			// Better an ordinary tab than no interface at all, as when no
+			// app-mode browser is found. Whether or not one opens, the address
+			// is printed: a desktop that could not show the window may well
+			// not show a tab either.
+			if appwindow.OpenDefault(srv.URL()) == nil {
+				fmt.Println("Trying your default browser instead.")
 			}
-			if !srv.Detached() {
-				stop()
-			}
-		}()
+			printServing(opts, recorded, srv.URL())
+		})
 	} else {
 		// A tab in the user's own browser cannot be watched, so fall back
 		// to shutting down when the page disconnects.
@@ -860,6 +839,62 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 		}()
 	}
 	return win, nil
+}
+
+// printServing says where a run without a window is serving, and how it is
+// stopped.
+func printServing(opts options, recorded bool, url string) {
+	fmt.Println("flockdeck serving at:")
+	fmt.Println(" ", url)
+	switch {
+	case !recorded:
+		// A -solo run beside an instance that is answering leaves that
+		// one on record, so both commands the other messages name reach
+		// it, not this one: following them stopped the other instance and
+		// every agent in it. Opening the address is what works here, and
+		// on every platform.
+		fmt.Println("This is a separate instance (-solo): `flockdeck` and `flockdeck -quit` reach the one already running, not this one.")
+		fmt.Println("To stop this one, open the address above and choose Quit in the command palette (Ctrl+Shift+K).")
+	case opts.detach:
+		fmt.Println("Running detached. Attach with `flockdeck`, stop with `flockdeck -quit`.")
+	case ctrlCStops():
+		fmt.Println("Press Ctrl+C, or run `flockdeck -quit`, to stop.")
+	default:
+		// The Windows release borrows the terminal's console rather than
+		// having one of its own, and Ctrl+C typed there never reaches it,
+		// so the one way that works is all that is offered.
+		fmt.Println("Run `flockdeck -quit` to stop.")
+	}
+}
+
+// watchWindow waits for an app-mode window's browser to end, and stops the
+// application when that is the user closing the window -- unless they asked
+// to leave the agents running, or it handed the window to a browser already
+// running, which leaves only the connection to tell when it closes.
+//
+// A browser that failed as it started is neither: there never was a window
+// to close. It used to stop the application all the same, at once and without
+// a word -- on Linux with no display, say, where nothing else would have said
+// why. failed is told instead, and the application carries on without a
+// window, stopping as a run without one does.
+func watchWindow(wait func() error, detached func() bool, stop func(), failed func(error)) {
+	err := wait()
+	var start *appwindow.StartError
+	switch {
+	case errors.Is(err, appwindow.ErrHandedOff):
+	case errors.As(err, &start):
+		failed(err)
+	case !detached():
+		stop()
+	}
+}
+
+// windowFailedNote is what a run says when its window's browser failed as it
+// started.
+func windowFailedNote(err error) string {
+	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
+		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
+		err, appwindow.BrowserEnv)
 }
 
 // workingDir and loadSession are where a launch that names no project learns
