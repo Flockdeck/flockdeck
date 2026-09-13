@@ -56,6 +56,9 @@ func (s *Server) listKeys(c *controlClient) {
 // there is one: the notice names the agent, and the dialog is sent its list
 // again.
 func (s *Server) setKey(c *controlClient, agentID, key string) {
+	if keysAtTheDesk(c) {
+		return
+	}
 	go func() {
 		defer s.survive("saving a key")
 		keyWrites.Lock()
@@ -86,8 +89,23 @@ func (s *Server) savedKeyNotice(agentID string) string {
 	return text
 }
 
+// keysAtTheDesk refuses a window reached through the relay that asked to set
+// or clear an API key, and reports whether it did. The relay decrypts what
+// passes through it, so a key pasted on a phone would be read on its way
+// there; keys are set, and cleared, on the machine that uses them.
+func keysAtTheDesk(c *controlClient) bool {
+	if !c.remote {
+		return false
+	}
+	c.notify("API keys are set on the machine flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
+	return true
+}
+
 // clearKey forgets a stored key.
 func (s *Server) clearKey(c *controlClient, agentID string) {
+	if keysAtTheDesk(c) {
+		return
+	}
 	go func() {
 		defer s.survive("clearing a key")
 		keyWrites.Lock()

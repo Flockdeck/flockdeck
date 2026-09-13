@@ -561,6 +561,13 @@
     return null;
   }
 
+  /** DESK_ONLY_REMOTE is shown to a window reached through the relay in place
+   *  of turning remote access on or off, which the server refuses from there:
+   *  off cuts the way in that window came by, with nothing at its end to turn
+   *  it on again, and on, from a window already in, is against another relay. */
+  const DESK_ONLY_REMOTE = "Remote access is turned on, turned off and moved to another relay " +
+    "on the machine itself, not from a window reached through the relay.";
+
   function renderRemote() {
     const body = remoteHost();
     if (!body) return;
@@ -572,7 +579,7 @@
       body.append(el("div", "fan-hint",
         "Remote access opens this window from another device — a laptop, a tablet, a phone — " +
         "through a relay, without opening a port on this machine."));
-      body.append(remoteEnableForm());
+      body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
     }
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
@@ -797,6 +804,12 @@
         keepFocus(renderRemote);
       };
       row.append(retry);
+    }
+    if (remoteWindow) {
+      // Off, and on again against another relay, are the desk's: see
+      // DESK_ONLY_REMOTE. Trying the relay again is not.
+      box.append(row, el("p", "fan-hint", DESK_ONLY_REMOTE), enterpriseNote());
+      return box;
     }
     const off = el("button", "chip danger", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
     off.id = "remote-disable";
@@ -5746,27 +5759,34 @@
       main.append(meta);
       row.append(main);
 
-      const actions = el("div", "wt-actions");
-      const set = el("button", "chip", k.set ? "Replace…" : "Set…");
-      // An id, because its wording changes when a key is saved.
-      set.id = "key-set-" + encodeURIComponent(k.agent);
-      set.onclick = () => { keyEditing = k.agent; renderKeys(); };
-      actions.append(set);
-      // Only a stored key can be forgotten. A key that came from the
-      // environment is the user's own arrangement and this dialog has no
-      // business unsetting a variable it did not set -- but a stored key that
-      // a variable shadows is still Flockdeck's, and can be cleared.
-      if (k.stored || (k.set && k.source === "store")) {
-        const clear = el("button", "chip danger", "Clear");
-        clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
-        actions.append(clear);
+      // Keys are the desk's to set and clear: see remoteWindow.
+      if (!remoteWindow) {
+        const actions = el("div", "wt-actions");
+        const set = el("button", "chip", k.set ? "Replace…" : "Set…");
+        // An id, because its wording changes when a key is saved.
+        set.id = "key-set-" + encodeURIComponent(k.agent);
+        set.onclick = () => { keyEditing = k.agent; renderKeys(); };
+        actions.append(set);
+        // Only a stored key can be forgotten. A key that came from the
+        // environment is the user's own arrangement and this dialog has no
+        // business unsetting a variable it did not set -- but a stored key that
+        // a variable shadows is still Flockdeck's, and can be cleared.
+        if (k.stored || (k.set && k.source === "store")) {
+          const clear = el("button", "chip danger", "Clear");
+          clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
+          actions.append(clear);
+        }
+        row.append(actions);
       }
-      row.append(actions);
       wrap.append(row);
 
-      if (keyEditing === k.agent) wrap.append(keyForm(k));
+      if (keyEditing === k.agent && !remoteWindow) wrap.append(keyForm(k));
     });
     body.append(wrap);
+    if (remoteWindow) {
+      body.append(el("div", "fan-hint", "Keys are set and cleared on the machine itself: one typed here " +
+        "would pass through the relay, which can read what passes through it."));
+    }
 
     // Whatever was being typed is what the keyboard should be on, and after a
     // save or a clear the button that did it is gone with the redraw.
