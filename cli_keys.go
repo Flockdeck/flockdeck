@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -403,7 +402,9 @@ func keysSetEndpoint(agentID, address string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := setAgentEndpoint(filepath.Dir(path), agentID, address); err != nil {
+	// The same save as the picker's address field: an agent's entries each
+	// lose their address but the last, and every spelling of the key goes.
+	if err := agent.SetBaseURL(filepath.Dir(path), agentID, address); err != nil {
 		return err
 	}
 	if address == "" {
@@ -413,102 +414,6 @@ func keysSetEndpoint(agentID, address string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "new panes use it; one already running keeps the address it started with until it is restarted\n")
 	return nil
-}
-
-// setAgentEndpoint writes an agent's api.baseURL into agents.json in dir, or
-// takes it out where address is "". The agent's last entry is the one changed,
-// since a later entry is merged over an earlier one; an agent with no entry
-// gets one holding the address alone, which is merged over the built-in.
-func setAgentEndpoint(dir, agentID, address string) error {
-	f, err := agent.ReadConfig(dir)
-	if err != nil {
-		// A file that cannot be read is not written over: it holds the only
-		// copy of the user's own agents.
-		return err
-	}
-	var entry map[string]json.RawMessage
-	at := -1
-	for i, raw := range f.Agents {
-		var head struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(raw, &head) == nil && head.ID == agentID {
-			// Going back to the vendor's endpoint takes the address out of
-			// every entry for the agent, not only the last: each is merged
-			// over the one before, so an address an earlier entry gave -- one
-			// the last entry never mentions -- was still the one panes used,
-			// after being told the vendor's was back.
-			if address == "" && at >= 0 {
-				cleared, err := withoutBaseURL(f.Agents[at])
-				if err != nil {
-					return fmt.Errorf("%s: the entry for %s: %w", agent.ConfigName, agentID, err)
-				}
-				f.Agents[at] = cleared
-			}
-			entry, at = nil, i
-			if err := json.Unmarshal(raw, &entry); err != nil {
-				return fmt.Errorf("%s: the entry for %s: %w", agent.ConfigName, agentID, err)
-			}
-		}
-	}
-	if entry == nil {
-		id, _ := json.Marshal(agentID)
-		entry = map[string]json.RawMessage{"id": id}
-	}
-	api := map[string]json.RawMessage{}
-	if raw, ok := entry["api"]; ok {
-		if err := json.Unmarshal(raw, &api); err != nil {
-			return fmt.Errorf("%s: the api of %s: %w", agent.ConfigName, agentID, err)
-		}
-	}
-	if address == "" {
-		delete(api, "baseURL")
-	} else {
-		api["baseURL"], _ = json.Marshal(address)
-	}
-	if len(api) == 0 {
-		delete(entry, "api")
-	} else {
-		entry["api"], _ = json.Marshal(api)
-	}
-	raw, err := json.Marshal(entry)
-	if err != nil {
-		return err
-	}
-	if at >= 0 {
-		f.Agents[at] = raw
-	} else {
-		f.Agents = append(f.Agents, raw)
-	}
-	return agent.WriteConfig(dir, f)
-}
-
-// withoutBaseURL is an agents.json entry with its api.baseURL taken out, and
-// its api with it when nothing else is left there. Everything else in the entry
-// is kept as it was written.
-func withoutBaseURL(raw json.RawMessage) (json.RawMessage, error) {
-	var entry map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return nil, err
-	}
-	apiRaw, ok := entry["api"]
-	if !ok {
-		return raw, nil
-	}
-	var api map[string]json.RawMessage
-	if err := json.Unmarshal(apiRaw, &api); err != nil {
-		return nil, err
-	}
-	if _, ok := api["baseURL"]; !ok {
-		return raw, nil
-	}
-	delete(api, "baseURL")
-	if len(api) == 0 {
-		delete(entry, "api")
-	} else {
-		entry["api"], _ = json.Marshal(api)
-	}
-	return json.Marshal(entry)
 }
 
 // keyAgentSpec is the catalog's entry for an agent that takes a key, or an

@@ -359,6 +359,32 @@ func TestSetBaseURLChangesTheEntryThatCounts(t *testing.T) {
 	}
 }
 
+// TestSetBaseURLReachesEveryEntryAndEverySpelling: entries for one agent are
+// merged in order, and the decoder takes "baseUrl" or "baseurl" as readily as
+// "baseURL". The picker's address field wrote only the exact key into the last
+// entry, so a hand-written "baseUrl" beside it -- sorted after it when the file
+// was written back -- was still the address used, and taking the address away
+// left an earlier entry's in place; both said they had worked.
+func TestSetBaseURLReachesEveryEntryAndEverySpelling(t *testing.T) {
+	dir := t.TempDir()
+	src := `{"agents": [{"id": "local", "api": {"baseurl": "http://first/v1"}}, {"id": "local", "name": "Local llama", "api": {"wire": "openai", "baseUrl": "http://second/v1"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigName), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetBaseURL(dir, "local", "http://127.0.0.1:1234/v1"); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := LoadFrom(dir).Find("local"); s.API.BaseURL != "http://127.0.0.1:1234/v1" || s.Name != "Local llama" || s.API.Wire != "openai" {
+		t.Errorf("after setting it the address is %q (%+v), want the new one and the rest kept", s.API.BaseURL, s)
+	}
+	if err := SetBaseURL(dir, "local", ""); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := LoadFrom(dir).Find("local"); s.API.BaseURL != "" || s.Name != "Local llama" || s.API.Wire != "openai" {
+		t.Errorf("after taking it away the address is %q (%+v), want none and the rest kept", s.API.BaseURL, s)
+	}
+}
+
 // TestWhichAgentsTakeAnAddress: the OpenAI-compatible entry before it has an
 // address, and any API agent with one, are offered the field; a vendor's own
 // agent talking to its vendor, and a CLI, are not.
