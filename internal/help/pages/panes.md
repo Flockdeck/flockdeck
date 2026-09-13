@@ -35,6 +35,9 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 - [[key:zoomPane]] gives the focused pane the whole tab, and gives it back.
   The others keep running; they are simply not on screen.
 - [[key:findInTerminal]] searches the focused terminal's scrollback.
+- Select text with the mouse and <kbd>Ctrl+C</kbd> copies it; <kbd>Ctrl+V</kbd>
+  pastes. With nothing selected, <kbd>Ctrl+C</kbd> goes to the agent, as it
+  always did. [Keyboard shortcuts](#shortcuts) has the rest, and macOS.
 - [[key:closePane]] closes a pane and stops the agent in it, without asking.
   Closing a tab's last pane closes the tab, and the `×` on a tab closes every
   pane in it.

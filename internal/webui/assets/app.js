@@ -2228,6 +2228,7 @@
       /* Search is a convenience; the terminal works without it. */
     }
     term.open(host);
+    term.attachCustomKeyEventHandler((ev) => terminalKey(term, ev));
     // Scrolled back to read what an agent wrote earlier, a pane went on
     // showing the old lines with nothing to say newer ones had arrived below,
     // and the only way back down was the wheel, however far that was.
@@ -2368,6 +2369,40 @@
     if ("Rcnt".includes(last)) return true;
     if (last === "I" || last === "O") return s.length === 3;
     return last === "y" && s.includes("$");
+  }
+
+  /** terminalKey is a terminal's say over its own keys, and answers false for
+   *  a key the terminal is to leave alone. Ctrl+C with a selection sent ^C
+   *  and Ctrl+V sent ^V, so text could be copied out of a pane and pasted
+   *  into one only with the mouse. They go the way Windows Terminal has them:
+   *  Ctrl+C copies when something is selected and is ^C otherwise, Ctrl+Shift+C
+   *  copies, and Ctrl+V and Ctrl+Shift+V are left to the browser, which pastes
+   *  through xterm's own paste handling. A Mac copies and pastes with Cmd, and
+   *  its Ctrl keys stay the program's. */
+  function terminalKey(term, ev) {
+    if (onMac || ev.type !== "keydown" || !ev.ctrlKey || ev.altKey || ev.metaKey) return true;
+    let k = (ev.key || "").toLowerCase();
+    // A layout without Latin letters says which letter by the key's place.
+    if (/^[^\x00-\x7f]$/.test(k)) {
+      const m = /^Key([A-Z])$/.exec(ev.code || "");
+      if (m) k = m[1].toLowerCase();
+    }
+    if (k === "v") return false;
+    if (k !== "c" || (!ev.shiftKey && !term.hasSelection())) return true;
+    // Kept from the browser too, whose Ctrl+Shift+C opens its inspector.
+    ev.preventDefault();
+    const text = term.getSelection();
+    if (!text) return false;
+    // The selection goes once it is copied, as it does in Windows Terminal,
+    // so the next Ctrl+C interrupts the program rather than copying again.
+    term.clearSelection();
+    const failed = () => notice("The clipboard could not be reached, so nothing was copied", true);
+    try {
+      const clip = window.navigator && window.navigator.clipboard;
+      if (clip && clip.writeText) clip.writeText(text).catch(failed);
+      else failed();
+    } catch { failed(); }
+    return false;
   }
 
   function sendInput(p, data) {

@@ -2698,6 +2698,69 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p1" });
 `)
 }
 
+// termKey is a keydown as xterm hands it to a terminal's own key handler.
+const termKey = `
+const termKey = (init) => Object.assign({ type: "keydown", key: "", code: "", ctrlKey: false, shiftKey: false,
+  altKey: false, metaKey: false, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, init);
+`
+
+// Ctrl+C with a selection sent ^C and Ctrl+V sent ^V, so text could only be
+// copied out of a pane or pasted into one with the mouse. They work the way
+// Windows Terminal has them: Ctrl+C copies when something is selected and is
+// ^C otherwise, Ctrl+Shift+C copies, and Ctrl+V and Ctrl+Shift+V paste.
+func TestCopyAndPasteInATerminalGoTheWindowsTerminalWay(t *testing.T) {
+	runFrontEnd(t, termKey+`
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const keys = t._keys;
+assert.ok(keys, "the terminal has no key handler of its own");
+
+let e = termKey({ key: "c", code: "KeyC", ctrlKey: true });
+assert.strictEqual(keys(e), true, "Ctrl+C with nothing selected did not go to the program as ^C");
+
+t.selection = "some output";
+e = termKey({ key: "c", code: "KeyC", ctrlKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+C with a selection went to the program");
+assert.ok(e.defaultPrevented, "Ctrl+C with a selection was left to the browser");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "some output", "Ctrl+C did not copy the selection");
+assert.strictEqual(t.selection, "", "the selection stayed, so the next Ctrl+C copied again instead of interrupting");
+
+// A layout without Latin letters reports the key by its own letter.
+t.selection = "по-русски";
+assert.strictEqual(keys(termKey({ key: "с", code: "KeyC", ctrlKey: true })), false, "Ctrl+C on a Russian layout did not copy");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "по-русски");
+
+t.selection = "more";
+e = termKey({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+Shift+C went to the program");
+await h.sleep(0);
+assert.strictEqual(h.win._copied, "more", "Ctrl+Shift+C did not copy");
+e = termKey({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true });
+assert.strictEqual(keys(e), false, "Ctrl+Shift+C with nothing selected went to the program");
+assert.ok(e.defaultPrevented, "Ctrl+Shift+C was left to the browser, which opens its inspector with it");
+
+for (const shiftKey of [false, true]) {
+  e = termKey({ key: shiftKey ? "V" : "v", code: "KeyV", ctrlKey: true, shiftKey });
+  assert.strictEqual(keys(e), false, (shiftKey ? "Ctrl+Shift+V" : "Ctrl+V") + " went to the program as ^V");
+  assert.ok(!e.defaultPrevented, (shiftKey ? "Ctrl+Shift+V" : "Ctrl+V") + " was kept from the browser, which pastes");
+}
+assert.strictEqual(keys(termKey({ key: "d", code: "KeyD", ctrlKey: true })), true, "Ctrl+D no longer reaches the program");
+assert.strictEqual(keys(termKey({ type: "keyup", key: "v", code: "KeyV", ctrlKey: true })), true, "a key going up was taken");
+
+// On a Mac, Cmd+C and Cmd+V copy and paste already, and Ctrl+C and Ctrl+V
+// are the program's.
+const m = boot({ platform: "MacIntel" });
+m.hello();
+m.recv(fixture());
+m.terms[0].selection = "x";
+assert.strictEqual(m.terms[0]._keys(termKey({ key: "c", code: "KeyC", ctrlKey: true })), true, "Ctrl+C on a Mac did not reach the program");
+assert.strictEqual(m.terms[0]._keys(termKey({ key: "v", code: "KeyV", ctrlKey: true })), true, "Ctrl+V on a Mac did not reach the program");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

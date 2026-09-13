@@ -11,6 +11,13 @@ Inside a terminal <kbd>Tab</kbd> belongs to the program running there, so
 top bar, the focused pane's buttons and its terminal, in that order, and
 [[key:prevRegion]] goes the other way. While a dialog is open it stays there.
 
+Copying and pasting in a terminal works as it does in Windows Terminal.
+<kbd>Ctrl+C</kbd> copies what is selected, and with nothing selected goes to
+the program as usual, to interrupt it. <kbd>Ctrl+Shift+C</kbd> copies too, and
+<kbd>Ctrl+V</kbd> and <kbd>Ctrl+Shift+V</kbd> paste. On macOS,
+<kbd>Cmd+C</kbd> and <kbd>Cmd+V</kbd> copy and paste, and <kbd>Ctrl</kbd>
+with a letter always goes to the program.
+
 Actions marked *Command palette* have no binding of their own: press
 [[key:palette]], or **Commands** at the right of the top bar, and search for
 them by name.
