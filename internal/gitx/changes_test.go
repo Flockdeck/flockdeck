@@ -13,6 +13,7 @@ import (
 
 // TestChangesReportsWhatMoved covers the review panel's file list.
 func TestChangesReportsWhatMoved(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// One modified tracked file, one new file, one deletion.
@@ -70,6 +71,7 @@ func TestChangesReportsWhatMoved(t *testing.T) {
 // TestDiffOfAGlobbyNameIsNotAPattern covers a file whose name contains the
 // characters git reads as a pathspec pattern.
 func TestDiffOfAGlobbyNameIsNotAPattern(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// "a1.txt" is exactly what the pattern "a[1].txt" matches, so a bare
@@ -115,6 +117,7 @@ func write(t testing.TB, dir, name, content string) {
 // TestUntrackedCountsSurviveBeingReadAtOnce checks that a tree full of new
 // files still gets each count against the right name.
 func TestUntrackedCountsSurviveBeingReadAtOnce(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// More files than there are readers, with a different length each, so a
@@ -147,6 +150,7 @@ func TestUntrackedCountsSurviveBeingReadAtOnce(t *testing.T) {
 // TestUntrackedCountingStopsAtTheLimit checks that the panel is not made to
 // wait on a checkout that has picked up thousands of new files.
 func TestUntrackedCountingStopsAtTheLimit(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	for i := 1; i <= 5; i++ {
 		write(t, repo, fmt.Sprintf("new-%03d.txt", i), strings.Repeat("x\n", i))
@@ -183,6 +187,7 @@ func TestUntrackedCountingStopsAtTheLimit(t *testing.T) {
 // same files -- so past the limit the numbers are abandoned and the list is
 // what the panel gets.
 func TestLineCountsAreGivenUpOnAHugeDiff(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	for i := 0; i < 4; i++ {
 		write(t, repo, fmt.Sprintf("f%d.txt", i), "one\n")
@@ -223,6 +228,7 @@ func TestLineCountsAreGivenUpOnAHugeDiff(t *testing.T) {
 
 // TestDiffCoversTrackedAndUntracked checks both paths the panel needs.
 func TestDiffCoversTrackedAndUntracked(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\nextra line\n"), 0o600); err != nil {
@@ -253,6 +259,7 @@ func TestDiffCoversTrackedAndUntracked(t *testing.T) {
 // TestDiffIgnoresTheUsersDiffConfig covers the settings that change what git
 // prints, which the panel has no way to recognise once it arrives.
 func TestDiffIgnoresTheUsersDiffConfig(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// Every one of these is a setting somebody really keeps: colour through a
@@ -286,6 +293,7 @@ func TestDiffIgnoresTheUsersDiffConfig(t *testing.T) {
 // working tree at all -- node_modules/.bin and a checked-out framework are
 // both full of links leading elsewhere.
 func TestUntrackedSymlinkIsShownAsTheLink(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	private := t.TempDir()
 	write(t, private, "private.txt", "TOP SECRET\n")
@@ -309,6 +317,7 @@ func TestUntrackedSymlinkIsShownAsTheLink(t *testing.T) {
 // TestChangesReportsAwkwardNames covers the names git quotes and escapes: a
 // path taken from its quoted form does not name a file that can be opened.
 func TestChangesReportsAwkwardNames(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// Windows refuses ">" in a name, so each one is only expected back if the
@@ -353,6 +362,7 @@ func TestChangesReportsAwkwardNames(t *testing.T) {
 // alone gives git nothing to pair it against: it answers with the whole file
 // as a fresh addition, burying whatever actually changed in it.
 func TestDiffOfARenameShowsTheRename(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	body := strings.Repeat("a settled line\n", 200)
 	write(t, repo, "old.txt", body)
@@ -395,6 +405,7 @@ func TestDiffOfARenameShowsTheRename(t *testing.T) {
 // TestChangesReportsRenameUnderItsNewName covers a staged rename, whose old
 // name git sends as a separate record.
 func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	gitRun(t, repo, "mv", "README.md", "READTHIS.md")
@@ -451,6 +462,7 @@ func TestChangesReportsRenameUnderItsNewName(t *testing.T) {
 // pieces. Only the code-to-word mapping was tested before, not what the panel
 // is actually handed for it.
 func TestChangesDuringAConflictedMerge(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "f.txt", "base\n")
 	gitRun(t, repo, "add", "-A")
@@ -502,6 +514,7 @@ func TestChangesDuringAConflictedMerge(t *testing.T) {
 // with contents nor a directory to walk into: git reports one entry for the
 // whole submodule and one line of diff naming the commit it moved to.
 func TestChangesReportsADirtySubmodule(t *testing.T) {
+	t.Parallel()
 	inner := newRepo(t)
 	outer := newRepo(t)
 
@@ -557,6 +570,7 @@ func TestChangesReportsADirtySubmodule(t *testing.T) {
 // unmerged codes are the ones worth pinning: most of them look like an
 // ordinary add or delete if the letters are read one at a time.
 func TestStatusLabelNamesConflicts(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"??": "new",
 		" M": "modified",
@@ -583,6 +597,7 @@ func TestStatusLabelNamesConflicts(t *testing.T) {
 // there is no HEAD to compare a staged file against, and git says so rather
 // than treating it as empty.
 func TestDiffBeforeTheFirstCommit(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -610,6 +625,7 @@ func TestDiffBeforeTheFirstCommit(t *testing.T) {
 // TestUntrackedTellsTrackedFilesApart covers the test that decides between a
 // real diff and showing the whole file as an addition.
 func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("build/\n"), 0o600); err != nil {
@@ -646,6 +662,7 @@ func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
 // tree: only as much as the panel will show should be read, and the rest
 // accounted for rather than silently dropped.
 func TestDiffOfHugeUntrackedFileIsBounded(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	line := strings.Repeat("x", 99) + "\n"
@@ -684,6 +701,7 @@ func TestDiffOfHugeUntrackedFileIsBounded(t *testing.T) {
 // TestDiffOfBinaryFileSaysSo covers dropping a screenshot into the tree: the
 // panel renders whatever it is given as text, so the bytes must not be sent.
 func TestDiffOfBinaryFileSaysSo(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	blob := []byte{0x89, 'P', 'N', 'G', 0x00, 0x1a, 0x0a, 0x00, 0xff, 0xfe}
@@ -717,6 +735,7 @@ func TestDiffOfBinaryFileSaysSo(t *testing.T) {
 // TestDiffRefusesPathsOutsideTheTree covers a path arriving from the browser:
 // it names a file in the working tree, or it is refused.
 func TestDiffRefusesPathsOutsideTheTree(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	outside := filepath.Join(filepath.Dir(repo), "secret.txt")
@@ -750,6 +769,7 @@ func TestDiffRefusesPathsOutsideTheTree(t *testing.T) {
 // exact byte count leaves half a line, which the panel then colours as though
 // it were whole, and can split a multi-byte character.
 func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
+	t.Parallel()
 	// Lines wide enough that the cap lands in the middle of one.
 	line := "+" + strings.Repeat("é", 300) + "\n"
 	whole := strings.Repeat(line, (maxDiffBytes/len(line))+10)
@@ -782,6 +802,7 @@ func TestTruncateDiffCutsOnALineBoundary(t *testing.T) {
 // shown for a new file: the trailing newline ends the last line, it does not
 // begin an empty one.
 func TestUntrackedDiffHasNoPhantomLastLine(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	if err := os.WriteFile(filepath.Join(repo, "fresh.txt"), []byte("one\ntwo\n"), 0o600); err != nil {
@@ -819,6 +840,7 @@ func TestUntrackedDiffHasNoPhantomLastLine(t *testing.T) {
 
 // TestCommitAllStagesEverything covers the commit button.
 func TestCommitAllStagesEverything(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o600); err != nil {
@@ -849,6 +871,7 @@ func TestCommitAllStagesEverything(t *testing.T) {
 // they press commit with nothing staged: git says "nothing to commit" on
 // stdout, so an error built from stderr alone would read "exit status 1".
 func TestCommitAllOnCleanTreeExplainsItself(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	err := CommitAll(repo, "nothing here")
@@ -863,6 +886,7 @@ func TestCommitAllOnCleanTreeExplainsItself(t *testing.T) {
 // TestPushSetsUpstreamOnFirstPush is the case that otherwise makes a new
 // worktree's branch need a hand-typed command.
 func TestPushSetsUpstreamOnFirstPush(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -918,6 +942,7 @@ func TestPushSetsUpstreamOnFirstPush(t *testing.T) {
 // TestUpstreamOfAgreesWithStatus checks the cheap upstream lookup Push relies
 // on against the one that walks the working tree to find out.
 func TestUpstreamOfAgreesWithStatus(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1016,6 +1041,7 @@ func TestCommitGetsTheLongerDeadline(t *testing.T) {
 
 // TestHasRemoteWithoutOrigin covers a repository that cannot be pushed.
 func TestHasRemoteWithoutOrigin(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	if HasRemote(repo) {
 		t.Error("a repository with no remote should not offer a push")
@@ -1029,6 +1055,7 @@ func TestHasRemoteWithoutOrigin(t *testing.T) {
 // "origin": a substring test both mismatched "my-origin" and hid a usable
 // remote under another name.
 func TestRemotesMatchWholeNames(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitRun(t, repo, "remote", "add", "my-origin", "https://example.invalid/x.git")
 
@@ -1072,6 +1099,7 @@ func gitRun(t testing.TB, dir string, args ...string) string {
 // was read, so a file with a quarter of a million lines still to go was said
 // to have a few tens of thousands.
 func TestTruncatedUntrackedFileCountsWhatWasNeverRead(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	const size = 800_000
 	if err := os.WriteFile(filepath.Join(repo, "short-lines.txt"), []byte(strings.Repeat("x\n", size/2)), 0o600); err != nil {
@@ -1096,6 +1124,7 @@ func TestTruncatedUntrackedFileCountsWhatWasNeverRead(t *testing.T) {
 // which status lists as one directory. Its diff came back empty, and the
 // panel explained an empty diff as a file that matches the last commit.
 func TestDiffOfANestedRepositorySaysWhatItIs(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	nested := filepath.Join(repo, "vendor", "lib")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
@@ -1122,6 +1151,7 @@ func TestDiffOfANestedRepositorySaysWhatItIs(t *testing.T) {
 // pull commonly fail. Each arrived as git's advice cut down to the lines that
 // did not say what to do about it.
 func TestRemoteFailuresSayWhatToDoNext(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1158,6 +1188,7 @@ func TestRemoteFailuresSayWhatToDoNext(t *testing.T) {
 // in neither the last commit nor the working tree, and was listed as the
 // deletion of content that had never been committed.
 func TestAddedThenDeletedIsNotAChange(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gone := filepath.Join(repo, "brief.txt")
 	if err := os.WriteFile(gone, []byte("draft\n"), 0o600); err != nil {
@@ -1179,6 +1210,7 @@ func TestAddedThenDeletedIsNotAChange(t *testing.T) {
 // conflict is resolved, so the commit button committed a merge with the
 // conflict markers still in the file.
 func TestCommitRefusesAMergeWithMarkersInIt(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitRun(t, repo, "checkout", "-q", "-b", "other")
 	write(t, repo, "README.md", "theirs\n")
@@ -1210,6 +1242,7 @@ func TestCommitRefusesAMergeWithMarkersInIt(t *testing.T) {
 // unstaged diff added up, which is not what the diff beside them shows or
 // what a commit takes.
 func TestLineCountsAreAgainstTheLastCommit(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	count := func() (int, int) {
 		t.Helper()
@@ -1250,6 +1283,7 @@ func TestLineCountsAreAgainstTheLastCommit(t *testing.T) {
 // the last commit and the index not, the diff asked again for the index
 // against the working tree, and showed an edit the commit would not contain.
 func TestDiffOfAFileBackAsItWasCommittedIsEmpty(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "README.md", "hello\nstaged\n")
 	gitRun(t, repo, "add", "README.md")
@@ -1267,6 +1301,7 @@ func TestDiffOfAFileBackAsItWasCommittedIsEmpty(t *testing.T) {
 // "pull them in", and the pull -- with no upstream, since only a push that
 // succeeds sets one -- said "push it first".
 func TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1294,6 +1329,7 @@ func TestAFirstPushToATakenNameDoesNotSendTheReaderInACircle(t *testing.T) {
 // TestPushBeforeTheFirstCommitSaysSo: git's answer was "src refspec main does
 // not match any", which says nothing to someone who has not committed yet.
 func TestPushBeforeTheFirstCommitSaysSo(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -1311,6 +1347,7 @@ func TestPushBeforeTheFirstCommitSaysSo(t *testing.T) {
 // TestPushWithNoRemoteToChooseSaysHow: the panel can neither add a remote nor
 // pick one, and "push manually" left the reader to work out how.
 func TestPushWithNoRemoteToChooseSaysHow(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	if _, err := Push(repo); err == nil || !strings.Contains(err.Error(), "git remote add origin") {
 		t.Errorf("push with no remote: %v", err)
@@ -1326,6 +1363,7 @@ func TestPushWithNoRemoteToChooseSaysHow(t *testing.T) {
 // the user's config, a copy was labelled "modified", counted 0/0 against its
 // source, and its diff carried the source's own edits.
 func TestACopiedFileIsShownAsTheNewFileItIs(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitRun(t, repo, "config", "status.renames", "copies")
 	gitRun(t, repo, "config", "diff.renames", "copies")
@@ -1428,6 +1466,7 @@ func TestPullWaitsOutAnotherGitsLock(t *testing.T) {
 // of another name is refused by the default push.default, and git's account
 // of it was cut off before the line saying what to do.
 func TestPushToAnUpstreamOfAnotherNameSaysHow(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1452,6 +1491,7 @@ func TestPushToAnUpstreamOfAnotherNameSaysHow(t *testing.T) {
 // which the last commit never had, with an empty diff -- while the file a
 // commit actually deletes, the old name, had no row.
 func TestRenamedThenDeletedIsListedAsTheFileThatGoes(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitRun(t, repo, "mv", "README.md", "GUIDE.md")
 	if err := os.Remove(filepath.Join(repo, "GUIDE.md")); err != nil {
@@ -1474,6 +1514,7 @@ func TestRenamedThenDeletedIsListedAsTheFileThatGoes(t *testing.T) {
 // tracks a local branch was "git push . HEAD:main", into the repository
 // itself, cut off in the toast besides.
 func TestPushOfABranchTrackingALocalOneSaysSo(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1498,6 +1539,7 @@ func TestPushOfABranchTrackingALocalOneSaysSo(t *testing.T) {
 // the repository itself, and a bare fetch brought down nothing while its
 // output read like a fetch.
 func TestFetchOnABranchTrackingALocalOneReachesTheRemote(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -1529,6 +1571,7 @@ func TestFetchOnABranchTrackingALocalOneReachesTheRemote(t *testing.T) {
 // its diff was empty -- read as "matches the last commit" -- and Commit
 // failed with git's advice about commands the panel cannot run.
 func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
+	t.Parallel()
 	inner := newRepo(t)
 	outer := newRepo(t)
 	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "sub")
@@ -1553,6 +1596,7 @@ func TestWorkInsideASubmoduleIsExplained(t *testing.T) {
 // TestASubmoduleIsNamedAsItIsSpelled: the commit refused for work inside a
 // submodule named it as git quotes it, "s\303\274b", rather than as süb.
 func TestASubmoduleIsNamedAsItIsSpelled(t *testing.T) {
+	t.Parallel()
 	inner := newRepo(t)
 	outer := newRepo(t)
 	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "süb")
@@ -1569,6 +1613,7 @@ func TestASubmoduleIsNamedAsItIsSpelled(t *testing.T) {
 // recorded a submodule commit its remote did not have, which nobody fetching
 // the result could then get.
 func TestPushDoesNotPublishAnUnpushedSubmoduleCommit(t *testing.T) {
+	t.Parallel()
 	bare := func() string {
 		dir := t.TempDir()
 		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
@@ -1607,6 +1652,7 @@ func TestPushDoesNotPublishAnUnpushedSubmoduleCommit(t *testing.T) {
 // submodule showed as changed and the next commit -- for something else --
 // recorded the old one, undoing the bump.
 func TestPullThenCommitKeepsATeammatesSubmoduleBump(t *testing.T) {
+	t.Parallel()
 	bare := func() string {
 		dir := t.TempDir()
 		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
@@ -1659,6 +1705,7 @@ func TestPullThenCommitKeepsATeammatesSubmoduleBump(t *testing.T) {
 // 32,000 characters was more than Windows would start git with, and the
 // commit failed after everything had been staged.
 func TestALongCommitMessageIsCommitted(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "a.txt", "a\n")
 	msg := "a long message\n\n" + strings.Repeat("a line of a detailed changelog an agent wrote\n", 900)

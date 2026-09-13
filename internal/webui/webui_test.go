@@ -368,6 +368,11 @@ func runFrontEnd(t *testing.T, body string) string {
 	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
+		// Node is optional on a developer's machine, but CI is where these tests
+		// are meant to run, and a skip there passes every one of them unrun.
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is not on PATH, and CI is set: the front-end behaviour tests cannot run where they are meant to")
+		}
 		t.Skip("node is not on PATH, so the front-end behaviour tests cannot run")
 	}
 

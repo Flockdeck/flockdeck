@@ -45,6 +45,7 @@ func newRepo(t testing.TB) string {
 // TestStatusOfReportsWorkingTreeState covers the summary shown in pane headers
 // and the worktree panel.
 func TestStatusOfReportsWorkingTreeState(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	st := StatusOf(repo)
@@ -81,6 +82,7 @@ func TestStatusOfReportsWorkingTreeState(t *testing.T) {
 // against the panel below it: git collapses a new directory into a single
 // entry unless it is asked for every file.
 func TestStatusCountsAgreeWithTheFileList(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	if err := os.MkdirAll(filepath.Join(repo, "newdir", "sub"), 0o700); err != nil {
@@ -114,6 +116,7 @@ func TestStatusCountsAgreeWithTheFileList(t *testing.T) {
 // TestStatusOfEmptyRepository covers a repository someone has just created:
 // git reports the head as "(initial)", which is not a commit id.
 func TestStatusOfEmptyRepository(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -139,6 +142,7 @@ func TestStatusOfEmptyRepository(t *testing.T) {
 // TestCurrentBranchOnUnbornAndDetachedHeads covers the two heads that are not
 // an ordinary branch with commits on it.
 func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -171,6 +175,7 @@ func TestCurrentBranchOnUnbornAndDetachedHeads(t *testing.T) {
 // conflict: git detaches HEAD to replay commits, so without help the pane
 // header and the review panel both call the checkout "detached".
 func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "f.txt", "base\n")
 	gitRun(t, repo, "add", "-A")
@@ -226,6 +231,7 @@ func TestStatusDuringARebaseKeepsTheBranchName(t *testing.T) {
 // read as a branch called "detached HEAD": in the pane header, and as the base
 // the worktree panel offered, which git refuses as no reference at all.
 func TestADetachedRebaseIsNoBranch(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "f.txt", "base\n")
 	gitRun(t, repo, "add", "-A")
@@ -266,6 +272,7 @@ func TestADetachedRebaseIsNoBranch(t *testing.T) {
 // answered with a real branch and a real file list belonging to a repository
 // nobody asked about.
 func TestNoDirectoryIsNotThisProcessesDirectory(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -301,6 +308,7 @@ func TestNoDirectoryIsNotThisProcessesDirectory(t *testing.T) {
 // TestWorktreeLifecycle covers creating, listing and removing worktrees, which
 // is how agents are given separate checkouts to work in.
 func TestWorktreeLifecycle(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-feature")
@@ -373,6 +381,7 @@ func TestWorktreeLifecycle(t *testing.T) {
 // point, both of which arrive from the window and neither of which git tells
 // apart from one of its own flags.
 func TestWorktreeArgumentsAreNotReadAsOptions(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	// "--force" as a starting point is the dangerous shape: read as an option
@@ -412,6 +421,7 @@ func TestWorktreeArgumentsAreNotReadAsOptions(t *testing.T) {
 // forward slashes, so a root or worktreepath taken verbatim never compares
 // equal to a path the rest of the program built with filepath.
 func TestPathsAgreeAcrossCalls(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-paths")
 	t.Cleanup(func() { os.RemoveAll(wtPath) })
@@ -456,6 +466,7 @@ func TestPathsAgreeAcrossCalls(t *testing.T) {
 // TestRemoveDirtyWorktreeNeedsForce pins the behaviour the UI warns about
 // before discarding someone's work.
 func TestRemoveDirtyWorktreeNeedsForce(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-dirty")
 	t.Cleanup(func() { os.RemoveAll(wtPath) })
@@ -479,6 +490,7 @@ func TestRemoveDirtyWorktreeNeedsForce(t *testing.T) {
 // directory someone deleted in the file manager: git refuses to remove a path
 // that is not there, but the record it left behind can still go.
 func TestRemoveWorktreeAlreadyDeleted(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-vanished")
 
@@ -512,6 +524,7 @@ func TestRemoveWorktreeAlreadyDeleted(t *testing.T) {
 // heard of must not be able to set that off, and it never removed anything, so
 // it should not report success either.
 func TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	offline := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-offline")
 	if err := AddFrom(repo, offline, "offline", ""); err != nil {
@@ -541,6 +554,7 @@ func TestRemoveOfAnUnknownPathLeavesOtherRecordsAlone(t *testing.T) {
 // TestAddFromExistingBranchChecksItOut covers the "branch without a worktree"
 // shortcut.
 func TestAddFromExistingBranchChecksItOut(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 
 	cmd := exec.Command("git", "branch", "existing")
@@ -564,6 +578,7 @@ func TestAddFromExistingBranchChecksItOut(t *testing.T) {
 // dialog: it has to be a name the filesystem accepts and a directory that is
 // not already there.
 func TestDefaultWorktreePathIsUsable(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	project := filepath.Join(repo, "proj")
 	if err := os.MkdirAll(project, 0o700); err != nil {
@@ -605,6 +620,7 @@ func TestDefaultWorktreePathIsUsable(t *testing.T) {
 // missing but already registered worktree" -- an error about a path the person
 // never chose and cannot see.
 func TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	first := DefaultWorktreePath(repo, "shared")
 	if err := AddFrom(repo, first, "shared", ""); err != nil {
@@ -628,6 +644,7 @@ func TestDefaultWorktreePathAvoidsRecordsAsWellAsDirectories(t *testing.T) {
 
 // TestPruneRemovesStaleRecords covers the maintenance button.
 func TestPruneRemovesStaleRecords(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-gone")
 
@@ -660,6 +677,7 @@ func TestPruneRemovesStaleRecords(t *testing.T) {
 // TestDeletedWorktreeIsReportedAsPrunable: a worktree whose directory was
 // deleted by hand came back with an empty status, which reads as clean.
 func TestDeletedWorktreeIsReportedAsPrunable(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wt := filepath.Join(t.TempDir(), "gone")
 	gitRun(t, repo, "worktree", "add", "-q", "-b", "gone", wt)
@@ -680,6 +698,7 @@ func TestDeletedWorktreeIsReportedAsPrunable(t *testing.T) {
 // TestRemoveOfALockedWorktreeSaysHowToUnlockIt: git told the panel to run
 // "remove -f -f", which no button does.
 func TestRemoveOfALockedWorktreeSaysHowToUnlockIt(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wt := filepath.Join(t.TempDir(), "kept")
 	gitRun(t, repo, "worktree", "add", "-q", "-b", "kept", wt)
@@ -699,6 +718,7 @@ func TestRemoveOfALockedWorktreeSaysHowToUnlockIt(t *testing.T) {
 // this, and "main" before anything is committed to it names no commit, so
 // every new worktree in a fresh repository failed.
 func TestDefaultBaseOfAFreshRepositoryIsEmpty(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -721,6 +741,7 @@ func TestDefaultBaseOfAFreshRepositoryIsEmpty(t *testing.T) {
 // remote and pruned here was reported as tracking it, level, 0 and 0 -- over
 // a commit that had never been pushed.
 func TestAGoneUpstreamIsNoUpstream(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -747,6 +768,7 @@ func TestAGoneUpstreamIsNoUpstream(t *testing.T) {
 // was "already used by worktree at" a directory that was not there, after a
 // line of its own progress, and nothing about how to get past it.
 func TestABranchHeldByADeletedWorktreeSaysToPrune(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gone := filepath.Join(t.TempDir(), "gone")
 	gitRun(t, repo, "worktree", "add", "-q", "-b", "feature", gone)
@@ -770,6 +792,7 @@ func TestABranchHeldByADeletedWorktreeSaysToPrune(t *testing.T) {
 // "Invalid argument"; pressing remove again answers only that it is not a
 // worktree.
 func TestRemovingABusyWorktreeSaysWhatIsLeft(t *testing.T) {
+	t.Parallel()
 	if filepath.Separator == '/' {
 		t.Skip("an open file stops a deletion only on Windows")
 	}
@@ -791,6 +814,7 @@ func TestRemovingABusyWorktreeSaysWhatIsLeft(t *testing.T) {
 // TestABranchNameGitRefusesSaysWhyAndOffersOne: git said only that the name
 // was "not a valid branch name", after a line of its own progress.
 func TestABranchNameGitRefusesSaysWhyAndOffersOne(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	for name, want := range map[string]string{
 		"my feature": `"my-feature" would do`,
@@ -814,6 +838,7 @@ func TestABranchNameGitRefusesSaysWhyAndOffersOne(t *testing.T) {
 // is detached, and the panel called the worktree "detached@<sha>" while its
 // pane header called it by its branch.
 func TestAWorktreeMidRebaseIsLabelledByItsBranch(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	write(t, repo, "f.txt", "base\n")
 	gitRun(t, repo, "add", "-A")
@@ -850,6 +875,7 @@ func TestAWorktreeMidRebaseIsLabelledByItsBranch(t *testing.T) {
 // only when the row it drew showed changes, and git refused one made since
 // with "use --force", a flag the panel cannot pass.
 func TestRemovingAWorktreeThatChangedSinceSaysSo(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wt := filepath.Join(t.TempDir(), "busy")
 	gitRun(t, repo, "worktree", "add", "-q", "-b", "busy", wt)
@@ -868,6 +894,7 @@ func TestRemovingAWorktreeThatChangedSinceSaysSo(t *testing.T) {
 // the new branch tracked it, so its header named origin/main as its upstream
 // and Push was refused for the names not matching.
 func TestABranchStartedFromARemoteOneDoesNotTrackIt(t *testing.T) {
+	t.Parallel()
 	origin := t.TempDir()
 	cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
 	cmd.Dir = origin
@@ -898,6 +925,7 @@ func TestABranchStartedFromARemoteOneDoesNotTrackIt(t *testing.T) {
 // is "C:\repo" to filepath.Dir, so a project opened with a trailing separator
 // had its worktrees suggested inside itself.
 func TestDefaultWorktreePathIgnoresATrailingSeparator(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	got := DefaultWorktreePath(repo+string(filepath.Separator), "feature")
 	if want := DefaultWorktreePath(repo, "feature"); got != want {
@@ -912,6 +940,7 @@ func TestDefaultWorktreePathIgnoresATrailingSeparator(t *testing.T) {
 // progress and said the branch was "already used by worktree at" a path,
 // without the way on.
 func TestABranchAlreadyCheckedOutSaysWhere(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	err := AddFrom(repo, filepath.Join(t.TempDir(), "again"), "main", "")
 	if err == nil || !strings.Contains(err.Error(), "already checked out in") ||
@@ -924,6 +953,7 @@ func TestABranchAlreadyCheckedOutSaysWhere(t *testing.T) {
 // does, and the checkout read as "detached" in the pane header and
 // "detached@<sha>" in the panel.
 func TestAWorktreeMidBisectIsNamedByItsBranch(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	for _, body := range []string{"a\n", "b\n", "c\n"} {
 		write(t, repo, "n.txt", body)

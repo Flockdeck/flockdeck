@@ -267,7 +267,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
 	fmt.Fprintf(out, "        flockdeck's own chat client, which an API agent's pane runs; chat -h for its flags\n")
-	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url>]]\n")
+	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url> | default]]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
@@ -277,6 +277,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
+	fmt.Fprintf(out, "  help [<subcommand>]\n")
+	fmt.Fprintf(out, "        this usage, or a subcommand's own\n")
 	// These are settings with no flag, so this is the only place a person
 	// reading the usage would learn that they exist.
 	fmt.Fprintf(out, "\nEnvironment:\n")
@@ -287,6 +289,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
 	fmt.Fprintf(out, "        the relay remote access goes through, instead of the default one\n")
+	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
+	fmt.Fprintf(out, "        the key an API agent uses when neither its own variables nor keys hold one\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
