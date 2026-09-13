@@ -492,6 +492,43 @@ func TestDefaultNamingADeletedAgentFallsBack(t *testing.T) {
 	}
 }
 
+// TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered: an agents.json that
+// hides Claude and names no default went on opening Claude in every new pane,
+// and the picker marked as the default an agent it did not list.
+func TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered(t *testing.T) {
+	c := Merge(&File{
+		Defaults: Defaults{Model: "sonnet"},
+		Agents:   []json.RawMessage{json.RawMessage(`{"id": "claude", "hidden": true}`)},
+	})
+	first := c.Visible()[0]
+	if first.ID == DefaultAgentID {
+		t.Fatalf("Claude is hidden and still offered first")
+	}
+	// Claude's model is not handed to the agent that stands in for it.
+	if got := c.DefaultsFor(""); got != (Defaults{Agent: first.ID}) {
+		t.Errorf("DefaultsFor = %+v, want %q with no model", got, first.ID)
+	}
+	for _, asked := range []string{"", "deleted-agent"} {
+		spec, model, ok := c.Resolve("", asked, "")
+		if !ok || spec.ID != first.ID || model != first.DefaultModel {
+			t.Errorf("Resolve(%q) = %q/%q ok=%v, want %q/%q", asked, spec.ID, model, ok, first.ID, first.DefaultModel)
+		}
+	}
+	// A pane that asks for Claude by name still gets it: hidden keeps an
+	// agent out of the picker, not out of the catalog.
+	if spec, _, _ := c.Resolve("", DefaultAgentID, ""); spec.ID != DefaultAgentID {
+		t.Errorf("a pane asking for Claude got %q", spec.ID)
+	}
+	// A default that names Claude is a choice, and stands.
+	chosen := Merge(&File{
+		Defaults: Defaults{Agent: DefaultAgentID},
+		Agents:   []json.RawMessage{json.RawMessage(`{"id": "claude", "hidden": true}`)},
+	})
+	if got := chosen.DefaultsFor(""); got.Agent != DefaultAgentID {
+		t.Errorf("a default naming Claude became %q", got.Agent)
+	}
+}
+
 // TestUnknownAgentFieldsAreNamed: a key in the wrong place used to do nothing
 // and say nothing, which left an endpoint greyed out with no clue why.
 func TestUnknownAgentFieldsAreNamed(t *testing.T) {

@@ -293,18 +293,36 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 			break
 		}
 	}
-	if d.Agent == "" {
-		d.Agent = DefaultAgentID
-	}
 	// A default naming an agent the catalog no longer has -- an entry since
 	// deleted from agents.json -- is a pane that cannot start, and it is
 	// every new pane rather than one: each asks for the default and was told
-	// "no agent named ... is configured". Claude opens instead, and the model
-	// chosen for the other agent does not come with it.
-	if _, ok := c.Find(d.Agent); !ok && len(c.Specs) > 0 {
-		d = Defaults{Agent: DefaultAgentID}
+	// "no agent named ... is configured". It is treated as no default at all,
+	// and the model chosen for the other agent does not come with it.
+	if d.Agent != "" {
+		if _, ok := c.Find(d.Agent); !ok && len(c.Specs) > 0 {
+			d = Defaults{}
+		}
+	}
+	if d.Agent == "" {
+		d.Agent = DefaultAgentID
+		// Nobody chose Claude here, and an agents.json that hides it has said
+		// it is not wanted: new panes went on opening it all the same, and the
+		// picker marked as the default an agent it did not list. The first
+		// agent the picker offers is taken instead. A default that names Claude
+		// itself is a choice, and is kept whether or not the picker shows it.
+		if _, ok := c.offered(DefaultAgentID); !ok {
+			if visible := c.Visible(); len(visible) > 0 {
+				d = Defaults{Agent: visible[0].ID}
+			}
+		}
 	}
 	return d
+}
+
+// offered returns the spec with an id if the picker offers it.
+func (c *Catalog) offered(id string) (Spec, bool) {
+	s, ok := c.Find(id)
+	return s, ok && !s.Hidden
 }
 
 // Resolve answers what a new pane should start: the spec and the model id.
@@ -316,8 +334,9 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 // because a default changed since then must not quietly move a conversation
 // onto another model.
 //
-// The last return is false only when the catalog holds no usable agent at all,
-// which takes a user file that hides every built-in.
+// The last return is false only when the pane named an agent the catalog has
+// no entry for and the picker offers no agent at all, which takes a user file
+// that hides every built-in.
 func (c *Catalog) Resolve(project, agentID, model string) (Spec, string, bool) {
 	d := c.DefaultsFor(project)
 	id := agentID
@@ -326,11 +345,11 @@ func (c *Catalog) Resolve(project, agentID, model string) (Spec, string, bool) {
 	}
 	spec, ok := c.Find(id)
 	if !ok {
-		// The pane, or the defaults, named an agent this catalog no longer
-		// has: an entry deleted from agents.json, or a layout saved when it
-		// was still there. Falling back to Claude, and then to whatever else
-		// is offered, opens the pane; refusing would lose it.
-		if spec, ok = c.Find(DefaultAgentID); !ok {
+		// The pane named an agent this catalog no longer has: an entry
+		// deleted from agents.json, or a layout saved when it was still
+		// there. Falling back to Claude where the picker offers it, and then
+		// to whatever else it offers, opens the pane; refusing would lose it.
+		if spec, ok = c.offered(DefaultAgentID); !ok {
 			visible := c.Visible()
 			if len(visible) == 0 {
 				return Spec{}, "", false
