@@ -723,6 +723,29 @@ func (w *Workspace) openRootFor(root string) (string, bool) {
 			return r, true
 		}
 	}
+	return w.openRootOnDisk(root)
+}
+
+// openRootOnDisk finds the open project that is the directory root names,
+// asking the file system rather than comparing strings.
+//
+// Some spellings of one directory no comparison of strings can see through:
+// an 8.3 short name on Windows (PROGRA~1), a junction or a symlink, macOS's
+// /tmp for /private/tmp. Each opened a second project onto a folder that was
+// already open, with its own panes resuming the very conversations the first
+// set was in. It is asked only once the strings have failed to match, which
+// for a folder that has gone costs one failed Stat; the project keeps the
+// spelling it was opened with, and with it the name of its layout file.
+func (w *Workspace) openRootOnDisk(root string) (string, bool) {
+	fi, err := os.Stat(root)
+	if err != nil || !fi.IsDir() {
+		return "", false
+	}
+	for _, r := range w.openRoots {
+		if open, err := os.Stat(r); err == nil && os.SameFile(fi, open) {
+			return r, true
+		}
+	}
 	return "", false
 }
 

@@ -747,7 +747,10 @@ func (w *Workspace) sessionRootIsOpen(root string) bool {
 			return true
 		}
 	}
-	return false
+	// A short name, a junction or a symlink of an open folder is that folder
+	// too; see openRootOnDisk.
+	_, ok := w.openRootOnDisk(root)
+	return ok
 }
 
 // SaveSession records which projects are open for the next run.
