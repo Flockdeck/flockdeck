@@ -298,14 +298,16 @@ func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint string, sl Sta
 	events := hookEventsFor(version)
 	execForm := versionAtLeast(version, execHooksSince)
 	hooks := make(map[string][]hookMatcher, len(events))
+	// Which shell a command line meets on Windows is decided once per file,
+	// not once per event.
+	gitBash := !execForm && runtime.GOOS == "windows" && GitBash() != ""
 	for _, ev := range events {
 		spec := hookSpec{Type: "command", Timeout: 5}
 		if execForm {
 			spec.Command = selfExe
 			spec.Args = []string{"hook", "--endpoint", endpoint, "--session", sessionID, "--event", ev}
 		} else {
-			spec.Command = fmt.Sprintf("%s hook --endpoint %s --session %s --event %s",
-				quoteArg(selfExe), quoteArg(endpoint), quoteArg(sessionID), ev)
+			spec.Command = hookCommandLine(runtime.GOOS, selfExe, endpoint, sessionID, ev, shortPath, gitBash)
 		}
 		hooks[ev] = []hookMatcher{{Hooks: []hookSpec{spec}}}
 	}
@@ -319,6 +321,29 @@ func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint string, sl Sta
 		return "", fmt.Errorf("write settings: %w", err)
 	}
 	return path, nil
+}
+
+// hookCommandLine is a hook written as one command line, for a Claude Code
+// not known to start a hook as a program and its arguments -- including one
+// whose version could not be asked, which is the one the settings fall back to.
+//
+// Elsewhere the line is run by sh. On Windows Claude Code runs it through Git
+// Bash, or through PowerShell where there is no Git Bash, and a line quoted
+// for cmd.exe -- a program path in double quotes -- is a string to PowerShell
+// rather than a command: without Git Bash no hook of any pane arrived, and
+// every pane's status was left to guesswork. It is written the way the status
+// line bridge is, for both, and names the console build beside the release,
+// as the bridge does, since the hook's output is read back.
+func hookCommandLine(goos, selfExe, endpoint, sessionID, event string, short func(string) string, gitBash bool) string {
+	args := []string{"hook", "--endpoint", endpoint, "--session", sessionID, "--event", event}
+	if goos != "windows" {
+		parts := []string{quoteArgFor(goos, selfExe)}
+		for _, a := range args {
+			parts = append(parts, quoteArgFor(goos, a))
+		}
+		return strings.Join(parts, " ")
+	}
+	return windowsCommandLine(chatExeFor(goos, selfExe), args, short, gitBash)
 }
 
 // quoteArg quotes an argument for the shell that runs the hook command, when
