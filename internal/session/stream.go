@@ -648,7 +648,7 @@ func (s *Session) patternStatus() (Status, bool) {
 	// on a question nobody is being asked any more.
 	n := int64(patternBytes)
 	cut := true
-	if since := s.written - s.answeredAt; since < n {
+	if since := s.written - s.answeredAt; s.answeredAt > 0 && since < n {
 		if since <= 0 {
 			return StatusIdle, false
 		}
