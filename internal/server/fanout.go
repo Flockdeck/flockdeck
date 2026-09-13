@@ -754,6 +754,13 @@ func discardWorktree(repo string, j *fanoutJob, working func(path string) (bool,
 	if err := gitx.Remove(repo, j.cwd, true); err != nil {
 		return fmt.Errorf("its worktree %s could not be removed: %w", filepath.Base(j.cwd), err)
 	}
+	// The branch goes with it. `git worktree add -b` made it for this job,
+	// so it is this run's as much as the directory was, and left behind it
+	// is half of the stray this is here to prevent: a branch with nothing on
+	// it, offered in every branch picker as though somebody had started it.
+	if err := gitx.DeleteBranch(repo, j.branch); err != nil {
+		return fmt.Errorf("its branch %s could not be deleted: %w", j.branch, err)
+	}
 	return nil
 }
 

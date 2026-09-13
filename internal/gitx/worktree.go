@@ -418,6 +418,12 @@ func CommonDir(dir string) (string, error) {
 // delete it again, as a fan-out does for an agent that never started -- has
 // to know it did: handed a branch somebody else made in the meantime, it would
 // be deleting their branch. A branch that exists is refused instead.
+//
+// `git worktree add -b` makes the branch before the checkout, and leaves it
+// behind when the checkout then fails -- on a directory already at path, say.
+// That branch is this call's own, since it was not there a moment before, with
+// no worktree and nothing on it, so it is deleted again rather than left for
+// somebody to wonder about.
 func AddNewBranch(repoDir, path, branch string) error {
 	if branch == "" {
 		return &gitError{"a new worktree needs a branch name"}
@@ -426,6 +432,21 @@ func AddNewBranch(repoDir, path, branch string) error {
 		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
 	}
 	_, err := run(repoDir, "worktree", "add", "-b", branch, "--no-track", "--", path)
+	if err != nil && branchExists(repoDir, branch) {
+		// git will not delete a branch some worktree has checked out, so one
+		// that another checkout has taken in the moment since is left alone.
+		_ = DeleteBranch(repoDir, branch)
+	}
+	return err
+}
+
+// DeleteBranch deletes a local branch whether or not it has been merged. git
+// refuses one that is checked out in any worktree.
+func DeleteBranch(repoDir, branch string) error {
+	if strings.TrimSpace(branch) == "" || strings.HasPrefix(branch, "-") {
+		return &gitError{fmt.Sprintf("%q is not a branch that can be deleted", branch)}
+	}
+	_, err := run(repoDir, "branch", "-D", branch)
 	return err
 }
 

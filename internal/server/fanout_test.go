@@ -242,6 +242,10 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 			t.Errorf("git still lists the worktree at %s", wt.Path)
 		}
 	}
+	// The branch was made for the worktree, and is as stray without it.
+	if gitx.BranchExists(repo, "agent/never-started") {
+		t.Error("the worktree was removed and its branch left behind")
+	}
 }
 
 // The dangerous case: a fan-out without worktrees runs every agent in the
