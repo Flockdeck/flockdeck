@@ -285,7 +285,24 @@ func dropped(err error) bool {
 	if errors.As(err, &op) && op.Op == "read" {
 		return true
 	}
-	return errors.Is(err, io.ErrUnexpectedEOF)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	// Over HTTP/2 a stream reset part-way, or a server going away, is said in
+	// frames of the protocol's own rather than by the socket breaking, and Go
+	// reports them in types it does not export: they are known by their words.
+	// A refusal the API sent is its own, whatever words are in it.
+	var e *apiError
+	if err == nil || errors.As(err, &e) {
+		return false
+	}
+	msg := err.Error()
+	for _, s := range []string{"stream error: stream ID", "GOAWAY", "http2: client connection lost"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // contextFull reports whether err says the conversation is longer than the
