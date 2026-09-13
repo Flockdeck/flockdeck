@@ -1294,9 +1294,14 @@
     const tab = s.tabs[idx];
     for (const [id, page] of tabPages) page.hidden = !tab || id !== tab.id;
     // A terminal cannot measure itself while hidden, so refit on reveal.
-    if (!tab) { shownTab = ""; shownFocus = ""; return; }
+    if (!tab) {
+      shownTab = ""; shownFocus = "";
+      for (const p of panes.values()) drawWithWebgl(p, false);
+      return;
+    }
     const ids = new Set();
     collectPanes(tab.root, ids);
+    for (const [id, p] of panes) drawWithWebgl(p, ids.has(id));
     // Only when the tab has just come on screen. A status push arrives several
     // times a second while agents work, and measuring every visible terminal
     // on each one made the browser lay the window out again for nothing: a
@@ -2264,13 +2269,8 @@
     };
     if (term.onScroll) term.onScroll(scrolledBack);
     if (term.onWriteParsed) term.onWriteParsed(scrolledBack);
-    try {
-      const webgl = new WebglAddon.WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      /* Canvas rendering is a fine fallback. */
-    }
+    // The WebGL renderer is loaded when the pane comes on screen, not here:
+    // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
@@ -2299,6 +2299,39 @@
     p.resize.observe(host);
     connectPTY(p);
     return p;
+  }
+
+  /** drawWithWebgl gives a pane's terminal a WebGL renderer while it is on
+   *  screen, and takes it away when the pane goes out of sight. Every pane had
+   *  one, in every tab, and Chromium keeps about sixteen WebGL contexts before
+   *  it takes the oldest away: with a dozen agents across the tabs, panes on
+   *  screen lost theirs to panes nobody could see. Without one a terminal
+   *  draws in the DOM, which is what a hidden pane needs anyway. */
+  function drawWithWebgl(p, on) {
+    if (on === !!p.webgl) return;
+    if (!on) {
+      const g = p.webgl;
+      p.webgl = null;
+      try { g.dispose(); } catch { /* already gone with its context */ }
+      return;
+    }
+    // A browser without WebGL says so once; asking again on every push
+    // would build and throw away a renderer each time.
+    if (p.noWebgl || typeof WebglAddon === "undefined") return;
+    try {
+      const g = new WebglAddon.WebglAddon();
+      // A context the browser takes back is given up, and the pane asks for
+      // another the next time it comes on screen.
+      g.onContextLoss(() => {
+        if (p.webgl === g) p.webgl = null;
+        try { g.dispose(); } catch { /* already gone */ }
+      });
+      p.term.loadAddon(g);
+      p.webgl = g;
+    } catch {
+      /* Canvas rendering is a fine fallback. */
+      p.noWebgl = true;
+    }
   }
 
   /** reducedMotion reports whether the system has been asked for less

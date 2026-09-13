@@ -3004,6 +3004,38 @@ assert.strictEqual(h.terms[0].options.cursorBlink, true);
 `)
 }
 
+// Every pane had a WebGL renderer of its own, in every tab, and Chromium keeps
+// about sixteen WebGL contexts before it takes the oldest away: with a dozen
+// agents across the tabs, panes on screen lost theirs to panes nobody could
+// see. Only the panes of the tab on screen have one; a pane going out of sight
+// gives its up, and gets one again when it comes back.
+func TestOnlyThePanesOnScreenDrawWithWebGL(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const live = (i) => h.webgls.filter((g) => g.term === h.terms[i] && !g.disposed).length;
+assert.strictEqual(live(0), 1, "the pane on screen draws without WebGL");
+assert.strictEqual(live(1), 0, "a pane in a tab out of sight holds a WebGL renderer");
+
+h.recv(fixture({ activeTab: "t2" }));
+assert.strictEqual(live(0), 0, "a pane that went out of sight kept its WebGL renderer");
+assert.strictEqual(live(1), 1, "a pane that came on screen draws without WebGL");
+h.recv(fixture({ activeTab: "t2" }));
+assert.strictEqual(h.webgls.length, 2, "a push that changed nothing made another renderer");
+
+h.recv(fixture());
+assert.strictEqual(live(0), 1, "a pane back on screen did not get WebGL again");
+
+// A renderer whose context the browser takes away is given up, and the pane
+// gets another the next time it comes on screen.
+h.webgls.find((g) => g.term === h.terms[0] && !g.disposed)._lost();
+assert.strictEqual(live(0), 0, "a renderer that lost its context was kept");
+h.recv(fixture({ activeTab: "t2" }));
+h.recv(fixture());
+assert.strictEqual(live(0), 1, "a pane whose renderer lost its context never got another");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
