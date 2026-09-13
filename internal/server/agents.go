@@ -406,6 +406,16 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 	reply := func(problem string) {
 		c.sendJSON(agentAddressMsg{Type: "agentAddress", ID: id, Address: address, Error: problem})
 	}
+	// An API agent's key goes wherever its address says, so changing the
+	// address from a window reached through the relay would send the key
+	// stored at the desk to an endpoint chosen from somewhere else. Like the
+	// key itself, it is changed at the desk. The picker does not offer it
+	// there; this is for a window that sends it anyway.
+	if c.remote {
+		reply(deskOnlyAddress)
+		c.notify(deskOnlyAddress, true)
+		return
+	}
 	spec, ok := ask(s, func() agent.Spec {
 		sp, _ := s.ws.Catalog().Find(id)
 		return sp
@@ -454,6 +464,10 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 		s.refreshAgents()
 	}()
 }
+
+// deskOnlyAddress is what a window reached through the relay is told when it
+// asks to change where an API agent sends its prompts.
+const deskOnlyAddress = "an API agent's address is changed on the machine flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
 
 // addressNotice says what an address just saved means for the agent: whether
 // it can be used now, or still needs a key, and that a pane already running

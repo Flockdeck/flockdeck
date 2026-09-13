@@ -4,7 +4,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
@@ -93,5 +95,36 @@ func TestAKeyIsSetOnlyAtTheDesk(t *testing.T) {
 	}
 	if !slices.Contains(names, "anthropic") {
 		t.Error("a window through the relay cleared a key stored at the desk")
+	}
+}
+
+// TestAnAgentsAddressIsChangedOnlyAtTheDesk covers the address row of the
+// agent picker on a phone. An API agent's stored key goes wherever its address
+// says, so an address changed from there would send the desk's key to an
+// endpoint chosen from somewhere else.
+func TestAnAgentsAddressIsChangedOnlyAtTheDesk(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer phone.CloseNow()
+
+	sendCmd(t, phone, command{Cmd: "setAgentAddress", ID: agent.OpenAICompatibleID, Text: "http://elsewhere.example/v1"})
+	// The picker's Save waits for an answer, so a refusal is one.
+	var answer agentAddressMsg
+	readUntil(t, phone, "agentAddress", &answer)
+	if !strings.Contains(answer.Error, "machine") {
+		t.Errorf("an address sent through the relay was answered %+v, want it refused", answer)
+	}
+	var note noticeMsg
+	readUntil(t, phone, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "machine") {
+		t.Errorf("an address sent through the relay was told %+v, want to change it on the machine itself", note)
+	}
+	time.Sleep(300 * time.Millisecond) // long enough for a save to have landed
+	if spec, _ := agent.Load().Find(agent.OpenAICompatibleID); spec.API.BaseURL != "" {
+		t.Errorf("an address sent through the relay was written to agents.json: %q", spec.API.BaseURL)
 	}
 }

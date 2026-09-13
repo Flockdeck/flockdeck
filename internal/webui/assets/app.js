@@ -260,7 +260,8 @@
   /** remoteWindow is whether this window was reached through the relay, as
    *  the hello says. Such a window is not offered what the desk alone may
    *  do: restarting onto an update, turning remote access off or on, and
-   *  setting API keys. The server refuses each of them from here anyway. */
+   *  setting API keys or an API agent's address. The server refuses each of
+   *  them from here anyway. */
   let remoteWindow = false;
   /** Normalised binding → action id, built from the same table. */
   let bindings = new Map();
@@ -5515,7 +5516,9 @@
         if (!picker.open.has(a.id)) return;
         // The address comes first: it is what the models below it are asked
         // for at, and for an endpoint with none it is all there is.
-        if (a.addressable) out.push({ type: "address", agent: a });
+        // A window reached through the relay is not offered it: an address
+        // is changed at the desk, as the key that goes to it is.
+        if (a.addressable && !remoteWindow) out.push({ type: "address", agent: a });
         (a.models || []).forEach((m) => out.push({ type: "model", agent: a, model: m }));
       });
     });
@@ -5660,8 +5663,8 @@
       // An endpoint is not something to install. What it lacks is an
       // address, which this dialog takes, or a key for the one it has.
       row.append(el("span", "pick-note", a.address
-        ? "needs a key for " + a.address + " - set one under API keys…"
-        : "needs an address - press Enter to give it one"));
+        ? "needs a key for " + a.address + (remoteWindow ? " - set one at the desk" : " - set one under API keys…")
+        : (remoteWindow ? "needs an address - give it one at the desk" : "needs an address - press Enter to give it one")));
     } else if (!a.available) {
       const why = el("span", "pick-note", a.install || "not installed");
       row.append(describe(why, TIPS.notInstalled));
@@ -5677,7 +5680,7 @@
   /** opensOnto says whether an agent's row opens onto rows of its own: its
    *  models, and the address of an endpoint. */
   function opensOnto(a) {
-    return (a.models || []).length > 0 || !!a.addressable;
+    return (a.models || []).length > 0 || (!!a.addressable && !remoteWindow);
   }
 
   /** pickerAddressRow is where an endpoint's address is changed. It is a row
@@ -5857,6 +5860,12 @@
     const item = row.item;
     const a = item.agent;
     if (item.type === "address") { editAddress(a); return; }
+    if (!a.available && a.addressable && remoteWindow) {
+      // The address and the key are both the desk's to give.
+      notice(a.name + (a.address ? " needs a key for " + a.address : " needs an address") +
+        ", which is given on the machine Flockdeck runs on.", true);
+      return;
+    }
     if (!a.available && a.addressable) {
       // An endpoint missing only its address is given one here, where the
       // question came up, rather than being sent off to edit a file.
