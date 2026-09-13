@@ -539,7 +539,15 @@ func ours(dir, recorded, cwd string) bool {
 	if recorded == "" || sameDir(recorded, cwd) {
 		return true
 	}
-	return projectSlug(recorded) != filepath.Base(dir)
+	// Folder names are compared as the filesystem compares them. Where case
+	// does not matter, "My_App" derives "My-App", which is this very folder
+	// when it is "my-app": compared exactly, the neighbour's conversation was
+	// taken for one that moved here, and offered.
+	slug, folder := projectSlug(recorded), filepath.Base(dir)
+	if pathsIgnoreCase {
+		return !strings.EqualFold(slug, folder)
+	}
+	return slug != folder
 }
 
 // readTranscripts runs read over each of n transcripts, a few at a time.

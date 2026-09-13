@@ -1714,6 +1714,32 @@ func TestRepeatedListingsOfManyFoldersHitTheCache(t *testing.T) {
 	}
 }
 
+// TestANeighbourSpelledInAnotherCaseIsNotOurs covers two directories whose
+// names derive one folder once case is set aside, on a filesystem that sets it
+// aside: "my-app" and "My_App" both come to "my-app". A transcript recording
+// the neighbour was compared to this folder's name exactly, found to derive a
+// folder of its own, and offered here as a conversation that had moved in --
+// a resume of somebody else's work in the wrong tree.
+func TestANeighbourSpelledInAnotherCaseIsNotOurs(t *testing.T) {
+	was := pathsIgnoreCase
+	pathsIgnoreCase = true
+	t.Cleanup(func() { pathsIgnoreCase = was })
+
+	const cwd = "/src/my-app"
+	dir := filepath.Join("projects", projectSlug(cwd))
+	if ours(dir, "/src/My_App", cwd) {
+		t.Error("a neighbour's conversation, whose folder differs only in case, was offered here")
+	}
+	// What was ours stays ours: this directory spelled another way, and one
+	// that derives a folder of its own and moved here.
+	if !ours(dir, "/SRC/My-App", cwd) {
+		t.Error("this directory, recorded in another case, was not offered here")
+	}
+	if !ours(dir, "/src/my-app/.worktrees/fix", cwd) {
+		t.Error("a conversation that moved here from a worktree was not offered here")
+	}
+}
+
 // FuzzDescribeATranscript throws damaged transcripts at the reading a listing
 // does. Everything here is a file something else is writing while this reads
 // it, and it is written by another program, on another schedule, in a format
