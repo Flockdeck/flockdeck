@@ -2647,6 +2647,20 @@ assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t1" }, "Cmd 
 `)
 }
 
+// On AZERTY the 0 key types à unless Shift is held, so Ctrl+0 arrived as
+// Ctrl+à, matched nothing, and a font size made bigger could not be put back
+// from the keyboard.
+func TestCtrlZeroResetsTheFontSizeOnAZERTY(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("fontUp");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
+h.key({ key: "à", code: "Digit0", ctrlKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 13 }, "Ctrl+0 on AZERTY did not reset the font size");
+`)
+}
+
 // The window's shortcuts went on running behind an open dialog: Ctrl+Shift+W
 // pressed while writing a commit message closed a pane nobody could see, and
 // Alt+2 switched the tab under it. While a dialog is up only the font keys,

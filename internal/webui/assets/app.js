@@ -4560,10 +4560,12 @@
     if (key === "+") { key = "="; shift = false; }
     // A layout that does not type Latin letters - Russian, Greek, Hebrew -
     // reports the key marked D as "в", so every Ctrl+Shift binding was dead
-    // on it. There the binding can only mean the physical key.
+    // on it. There the binding can only mean the physical key. The digit row
+    // too: on AZERTY the 0 key types à unless Shift is held, so Ctrl+0
+    // arrived as Ctrl+à and the font size could not be put back.
     if (/^[^\x00-\x7f]$/.test(key)) {
-      const m = /^Key([A-Z])$/.exec(e.code || "");
-      if (m) key = m[1].toLowerCase();
+      const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code || "");
+      if (m) key = (m[1] || m[2]).toLowerCase();
     }
     return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
   }
