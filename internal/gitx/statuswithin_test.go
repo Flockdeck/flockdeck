@@ -15,6 +15,7 @@ import (
 // was, rather than come back empty like a checkout git had nothing to say
 // about: the pane headers tell the two apart.
 func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
+	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}

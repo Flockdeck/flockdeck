@@ -11,6 +11,7 @@ import (
 // password into, and git said only that it "could not read Username ...
 // terminal prompts disabled".
 func TestARemoteWantingALoginSaysHowToGiveIt(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
 		w.WriteHeader(http.StatusUnauthorized)
