@@ -19,10 +19,17 @@ package selfupdate
 // manifest, or its checksums.txt, from dl.flockdeck.ai only when it carries a
 // signature this key checks.
 //
-// This is Flockdeck's release key, made by Terraform on 12 September 2026. A
-// new key means a release carrying its public half here, shipped before the
-// old one stops signing: copies that never got it would go on updating from
-// GitHub, which is safe, but never from dl.flockdeck.ai again.
+// This is Flockdeck's release key, made by Terraform on 12 September 2026.
+//
+// Since v0.3.3 a copy believes nothing it downloads without this key's
+// signature, from GitHub as much as from dl.flockdeck.ai, so GitHub is no
+// way round a key it does not hold. A copy that never got a new key cannot
+// update at all once the old key stops signing, and has to be installed again
+// by hand. So a new key means a release carrying its public half here, itself
+// signed by the old key, shipped well before the old key stops signing: long
+// enough for the copies in use to have moved to it. Nothing trusts two keys at
+// once yet, so every release signed by the new key alone is refused by a copy
+// still holding the old one.
 //
 // The key is compiled in rather than fetched because a key fetched from where
 // the release is would vouch for nothing: whoever could replace the release

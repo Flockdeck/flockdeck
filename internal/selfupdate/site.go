@@ -27,13 +27,23 @@ import (
 // Everything under /<version>/ is written once, when the release is published,
 // and never changes, so it is cached for a year. latest.json is the one file
 // that moves, and it is neither signed nor purged from the CDN's edges when
-// it does; it needs to be neither. All it can do is name a version, and the
-// updater trusts nothing until that version's own manifest has passed the
-// release key's signature and names the same version. So a stale latest.json,
-// or a forged one, can only name another signed release: an older one, which
-// Newer never moves to, or a pre-release, which latestFromSite refuses. The
-// most it can do is hold an update back for as long as it is cached; it can
-// never have anything unsigned installed, nor anything older.
+// it does. All it can do is name a version, and the updater trusts nothing
+// until that version's own manifest has passed the release key's signature
+// and names the same version. So a stale latest.json, or a forged one, can
+// only name another signed release: an older one, which Newer never moves to,
+// or a pre-release, which latestFromSite refuses. Otherwise it can hold an
+// update back for as long as it is cached, and it can never have anything
+// unsigned installed, nor anything older than the copy running.
+//
+// It can name a release that was withdrawn, though: one signed and published,
+// then taken down because something was wrong with it. That release is still
+// newer than a copy that never moved to it, and its signature still checks.
+// So whoever can write the site can point latest.json back at it and have it
+// installed, and so can whoever can publish on GitHub, where the updater goes
+// whenever the site fails. There is no revocation list yet, nothing that says
+// which signed releases the key no longer vouches for, so taking a release
+// down does not stop it being put back. Only such a list, or a latest.json
+// that is signed and expires, would.
 //
 // GitHub carries every release as well, checksums.txt.sig with it, and is
 // where the updater goes when the site cannot be reached, answers with
