@@ -13,6 +13,17 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 )
 
+// cannotRun skips a test that needs a real shell where none can run or echo --
+// on a developer's machine. CI is where these tests are meant to run, and a
+// skip there passes every one of them unrun, so there it fails instead.
+func cannotRun(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf(format+" (and CI is set, where these tests are meant to run)", args...)
+	}
+	t.Skipf(format, args...)
+}
+
 // startShell starts a shell session for testing, skipping if none can run.
 func startShell(t *testing.T) *Session {
 	t.Helper()
@@ -26,7 +37,7 @@ func startShell(t *testing.T) *Session {
 		Rows: 24,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
@@ -90,7 +101,7 @@ func TestAClosedPaneLetsGoOfItsFolder(t *testing.T) {
 		}
 		s, err := Start(Config{ID: "folder", Kind: KindShell, Cwd: dir, Argv: ShellArgs(), Env: Env(), Cols: 80, Rows: 24})
 		if err != nil {
-			t.Skipf("cannot start a shell in this environment: %v", err)
+			cannotRun(t, "cannot start a shell in this environment: %v", err)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close: %v", err)
@@ -126,7 +137,7 @@ func TestOnChangeIsInstalledBeforeTheReaderStarts(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -147,7 +158,7 @@ func TestSubscribeReplaysHistory(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	if _, ok := collect(t, out, replay, "replay_marker_ok", 20*time.Second); !ok {
-		t.Skip("shell did not echo in time; nothing to replay")
+		cannotRun(t, "shell did not echo in time; nothing to replay")
 	}
 	s.Unsubscribe(first)
 
@@ -614,7 +625,7 @@ func TestStartClampsItsInitialSize(t *testing.T) {
 		Rows: 1 << 20,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -860,9 +871,14 @@ func TestARepeatedEventIsNotReported(t *testing.T) {
 func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 	f := newFakePTY()
 	// The narrower resize takes longer to apply, so an unordered second one
-	// overtakes it inside the pseudo-terminal.
+	// overtakes it inside the pseudo-terminal. It says when it has reached the
+	// pseudo-terminal, which is when the second is sent: under way, and a long
+	// way from finished.
+	started := make(chan struct{})
+	var once sync.Once
 	f.resizeDelay = func(cols int) time.Duration {
 		if cols == 100 {
+			once.Do(func() { close(started) })
 			return 150 * time.Millisecond
 		}
 		return 0
@@ -875,9 +891,7 @@ func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 		defer close(done)
 		s.Resize(100, 24)
 	}()
-	// Long enough for the slow resize to be under way, short enough that it
-	// has not finished.
-	time.Sleep(30 * time.Millisecond)
+	<-started
 	s.Resize(120, 40)
 	<-done
 
@@ -1436,7 +1450,7 @@ func TestARealPaneReportsBusyThenIdle(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	if _, ok := collect(t, out, replay, "busy_marker_ok", 30*time.Second); !ok {
-		t.Skip("shell did not echo in time")
+		cannotRun(t, "shell did not echo in time")
 	}
 
 	waitForStatus(t, s, StatusWorking, 10*time.Second)
@@ -1683,7 +1697,7 @@ func TestStartTakesWhatItNeedsOffTheSpec(t *testing.T) {
 		Rows: 24,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 

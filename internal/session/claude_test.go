@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -334,6 +335,11 @@ func init() {
 		os.Exit(0)
 	case "orphan":
 		holdOutput()
+		// Tell the test the copy is holding the pipe, and who to kill.
+		if ready := os.Getenv("FLOCKDECK_ORPHAN_READY"); ready != "" {
+			_ = os.WriteFile(ready+".tmp", []byte(strconv.Itoa(os.Getpid())), 0o600)
+			_ = os.Rename(ready+".tmp", ready)
+		}
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	case "answered":
@@ -348,22 +354,54 @@ func init() {
 // an npm install on Windows is claude.cmd, and killing its cmd.exe leaves node
 // running. The answer was waited for until that let go as well, however long,
 // and it is asked on the goroutine that owns the workspace.
+//
+// The program is killed by the test once it says it has started what it leaves
+// behind, rather than by a timeout guessed to be long enough for that: a guess
+// too short on a slow machine killed it first, and the test then passed without
+// anything holding the pipe at all. Killed from outside, it ends as it would on
+// the timeout, and the wait from then on is WaitDelay's second, not the four
+// seconds the copy it left holds the pipe for.
 func TestTheVersionQuestionIsNotHeldByAnOrphan(t *testing.T) {
 	wait := versionTimeout
-	// Long enough for the program to have started what it leaves behind.
-	versionTimeout = 1500 * time.Millisecond
+	// Only a backstop: the test ends the program long before this.
+	versionTimeout = 30 * time.Second
 	t.Cleanup(func() { versionTimeout = wait })
+	ready := filepath.Join(t.TempDir(), "ready")
 	t.Setenv("FLOCKDECK_SLOW_VERSION", "orphan")
+	t.Setenv("FLOCKDECK_ORPHAN_READY", ready)
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	began := time.Now()
+
+	killed := make(chan time.Time, 1)
+	go func() {
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if raw, err := os.ReadFile(ready); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
+					if p, err := os.FindProcess(pid); err == nil {
+						killed <- time.Now()
+						_ = p.Kill()
+						return
+					}
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		close(killed)
+	}()
+
 	if got := installedClaudeVersion(self); got != "" {
 		t.Errorf("a program that did not answer in time reported %q", got)
 	}
-	if took := time.Since(began); took > 5*time.Second {
-		t.Errorf("the version question took %v, held open by what the program left behind", took)
+	ended := time.Now()
+	at, ok := <-killed
+	if !ok {
+		t.Fatal("the program never said it had started what it leaves behind")
+	}
+	if took := ended.Sub(at); took > 3*time.Second {
+		t.Errorf("the version question took %v after the program was killed, held open by what it left behind", took)
 	}
 }
 

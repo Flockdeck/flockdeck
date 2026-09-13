@@ -3,9 +3,32 @@ package chat
 import (
 	"context"
 	"io"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 )
+
+// promptWatch is a session's output that says when a question's prompt has
+// been drawn. The question is on the screen once "  > " is written, and only
+// then is the session waiting for a line to answer it with.
+type promptWatch struct {
+	mu     sync.Mutex
+	b      strings.Builder
+	once   sync.Once
+	prompt chan struct{}
+}
+
+func newPromptWatch() *promptWatch { return &promptWatch{prompt: make(chan struct{})} }
+
+func (p *promptWatch) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.b.Write(b)
+	if strings.Contains(p.b.String(), "  > ") {
+		p.once.Do(func() { close(p.prompt) })
+	}
+	return len(b), nil
+}
 
 // A line typed while the model was working is the next prompt, not an answer to
 // a question that was not on the screen when it was typed. It is kept for the
@@ -16,17 +39,22 @@ func TestALineTypedAheadIsNotTakenAsAnAnswer(t *testing.T) {
 	write := &fakeTool{name: "write_file", question: "write a.txt?", answer: "wrote"}
 	s, _ := newTestSession(t, "", nil, write)
 	s.in = newInput(r, true)
+	watch := newPromptWatch()
+	s.out = newPrinter(watch, 70, false)
 
-	// Typed while the model was still answering.
-	go w.Write([]byte("and then run the tests\n"))
-	time.Sleep(50 * time.Millisecond)
+	// Typed while the model was still answering. A pipe's write returns once
+	// the reader has taken the bytes, so the line is waiting before the
+	// question is asked, as a line the terminal had already delivered is.
+	if _, err := w.Write([]byte("and then run the tests\n")); err != nil {
+		t.Fatal(err)
+	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		s.runCalls(context.Background(), []ToolCall{{ID: "c1", Name: "write_file"}})
 	}()
-	time.Sleep(100 * time.Millisecond)
+	<-watch.prompt
 	w.Write([]byte("y\n")) // the answer, typed once the question was up
 	<-done
 

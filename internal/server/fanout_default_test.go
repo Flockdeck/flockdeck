@@ -46,7 +46,9 @@ func TestFanoutPreviewKeepsItsProjectsDefault(t *testing.T) {
 	}
 	want := defaultOf(first)
 	if want == defaultOf(second) {
-		t.Skip("the two projects' defaults could not be made to differ")
+		// The test arranged the difference itself, so a skip here would pass
+		// it unrun whenever that arrangement broke.
+		t.Fatalf("the two projects' defaults could not be made to differ: both are %q", want)
 	}
 
 	// The preview is held once the workspace has answered it, and the

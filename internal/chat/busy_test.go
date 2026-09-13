@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -15,10 +16,11 @@ func TestABusyAPIIsAskedAgain(t *testing.T) {
 	defer func(was []time.Duration) { busyBackoff = was }(busyBackoff)
 	busyBackoff = []time.Duration{time.Millisecond, time.Millisecond}
 
-	calls := 0
+	// The handler runs on the server's goroutines and the count is read on the
+	// test's, so it is counted atomically.
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls == 1 {
+		if calls.Add(1) == 1 {
 			http.Error(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, 529)
 			return
 		}
@@ -41,15 +43,15 @@ func TestABusyAPIIsAskedAgain(t *testing.T) {
 	if !strings.Contains(out.String(), "trying again") || !strings.Contains(out.String(), "got there") {
 		t.Errorf("the busy API was not asked again:\n%s", out.String())
 	}
-	if calls != 2 {
-		t.Errorf("asked %d times, want 2", calls)
+	if n := calls.Load(); n != 2 {
+		t.Errorf("asked %d times, want 2", n)
 	}
 }
 
 func TestABadRequestIsNotAskedAgain(t *testing.T) {
-	calls := 0
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		http.Error(w, `{"error":{"message":"prompt is too long"}}`, http.StatusBadRequest)
 	}))
 	defer srv.Close()
@@ -60,7 +62,7 @@ func TestABadRequestIsNotAskedAgain(t *testing.T) {
 		Model: "claude-sonnet-5", Session: "s", Dir: t.TempDir(), Task: "hello",
 		In: strings.NewReader(""), Out: &out, Width: 60,
 	})
-	if calls != 1 {
-		t.Errorf("a request the API refused was sent %d times", calls)
+	if n := calls.Load(); n != 1 {
+		t.Errorf("a request the API refused was sent %d times", n)
 	}
 }

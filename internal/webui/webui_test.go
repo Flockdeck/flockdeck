@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -10,10 +11,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// frontEndDeadline bounds one front-end case run under node.
+const frontEndDeadline = 2 * time.Minute
 
 // readAsset returns one of the embedded front-end files.
 func readAsset(t *testing.T, name string) string {
@@ -415,10 +420,20 @@ func runFrontEnd(t *testing.T, body string) string {
 		"const h = boot();\n(async () => {\n"+body+
 		"\n})().catch((err) => { console.error(err); process.exitCode = 1; });\n")
 
-	cmd := exec.Command(node, filepath.Join(dir, "case.js"))
+	// A case that never settles -- a timer that keeps rearming, a promise
+	// nothing resolves -- leaves node running for ever, and the whole package
+	// then stops at go test's own timeout with nothing said about which case
+	// it was. A case takes a second or two; this names the one that did not.
+	ctx, cancel := context.WithTimeout(context.Background(), frontEndDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, node, filepath.Join(dir, "case.js"))
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "FLOCKDECK_ASSETS="+dir)
+	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the front end did not finish this case within %v:\n%s", frontEndDeadline, out)
+	}
 	if err != nil {
 		t.Fatalf("the front end failed this case: %v\n%s", err, out)
 	}

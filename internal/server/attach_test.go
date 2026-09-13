@@ -58,6 +58,8 @@ func TestRequestOpenSaysWhyItFailed(t *testing.T) {
 // whether to attach.
 func TestProbeIdentifiesTheInstance(t *testing.T) {
 	srv, _ := newTestServer(t)
+	was := Version
+	t.Cleanup(func() { Version = was })
 	Version = "test-version"
 
 	h, err := Probe(srv.BaseURL(), srv.Token())

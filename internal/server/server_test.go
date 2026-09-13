@@ -99,7 +99,19 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	// Close only asks the workspace goroutine to stop; the change it is applying
+	// runs on, reading whatever package variables it reads. The next test swaps
+	// some of those -- usageOf, readChanges, panesIn -- so the cleanup waits for
+	// the goroutine to be gone before the workspace, registered earlier, is
+	// closed and the test is over.
+	t.Cleanup(func() {
+		_ = srv.Close()
+		select {
+		case <-srv.Stopped():
+		case <-time.After(10 * time.Second):
+			t.Error("the server's workspace goroutine was still running ten seconds after Close")
+		}
+	})
 	ws.SetWake(srv.Wake)
 	return srv, ws
 }
