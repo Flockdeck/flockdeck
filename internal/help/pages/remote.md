@@ -99,7 +99,9 @@ Here, Settings › **Remote access** says what is sent:
   replaces the one before it, and no more than one a minute. It is sent once
   an agent has waited that long and nobody has used this computer — keyboard
   or mouse, in any application — for two minutes, or its screen is locked;
-  a Flockdeck window being in front of you makes no difference. Nothing is
+  a Flockdeck window being in front of you makes no difference. Where the
+  operating system's idle time can't be read, typing and clicks in
+  Flockdeck's own windows here are what count instead. Nothing is
   sent about a pane you are using on the phone; if it is still waiting two
   minutes after you leave it, you are told then.
 - **Send nothing identifying** has a notification say only "An agent on *this

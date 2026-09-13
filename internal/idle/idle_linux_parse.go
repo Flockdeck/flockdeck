@@ -39,9 +39,14 @@ func parseXprintidle(output string) (uint64, bool) {
 //
 // IdleSinceHint is a wall-clock reading in microseconds since the epoch, of
 // when the idle hint last turned on; now is passed in rather than read here
-// so a test can fix it. A session with IdleHint not yet on is not proven idle
-// -- logind's own idle threshold has simply not passed -- so 0 is reported
-// for it rather than guessing.
+// so a test can fix it.
+//
+// A session with IdleHint off says nothing either way: logind's own idle
+// threshold may simply not have passed, or nothing ever tells logind the
+// session is idle at all -- an SSH session, or a desktop that does not --
+// and taking that for "in use" would hold every push back for good on a
+// machine nobody sits at. So unless the session is locked, that is no
+// answer, and the caller falls back to input seen in Flockdeck's own windows.
 func parseLoginctl(output string, now time.Time) (time.Duration, bool, bool) {
 	fields := map[string]string{}
 	for _, line := range strings.Split(output, "\n") {
@@ -61,12 +66,9 @@ func parseLoginctl(output string, now time.Time) (time.Duration, bool, bool) {
 		return 0, false, false
 	}
 	locked := lockedHint == "yes"
-	if idleHint != "yes" {
-		return 0, locked, true
-	}
 	usec, err := strconv.ParseInt(fields["IdleSinceHint"], 10, 64)
-	if err != nil || usec == 0 {
-		return 0, locked, true
+	if idleHint != "yes" || err != nil || usec == 0 {
+		return 0, locked, locked
 	}
 	since := time.Unix(usec/1e6, (usec%1e6)*1000)
 	d := now.Sub(since)

@@ -50,11 +50,12 @@ func TestParseLoginctl(t *testing.T) {
 		t.Errorf("idle since %v ago, got %v", 5*time.Minute, d)
 	}
 
-	// Not (yet) idle by logind's own reckoning: reported as 0, not as
-	// however long the session has actually been open.
+	// Not idle by logind's reckoning, and not locked: no answer, not "in
+	// use". An SSH session, or a desktop that never tells logind, stays like
+	// this for good, and taken for "in use" it would hold every push back.
 	d, locked, ok = parseLoginctl("LockedHint=no\nIdleHint=no\nIdleSinceHint=0\n", now)
-	if !ok || locked || d != 0 {
-		t.Errorf("a session logind has not called idle: d=%v locked=%v ok=%v", d, locked, ok)
+	if ok {
+		t.Errorf("a session logind has not called idle was taken as an answer: d=%v locked=%v", d, locked)
 	}
 
 	if _, _, ok := parseLoginctl("Unit not found.\n", now); ok {

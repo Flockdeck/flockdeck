@@ -78,6 +78,14 @@ type pushState struct {
 	// replaces it, on the workspace goroutine, which is where it is read.
 	idleSince func() (d time.Duration, locked bool, ok bool)
 
+	// idleAsk is when the OS next needs asking, and idleNone whether it
+	// answered nothing when last asked; see deskInUse. Asking on Linux and
+	// macOS runs a command, and an agent can wait on somebody at the desk
+	// for hours, so an answer is kept until it could have changed.
+	idleMu   sync.Mutex
+	idleAsk  time.Time
+	idleNone bool
+
 	// desk is, for each window on this machine, when it last reported real
 	// keyboard or mouse input; see setDeskUsed. It backs deskInUse only when
 	// idleSince cannot say -- the OS asked has no answer for this machine.
@@ -130,15 +138,37 @@ func (s *Server) deskWindowUsed(now time.Time) bool {
 // where the OS cannot be asked, a Flockdeck window here has. Whether any
 // window is in front makes no difference either way. A locked screen is
 // always away, whatever the idle time.
+//
+// An idle time of d, under deskLook, cannot reach deskLook sooner than
+// deskLook-d from now, so the OS is not asked again before then; a screen
+// locked in the meantime is noticed at the latest when the idle time would
+// have been. An OS with no answer is asked again after a minute.
 func (s *Server) deskInUse(now time.Time) bool {
+	s.push.idleMu.Lock()
+	defer s.push.idleMu.Unlock()
+	if now.Before(s.push.idleAsk) {
+		if s.push.idleNone {
+			return s.deskWindowUsed(now)
+		}
+		return true
+	}
 	since := s.push.idleSince
 	if since == nil {
 		since = osidle.Since
 	}
-	if d, locked, ok := since(); ok {
-		return !locked && d < deskLook
+	d, locked, ok := since()
+	s.push.idleNone = !ok
+	switch {
+	case !ok:
+		s.push.idleAsk = now.Add(time.Minute)
+		return s.deskWindowUsed(now)
+	case locked || d >= deskLook:
+		s.push.idleAsk = time.Time{}
+		return false
+	default:
+		s.push.idleAsk = now.Add(deskLook - d)
+		return true
 	}
-	return s.deskWindowUsed(now)
 }
 
 // pushDelay is how long a wait lasts before it is pushed.

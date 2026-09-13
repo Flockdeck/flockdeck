@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,12 +206,62 @@ func TestAPaneUsedAtTheDeskIsStillPushed(t *testing.T) {
 }
 
 // setIdle replaces the server's idle source with a fixed answer, on the
-// workspace goroutine, where deskInUse reads it.
+// workspace goroutine, where deskInUse reads it, and forgets the answer
+// deskInUse kept from the one before.
 func setIdle(srv *Server, d time.Duration, locked, ok bool) {
 	ask(srv, func() bool {
 		srv.push.idleSince = func() (time.Duration, bool, bool) { return d, locked, ok }
+		srv.push.idleMu.Lock()
+		srv.push.idleAsk = time.Time{}
+		srv.push.idleMu.Unlock()
 		return true
 	})
+}
+
+// The OS is asked again only once its last answer could have changed: an
+// idle time of 90 seconds cannot reach two minutes in under 30, and an OS
+// with no answer is asked again after a minute. On Linux and macOS each
+// asking runs a command, and an agent can wait on somebody at the desk for
+// hours.
+func TestTheOSIsNotAskedAgainBeforeItsAnswerCouldChange(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var asked atomic.Int32
+	answer := func(d time.Duration, ok bool) {
+		ask(srv, func() bool {
+			srv.push.idleSince = func() (time.Duration, bool, bool) { asked.Add(1); return d, false, ok }
+			srv.push.idleMu.Lock()
+			srv.push.idleAsk = time.Time{}
+			srv.push.idleMu.Unlock()
+			return true
+		})
+		asked.Store(0)
+	}
+
+	t0 := time.Now()
+	answer(90*time.Second, true)
+	for _, at := range []time.Duration{0, 10 * time.Second, 29 * time.Second} {
+		if !srv.deskInUse(t0.Add(at)) {
+			t.Fatalf("idle 90 seconds at %v was taken for away", at)
+		}
+	}
+	if n := asked.Load(); n != 1 {
+		t.Errorf("the OS was asked %d times in the 30 seconds its answer held, not once", n)
+	}
+	srv.deskInUse(t0.Add(31 * time.Second))
+	if n := asked.Load(); n != 2 {
+		t.Errorf("the OS was not asked again once its answer could have changed: %d", n)
+	}
+
+	answer(0, false)
+	srv.deskInUse(t0)
+	srv.deskInUse(t0.Add(59 * time.Second))
+	if n := asked.Load(); n != 1 {
+		t.Errorf("an OS with no answer was asked %d times inside a minute, not once", n)
+	}
+	srv.deskInUse(t0.Add(61 * time.Second))
+	if n := asked.Load(); n != 2 {
+		t.Errorf("an OS with no answer was not asked again after a minute: %d", n)
+	}
 }
 
 // An idle time the OS can answer decides who is at the desk, with no window

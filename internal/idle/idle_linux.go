@@ -14,11 +14,12 @@ import (
 //   - xprintidle, an X11 tool some other desktops carry;
 //   - logind, which does not read the idle time itself but exposes a
 //     hint of it once the compositor has told it the session is idle, and
-//     always says whether the session is locked.
+//     says whether the session is locked.
 //
-// None of the three, on this OS, has been found without the others: it
-// leaves an idle time of 0 -- not locked, and not proven idle either -- to
-// whichever is first found, rather than mixing readings from two of them.
+// The first that answers is taken whole, rather than mixing readings from
+// two of them. logind answers only when it says the session is locked or
+// idle; otherwise, as for an SSH session, there is no answer, and the push
+// loop falls back to input seen in Flockdeck's own windows.
 func Since() (time.Duration, bool, bool) {
 	if d, locked, ok := gdbusIdle(); ok {
 		return d, locked, ok
@@ -66,7 +67,8 @@ func xprintidleIdle() (time.Duration, bool, bool) {
 // XDG_SESSION_ID. It is the only one of the three that can say the session
 // is locked, and the last one tried because its idle reading is the least
 // direct: IdleHint only turns on after logind's own, usually longer, idle
-// threshold, and 0 is reported until then.
+// threshold, and never at all for a session nothing tells it about. Until it
+// does, unless the session is locked, this is no answer; see parseLoginctl.
 func loginctlIdle() (time.Duration, bool, bool) {
 	session, ok := lookupSessionID()
 	if !ok {
