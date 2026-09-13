@@ -2298,11 +2298,12 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
     panes.set(id, p);
+    watchTouch(p);
 
     // Focusing or tapping the terminal is using the pane in this window.
     if (term.textarea) term.textarea.addEventListener("focus", () => sendFocus(p));
@@ -2324,6 +2325,124 @@
     p.resize.observe(host);
     connectPTY(p);
     return p;
+  }
+
+  // wheelNotch is how far a finger has to move before another wheel event is
+  // sent for it, and wheelGapMs how long a dispatch waits for the last one at
+  // the earliest. The scrollback's own scrollbar animates each wheel event
+  // it is sent rather than jumping straight there, and one sent before the
+  // last has finished only restarts it: distance alone was not enough to
+  // gate on, since a fast drag crosses 24px in far less time than that
+  // animation takes to settle, and kept restarting it the same way a stream
+  // of one-pixel events would have. Whatever is left over when a drag ends
+  // before either bound is reached is sent anyway, in touchend below, so a
+  // short drag still moves something.
+  const wheelNotch = 24;
+  const wheelGapMs = 60;
+
+  /** watchTouch scrolls a pane's terminal under a dragging finger. xterm
+   *  scrolls for a wheel but never for touch, so a phone or tablet reaching
+   *  the desktop through the relay had no way to read anything above the
+   *  screen at all. Decided once per drag, as the browser decides whether a
+   *  touch is a pan: from the first real movement, a mostly vertical drag is
+   *  the terminal's and a mostly horizontal one is left alone.
+   *
+   *  What the drag becomes is a wheel event, not a call into xterm's own
+   *  scrollback: a program on the alternate screen - Claude Code, vim, less -
+   *  has no scrollback of its own, and it is xterm's own wheel handling, not
+   *  scrollLines, that turns a wheel there into the arrow keys such a
+   *  program reads. Dispatched on the terminal's canvas, the one event
+   *  reaches both that handling and the scrollback of a plain program, so
+   *  one code path serves whatever is running. */
+  function watchTouch(p) {
+    const el = p.host;
+    let drag = null;
+    const wheelTarget = () => el.querySelector(".xterm-screen") || (p.term && p.term.element) || el;
+    const sendWheel = (deltaY, x, y) => {
+      const t = wheelTarget();
+      if (!deltaY || !t || !t.isConnected) return;
+      // wheelDeltaY as well as deltaY: the normal buffer's own scrollback is
+      // drawn by a scrollbar widget that reads the legacy property, in its
+      // legacy sign - the opposite of deltaY's - and a synthetic event does
+      // not get one made up for it the way a real wheel's does. Without it
+      // supplied, a drag scrolled the wrong buffer the wrong way as often as
+      // not. The alternate screen's own handling - the arrow keys a program
+      // there reads - looks only at deltaY, so this changes nothing for it.
+      t.dispatchEvent(new WheelEvent("wheel", {
+        deltaY, wheelDeltaY: -deltaY, clientX: x, clientY: y, bubbles: true, cancelable: true,
+      }));
+    };
+    el.addEventListener("touchstart", (e) => {
+      // A finger put down on a flung scroll catches it, as a hand on a page.
+      clearTimeout(p.flingTimer);
+      const t = e.touches[0];
+      drag = e.touches.length === 1
+        ? { x: t.clientX, y: t.clientY, mine: null, lastY: t.clientY, pending: 0, sentAt: 0, at: Date.now(), speed: 0 }
+        : null;
+    }, { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (!drag || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - drag.x;
+      const dy = t.clientY - drag.y;
+      if (drag.mine === null) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        // Decided once, on the first real movement, and kept for the drag.
+        drag.mine = Math.abs(dy) >= Math.abs(dx);
+      }
+      if (!drag.mine) return;
+      e.preventDefault();
+      const now = Date.now();
+      const step = t.clientY - drag.lastY;
+      if (now > drag.at) {
+        // Pixels a millisecond, weighted to the last few moves, so a flick
+        // still reads as fast even when its final move happened to be small.
+        drag.speed = 0.8 * (step / (now - drag.at)) + 0.2 * drag.speed;
+        drag.at = now;
+      }
+      drag.lastY = t.clientY;
+      drag.pending += step;
+      if (Math.abs(drag.pending) >= wheelNotch && now - drag.sentAt >= wheelGapMs) {
+        // A finger moving down brings earlier output into view, exactly as
+        // dragging a page does; the wheel's own sign says the same thing.
+        sendWheel(-drag.pending, t.clientX, t.clientY);
+        drag.pending = 0;
+        drag.sentAt = now;
+      }
+    }, { passive: false });
+    el.addEventListener("touchend", (e) => {
+      const d = drag;
+      drag = null;
+      if (!d) return;
+      // What has not reached a whole notch, or the gap, is not lost: a short
+      // or slow drag would otherwise scroll nothing at all.
+      const t = e.changedTouches[0];
+      if (d.mine && d.pending) sendWheel(-d.pending, t ? t.clientX : d.x, d.lastY);
+      if (d.mine && Math.abs(d.speed) >= 0.3 && Date.now() - d.at < 100) fling(p, d.speed, d.lastY);
+    });
+    el.addEventListener("touchcancel", () => { drag = null; });
+  }
+
+  /** fling carries a scroll on after a flick, at speed pixels a millisecond,
+   *  slowing until it is too slow to see or the pane it belongs to is gone.
+   *  Ticking every wheelGapMs rather than every frame, for the same reason
+   *  watchTouch waits that long between sends: a wheel event most every
+   *  frame raced the scrollback's own animation and barely moved it. */
+  function fling(p, speed, y) {
+    clearTimeout(p.flingTimer);
+    const tick = () => {
+      if (!panes.has(p.id) || !p.host.isConnected) return;
+      speed *= Math.pow(0.95, wheelGapMs / 16);
+      if (Math.abs(speed) < 0.05) return;
+      const deltaY = -speed * wheelGapMs;
+      const t = p.host.querySelector(".xterm-screen") || (p.term && p.term.element) || p.host;
+      if (t.isConnected) {
+        // See sendWheel in watchTouch for why wheelDeltaY is set alongside it.
+        t.dispatchEvent(new WheelEvent("wheel", { deltaY, wheelDeltaY: -deltaY, clientY: y, bubbles: true, cancelable: true }));
+      }
+      p.flingTimer = setTimeout(tick, wheelGapMs);
+    };
+    p.flingTimer = setTimeout(tick, wheelGapMs);
   }
 
   /** drawWithWebgl gives a pane's terminal a WebGL renderer while it is on
@@ -3040,6 +3159,7 @@
       if (live.has(id)) continue;
       clearTimeout(p.retryTimer);
       clearTimeout(p.fitTimer);
+      clearTimeout(p.flingTimer);
       panes.delete(id); // stop the close handler from reconnecting
       // The find bar searches the pane it was opened for, and with that pane
       // gone it stayed open, still naming it, while Enter and F3 did nothing.

@@ -585,7 +585,12 @@ textarea:focus-visible {
 .pane-actions button.zoomed { background: var(--accent); color: #06101f; }
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
-.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; }
+/* touch-action: with none of xterm's own scrollback able to see a touch (only
+ * a wheel), a drag here otherwise went to the browser as a pan - of nothing,
+ * since the pane's own box never scrolls, but claimed the gesture all the
+ * same and left script's touchmove with nothing to turn into the wheel event
+ * that does the scrolling (watchTouch, in app.js). */
+.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; touch-action: none; }
 /* Shown only while the pane is scrolled back from its newest line. Clear of
  * the terminal's scroll bar at the right edge. */
 .to-latest {

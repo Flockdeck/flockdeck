@@ -198,6 +198,29 @@ func TestRemoteRequestsNeedNoToken(t *testing.T) {
 	}
 }
 
+// A phone reaches the front end only through the tunnel, and keeps a browser
+// profile of its own between one desktop version and the next. Locally that is
+// covered by TestIndexSetsCookieAndServesAssets; this is the same guarantee
+// for the path a phone actually takes, so an upgrade cannot leave a relay
+// window running an older page or script than the desktop it is talking to.
+func TestRemoteAssetsAreNotCached(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/vendor/xterm.js", "/assets/icon-32.png"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s through the tunnel = %d, want 200", path, resp.StatusCode)
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("GET %s through the tunnel Cache-Control = %q, want no-store", path, cc)
+		}
+	}
+}
+
 // The endpoints another launch of the binary uses are not for a remote window
 // at all. /quit in particular stops every agent in every project, and a
 // device that can drive the window has no business reaching it by the back
