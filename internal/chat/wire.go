@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -36,32 +37,98 @@ func NewWire(name, baseURL, key string) (Wire, error) {
 //
 // It has no timeout of its own on purpose: a streamed turn can take minutes,
 // and what ends one early is the context -- which is what Ctrl+C cancels.
-var httpClient = &http.Client{}
+var httpClient = &http.Client{CheckRedirect: keepToTheAddress}
 
-// endpoint builds a request URL from a base that may or may not already name
-// the API version.
+// keepToTheAddress follows a redirect only on the host that was asked, and
+// never from https down to plain http.
+//
+// Go carries a request's own headers across a redirect, and the key travels in
+// one of them -- x-api-key, x-goog-api-key -- which Go does not know to drop
+// the way it drops Authorization. A redirect to anywhere else handed the key
+// to that address; one to plain http sent it in the clear.
+func keepToTheAddress(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	asked := via[0].URL
+	switch {
+	case !strings.EqualFold(req.URL.Host, asked.Host):
+		return fmt.Errorf("the endpoint redirected to %s, which is not followed: the key would be sent there", req.URL.Host)
+	case asked.Scheme == "https" && req.URL.Scheme != "https":
+		return errors.New("the endpoint redirected from https to plain http, which is not followed: the key would be sent unencrypted")
+	}
+	return nil
+}
+
+// endpoint builds a request URL for the Anthropic and Gemini wires from a base
+// that may or may not already name the API version.
 //
 // Both spellings are in the wild and both are what somebody would paste into
-// agents.json: OpenAI-compatible servers are usually given as
-// `http://127.0.0.1:11434/v1`, while the vendors' own roots carry no version
-// at all. Guessing wrong is a 404 the user cannot do anything about, so the
-// version is added only when it is not already there.
+// agents.json: a gateway is given as `https://gateway.example/anthropic/v1` as
+// often as without the version, while the vendors' own roots carry none at
+// all. Guessing wrong is a 404 the user cannot do anything about, so the
+// version is added only when the base does not already end in it.
 func endpoint(base, fallback, version, path string) string {
-	b := strings.TrimRight(strings.TrimSpace(base), "/")
+	return joinEndpoint(base, fallback, version, path, func(p string) bool {
+		return strings.HasSuffix(p, "/"+version)
+	})
+}
+
+// openaiEndpoint builds a request URL for the OpenAI wire.
+//
+// The version is added only to a bare root -- `http://127.0.0.1:11434` -- and
+// a base with a path of its own is taken to be the whole of the API's root
+// already. The servers that speak this wire put it wherever they like:
+// Cloudflare's gateway under .../openai, Gemini's under /v1beta/openai,
+// Zhipu's under /api/paas/v4. Given /v1 on the end of any of those, every
+// request was a 404.
+func openaiEndpoint(base, path string) string {
+	return joinEndpoint(base, "https://api.openai.com", "v1", path, func(p string) bool { return p != "" })
+}
+
+// joinEndpoint puts the API's path after a base's own, with the version
+// between them where versioned says the base's path lacks it.
+//
+// The base is parsed rather than pasted onto, because a base can carry a query
+// -- Azure's ?api-version= -- and the path pasted after it went into the
+// query, not the path. The query of the base and the path's own are both kept.
+func joinEndpoint(base, fallback, version, path string, versioned func(basePath string) bool) string {
+	b := strings.TrimSpace(base)
+	if b == "" {
+		b = fallback
+	}
+	u, err := url.Parse(b)
+	if err != nil || u.Host == "" {
+		// Not an address that can be parsed: it is pasted onto as it stands,
+		// and the request that fails with it says what is wrong with it.
+		return strings.TrimRight(b, "/") + "/" + version + path
+	}
+	p := strings.TrimRight(u.EscapedPath(), "/")
 	// The address a server's documentation gives is as often the whole
 	// request URL as its root -- http://127.0.0.1:1234/v1/chat/completions --
 	// and pasted as the base it had the path added a second time, which is a
 	// 404 on every request. The API's own paths are taken back off first.
 	for _, tail := range []string{"/chat/completions", "/messages", "/models"} {
-		b = strings.TrimRight(strings.TrimSuffix(b, tail), "/")
+		p = strings.TrimRight(strings.TrimSuffix(p, tail), "/")
 	}
-	if b == "" {
-		b = strings.TrimRight(fallback, "/")
+	if !versioned(p) {
+		p += "/" + version
 	}
-	if !strings.HasSuffix(b, "/"+version) {
-		b += "/" + version
+	rest, query, _ := strings.Cut(path, "?")
+	p += rest
+	// The path arrives escaped already -- a Gemini model's name is -- so it is
+	// set as the escaped form, with the plain one beside it as url.URL wants.
+	if plain, err := url.PathUnescape(p); err == nil {
+		u.Path, u.RawPath = plain, p
 	}
-	return b + path
+	switch {
+	case u.RawQuery == "":
+		u.RawQuery = query
+	case query != "":
+		u.RawQuery += "&" + query
+	}
+	u.Fragment, u.RawFragment = "", ""
+	return u.String()
 }
 
 // post sends one JSON body and returns the response body for streaming.
@@ -88,13 +155,30 @@ func post(ctx context.Context, url string, header http.Header, body any) (io.Rea
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		resp.Body.Close()
-		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg)}
-		if secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && secs > 0 {
-			e.RetryAfter = time.Duration(secs) * time.Second
-		}
+		e := &apiError{Code: resp.StatusCode, Status: resp.Status, Msg: apiMessage(msg),
+			RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 		return nil, e
 	}
 	return resp.Body, nil
+}
+
+// retryAfter is how long a Retry-After header asks to be left, or 0 where it
+// says nothing that can be read. The header is a number of seconds or a date,
+// and a proxy in front of an API sends the date as often as not: read only as
+// seconds, a date was no request at all, and the API was asked again two
+// seconds later.
+func retryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	if secs, err := strconv.Atoi(h); err == nil {
+		if secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+		return 0
+	}
+	if at, err := http.ParseTime(h); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
 }
 
 // apiError is a request the API answered with a failure, kept whole rather

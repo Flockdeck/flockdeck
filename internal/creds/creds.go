@@ -157,12 +157,12 @@ func StatusOf(spec agent.Spec) Status {
 		Stored:    k.Source == SourceStore || Has(spec.ID),
 	}
 	// The chat client looks further than the entry's own variables: then the
-	// wire's usual one and Flockdeck's own, which the picker counts as well.
-	// An entry with a variable of its own is handed its stored key under that
-	// name, so for it they come after the store; one with none is not, so for
-	// it they come before. Said only from the entry's own, a gateway given just
-	// an address was "not set -- run `flockdeck keys set`" in the keys dialog
-	// while the picker offered it and its pane ran on OPENAI_API_KEY.
+	// wire's usual one, for an entry talking to that vendor, and Flockdeck's
+	// own -- agent.KeyNames, which the picker counts by as well. An entry with
+	// a variable of its own is handed its stored key under that name, so for
+	// it they come after the store; one with none is not, so for it they come
+	// before. A gateway given just an address is never given the vendor's
+	// variable, so for it that is FLOCKDECK_API_KEY and then its stored key.
 	if !st.Set || len(spec.API.KeyEnv) == 0 {
 		for _, name := range agent.KeyNames(spec) {
 			if strings.TrimSpace(os.Getenv(name)) != "" {

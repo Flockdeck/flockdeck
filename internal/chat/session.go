@@ -194,6 +194,7 @@ func Run(ctx context.Context, o Options) error {
 	for _, t := range o.Tools {
 		s.tools[t.Name()] = t
 	}
+	s.reporter.unpriced = o.BaseURL != ""
 
 	signals := o.Signals
 	if signals == nil {
@@ -446,7 +447,12 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 		before := len(s.messages)
 		calls, err := s.stream(turnCtx)
 		e, isBusy := busy(err)
-		if (isBusy || dropped(err)) && retries < len(busyBackoff) && len(s.messages) == before {
+		// An API that asks to be left for longer than a minute is not asked
+		// again on its own: asked sooner, it refuses again, and a pane waiting
+		// out ten minutes nobody is told of looks hung. It is reported, and
+		// /retry is for whoever comes back to it.
+		longWait := isBusy && e.RetryAfter > time.Minute
+		if (isBusy || dropped(err)) && !longWait && retries < len(busyBackoff) && len(s.messages) == before {
 			// A connection that dropped before a word of the answer came is as
 			// passing as a busy API, and asking again as safe: nothing was
 			// drawn to be drawn twice.
@@ -458,7 +464,7 @@ func (s *session) carryOn(ctx context.Context, prompt string) {
 			why := "the connection dropped before any of the answer came"
 			if isBusy {
 				why = busyWords(e)
-				if e.RetryAfter > 0 && e.RetryAfter <= time.Minute {
+				if e.RetryAfter > 0 {
 					wait = e.RetryAfter
 				}
 			}
@@ -588,7 +594,11 @@ func (s *session) sayWhyItStopped(err error) {
 		// does not say whether it was asked again: an answer that failed
 		// part-way is not, and one that failed at once was.
 		s.out.line(ansiRed, busyWords(be)+": "+redactKeys(be.Msg))
-		s.out.line(ansiDim, "(/retry asks again, once it is less busy)")
+		if be.RetryAfter > time.Minute {
+			s.out.line(ansiDim, "(the API asked to be left for "+be.RetryAfter.Round(time.Second).String()+"; /retry asks again after that)")
+		} else {
+			s.out.line(ansiDim, "(/retry asks again, once it is less busy)")
+		}
 	default:
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		s.out.line(ansiDim, "(/retry asks again)")
@@ -648,7 +658,13 @@ func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	}
 	s.out.endMessage()
 	s.total.Add(usage)
-	s.spent.add(s.model, usage)
+	if s.opts.BaseURL == "" {
+		s.spent.add(s.model, usage)
+	} else if usage != (Usage{}) {
+		// Through an address of its own the vendor's list price is not what
+		// is paid, and a figure from it would be a guess shown as a cost.
+		s.spent.unpriced = true
+	}
 	// The pane header shows what the conversation has cost, as the line
 	// under it does; this is what it is told.
 	s.reporter.usage(s.model, usage)

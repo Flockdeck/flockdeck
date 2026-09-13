@@ -26,5 +26,8 @@ func (s *session) readdress() bool {
 		return false
 	}
 	s.opts.BaseURL, s.wire = base, wire
+	if s.reporter != nil {
+		s.reporter.unpriced = base != ""
+	}
 	return true
 }

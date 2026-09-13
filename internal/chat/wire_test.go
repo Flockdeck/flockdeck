@@ -272,7 +272,7 @@ func TestEndpointKeepsAVersionTheBaseAlreadyHas(t *testing.T) {
 		{"http://127.0.0.1:8000", "http://127.0.0.1:8000/v1/chat/completions"},
 	}
 	for _, tc := range tests {
-		if got := endpoint(tc.base, "https://api.openai.com", "v1", "/chat/completions"); got != tc.want {
+		if got := openaiEndpoint(tc.base, "/chat/completions"); got != tc.want {
 			t.Errorf("endpoint(%q) = %q, want %q", tc.base, got, tc.want)
 		}
 	}

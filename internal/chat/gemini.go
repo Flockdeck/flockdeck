@@ -190,6 +190,8 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		return nil
 	})
 	if err != nil {
+		// What was read before the stream broke is spent all the same.
+		emit(Event{Kind: EventUsage, Usage: usage})
 		return err
 	}
 	// An answer that stopped short, and a prompt refused outright, say so in

@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 // KeyStore is asked for an API key when the environment does not have one. It
@@ -118,14 +120,29 @@ func lookupKey(o Options) (key, from string) {
 	return "", ""
 }
 
+// KeyFor is the key a pane started with these options would send, and where
+// it comes from in words that never include it. It is the chat's own lookup,
+// so that `flockdeck keys check` asks the endpoint about that key rather than
+// one found in another order; KeyStore must be set for a stored key to count.
+func KeyFor(o Options) (key, from string) { return lookupKey(o) }
+
 // keyNames are the environment variables a key is looked for in, in order: the
 // agent's own, the wire's conventional one, and Flockdeck's. The spec usually
 // names the conventional variable itself, and an error that tells somebody to
 // set X or X is one they read twice.
+//
+// The conventional one is looked in only where the chat talks to that vendor.
+// Pointed at a gateway, the chat sent OPENAI_API_KEY -- the user's key for
+// OpenAI -- to the gateway, ahead of the key stored for the gateway itself;
+// agent.VendorsOwn is the rule, which the picker and the keys dialog go by too.
 func keyNames(o Options) []string {
+	candidates := append([]string{}, o.KeyEnv...)
+	if agent.VendorsOwn(agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL}) {
+		candidates = append(candidates, defaultKeyEnv(o.Wire)...)
+	}
 	var names []string
 	seen := map[string]bool{}
-	for _, name := range append(append(append([]string{}, o.KeyEnv...), defaultKeyEnv(o.Wire)...), "FLOCKDECK_API_KEY") {
+	for _, name := range append(candidates, "FLOCKDECK_API_KEY") {
 		if !seen[name] {
 			seen[name] = true
 			names = append(names, name)
