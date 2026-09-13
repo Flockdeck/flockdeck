@@ -826,9 +826,12 @@ textarea:focus-visible {
  * a leading punctuation character to the far end: ".gitignore" was drawn as
  * "gitignore.", and every path under ".github/" the same way. Prefixing a
  * left-to-right mark gives those neutrals a strong character to attach to, so
- * they stay where they were typed while the elision still happens on the left. */
+ * they stay where they were typed while the elision still happens on the left.
+ * The end of the name needs the same: "report (1)" ends in a neutral ")",
+ * which the right-to-left line took to its other end and drew as
+ * "(report (1", so a mark follows the name as well as leading it. */
 .rev-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.rev-name::before { content: "\200E"; }
+.rev-name::before, .rev-name::after { content: "\200E"; }
 .rev-kind { color: var(--fg-dim); font-size: 10px; }
 .rev-plus { color: var(--working); font-size: 11px; }
 .rev-minus { color: var(--exited); font-size: 11px; }

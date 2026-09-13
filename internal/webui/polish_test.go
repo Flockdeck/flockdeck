@@ -875,3 +875,17 @@ assert.deepStrictEqual(kinds, [
 ]);
 `)
 }
+
+// The review's file names are elided from the left with direction: rtl, which
+// moves a neutral character at either end of a name to the other end. A mark
+// led the name, so ".gitignore" stayed put, and nothing followed it, so
+// "report (1)" was drawn as "(report (1". The harness lays no text out, so
+// this holds the style sheet to a mark on both sides.
+func TestAFileNameKeepsThePunctuationAtItsEnd(t *testing.T) {
+	runFrontEnd(t, `
+const css = h.css();
+assert.ok(/\.rev-name::before[^{]*\{[^}]*content:\s*"\\200E"/.test(css), "nothing leads a file name");
+assert.ok(/\.rev-name::after[^{]*\{[^}]*content:\s*"\\200E"/.test(css),
+  "nothing follows a file name, so a bracket at its end is drawn at its start");
+`)
+}
