@@ -1,5 +1,7 @@
 package workspace
 
+import "github.com/jmwri/flockdeck/internal/agent"
+
 // conversationOf is the id of the conversation a pane is in: the one its
 // agent last reported moving to, or else the pane's own id, which names the
 // conversation it was started in.
@@ -27,4 +29,24 @@ func (w *Workspace) ConversationOf(paneID string) string {
 		return ""
 	}
 	return w.conversationOf(p)
+}
+
+// PaneAgentSpec resolves the agent a pane runs, the same way starting or
+// restarting it does: the pane's own choice, or the project's default when it
+// recorded none. It must run on the workspace goroutine, since the default
+// depends on the project a pane not naming one belongs to.
+//
+// A shell pane answers false, the same as one that does not exist: it runs no
+// agent, so resolving its empty Agent field would otherwise hand back the
+// project's default agent's spec, as though the shell were running it.
+//
+// This is what the phone's chat view uses to find which transcript adapter,
+// if any, a pane's conversation should be read with -- never a path or
+// session id the client sends, only the pane id it already had reason to see.
+func (w *Workspace) PaneAgentSpec(paneID string) (agent.Spec, bool) {
+	p := w.Pane(paneID)
+	if p == nil || !p.IsAgent() {
+		return agent.Spec{}, false
+	}
+	return w.specFor(p.Root, p.Agent)
 }

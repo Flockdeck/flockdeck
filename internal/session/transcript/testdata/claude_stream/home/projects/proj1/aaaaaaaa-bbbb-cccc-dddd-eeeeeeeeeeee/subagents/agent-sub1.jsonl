@@ -1,0 +1,2 @@
+{"type":"user","uuid":"su-prompt-1","timestamp":"2024-01-01T00:00:12Z","isSidechain":true,"message":{"role":"user","content":"Explore the repo and report what you find."}}
+{"type":"assistant","uuid":"sa-reply-1","timestamp":"2024-01-01T00:00:19Z","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"I looked around and found push.go, pull.go, retry.go."}]}}

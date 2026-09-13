@@ -889,6 +889,7 @@ func run(opts options) error {
 	}
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
+	ws.SetConversationHook(srv.ConversationHookEvent)
 
 	// Remote access, for a machine enrolled with a relay. It is started from
 	// whatever the enrolment says now and told to look again whenever

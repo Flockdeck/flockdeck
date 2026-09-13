@@ -261,6 +261,12 @@ type Workspace struct {
 	// the workspace is built, by which time the panes restored with it are
 	// already running and calling it from their readers.
 	onWake atomic.Pointer[func()]
+
+	// onConversation is called with a pane's id whenever a hook event about it
+	// arrives -- which is also, per the design of the phone's chat view, the
+	// signal that its transcript may have grown a line worth tailing. Swapped
+	// the same way onWake is, and nil until the server installs itself.
+	onConversation atomic.Pointer[func(string)]
 }
 
 // Options configures a new workspace.
@@ -330,6 +336,20 @@ func (w *Workspace) HookServer() *hooks.Server { return w.hookSrv }
 // the workspace to construct, can register itself afterwards.
 func (w *Workspace) SetWake(fn func()) { w.onWake.Store(&fn) }
 
+// SetConversationHook installs the callback told a pane's id whenever a hook
+// event about it arrives, for the same reason SetWake exists: the server
+// needs the workspace built before it can register itself.
+func (w *Workspace) SetConversationHook(fn func(paneID string)) { w.onConversation.Store(&fn) }
+
+func (w *Workspace) wakeConversation(paneID string) {
+	if paneID == "" {
+		return
+	}
+	if fn := w.onConversation.Load(); fn != nil && *fn != nil {
+		(*fn)(paneID)
+	}
+}
+
 // ActiveRoot returns the project currently being shown.
 func (w *Workspace) ActiveRoot() string { return w.activeRoot }
 
@@ -358,10 +378,11 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		p = nil
 	}
 	var sess *session.Session
-	var parent string
+	var parent, paneID string
 	if p != nil {
 		sess = p.Sess
 		parent = p.Parent
+		paneID = p.ID
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
 		// restore and a fan-out go on finding the conversation on screen
@@ -374,6 +395,11 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		}
 	}
 	w.mu.Unlock()
+	// Every hook event is also, for the phone's chat view, "this pane's
+	// transcript may have grown a line" -- SessionStart included, which is
+	// how a /clear or a resume is noticed as soon as it happens rather than
+	// on the next fallback poll.
+	w.wakeConversation(paneID)
 	if sess == nil {
 		return
 	}
