@@ -38,7 +38,14 @@
 <link rel="stylesheet" href="{{asset "site.css"}}">
 {{end}}
 
+{{/*
+  The skip link comes first, so that a keyboard or a screen reader reaches
+  the page's content in one step rather than through every link in the
+  header. It is hidden until it has the focus. Every page's <main> has the
+  id it names.
+*/}}
 {{define "header"}}
+<a class="skip" href="#main">Skip to content</a>
 <header class="top">
   {{if .Path}}<a class="wordmark" href="./">{{mark}}Flockdeck</a>{{else}}<span class="wordmark">{{mark}}Flockdeck</span>{{end}}
   <nav aria-label="Site">

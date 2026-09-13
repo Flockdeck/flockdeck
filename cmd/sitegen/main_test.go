@@ -355,6 +355,28 @@ func TestDownloadButtonsNameTheLatestArchives(t *testing.T) {
 	}
 }
 
+// A keyboard or screen-reader user reaches each page's content without going
+// through every link in its header first: the first link in every page's
+// body skips to the page's <main>, which has the id it names.
+func TestEveryPageStartsWithASkipLink(t *testing.T) {
+	_, pages := generate(t)
+	firstLink := regexp.MustCompile(`<a\s[^>]*>`)
+	mainTag := regexp.MustCompile(`<main\s[^>]*\bid="main"`)
+	for name, page := range pages {
+		at := strings.Index(page, "<body")
+		if at < 0 {
+			t.Errorf("%s has no body", name)
+			continue
+		}
+		if got := firstLink.FindString(page[at:]); got != `<a class="skip" href="#main">` {
+			t.Errorf("%s's first link is %s, not the skip link", name, got)
+		}
+		if !mainTag.MatchString(page) {
+			t.Errorf("%s has no <main id=\"main\"> for the skip link to go to", name)
+		}
+	}
+}
+
 // The site sets no cookies, so it needs no banner: the privacy policy's
 // section on cookies is its cookie notice, and has to be there to be linked
 // to.
