@@ -189,6 +189,71 @@ func TestClaudeStreamTranslatesEveryLineKind(t *testing.T) {
 	if !ok || notice.Kind != KindNotice || !strings.Contains(notice.Text, "<command-name>/help</command-name>") {
 		t.Errorf("slash-command notice: got %+v, ok=%v", notice, ok)
 	}
+	if notice.HasDetail {
+		t.Errorf("a verbatim notice already showing its own text should not also claim hasDetail")
+	}
+
+	taskNotice, ok := entryByID(entries, "u-task-notification-1")
+	if !ok || taskNotice.Kind != KindNotice || taskNotice.Text != "Background task finished" || !taskNotice.HasDetail {
+		t.Errorf("task-notification notice: got %+v, ok=%v", taskNotice, ok)
+	}
+	if detail, ok := stream.Detail("u-task-notification-1"); !ok || !strings.Contains(detail.Text, "<task-notification>") {
+		t.Errorf("task-notification detail: got %+v, ok=%v", detail, ok)
+	}
+
+	idleNotice, ok := entryByID(entries, "u-cross-idle-1")
+	if !ok || idleNotice.Kind != KindNotice || idleNotice.Text != "Another session is idle: agent-wrapper-fmt-md" || !idleNotice.HasDetail {
+		t.Errorf("cross-session idle notice: got %+v, ok=%v", idleNotice, ok)
+	}
+
+	peerNotice, ok := entryByID(entries, "u-peer-msg-1")
+	if !ok || peerNotice.Kind != KindNotice || peerNotice.Text != "A session sent a message" || !peerNotice.HasDetail {
+		t.Errorf("peer-message notice: got %+v, ok=%v", peerNotice, ok)
+	}
+	if detail, ok := stream.Detail("u-peer-msg-1"); !ok || !strings.Contains(detail.Text, "<cross-session-message") {
+		t.Errorf("peer-message detail: got %+v, ok=%v", detail, ok)
+	}
+
+	sysNotice, ok := entryByID(entries, "u-system-notification-1")
+	if !ok || sysNotice.Kind != KindNotice || sysNotice.Text != "System notification" || !sysNotice.HasDetail {
+		t.Errorf("system-notification notice: got %+v, ok=%v", sysNotice, ok)
+	}
+
+	compactNotice, ok := entryByID(entries, "u-compact-summary-1")
+	if !ok || compactNotice.Kind != KindNotice || compactNotice.Text != "Conversation continued from a summary" || !compactNotice.HasDetail {
+		t.Errorf("compaction-summary notice: got %+v, ok=%v", compactNotice, ok)
+	}
+	if detail, ok := stream.Detail("u-compact-summary-1"); !ok || !strings.Contains(detail.Text, "We were adding retry logic to push.go") {
+		t.Errorf("compaction-summary detail: got %+v, ok=%v", detail, ok)
+	}
+
+	leadingMixed, ok := entryByID(entries, "u-mixed-leading-reminder-1")
+	if !ok || leadingMixed.Kind != KindPrompt || leadingMixed.Text != "What is the weather like today?" {
+		t.Errorf("leading-reminder prompt: got %+v, ok=%v", leadingMixed, ok)
+	}
+
+	trailingMixed, ok := entryByID(entries, "u-mixed-trailing-reminder-1")
+	if !ok || trailingMixed.Kind != KindPrompt || trailingMixed.Text != "Where did I leave my keys?" {
+		t.Errorf("trailing-reminder prompt: got %+v, ok=%v", trailingMixed, ok)
+	}
+
+	humanCaveat, ok := entryByID(entries, "u-human-caveat-1")
+	if !ok || humanCaveat.Kind != KindPrompt || humanCaveat.Text != "Caveat: this is something I typed myself, not a real caveat." {
+		t.Errorf("origin=human should win over a matching prefix: got %+v, ok=%v", humanCaveat, ok)
+	}
+
+	// A person's own message with a system reminder attached keeps only what
+	// they typed: the reminder is stripped before origin=human is trusted,
+	// not drawn inside their bubble.
+	humanReminder, ok := entryByID(entries, "u-human-reminder-1")
+	if !ok || humanReminder.Kind != KindPrompt || humanReminder.Text != "Fix the flaky test please." {
+		t.Errorf("a person's message with an attached reminder: got %+v, ok=%v", humanReminder, ok)
+	}
+
+	unknownMeta, ok := entryByID(entries, "u-unknown-meta-1")
+	if !ok || unknownMeta.Kind != KindNotice || unknownMeta.Text != "System notification" || !unknownMeta.HasDetail {
+		t.Errorf("isMeta with no matching prefix should still fall back to a generic notice: got %+v, ok=%v", unknownMeta, ok)
+	}
 
 	compaction, ok := entryByID(entries, "c-compact-1")
 	if !ok || compaction.Kind != KindCompaction {

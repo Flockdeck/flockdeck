@@ -192,6 +192,31 @@ type streamLine struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 	WireToolInputs map[string]json.RawMessage `json:"wireToolInputs"`
+
+	// The fields below say what a user line actually is, when Claude Code
+	// bothers to say: a real person's own turn, or scaffolding the harness
+	// inserted as one. Where present they are trusted ahead of any prefix
+	// guess; where absent (an older transcript, a line predating a given
+	// field) classification falls back to how the text itself starts. See
+	// promptOrNotice.
+	//
+	// Origin.Kind "human" is a person; "task-notification", "peer" and
+	// "coordinator" are seen in the wild for harness-injected turns, but the
+	// exact value is never load-bearing here except for "human" -- a kind
+	// this build has never seen is still not "human", and isMeta or a
+	// matched prefix is what actually classifies it.
+	Origin struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
+	// IsMeta marks a line the harness generated for its own coordination
+	// (a peer session's message, a cross-session idle notice) rather than
+	// anything a person is meant to have typed.
+	IsMeta bool `json:"isMeta"`
+	// IsCompactSummary and IsVisibleInTranscriptOnly both mark the note
+	// Claude Code opens a resumed conversation with, once it has summarised
+	// what came before rather than carrying the whole history forward.
+	IsCompactSummary          bool `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
 }
 
 // rawBlock is one content block, whichever kind it turns out to be.
@@ -247,7 +272,7 @@ func (s *claudeStream) applyLine(raw []byte) []Entry {
 func (s *claudeStream) applyUser(line streamLine) []Entry {
 	str, blocks, isStr := parseContent(line.Message.Content)
 	if isStr {
-		return s.promptOrNotice(line.UUID, line.Timestamp, str)
+		return s.promptOrNotice(line, line.UUID, line.Timestamp, str)
 	}
 	var changed []Entry
 	var texts []string
@@ -268,31 +293,185 @@ func (s *claudeStream) applyUser(line streamLine) []Entry {
 		}
 	}
 	if len(texts) > 0 {
-		changed = append(changed, s.promptOrNotice(line.UUID, line.Timestamp, strings.Join(texts, "\n\n"))...)
+		changed = append(changed, s.promptOrNotice(line, line.UUID, line.Timestamp, strings.Join(texts, "\n\n"))...)
 	}
 	return changed
 }
 
-// noticePrefixes mark scaffolding worth showing as a notice -- a slash
-// command's own output -- rather than dropped outright like an injected
-// reminder. See syntheticPromptPrefixes in claude.go, which this is a subset
-// of.
-var noticePrefixes = []string{"<command-name>", "<command-message>", "<local-command"}
+// noticeAction says what a matched synthetic prefix becomes in the chat
+// view.
+type noticeAction int
 
-func (s *claudeStream) promptOrNotice(id, ts, text string) []Entry {
+const (
+	// actionDrop carries nothing a person needs -- an injected reminder, a
+	// hook's own output, a caveat -- and is left out of the conversation
+	// entirely.
+	actionDrop noticeAction = iota
+	// actionVerbatim is already the one line a notice row shows: a slash
+	// command's own name and output, short enough to send as is.
+	actionVerbatim
+	// actionSummarize replaces the raw text with a short human summary,
+	// keeping the original only as detail, fetched on demand.
+	actionSummarize
+)
+
+// noticeRule matches one of the prefixes in syntheticPromptPrefixes to what
+// it becomes: dropped outright, shown verbatim, or replaced with a compact
+// summary whose detail is the original text. This is the same list, read the
+// other way -- every prefix here is one of syntheticPromptPrefixes, and
+// every entry not worth a notice at all (a reminder, a hook, a caveat) is
+// still named, so the list stays the single place that says what each one
+// means.
+var noticeRules = []struct {
+	prefix  string
+	action  noticeAction
+	summary func(text string) string // actionSummarize only
+}{
+	{prefix: prefixSystemReminder, action: actionDrop},
+	{prefix: prefixUserPromptSubmitHook, action: actionDrop},
+	{prefix: prefixCaveat, action: actionDrop},
+	{prefix: prefixCommandName, action: actionVerbatim},
+	{prefix: prefixCommandMessage, action: actionVerbatim},
+	{prefix: prefixLocalCommand, action: actionVerbatim},
+	{prefix: prefixTaskNotification, action: actionSummarize, summary: constNotice("Background task finished")},
+	{prefix: prefixCrossSessionIdle, action: actionSummarize, summary: crossSessionIdleSummary},
+	{prefix: prefixCrossSessionMessage, action: actionSummarize, summary: constNotice("A session sent a message")},
+	{prefix: prefixSystemNotification, action: actionSummarize, summary: constNotice("System notification")},
+	{prefix: prefixCompactionResumed, action: actionSummarize, summary: constNotice("Conversation continued from a summary")},
+}
+
+func constNotice(summary string) func(string) string {
+	return func(string) string { return summary }
+}
+
+// crossSessionIdleSummary pulls the name of the idle session out of
+// `[Cross-session idle notice] "<name>", which you asked to be notified
+// about, is idle now …`, so the compact line says which one rather than
+// just that some session, somewhere, went idle.
+func crossSessionIdleSummary(text string) string {
+	rest := strings.TrimPrefix(text, prefixCrossSessionIdle)
+	if i := strings.IndexByte(rest, '"'); i >= 0 {
+		if j := strings.IndexByte(rest[i+1:], '"'); j >= 0 {
+			return "Another session is idle: " + rest[i+1:i+1+j]
+		}
+	}
+	return "Another session is idle"
+}
+
+// promptOrNotice classifies a user turn's text before it becomes an Entry.
+//
+// A structural signal on the line wins whenever there is one: origin.kind
+// "human" is trusted as a real prompt outright, and isCompactSummary /
+// isVisibleInTranscriptOnly as the note a resumed conversation opens with,
+// whatever either happens to start with. A message that mixes a person's
+// own words with a leading or trailing system-reminder block has the block
+// stripped first, so what carries on into the checks below -- and, if
+// nothing matches, into the prompt itself -- is only what they typed.
+//
+// Everything else goes by how the text starts, against noticeRules: dropped,
+// shown as a notice, or -- matching none of them -- sent as a prompt. isMeta
+// on the line, when neither a rule matched nor origin.kind is "human", is
+// the last resort: scaffolding the harness marked as its own in a shape
+// nobody has taught this rule table yet still becomes a generic notice
+// rather than a bubble that looks like something a person typed.
+func (s *claudeStream) promptOrNotice(line streamLine, id, ts, text string) []Entry {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
-	if isSyntheticPrompt(text) {
-		for _, p := range noticePrefixes {
-			if strings.HasPrefix(text, p) {
-				return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindNotice, TS: ts, Text: text})}
-			}
-		}
-		return nil
+
+	// A system reminder the harness attached to a message -- ahead of what
+	// was typed or after it -- is never part of it, whoever typed the rest,
+	// so it comes off before anything else is decided. Left on for a line
+	// marked as a person's own, it was drawn inside their bubble.
+	if line.IsCompactSummary || line.IsVisibleInTranscriptOnly {
+		return []Entry{s.notice(id, ts, "Conversation continued from a summary", text)}
 	}
+	if stripped := stripSystemReminders(text); stripped != text {
+		text = stripped
+		if text == "" {
+			return nil
+		}
+	}
+
+	if line.Origin.Kind == "human" {
+		return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindPrompt, TS: ts, Text: text})}
+	}
+
+	for _, rule := range noticeRules {
+		if !strings.HasPrefix(text, rule.prefix) {
+			continue
+		}
+		switch rule.action {
+		case actionDrop:
+			return nil
+		case actionVerbatim:
+			return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindNotice, TS: ts, Text: text})}
+		case actionSummarize:
+			return []Entry{s.notice(id, ts, rule.summary(text), text)}
+		}
+	}
+
+	if line.IsMeta {
+		return []Entry{s.notice(id, ts, "System notification", text)}
+	}
+
 	return []Entry{s.add(Entry{ID: s.lineID(id), Kind: KindPrompt, TS: ts, Text: text})}
+}
+
+// notice adds a compact notice entry, keeping the original text as detail
+// fetched on demand rather than shown inline -- the summary is what a
+// person needs to see, the full text is what they see if they ask.
+func (s *claudeStream) notice(id, ts, summary, full string) Entry {
+	e := s.add(Entry{ID: s.lineID(id), Kind: KindNotice, TS: ts, Text: summary, HasDetail: true})
+	s.detail[e.ID] = Detail{Text: full}
+	return e
+}
+
+// stripSystemReminders removes a <system-reminder>...</system-reminder>
+// block sitting at the very start or end of text, repeatedly: Claude Code
+// puts an injected reminder beside a person's own words in the same user
+// turn, leading or trailing, never in the middle. What is left once every
+// reminder at an edge is gone is what the person typed -- empty when the
+// whole message was reminders, which the caller then drops rather than
+// showing an empty prompt.
+func stripSystemReminders(text string) string {
+	for {
+		t := strings.TrimSpace(text)
+		if rest, ok := trimReminderPrefix(t); ok {
+			text = rest
+			continue
+		}
+		if rest, ok := trimReminderSuffix(t); ok {
+			text = rest
+			continue
+		}
+		return t
+	}
+}
+
+const systemReminderClose = "</system-reminder>"
+
+func trimReminderPrefix(t string) (string, bool) {
+	if !strings.HasPrefix(t, prefixSystemReminder) {
+		return "", false
+	}
+	end := strings.Index(t, systemReminderClose)
+	if end < 0 {
+		return "", false
+	}
+	return t[end+len(systemReminderClose):], true
+}
+
+func trimReminderSuffix(t string) (string, bool) {
+	if !strings.HasSuffix(t, systemReminderClose) {
+		return "", false
+	}
+	start := strings.LastIndex(t, prefixSystemReminder)
+	if start < 0 {
+		return "", false
+	}
+	return t[:start], true
 }
 
 func (s *claudeStream) applyAssistant(line streamLine) []Entry {

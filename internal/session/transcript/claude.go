@@ -1133,17 +1133,71 @@ func contentText(raw json.RawMessage) string {
 	return ""
 }
 
+// Prefixes that open a user entry Claude Code, or the harness around it,
+// wrote itself -- never something a person typed. Named here once so
+// syntheticPromptPrefixes (which entries this treats as scaffolding for the
+// history panel's summary) and claude_stream.go's notice rules (which of
+// those are still worth a compact line in the chat view) read off the same
+// list rather than two that can drift apart.
+const (
+	// A slash command's own name, echoed back into the transcript as a user
+	// turn: "/help" becomes "<command-name>/help</command-name>".
+	prefixCommandName = "<command-name>"
+	// The message a slash command carries alongside its name.
+	prefixCommandMessage = "<command-message>"
+	// A slash command's own output -- "<local-command-stdout>" above all,
+	// matched by the open tag's start rather than in full so any
+	// "<local-command-*>" variant is caught too.
+	prefixLocalCommand = "<local-command"
+	// Context Claude Code injects ahead of, or instead of, a real prompt: a
+	// hook's output, a reminder about the session's own state. Never shown
+	// to the person who is using it, so never shown to whoever is watching
+	// over their shoulder either.
+	prefixSystemReminder = "<system-reminder>"
+	// The output of the UserPromptSubmit hook, injected the same way.
+	prefixUserPromptSubmitHook = "<user-prompt-submit-hook>"
+	// Claude Code's own caveat text, prepended in some contexts (a message
+	// queued while the CLI was mid-turn, among others).
+	prefixCaveat = "Caveat:"
+	// A background task's own completion notice, delivered as a user turn
+	// wrapped in this tag.
+	prefixTaskNotification = "<task-notification>"
+	// Another pane's session going idle, sent as a heads-up to a session
+	// that asked to hear about it: `[Cross-session idle notice] "<name>",
+	// which you asked to be notified about, is idle now …`.
+	prefixCrossSessionIdle = "[Cross-session idle notice]"
+	// A peer session's own message, relayed in: "Another Claude session
+	// sent a message:" followed by a <cross-session-message> block.
+	prefixCrossSessionMessage = "Another Claude session sent a message:"
+	// A harness-level notice explicit that it is not user input.
+	prefixSystemNotification = "[SYSTEM NOTIFICATION - NOT USER INPUT]"
+	// The note Claude Code opens a resumed conversation with once its
+	// history no longer fits, ahead of the summary it wrote of what came
+	// before. Real transcripts also carry isCompactSummary and
+	// isVisibleInTranscriptOnly on this line, which claude_stream.go checks
+	// first; the prefix is the fallback for a line that predates those.
+	prefixCompactionResumed = "This session is being continued from a previous conversation"
+)
+
 // syntheticPromptPrefixes open the user entries Claude Code writes itself: a
-// slash command and its output, an injected reminder, the note that opens a
-// resumed conversation. They are recorded exactly like something a person
-// typed, and telling them apart is only possible by how they start.
+// slash command and its output, an injected reminder, a background task's
+// own notice, a peer session's message, the note that opens a resumed
+// conversation. They are recorded exactly like something a person typed, and
+// -- absent a structural field that says otherwise, which claude_stream.go
+// prefers where one exists -- telling them apart is only possible by how
+// they start.
 var syntheticPromptPrefixes = []string{
-	"<command-name>",
-	"<command-message>",
-	"<local-command",
-	"<system-reminder>",
-	"<user-prompt-submit-hook>",
-	"Caveat:",
+	prefixCommandName,
+	prefixCommandMessage,
+	prefixLocalCommand,
+	prefixSystemReminder,
+	prefixUserPromptSubmitHook,
+	prefixCaveat,
+	prefixTaskNotification,
+	prefixCrossSessionIdle,
+	prefixCrossSessionMessage,
+	prefixSystemNotification,
+	prefixCompactionResumed,
 }
 
 // isSyntheticPrompt reports whether a user entry was written by Claude Code
