@@ -88,12 +88,18 @@ func path() (string, error) {
 // "not enabled": answering that would tell the user remote access is off while
 // a relay still holds a live host for this machine, and invite them to enrol it
 // a second time.
+//
+// It is read the way the store reads its own files, waiting out a save that
+// has the file open. On Windows a save replacing it, or the virus scanner
+// reading what the save wrote, refuses every other open for that moment, and
+// read straight the enrolment came back as an error: remote access reported
+// broken, and not reconnected, for a file that was perfectly sound.
 func Load() (*Config, error) {
 	p, err := path()
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(p)
+	data, err := store.ReadState(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
