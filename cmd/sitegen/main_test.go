@@ -47,6 +47,31 @@ func home(t *testing.T) (dir, page string) {
 	return dir, pages["index.html"]
 }
 
+// servedAs is the name the site wrote plain under: the one file in its folder
+// that is plain with a fingerprint before the extension.
+func servedAs(t *testing.T, dir, plain string) string {
+	t.Helper()
+	ext := filepath.Ext(plain)
+	matches, err := filepath.Glob(filepath.Join(dir, filepath.FromSlash(strings.TrimSuffix(plain, ext))+".*"+ext))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, m := range matches {
+		rel, err := filepath.Rel(dir, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel = filepath.ToSlash(rel); hashedName.MatchString(rel) {
+			found = append(found, rel)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("the site holds %d fingerprinted copies of %s (%v); it should hold one", len(found), plain, found)
+	}
+	return found[0]
+}
+
 var (
 	idAttr     = regexp.MustCompile(`\sid="([^"]+)"`)
 	imgTag     = regexp.MustCompile(`<img\s[^>]*>`)
@@ -162,7 +187,7 @@ func TestPageReferencesResolve(t *testing.T) {
 	}
 
 	// And what the stylesheet asks for: the fonts.
-	css, err := os.ReadFile(filepath.Join(dir, "site.css"))
+	css, err := os.ReadFile(filepath.Join(dir, servedAs(t, dir, "site.css")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +212,7 @@ func TestPageReferencesResolve(t *testing.T) {
 // is fetched until somebody follows it.
 func TestNoPageRequestsAnotherOrigin(t *testing.T) {
 	dir, pages := generate(t)
-	css, err := os.ReadFile(filepath.Join(dir, "site.css"))
+	css, err := os.ReadFile(filepath.Join(dir, servedAs(t, dir, "site.css")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,10 +714,105 @@ func TestShotsAreOfferedAtBothSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range shots {
-		if e.Name() != "og.png" && !offered[e.Name()] {
+		if e.Name() != "og.png" && !offered[servedAs(t, dir, e.Name())] {
 			t.Errorf("assets/shots/%s is shipped, but no picture on the page offers it", e.Name())
 		}
 	}
+}
+
+// Nobody should have to clear a cache to see the site as it now is. So every
+// stylesheet, font and image a page fetches is served under a name that
+// carries its content's fingerprint, which nginx serves as immutable: a
+// changed file is a new name, and a page that is revalidated on every visit
+// asks for it. The fingerprint has to be the content's, or a changed file
+// could keep an old name.
+func TestEveryLinkedFileCarriesItsFingerprint(t *testing.T) {
+	dir, pages := generate(t)
+	css, err := os.ReadFile(filepath.Join(dir, servedAs(t, dir, "site.css")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refs []string
+	for _, page := range pages {
+		for _, tag := range fetchTag.FindAllString(page, -1) {
+			for _, m := range fetchAttr.FindAllStringSubmatch(tag, -1) {
+				for _, cand := range strings.Split(m[1], ",") {
+					if f := strings.Fields(cand); len(f) > 0 {
+						refs = append(refs, html.UnescapeString(f[0]))
+					}
+				}
+			}
+		}
+	}
+	for _, m := range cssURL.FindAllStringSubmatch(string(css), -1) {
+		refs = append(refs, m[1])
+	}
+	// Asked for by name, whatever a page says: see servedByName.
+	byName := map[string]bool{"favicon.ico": true, "favicon.svg": true, "apple-touch-icon.png": true}
+	checked := 0
+	for _, ref := range refs {
+		if elsewhere.MatchString(ref) || byName[ref] {
+			continue
+		}
+		if !hashedName.MatchString(ref) {
+			t.Errorf("%s is linked by a name with no fingerprint, so a browser that has it keeps showing it after it changes", ref)
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(ref)))
+		if err != nil {
+			continue // TestPageReferencesResolve says so
+		}
+		ext := filepath.Ext(ref)
+		base := strings.TrimSuffix(ref, ext)
+		if got := fingerprint(base[:len(base)-11]+ext, body); got != ref {
+			t.Errorf("%s holds what would be named %s", ref, got)
+		}
+		checked++
+	}
+	if checked < 10 {
+		t.Errorf("only %d fingerprinted files are linked; the stylesheet, both fonts and the screenshots should be", checked)
+	}
+	og := defaultURL + "/" + servedAs(t, dir, "og.png")
+	for name, page := range pages {
+		if !strings.Contains(page, `<meta property="og:image" content="`+og+`">`) {
+			t.Errorf("%s does not give %s as its image for a shared link", name, og)
+		}
+	}
+}
+
+// The site is generated into its own repository, over what was there. A file
+// a run before wrote and this one did not, a fingerprinted name whose content
+// has changed or the plain name an asset had before it was fingerprinted,
+// would go on being served, so it is taken out. What the repository has of
+// its own is left alone.
+func TestARegenerationLeavesNothingStale(t *testing.T) {
+	dir := t.TempDir()
+	stale := []string{"site.css", "deck.png", "site.0123456789.css", "fonts/archivo.abcdef0123.woff2", "fonts/archivo.woff2"}
+	kept := []string{"Dockerfile", "nginx.conf", "README.md", "notes.1234.txt"}
+	for _, name := range append(append([]string{}, stale...), kept...) {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("from before"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil {
+			t.Errorf("%s was left in the site", name)
+		}
+	}
+	for _, name := range kept {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
+			t.Errorf("%s, which the site's repository has of its own, was taken out", name)
+		}
+	}
+	servedAs(t, dir, "site.css")
+	servedAs(t, dir, "fonts/archivo.woff2")
 }
 
 var (

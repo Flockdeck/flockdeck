@@ -27,13 +27,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"html"
 	"html/template"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -200,16 +206,13 @@ func run(out, repo, module, url string) error {
 	// does not accept.
 	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL}
 
-	files, err := render(s)
-	if err != nil {
-		return err
-	}
-
+	// Every file but the pages is gathered first: the pages link the assets by
+	// their fingerprinted names, which are known only once the assets are.
+	files := map[string][]byte{}
 	css, err := assets.ReadFile("assets/site.css")
 	if err != nil {
 		return err
 	}
-	files["site.css"] = css
 	files["favicon.svg"] = icon
 	for _, name := range []string{"install.sh", "install.ps1"} {
 		body, err := assets.ReadFile("assets/" + name)
@@ -259,11 +262,40 @@ func run(out, repo, module, url string) error {
 			return err
 		}
 	}
+
+	// The fingerprinted names. The fonts come first, because the stylesheet
+	// names them, and its own fingerprint has to cover the names it gives.
+	names := map[string]string{}
+	for name, body := range binary {
+		if !servedByName[name] {
+			names[name] = fingerprint(name, body)
+		}
+	}
+	css = lf(css)
+	for name, hashed := range names {
+		if strings.HasPrefix(name, "fonts/") {
+			css = bytes.ReplaceAll(css, []byte(`"`+name+`"`), []byte(`"`+hashed+`"`))
+		}
+	}
+	names["site.css"] = fingerprint("site.css", css)
+	files["site.css"] = css
+
+	pageFiles, err := render(s, names)
+	if err != nil {
+		return err
+	}
+	for name, body := range pageFiles {
+		files[name] = lf(body)
+	}
 	for name, body := range binary {
 		files[name] = body
 	}
 
+	written := map[string]bool{}
 	for name, body := range files {
+		if hashed, ok := names[name]; ok {
+			name = hashed
+		}
 		path := filepath.Join(out, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return fmt.Errorf("create the folder for %s: %w", name, err)
@@ -271,6 +303,10 @@ func run(out, repo, module, url string) error {
 		if err := os.WriteFile(path, body, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
 		}
+		written[name] = true
+	}
+	if err := prune(out, names, written); err != nil {
+		return err
 	}
 
 	fmt.Printf("wrote the site to %s\n", out)
@@ -280,15 +316,85 @@ func run(out, repo, module, url string) error {
 // lf is text with Windows line endings made plain ones.
 func lf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")) }
 
+// servedByName are the binary files asked for by a name of their own rather
+// than one a page gives: browsers, feed readers and bookmark tools ask for
+// /favicon.ico whether or not a page names it, and iOS for
+// /apple-touch-icon.png. Every other stylesheet, font and image is served
+// under a fingerprinted name. (favicon.svg is a text file, and keeps its name
+// too: the site's CI asks for it by name.)
+var servedByName = map[string]bool{
+	"favicon.ico":          true,
+	"apple-touch-icon.png": true,
+}
+
+// fingerprint is name with the start of its content's SHA-256 put before the
+// extension: site.css becomes site.3f9c2a1b7e.css.
+//
+// A changed file gets a new name, so a browser holding the old one can never
+// show it in place of the new: the site's nginx serves these names as
+// immutable, for a year, and the pages that name them as no-cache, so a visit
+// after a deploy asks for the new pages and, through them, the new files.
+// Nobody has to clear a cache to see an update.
+func fingerprint(name string, body []byte) string {
+	sum := sha256.Sum256(body)
+	ext := path.Ext(name)
+	return strings.TrimSuffix(name, ext) + "." + hex.EncodeToString(sum[:])[:10] + ext
+}
+
+// hashedName matches a name fingerprint gives.
+var hashedName = regexp.MustCompile(`\.[0-9a-f]{10}\.[a-z0-9]+$`)
+
+// prune takes out of out what a run before this one wrote and this one did
+// not: a fingerprinted file whose content has changed since, and the plain
+// name an asset had before it was fingerprinted. out is the site's own
+// repository, and a file left there is served for as long as it stays.
+func prune(out string, names map[string]string, written map[string]bool) error {
+	for plain := range names {
+		if err := os.Remove(filepath.Join(out, filepath.FromSlash(plain))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove the old %s: %w", plain, err)
+		}
+	}
+	for _, dir := range []string{"", "fonts"} {
+		entries, err := os.ReadDir(filepath.Join(out, dir))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			name := path.Join(dir, e.Name())
+			if e.IsDir() || written[name] || !hashedName.MatchString(name) {
+				continue
+			}
+			if err := os.Remove(filepath.Join(out, filepath.FromSlash(name))); err != nil {
+				return fmt.Errorf("remove the stale %s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // render fills every page in, by the name of the file it is written to.
 //
 // mark is a function rather than a field because the wordmark is markup, and
 // passing it as data would mean either escaping it into visible angle brackets
 // or handing the template an unescaped string and hoping. A function returning
 // template.HTML says once, here, that this particular markup is ours.
-func render(s site) (map[string][]byte, error) {
+//
+// asset is the name a file is served under, which for most of them carries
+// its content's fingerprint (see fingerprint). A page asks for "site.css" and
+// is given "site.3f9c2a1b7e.css"; asking for a file that has no fingerprinted
+// name fails the build, rather than linking a file that is not there.
+func render(s site, names map[string]string) (map[string][]byte, error) {
 	layout, err := template.New("layout").Funcs(template.FuncMap{
 		"mark": func() template.HTML { return wordmark },
+		"asset": func(name string) (string, error) {
+			if hashed, ok := names[name]; ok {
+				return hashed, nil
+			}
+			return "", fmt.Errorf("%s has no fingerprinted name: it is not one of the site's assets, or it is served under its own name", name)
+		},
 	}).ParseFS(assets, "assets/layout.html.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parse the layout: %w", err)
