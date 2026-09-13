@@ -226,7 +226,13 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	// than git, and ending it alone left git running; the tree is what ends
 	// the lot (see tree_windows.go).
 	tree := newTree()
+	// ended is set by Cancel. exec has finished with Cancel by the time Wait
+	// returns, and it is only read after that. A git that finished on its own
+	// just as the deadline passed was not ended, and whatever it left running
+	// is not waited for.
+	ended := false
 	cmd.Cancel = func() error {
+		ended = true
 		tree.end()
 		return cmd.Process.Kill()
 	}
@@ -234,7 +240,7 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	if err == nil {
 		err = cmd.Wait()
 	}
-	gone := tree.settle(ctx.Err() != nil)
+	gone := tree.settle(ended)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		// git finished, and succeeded; only something it left running in the
 		// background was still holding its output, which git had long since

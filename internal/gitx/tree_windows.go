@@ -73,9 +73,9 @@ type jobAccounting struct {
 	TotalTerminatedProcesses  uint32
 }
 
-// procTree is the job one git command runs in. A zero job is none at all --
-// the job could not be made, or git could not be put in it -- and git is then
-// ended the way it always was, one process alone.
+// procTree is the job one git command runs in. A zero job is one that could
+// not be made. Without a job, or with a git that could not be put in one, git
+// is ended the way it always was, one process alone, by Cancel's own kill.
 type procTree struct{ job syscall.Handle }
 
 // newTree makes the job a command is about to be started in. The job is made
