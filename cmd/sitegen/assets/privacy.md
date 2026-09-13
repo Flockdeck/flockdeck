@@ -152,9 +152,10 @@ in memory.
   connected" or "device paired" against the random identifiers above, not
   names or addresses. A desktop tells the relay which version of Flockdeck
   it runs when it connects, and that version is logged with the connection.
-- **Front-end server logs.** The servers in front of the relay and this
-  website may keep standard access logs, which include IP addresses,
-  temporarily, for security and troubleshooting.
+- **Front-end server logs.** The load balancer in front of the relay and
+  this website may keep standard access logs, which include IP addresses,
+  temporarily, for security and troubleshooting. The web server behind it
+  that serves this website keeps no access logs.
 
 ### How long it is kept
 
@@ -181,8 +182,9 @@ anyone.
 ## This website
 
 flockdeck.ai sets no cookies, runs no analytics and loads nothing from third
-parties; its fonts are served from the site itself. The web server may keep
-standard access logs, as described above. Downloads from dl.flockdeck.ai
+parties; its fonts are served from the site itself. Its web server keeps no
+access logs, though the load balancer in front of it may, as described
+above. Downloads from dl.flockdeck.ai
 may get its content delivery network's security cookie, as
 [Who else is involved](#who-else-is-involved) describes.
 
