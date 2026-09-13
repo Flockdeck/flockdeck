@@ -911,6 +911,22 @@ func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
 	}
 }
 
+// TestTheBriefingHasNoFormattingLeftOver covers a format given more arguments
+// than it has verbs, or fewer: fmt says so in the text itself, as
+// "%!(EXTRA string=flockdeck)", and every agent read it at the end of the
+// command line's section.
+func TestTheBriefingHasNoFormattingLeftOver(t *testing.T) {
+	for _, pc := range []PaneContext{
+		{PaneName: "one"},
+		{PaneName: "one", CanSpawn: true},
+	} {
+		text := pc.Render()
+		if i := strings.Index(text, "%!"); i >= 0 {
+			t.Errorf("the briefing (CanSpawn %v) carries a formatting error: %q", pc.CanSpawn, text[i:min(len(text), i+60)])
+		}
+	}
+}
+
 // TestTheBriefingNamesEveryVariableAPaneCarries covers the table of what a
 // pane has in its environment. FLOCKDECK_AGENT and FLOCKDECK_MODEL are set on
 // every agent pane, and are how a script or a prompt says what it is sitting
