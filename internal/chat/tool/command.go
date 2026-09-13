@@ -107,7 +107,7 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 		return ""
 	}
 	argv, err := splitCommand(a.Command)
-	if err != nil || runsAnything(argv) {
+	if err != nil || runsAnything(t.programNames(argv[0]), argv) {
 		return ""
 	}
 	// An option in the second place names no subcommand, so the two words
@@ -131,22 +131,72 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 // interpreter is agreed to for one script, `bash build.sh` or `python
 // manage.py`; with an option in that place -- `-c`, `-lc`, `-e`, `-m`,
 // `-NoProfile` -- the code or the module it runs is named later, or anything
-// at all.
-func runsAnything(argv []string) bool {
+// at all. conhost and forfiles are Windows' own ways of running a command
+// line given to them, and npx runs whatever package's program it is named.
+//
+// names are what the first word is called, from programNames, and each is
+// judged: any one of them on the list is enough.
+func runsAnything(names, argv []string) bool {
 	if len(argv) < 2 {
 		return false
 	}
-	prog := strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe")
 	next := strings.ToLower(argv[1])
-	switch prog {
-	case "cmd", "powershell", "wsl", "env", "sudo", "doas", "runas", "xargs", "nohup", "nice",
-		"time", "timeout", "busybox", "start", "watch":
-		return true
-	case "sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "python", "python3", "py",
-		"node", "ruby", "perl", "php", "deno", "bun":
-		return strings.HasPrefix(next, "-") || strings.HasPrefix(next, "/") || next == "eval"
+	for _, prog := range names {
+		switch prog {
+		case "cmd", "powershell", "wsl", "env", "sudo", "doas", "runas", "xargs", "nohup", "nice",
+			"time", "timeout", "busybox", "start", "watch", "conhost", "forfiles", "npx":
+			return true
+		case "sh", "bash", "zsh", "dash", "ksh", "fish", "pwsh", "python", "python3", "py",
+			"node", "ruby", "perl", "php", "deno", "bun":
+			if strings.HasPrefix(next, "-") || strings.HasPrefix(next, "/") || next == "eval" {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+// programNames are the names a command's first word goes by, each as
+// programName makes it, for judging what the program is: the word as it was
+// typed, the file it is found as, and that file once every link on the way to
+// it has been followed.
+//
+// The word alone is not enough. Windows drops a trailing dot or space from a
+// file name, so cmd.exe. and "cmd.exe " run cmd.exe, and exec.LookPath finds
+// them spelled that way; a short name such as POWERS~1.EXE, or a link in the
+// pane named anything at all, runs a program its own name does not mention. A
+// program found as a link to busybox is judged as busybox, too, which keeps
+// "always" from an applet reached that way: judging it by fewer names would
+// have to trust the one that says least.
+func (t *runCommand) programNames(word string) []string {
+	names := []string{programName(word)}
+	add := func(p string) {
+		n := programName(p)
+		for _, have := range names {
+			if have == n {
+				return
+			}
+		}
+		names = append(names, n)
+	}
+	found := t.program(word)
+	add(found)
+	if real, err := realPath(found); err == nil {
+		add(real)
+	}
+	return names
+}
+
+// programName is the name a program goes by, however its file is spelled:
+// lower case, without the trailing dots and spaces Windows drops, and without
+// the extension Windows adds, so that CMD.EXE, cmd.exe. and cmd are one name.
+// It is batchUnsafe's reading of a file name, for the same reason.
+func programName(p string) string {
+	name := strings.ToLower(strings.TrimRight(filepath.Base(p), ". "))
+	for _, ext := range []string{".exe", ".com"} {
+		name = strings.TrimSuffix(name, ext)
+	}
+	return strings.TrimRight(name, ". ")
 }
 
 func (t *runCommand) Run(ctx context.Context, args json.RawMessage) (string, error) {
