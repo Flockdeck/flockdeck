@@ -7,13 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // NewWire returns the wire named by an agent's APISpec.
@@ -375,9 +378,49 @@ func apiMessage(body []byte) string {
 		}
 	}
 	if s := strings.TrimSpace(string(body)); s != "" {
-		return s
+		return plainMessage(s)
 	}
 	return "no explanation given"
+}
+
+// errorBodyMax is as much of an error body that is not JSON as is shown.
+const errorBodyMax = 300
+
+// plainMessage is what an error body that is not JSON says, cut to a few
+// lines' worth.
+//
+// What stands in front of an API is often a proxy, and a proxy answers a
+// failure with a web page: Cloudflare's 502 is kilobytes of markup, which
+// filled the pane and said less than its own title. A page is shown as its
+// title, or as no more than the status beside it where it has none, and any
+// other body is clipped.
+func plainMessage(s string) string {
+	if htmlPageRE.MatchString(s) {
+		if m := htmlTitleRE.FindStringSubmatch(s); m != nil {
+			if t := strings.Join(strings.Fields(html.UnescapeString(m[1])), " "); t != "" {
+				return clipBody(t)
+			}
+		}
+		return "the endpoint answered with a web page rather than a message"
+	}
+	return clipBody(s)
+}
+
+var (
+	htmlPageRE  = regexp.MustCompile(`(?i)<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])`)
+	htmlTitleRE = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title`)
+)
+
+// clipBody cuts s to errorBodyMax bytes, at the start of a character.
+func clipBody(s string) string {
+	if len(s) <= errorBodyMax {
+		return s
+	}
+	cut := errorBodyMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // sseMaxLine bounds one event's data. A single delta is tiny, but an error
