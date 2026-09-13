@@ -15,6 +15,7 @@ package workspace
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -102,6 +103,11 @@ type Pane struct {
 	// set from the hook goroutine, so it is only touched under the lock — read
 	// it through conversationOf.
 	Conversation string
+	// launch names the current start of the pane's process, which the pane's
+	// environment carries as hooks.LaunchEnv and its hooks send back. A hook
+	// naming another is from the process before a restart, and is dropped. It
+	// is read from the hook goroutine, so it is only written under the lock.
+	launch string
 }
 
 // Alive reports whether the pane has a running process.
@@ -327,6 +333,13 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	// the field twice and the second read can be the nil.
 	w.mu.Lock()
 	p := w.panes[ev.SessionID]
+	// A restarted pane keeps its id, so an event from the process before it --
+	// a hook that ran late, which on Windows can outlive the process that ran
+	// it -- names the pane like any other. Which start it names is what tells
+	// the two apart. A hook that names none predates the distinction.
+	if p != nil && ev.Launch != "" && ev.Launch != p.launch {
+		p = nil
+	}
 	var sess *session.Session
 	if p != nil {
 		sess = p.Sess
@@ -1025,6 +1038,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	if cols <= 0 || rows <= 0 {
 		cols, rows = defaultCols, defaultRows
 	}
+	// Each start is named afresh, before anything of this one can report, so
+	// that what the last one still has to say is told from it. See handleHook.
+	w.mu.Lock()
+	p.launch = rand.Text()
+	w.mu.Unlock()
 
 	var argv, env []string
 	// spec is the agent the pane runs, and stays empty for a shell. The session
@@ -1237,6 +1255,11 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 	}
 	if model != "" {
 		env = append(env, "FLOCKDECK_MODEL="+model)
+	}
+	// Which start of the pane this is, for its hooks to send back: see
+	// handleHook. It is Flockdeck's own business, so it has no older spelling.
+	if p.launch != "" {
+		env = append(env, hooks.LaunchEnv+"="+p.launch)
 	}
 	return env
 }

@@ -98,6 +98,21 @@ func TestEmitWithoutStdin(t *testing.T) {
 	}
 }
 
+// TestEmitSaysWhichStartOfThePaneItIsFrom covers a pane restarted while a hook
+// of the process before it was still on its way. The pane keeps its id, so the
+// start its environment names is what lets the application drop the old one's.
+func TestEmitSaysWhichStartOfThePaneItIsFrom(t *testing.T) {
+	srv, r := newServer(t)
+	t.Setenv(LaunchEnv, "second-start")
+
+	if _, err := Emit(strings.NewReader(`{}`), srv.Endpoint(), srv.Token(), "pane-3", "Notification"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if got := r.next(t); got.Launch != "second-start" {
+		t.Errorf("launch = %q, want the start the pane's environment names", got.Launch)
+	}
+}
+
 // TestBadTokenRejected checks that the loopback port cannot be driven by other
 // local processes, and that a hook being turned away says so. A refusal that
 // reports nothing is indistinguishable from a hook that never ran, which is a

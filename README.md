@@ -651,8 +651,11 @@ Cursor Agent start unbriefed.
 Panes also carry `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`,
 `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` in their environment. The first three are what
 a shell pane — with no lifecycle hooks of its own — has to go on; the last two
-are how a script or a prompt can say what it is sitting in. Every
-`FLOCKDECK_*` pane variable except the agent and model, `FLOCKDECK_API` and
+are how a script or a prompt can say what it is sitting in. They also carry
+`FLOCKDECK_LAUNCH`, new each time the pane starts, which its hooks send back so
+that a hook still running from before a restart cannot change the new process's
+status. Every `FLOCKDECK_*` pane variable except the agent, model and launch,
+`FLOCKDECK_API` and
 `FLOCKDECK_TOKEN` included, is also set under its old `PERCH_*` name, so a
 shell prompt written against the old names keeps working until a later release
 drops them.

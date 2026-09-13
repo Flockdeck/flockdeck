@@ -27,6 +27,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -53,7 +54,19 @@ type Event struct {
 	// (source "clear") under it -- while the pane is still known by the id it
 	// was started with, which from then on names the conversation before.
 	Conversation string `json:"conversation,omitempty"`
+	// Launch names the start of the pane's process the event comes from: the
+	// pane's LaunchEnv, which is new each time the pane is started. A restarted
+	// pane keeps its id, and a hook the process before it ran a moment too
+	// late -- which on Windows can outlive the process that ran it -- is
+	// otherwise an event about the new one. Empty from a hook that predates it.
+	Launch string `json:"launch,omitempty"`
 }
+
+// LaunchEnv is the variable a pane's process is started with naming that
+// start, which the hook reads back and sends as Event.Launch. Claude Code
+// passes its environment on to the hooks it runs, whichever form they are
+// written in, as it does FLOCKDECK_TOKEN.
+const LaunchEnv = "FLOCKDECK_LAUNCH"
 
 // payload is what the hook subprocess posts to the server.
 type payload struct {
@@ -262,7 +275,9 @@ func clip(s string, n int) string {
 // It is deliberately forgiving: a hook that fails must never block or break
 // the session it is reporting on.
 func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, error) {
-	p := payload{Event: Event{SessionID: sessionID, Event: event}, Token: token}
+	// Which start of the pane this is comes from the environment, where the
+	// pane put it: the hook and Flockdeck's chat client both run inside it.
+	p := payload{Event: Event{SessionID: sessionID, Event: event, Launch: os.Getenv(LaunchEnv)}, Token: token}
 
 	if stdin != nil {
 		var cp claudePayload

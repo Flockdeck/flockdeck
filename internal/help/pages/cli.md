@@ -154,6 +154,7 @@ The subcommand still works; it is the background updating that goes.
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
 | `FLOCKDECK_MODEL` | Which model it was asked for, if any |
+| `FLOCKDECK_LAUNCH` | Which start of the pane this is — set for you, sent back by its hooks so a late one from before a restart is dropped |
 
 `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane —
 which has no lifecycle hooks of its own — has to go on.
@@ -162,5 +163,5 @@ which has no lifecycle hooks of its own — has to go on.
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
 still carry both spellings of those five and `spawn` still reads both, so a
 prompt or a script written against the old names keeps working; they will go
-in a later release. `FLOCKDECK_AGENT` and `FLOCKDECK_MODEL` are newer and have
-only the one name.
+in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`
+are newer and have only the one name.
