@@ -2925,6 +2925,7 @@
         const held = p.overlay.contains(document.activeElement);
         p.overlay.remove();
         p.overlay = null;
+        p.overlayRestart = null;
         if (held) p.term.focus();
       }
       return;
@@ -2953,6 +2954,7 @@
     box.append(row);
     p.body.append(box);
     p.overlay = box;
+    p.overlayRestart = restart;
     // The keyboard was left in the terminal under the cover, where nothing
     // typed went anywhere. It moves to Restart once, as the cover goes up,
     // and only for the pane being typed in: not from the rail or the top bar,
@@ -3167,7 +3169,13 @@
         if (q) { p = q; break; }
       }
     }
-    if (p) p.term.focus();
+    if (!p) return;
+    // A pane whose process has gone is covered, and its terminal takes no
+    // typing: sent there - by F6, a click on the tab on screen, a closed
+    // dialog - the keyboard was in a terminal nobody could see and nothing
+    // typed went anywhere. The cover's Restart is what can be used.
+    if (p.overlayRestart) p.overlayRestart.focus();
+    else p.term.focus();
   }
 
   /** dialogOpen reports whether anything is on screen that the keyboard could

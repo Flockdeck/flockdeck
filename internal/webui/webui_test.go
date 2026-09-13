@@ -2862,6 +2862,32 @@ assert.strictEqual(opened.length, 1, "a link that is not a web address was opene
 `)
 }
 
+// A pane whose process has gone is covered, and its terminal takes no typing.
+// Sent to it - a click on the tab on screen, F6, a dialog closing - the
+// keyboard went into the terminal nobody could see, and nothing typed went
+// anywhere. It lands on the cover's Restart instead.
+func TestTheKeyboardSentToACoveredPaneLandsOnRestart(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.recv(fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } }));
+const restart = h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
+  .find((b) => b.textContent === "Restart");
+h.$("project-btn").focus();
+h.terms[0].focused = false;
+// The tab on screen, clicked again, hands the keyboard back to its pane.
+h.click(h.$("tab-t1"));
+assert.ok(h.doc.activeElement === restart, "the keyboard went to the covered terminal rather than to Restart");
+assert.ok(!h.terms[0].focused, "the covered terminal took the keyboard");
+
+// With the process back, the terminal is where it goes again.
+h.recv(fixture());
+h.$("project-btn").focus();
+h.click(h.$("tab-t1"));
+assert.ok(h.terms[0].focused, "the terminal no longer takes the keyboard once its cover has gone");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
