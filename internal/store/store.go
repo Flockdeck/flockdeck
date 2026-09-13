@@ -1083,6 +1083,12 @@ func writeRecents(list []Project) error {
 	if err != nil {
 		return fmt.Errorf("encode projects: %w", err)
 	}
+	// A damaged list that would not move aside is recorded as unread, and this
+	// write is what it has to be kept from: every directory the user has
+	// opened, replaced by the list read from it, which is nothing.
+	if err := keepUnread(filepath.Join(dir, recentsFile)); err != nil {
+		return fmt.Errorf("write projects: %w", err)
+	}
 	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
 		return fmt.Errorf("write projects: %w", err)
 	}
