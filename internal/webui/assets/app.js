@@ -340,7 +340,12 @@
       }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
-      else if (msg.type === "changes") keepFocus(() => renderChanges(msg));
+      // A commit that worked answers with a tree with nothing to commit, and
+      // the message box and its buttons go with the keyboard in them: to
+      // Push, which is what comes next, or Refresh where there is no remote.
+      else if (msg.type === "changes") {
+        keepFocus(() => renderChanges(msg), (body) => body.querySelector("#rev-push") || body.querySelector("#rev-refresh"));
+      }
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.

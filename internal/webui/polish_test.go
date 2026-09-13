@@ -561,3 +561,33 @@ const run = body.querySelector("div.fan-agent").querySelector("select");
 assert.ok(h.doc.activeElement === run, "the keyboard was left on the button that hid itself");
 `)
 }
+
+// A commit that works answers with a tree that has nothing left to commit,
+// and the message box and its buttons go - with the keyboard in them, since
+// Ctrl+Enter commits from the box. It goes to Push, which is what comes
+// next, or to Refresh where there is no remote.
+func TestAfterACommitTheKeyboardIsOnPush(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const commitFrom = (hasRemote) => {
+  h.click(h.$("btn-changes"));
+  h.recv({ type: "changes", cwd: "C:/repo", branch: "main", upstream: hasRemote ? "origin/main" : "", hasRemote,
+    files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+  const box = h.$("commit-message");
+  box.value = "webui: something";
+  box.oninput();
+  box.focus();
+  h.key({ key: "Enter", ctrlKey: true });
+  assert.strictEqual(h.commands().pop().cmd, "commit");
+  h.recv({ type: "notice", text: "committed in repo", error: false });
+  h.recv({ type: "changes", cwd: "C:/repo", branch: "main", upstream: hasRemote ? "origin/main" : "", hasRemote,
+    ahead: hasRemote ? 1 : 0, files: [] });
+};
+commitFrom(true);
+assert.ok(h.doc.activeElement === h.$("rev-push"), "after a commit the keyboard was left with the message box that went");
+h.key({ key: "Escape" });
+commitFrom(false);
+assert.ok(h.doc.activeElement === h.$("rev-refresh"), "with no remote, the keyboard did not land in the dialog");
+`)
+}
