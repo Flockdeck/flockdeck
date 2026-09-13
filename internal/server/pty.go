@@ -387,18 +387,35 @@ var repaintGap = 100 * time.Millisecond
 // does a program on the ordinary screen, whose replay is simply its output.
 //
 // It happens once, from whichever comes second: this, or the window's first
-// size being applied (applyResizes).
+// size being applied (applyResizes) -- or, for a window that has not said what
+// size it is by unsizedRepaintWait, then, at the size the pane already is.
+// The relay's phone client is one of those: it reports a size only when asked
+// to fit the pane to its screen, and without this it was left looking at the
+// garbled replay for as long as the program had nothing new to draw.
 func (s *Server) armRepaint(repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
 	repaint.Store(fresh && altScreen(sess))
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
+		return
+	}
+	if repaint.Load() {
+		time.AfterFunc(unsizedRepaintWait, func() {
+			if repaint.CompareAndSwap(true, false) {
+				s.do(func() { s.repaintPane(id) })
+			}
+		})
 	}
 }
+
+// unsizedRepaintWait is how long a fresh stream onto a full-screen program
+// waits for its window's size before the pane is repainted without it. It is
+// a variable so a test need not wait it out, or can wait for ever.
+var unsizedRepaintWait = 500 * time.Millisecond
 
 // repaintPane makes a pane a row shorter and, a moment later, puts it back. It
 // must run on the workspace goroutine.
 func (s *Server) repaintPane(id string) {
-	cols, rows := viewers.size(id)
+	cols, rows := s.repaintSize(id)
 	if cols <= 0 || rows < 2 {
 		return
 	}
@@ -407,11 +424,24 @@ func (s *Server) repaintPane(id string) {
 		s.do(func() {
 			// Whatever size is right by then, in case a window has changed
 			// shape in the meantime.
-			if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
+			if cols, rows := s.repaintSize(id); cols > 0 && rows > 0 {
 				repaintResize(s, id, cols, rows)
 			}
 		})
 	})
+}
+
+// repaintSize is the size a repaint puts a pane back to: the one its windows
+// have measured, or, where none of them has said, the size it is running at.
+// It must run on the workspace goroutine.
+func (s *Server) repaintSize(id string) (cols, rows int) {
+	if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
+		return cols, rows
+	}
+	if p := s.ws.Pane(id); p != nil && p.Sess != nil {
+		return p.Sess.Size()
+	}
+	return 0, 0
 }
 
 // waitForRestart waits for the pane to be given a new process. It returns nil
