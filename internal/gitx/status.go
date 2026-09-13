@@ -41,7 +41,7 @@ func (s Status) HasChanges() bool { return s.Dirty > 0 || s.Untracked > 0 }
 // counts alongside the file entries, which avoids the several invocations the
 // same information would otherwise take.
 func StatusOf(dir string) Status {
-	st, _ := StatusWithin(dir, commandTimeout)
+	st, _ := statusWithin(dir, commandTimeout)
 	return st
 }
 
@@ -51,7 +51,18 @@ func StatusOf(dir string) Status {
 // whole of the read, the extra call for a detached checkout included, has
 // timeout to finish in. When it does not, git is stopped, the Status is empty,
 // and errors.Is(err, context.DeadlineExceeded) holds.
+//
+// It does not look inside submodules. Finding work left uncommitted in one
+// means a git status of its own inside every submodule, every refresh, and
+// that work cannot be committed from here anyway; the review panel, which
+// reads StatusOf, still says so. A submodule moved to another commit is this
+// repository's change, and is still counted.
 func StatusWithin(dir string, timeout time.Duration) (Status, error) {
+	return statusWithin(dir, timeout, "--ignore-submodules=dirty")
+}
+
+// statusWithin is StatusWithin with extra options for git status.
+func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var st Status
@@ -59,7 +70,8 @@ func StatusWithin(dir string, timeout time.Duration) (Status, error) {
 	// collapses a new directory into one entry, so a pane header claiming one
 	// untracked file sat above a review panel -- which asks for "all" --
 	// listing the thirty inside it.
-	out, _, err := runCapture(ctx, timeout, dir, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+	args := append([]string{"status", "--porcelain=v2", "--branch", "--untracked-files=all"}, opts...)
+	out, _, err := runCapture(ctx, timeout, dir, args...)
 	if err != nil {
 		return st, err
 	}
