@@ -425,8 +425,9 @@ time the picker opens, so editing it by hand needs no restart, and a file that
 does not parse is a notice in the interface rather than a failure to start.
 
 Keys for the API agents are resolved from that agent's own environment
-variables first and then from `keys.json` in the state directory, written by
-`flockdeck keys set <agent>` reading stdin. A key reaches exactly one place — the
+variables first, then from `keys.json` in the state directory, written by
+`flockdeck keys set <agent>` reading stdin, and last from `FLOCKDECK_API_KEY`,
+which every API agent reads. A key reaches exactly one place — the
 environment of the chat process for the pane that needs it — and is never
 logged, never in a snapshot, never in an error message. The interface shows
 *set* or *not set*, offers *set…* and *clear*, and never reads one back.

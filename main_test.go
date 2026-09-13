@@ -460,7 +460,7 @@ func TestUsageNamesTheEnvironment(t *testing.T) {
 	fs := flockdeckFlagSet(&cliFlags{})
 	fs.SetOutput(&buf)
 	usage(fs)
-	for _, name := range []string{"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY"} {
+	for _, name := range []string{"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY", "FLOCKDECK_API_KEY"} {
 		if !strings.Contains(buf.String(), name) {
 			t.Errorf("%s is missing from the usage message", name)
 		}
