@@ -173,7 +173,9 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	}
 	var found []string
 	truncated := false
-	err = walkFiles(ctx, base, func(_, rel string, _ fs.DirEntry) error {
+	start, prefix := walkStart(base, a.Pattern)
+	err = walkFiles(ctx, start, func(_, rel string, _ fs.DirEntry) error {
+		rel = joinRel(prefix, rel)
 		if !matchGlob(a.Pattern, rel) {
 			return nil
 		}
@@ -253,6 +255,46 @@ func matchSegments(pat, name []string) bool {
 		pat, name = pat[1:], name[1:]
 	}
 	return len(name) == 0
+}
+
+// walkStart is where a walk for pattern under base begins, and the part of the
+// path it stepped over: the directories the pattern names before its first
+// wildcard -- src/app of src/app/**/*.ts -- where they are there, and base
+// where they are not.
+//
+// A walk from base visits every file under it to match each against the
+// pattern, and the patterns a model writes begin with a directory more often
+// than not: src/**/*.go in a tree with a node_modules walked all ten thousand
+// files of it to find fifty. Only a directory of exactly the name the pattern
+// gives is stepped into, which is all a walk from base would have matched: not
+// a link, which a walk never follows, not a name in another case, and not a
+// version control store, which a walk steps over.
+func walkStart(base, pattern string) (start, prefix string) {
+	parts := strings.Split(strings.TrimPrefix(filepath.ToSlash(pattern), "./"), "/")
+	start = base
+	var named []string
+	for _, p := range parts[:len(parts)-1] {
+		if p == "" || p == "." || p == ".." || strings.ContainsAny(p, `*?[\`) || skipDir(p) || !isDirEntry(start, p) {
+			break
+		}
+		start = filepath.Join(start, p)
+		named = append(named, p)
+	}
+	return start, strings.Join(named, "/")
+}
+
+// isDirEntry reports whether dir holds a directory called exactly name.
+func isDirEntry(dir, name string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return e.IsDir()
+		}
+	}
+	return false
 }
 
 // joinRel puts a path relative to a search base back together as a path
