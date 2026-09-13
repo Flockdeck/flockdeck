@@ -1040,8 +1040,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			// A layout can name an agent this machine has no entry for — one
 			// removed from the user's agents.json, or a layout carried over
 			// from a machine that had it. That is this pane's problem and no
-			// other's, so it is reported in place.
-			p.Err = fmt.Errorf("no agent named %q is configured", agentID)
+			// other's, so it is reported in place, with the way out of it:
+			// told only that the agent was not configured, the user was left
+			// to work out where agents are configured, and that the pane can
+			// be restarted once it is.
+			p.Err = fmt.Errorf("no agent named %q is configured on this machine, so this pane cannot start. Add it to agents.json and restart the pane, or close it", agentID)
 			return
 		}
 		// A CLI runner is somebody else's program and may simply not be on the
