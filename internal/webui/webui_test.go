@@ -2923,6 +2923,29 @@ func TestHighContrastStillShowsWhatIsChosenAndWhatIsOn(t *testing.T) {
 	}
 }
 
+// F6 and Shift+F6 move the keyboard round the window's parts, and in the prompt
+// bar they did nothing: the bar kept every key but Escape and Enter, so the
+// only way out of it without the mouse was closing it.
+func TestF6LeavesThePromptBar(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+// A wide window, where the rail is on screen rather than folded into a menu.
+Object.defineProperty(h.$("rail-toggle"), "offsetParent", { get: () => null });
+h.press("promptAll");
+assert.ok(h.doc.activeElement === h.$("prompt-input"), "the prompt bar did not take the keyboard");
+const ev = h.press("nextRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "F6 in the prompt bar went nowhere");
+assert.ok(ev.defaultPrevented, "F6 was left to the browser as well");
+assert.ok(!h.$("promptbar").hidden, "F6 closed the prompt bar");
+
+h.$("prompt-input").focus();
+h.terms[0].focused = false;
+h.press("prevRegion");
+assert.ok(h.terms[0].focused, "Shift+F6 in the prompt bar did not reach the focused terminal");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

@@ -7729,6 +7729,10 @@
       // Enter sends. Shift+Enter is left to the field, which starts a new
       // line with it, so a prompt of several lines can be written here.
       else if (e.key === "Enter" && !e.shiftKey && document.activeElement === $("prompt-input")) { e.preventDefault(); submitPrompt(); }
+      // F6 and Shift+F6 leave the bar for the rest of the window, as they
+      // leave a terminal. The bar took them and did nothing, so from here the
+      // only way out without the mouse was closing it.
+      else if (sizing === "nextRegion" || sizing === "prevRegion") { claimKey(e); runAction(sizing); }
       return;
     }
 

@@ -9,7 +9,8 @@ switching tabs, the font size, [[key:settings]] for the settings,
 Inside a terminal <kbd>Tab</kbd> belongs to the program running there, so
 [[key:nextRegion]] is how the keyboard gets out: it moves between the rail, the
 top bar, the focused pane's buttons and its terminal, in that order, and
-[[key:prevRegion]] goes the other way. While a dialog is open it stays there.
+[[key:prevRegion]] goes the other way. Both work from the prompt bar too.
+While a dialog is open the keyboard stays there.
 
 Copying and pasting in a terminal works as it does in Windows Terminal.
 <kbd>Ctrl+C</kbd> copies what is selected, and with nothing selected goes to
