@@ -115,14 +115,18 @@ func (s *Server) notifyAll(text string, isErr bool) {
 	}
 }
 
-// clientList is the windows connected at this moment, copied out so that
-// sending to them does not hold the lock a window connecting or leaving needs.
+// clientList is the windows connected at this moment that have been handed
+// their hello, copied out so that sending to them does not hold the lock a
+// window connecting or leaving needs. A window still waiting for its hello is
+// left out: nothing may reach it before its key table (see handleControl).
 func (s *Server) clientList() []*controlClient {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clients := make([]*controlClient, 0, len(s.clients))
-	for c := range s.clients {
-		clients = append(clients, c)
+	for c, greeted := range s.clients {
+		if greeted {
+			clients = append(clients, c)
+		}
 	}
 	return clients
 }
@@ -685,6 +689,13 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	if isRemote {
 		c.device = r.Header.Get("Flockdeck-Remote-Device")
 	}
+	// The window counts from the moment its socket opens: whether the last
+	// window has gone is decided by counting them, and a page being reloaded
+	// while the workspace is busy -- opening a project, say -- would otherwise
+	// look like nobody there at all. It is sent nothing until its hello.
+	s.mu.Lock()
+	s.clients[c] = false
+	s.mu.Unlock()
 	// The git summaries are only kept current while somebody is looking, so
 	// this window's arrival is what makes them current again.
 	s.RefreshGitNow()
@@ -708,19 +719,19 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// first keystroke. The state follows so the window can render.
 	s.do(func() {
 		s.sendHello(c)
-		// The window joins the list the broadcasts go to only now, with its
-		// hello queued ahead of anything they send it. Every broadcast is made
-		// on this goroutine, so none can reach it first. Joined as the socket
-		// opened, it was handed the snapshot of a broadcast already queued
-		// here before its hello was even queued -- one connection in a few
-		// dozen, whenever git or an agent had just changed something.
+		// The window is sent broadcasts only from now, with its hello queued
+		// ahead of anything they send it. Every broadcast is made on this
+		// goroutine, so none can reach it first. Sent them from the moment
+		// its socket opened, it was handed the snapshot of a broadcast
+		// already queued here before its hello was even queued -- one
+		// connection in a few dozen, whenever git or an agent had just
+		// changed something.
 		//
-		// A window that has gone again while this waited its turn is left
-		// off: its handler has already taken it off the list, and nothing
-		// would take it off a second time.
+		// A window that has gone again while this waited its turn is no
+		// longer on the list, and is not put back on it.
 		s.mu.Lock()
-		if ctx.Err() == nil {
-			s.clients[c] = struct{}{}
+		if _, ok := s.clients[c]; ok {
+			s.clients[c] = true
 		}
 		s.mu.Unlock()
 		data, err := json.Marshal(s.snapshot())
@@ -748,12 +759,10 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	s.viewersChanged(c)
 
 	defer func() {
-		// Cancelled before the window is taken off the list, which is what
-		// keeps a hello still waiting its turn from putting it back on.
-		cancel()
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
+		cancel()
 		_ = conn.CloseNow()
 		s.viewersChanged(c)
 		// Only the windows on this machine count towards the last one going:
