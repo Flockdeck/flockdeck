@@ -204,48 +204,109 @@ func TestAPaneUsedAtTheDeskIsStillPushed(t *testing.T) {
 	}
 }
 
-// While a window here is in front and being used, whoever is at the desk can
-// see the agents waiting, and the phone is not told; once the window has gone
-// behind something, or been left a while, it is. A window reached through the
-// relay is not the desk.
-func TestNoPushWhileTheDeskIsInUse(t *testing.T) {
+// setIdle replaces the server's idle source with a fixed answer, on the
+// workspace goroutine, where deskInUse reads it.
+func setIdle(srv *Server, d time.Duration, locked, ok bool) {
+	ask(srv, func() bool {
+		srv.push.idleSince = func() (time.Duration, bool, bool) { return d, locked, ok }
+		return true
+	})
+}
+
+// An idle time the OS can answer decides who is at the desk, with no window
+// open here at all: under two minutes the phone is not told, and once two
+// minutes have passed, it is.
+func TestOSIdleDecidesWhoIsAtTheDesk(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	_, since := waitingPane(t, srv, ws)
+
+	setIdle(srv, 90*time.Second, false, true)
+	if n := due(srv, since.Add(30*time.Second)); n != nil {
+		t.Errorf("pushed with the machine idle 90 seconds, under the two minutes: %+v", n)
+	}
+
+	setIdle(srv, deskLook+time.Second, false, true)
+	if n := due(srv, since.Add(30*time.Second+minPushGap)); n == nil {
+		t.Error("not pushed once the machine had been idle two minutes, with no window focused at all")
+	}
+}
+
+// A locked screen is always away, whatever the idle time -- even one so
+// short it would otherwise mean somebody was just at the keyboard.
+func TestALockedScreenIsAlwaysAway(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	_, since := waitingPane(t, srv, ws)
+	setIdle(srv, 0, true, true)
+	if n := due(srv, since.Add(30*time.Second)); n == nil {
+		t.Error("not pushed while the screen was locked")
+	}
+}
+
+// A window here saying it is "front" no longer buys the desk anything: what
+// decides is the OS's own idle time, and three minutes of nobody touching
+// the keyboard or mouse anywhere on the machine is a push due, whatever any
+// one window last reported of its own focus.
+func TestAFocusedWindowDoesNotBlockAPushTheOSSaysIsDue(t *testing.T) {
 	srv, ws := newTestServer(t)
 	enrolled(srv)
 	conn := dialControl(t, srv)
 	nextHello(t, conn)
-	id, since := waitingPane(t, srv, ws)
-	sendCmd(t, conn, command{Cmd: "presence", Kind: "front"})
-	waitFor(t, func() bool { return srv.deskInUse(time.Now()) })
-	if n := due(srv, since.Add(30*time.Second)); n != nil {
-		t.Errorf("pushed while the window at the desk was in front and in use: %+v", n)
-	}
-	if n := due(srv, time.Now().Add(deskLook+time.Second)); n == nil {
-		t.Error("not pushed once the window at the desk had been left a while")
-	}
+	_, since := waitingPane(t, srv, ws)
 
-	// Put behind something: told at once, of a new wait.
-	answer(srv, ws, id)
-	time.Sleep(2 * time.Millisecond)
-	again := waitIn(t, srv, ws, id)
+	// A window reporting itself "front" -- the old, discarded signal -- is
+	// sent here to show it changes nothing: the machine has not been touched
+	// for three minutes, by this reading, and the push goes ahead despite it.
 	sendCmd(t, conn, command{Cmd: "presence", Kind: "front"})
-	waitFor(t, func() bool { return srv.deskInUse(time.Now()) })
-	sendCmd(t, conn, command{Cmd: "presence", Kind: "away"})
-	waitFor(t, func() bool { return !srv.deskInUse(time.Now()) })
-	if n := due(srv, again.Add(30*time.Second+deskLook+minPushGap)); n == nil {
-		t.Error("not pushed once the window at the desk went behind")
+	setIdle(srv, 3*time.Minute, false, true)
+	if n := due(srv, since.Add(30*time.Second)); n == nil {
+		t.Error("a stale 'front' report held back a push the OS idle time said was due")
 	}
+}
 
-	// A window through the relay saying it is in front is not the desk.
+// Where the OS cannot say how idle the machine is, a Flockdeck window here
+// falls back to reporting real input of its own -- a keystroke, a click, a
+// scroll, the pointer moving -- and only that counts: coming to the front by
+// itself does not. A window reached through the relay is not this desk.
+func TestFallsBackToWindowInputWhenTheOSCannotAnswer(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	setIdle(srv, 0, false, false)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+
+	// A window through the relay reporting input is not this desk. Checked
+	// before anything is reported from the desk itself, so its report is the
+	// only one in play.
 	ts := remoteServer(t, srv)
 	remote, err := dialRemoteControl(ts, ts.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer remote.CloseNow()
-	sendCmd(t, remote, command{Cmd: "presence", Kind: "front"})
+	sendCmd(t, remote, command{Cmd: "presence", Kind: "used"})
 	time.Sleep(100 * time.Millisecond)
 	if srv.deskInUse(time.Now()) {
 		t.Error("a window through the relay was taken for the desk")
+	}
+
+	id, since := waitingPane(t, srv, ws)
+	if n := due(srv, since.Add(30*time.Second)); n == nil {
+		t.Error("not pushed with a window open here that had reported no input at all")
+	}
+
+	// Put behind something first, so the next wait is a fresh one to push.
+	answer(srv, ws, id)
+	time.Sleep(2 * time.Millisecond)
+	again := waitIn(t, srv, ws, id)
+	sendCmd(t, conn, command{Cmd: "presence", Kind: "used"})
+	waitFor(t, func() bool { return srv.deskInUse(time.Now()) })
+	if n := due(srv, again.Add(30*time.Second)); n != nil {
+		t.Errorf("pushed despite a keydown reported at this desk moments ago: %+v", n)
+	}
+	if n := due(srv, time.Now().Add(deskLook+time.Second)); n == nil {
+		t.Error("not pushed once the input reported here had aged past deskLook")
 	}
 }
 
