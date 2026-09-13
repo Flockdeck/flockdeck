@@ -3978,7 +3978,19 @@
   let lastSearch = "";
 
   function openSearch() {
+    const input = $("search-input");
     const was = searchPane;
+    const open = !$("searchbar").hidden;
+    // Asked for again while the bar is up on the same pane, it only takes the
+    // keyboard back: filling the box again replaced what had been typed with
+    // the last search, and left the typed words' matches marked under it.
+    if (open && was === focusedPaneId()) {
+      input.focus();
+      if (input.select) input.select();
+      return;
+    }
+    // Moving to another pane, what was typed is the search it carries.
+    if (open) lastSearch = input.value;
     searchPane = focusedPaneId();
     // Asked for again after the keyboard moved to another pane, the search
     // moves with it, and it left the first pane's matches marked for good:
@@ -3991,7 +4003,6 @@
     // With six panes on screen, "Find" alone does not say where it is looking.
     const v = state && state.panes ? state.panes[searchPane] : null;
     $("search-label").textContent = v && v.name ? "Find in " + v.name : "Find";
-    const input = $("search-input");
     input.value = lastSearch;
     noMatch(false);
     showMatchCount(null);

@@ -789,3 +789,34 @@ assert.ok(!clearOf(rows[1]), "a key only from the environment was offered Clear"
 assert.ok(!rows[1].textContent.includes("a stored key"), "a key only from the environment says one is stored");
 `)
 }
+
+// Find pressed again while the bar was up filled the box with the last search,
+// which is only kept when the bar closes, so what had just been typed was
+// replaced by an older search and its matches were left marked. On the pane it
+// is already searching the bar just takes the keyboard back; moved to another
+// pane, it carries what was typed.
+func TestFindPressedAgainKeepsWhatWasTyped(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = (focus) => ({ id: "t1", title: "one", focus, zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) });
+h.recv(fixture({ tabs: [tab("p1")] }));
+const input = h.$("search-input");
+h.press("findInTerminal");
+input.value = "panic";
+h.key({ key: "Escape" });
+
+h.press("findInTerminal");
+input.value = "deadlock";
+h.doc.body.focus();
+h.press("findInTerminal");
+assert.strictEqual(input.value, "deadlock", "pressing Find again replaced what was typed with the last search");
+assert.ok(h.doc.activeElement === input, "the bar did not take the keyboard back");
+assert.deepStrictEqual([input.selectionStart, input.selectionEnd], [0, 8], "what was typed is not selected");
+
+h.recv(fixture({ tabs: [tab("p2")] }));
+h.doc.body.focus();
+h.press("findInTerminal");
+assert.strictEqual(input.value, "deadlock", "moving the bar to another pane dropped what was typed");
+`)
+}
