@@ -248,10 +248,14 @@ func (w *anthropicWire) Stream(ctx context.Context, req Request, emit func(Event
 		}
 		return nil
 	})
+	usage := counts.usage()
 	if err != nil {
+		// Ctrl+C, a dropped connection or an error sent part-way ends the
+		// stream here, and what the prompt read -- cache included -- and what
+		// was written of the answer are spent all the same.
+		emit(Event{Kind: EventUsage, Usage: usage})
 		return err
 	}
-	usage := counts.usage()
 	var stopped error
 	switch {
 	case !finished:
