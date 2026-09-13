@@ -2429,8 +2429,14 @@
   function sendFocus(p) {
     if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ focus: true }));
   }
+  /** INPUT_FRAME is the most input one frame carries. The server takes a
+   *  frame of up to 4 MiB from a terminal and drops the connection over a
+   *  bigger one, so a paste of more than that was lost without a word. */
+  const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(bytes);
+    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) return;
+    if (bytes.length <= INPUT_FRAME) { p.ws.send(bytes); return; }
+    for (let at = 0; at < bytes.length; at += INPUT_FRAME) p.ws.send(bytes.subarray(at, at + INPUT_FRAME));
   }
 
   function connectPTY(p) {

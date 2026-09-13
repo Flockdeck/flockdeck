@@ -2793,6 +2793,26 @@ assert.strictEqual(t.pasted.length, 1, "an ordinary paste was pasted twice");
 `)
 }
 
+// The server takes a frame of up to 4 MiB from a terminal, and a paste bigger
+// than that went as one frame and was dropped with the connection, silently.
+// Input is sent a mebibyte at a time.
+func TestAHugePasteGoesInFramesTheServerTakes(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+const before = ws.sent.length;
+const MiB = 1 << 20;
+h.terms[0]._data("x".repeat(3 * MiB + 5));
+const frames = ws.sent.slice(before);
+assert.strictEqual(frames.length, 4, "three and a bit mebibytes went as " + frames.length + " frames");
+assert.ok(frames.every((f) => typeof f !== "string" && f.byteLength <= MiB), "a frame was bigger than a mebibyte");
+assert.strictEqual(frames.reduce((n, f) => n + f.byteLength, 0), 3 * MiB + 5, "some of the paste went missing");
+h.terms[0]._data("ls\r");
+assert.strictEqual(new TextDecoder().decode(ws.sent.pop()), "ls\r", "a keystroke is not one frame any more");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
