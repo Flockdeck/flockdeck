@@ -51,4 +51,25 @@ assert.deepStrictEqual(marks(), ["", ""], "the rows stayed marked after a refres
 `)
 }
 
+// A rebase or a bisect runs on a detached HEAD. The review showed the branch it
+// would go back to with "no upstream yet", and a Push that could only fail.
+func TestADetachedOrRebasingCheckoutOffersNoPush(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const files = [{ path: "a.go", label: "M", added: 1, removed: 0 }];
+const branch = () => h.$("overlay-body").querySelector("span.rev-branch").textContent;
+
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", detached: true, operation: "rebasing", hasRemote: true, files });
+assert.strictEqual(branch(), "rebasing main");
+assert.ok(!h.$("rev-push") && !h.$("rev-commit-push"), "a rebase in progress was offered a push");
+assert.ok(!/no upstream yet/.test(h.$("overlay-body").textContent), "a rebase in progress was said to have no upstream yet");
+
+h.recv({ type: "changes", cwd: "C:/repo", branch: "", detached: true, head: "abc1234", hasRemote: true, files });
+assert.strictEqual(branch(), "detached at abc1234");
+assert.ok(!h.$("rev-push") && !h.$("rev-commit-push"), "a detached HEAD was offered a push");
+assert.ok(h.$("rev-commit"), "a detached HEAD cannot be committed to from the panel");
+`)
+}
 

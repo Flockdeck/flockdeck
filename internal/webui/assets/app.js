@@ -5062,8 +5062,22 @@
 
     // --- branch and remote state ------------------------------------------
     const head = el("div", "rev-head");
-    head.append(describe(el("span", "rev-branch", m.branch || "detached"), TIPS.branch));
-    if (m.upstream) {
+    // A rebase or a bisect runs on a detached HEAD, and the listing names
+    // the branch it will go back to: shown as that branch, with "no upstream
+    // yet" and a Push that could only fail.
+    if (m.operation) {
+      head.append(describe(el("span", "rev-branch", m.operation + " " + (m.branch || "a detached HEAD")),
+        "This checkout is in the middle of " + (m.operation === "rebasing" ? "a rebase" : "a bisect") +
+        ", with no branch checked out, so there is nothing to push. Finish or abort it in a terminal."));
+    } else if (m.detached) {
+      head.append(describe(el("span", "rev-branch", "detached at " + (m.head || "HEAD")),
+        "No branch is checked out here, so there is nothing to push. Check out a branch in a terminal to push from it."));
+    } else {
+      head.append(describe(el("span", "rev-branch", m.branch || "detached"), TIPS.branch));
+    }
+    if (m.detached) {
+      // Nothing about an upstream applies: there is no branch to have one.
+    } else if (m.upstream) {
       let track = m.upstream;
       if (m.ahead) track += "  ↑" + m.ahead;
       if (m.behind) track += "  ↓" + m.behind;
@@ -5113,18 +5127,21 @@
       fetch.id = "rev-fetch";
       fetch.onclick = () => { running(fetch, "Fetching…"); send({ cmd: "gitFetch", path: m.cwd }); };
       actions.append(fetch);
-      if (m.behind) {
+      if (m.behind && !m.detached) {
         const pull = el("button", "chip", "Pull " + m.behind);
         pull.id = "rev-pull";
         pull.title = "Fast-forward from " + m.upstream;
         pull.onclick = () => { running(pull, "Pulling…"); send({ cmd: "gitPull", path: m.cwd }); };
         actions.append(pull);
       }
-      const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
-      push.id = "rev-push";
-      push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
-      push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
-      actions.append(push);
+      // With no branch checked out there is nothing to push.
+      if (!m.detached) {
+        const push = el("button", "chip" + (m.ahead ? " primary" : ""), m.ahead ? "Push " + m.ahead : "Push");
+        push.id = "rev-push";
+        push.title = m.upstream ? "Push to " + m.upstream : "Push and set the upstream to origin";
+        push.onclick = () => { running(push, "Pushing…"); send({ cmd: "gitPush", path: m.cwd }); };
+        actions.append(push);
+      }
     }
     const refresh = el("button", "chip", "Refresh");
     refresh.id = "rev-refresh";
@@ -5258,7 +5275,7 @@
         doCommit(c1, false);
       };
       buttons.append(c1);
-      if (m.hasRemote) {
+      if (m.hasRemote && !m.detached) {
         const c2 = el("button", "chip", "Commit and push");
         c2.id = "rev-commit-push";
         c2.onclick = () => doCommit(c2, true);

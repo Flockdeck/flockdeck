@@ -27,7 +27,9 @@ was started in a folder inside it, and a commit takes every file in its list.
 
 Everything that talks to a remote is there only when the checkout has one. The
 first push sets the upstream, so a branch a fan-out invented does not need a
-hand-typed command to leave the machine.
+hand-typed command to leave the machine. A checkout with no branch checked out
+— a detached HEAD, or one in the middle of a rebase or a bisect — says so in
+place of the branch, and offers no push.
 
 ## What a commit takes
 

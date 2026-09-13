@@ -35,6 +35,14 @@ type changesMsg struct {
 	Behind    int          `json:"behind"`
 	HasRemote bool         `json:"hasRemote"`
 	Files     []changeView `json:"files"`
+	// Detached is a checkout with no branch in HEAD, and Head the commit it
+	// is on. Operation is "rebasing" or "bisecting" when it is detached for
+	// one of those, with Branch the branch that will be back at the end of
+	// it. The panel showed such a checkout as a branch with "no upstream yet"
+	// and a Push that could only fail.
+	Detached  bool   `json:"detached,omitempty"`
+	Head      string `json:"head,omitempty"`
+	Operation string `json:"operation,omitempty"`
 	// Omitted counts the changed files left out of Files, which happens
 	// only on a checkout with more of them than a list can usefully hold.
 	Omitted int    `json:"omitted,omitempty"`
@@ -202,6 +210,10 @@ func collectChangesUpTo(dir string, limit int) changesMsg {
 
 	msg.Branch, msg.Upstream = st.Branch, st.Upstream
 	msg.Ahead, msg.Behind = st.Ahead, st.Behind
+	msg.Detached, msg.Operation = st.Detached, st.Operation
+	if st.Detached {
+		msg.Head = st.Head
+	}
 	if ferr != nil {
 		msg.Error = ferr.Error()
 		return msg

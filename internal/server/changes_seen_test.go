@@ -148,3 +148,38 @@ func TestTheOmittedNoticeGoesOnlyWithAListingSomebodyAskedFor(t *testing.T) {
 		t.Errorf("opening the panel on a list that leaves files out said nothing about them: %+v", got)
 	}
 }
+
+// TestAReviewOfADetachedOrRebasingCheckoutSaysSo covers a checkout in the
+// middle of a rebase, or on no branch at all. The listing named the branch the
+// rebase would go back to and nothing else, so the panel offered "no upstream
+// yet" and a Push that set one up -- which then failed, there being no branch
+// checked out to push.
+func TestAReviewOfADetachedOrRebasingCheckoutSaysSo(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	gitCmd(t, repo, "checkout", "-q", "--detach")
+
+	var ch changesMsg
+	sendCmd(t, conn, command{Cmd: "changes", Path: repo})
+	readUntil(t, conn, "changes", &ch)
+	if !ch.Detached || ch.Head == "" || ch.Operation != "" {
+		t.Errorf("a detached checkout is listed as detached %v at %q, operation %q; want detached at its commit",
+			ch.Detached, ch.Head, ch.Operation)
+	}
+
+	// A rebase stopped part way leaves its state where git reads it back.
+	state := filepath.Join(repo, ".git", "rebase-merge")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "head-name"), []byte("refs/heads/main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sendCmd(t, conn, command{Cmd: "changes", Path: repo})
+	readUntil(t, conn, "changes", &ch)
+	if !ch.Detached || ch.Operation != "rebasing" || ch.Branch != "main" {
+		t.Errorf("a rebase of main is listed as branch %q, operation %q, detached %v; want main, rebasing, detached",
+			ch.Branch, ch.Operation, ch.Detached)
+	}
+}
