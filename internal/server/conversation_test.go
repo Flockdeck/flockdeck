@@ -1,0 +1,392 @@
+package server
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/workspace"
+)
+
+// addAgentPane opens a pane and marks it as running the named agent, on the
+// workspace goroutine, so a test can give it a transcript to read without
+// starting a real CLI.
+func addAgentPane(t *testing.T, srv *Server, ws *workspace.Workspace, agentID string) string {
+	t.Helper()
+	id, ok := ask(srv, func() string {
+		id := ws.NewTab(session.KindShell, ws.ActiveRoot(), "agent").Tree.Panes()[0]
+		if p := ws.Pane(id); p != nil {
+			p.Kind = session.KindAgent
+			p.Agent = agentID
+		}
+		return id
+	})
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	return id
+}
+
+// setPaneConversation moves a pane to a new conversation id, the way the
+// SessionStart hook does after /clear.
+func setPaneConversation(t *testing.T, srv *Server, ws *workspace.Workspace, paneID, conversation string) {
+	t.Helper()
+	_, ok := ask(srv, func() int {
+		if p := ws.Pane(paneID); p != nil {
+			p.Conversation = conversation
+		}
+		return 0
+	})
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+}
+
+// claudeTranscriptPath is where a pane's own transcript lives once
+// CLAUDE_CONFIG_DIR is pointed at home.
+func claudeTranscriptPath(home, root, sessionID string) string {
+	return filepath.Join(home, "projects", slugFor(root), sessionID+".jsonl")
+}
+
+// writeClaudeJSONL writes a transcript, creating the project folder Claude
+// Code would have made for it.
+func writeClaudeJSONL(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, path, lines...)
+}
+
+func nextRaw(t *testing.T, c *controlClient) []byte {
+	t.Helper()
+	select {
+	case raw := <-c.out:
+		return raw
+	case <-time.After(5 * time.Second):
+		t.Fatal("no message arrived")
+		return nil
+	}
+}
+
+func msgType(t *testing.T, raw []byte) string {
+	t.Helper()
+	var m struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal %s: %v", raw, err)
+	}
+	return m.Type
+}
+
+func expectNoMessage(t *testing.T, c *controlClient, within time.Duration) {
+	t.Helper()
+	select {
+	case raw := <-c.out:
+		t.Fatalf("unexpected message: %s", raw)
+	case <-time.After(within):
+	}
+}
+
+func decodePage(t *testing.T, raw []byte) conversationPageMsg {
+	t.Helper()
+	var msg conversationPageMsg
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("unmarshal conversationPage: %v", err)
+	}
+	return msg
+}
+
+// TestConversationOpenPagesThenAppends is the core protocol test: without
+// conversationOpen resolving a pane's transcript and conversationHookEvent
+// pushing what changed, a phone would never see anything past the state the
+// pane was in the moment it opened the chat view.
+func TestConversationOpenPagesThenAppends(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	path := claudeTranscriptPath(home, root, paneID)
+	writeClaudeJSONL(t, path,
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]}}`,
+	)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if !page.Supported || page.Agent != "claude" {
+		t.Fatalf("page = %+v, want a supported claude page", page)
+	}
+	if len(page.Entries) != 2 {
+		t.Fatalf("entries = %+v, want 2", page.Entries)
+	}
+	if !page.AtStart {
+		t.Error("a page holding the whole conversation should say atStart")
+	}
+	if page.Entries[0].Kind != transcript.KindPrompt || page.Entries[1].Kind != transcript.KindReply {
+		t.Errorf("entries = %+v", page.Entries)
+	}
+	cursor := page.Cursor
+	if cursor == "" {
+		t.Fatal("no cursor on the first page")
+	}
+
+	// A new line is written, and the hook fires as it would for a real tool
+	// call: the client watching this pane should be pushed the new entry
+	// without asking again.
+	appendJSONL(t, path,
+		`{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"a second reply"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationAppend" {
+		t.Fatalf("got %s, want conversationAppend", raw)
+	}
+	var app conversationAppendMsg
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.Entries) != 1 || app.Entries[0].Markdown != "a second reply" {
+		t.Errorf("appended entries = %+v", app.Entries)
+	}
+	if app.Cursor == cursor {
+		t.Error("the cursor did not move past the appended entry")
+	}
+}
+
+// TestConversationOlderPagesBackward covers a conversation with more entries
+// than one page holds.
+func TestConversationOlderPagesBackward(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, `{"type":"user","uuid":"u`+itoa(i)+`","message":{"role":"user","content":"message `+itoa(i)+`"}}`)
+	}
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID), lines...)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if len(page.Entries) != conversationPageSize {
+		t.Fatalf("first page = %d entries, want %d", len(page.Entries), conversationPageSize)
+	}
+	if page.AtStart {
+		t.Error("a page that is not the whole conversation should not say atStart")
+	}
+	if page.Entries[0].Text != "message 10" {
+		t.Errorf("first page starts at %q, want \"message 10\"", page.Entries[0].Text)
+	}
+
+	older := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOlder(older, paneID, page.Entries[0].ID)
+	olderPage := decodePage(t, nextRaw(t, older))
+	if !olderPage.AtStart {
+		t.Error("the page reaching the first entry should say atStart")
+	}
+	if len(olderPage.Entries) != 10 {
+		t.Fatalf("older page = %d entries, want 10", len(olderPage.Entries))
+	}
+	if olderPage.Entries[0].Text != "message 0" || olderPage.Entries[9].Text != "message 9" {
+		t.Errorf("older page = %+v", olderPage.Entries)
+	}
+}
+
+// TestConversationDetailFetchesTrimmedBody covers a tool result too large to
+// arrive inline.
+func TestConversationDetailFetchesTrimmedBody(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	full := strings.Repeat("a line of output\n", 400) // well over the 4KB cap
+	resultJSON, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"build"}}]}}`,
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":`+string(resultJSON)+`}]}}`,
+	)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if len(page.Entries) != 1 {
+		t.Fatalf("entries = %+v", page.Entries)
+	}
+	tool := page.Entries[0]
+	if !tool.HasDetail || tool.Diff != "" {
+		t.Fatalf("tool entry = %+v, want hasDetail with no inline diff", tool)
+	}
+	if strings.Contains(page.Cursor, full) {
+		t.Fatal("the full body must not travel in the page")
+	}
+
+	srv.conversationDetailReq(c, paneID, "tu1")
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationDetail" {
+		t.Fatalf("got %s, want conversationDetail", raw)
+	}
+	var d conversationDetailMsg
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Entry != "tu1" || d.Detail.Text != full {
+		t.Errorf("detail = entry %q, %d bytes; want tu1, %d bytes", d.Entry, len(d.Detail.Text), len(full))
+	}
+}
+
+// TestConversationReconnectWithACursor covers a phone that reconnects having
+// missed some appends: it should be sent only what it missed.
+func TestConversationReconnectWithACursor(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+	path := claudeTranscriptPath(home, root, paneID)
+
+	writeClaudeJSONL(t, path, `{"type":"user","uuid":"u1","message":{"role":"user","content":"first"}}`)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	first := decodePage(t, nextRaw(t, c))
+	cursor := first.Cursor
+
+	// The phone goes away -- closes the pane -- and something happens while
+	// it is gone.
+	srv.conversationClose(c, paneID)
+	appendJSONL(t, path, `{"type":"user","uuid":"u2","message":{"role":"user","content":"missed while away"}}`)
+
+	reconnect := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(reconnect, paneID, cursor)
+	page := decodePage(t, nextRaw(t, reconnect))
+	if page.Reset {
+		t.Error("a still-known cursor should not reset the phone's view")
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Text != "missed while away" {
+		t.Fatalf("entries = %+v, want only what was missed", page.Entries)
+	}
+}
+
+// TestConversationReconnectWithAnUnknownCursorResets covers a desktop that
+// restarted, or a cursor from a conversation that no longer exists: the
+// contract says to answer with the newest page and reset:true rather than
+// silently drop what was asked for.
+func TestConversationReconnectWithAnUnknownCursorResets(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "an-id-nobody-issued")
+	page := decodePage(t, nextRaw(t, c))
+	if !page.Reset {
+		t.Error("an unknown cursor should be answered with reset:true")
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Text != "hello" {
+		t.Fatalf("entries = %+v, want the newest page", page.Entries)
+	}
+}
+
+// TestConversationClearMidStreamResets covers /clear while a client has a
+// pane's conversation open: the pane moves to a new conversation id, and
+// every watcher should be told to drop what it has and redraw, not shown the
+// old conversation's tail forever.
+func TestConversationClearMidStreamResets(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"before clear"}}`)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	before := decodePage(t, nextRaw(t, c))
+	if len(before.Entries) != 1 || before.Entries[0].Text != "before clear" {
+		t.Fatalf("entries before clear = %+v", before.Entries)
+	}
+
+	newSession := "99999999-0000-0000-0000-000000000000"
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, newSession),
+		`{"type":"user","uuid":"u2","message":{"role":"user","content":"after clear"}}`)
+	setPaneConversation(t, srv, ws, paneID, newSession)
+	srv.ConversationHookEvent(paneID)
+
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationPage" {
+		t.Fatalf("got %s, want a resetting conversationPage", raw)
+	}
+	after := decodePage(t, raw)
+	if !after.Reset {
+		t.Error("a conversation switch should arrive with reset:true")
+	}
+	if len(after.Entries) != 1 || after.Entries[0].Text != "after clear" {
+		t.Fatalf("entries after clear = %+v", after.Entries)
+	}
+}
+
+// TestConversationOpenUnsupportedAgent covers a pane whose agent has no chat
+// view adapter: the phone must be told plainly so it can fall back to the
+// terminal, not left guessing from a page of nothing.
+func TestConversationOpenUnsupportedAgent(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "codex")
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if page.Supported {
+		t.Errorf("codex has no adapter yet; got a supported page: %+v", page)
+	}
+	if len(page.Entries) != 0 {
+		t.Errorf("an unsupported page should carry no entries, got %+v", page.Entries)
+	}
+}
+
+// TestConversationOpenRefusesAPaneItCannotSee covers a client naming a pane
+// the workspace does not have -- closed already, or never existed. It must
+// be refused silently, the same as any other unknown pane id on this
+// protocol, rather than answered with something to act on.
+func TestConversationOpenRefusesAPaneItCannotSee(t *testing.T) {
+	srv, _ := newTestServer(t)
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, "no-such-pane", "")
+	expectNoMessage(t, c, 500*time.Millisecond)
+}
+
+func appendJSONL(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}

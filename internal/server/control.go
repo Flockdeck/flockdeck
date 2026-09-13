@@ -399,6 +399,12 @@ type command struct {
 	// Follow marks a listing the review panel asked for by itself, because
 	// the pane counts moved, rather than one somebody opened or refreshed.
 	Follow bool `json:"follow"`
+	// After, Before and Entry are the chat view's own: a cursor to resume
+	// streaming from, an entry id to page backwards from, and an entry id to
+	// fetch the full detail of. See conversation.go.
+	After  string `json:"after"`
+	Before string `json:"before"`
+	Entry  string `json:"entry"`
 }
 
 // ---------------------------------------------------------------------------
@@ -878,6 +884,8 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
+		// A window that has gone is watching no pane's conversation either.
+		s.convos.dropClient(c)
 		// A window that has gone reports no more input from here.
 		s.setDeskUsed(c, false)
 		cancel()
@@ -1072,6 +1080,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "conversations":
 		s.listConversations(c, cmd.Path)
+		return
+	case "conversationOpen":
+		s.conversationOpen(c, cmd.ID, cmd.After)
+		return
+	case "conversationOlder":
+		s.conversationOlder(c, cmd.ID, cmd.Before)
+		return
+	case "conversationDetail":
+		s.conversationDetailReq(c, cmd.ID, cmd.Entry)
+		return
+	case "conversationClose":
+		s.conversationClose(c, cmd.ID)
 		return
 	case "resumeConversation":
 		s.resumeConversation(c, cmd.ID, cmd.Path, titleFor(cmd.Text, cmd.Path), cmd.Agent)
