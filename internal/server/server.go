@@ -196,6 +196,9 @@ type Server struct {
 	// not rename, which is a new name every time. Only the workspace goroutine
 	// touches it.
 	saveFailShown bool
+
+	// push is what the paired devices are told of waits. See push.go.
+	push pushState
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -276,6 +279,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.gitLoop()
 	go s.usageLoop()
 	go s.saveLoop()
+	go s.waitLoop()
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()

@@ -878,6 +878,8 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
+		// A window that has gone is at nobody's desk.
+		s.setPresence(c, false)
 		cancel()
 		_ = conn.CloseNow()
 		s.viewersChanged(c)
@@ -1125,6 +1127,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			return
 		}
 		s.setUpdates(c, cmd.Kind == "off")
+		return
+	case "presence":
+		s.setPresence(c, cmd.Kind == "front")
+		return
+	case "pushNotify":
+		s.setPushOff(c, cmd.Kind == "off")
+		return
+	case "pushAnonymous":
+		s.setPushAnonymous(c, cmd.Kind == "on")
+		return
+	case "pushDelay":
+		s.setPushDelay(c, cmd.Size)
 		return
 	case "resetTips":
 		s.resetTips(c)

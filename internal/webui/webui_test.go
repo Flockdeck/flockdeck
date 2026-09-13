@@ -4413,6 +4413,69 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 `)
 }
 
+// The window tells the desktop whether it is in front and being used, which
+// the desktop asks before telling a paired phone of an agent waiting: as it
+// connects, comes to the front or goes behind, and not again for every key.
+func TestTheWindowSaysWhetherItIsInFront(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "front" }, "a window in front did not say so as it connected");
+h.doc._hasFocus = false;
+h.win.dispatchEvent(new h.Ev("blur"));
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "away" }, "a window gone behind did not say so");
+h.doc._hasFocus = true;
+h.win.dispatchEvent(new h.Ev("focus"));
+assert.deepStrictEqual(h.presence().pop(), { cmd: "presence", kind: "front" }, "a window come to the front did not say so");
+const said = h.presence().length;
+h.key({ key: "a" });
+h.key({ key: "b" });
+assert.strictEqual(h.presence().length, said, "a window in front said so again for every key");
+assert.ok(!h.commands().some((c) => c.cmd === "presence"), "what the window says of itself is among the commands");
+`)
+}
+
+// Settings › Remote access has the switch for push notifications to paired
+// devices, how long a wait lasts before they are told, and the option to send
+// nothing identifying. Each reaches its setting at once, follows another
+// window's, and the relay's refusal is said in its words.
+func TestThePushSettingsReachTheirSettings(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ fontSize: 13 });
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", name: "desk", viewers: 0,
+  since: "2030-01-01T00:00:00Z", pushError: "the relay said: this relay does not send push notifications" } }));
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-remote"));
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+assert.ok(on("set-push"), "push notifications are off before anyone turned them off");
+assert.ok(!on("set-push-anonymous"), "sending nothing identifying is on before anyone turned it on");
+assert.strictEqual(h.$("set-push-delay").value, "30", "the delay is not 30 seconds until it is changed");
+const text = h.$("settings-pane").textContent;
+assert.ok(text.includes("does not send push notifications"), "the relay's refusal is not said");
+assert.ok(text.includes("An agent on desk needs you"), "what an anonymous notification says is not said");
+
+h.click(h.$("set-push"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushNotify", kind: "off" });
+assert.ok(!on("set-push"), "the switch did not turn off at once");
+assert.ok(h.$("set-push-delay").disabled, "the delay can be changed with nothing to delay");
+h.click(h.$("set-push-anonymous"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushAnonymous", kind: "on" });
+assert.ok(on("set-push-anonymous"));
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], push: { anonymous: true } } });
+assert.ok(on("set-push"), "the switch did not follow notifications turned back on in another window");
+const delay = h.$("set-push-delay");
+delay.value = "120";
+h.dispatch(delay, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "pushDelay", size: 120 });
+assert.strictEqual(h.$("set-push-delay").value, "120");
+
+const find = h.$("settings-find");
+find.value = "notifications phone";
+find.oninput();
+assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "Find a setting does not find push notifications");
+`)
+}
+
 // Every control in the settings changes the real setting, through the command
 // the palette and the keys send; it takes effect at once; and it shows what
 // the palette, the keys or another window changed, so there is one state
@@ -7503,7 +7566,13 @@ function boot(opts) {
     /** commands is everything the page has sent up the control connection, in
      *  order, across a reconnect as well as within one. */
     commands() {
-      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s));
+      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s)).filter((c) => c.cmd !== "presence");
+    },
+    /** presence is what the page has said of itself -- in front, or not -- up
+     *  the control connection, which commands leaves out: it is said as the
+     *  window is used, and is not what a case pressing keys is asking about. */
+    presence() {
+      return h.controls().flatMap((c) => c.sent).map((s) => JSON.parse(s)).filter((c) => c.cmd === "presence");
     },
     /** click presses something. A disabled control is not clicked at all — the
      *  browser does not dispatch the event — which is the whole point of

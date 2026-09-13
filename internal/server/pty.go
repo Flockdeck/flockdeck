@@ -110,6 +110,13 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	viewer := nextViewer.Add(1)
+	// A window reached through the relay is somebody using the pane from their
+	// phone, from its opening to its closing; see relayUse.
+	relay := fromRemote(r)
+	if relay {
+		relayUse.mark(id, time.Now())
+		defer func() { relayUse.mark(id, time.Now()) }()
+	}
 	defer func() {
 		// This window is no longer one the pane is sized for, so it goes back
 		// to the window used before it, or to what the rest can all show. Handed
@@ -140,7 +147,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, conn, id, viewer, measured, &live)
+	go s.readInput(ctx, cancel, conn, id, viewer, relay, measured, &live)
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
@@ -266,7 +273,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, relay bool, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	// A size is recorded here and applied elsewhere. Applying it means reaching
 	// the workspace goroutine, which can be busy for seconds at a time opening
@@ -296,6 +303,9 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			if !isTerminalReply(data) && viewers.touch(id, viewer) {
 				nudge()
 			}
+			if relay && !isTerminalReply(data) {
+				relayUse.mark(id, time.Now())
+			}
 			continue
 		}
 		var ctl ptyControl
@@ -304,6 +314,9 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 		}
 		if ctl.Focus && viewers.touch(id, viewer) {
 			nudge()
+		}
+		if ctl.Focus && relay {
+			relayUse.mark(id, time.Now())
 		}
 		if ctl.Resize != nil {
 			viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)

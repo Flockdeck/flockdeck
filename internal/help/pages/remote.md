@@ -79,6 +79,39 @@ On a phone, when an agent stops to ask a question with set answers, the relay's
 own client shows its choices as buttons, so you can answer with a tap rather
 than typing into the terminal.
 
+## Notifications on your phone
+
+A paired phone can be told when an agent has been waiting on you for a while,
+whether or not the relay's page is open on it, and whether or not a window is
+open here: a run left detached reaches you too. On the phone, open a desktop
+and press **Notify me when an agent needs me**. On an iPhone or iPad, add the
+page to the Home Screen first — Share, then **Add to Home Screen** — and open
+it from there: iOS and iPadOS send notifications only to web apps added that
+way, from version 16.4. Tapping a notification opens the pane that is waiting.
+
+Here, Settings › **Remote access** says what is sent:
+
+- **Notify paired devices** turns notifications off for every device at once.
+- **After waiting** is how long an agent has to have been waiting first: 30
+  seconds, unless you choose otherwise. Each wait is told once, and an agent
+  that is answered and then asks again is a new wait. However many agents are
+  waiting, the phone is sent one notification that says how many, which
+  replaces the one before it, and no more than one a minute. Nothing is sent
+  while this window is in front of you and in use, nor about a pane you are
+  using on the phone; if it is still waiting two minutes after you leave it,
+  you are told then.
+- **Send nothing identifying** has a notification say only "An agent on *this
+  machine* needs you", rather than naming the pane and its project.
+
+Each notification is encrypted here, on this machine, for the device it goes
+to, and the relay only passes it on: neither the relay nor the push service
+that carries it — Apple's, Google's, Mozilla's or Microsoft's, which is the
+browser's to choose — can read what it says, since the key that opens it never
+leaves the phone. They see that one was sent, and when; every notification is
+the same size, however long the names in it. A relay that does not send
+notifications, or an account whose plan does not include them, is said under
+the switch in the relay's own words.
+
 ## Renaming
 
 A machine is listed on every device under the name it was enrolled with — its
