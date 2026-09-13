@@ -162,3 +162,32 @@ func TestALinkToAFileNotYetMadeIsJudgedByWhereItLeads(t *testing.T) {
 		t.Errorf("the file inside holds %q, %v", got, err)
 	}
 }
+
+// Unicode lower-cases the Kelvin sign to k and a dotted capital I to i, but a
+// file system keeps them apart from those letters in a name. A folder named
+// like the root with one of them in place of a k or an i is a sibling of the
+// root, outside it, and a write to a file in it is refused.
+func TestANameThatOnlyLowerCasesToTheRootsIsOutsideIt(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "work-in")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := NewRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kelvin, dottedI := string(rune(0x212A)), string(rune(0x130))
+	parent := filepath.Dir(root.Dir())
+	for _, sibling := range []string{"wor" + kelvin + "-in", "work-" + dottedI + "n"} {
+		p := filepath.Join(parent, sibling, "planted.txt")
+		if got, err := root.Resolve(p); !errors.Is(err, ErrOutsideRoot) {
+			t.Errorf("Resolve(%q) = %q, %v; want a refusal", p, got, err)
+		}
+		if _, err := call(t, &writeFile{root: root}, map[string]any{"path": p, "content": "x"}); !errors.Is(err, ErrOutsideRoot) {
+			t.Errorf("writing %q: %v; want a refusal", p, err)
+		}
+		if _, err := os.Stat(filepath.Join(parent, sibling)); err == nil {
+			t.Errorf("%s was made beside the working directory", sibling)
+		}
+	}
+}
