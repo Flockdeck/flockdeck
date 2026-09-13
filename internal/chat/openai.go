@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 )
@@ -180,15 +179,13 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 					ReasoningTokens int `json:"reasoning_tokens"`
 				} `json:"completion_tokens_details"`
 			} `json:"usage"`
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
+			Error streamFailure `json:"error"`
 		}
 		if json.Unmarshal([]byte(data), &chunk) != nil {
-			return nil
+			return unreadChunk(data)
 		}
-		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
+		if err := chunk.Error.err(); err != nil {
+			return err
 		}
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens,
@@ -248,7 +245,7 @@ func (w *openaiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		return &cutOffError{"the answer reached the model's limit on its length and was cut off there"}
 	case finish == "content_filter":
 		emit(Event{Kind: EventUsage, Usage: usage})
-		return errors.New("the endpoint's content filter stopped the answer")
+		return &refusalError{"the endpoint's content filter stopped the answer"}
 	}
 	for _, i := range sortedKeys(calls) {
 		if calls[i].name == "" {

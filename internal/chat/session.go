@@ -569,6 +569,23 @@ func (s *session) sayWhyItStopped(err error) {
 		// again throws it away and is cut off at the same length.
 		s.out.line(ansiRed, err.Error())
 		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
+	case refused(err):
+		// /retry asks the same again, which is refused the same way: the way
+		// on is to ask differently.
+		s.out.line(ansiRed, err.Error())
+		s.out.line(ansiDim, "(asking the same again is refused the same way; put it differently, or /clear to start over)")
+	case proxyUnreached(err) != "":
+		// Before unreachable: the endpoint was never asked, and changing its
+		// address, which is what that case advises, changes nothing.
+		env := "HTTPS_PROXY"
+		if strings.HasPrefix(strings.ToLower(endpointOf(s.opts)), "http://") {
+			env = "HTTP_PROXY"
+		}
+		s.out.line(ansiRed, "could not reach the proxy at "+proxyUnreached(err)+" ("+env+"); is it running?")
+		s.out.line(ansiDim, "(/retry asks again)")
+	case untrustedCert(err):
+		s.out.line(ansiRed, "the endpoint's certificate is not trusted on this machine")
+		s.out.line(ansiDim, "(a proxy or antivirus inspecting HTTPS is the usual cause; its certificate needs trusting, or the endpoint leaving out of its inspection)")
 	case unreachable(err):
 		s.out.line(ansiRed, "could not reach the endpoint: "+err.Error())
 		change := "`flockdeck keys endpoint " + keyAgent(s.opts) + " <url>` changes the address"

@@ -141,15 +141,13 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 				// price.
 				CachedContentTokenCount int `json:"cachedContentTokenCount"`
 			} `json:"usageMetadata"`
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
+			Error streamFailure `json:"error"`
 		}
 		if json.Unmarshal([]byte(data), &chunk) != nil {
-			return nil
+			return unreadChunk(data)
 		}
-		if chunk.Error.Message != "" {
-			return fmt.Errorf("%s", redactKeys(chunk.Error.Message))
+		if err := chunk.Error.err(); err != nil {
+			return err
 		}
 		// Every chunk repeats the counts for the whole answer so far, so they
 		// are taken rather than added up.
@@ -208,12 +206,23 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 	return nil
 }
 
+// geminiRefusals are the finish reasons that are a filter refusing the answer,
+// which the same prompt meets again however often it is asked.
+var geminiRefusals = map[string]bool{
+	"SAFETY": true, "RECITATION": true, "BLOCKLIST": true,
+	"PROHIBITED_CONTENT": true, "SPII": true, "IMAGE_SAFETY": true,
+}
+
 // geminiStopped is why an answer ended before it was finished, or nil when it
 // ended because it was done.
 func geminiStopped(finish, blocked string) error {
 	switch {
 	case blocked != "":
-		return fmt.Errorf("Gemini refused the prompt (%s)", blocked)
+		return &refusalError{fmt.Sprintf("Gemini blocked the prompt (%s)", blocked)}
+	case geminiRefusals[finish]:
+		// A filter stopped the answer, and stops it again for the same
+		// prompt: a refusal, not a failure worth asking again.
+		return &refusalError{fmt.Sprintf("Gemini stopped the answer (%s)", finish)}
 	case finish == "":
 		// Every answer ends with a reason, so one with none was cut off --
 		// a dropped connection, a proxy's timeout -- part-way.

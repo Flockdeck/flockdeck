@@ -48,7 +48,7 @@ func TestAnAnswerStoppedShortSaysWhyOnEveryWire(t *testing.T) {
 			"SAFETY"},
 		{"gemini blocked prompt", "gemini",
 			`data: {"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"}}` + "\n\n",
-			"refused the prompt"},
+			"blocked the prompt"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

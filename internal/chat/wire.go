@@ -4,16 +4,20 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // NewWire returns the wire named by an agent's APISpec.
@@ -67,12 +71,18 @@ func keepToTheAddress(req *http.Request, via []*http.Request) error {
 // agents.json: a gateway is given as `https://gateway.example/anthropic/v1` as
 // often as without the version, while the vendors' own roots carry none at
 // all. Guessing wrong is a 404 the user cannot do anything about, so the
-// version is added only when the base does not already end in it.
+// version is added only when the base does not already end in one. Any
+// version counts, not only the default: Gemini's stable API is /v1 and its
+// preview /v1alpha, and a base naming either had /v1beta put after it.
 func endpoint(base, fallback, version, path string) string {
 	return joinEndpoint(base, fallback, version, path, func(p string) bool {
-		return strings.HasSuffix(p, "/"+version)
+		return apiVersionRE.MatchString(p[strings.LastIndex(p, "/")+1:])
 	})
 }
+
+// apiVersionRE is a path segment that names an API version: v1, v1beta,
+// v1alpha, v1beta1.
+var apiVersionRE = regexp.MustCompile(`^v\d+((alpha|beta)\d*)?$`)
 
 // openaiEndpoint builds a request URL for the OpenAI wire.
 //
@@ -226,6 +236,85 @@ func busyWords(e *apiError) string {
 	return "the API is failing on its side (" + strings.TrimSpace(e.Status) + ")"
 }
 
+// streamErrorCodes are the statuses the APIs answer with, before a stream
+// starts, for the errors they can also send part-way through one -- by the
+// name each gives the error in the stream.
+var streamErrorCodes = map[string]int{
+	// Anthropic's error types.
+	"overloaded_error": 529,
+	"api_error":        http.StatusInternalServerError,
+	"rate_limit_error": http.StatusTooManyRequests,
+	// OpenAI's, which the servers that copy its wire copy too.
+	"server_error":        http.StatusInternalServerError,
+	"rate_limit_exceeded": http.StatusTooManyRequests,
+	// Gemini's statuses, which are Google's RPC codes.
+	"RESOURCE_EXHAUSTED": http.StatusTooManyRequests,
+	"INTERNAL":           http.StatusInternalServerError,
+	"UNAVAILABLE":        http.StatusServiceUnavailable,
+	"DEADLINE_EXCEEDED":  http.StatusGatewayTimeout,
+}
+
+// streamFailure is an error the OpenAI and Gemini wires send part-way through
+// a stream, as the whole of a chunk. OpenAI's has a type and a code that is a
+// name, a number or null; Gemini's a numeric code and a status.
+type streamFailure struct {
+	Message string          `json:"message"`
+	Type    string          `json:"type"`
+	Status  string          `json:"status"`
+	Code    json.RawMessage `json:"code"`
+}
+
+// err is the failure as an error, or nil for a chunk that carried none.
+//
+// An error sent in the stream is the same failure the API sends as a status
+// before one starts -- overloaded, rate-limited, failing on its own side --
+// and is kept in the same shape where it can be told apart, so that the loop
+// asks again when nothing of the answer came. Read as words alone, a 503 in
+// the stream was never asked again, where the same 503 a moment earlier was.
+func (f streamFailure) err() error {
+	code := strings.Trim(strings.TrimSpace(string(f.Code)), `"`)
+	if code == "null" {
+		code = ""
+	}
+	if f.Message == "" && f.Type == "" && f.Status == "" && code == "" {
+		return nil
+	}
+	msg := firstNonEmpty(f.Message, f.Status, f.Type, code, "the stream reported an error")
+	for _, name := range []string{f.Status, f.Type, code} {
+		if n := streamErrorCodes[name]; n != 0 {
+			return &apiError{Code: n, Status: name, Msg: msg}
+		}
+	}
+	if n, err := strconv.Atoi(code); err == nil && n >= 400 && n <= 599 {
+		return &apiError{Code: n, Status: firstNonEmpty(f.Status, strconv.Itoa(n)+" "+http.StatusText(n)), Msg: msg}
+	}
+	return fmt.Errorf("%s", redactKeys(msg))
+}
+
+// unreadChunk is what a chunk of a stream that is not in the wire's shape
+// amounts to: an error where it is words a server wrote in place of a chunk,
+// or an error in a shape of its own, and nothing where it is JSON this wire
+// does not read.
+//
+// Passed over, the first two were lost: a proxy's "upstream request timeout"
+// in the stream ended the answer as a dropped connection ends one, and an
+// error with a field of an unexpected type said nothing at all. JSON that is
+// not an error -- content sent as a list of parts, by a server that does --
+// is no reason to end an answer that is otherwise arriving.
+func unreadChunk(data string) error {
+	b := []byte(data)
+	if !json.Valid(b) {
+		return fmt.Errorf("the endpoint sent this in place of an answer: %s", redactKeys(apiMessage(b)))
+	}
+	var loose struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(b, &loose) == nil && len(loose.Error) > 0 && string(loose.Error) != "null" {
+		return errors.New(redactKeys(apiMessage(b)))
+	}
+	return nil
+}
+
 // cutOffError is an answer that stopped because it reached a limit on its
 // length. What was written of it stands, and is the start of the answer rather
 // than a failed one: the way on is to ask for the rest, not to ask again.
@@ -236,6 +325,20 @@ func (e *cutOffError) Error() string { return e.msg }
 // cutOff reports whether err is an answer cut off at its length limit.
 func cutOff(err error) bool {
 	var e *cutOffError
+	return errors.As(err, &e)
+}
+
+// refusalError is an answer the model or a filter in front of it would not
+// give. It is said the same way whichever wire it came from, because what the
+// user can do about it is the same on all of them: asking the same again is
+// refused the same way.
+type refusalError struct{ why string }
+
+func (e *refusalError) Error() string { return "the request was refused: " + e.why }
+
+// refused reports whether err is a refusal to answer.
+func refused(err error) bool {
+	var e *refusalError
 	return errors.As(err, &e)
 }
 
@@ -268,6 +371,38 @@ func unreachable(err error) bool {
 	return errors.As(err, &dns)
 }
 
+// proxyUnreached is the address of the proxy err is a failure to reach, or ""
+// where err is not one.
+//
+// Go wraps the failure to reach a proxy in an error of its own, "proxyconnect",
+// which is neither a dial nor a read: read as neither, the pane printed Go's
+// words for it, and a proxy that was not running looked like the endpoint
+// failing.
+func proxyUnreached(err error) string {
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "proxyconnect" {
+		return ""
+	}
+	var dial *net.OpError
+	if errors.As(op.Err, &dial) && dial.Addr != nil {
+		return dial.Addr.String()
+	}
+	var dns *net.DNSError
+	if errors.As(op.Err, &dns) && dns.Name != "" {
+		return dns.Name
+	}
+	return "the address set"
+}
+
+// untrustedCert reports whether err is the endpoint's certificate being signed
+// by an authority this machine does not trust. For an API's public endpoint
+// that is almost always something in between -- a company proxy, an
+// antivirus -- inspecting HTTPS with a certificate of its own.
+func untrustedCert(err error) bool {
+	var ua x509.UnknownAuthorityError
+	return errors.As(err, &ua)
+}
+
 // dropped reports whether err is a connection that opened and then broke while
 // the answer was arriving -- reset by the far end, a proxy giving up -- rather
 // than one never made, or a refusal the API sent in words.
@@ -276,7 +411,24 @@ func dropped(err error) bool {
 	if errors.As(err, &op) && op.Op == "read" {
 		return true
 	}
-	return errors.Is(err, io.ErrUnexpectedEOF)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	// Over HTTP/2 a stream reset part-way, or a server going away, is said in
+	// frames of the protocol's own rather than by the socket breaking, and Go
+	// reports them in types it does not export: they are known by their words.
+	// A refusal the API sent is its own, whatever words are in it.
+	var e *apiError
+	if err == nil || errors.As(err, &e) {
+		return false
+	}
+	msg := err.Error()
+	for _, s := range []string{"stream error: stream ID", "GOAWAY", "http2: client connection lost"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // contextFull reports whether err says the conversation is longer than the
@@ -375,9 +527,49 @@ func apiMessage(body []byte) string {
 		}
 	}
 	if s := strings.TrimSpace(string(body)); s != "" {
-		return s
+		return plainMessage(s)
 	}
 	return "no explanation given"
+}
+
+// errorBodyMax is as much of an error body that is not JSON as is shown.
+const errorBodyMax = 300
+
+// plainMessage is what an error body that is not JSON says, cut to a few
+// lines' worth.
+//
+// What stands in front of an API is often a proxy, and a proxy answers a
+// failure with a web page: Cloudflare's 502 is kilobytes of markup, which
+// filled the pane and said less than its own title. A page is shown as its
+// title, or as no more than the status beside it where it has none, and any
+// other body is clipped.
+func plainMessage(s string) string {
+	if htmlPageRE.MatchString(s) {
+		if m := htmlTitleRE.FindStringSubmatch(s); m != nil {
+			if t := strings.Join(strings.Fields(html.UnescapeString(m[1])), " "); t != "" {
+				return clipBody(t)
+			}
+		}
+		return "the endpoint answered with a web page rather than a message"
+	}
+	return clipBody(s)
+}
+
+var (
+	htmlPageRE  = regexp.MustCompile(`(?i)<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])`)
+	htmlTitleRE = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title`)
+)
+
+// clipBody cuts s to errorBodyMax bytes, at the start of a character.
+func clipBody(s string) string {
+	if len(s) <= errorBodyMax {
+		return s
+	}
+	cut := errorBodyMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // sseMaxLine bounds one event's data. A single delta is tiny, but an error
