@@ -22,7 +22,14 @@
 // The output is plain files with no build step, because the site is served as
 // a container image built from a repository of its own:
 //
-//	go run ./cmd/sitegen -out ../flockdeck-site
+//	go run ./cmd/sitegen -out ../flockdeck-site -release v1.2.3 -checksums checksums.txt
+//
+// -release is the release the install scripts install by default, and
+// -checksums that release's checksums.txt, from
+// https://dl.flockdeck.ai/v1.2.3/checksums.txt once its checksums.txt.sig has
+// been checked against the release key. The SHA-256 of each archive is written
+// into the scripts, which check the archive they download against it; see
+// bake.
 package main
 
 import (
@@ -111,12 +118,102 @@ func main() {
 	repo := flag.String("repo", defaultRepo, "`url` of the source repository")
 	module := flag.String("module", defaultModule, "`path` the module is installed from")
 	url := flag.String("url", defaultURL, "`address` the site is served from, which the install lines name")
+	version := flag.String("release", "", "the release the install scripts install by default, such as v1.2.3 (`version`)")
+	sums := flag.String("checksums", "", "`path` to that release's checksums.txt, its signature already checked")
 	flag.Parse()
 
-	if err := run(*out, *repo, *module, *url); err != nil {
+	rel, err := readRelease(*version, *sums)
+	if err == nil {
+		err = run(*out, *repo, *module, *url, rel)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "sitegen:", err)
 		os.Exit(1)
 	}
+}
+
+// release is the release the install scripts are generated for: its version,
+// and the SHA-256 of each of its archives by the archive's name.
+type release struct {
+	Version string
+	Sums    map[string]string
+}
+
+// releaseVersion is what a release's tag looks like. It is written into both
+// scripts inside quotes, so nothing that could end them gets through.
+var releaseVersion = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
+
+// sha256Hex is a SHA-256 as checksums.txt gives it.
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// archives are the archives of version the install scripts download, named as
+// cmd/release names them.
+func archives(version string) []string {
+	var names []string
+	for _, p := range []string{"darwin_amd64.tar.gz", "darwin_arm64.tar.gz", "linux_amd64.tar.gz", "linux_arm64.tar.gz", "windows_amd64.zip", "windows_arm64.zip"} {
+		names = append(names, "flockdeck_"+version+"_"+p)
+	}
+	return names
+}
+
+// readRelease is the release version, with the checksums the checksums.txt
+// at path gives its archives.
+//
+// Neither may be left out. Without them the scripts would have nothing to
+// check an archive against but a checksums.txt fetched from wherever the
+// archive came from, and whoever could replace the one there could replace
+// the other with it.
+func readRelease(version, path string) (release, error) {
+	if version == "" || path == "" {
+		return release{}, errors.New("-release and -checksums are both required: the install scripts check the archive they install against the SHA-256 that release's checksums.txt gives it, written into them here; download it from " + downloadsURL + "/<version>/checksums.txt and check checksums.txt.sig first")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return release{}, fmt.Errorf("read the checksums: %w", err)
+	}
+	return parseRelease(version, body)
+}
+
+// parseRelease reads a checksums.txt as cmd/release writes it, a SHA-256 and a
+// file name to a line, and fails unless it gives every archive of version one.
+func parseRelease(version string, sums []byte) (release, error) {
+	if !releaseVersion.MatchString(version) {
+		return release{}, fmt.Errorf("-release %q is not a release's tag, such as v1.2.3", version)
+	}
+	rel := release{Version: version, Sums: map[string]string{}}
+	for _, line := range strings.Split(string(lf(sums)), "\n") {
+		if f := strings.Fields(line); len(f) == 2 && sha256Hex.MatchString(f[0]) {
+			rel.Sums[f[1]] = f[0]
+		}
+	}
+	for _, name := range archives(version) {
+		if rel.Sums[name] == "" {
+			return release{}, fmt.Errorf("the checksums give no SHA-256 for %s: are they %s's?", name, version)
+		}
+	}
+	return rel, nil
+}
+
+// bake writes rel into an install script: its version in place of @RELEASE@,
+// and in place of @RELEASE_SUMS@ the lines of checksums.txt for its archives
+// that end in suffix, the ones that script can download. Each has to be found
+// exactly once, so a script that stops naming them fails here rather than
+// going out with nothing to check against.
+func bake(name string, script []byte, rel release, suffix string) ([]byte, error) {
+	var sums strings.Builder
+	sums.WriteString("\n")
+	for _, a := range archives(rel.Version) {
+		if strings.HasSuffix(a, suffix) {
+			fmt.Fprintf(&sums, "%s  %s\n", rel.Sums[a], a)
+		}
+	}
+	for _, r := range []struct{ from, to string }{{"@RELEASE@", rel.Version}, {"@RELEASE_SUMS@", sums.String()}} {
+		if n := bytes.Count(script, []byte(r.from)); n != 1 {
+			return nil, fmt.Errorf("%s says %s %d times, not once", name, r.from, n)
+		}
+		script = bytes.Replace(script, []byte(r.from), []byte(r.to), 1)
+	}
+	return script, nil
 }
 
 // site is what the pages need to know about where they came from.
@@ -195,7 +292,7 @@ func (p page) Summary() string {
 // heading is a section of a long page, as its contents list it.
 type heading struct{ ID, Text string }
 
-func run(out, repo, module, url string) error {
+func run(out, repo, module, url string, rel release) error {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return fmt.Errorf("create the output directory: %w", err)
 	}
@@ -214,12 +311,14 @@ func run(out, repo, module, url string) error {
 		return err
 	}
 	files["favicon.svg"] = icon
-	for _, name := range []string{"install.sh", "install.ps1"} {
+	for name, suffix := range map[string]string{"install.sh": ".tar.gz", "install.ps1": ".zip"} {
 		body, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			return err
 		}
-		files[name] = body
+		if files[name], err = bake(name, body, rel, suffix); err != nil {
+			return err
+		}
 	}
 	// The fonts are served from a folder of their own, with their licences
 	// beside them as the licence asks.

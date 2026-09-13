@@ -1026,7 +1026,10 @@ Two programs under `cmd/` make what is published rather than the application:
   `checksums.txt` a release is made of; `make package` runs it.
 - `cmd/sitegen` writes the landing page at flockdeck.ai, and the install
   scripts it serves, from `cmd/sitegen/assets`:
-  `go run ./cmd/sitegen -out ../flockdeck-site`.
+  `go run ./cmd/sitegen -out ../flockdeck-site -release v1.2.3 -checksums checksums.txt`,
+  where `checksums.txt` is that release's, from dl.flockdeck.ai, its
+  `checksums.txt.sig` checked first. The install scripts install that release
+  and check its archive against the SHA-256 written into them.
 
 Four development aids live under `cmd/` and are not part of the product:
 

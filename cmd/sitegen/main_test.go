@@ -19,7 +19,7 @@ import (
 func generate(t *testing.T) (dir string, pages map[string]string) {
 	t.Helper()
 	dir = t.TempDir()
-	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -621,7 +621,7 @@ func TestTextFilesUseLF(t *testing.T) {
 // lines a visitor pastes into a terminal, or into any page's links.
 func TestTrailingSlashIsNotDoubled(t *testing.T) {
 	dir := t.TempDir()
-	if err := run(dir, defaultRepo+"/", defaultModule+"/", defaultURL+"/"); err != nil {
+	if err := run(dir, defaultRepo+"/", defaultModule+"/", defaultURL+"/", testRelease()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	for _, name := range []string{"index.html", "privacy.html", "terms.html", "licences.html"} {
@@ -798,7 +798,7 @@ func TestARegenerationLeavesNothingStale(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	for _, name := range stale {
@@ -853,7 +853,7 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 		_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name)))
 		return err == nil
 	}
-	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	for _, name := range previous {
@@ -867,7 +867,7 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 		}
 	}
 
-	if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	for _, name := range previous {
@@ -892,7 +892,7 @@ func TestTheSocialCardKeepsItsOldAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := run(dir, defaultRepo, defaultModule, defaultURL); err != nil {
+		if err := run(dir, defaultRepo, defaultModule, defaultURL, testRelease()); err != nil {
 			t.Fatalf("run: %v", err)
 		}
 	}
