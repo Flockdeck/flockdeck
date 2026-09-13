@@ -860,6 +860,64 @@ func TestCommitAllOnCleanTreeExplainsItself(t *testing.T) {
 	}
 }
 
+// TestCommitReviewedRefusesATreeThatMoved covers the review panel's commit.
+// Agents go on writing while somebody reads the list, and CommitAll staged
+// whatever was there when the button was pressed: a file written after the
+// list was read went into a commit nobody had looked at.
+func TestCommitReviewedRefusesATreeThatMoved(t *testing.T) {
+	repo := newRepo(t)
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("README.md", "changed\n")
+	write("seen.txt", "new\n")
+	listed := []string{"README.md", "seen.txt"}
+
+	write("late.txt", "written after the list was read\n")
+	err := CommitReviewed(repo, "reviewed work", listed, 0)
+	if err == nil || !strings.Contains(err.Error(), "1 file changed since you looked") {
+		t.Fatalf("a file written after the list was read: err = %v, want a refusal saying one file changed", err)
+	}
+	if out := gitRun(t, repo, "diff", "--cached", "--name-only"); strings.TrimSpace(out) != "" {
+		t.Errorf("a refused commit staged %q", out)
+	}
+	if out := gitRun(t, repo, "log", "-1", "--pretty=%s"); strings.TrimSpace(out) == "reviewed work" {
+		t.Error("the refused commit was made")
+	}
+
+	// A listed file that has gone back to the last commit counts as well.
+	if err := os.Remove(filepath.Join(repo, "seen.txt")); err != nil {
+		t.Fatal(err)
+	}
+	err = CommitReviewed(repo, "reviewed work", listed, 0)
+	if err == nil || !strings.Contains(err.Error(), "2 files changed since you looked") {
+		t.Fatalf("one file gone and one arrived: err = %v, want a refusal saying two files changed", err)
+	}
+
+	// The list read again is the list committed.
+	if err := CommitReviewed(repo, "reviewed work", []string{"README.md", "late.txt"}, 0); err != nil {
+		t.Fatalf("committing the tree as listed: %v", err)
+	}
+	if files, _ := Changes(repo); len(files) != 0 {
+		t.Errorf("the tree as listed was not all committed: %+v", files)
+	}
+
+	// A list that left some out is held to how many it left out.
+	write("a.txt", "1\n")
+	write("b.txt", "2\n")
+	if err := CommitReviewed(repo, "partly listed", []string{"a.txt"}, 1); err != nil {
+		t.Fatalf("a list that left one file out, as it was: %v", err)
+	}
+	write("c.txt", "3\n")
+	write("d.txt", "4\n")
+	if err := CommitReviewed(repo, "partly listed", []string{"c.txt"}, 0); err == nil {
+		t.Error("a file the list neither showed nor counted was committed")
+	}
+}
+
 // TestPushSetsUpstreamOnFirstPush is the case that otherwise makes a new
 // worktree's branch need a hand-typed command.
 func TestPushSetsUpstreamOnFirstPush(t *testing.T) {

@@ -889,3 +889,24 @@ assert.ok(/\.rev-name::after[^{]*\{[^}]*content:\s*"\\200E"/.test(css),
   "nothing follows a file name, so a bracket at its end is drawn at its start");
 `)
 }
+
+// Agents go on writing while somebody reads the review, and the commit staged
+// whatever was in the tree when it was pressed, listed or not. The commit says
+// which files were listed, and how many more the list left out, so the server
+// can refuse a tree that has moved since.
+func TestACommitSaysWhichFilesItWasShown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, omitted: 3,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }, { path: "b.go", label: "A", added: 2, removed: 0 }] });
+const box = h.$("commit-message");
+box.value = "webui: reviewed";
+box.oninput();
+h.click(h.$("rev-commit"));
+const sent = h.commands().filter((c) => c.cmd === "commit").pop();
+assert.deepStrictEqual(sent.files, ["a.go", "b.go"], "the commit does not say which files were listed");
+assert.strictEqual(sent.omitted, 3, "the commit does not say how many files the list left out");
+`)
+}

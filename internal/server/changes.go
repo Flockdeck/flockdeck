@@ -235,7 +235,13 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 
 // commitChanges stages everything in a working tree and commits it, optionally
 // pushing afterwards.
-func (s *Server) commitChanges(c *controlClient, path, message string, push bool) {
+//
+// listed are the files the panel showed and unlisted how many more it left
+// out. Agents go on writing while the list is read, so a commit made from it
+// is refused when what it would record is no longer what was listed, and the
+// answer that follows is the tree as it is now. A window that sends no list
+// commits everything, as the button always did.
+func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, unlisted int) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -243,7 +249,11 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 	go func() {
 		defer s.survive("committing")
 		dir = repoRoot(dir)
-		if err := gitx.CommitAll(dir, message); err != nil {
+		commit := func() error { return gitx.CommitAll(dir, message) }
+		if listed != nil {
+			commit = func() error { return gitx.CommitReviewed(dir, message, listed, unlisted) }
+		}
+		if err := commit(); err != nil {
 			c.notify(err.Error(), true)
 			s.sendChanges(c, dir, asked)
 			return

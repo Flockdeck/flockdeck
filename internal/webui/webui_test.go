@@ -1841,7 +1841,7 @@ box.oninput();
 const commit = h.$("rev-commit");
 h.click(commit);
 assert.deepStrictEqual(h.commands().pop(),
-  { cmd: "commit", path: "C:/repo", text: "webui: a change", push: false });
+  { cmd: "commit", path: "C:/repo", text: "webui: a change", push: false, files: ["app.js"], omitted: 0 });
 assert.strictEqual(commit.textContent, "Committing\u2026");
 const twice = h.commands().length;
 h.click(commit);
@@ -2706,7 +2706,7 @@ box.value = "webui: a message worth keeping";
 box.oninput();
 h.click(h.$("rev-commit"));
 assert.deepStrictEqual(h.commands().pop(),
-  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false });
+  { cmd: "commit", path: "C:/repo", text: "webui: a message worth keeping", push: false, files: ["a.go"], omitted: 0 });
 
 // The hook refuses it; the server says so and sends the tree back.
 h.recv({ type: "notice", text: "pre-commit hook failed", error: true });
@@ -3304,7 +3304,7 @@ const plain = h.key({ key: "Enter" });
 assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the message");
 const ev = h.key({ key: "Enter", ctrlKey: true });
 assert.ok(ev.defaultPrevented);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "commit", path: "C:/repo", text: "webui: something", push: false, files: ["a.go"], omitted: 0 });
 `)
 }
 

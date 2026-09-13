@@ -54,6 +54,69 @@ func CommitAll(dir, message string) error {
 	return err
 }
 
+// CommitReviewed commits the files somebody was shown, and refuses when they
+// are no longer what a commit would record.
+//
+// The review panel lists the tree when it is read and commits when a button is
+// pressed, and agents go on writing in between. CommitAll stages whatever is
+// there at that moment, so a file written after the list was read went into a
+// commit nobody had looked at. listed are the paths the panel showed and
+// unlisted how many more it left out. When the files git would now record are
+// not those, nothing is staged, and the error says how many moved so that the
+// list can be read again.
+func CommitReviewed(dir, message string, listed []string, unlisted int) error {
+	if strings.TrimSpace(message) == "" {
+		return errEmptyMessage
+	}
+	moved, err := changedSince(dir, listed, unlisted)
+	if err != nil {
+		return err
+	}
+	if moved == 1 {
+		return &gitError{"1 file changed since you looked — refresh"}
+	}
+	if moved > 0 {
+		return &gitError{fmt.Sprintf("%d files changed since you looked — refresh", moved)}
+	}
+	return CommitAll(dir, message)
+}
+
+// changedSince counts the files that differ between what a list showed and
+// what a commit would record now: those listed that no longer differ from the
+// last commit, those that now differ and were not listed, and -- for a list
+// that left some out -- how far the count of the ones it left out has moved.
+// A listed file written to again is not counted; it is the same file.
+func changedSince(dir string, listed []string, unlisted int) (int, error) {
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	if err != nil {
+		return 0, err
+	}
+	shown := make(map[string]bool, len(listed))
+	for _, p := range listed {
+		shown[p] = true
+	}
+	now := make(map[string]bool)
+	extra := 0
+	for _, f := range parseStatus(out) {
+		now[f.Path] = true
+		if !shown[f.Path] {
+			extra++
+		}
+	}
+	moved := 0
+	for p := range shown {
+		if !now[p] {
+			moved++
+		}
+	}
+	if extra > unlisted {
+		moved += extra - unlisted
+	} else {
+		moved += unlisted - extra
+	}
+	return moved, nil
+}
+
 // lockWait is how long a command that writes the index waits for another git
 // process to let go of it. It is a variable so a test can shorten it.
 var lockWait = 3 * time.Second

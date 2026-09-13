@@ -4934,7 +4934,11 @@
         const message = box.value.trim();
         if (!message) { notice("A commit message is required", true); box.focus(); return; }
         running(btn, push ? "Committing and pushing…" : "Committing…");
-        send({ cmd: "commit", path: m.cwd, text: message, push });
+        // What was listed goes with the commit. Agents go on writing while
+        // the list is read, and the commit staged whatever was in the tree
+        // when it was pressed; the server now refuses a tree that has moved.
+        send({ cmd: "commit", path: m.cwd, text: message, push,
+          files: files.map((f) => f.path), omitted: m.omitted || 0 });
         commitPending = true;
       };
       const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));

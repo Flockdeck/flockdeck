@@ -312,6 +312,11 @@ type command struct {
 	Name   string `json:"name"`
 	Join   string `json:"join"`
 	Invite string `json:"invite"`
+	// Files and Omitted are the review panel's list as a commit is asked for
+	// from it: the files it showed, and how many more it left out. The commit
+	// is refused when the tree no longer matches them.
+	Files   []string `json:"files"`
+	Omitted int      `json:"omitted"`
 }
 
 // ---------------------------------------------------------------------------
@@ -950,7 +955,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push)
+		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Omitted)
 		return
 	case "gitPush":
 		s.runRemote(c, "push", cmd.Path)
