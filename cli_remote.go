@@ -421,8 +421,6 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 	return err
 }
 
-// renaming reports whether name, given to enable on a machine already
-// enrolled, is not the name it is enrolled under.
 // cliWord writes one argument of a command the user is told to run so that it
 // can be pasted as it stands: bare when it is made only of what a URL or a
 // code is, and quoted otherwise, since a name like "Jim's laptop" split in
@@ -441,6 +439,8 @@ func cliWord(s string) string {
 	return `"` + s + `"`
 }
 
+// renaming reports whether name, given to enable on a machine already
+// enrolled, is not the name it is enrolled under.
 func renaming(name string) bool {
 	if strings.TrimSpace(name) == "" {
 		return false
