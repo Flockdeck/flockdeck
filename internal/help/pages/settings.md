@@ -102,7 +102,8 @@ set).
 - `projects.json` — the recent projects the picker offers.
 - `session.json` — which projects are reopened on the next start.
 - `error.log` — why Flockdeck failed to start, when it had no terminal to say
-  so in.
+  so in, and what went wrong as it stopped: a layout it could not save, an
+  update it could not put in place, a restart that did not come back.
 - `instance.json` — the address of the Flockdeck that is running, so a second
   launch joins it.
 - `updates` — a downloaded release waiting to go in when Flockdeck next quits.

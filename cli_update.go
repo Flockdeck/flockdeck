@@ -260,6 +260,9 @@ func applyStaged(out io.Writer, dir, exe, current string) {
 	}
 	if err := selfupdate.Apply(dir, exe); err != nil {
 		fmt.Fprintf(out, "flockdeck: %s is staged but could not be put in place: %v\n", p.Version, err)
+		// This runs as the program exits, with the window gone and any
+		// terminal let go of, so error.log is where it can be found.
+		logError(fmt.Errorf("%s is staged but could not be put in place: %w", p.Version, err))
 		return
 	}
 	fmt.Fprintf(out, "flockdeck: updated to %s\n", p.Version)

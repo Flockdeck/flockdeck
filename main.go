@@ -303,17 +303,37 @@ func usage(fs *flag.FlagSet) {
 func fail(heading string, err error) {
 	fmt.Fprintln(os.Stderr, "flockdeck:", err)
 	text := heading + "\n\n" + err.Error()
-	if dir, dirErr := store.Dir(); dirErr == nil {
-		path := filepath.Join(dir, "error.log")
-		stamp := time.Now().Format(time.RFC3339)
-		if f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
-			fmt.Fprintf(f, "%s %v\n", stamp, err)
-			f.Close()
-			text += "\n\nThis is also written to " + path
-		}
+	if path := logError(err); path != "" {
+		text += "\n\nThis is also written to " + path
 	}
 	showStartupError(text)
 	os.Exit(1)
+}
+
+// logError appends err to error.log in the state directory, and reports the
+// file's path, or "" when it could not be written. It is where a failure goes
+// that may have no terminal to be read in.
+func logError(err error) string {
+	dir, dirErr := store.Dir()
+	if dirErr != nil {
+		return ""
+	}
+	path := filepath.Join(dir, "error.log")
+	f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if openErr != nil {
+		return ""
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %v\n", time.Now().Format(time.RFC3339), err)
+	return path
+}
+
+// shutdownFailed says what went wrong on the way out, as what was being done
+// and why it failed. By then the window has closed, and the terminal, if
+// there was one, has been let go of, so it goes to error.log as well.
+func shutdownFailed(what string, err error) {
+	fmt.Fprintf(os.Stderr, "flockdeck: %s: %v\n", what, err)
+	logError(fmt.Errorf("%s: %w", what, err))
 }
 
 // options are the settings run needs.
@@ -746,7 +766,7 @@ func run(opts options) error {
 		applyStagedUpdate(os.Stderr)
 		if restarting.Load() {
 			if err := relaunch(reopen); err != nil {
-				fmt.Fprintln(os.Stderr, "flockdeck: could not start again:", err)
+				shutdownFailed("could not start again", err)
 			}
 		}
 	}()
@@ -978,10 +998,10 @@ func run(opts options) error {
 		return err
 	}
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
+		shutdownFailed("could not save layout", err)
 	}
 	if err := keepOpenProjects(before, ws.Session()); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
+		shutdownFailed("could not keep the list of open projects", err)
 	}
 	close(saved)
 
