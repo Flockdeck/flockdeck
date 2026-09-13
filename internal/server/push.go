@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -45,6 +44,10 @@ var waitTick = time.Second
 // that comes due sooner is told of when it has passed, in the push that
 // counts every agent waiting then.
 var minPushGap = time.Minute
+
+// phoneLook is how lately a pane has to have been used from a phone for its
+// wait not to be pushed to the phone: see relayUse.
+const phoneLook = 2 * time.Minute
 
 // The delay before a wait is pushed, and the bounds of what it may be set to.
 const (
@@ -172,6 +175,7 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	delay := pushDelay(s.prefs.Push)
 	var waits []waitingAgent
 	var names map[string]string
+	waitingNow := map[string]bool{}
 	fresh := false
 	for _, t := range s.ws.Tabs {
 		for _, id := range t.Tree.Panes() {
@@ -180,6 +184,13 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 				continue
 			}
 			if status, _ := p.Status(); status != session.StatusWaiting {
+				continue
+			}
+			waitingNow[id] = true
+			// Somebody using this pane from their phone has seen it waiting,
+			// and is not told of it there as well. It is told of if it is
+			// still waiting once they have left it a while.
+			if relayUse.since(id, now.Add(-phoneLook)) {
 				continue
 			}
 			if names == nil {
@@ -197,7 +208,7 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	}
 	// A pane no longer waiting, or gone, has its next wait told afresh.
 	for id := range s.push.pushed {
-		if !slices.ContainsFunc(waits, func(w waitingAgent) bool { return w.id == id }) {
+		if !waitingNow[id] {
 			delete(s.push.pushed, id)
 		}
 	}

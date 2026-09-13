@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -148,6 +151,56 @@ func TestAgentsWaitingTogetherArePushedAsOne(t *testing.T) {
 	}
 	if n := due(srv, late.Add(30*time.Second+minPushGap)); n != nil {
 		t.Errorf("an agent counted in the push was told of again: %+v", n)
+	}
+}
+
+// A pane somebody is using from their phone -- its terminal open there, typed
+// into or tapped -- is one they can see waiting, and is not pushed to the phone
+// as well. Once they have left it a while, and it is still waiting, it is.
+func TestAPaneUsedFromAPhoneIsNotPushed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	id, since := waitingPane(t, srv, ws)
+
+	ts := remoteServer(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h := http.Header{}
+	h.Set("Origin", ts.URL)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
+	if err != nil {
+		t.Fatalf("open the pane through the relay: %v", err)
+	}
+	waitFor(t, func() bool { return relayUse.since(id, since) })
+	if n := due(srv, since.Add(30*time.Second)); n != nil {
+		t.Errorf("a pane open on the phone was pushed to it: %+v", n)
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+	if n := due(srv, since.Add(31*time.Second)); n != nil {
+		t.Errorf("a pane left on the phone a moment ago was pushed to it: %+v", n)
+	}
+	if n := due(srv, time.Now().Add(phoneLook+time.Second)); n == nil {
+		t.Error("a pane left on the phone two minutes ago, still waiting, was not pushed")
+	}
+}
+
+// A pane used at the desk is not a pane used from a phone.
+func TestAPaneUsedAtTheDeskIsStillPushed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	id, since := waitingPane(t, srv, ws)
+	conn := dialPTY(t, srv, id)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"focus":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if relayUse.since(id, since) {
+		t.Error("a window at the desk was taken for a phone")
+	}
+	if n := due(srv, since.Add(30*time.Second)); n == nil {
+		t.Error("a pane used at the desk was not pushed")
 	}
 }
 
