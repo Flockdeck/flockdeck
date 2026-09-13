@@ -50,13 +50,9 @@ func marked(lines []string, mark string) string {
 }
 
 // firstChange is the line at which b first differs from a, or 0 when the two
-// are the same.
+// are the same. Line endings count: a caller that writes the file's own
+// endings rather than b's gives b in those endings first.
 func firstChange(a, b string) int {
-	// Compared in one kind of line ending, since a write keeps the file's own:
-	// a file with Windows endings, written back with the same text read_file
-	// showed, was said to change at the line after its last, with nothing
-	// under it to show what.
-	a, b = strings.ReplaceAll(a, "\r\n", "\n"), strings.ReplaceAll(b, "\r\n", "\n")
 	if a == b {
 		return 0
 	}

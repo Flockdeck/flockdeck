@@ -197,8 +197,17 @@ func (t *writeFile) Approval(args json.RawMessage) string {
 		old, _ := os.ReadFile(abs)
 		q := fmt.Sprintf("Overwrite %s (%s, %s) with %s, %s?", rel,
 			humanBytes(info.Size()), linesOf(string(old)), newSize, linesOf(a.Content))
+		// Compared with what Run will write, not what was asked for. A file
+		// with Windows endings anywhere in it is written back with them on
+		// every line, so the same text read_file showed is no change; but a
+		// file with none is written as given, and a question calling a
+		// rewrite of every line ending "the same" would be agreed to unread.
+		content := a.Content
+		if strings.Contains(string(old), "\r\n") {
+			content = withCRLF(content)
+		}
 		// A byte-order mark is kept by the write, so it is not a change.
-		if at := firstChange(strings.TrimPrefix(string(old), utf8BOM), strings.TrimPrefix(a.Content, utf8BOM)); at == 0 {
+		if at := firstChange(strings.TrimPrefix(string(old), utf8BOM), strings.TrimPrefix(content, utf8BOM)); at == 0 {
 			q += "\n  (it is the same as what the file holds now)"
 		} else {
 			q += fmt.Sprintf("\n  the first change is at line %d:\n%s", at, excerpt(a.Content, at))
