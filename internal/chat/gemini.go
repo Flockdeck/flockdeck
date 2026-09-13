@@ -155,7 +155,7 @@ func (w *geminiWire) Stream(ctx context.Context, req Request, emit func(Event)) 
 		// are taken rather than added up.
 		if chunk.UsageMetadata.PromptTokenCount > 0 || chunk.UsageMetadata.CandidatesTokenCount > 0 {
 			usage = Usage{
-				In:  chunk.UsageMetadata.PromptTokenCount,
+				In:        chunk.UsageMetadata.PromptTokenCount,
 				Out:       chunk.UsageMetadata.CandidatesTokenCount + chunk.UsageMetadata.ThoughtsTokenCount,
 				CacheRead: chunk.UsageMetadata.CachedContentTokenCount,
 				Reasoning: chunk.UsageMetadata.ThoughtsTokenCount,
