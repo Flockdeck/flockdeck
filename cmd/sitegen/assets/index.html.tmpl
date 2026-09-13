@@ -379,15 +379,19 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      System Settings → Privacy &amp; Security; on Windows, choose More info →
      Run anyway. The installers above leave no download mark, so they meet
      neither.</p>
-  <p>The installer downloads the latest release for your machine, checks it
-     against the checksum written into the installer itself, and installs it
-     to <code>~/.local/bin</code>. On Windows it goes to
-     <code>%LOCALAPPDATA%\Programs\flockdeck</code> and adds a Start menu
-     shortcut. No admin rights needed, now or when Flockdeck updates itself.
-     To pick a release or a directory, set <code>FLOCKDECK_VERSION</code> or
-     <code>FLOCKDECK_INSTALL_DIR</code> first; each script lists its settings
-     at the top. A release picked this way is checked against the
-     <code>checksums.txt</code> downloaded with it. To stay on a release, also set
+  <p>The installer checks its download against the checksum written into the
+     installer itself, and installs it to <code>~/.local/bin</code>. On
+     Windows it goes to <code>%LOCALAPPDATA%\Programs\flockdeck</code> and
+     adds a Start menu shortcut. With that in and checked, it moves you on to
+     the latest release, if this page is older than that, by asking the copy
+     it just installed to update itself — checked by its release signature,
+     not by anything the installer downloaded. No admin rights needed, now or
+     when Flockdeck updates itself. To pick a release or a directory, set
+     <code>FLOCKDECK_VERSION</code> or <code>FLOCKDECK_INSTALL_DIR</code>
+     first; each script lists its settings at the top. A release picked this
+     way is checked against the <code>checksums.txt</code> downloaded with it,
+     and is left exactly as installed rather than moved to the latest. To
+     also stop Flockdeck updating itself once it runs, set
      <code>FLOCKDECK_UPDATE=off</code> where Flockdeck runs (with
      <code>setx</code> on Windows, or in your shell profile). View the scripts: <a href="install.sh">install.sh</a> ·
      <a href="install.ps1">install.ps1</a></p>
@@ -478,8 +482,11 @@ make package    <span class="c"># archives for all six platforms</span></code></
          mirror. It verifies every download against its published checksum,
          accepts a release from dl.flockdeck.ai only when the release key has
          signed it, and asks before it restarts. If you
-         don't restart, the new version goes in the next time you quit. To turn
-         updates off, set <code>FLOCKDECK_UPDATE=off</code>.</p>
+         don't restart, the new version goes in the next time you quit. The
+         installers above do this once too, right after installing, so a
+         fresh install lands on the latest release even if this page was
+         generated for an older one. To turn updates off, set
+         <code>FLOCKDECK_UPDATE=off</code>.</p>
     </details>
     <details>
       <summary>How do I uninstall it?</summary>
