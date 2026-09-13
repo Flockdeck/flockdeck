@@ -4863,7 +4863,10 @@
       const rows = new Map();
       files.forEach((f) => {
         const row = el("div", "rev-file" + (f.path === selectedFile ? " sel" : ""));
-        row.id = "rev-" + encodeURIComponent(f.path);
+        // A prefix of its own: the dialog's buttons are rev-push, rev-pull and
+        // the rest, and a file called push at the top of the tree was named
+        // as the Push button, which a redraw put the keyboard back on.
+        row.id = "rev-file-" + encodeURIComponent(f.path);
         row.append(el("span", "rev-kind", f.label));
         // Long paths are elided from the left, keeping the file name visible.
         const name = el("span", "rev-name", f.path);

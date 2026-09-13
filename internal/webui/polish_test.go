@@ -282,6 +282,27 @@ assert.ok(h.doc.activeElement === rows()[1], "a conversation growing older took 
 `)
 }
 
+// A changed file's row was named "rev-" and its path, the prefix the review's
+// own buttons are named with, so a file called push at the top of the tree
+// took the Push button's name. Redrawn after an agent wrote to it, the dialog
+// put the keyboard back on the first control by that name - the button - and
+// Enter pushed rather than opening the file.
+func TestAFileNamedPushIsNotThePushButton(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+const tree = { type: "changes", cwd: "C:/repo", branch: "main", upstream: "origin/main", hasRemote: true, ahead: 1,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }, { path: "push", label: "M", added: 2, removed: 0 }] };
+h.recv(tree);
+assert.strictEqual(h.$("rev-push").tagName, "BUTTON", "the file named push took the Push button's id");
+const row = () => h.$("overlay-body").querySelectorAll("div.rev-file")[1];
+row().focus();
+h.recv(tree);
+assert.ok(h.doc.activeElement === row(), "a redraw put the keyboard on the Push button rather than on the file named push");
+`)
+}
+
 // A pairing link is usually sent to the device it is for, and copying it
 // meant clicking into the field, selecting it and pressing the copy key. A
 // button copies it; where the clipboard is refused, the link is selected so
