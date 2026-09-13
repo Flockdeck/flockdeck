@@ -2840,6 +2840,28 @@ assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("project-btn"), "th
 `)
 }
 
+// A program can print a link whose text is not its address - an OSC 8
+// hyperlink, which is how gh and ls --hyperlink print theirs - and nothing
+// here opened one: xterm's own fallback asks with the browser's confirm box
+// and then navigates, which in an app window is the application gone. It
+// opens the way every other link out of the window does, in a window of its
+// own, and only for a web address.
+func TestALinkATerminalProgramPrintsOpensOutsideTheWindow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const opened = [];
+h.win.open = (url, target, features) => { opened.push([url, target, features]); return null; };
+const link = h.terms[0].options.linkHandler;
+assert.ok(link && typeof link.activate === "function", "a terminal link has nothing to open it");
+link.activate(new h.Ev("click"), "https://example.com/pull/1");
+assert.deepStrictEqual(opened, [["https://example.com/pull/1", "_blank", "noopener,noreferrer"]], "the link did not open in a window of its own");
+link.activate(new h.Ev("click"), "javascript:alert(1)");
+link.activate(new h.Ev("click"), "file:///C:/Windows/win.ini");
+assert.strictEqual(opened.length, 1, "a link that is not a web address was opened");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never

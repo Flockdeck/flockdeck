@@ -2208,6 +2208,12 @@
       // Drawn on a canvas, what an agent writes is nothing a screen reader
       // can see; this keeps an accessible copy of the lines beside it.
       screenReaderMode: !!prefs.screenReader,
+      // A program can print a link whose text is not its address - an OSC 8
+      // hyperlink, as gh and ls --hyperlink print theirs - and xterm's own
+      // fallback asks with the browser's confirm box and then navigates,
+      // which in an app window is the application gone. It opens the way
+      // every other link out of the window does.
+      linkHandler: { activate: (ev, uri) => openExternal(uri) },
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -7866,8 +7872,15 @@
     const a = e.target.closest && e.target.closest("a[href]");
     if (!a || a.target === "_blank" || !/^https?:/i.test(a.getAttribute("href"))) return;
     e.preventDefault();
-    window.open(a.getAttribute("href"), "_blank", "noopener,noreferrer");
+    openExternal(a.getAttribute("href"));
   });
+
+  /** openExternal opens a web address in a window of its own, and nothing
+   *  that is not one: a terminal's link can name any scheme at all. */
+  function openExternal(url) {
+    if (!/^https?:/i.test(String(url || ""))) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
   // Asking on the first interaction rather than at load avoids a permission
   // prompt before the user has done anything. A keystroke is an interaction as
   // much as a click, and this is an application built to be driven from the
