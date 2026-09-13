@@ -1922,6 +1922,22 @@
     return i >= 0 && i + 1 < tabs.length ? tabs[i + 1].id : "";
   }
 
+  /** moveTabBy moves the tab on screen one place along the strip, which was
+   *  otherwise done only by dragging it. moveTab puts a tab in front of the
+   *  one it names, or last for "". */
+  function moveTabBy(step) {
+    if (!state) return;
+    const tabs = state.tabs;
+    const at = tabs.findIndex((t) => t.id === state.activeTab);
+    if (at < 0) return;
+    const to = at + step;
+    if (to < 0 || to >= tabs.length) {
+      notice(step < 0 ? "This tab is already the first" : "This tab is already the last", false);
+      return;
+    }
+    send({ cmd: "moveTab", id: tabs[at].id, target: step < 0 ? tabs[to].id : tabAfter(tabs[to].id) });
+  }
+
   /** makeTabDraggable makes a tab reorderable, mergeable into another tab, and
    * a place to drop a pane. */
   function makeTabDraggable(tabId, node) {
@@ -2814,6 +2830,51 @@
     send({ cmd: "focusPane", id: order[(at + step + order.length) % order.length] });
   }
   function focusedPaneId() { const t = currentTab(); return t ? t.focus : ""; }
+
+  /** regionOf says which part of the window a node is in, in the order
+   *  cycleRegion walks them: the rail, the top bar, a pane's header and a
+   *  pane's terminal. -1 is anywhere else: the page itself, or a bar along
+   *  the bottom. */
+  function regionOf(node) {
+    if (!node || !node.closest) return -1;
+    if (node.closest("#rail")) return 0;
+    if (node.closest("#topbar")) return 1;
+    if (node.closest(".pane-header")) return 2;
+    if (node.closest(".pane-body")) return 3;
+    return -1;
+  }
+
+  /** cycleRegion moves the keyboard to the next part of the window, or the
+   *  one before, coming round at either end. Tab inside a terminal belongs to
+   *  the program in it, so there was no way from a terminal to the rail, the
+   *  tabs or the pane's own buttons without the mouse. A dialog keeps the
+   *  keyboard, as it keeps Tab. */
+  function cycleRegion(step) {
+    if (modalRoot()) return;
+    const t = currentTab();
+    const p = t ? panes.get(t.focus) : null;
+    const stops = [
+      // The rail, unless a narrow window has folded it into a menu; the
+      // button that opens the menu is in the top bar.
+      () => { if (railFolded()) return null; placeRailStop(); return railStop; },
+      // The top bar, at the tab on screen: the strip is most of what it is.
+      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("project-btn"); },
+      // The focused pane's buttons, at whichever of them is their stop.
+      () => (p ? [...p.actions.children].find((b) => b.tabIndex === 0) || null : null),
+      () => (p ? p.term : null),
+    ];
+    const at = regionOf(document.activeElement);
+    // From outside all four, forwards starts at the first and back at the last.
+    const from = at < 0 ? (step > 0 ? -1 : stops.length) : at;
+    for (let i = 1; i <= stops.length; i++) {
+      const to = (((from + step * i) % stops.length) + stops.length) % stops.length;
+      const target = stops[to]();
+      if (!target) continue;
+      if (p && target === p.term) focusTerminal();
+      else target.focus();
+      return;
+    }
+  }
 
   // -------------------------------------------------------------- prompt bar
 
@@ -4212,8 +4273,11 @@
     },
     mergeAllTabs: () => send({ cmd: "mergeAllTabs", id: state ? state.activeTab : "", dir: "h" }),
     renameTab: () => { if (state) renameTab(state.activeTab); },
+    moveTabLeft: () => moveTabBy(-1),
+    moveTabRight: () => moveTabBy(1),
 
     toggleBroadcast: () => send({ cmd: "toggleBroadcast" }),
+    toggleBroadcastMember: () => { const id = focusedPaneId(); if (id) send({ cmd: "toggleBroadcastMember", id }); },
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
     agents: () => openAgents(),
@@ -4223,6 +4287,8 @@
     changes: () => openChanges(),
 
     palette: () => openPalette(),
+    nextRegion: () => cycleRegion(1),
+    prevRegion: () => cycleRegion(-1),
     findInTerminal: () => openSearch(),
     history: () => openHistory(),
     projects: () => openProjects(),
@@ -4384,6 +4450,9 @@
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
       scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
+      // One label for both ways a toggle goes, so the hint says which it is.
+      toggleBroadcastMember: id && s.panes && s.panes[id]
+        ? (s.panes[id].broadcast ? "in the broadcast set" : "out of the broadcast set") : "",
     };
     const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable

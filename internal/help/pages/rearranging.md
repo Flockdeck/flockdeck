@@ -58,6 +58,8 @@ for the one dragging does by dropping a pane on `+`. It also has two that
 dragging cannot express as easily: **Move this pane to tab: …** and **Merge
 tab into this one: …** for every open tab, and [[action:mergeAllTabs]] for
 when the agents you want to watch together are scattered across all of them.
+[[action:moveTabLeft]] and [[action:moveTabRight]] move the tab on screen one
+place along the tab bar, as dragging it would.
 
 Merging is the reverse of dropping a pane on `+`: what one splits apart, the
 other gathers back up.

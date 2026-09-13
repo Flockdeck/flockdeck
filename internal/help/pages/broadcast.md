@@ -43,7 +43,9 @@ prompt will reach more than one pane, the bar's label says how many, as in
 **Prompt → 3 panes**. That includes panes you added with `⇉` while broadcast
 is off.
 
-The `⇉` button in each pane header adds that pane to the set or takes it out.
+The `⇉` button in each pane header adds that pane to the set or takes it out,
+as [[action:toggleBroadcastMember]] in the command palette does for the focused
+pane.
 Membership is shown in the pane header even while broadcast is off. Once you
 have picked panes by hand the set stays as you made it, through broadcast
 being turned off and on, rather than following you from tab to tab.

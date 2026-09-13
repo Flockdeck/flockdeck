@@ -70,9 +70,14 @@ var Keys = []Key{
 	{ID: "prevTab", Keys: "Ctrl+Shift+Tab", Label: "Previous tab", Section: "Tabs", NoPalette: true},
 	{ID: "selectTab", Keys: "Alt+1 … Alt+9", Label: "Select tab by number", Section: "Tabs", NoPalette: true},
 	{ID: "mergeAllTabs", Label: "Merge every tab into this one", Section: "Tabs", Page: "rearranging"},
+	// Reordering tabs was a drag and nothing else.
+	{ID: "moveTabLeft", Label: "Move tab left", Section: "Tabs", Page: "rearranging"},
+	{ID: "moveTabRight", Label: "Move tab right", Section: "Tabs", Page: "rearranging"},
 
 	// --- agents ------------------------------------------------------------
 	{ID: "toggleBroadcast", Keys: "Ctrl+Shift+B", Label: "Toggle broadcast", Section: "Agents", Page: "broadcast"},
+	// The ⇉ in a pane's header, for somebody whose keyboard is in the terminal.
+	{ID: "toggleBroadcastMember", Label: "Add this pane to broadcast, or take it out", Section: "Agents", Page: "broadcast"},
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
@@ -84,6 +89,10 @@ var Keys = []Key{
 
 	// --- finding your way --------------------------------------------------
 	{ID: "palette", Keys: "Ctrl+Shift+K", Label: "Command palette", Section: "Finding your way", NoPalette: true},
+	// Tab inside a terminal is the program's, so these are how the keyboard
+	// gets out of one: F6 is the key for it in browsers and on Windows.
+	{ID: "nextRegion", Keys: "F6", Label: "Move to the next part of the window", Section: "Finding your way", NoPalette: true},
+	{ID: "prevRegion", Keys: "Shift+F6", Label: "Move to the previous part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "findInTerminal", Keys: "Ctrl+Shift+F", Label: "Find in terminal", Section: "Finding your way"},
 	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume a past conversation", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},

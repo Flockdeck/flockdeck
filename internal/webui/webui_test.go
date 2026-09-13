@@ -4669,6 +4669,77 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
 `)
 }
 
+// Inside a terminal Tab belongs to the program there, so nothing took the
+// keyboard out of one to the rest of the window. F6 and Shift+F6 move it round
+// the window's parts - the rail, the top bar, the focused pane's buttons, its
+// terminal - and a dialog keeps it. Putting a pane in the broadcast set and
+// moving a tab along the strip had no key and no command either, and are in
+// the palette now.
+func TestTheKeyboardCanLeaveATerminalForTheRestOfTheWindow(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+// A wide window, where the rail is on screen rather than folded into a menu.
+Object.defineProperty(h.$("rail-toggle"), "offsetParent", { get: () => null });
+const term = h.terms[0];
+const buttons = term.host.parentElement.parentElement.querySelector("div.pane-actions");
+// xterm types through a textarea of its own inside the terminal's host.
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+term.host.append(typing);
+const inTerminal = () => { term.blur(); typing.focus(); };
+
+inTerminal();
+h.press("nextRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "F6 in a terminal did not reach the rail");
+h.press("nextRegion");
+assert.ok(h.doc.activeElement === h.$("tab-t1"), "the second F6 did not reach the top bar's current tab");
+h.press("nextRegion");
+assert.ok(buttons.contains(h.doc.activeElement), "the third F6 did not reach the focused pane's buttons");
+h.press("nextRegion");
+assert.ok(term.focused, "the fourth F6 did not come back to the terminal");
+
+inTerminal();
+h.press("prevRegion");
+assert.ok(buttons.contains(h.doc.activeElement), "Shift+F6 in a terminal did not reach its pane's buttons");
+h.press("prevRegion");
+assert.ok(h.doc.activeElement === h.$("tab-t1"), "Shift+F6 did not go back to the top bar");
+h.press("prevRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "Shift+F6 did not go back to the rail");
+term.blur();
+h.press("prevRegion");
+assert.ok(term.focused, "Shift+F6 from the rail did not come round to the terminal");
+
+// A dialog keeps the keyboard.
+h.press("settings");
+const panel = h.$("overlay-panel");
+h.press("nextRegion");
+assert.ok(panel === h.doc.activeElement || panel.contains(h.doc.activeElement), "F6 took the keyboard out of a dialog");
+h.key({ key: "Escape" });
+
+paletteRun("add this pane to broadcast");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleBroadcastMember", id: "p1" });
+
+const three = (active) => fixture({ activeTab: active, tabs: [
+  { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+  { id: "t2", title: "two", focus: "p2", root: leaf("n2", "p2") },
+  { id: "t3", title: "three", focus: "p3", root: leaf("n3", "p3") }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } });
+h.recv(three("t1"));
+paletteRun("move tab right");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "moveTab", id: "t1", target: "t3" });
+let before = h.commands().length;
+paletteRun("move tab left");
+assert.strictEqual(h.commands().length, before, "the first tab was sent further left than the start");
+h.recv(three("t3"));
+paletteRun("move tab left");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "moveTab", id: "t3", target: "t2" });
+before = h.commands().length;
+paletteRun("move tab right");
+assert.strictEqual(h.commands().length, before, "the last tab was sent further right than the end");
+`)
+}
+
 // The conversations list answered no key: each row had a Resume button to tab
 // to, and the arrows did nothing. It is walked like the other lists now, and
 // Enter on a row resumes that conversation.
