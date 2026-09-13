@@ -223,6 +223,22 @@ func TestWaitReportsAHandOff(t *testing.T) {
 	}
 }
 
+// cmd.exe reads & and % in an address for itself, and nothing quoted them for
+// it, so the default browser on Windows is reached without cmd.exe: the whole
+// address is one argument to a program that is not a shell.
+func TestTheDefaultBrowserIsGivenTheWholeAddress(t *testing.T) {
+	const page = "http://127.0.0.1:1/?a=1&b=%41"
+	for _, goos := range []string{"windows", "darwin", "linux"} {
+		name, args := defaultBrowserCommand(goos, page)
+		if strings.EqualFold(strings.TrimSuffix(filepath.Base(name), ".exe"), "cmd") || len(args) == 0 || args[len(args)-1] != page {
+			t.Errorf("%s: %s %q, want the address as the last argument, to something other than cmd.exe", goos, name, args)
+		}
+	}
+	if name, args := defaultBrowserCommand("windows", page); name != "rundll32" || args[0] != "url.dll,FileProtocolHandler" {
+		t.Errorf("windows: %s %q, want rundll32 url.dll,FileProtocolHandler", name, args)
+	}
+}
+
 // A browser that fails to start is not a hand-off: there is no window anywhere.
 func TestWaitReportsABrowserThatFailed(t *testing.T) {
 	t.Setenv(browserExit, "1")

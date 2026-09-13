@@ -371,20 +371,32 @@ func resolvePinned(prog string) (string, error) {
 
 // openDefaultBrowser hands the URL to the desktop's own handler.
 func openDefaultBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		// `start` needs a title argument before the URL, and cmd.exe treats &
-		// specially, so the URL is quoted.
-		cmd = exec.Command("cmd", "/c", "start", "", url)
-	case "darwin":
-		cmd = exec.Command("/usr/bin/open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
+	name, args := defaultBrowserCommand(runtime.GOOS, url)
+	cmd := exec.Command(name, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	// On Windows the handler is cmd, a console program, and a windowless
-	// Flockdeck would otherwise flash a terminal up just to pass the address on.
+	// rundll32 opens no console of its own, but a console program started from
+	// a windowless Flockdeck would flash a terminal up just to pass the address
+	// on, and saying so costs nothing.
 	sysproc.NoWindow(cmd)
 	return cmd.Start()
+}
+
+// defaultBrowserCommand is the program, and its arguments, that hands url to
+// the desktop's own handler on goos.
+//
+// On Windows that used to be `cmd /c start "" url`, and cmd.exe reads & and %
+// in what it is given for itself: an address with a second query parameter
+// would have been cut off at the &, and the rest run as a command of its own.
+// Nothing quoted it -- Go quotes an argument for the program's own parsing,
+// not for cmd.exe. rundll32 hands the URL to its handler as it stands, with no
+// shell in between.
+func defaultBrowserCommand(goos, url string) (string, []string) {
+	switch goos {
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		return "/usr/bin/open", []string{url}
+	default:
+		return "xdg-open", []string{url}
+	}
 }
