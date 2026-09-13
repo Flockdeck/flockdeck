@@ -163,7 +163,14 @@ body { flex-direction: row; }
   padding: 0 5px; font-size: 11px; line-height: 17px;
 }
 
-#tabs { display: flex; gap: 2px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+/* A scrolling box clips at its padding edge, and the tabs' focus ring is drawn
+ * outside them (2px, 1px out), so with no padding it was cut off above, below
+ * and at either end. The padding is room for it, as the rail's is; the margin
+ * gives the room back, so the tabs sit where they did. */
+#tabs {
+  display: flex; gap: 2px; align-items: center; overflow-x: auto; scrollbar-width: none; min-width: 0;
+  padding: 3px; margin: 0 -3px;
+}
 #tabs::-webkit-scrollbar { display: none; }
 /* With the scroll bar hidden, tabs past an end of the strip were out of sight
  * with nothing to say they were there, so an end with more beyond it fades.

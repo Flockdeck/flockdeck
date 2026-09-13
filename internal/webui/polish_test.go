@@ -1,8 +1,35 @@
 package webui
 
 import (
+	"regexp"
+	"strconv"
 	"testing"
 )
+
+// The tab strip scrolls sideways, and a scrolling box clips whatever is drawn
+// past its padding edge. A tab's focus ring is drawn outside the tab, and the
+// strip had no padding, so the ring was cut off: above and below, and at the
+// ends of the strip. The padding has to be at least as wide as the ring and
+// its offset together.
+func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	px := func(body, prop string) int {
+		m := regexp.MustCompile(`(?:^|[;\s])` + prop + `:\s*(\d+)px`).FindStringSubmatch(body)
+		if m == nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	ring := ruleBody(css, ".tab:focus-visible")
+	if ring == "" {
+		t.Fatal("app.css has no focus ring for .tab")
+	}
+	need := px(ring, "outline") + px(ring, "outline-offset")
+	if got := px(ruleBody(css, "#tabs"), "padding"); got < need {
+		t.Errorf("the tab strip is padded %dpx, and a tab's focus ring reaches %dpx outside it, so the strip cuts it off", got, need)
+	}
+}
 
 // The disconnected panel takes the keyboard so that typing does not go to a
 // terminal nobody can see. When the connection came back the panel was hidden
