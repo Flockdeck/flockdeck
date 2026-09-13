@@ -500,14 +500,14 @@ func TestStageKeepsTheStagedUpdateWhenItsReplacementCannotBePutInPlace(t *testin
 	}
 
 	staging := filepath.Join(dir, "staging")
-	old := renameStage
-	renameStage = func(src, dst string) error {
+	old := rename
+	rename = func(src, dst string) error {
 		if dst == staging && strings.HasPrefix(filepath.Base(src), "staging.new-") {
 			return &os.LinkError{Op: "rename", Old: src, New: dst, Err: errors.New("held by a virus scanner")}
 		}
 		return old(src, dst)
 	}
-	t.Cleanup(func() { renameStage = old })
+	t.Cleanup(func() { rename = old })
 
 	name, archive = buildArchive(t, "another program")
 	h = sha256.Sum256(archive)
@@ -549,9 +549,9 @@ func TestStageWaitsOutAMomentsHoldOnTheStagedUpdate(t *testing.T) {
 
 	// The staged program is opened just before the swap, as a scanner would
 	// open it, and let go of a tenth of a second later.
-	old := renameStage
+	old := rename
 	var hold sync.Once
-	renameStage = func(src, dst string) error {
+	rename = func(src, dst string) error {
 		hold.Do(func() {
 			f, err := os.Open(first.Binary)
 			if err != nil {
@@ -562,7 +562,7 @@ func TestStageWaitsOutAMomentsHoldOnTheStagedUpdate(t *testing.T) {
 		})
 		return old(src, dst)
 	}
-	t.Cleanup(func() { renameStage = old })
+	t.Cleanup(func() { rename = old })
 	rel := fetchRelease(t, srv.URL+"/release")
 
 	if _, err := Stage(context.Background(), rel, dir); err != nil {
@@ -976,6 +976,103 @@ func TestApplyNeverLeavesAHalfUpdatedPair(t *testing.T) {
 		if _, ok := Load(dir); !ok {
 			t.Errorf("had a twin %v: the update is no longer staged for the next attempt", hadTwin)
 		}
+	}
+}
+
+// holdWhileRenamed has the first file match picks out, among those renamed,
+// held open for a tenth of a second from just before its rename, as a virus
+// scanner holds a program it has just been shown. It reports whether that
+// hold was taken, so a rename that went around it cannot pass unnoticed.
+func holdWhileRenamed(t *testing.T, match func(src string) bool) *atomic.Bool {
+	t.Helper()
+	var took atomic.Bool
+	old := rename
+	rename = func(src, dst string) error {
+		if match(src) && took.CompareAndSwap(false, true) {
+			f, err := os.Open(src)
+			if err != nil {
+				return err
+			}
+			time.AfterFunc(100*time.Millisecond, func() { f.Close() })
+		}
+		return old(src, dst)
+	}
+	t.Cleanup(func() { rename = old })
+	return &took
+}
+
+// The new program is landed beside the old one and then renamed into place,
+// and a scanner holding it at that moment made the rename fail: the update
+// was rolled back, with advice to try from an administrator shell that would
+// have changed nothing. The rename waits the hold out.
+func TestApplyWaitsOutAMomentsHoldOnTheNewProgram(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to rename a file that is open")
+	}
+	dir, install := t.TempDir(), t.TempDir()
+	exe := filepath.Join(install, binaryName)
+	if err := os.WriteFile(exe, []byte("the old program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(dir, "staging", binaryName)
+	if err := os.MkdirAll(filepath.Dir(staged), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, []byte("the new program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := save(dir, &Pending{Version: "v9.9.9", Binary: staged}); err != nil {
+		t.Fatal(err)
+	}
+
+	took := holdWhileRenamed(t, func(src string) bool { return src == exe+".new" })
+	if err := Apply(dir, exe); err != nil {
+		t.Fatalf("Apply with the new program held open for a moment: %v", err)
+	}
+	if !took.Load() {
+		t.Fatal("the new program was never renamed into place")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "the new program" {
+		t.Errorf("installed binary = %q, want the new program", got)
+	}
+}
+
+// The twin EnsureChatTwin writes is renamed into place just as the program
+// is, and a scanner holding it at that moment left the installation without a
+// twin until the next start: an API agent's pane blank meanwhile.
+func TestEnsureChatTwinWaitsOutAMomentsHoldOnTheTwinItWrote(t *testing.T) {
+	if chatName == "" {
+		t.Skip("only the Windows release has a console twin")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	console, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, ok := subsystemOffset(console)
+	if !ok || binary.LittleEndian.Uint16(console[off:]) != pe.IMAGE_SUBSYSTEM_WINDOWS_CUI {
+		t.Fatal("the test binary is not a console PE file to start from")
+	}
+	gui := bytes.Clone(console)
+	binary.LittleEndian.PutUint16(gui[off:], pe.IMAGE_SUBSYSTEM_WINDOWS_GUI)
+	install := t.TempDir()
+	exe, twin := filepath.Join(install, binaryName), filepath.Join(install, chatName)
+	if err := os.WriteFile(exe, gui, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	took := holdWhileRenamed(t, func(src string) bool { return strings.HasSuffix(src, ".tmp") })
+	if err := EnsureChatTwin(exe); err != nil {
+		t.Fatalf("EnsureChatTwin: %v", err)
+	}
+	if !took.Load() {
+		t.Fatal("the twin written was never renamed into place")
+	}
+	if got, err := os.ReadFile(twin); err != nil || !bytes.Equal(got, console) {
+		t.Errorf("a twin held for a moment as it was written was not put in place (%v)", err)
 	}
 }
 
