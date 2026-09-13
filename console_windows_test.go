@@ -4,12 +4,15 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -71,6 +74,73 @@ func TestReleaseBuildOffersAStopThatWorks(t *testing.T) {
 	holdRecordedInstance(t)
 	if !ok || strings.Contains(got, "Ctrl+C") || !strings.Contains(got, "flockdeck -quit") {
 		t.Errorf("flockdeck -no-window in a terminal showed %q, want it to say to run `flockdeck -quit`, and nothing of Ctrl+C", got)
+	}
+}
+
+// The console borrowed for a terminal launch was one handle wrapped in a File
+// for standard output and another for standard error, and closed by hand as
+// well when it was let go. Each File closes its handle when it is collected,
+// so the number was closed three times, the last two whenever the collector
+// ran -- by which time it was most likely a handle something else had been
+// given since. This lends an ordinary file as both streams, lets it go, and
+// holds on to the next handle given out under the same number: that one has to
+// survive the collector.
+func TestALentConsoleIsClosedOnceAndOnlyOnce(t *testing.T) {
+	dir := t.TempDir()
+	open := func(name string) syscall.Handle {
+		t.Helper()
+		p, err := syscall.UTF16PtrFromString(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := syscall.CreateFile(p, syscall.GENERIC_READ|syscall.GENERIC_WRITE,
+			syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE, nil, syscall.CREATE_ALWAYS, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	lent := open("console")
+	wasOut, wasErr := os.Stdout, os.Stderr
+	borrow(lent, true, true)
+	if os.Stdout != os.Stderr {
+		t.Error("standard output and error were lent a File each for one handle")
+	}
+	giveBack()
+	if os.Stdout != wasOut || os.Stderr != wasErr {
+		t.Fatal("letting the console go did not put the standard streams back")
+	}
+
+	// Windows hands out a freed handle's number again, and soon; the files
+	// opened on the way to it are held until the end, so none is freed again
+	// to be handed out in its place.
+	var reused syscall.Handle
+	var others []syscall.Handle
+	defer func() {
+		for _, h := range others {
+			_ = syscall.CloseHandle(h)
+		}
+	}()
+	for i := 0; i < 256; i++ {
+		h := open(fmt.Sprintf("next-%d", i))
+		if h == lent {
+			reused = h
+			break
+		}
+		others = append(others, h)
+	}
+	if reused == 0 {
+		t.Skip("no handle was given out under the lent one's number")
+	}
+	defer syscall.CloseHandle(reused)
+
+	for i := 0; i < 10; i++ {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	var written uint32
+	if err := syscall.WriteFile(reused, []byte("still mine"), &written, nil); err != nil {
+		t.Errorf("a handle given out after the console was let go was closed under its new owner: %v", err)
 	}
 }
 

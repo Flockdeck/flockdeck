@@ -15,10 +15,19 @@ var (
 )
 
 // borrowed is what useConsole replaced, so that releaseConsole can put it
-// back.
+// back, and the console it borrowed.
+//
+// The console is one *os.File, standing in for whichever of standard output
+// and error was missing, and it is closed through that File once and only
+// once. A File owns its handle: it closes it when it is closed, and when it is
+// collected if it never was. Wrapping the one handle in a File for each stream
+// and closing the handle itself as well closed it three times -- and by the
+// time the collector got round to the two Files, the number was very likely
+// another handle altogether, a pane's pseudo-console pipe or a file being
+// written, which then stopped working for no visible reason.
 var borrowed struct {
 	held           bool
-	out            syscall.Handle
+	console        *os.File
 	stdout, stderr *os.File
 }
 
@@ -50,15 +59,32 @@ func useConsole() {
 		_, _, _ = procFreeConsole.Call()
 		return
 	}
-	borrowed.held, borrowed.out, borrowed.stdout, borrowed.stderr = true, out, os.Stdout, os.Stderr
-	if missing(os.Stdout) {
-		os.Stdout = os.NewFile(uintptr(out), "CONOUT$")
+	borrow(out, missing(os.Stdout), missing(os.Stderr))
+}
+
+// borrow puts out in place of standard output, standard error or both, as
+// one File between them.
+func borrow(out syscall.Handle, stdout, stderr bool) {
+	console := os.NewFile(uintptr(out), "CONOUT$")
+	borrowed.held, borrowed.console, borrowed.stdout, borrowed.stderr = true, console, os.Stdout, os.Stderr
+	if stdout {
+		os.Stdout = console
 	}
-	if missing(os.Stderr) {
-		os.Stderr = os.NewFile(uintptr(out), "CONOUT$")
+	if stderr {
+		os.Stderr = console
 	}
 	// The standard logger kept the standard error it was made with.
 	log.SetOutput(os.Stderr)
+}
+
+// giveBack puts back what borrow replaced and closes the console it lent,
+// through its File, which is the one close the handle gets.
+func giveBack() {
+	os.Stdout, os.Stderr = borrowed.stdout, borrowed.stderr
+	log.SetOutput(os.Stderr)
+	_ = borrowed.console.Close()
+	borrowed.console = nil
+	borrowed.held = false
 }
 
 // releaseConsole lets a borrowed console go before Flockdeck settles down to
@@ -71,11 +97,8 @@ func releaseConsole() {
 	if !borrowed.held {
 		return
 	}
-	os.Stdout, os.Stderr = borrowed.stdout, borrowed.stderr
-	log.SetOutput(os.Stderr)
-	_ = syscall.CloseHandle(borrowed.out)
+	giveBack()
 	_, _, _ = procFreeConsole.Call()
-	borrowed.held = false
 }
 
 // detachFromTerminal has nothing to do here: a shell does not wait for a GUI
