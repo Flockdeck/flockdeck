@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // LogName is the routing log, in Flockdeck's state directory.
@@ -109,26 +111,17 @@ func AppendLog(dir string, entries ...LogEntry) error {
 	return replace(path, bytes.Join(lines, nil))
 }
 
-// replace writes a file whole, through a temporary one beside it, so a trim
+// replace writes a file whole, through store.WriteAtomic, so a trim
 // interrupted halfway leaves the old log rather than half of one.
+//
+// It used to rename a temporary file into place itself, and on Windows a
+// rename onto a file somebody has open -- a second instance reading the log,
+// a virus scanner looking at it -- is refused with "Access is denied", which
+// lost that fan-out's decisions. WriteAtomic waits that out, and queues saves
+// of the one file from this process, as it does for every other file kept in
+// the state directory; the 0600 is the same.
 func replace(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), LogName+".tmp*")
-	if err != nil {
-		return fmt.Errorf("write the routing log: %w", err)
-	}
-	name := tmp.Name()
-	_, err = tmp.Write(data)
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Chmod(name, 0o600)
-	}
-	if err == nil {
-		err = os.Rename(name, path)
-	}
-	if err != nil {
-		os.Remove(name)
+	if err := store.WriteAtomic(path, data); err != nil {
 		return fmt.Errorf("write the routing log: %w", err)
 	}
 	return nil

@@ -412,6 +412,38 @@ func TestHookCommandQuotingIsLiteral(t *testing.T) {
 	}
 }
 
+// TestTheFallbackHookLineRunsInPowerShellAndGitBash covers the command line a
+// pane's hooks are written as when Claude Code's version is not known. On
+// Windows Claude Code runs it through Git Bash, or PowerShell where there is
+// none, and it was quoted for cmd.exe: a program in double quotes, which
+// PowerShell takes for a string, so without Git Bash no hook of any pane
+// arrived. Elsewhere it is what it always was.
+func TestTheFallbackHookLineRunsInPowerShellAndGitBash(t *testing.T) {
+	const exe = `C:\Program Files\Flockdeck\flockdeck.exe`
+	const rest = " hook --endpoint http://127.0.0.1:1/hook --session pane-id --event Stop"
+	noShort := func(string) string { return "" }
+	cases := []struct {
+		name    string
+		short   func(string) string
+		gitBash bool
+		want    string
+	}{
+		{"PowerShell, no short name", noShort, false, `& 'C:\Program Files\Flockdeck\flockdeck.exe'` + rest},
+		{"Git Bash, no short name", noShort, true, `'C:/Program Files/Flockdeck/flockdeck.exe'` + rest},
+		{"either, with a short name", func(string) string { return `C:\PROGRA~1\FLOCKD~1\flockdeck.exe` }, false,
+			`C:/PROGRA~1/FLOCKD~1/flockdeck.exe` + rest},
+	}
+	for _, c := range cases {
+		if got := hookCommandLine("windows", exe, "http://127.0.0.1:1/hook", "pane-id", "Stop", c.short, c.gitBash); got != c.want {
+			t.Errorf("%s: %s\nwant %s", c.name, got, c.want)
+		}
+	}
+	if got, want := hookCommandLine("linux", "/opt/my apps/flockdeck", "http://127.0.0.1:1/hook", "pane-id", "Stop", noShort, false),
+		`'/opt/my apps/flockdeck'`+rest; got != want {
+		t.Errorf("sh: %s\nwant %s", got, want)
+	}
+}
+
 // TestSessionStartDoesNotMoveTheStatusDot keeps a compaction, which reports as
 // a session start of its own, from showing a busy agent as idle.
 func TestSessionStartDoesNotMoveTheStatusDot(t *testing.T) {

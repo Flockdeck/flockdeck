@@ -1232,6 +1232,77 @@ func TestEnterAnswersAPermissionPrompt(t *testing.T) {
 	}
 }
 
+// TestARefusedPermissionPromptGoesBackToIdle covers answering Claude's
+// permission prompt with "No". Enter takes the pane from amber to green, as it
+// must for "Yes", but a refusal puts Claude Code back at its prompt with no
+// Stop to say so, and the pane went on saying "working" until the next
+// prompt. Heard from by nothing -- no hook, no output -- it goes back to idle;
+// heard from by either, it is left to them.
+func TestARefusedPermissionPromptGoesBackToIdle(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindClaude
+	s.sawInput = true
+	s.answerQuiet = 60 * time.Millisecond
+	report := func(event, tool string) {
+		if st, detail, ok := StatusForEvent(event, tool); ok {
+			s.SetStatus(st, detail)
+		}
+	}
+	ask := func() {
+		t.Helper()
+		report("PreToolUse", "Bash")
+		report("PermissionRequest", "")
+		if err := s.WriteString("\r"); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if st, _ := s.Status(); st != StatusWorking {
+			t.Fatalf("status = %v straight after answering, want working", st)
+		}
+	}
+	settled := func() Status {
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			if st, _ := s.Status(); st != StatusWorking || time.Now().After(deadline) {
+				return st
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Refused: nothing more is heard.
+	ask()
+	if st, detail := settled(), func() string { _, d := s.Status(); return d }(); st != StatusIdle || detail != "" {
+		t.Errorf("status = %v %q after a refusal and silence, want idle", st, detail)
+	}
+
+	// Allowed: the tool's own event follows, and the hooks have the pane.
+	ask()
+	report("PostToolUse", "")
+	time.Sleep(4 * s.answerQuiet)
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v after the tool reported, want working until a hook says otherwise", st)
+	}
+
+	// Allowed, and the tool is still running: Claude Code keeps drawing.
+	report("PreToolUse", "Bash")
+	report("PermissionRequest", "")
+	if err := s.WriteString("\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	for end := time.Now().Add(4 * s.answerQuiet); time.Now().Before(end); {
+		s.publish([]byte("⠋ Running… (3s)"))
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st, _ := s.Status(); st != StatusWorking {
+		t.Errorf("status = %v while the tool was still drawing, want working", st)
+	}
+	if st := settled(); st != StatusIdle {
+		t.Errorf("status = %v once the drawing stopped and nothing reported, want idle", st)
+	}
+}
+
 // TestScrollingIsNotAnswering covers a pane whose program asked for mouse
 // reports, as full-screen agents do: turning the wheel to read back over the
 // question arrives exactly like typing, and is no answer to it.

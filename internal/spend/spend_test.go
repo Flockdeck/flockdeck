@@ -45,6 +45,21 @@ func TestUnpricedTokensMakeAFloor(t *testing.T) {
 	}
 }
 
+// A chat talking to an address of the user's own is not priced, whatever its
+// model is listed at, and says so. The view carries the reason, so the header
+// does not tell the user that a model it has a price for has none.
+func TestTokensThroughAGatewaySayWhyTheyAreNotPriced(t *testing.T) {
+	b := NewBook()
+	b.Add(Report{Pane: "gw", Model: "claude-opus-5", Tokens: Tokens{In: 500, Out: 50}, Cost: Cost{Source: "gateway"}}, t0)
+	if v := b.Pane("gw", t0); v == nil || !v.Unpriced || v.UnpricedWhy != "gateway" || v.USD != 0 {
+		t.Errorf("got %+v, want 550 tokens, unpriced because of the gateway", v)
+	}
+	b.Add(Report{Pane: "local", Model: "llama3", Tokens: Tokens{In: 5}}, t0)
+	if v := b.Pane("local", t0); v == nil || !v.Unpriced || v.UnpricedWhy != "" {
+		t.Errorf("got %+v, want tokens unpriced for want of a price, with no other reason given", v)
+	}
+}
+
 // Claude Code's status line gives running totals, which replace what was known
 // rather than adding to it, and a tick before the first answer says nothing
 // about cost and takes nothing away.
@@ -122,6 +137,49 @@ func TestAnIdlePaneDoesNotSendTheWindowBack(t *testing.T) {
 	b.Add(Report{Pane: "busy", Account: acct, Windows: five(3, later)}, t0.Add(10*time.Minute))
 	if v := b.Pane("idle", t0.Add(10*time.Minute)); v == nil || len(v.Windows) != 1 || v.Windows[0].Pct != 3 {
 		t.Errorf("got %+v, want the new window's 3%%", v)
+	}
+}
+
+// An idle pane's status line sends the same figure again every time it
+// refreshes, which is the reading from its last answer and not a new one:
+// taken as new, the header said "as of just now" of a figure an hour old, for
+// as long as the pane sat there. The same figure is fresh only from a pane
+// whose totals show it has just been answered; a higher one is fresh from
+// anybody.
+func TestTheSameFigureSentAgainIsNotANewReading(t *testing.T) {
+	b := NewBook()
+	const acct = "claude:/home/a/.claude"
+	resets := t0.Add(3 * time.Hour)
+	five := func(used float64) []Window {
+		return []Window{{Account: acct, Name: "five_hour", Used: used, Percent: true, ResetsAt: resets}}
+	}
+	asOf := func(at time.Time) int64 {
+		t.Helper()
+		v := b.Pane("p", at)
+		if v == nil || len(v.Windows) != 1 {
+			t.Fatalf("got %+v, want one window", v)
+		}
+		return v.Windows[0].AsOf
+	}
+	totals := Tokens{In: 1000, Out: 10}
+	b.Add(Report{Pane: "p", Account: acct, Cumulative: true, Tokens: totals, Windows: five(40)}, t0)
+
+	// The line refreshes with nothing new to say.
+	b.Add(Report{Pane: "p", Account: acct, Cumulative: true, Tokens: totals, Windows: five(40)}, t0.Add(30*time.Minute))
+	if got := asOf(t0.Add(30 * time.Minute)); got != t0.Unix() {
+		t.Errorf("as of %v, want the first reading's %v: nothing was answered since", time.Unix(got, 0).UTC(), t0)
+	}
+
+	// An answer since: the totals moved, and the same figure is a reading of now.
+	b.Add(Report{Pane: "p", Account: acct, Cumulative: true, Tokens: Tokens{In: 2000, Out: 20}, Windows: five(40)}, t0.Add(40*time.Minute))
+	if got := asOf(t0.Add(40 * time.Minute)); got != t0.Add(40*time.Minute).Unix() {
+		t.Errorf("as of %v, want the answered pane's reading, %v", time.Unix(got, 0).UTC(), t0.Add(40*time.Minute))
+	}
+
+	// A higher figure is newer from any pane on the login.
+	b.Add(Report{Pane: "q", Account: acct, Windows: five(45)}, t0.Add(50*time.Minute))
+	if got := asOf(t0.Add(50 * time.Minute)); got != t0.Add(50*time.Minute).Unix() {
+		t.Errorf("as of %v, want the higher reading's %v", time.Unix(got, 0).UTC(), t0.Add(50*time.Minute))
 	}
 }
 

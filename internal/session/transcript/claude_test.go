@@ -1098,7 +1098,7 @@ func TestConversationsForgetATranscriptTheyCouldNotRead(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	got := conversationsIn(dir, entries, cwd, func(recorded string) bool {
+	got := conversationsIn(dir, entries, cwd, newListing(), func(recorded string) bool {
 		return ours(dir, recorded, cwd)
 	})
 	if len(got) != 1 {
@@ -1623,13 +1623,15 @@ func TestTranscriptCacheForgetsTheFolderNobodyIsLookingAt(t *testing.T) {
 	forgetTranscripts()
 	t.Cleanup(forgetTranscripts)
 
+	// Each folder is read by a listing of its own, as a project with no
+	// worktrees is: what one listing reads it keeps, which is the next test.
 	facts := map[string]transcriptFacts{"a.jsonl": {summary: "something", size: 1}}
 	for i := 0; i < cachedFolderLimit; i++ {
-		rememberFacts(fmt.Sprintf("folder-%03d", i), facts)
+		rememberFacts(fmt.Sprintf("folder-%03d", i), facts, newListing())
 	}
 	// Looked at again, so it is not the one to go.
-	rememberFacts("folder-000", facts)
-	rememberFacts("one-folder-too-many", facts)
+	rememberFacts("folder-000", facts, newListing())
+	rememberFacts("one-folder-too-many", facts, newListing())
 
 	if got := cachedFacts("one-folder-too-many"); got == nil {
 		t.Error("the folder that was just listed was not remembered")
@@ -1648,6 +1650,93 @@ func TestTranscriptCacheForgetsTheFolderNobodyIsLookingAt(t *testing.T) {
 	defer transcriptCache.Unlock()
 	if len(transcriptCache.dirs) > cachedFolderLimit {
 		t.Errorf("the cache holds %d folders, more than the %d it is bounded to", len(transcriptCache.dirs), cachedFolderLimit)
+	}
+}
+
+// TestRepeatedListingsOfManyFoldersHitTheCache covers a project with more
+// worktree folders than the cache holds -- 80 of them, on the machine this was
+// measured on. Each listing read every folder in turn and forgot the first it
+// had read to make room for the last, so the next listing found none of them
+// and read every transcript again: hundreds of megabytes a refresh.
+//
+// Every transcript is rewritten between the two listings with another prompt
+// of the same length, and given back its size and time. A folder served from
+// the cache still says what it said the first time; one read again says the
+// new prompt.
+func TestRepeatedListingsOfManyFoldersHitTheCache(t *testing.T) {
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+	home := t.TempDir()
+	cwd := filepath.Join(t.TempDir(), "repo")
+	projects := filepath.Join(home, "projects")
+
+	folders := cachedFolderLimit + 8
+	var paths []string
+	for i := 0; i < folders; i++ {
+		dir := filepath.Join(projects, projectSlug(cwd)+fmt.Sprintf("-wt-%03d", i))
+		id := fmt.Sprintf("%08d-0000-0000-0000-000000000000", i)
+		paths = append(paths, writeTranscript(t, dir, id,
+			`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"first `+fmt.Sprintf("%03d", i)+`"}}`))
+	}
+	if got, err := claudeConversations(home, cwd); err != nil || len(got) != folders {
+		t.Fatalf("the first listing found %d conversations (error %v), want %d", len(got), err, folders)
+	}
+
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(strings.Replace(string(data), `"first `, `"later `, 1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, fi.ModTime(), fi.ModTime()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := claudeConversations(home, cwd)
+	if err != nil || len(got) != folders {
+		t.Fatalf("the second listing found %d conversations (error %v), want %d", len(got), err, folders)
+	}
+	var reread []string
+	for _, c := range got {
+		if !strings.HasPrefix(c.Summary, "first ") {
+			reread = append(reread, c.Summary)
+		}
+	}
+	if len(reread) > 0 {
+		t.Errorf("the second listing read %d of %d folders again rather than from the cache: %q", len(reread), folders, reread)
+	}
+}
+
+// TestANeighbourSpelledInAnotherCaseIsNotOurs covers two directories whose
+// names derive one folder once case is set aside, on a filesystem that sets it
+// aside: "my-app" and "My_App" both come to "my-app". A transcript recording
+// the neighbour was compared to this folder's name exactly, found to derive a
+// folder of its own, and offered here as a conversation that had moved in --
+// a resume of somebody else's work in the wrong tree.
+func TestANeighbourSpelledInAnotherCaseIsNotOurs(t *testing.T) {
+	was := pathsIgnoreCase
+	pathsIgnoreCase = true
+	t.Cleanup(func() { pathsIgnoreCase = was })
+
+	const cwd = "/src/my-app"
+	dir := filepath.Join("projects", projectSlug(cwd))
+	if ours(dir, "/src/My_App", cwd) {
+		t.Error("a neighbour's conversation, whose folder differs only in case, was offered here")
+	}
+	// What was ours stays ours: this directory spelled another way, and one
+	// that derives a folder of its own and moved here.
+	if !ours(dir, "/SRC/My-App", cwd) {
+		t.Error("this directory, recorded in another case, was not offered here")
+	}
+	if !ours(dir, "/src/my-app/.worktrees/fix", cwd) {
+		t.Error("a conversation that moved here from a worktree was not offered here")
 	}
 }
 

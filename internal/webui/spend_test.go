@@ -33,6 +33,15 @@ assert.ok(!/~\$/.test(spend.getAttribute("aria-label")), "a pane with no price i
 
 h.recv(fixture({ panes: { p1: pane("p1", { spend: { usd: 0.0421, unpriced: true, source: "table", checked: "2026-06-24", tokens: 900 } }), p2: pane("p2") } }));
 assert.strictEqual(spend.textContent, "~$0.042+", "a figure with unpriced tokens in it is not marked as a floor");
+
+// Through a gateway the reason is the address, not the model: it may well
+// have a price here, which is not what the gateway charges.
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "gw", spend: { tokens: 900, in: 800, out: 100, unpriced: true, unpricedWhy: "gateway" } }), p2: pane("p2") } }));
+assert.ok(/address of your own/.test(spend.dataset.tip) && !/no price here for this model/.test(spend.dataset.tip),
+  "a pane on a gateway blames the model for having no price: " + spend.dataset.tip);
+h.recv(fixture({ panes: { p1: pane("p1", { spend: { usd: 0.0421, unpriced: true, unpricedWhy: "gateway", source: "table", checked: "2026-06-24", tokens: 900 } }), p2: pane("p2") } }));
+assert.ok(/address of your own/.test(spend.dataset.tip) && !/model with no price/.test(spend.dataset.tip),
+  "a floor made by a gateway blames the model: " + spend.dataset.tip);
 `)
 }
 

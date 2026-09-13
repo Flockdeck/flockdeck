@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,5 +37,13 @@ func TestAPaneWaitingForAKeyTurnsAmber(t *testing.T) {
 	}
 	if !pane.saw("Notification") {
 		t.Errorf("the pane never said it was waiting; it reported %q", pane.names())
+	}
+	// Once the key turns up the pane is at its prompt, and says so before it
+	// opens the chat: the SessionStart that follows leaves a status alone, so
+	// without it the pane stayed amber until somebody typed a prompt.
+	names := pane.names()
+	waited, stopped, started := slices.Index(names, "Notification"), slices.Index(names, "Stop"), slices.Index(names, "SessionStart")
+	if stopped < 0 || stopped < waited || (started >= 0 && stopped > started) {
+		t.Errorf("the pane never said the wait was over before the chat opened; it reported %q", names)
 	}
 }

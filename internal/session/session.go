@@ -64,6 +64,12 @@ const (
 	// runner between packages -- without leaving a pane that has genuinely
 	// finished claiming to be busy.
 	quietBeforeIdle = 3 * time.Second
+	// answeredQuiet is how long a pane whose hooks report must hear nothing
+	// after a tool's question was answered from the keyboard before it is
+	// taken to be back at its prompt. It is long on purpose: Claude Code
+	// redraws a running tool's clock every second, and a pane wrongly called
+	// idle mid-command is worse than one called working a few seconds late.
+	answeredQuiet = 10 * time.Second
 	// bellGrace is how long after a pane starts its bells are treated as part
 	// of starting up rather than a request for attention.
 	bellGrace = 5 * time.Second
@@ -171,6 +177,17 @@ type Session struct {
 	// idle again, so a pane printing steadily starts one rather than one per
 	// chunk it prints.
 	settling bool
+	// hookSeq counts the lifecycle events reported for this session, repeats
+	// included, so that something waiting on a hook can tell whether one has
+	// come. answeredTime is when a tool's question was last answered from the
+	// keyboard, and answerQuiet how long the pane must then hear nothing --
+	// no hook, no output -- before it is taken to be back at its prompt: see
+	// settleAnswered. answerQuiet is answeredQuiet, held per session so a test
+	// can shorten it; a session built without Start has none, and never
+	// settles that way.
+	hookSeq      uint64
+	answeredTime time.Time
+	answerQuiet  time.Duration
 
 	// usage is the last reading of what the pane's process tree costs, usageAt
 	// is the process table it was taken from, and usageCPU is how much CPU each
@@ -266,6 +283,7 @@ func Start(cfg Config) (*Session, error) {
 		rows:        cfg.Rows,
 		patterns:    foldPatterns(cfg.Spec.Patterns),
 		idleAfter:   quietBeforeIdle,
+		answerQuiet: answeredQuiet,
 		history:     newRing(replayBytes),
 		subs:        map[int]*subscriber{},
 		pumped:      make(chan struct{}),
@@ -696,12 +714,54 @@ func (s *Session) Write(p []byte) (int, error) {
 			s.settling = true
 			go s.settleIdle()
 		}
+		if s.hooksSeen && s.answerQuiet > 0 {
+			s.answeredTime = time.Now()
+			go s.settleAnswered(s.hookSeq)
+		}
 	}
 	s.mu.Unlock()
 	if answered {
 		s.changed()
 	}
 	return s.pty.Write(p)
+}
+
+// settleAnswered returns a pane to idle when a tool's question was answered
+// from the keyboard and nothing has been heard from it since: no lifecycle
+// event, and nothing printed, for answerQuiet. seq is the hook count at the
+// answer.
+//
+// Allowing the tool is followed by its PostToolUse, and Claude Code draws a
+// spinner with a running clock for as long as the tool takes. Refusing it --
+// "No", or Esc -- puts Claude Code back at its prompt with no Stop to say so,
+// and the pane went on saying "working", green, until the next prompt. Being
+// back at the prompt looks like that silence, so the silence is what is read,
+// and only after a wait long enough that a tool still running would have
+// drawn something in it. Any event at all hands the pane back to the hooks.
+func (s *Session) settleAnswered(seq uint64) {
+	for {
+		s.mu.Lock()
+		if s.hookSeq != seq || s.status != StatusWorking {
+			s.mu.Unlock()
+			return
+		}
+		since := s.answeredTime
+		if s.lastOutput.After(since) {
+			since = s.lastOutput
+		}
+		if quiet := time.Since(since); quiet < s.answerQuiet {
+			wait := s.answerQuiet - quiet
+			s.mu.Unlock()
+			time.Sleep(wait)
+			continue
+		}
+		s.status = StatusIdle
+		s.statusSince = time.Now()
+		s.detail = ""
+		s.mu.Unlock()
+		s.changed()
+		return
+	}
 }
 
 // terminalReport reports whether input is nothing but reports a terminal makes
@@ -821,6 +881,9 @@ func (s *Session) WriteString(text string) error {
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
 	s.mu.Lock()
+	// Counted before anything is decided: an event that changes nothing is
+	// still the agent reporting, which is what settleAnswered waits to hear.
+	s.hookSeq++
 	// A waiting status that names nothing is about whatever the pane was
 	// running when it arrived: Claude asks permission for a tool in a
 	// Notification that follows the PreToolUse naming it, and puts no name in

@@ -52,7 +52,10 @@ type Cost struct {
 	Known bool `json:"known,omitempty"`
 	// Source is "table" for tokens priced from Flockdeck's own table, and
 	// "agent" for a figure the agent reported about itself at its own list
-	// prices -- Claude Code's session cost is one.
+	// prices -- Claude Code's session cost is one. On a cost that is not
+	// Known it says why, where the agent knows: "gateway" for calls through
+	// an address of the user's own, which charges what it charges whatever
+	// the model is listed at.
 	Source string `json:"source,omitempty"`
 	// Checked is the date the price table was read from the vendor's page, for
 	// a "table" cost.
@@ -150,9 +153,11 @@ type paneEntry struct {
 	tokens   Tokens
 	usd      float64
 	unpriced bool
-	source   string
-	checked  string
-	accounts []string
+	// unpricedWhy is the reason the last unpriced call gave, if it gave one.
+	unpricedWhy string
+	source      string
+	checked     string
+	accounts    []string
 }
 
 // NewBook returns an empty book.
@@ -186,7 +191,13 @@ func (b *Book) Add(r Report, now time.Time) {
 	if r.Account != "" && !slices.Contains(e.accounts, r.Account) {
 		e.accounts = append(e.accounts, r.Account)
 	}
+	before := e.tokens
 	b.addCost(e, r)
+	// Whether the pane has had an answer since it last reported: its totals
+	// move with every one. The windows a status line is handed are those of
+	// the session's last answer, so only then is a figure it sends again a
+	// reading taken now.
+	answered := e.tokens != before
 
 	for _, w := range r.Windows {
 		if w.Account == "" || w.Name == "" || w.expired(now) {
@@ -201,8 +212,18 @@ func (b *Book) Add(r Report, now time.Time) {
 		// of just now". Within one window usage only rises, so the larger figure
 		// is the fresher; a later reset time is a new window, whose reading
 		// replaces the old one however low it is.
+		//
+		// The same figure again is a fresh reading only from a pane that has
+		// just been answered. From one sitting idle it is the old reading sent
+		// back, and taking it as new kept every idle pane's reading "as of just
+		// now" for as long as its line refreshed, so the header never said how
+		// old it was.
 		old, ok := b.windows[w.key()]
-		if !ok || w.ResetsAt.After(old.ResetsAt) || (w.ResetsAt.Equal(old.ResetsAt) && w.Used >= old.Used) {
+		fresher := !ok || w.ResetsAt.After(old.ResetsAt)
+		if !fresher && w.ResetsAt.Equal(old.ResetsAt) {
+			fresher = w.Used > old.Used || (w.Used == old.Used && answered)
+		}
+		if fresher {
 			b.windows[w.key()] = w
 		}
 		if !slices.Contains(e.accounts, w.Account) {
@@ -232,6 +253,9 @@ func (b *Book) addCost(e *paneEntry, r Report) {
 	if !r.Cost.Known {
 		// Tokens nobody here can price. What is known is a floor from now on.
 		e.unpriced = true
+		if r.Cost.Source != "" {
+			e.unpricedWhy = r.Cost.Source
+		}
 		return
 	}
 	e.usd += r.Cost.USD
@@ -258,8 +282,12 @@ type PaneView struct {
 	// USD is the session's cost in dollars, an estimate: Source says whose.
 	USD      float64 `json:"usd,omitempty"`
 	Unpriced bool    `json:"unpriced,omitempty"`
-	Source   string  `json:"source,omitempty"`
-	Checked  string  `json:"checked,omitempty"`
+	// UnpricedWhy says why tokens went unpriced, where the agent said:
+	// "gateway" for calls through an address of the user's own. Empty is a
+	// model with no price here, which is what the tooltip said of both.
+	UnpricedWhy string `json:"unpricedWhy,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Checked     string `json:"checked,omitempty"`
 	// Tokens is everything read and written, and the four after it the parts
 	// the tooltip names.
 	Tokens    int64        `json:"tokens,omitempty"`
@@ -296,6 +324,9 @@ func (b *Book) Pane(id string, now time.Time) *PaneView {
 		In:     e.tokens.In, Out: e.tokens.Out,
 		CacheRead: e.tokens.CacheRead, Reasoning: e.tokens.Reasoning,
 		Unpriced: e.unpriced && e.tokens.total() > 0,
+	}
+	if v.Unpriced {
+		v.UnpricedWhy = e.unpricedWhy
 	}
 	if e.usd > 0 {
 		// A ten-thousandth of a dollar is finer than the header ever writes.

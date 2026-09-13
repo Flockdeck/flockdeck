@@ -93,6 +93,11 @@ func (r *reporter) usage(model string, u Usage) {
 	if rate, ok := pricing.Lookup(model, time.Now()); ok && !r.unpriced {
 		usd := rate.Cost(pricing.Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
 		rep.Cost = spending.Cost{USD: usd, Known: true, Source: "table", Checked: rate.Checked}
+	} else if r.unpriced {
+		// Not priced, and why: the model may well have a price here, which is
+		// not what the address this chat talks to charges. Left unsaid, the
+		// pane header told the user the model had no price.
+		rep.Cost = spending.Cost{Source: "gateway"}
 	}
 	_ = r.report(r.usageEndpoint, r.token, rep, usageTimeout)
 }

@@ -50,6 +50,12 @@ Status therefore reflects what the agent is actually doing rather than what
 its output happens to look like. Those settings are additive: your own
 settings, hooks and permissions still apply.
 
+One answer is not reported by any event: a permission prompt answered from
+the keyboard. Enter turns the pane green, since allowing the tool starts it
+running. Refusing it puts Claude Code back at its prompt without a word, so
+a pane that is then heard from by nothing, neither an event nor anything it
+draws, for ten seconds goes back to grey.
+
 ## An agent that cannot report
 
 Not every coding agent has a lifecycle to report, and Flockdeck runs those too. For
