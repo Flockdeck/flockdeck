@@ -910,3 +910,25 @@ assert.deepStrictEqual(sent.files, ["a.go", "b.go"], "the commit does not say wh
 assert.strictEqual(sent.omitted, 3, "the commit does not say how many files the list left out");
 `)
 }
+
+// The server sends at most two thousand changed files and counts the rest,
+// which the page never read: the button said "Commit 2000 files" over a
+// commit of every changed file in the tree, and nothing on the dialog said
+// any were missing once the server's notice had gone.
+func TestTheReviewCountsTheFilesItLeavesOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, omitted: 2500,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }, { path: "b.go", label: "A", added: 2, removed: 0 }] });
+assert.strictEqual(h.$("rev-commit").textContent, "Commit 2502 files", "the button counts only the files listed");
+const note = h.$("overlay-body").querySelector("div.rev-omitted");
+assert.ok(note && note.textContent.includes("2,500 more not listed"), "nothing on the dialog says files were left out");
+
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+assert.strictEqual(h.$("rev-commit").textContent, "Commit 1 file");
+assert.ok(!h.$("overlay-body").querySelector("div.rev-omitted"), "a list with nothing left out says some were");
+`)
+}

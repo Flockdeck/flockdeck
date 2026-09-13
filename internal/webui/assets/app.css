@@ -835,6 +835,7 @@ textarea:focus-visible {
 .rev-kind { color: var(--fg-dim); font-size: 10px; }
 .rev-plus { color: var(--working); font-size: 11px; }
 .rev-minus { color: var(--exited); font-size: 11px; }
+.rev-omitted { color: var(--fg-dim); font-size: 11px; padding: 4px 2px; }
 
 .rev-diff {
   flex: 1 1 auto; min-width: 0; max-height: 320px; overflow: auto;

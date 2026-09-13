@@ -4941,7 +4941,15 @@
           files: files.map((f) => f.path), omitted: m.omitted || 0 });
         commitPending = true;
       };
-      const c1 = el("button", "chip primary", "Commit " + files.length + " file" + (files.length === 1 ? "" : "s"));
+      // The server lists at most two thousand files and counts the rest, and
+      // the button counted only the ones listed while the commit records every
+      // one of them: "Commit 2000 files" committed thousands more. The count
+      // takes them in, and a line that stays says they are there.
+      const total = files.length + (m.omitted || 0);
+      if (m.omitted) {
+        body.append(el("div", "rev-omitted", m.omitted.toLocaleString("en") + " more not listed — the commit includes them"));
+      }
+      const c1 = el("button", "chip primary", "Commit " + total + " file" + (total === 1 ? "" : "s"));
       c1.id = "rev-commit";
       c1.onclick = () => doCommit(c1, false);
       // The message is the last thing written, and a box like this commits on
