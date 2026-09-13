@@ -1082,7 +1082,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// working in drop off the tab bar until they think to close it
 			// again. Everything the page sends here comes from a directory
 			// listing or the recent list and is absolute already.
-			if !filepath.IsAbs(cmd.Path) {
+			// Quotes around it -- Explorer's "Copy as path" puts them there --
+			// are not part of it.
+			path := unquotePath(cmd.Path)
+			if !filepath.IsAbs(path) {
 				c.notify("a project has to be named by its full path", true)
 				return
 			}
@@ -1091,14 +1094,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// is only switched to. "opened app" said for that reads as a
 			// second copy of it having been started.
 			before := len(ws.Projects())
-			if err := ws.OpenProject(cmd.Path); err != nil {
+			if err := ws.OpenProject(path); err != nil {
 				c.notify(err.Error(), true)
 				return
 			}
 			if len(ws.Projects()) == before {
-				c.notify("switched to "+filepath.Base(cmd.Path)+", which was already open", false)
+				c.notify("switched to "+filepath.Base(path)+", which was already open", false)
 			} else {
-				c.notify("opened "+filepath.Base(cmd.Path), false)
+				c.notify("opened "+filepath.Base(path), false)
 			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)

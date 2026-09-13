@@ -50,6 +50,7 @@ func (s *Server) browse(c *controlClient, path string) {
 		defer s.survive("listing a folder")
 		msg := browseMsg{Type: "browse"}
 
+		path = unquotePath(path)
 		if path == "" {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = home
@@ -175,6 +176,20 @@ func expandHome(path string) string {
 		return path
 	}
 	return filepath.Join(home, path[1:])
+}
+
+// unquotePath takes the spaces and one pair of quotes off a path typed or
+// pasted into the picker. Windows Explorer's "Copy as path" -- the usual way
+// to copy a folder's path there -- wraps it in double quotes, and a shell
+// writes a path with a space in it inside single ones; neither is part of the
+// name, and taken as it stood the path was looked for inside the directory
+// flockdeck was started in.
+func unquotePath(path string) string {
+	path = strings.TrimSpace(path)
+	if len(path) >= 2 && (path[0] == '"' || path[0] == '\'') && path[len(path)-1] == path[0] {
+		return strings.TrimSpace(path[1 : len(path)-1])
+	}
+	return path
 }
 
 // isRepoDir reports whether dir is the top of a git repository. Checking for
