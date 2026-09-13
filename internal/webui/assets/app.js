@@ -2993,6 +2993,12 @@
    *  went with an Escape pressed a moment too soon - and, never sent, it was
    *  not in the history either. */
   let promptUnsent = "";
+  /** The pane the prompt bar was opened on, which is where what is written in
+   *  it goes. Focus can move while it is open - the desk clicking another
+   *  pane, a fan-out revealing its first agent - and a prompt sent to
+   *  whichever pane had focus by then reached an agent it was not written
+   *  for. */
+  let promptPane = "";
 
   function promptKey(ev) {
     const input = $("prompt-input");
@@ -3043,6 +3049,8 @@
   function openPrompt() {
     const bar = $("promptbar");
     bar.hidden = false;
+    const tab = activeTabOf(state);
+    promptPane = (tab && tab.focus) || "";
     promptAt = promptHistory.length;
     promptDraft = "";
     labelPrompt(state);
@@ -3059,7 +3067,7 @@
   function submitPrompt() {
     const text = $("prompt-input").value;
     if (text.trim()) {
-      send({ cmd: "sendPrompt", text });
+      send({ cmd: "sendPrompt", id: promptPane, text });
       if (promptHistory[promptHistory.length - 1] !== text) promptHistory.push(text);
       if (promptHistory.length > 50) promptHistory.shift();
     }

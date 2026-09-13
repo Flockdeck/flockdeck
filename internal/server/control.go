@@ -1245,14 +1245,32 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// The bar names the pane it was opened on, and the prompt goes
+			// there. Focus can move while it is open -- the desk clicking
+			// another pane, a fan-out revealing its first agent, a pane picked
+			// from the agents list -- and the prompt went to whichever pane had
+			// it by the time it was sent. A pane no longer in the tab on screen
+			// is not guessed at. A window that names none still sends to the
+			// focused pane.
+			focus := ""
+			if t := ws.CurrentTab(); t != nil {
+				focus = t.Focus
+				if cmd.ID != "" {
+					if t.Tree.Find(cmd.ID) == nil {
+						c.notify("the pane that prompt was written for is no longer in the tab on screen, so it was not sent — ↑ in the prompt bar brings it back", true)
+						return
+					}
+					focus = cmd.ID
+				}
+			}
 			// Only a pane with a process running takes the text. With the
 			// focused one stopped and nothing else in the broadcast it went
 			// nowhere, while the prompt bar closed as though it had been sent.
-			if len(ws.BroadcastTargets()) == 0 {
+			if len(ws.BroadcastTargetsFor(focus)) == 0 {
 				c.notify("nothing in this tab is running to send that to — restart the pane and send it again", true)
 				return
 			}
-			ws.SendPrompt(cmd.Text, true)
+			ws.SendPromptTo(focus, cmd.Text, true)
 		case "save":
 			_ = ws.SaveAll()
 		case "detach":
