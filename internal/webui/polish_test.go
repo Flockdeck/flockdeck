@@ -847,3 +847,31 @@ h.key({ key: "Enter" });
 assert.strictEqual(h.controls().length, before + 1, "Enter no longer presses Reconnect");
 `)
 }
+
+// A line starting with --- or +++ is a file's header only before its first
+// hunk. After it, "--- comment" is a removed SQL comment, "----" a removed
+// Markdown rule and "+++i;" an added increment, and all three were drawn grey
+// as though they were headers, among lines that were plainly removed and added.
+func TestADiffLineIsAHeaderOnlyAboveItsFirstHunk(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+         files: [{ path: "a.sql", label: "M", added: 1, removed: 2 }] });
+h.click(h.$("overlay-body").querySelector("div.rev-file"));
+const NL = String.fromCharCode(10);
+const text = [
+  "diff --git a/a.sql b/a.sql", "index 1111111..2222222 100644", "--- a/a.sql", "+++ b/a.sql",
+  "@@ -1,3 +1,2 @@", "--- comment", "----", "+++i;", " select 1;",
+  "diff --git a/b.md b/b.md", "--- a/b.md", "+++ b/b.md", "@@ -1 +1 @@", "-was", "+is",
+].join(NL);
+h.recv({ type: "diff", cwd: "C:/repo", file: "a.sql", text });
+const panel = h.$("overlay-body").querySelector("div.rev-diff");
+const kinds = panel.children.map((c) => c.className);
+assert.deepStrictEqual(kinds, [
+  "meta", "meta", "meta", "meta", "hunk", "del", "del", "add", "",
+  "meta", "meta", "meta", "hunk", "del", "add",
+]);
+`)
+}

@@ -5042,8 +5042,10 @@
   /** renderDiffInto colours a unified diff without a syntax highlighter. */
   function renderDiffInto(host, text) {
     const lines = text.split("\n");
+    const kinds = diffKinds(lines);
+    const diffLine = (i) => el("div", kinds[i], lines[i] || " ");
     const shown = Math.min(lines.length, DIFF_LINES);
-    for (let i = 0; i < shown; i++) host.append(diffLine(lines[i]));
+    for (let i = 0; i < shown; i++) host.append(diffLine(i));
     if (shown === lines.length) return;
 
     const rest = lines.length - shown;
@@ -5056,7 +5058,7 @@
       const had = document.activeElement === more;
       note.remove();
       more.remove();
-      for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
+      for (let i = shown; i < lines.length; i++) host.append(diffLine(i));
       if (had) {
         if (!host.hasAttribute("tabindex")) host.tabIndex = -1;
         host.focus();
@@ -5065,14 +5067,22 @@
     host.append(note, more);
   }
 
-  function diffLine(line) {
-    let cls = "";
-    if (line.startsWith("+++") || line.startsWith("---")) cls = "meta";
-    else if (line.startsWith("@@")) cls = "hunk";
-    else if (line.startsWith("+")) cls = "add";
-    else if (line.startsWith("-")) cls = "del";
-    else if (line.startsWith("diff ") || line.startsWith("index ")) cls = "meta";
-    return el("div", cls, line || " ");
+  /** diffKinds says how each line of a unified diff is drawn. A line starting
+   *  with --- or +++ is a file's header only above that file's first hunk:
+   *  after it, "--- comment" is a removed SQL comment, "----" a removed
+   *  Markdown rule and "+++i;" an added increment, and all of them were drawn
+   *  grey as headers. A hunk's lines start with a space, + or -, so "diff "
+   *  at the start of one always begins the next file. */
+  function diffKinds(lines) {
+    let header = true;
+    return lines.map((line) => {
+      if (line.startsWith("diff ")) { header = true; return "meta"; }
+      if (line.startsWith("@@")) { header = false; return "hunk"; }
+      if (header && (line.startsWith("+++") || line.startsWith("---") || line.startsWith("index "))) return "meta";
+      if (line.startsWith("+")) return "add";
+      if (line.startsWith("-")) return "del";
+      return "";
+    });
   }
 
   // ---------------------------------------------------------------- agents
