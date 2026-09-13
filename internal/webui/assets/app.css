@@ -603,7 +603,9 @@ textarea:focus-visible {
 #promptbar[hidden] { display: none; }
 #prompt-label { color: var(--cast); font-weight: 600; white-space: nowrap; }
 #prompt-input {
-  flex: 1 1 auto; background: var(--bg-inset); border: 1px solid var(--line-strong);
+  /* min-width lets it shrink below a text field's default width, which a
+   * narrow window does not have, as the worktree form's fields do. */
+  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--line-strong);
   border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
   /* It grows with the lines in it (fitPrompt) up to a third of the window and
    * scrolls past that, so a long prompt cannot push the panes off the screen.
@@ -1149,7 +1151,8 @@ kbd {
 #searchbar[hidden] { display: none; }
 #searchbar label { color: var(--fg-dim); }
 #searchbar input {
-  flex: 1 1 auto; background: var(--bg-inset); border: 1px solid var(--line-strong);
+  /* Free to shrink, as the prompt bar's field is, or the bar overflows. */
+  flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--line-strong);
   border-radius: var(--radius); color: var(--fg); padding: 5px 9px; font: inherit;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }

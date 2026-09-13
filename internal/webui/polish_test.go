@@ -31,6 +31,19 @@ func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
 	}
 }
 
+// A text field's automatic minimum width is its default size, about twenty
+// characters, so in a narrow window the prompt bar and the find bar could not
+// shrink below it and ran off the side, their buttons with them. min-width: 0
+// lets the field give up width, as the worktree form's fields already do.
+func TestThePromptAndFindFieldsShrinkInANarrowWindow(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	for _, sel := range []string{"#prompt-input", "#searchbar input"} {
+		if !regexp.MustCompile(`(?:^|[;\s])min-width:\s*0\b`).MatchString(ruleBody(css, sel)) {
+			t.Errorf("%s keeps a text field's default minimum width, so its bar overflows a narrow window", sel)
+		}
+	}
+}
+
 // The disconnected panel takes the keyboard so that typing does not go to a
 // terminal nobody can see. When the connection came back the panel was hidden
 // with the keyboard still on its button, so nothing typed went anywhere until
