@@ -7332,10 +7332,12 @@
     // one thing the table cannot express and this has to spell out.
     // The digit row is read by position where it can be: on AZERTY it types
     // & é " ' and gives digits only with Shift held, so Alt+1 arrived as Alt+&
-    // and no tab could be picked by number. The keypad has no position to
-    // read and types its digits on every layout.
+    // and no tab could be picked by number. The keypad is left alone: Alt
+    // held while digits are typed there is how Windows types a character by
+    // its code, and Alt+0233 for é switched to tab 2 and then to tab 3.
     const row = /^Digit([1-9])$/.exec(e.code || "");
-    const n = row ? row[1] : (/^[1-9]$/.test(e.key || "") ? e.key : "");
+    const keypad = /^Numpad/.test(e.code || "");
+    const n = row ? row[1] : (!keypad && /^[1-9]$/.test(e.key || "") ? e.key : "");
     if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
       claimKey(e);
       runAction("selectTab", n);

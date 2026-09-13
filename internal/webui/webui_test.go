@@ -2522,9 +2522,26 @@ h.hello();
 h.recv(fixture());
 h.key({ key: "é", code: "Digit2", altKey: true });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" });
-// The keypad has no row to read and types a digit everywhere.
-h.key({ key: "1", code: "Numpad1", altKey: true });
+// A key that says no position still picks by the digit it typed.
+h.key({ key: "1", code: "", altKey: true });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
+`)
+}
+
+// Alt held while digits are typed on the keypad is how Windows types a
+// character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
+// so typing é switched to tab 2 and then tab 3, and the character never
+// arrived.
+func TestAltCodesOnTheKeypadAreNotTabNumbers(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const before = h.commands().length;
+for (const d of ["0", "2", "3", "3"]) {
+  const ev = h.key({ key: d, code: "Numpad" + d, altKey: true });
+  assert.ok(!ev.defaultPrevented, "Alt+Numpad" + d + " was kept from the input method");
+}
+assert.deepStrictEqual(h.commands().slice(before), [], "typing an Alt code switched tabs");
 `)
 }
 
