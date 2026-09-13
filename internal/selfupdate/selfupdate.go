@@ -360,10 +360,7 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	}
 
 	staging := filepath.Join(dir, "staging")
-	if err := os.RemoveAll(staging); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(work, staging); err != nil {
+	if err := swapStaging(dir, work, staging); err != nil {
 		return nil, err
 	}
 
@@ -387,6 +384,50 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	return p, nil
 }
 
+// renameStage is how swapStaging renames a directory. A variable so a test can
+// have a rename fail.
+var renameStage = store.RenameWithRetry
+
+// swapStaging puts work, a finished download, at staging in place of whatever
+// is staged there already.
+//
+// What is staged is moved aside rather than removed first, and put back if the
+// new download cannot be put in its place. Removing it first meant a rename
+// that then failed -- on Windows, a virus scanner still holding the new
+// program it had just been shown -- left nothing staged while the top bar
+// went on offering the update, and the restart it asked for found nothing to
+// apply. The renames are retried for as long as store.RenameWithRetry waits
+// out such a hold, which is gone in moments.
+//
+// The previous download goes into a directory of its own, made now, so that
+// sweepWork, which clears those by age, never takes one that is still to be
+// put back.
+func swapStaging(dir, work, staging string) error {
+	if _, err := os.Lstat(staging); errors.Is(err, os.ErrNotExist) {
+		return renameStage(work, staging)
+	}
+	aside, err := os.MkdirTemp(dir, "staging.old-")
+	if err != nil {
+		return err
+	}
+	previous := filepath.Join(aside, "staging")
+	if err := renameStage(staging, previous); err != nil {
+		os.RemoveAll(aside)
+		return fmt.Errorf("move the update staged before aside: %w", err)
+	}
+	if err := renameStage(work, staging); err != nil {
+		if rerr := renameStage(previous, staging); rerr != nil {
+			// The previous download is left where it is, for sweepWork:
+			// removing it would take the last copy of it.
+			return fmt.Errorf("put the download in place: %w; the update staged before could not be put back either: %v", err, rerr)
+		}
+		os.RemoveAll(aside)
+		return fmt.Errorf("put the download in place: %w", err)
+	}
+	os.RemoveAll(aside)
+	return nil
+}
+
 // abandonedWork is how old a download's work directory has to be before it is
 // taken for one an interrupted attempt left behind. The archive is created
 // once the answer arrives, and its download is given up on requestLimit after
@@ -397,14 +438,15 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 const abandonedWork = requestLimit + time.Minute
 
 // sweepWork clears the work directories interrupted downloads left in dir: the
-// one name every download used before each had its own, and the ones since.
+// one name every download used before each had its own, and the ones since,
+// and the previous downloads swapStaging moved aside and could not remove.
 func sweepWork(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "staging.new") {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "staging.new") && !strings.HasPrefix(e.Name(), "staging.old-") {
 			continue
 		}
 		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > abandonedWork {

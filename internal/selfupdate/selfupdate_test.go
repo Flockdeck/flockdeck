@@ -486,6 +486,93 @@ func TestStageKeepsTheStagedUpdateWhenANewerOneFails(t *testing.T) {
 	}
 }
 
+// A download that cannot be put where the staged update is must not cost that
+// update. The staged one was removed first, so a rename that then failed -- on
+// Windows, a virus scanner holding the new program -- left nothing to apply
+// while the top bar went on offering it.
+func TestStageKeepsTheStagedUpdateWhenItsReplacementCannotBePutInPlace(t *testing.T) {
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	good := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+	dir := t.TempDir()
+	if _, err := Stage(context.Background(), fetchRelease(t, good.URL+"/release"), dir); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	staging := filepath.Join(dir, "staging")
+	old := renameStage
+	renameStage = func(src, dst string) error {
+		if dst == staging && strings.HasPrefix(filepath.Base(src), "staging.new-") {
+			return &os.LinkError{Op: "rename", Old: src, New: dst, Err: errors.New("held by a virus scanner")}
+		}
+		return old(src, dst)
+	}
+	t.Cleanup(func() { renameStage = old })
+
+	name, archive = buildArchive(t, "another program")
+	h = sha256.Sum256(archive)
+	other := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+	if _, err := Stage(context.Background(), fetchRelease(t, other.URL+"/release"), dir); err == nil {
+		t.Fatal("Stage reported a download it could not put in place as staged")
+	}
+
+	p, ok := Load(dir)
+	if !ok {
+		t.Fatal("the update staged before is gone")
+	}
+	if got, err := os.ReadFile(p.Binary); err != nil || string(got) != "the new program" {
+		t.Errorf("staged binary = %q, %v; want the update staged before", got, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "staging.old-") {
+			t.Errorf("%s was left behind with the update put back", e.Name())
+		}
+	}
+}
+
+// Replacing what is staged waits out a moment's hold on it, as the state
+// files' saves do. Windows will not rename a directory while anything has a
+// file in it open, and a virus scanner opens every program written.
+func TestStageWaitsOutAMomentsHoldOnTheStagedUpdate(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to rename a directory holding a file that is open")
+	}
+	name, archive := buildArchive(t, "the new program")
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+	dir := t.TempDir()
+	first, err := Stage(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	// The staged program is opened just before the swap, as a scanner would
+	// open it, and let go of a tenth of a second later.
+	old := renameStage
+	var hold sync.Once
+	renameStage = func(src, dst string) error {
+		hold.Do(func() {
+			f, err := os.Open(first.Binary)
+			if err != nil {
+				t.Errorf("hold the staged program: %v", err)
+				return
+			}
+			time.AfterFunc(100*time.Millisecond, func() { f.Close() })
+		})
+		return old(src, dst)
+	}
+	t.Cleanup(func() { renameStage = old })
+	rel := fetchRelease(t, srv.URL+"/release")
+
+	if _, err := Stage(context.Background(), rel, dir); err != nil {
+		t.Fatalf("Stage with the staged program held open for a moment: %v", err)
+	}
+	if p, ok := Load(dir); !ok || staged(t, p) != "the new program" {
+		t.Errorf("Load = %+v, %v; want the new download staged", p, ok)
+	}
+}
+
 // If the record of what is staged cannot be written, the staging directory
 // already holds the new release; the old record must not survive to name it,
 // or the next exit installs one release under another's version. On Windows a
