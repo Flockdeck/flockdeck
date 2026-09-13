@@ -92,11 +92,17 @@ func (w *Workspace) SaveProject(root string) error {
 // they had been on in every project except the last one they looked at, so the
 // index from the previous save is carried forward instead, clamped to the tabs
 // that are still there.
+//
+// It is read with Peek, not Load. The layout is read here only for that index,
+// and what it holds is about to be written over, so whether this read works
+// says nothing about the tabs in memory. Through Load it said they were the
+// saved ones: a layout that could not be read at start, whose project came up
+// on one fresh tab, was then written over without being kept.
 func (w *Workspace) rememberedActive(root string, tabs int) int {
 	if tabs == 0 {
 		return 0
 	}
-	st, err := store.Load(root)
+	st, err := store.Peek(root)
 	if err != nil || st == nil || st.Active <= 0 {
 		return 0
 	}

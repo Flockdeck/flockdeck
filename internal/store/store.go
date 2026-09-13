@@ -308,13 +308,35 @@ func normalizeRoot(root string) string {
 
 // Load reads the saved state for a workspace root. A missing file is not an
 // error: it simply means there is nothing to restore.
-func Load(root string) (*State, error) {
+//
+// It is for a caller about to restore what it reads, because it records how
+// the read went: a layout that could not be read is kept from the next save,
+// and one that could is not.
+func Load(root string) (*State, error) { return load(root, true) }
+
+// Peek is Load for a caller that only wants to look at what was saved and is
+// not going to restore it, and so says nothing about whether the file could be
+// read.
+//
+// The save of a project nobody has been in since it was opened reads the tab
+// it was last saved on. Through Load, that read taking a moment's trouble in
+// its stride cleared the record of the one at start that had not: a project
+// whose layout could not be read comes up on one fresh tab, and the timed save
+// half a minute later then found nothing to keep and wrote that tab straight
+// over every tab the user had saved.
+func Peek(root string) (*State, error) { return load(root, false) }
+
+// load is Load, recording how the read went only when restoring says what it
+// reads is going to be restored.
+func load(root string, restoring bool) (*State, error) {
 	p, err := path(root)
 	if err != nil {
 		return nil, err
 	}
 	data, err := readState(p)
-	noteRead(p, err)
+	if restoring {
+		noteRead(p, err)
+	}
 	// Nothing under the name in use now may only mean this layout was last
 	// saved by a build that named it differently.
 	legacy := ""
