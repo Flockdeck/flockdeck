@@ -22,6 +22,11 @@ type helloMsg struct {
 	Type  string      `json:"type"`
 	Keys  []help.Key  `json:"keys"`
 	Prefs store.Prefs `json:"prefs"`
+	// Remote says the window was reached through the relay, so that it can
+	// leave out what only the desk may do: restart onto an update, turn
+	// remote access off or on, set an API key. The snapshot cannot say it,
+	// being one message broadcast to every window alike.
+	Remote bool `json:"remote,omitempty"`
 }
 
 // sendHello gives a freshly connected window the key table and the prefs. It
@@ -31,7 +36,7 @@ func (s *Server) sendHello(c *controlClient) {
 	if c.remote {
 		keys = remoteKeys
 	}
-	data, err := json.Marshal(helloMsg{Type: "hello", Keys: keys, Prefs: s.prefs})
+	data, err := json.Marshal(helloMsg{Type: "hello", Keys: keys, Prefs: s.prefs, Remote: c.remote})
 	if err != nil {
 		return
 	}

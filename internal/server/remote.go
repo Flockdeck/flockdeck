@@ -404,6 +404,9 @@ const remoteCallTimeout = 30 * time.Second
 // without a terminal. Enrolling decides where the traffic goes, which is why
 // the dialog shows the relay it will use before it is pressed.
 func (s *Server) remoteEnable(c *controlClient, cmd command) {
+	if refusedThroughRelay(c, "enable") {
+		return
+	}
 	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
 	s.remoteCall(c, "enable", "turning remote access on", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		replaced, err := ra.Enable(ctx, req)
@@ -422,6 +425,9 @@ func (s *Server) remoteEnable(c *controlClient, cmd command) {
 // cannot be told is not taken for one that was: the window is asked whether to
 // forget the enrolment regardless, which leaves the machine listed there.
 func (s *Server) remoteDisable(c *controlClient, force bool) {
+	if refusedThroughRelay(c, "disable") {
+		return
+	}
 	s.remoteCall(c, "disable", "turning remote access off", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		untold, err := ra.Disable(ctx, force)
 		var notTold *remote.RelayUntoldError
@@ -437,6 +443,25 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 			c.notify("remote access is off", false)
 		}
 	})
+}
+
+// deskOnlyRemote is why a window reached through the relay may not turn remote
+// access off or on. Off cuts the way in that window came by, and nothing at
+// the far end can turn it on again; on, from a window that is already in, can
+// only be against another relay -- moving everything typed at the desk, and
+// everything the agents print, to a relay chosen from somewhere else.
+const deskOnlyRemote = "remote access is turned off, or moved to another relay, on the machine flockdeck runs on — not from a window reached through the relay"
+
+// refusedThroughRelay refuses a window reached through the relay that asked to
+// turn remote access on or off, and reports whether it did. The dialog's
+// button waits for an outcome, so one is sent as well as the notice.
+func refusedThroughRelay(c *controlClient, action string) bool {
+	if !c.remote {
+		return false
+	}
+	c.sendJSON(remoteOutcomeMsg{Type: "remoteOutcome", Action: action, Error: deskOnlyRemote})
+	c.notify(deskOnlyRemote, true)
+	return true
 }
 
 // remoteReconnect is the dialog's "try again": the relay is tried now rather

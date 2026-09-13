@@ -63,17 +63,36 @@ func ask[T any](s *Server, fn func() T) (v T, ok bool) {
 	}
 }
 
-// runLoop owns the workspace.
+// runLoop owns the workspace. It closes loopDone as it returns, which is what
+// Stopped reports.
 func (s *Server) runLoop() {
+	defer close(s.loopDone)
 	for {
 		select {
 		case <-s.closed:
 			return
 		case fn := <-s.cmds:
+			// With changes queued and the server closed, select takes either
+			// at random, so this went on applying queued changes after Close
+			// had returned -- beside the shutdown saving and then closing the
+			// very workspace they changed. One taken off the queue once the
+			// server has closed is dropped instead; ask and everything else
+			// waiting on an answer stop waiting on closed.
+			select {
+			case <-s.closed:
+				return
+			default:
+			}
 			s.guard("applying a change to the workspace", fn)
 		}
 	}
 }
+
+// Stopped is closed once the workspace goroutine has let go of the workspace
+// for good: after Close, and after the change it was applying as the server
+// closed has run its course. Until then the workspace is still that
+// goroutine's, and saving or closing it from anywhere else races it.
+func (s *Server) Stopped() <-chan struct{} { return s.loopDone }
 
 // guard runs fn and survives a panic in it.
 //
@@ -1238,6 +1257,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			_ = ws.SaveAll()
 			go s.requestQuit()
 		case "restart":
+			// A restart is a quit that comes back, and stops every agent on
+			// the way just as quitting does -- and a relaunch that fails leaves
+			// nothing a phone can start again. So it is the desk's, as Quit is.
+			// The window hides the offer; this is for one that sends it anyway.
+			if c.remote {
+				c.notify("a window reached through the relay cannot restart flockdeck — restart it on the machine it runs on", true)
+				return
+			}
 			// The layout is saved here as well as by the shutdown, because a
 			// restart is the one quit the user expects to come back to exactly
 			// what they were looking at.

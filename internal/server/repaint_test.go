@@ -22,9 +22,13 @@ import (
 // replayed as the output it is, so neither is touched.
 func TestAFreshAttachRepaintsAFullScreenProgram(t *testing.T) {
 	var full atomic.Bool
-	wasAlt, wasResize, wasGap := altScreen, repaintResize, repaintGap
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap = wasAlt, wasResize, wasGap })
+	wasAlt, wasResize, wasGap, wasWait := altScreen, repaintResize, repaintGap, unsizedRepaintWait
+	t.Cleanup(func() { altScreen, repaintResize, repaintGap, unsizedRepaintWait = wasAlt, wasResize, wasGap, wasWait })
 	altScreen = func(*session.Session) bool { return full.Load() }
+	// Each window here says its size, and it is that size the repaint is
+	// wanted at; one that has not said by the time a slow shell has echoed
+	// is TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway's.
+	unsizedRepaintWait = time.Hour
 	var mu sync.Mutex
 	var steps []string
 	repaintResize = func(_ *Server, _ string, cols, rows int) {

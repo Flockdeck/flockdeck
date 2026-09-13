@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // healthMsg is what a second launch reads to decide whether the recorded
@@ -329,6 +331,18 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 	}
 }
 
+// Identify asks what answers at a recorded address who it is, once: Probe
+// without its patience for an instance that is busy. It is what `flockdeck
+// -quit` asks before asking anything to stop, and a wedged instance is the one
+// it most needs to reach.
+//
+// An instance that answers but is not ready comes back with ErrNotReady and
+// what it said of itself, its process id among it. Anything that is not this
+// user's flockdeck comes back with ErrNotOurs.
+func Identify(baseURL, token string) (*healthMsg, error) {
+	return probeOnce(baseURL, token)
+}
+
 // ErrNotReady marks the one failure worth waiting out: flockdeck is listening on
 // that address, it just cannot answer for its workspace this moment.
 //
@@ -337,6 +351,12 @@ func Probe(baseURL, token string) (*healthMsg, error) {
 // busy, and taking it for a stale record would start a rival set of agents
 // beside the ones it is busy with.
 var ErrNotReady = errors.New("the instance is not ready")
+
+// ErrNotOurs marks an answer from something other than the instance on
+// record: a service of another kind that has taken the port since, or another
+// user's flockdeck, which refuses this token. Either way the record the
+// address came from is stale, and nothing there is to be asked to quit.
+var ErrNotOurs = errors.New("what answers there is not the instance on record")
 
 func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -358,15 +378,16 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
 		if decodeErr == nil && h.App == "flockdeck" {
-			return nil, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
+			// Busy, and saying who it is: its process id is in what it said.
+			return &h, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)
 		}
-		return nil, fmt.Errorf("instance replied %s", resp.Status)
+		return nil, fmt.Errorf("instance replied %s: %w", resp.Status, ErrNotOurs)
 	}
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, fmt.Errorf("%w: %v", ErrNotOurs, decodeErr)
 	}
 	if h.App != "flockdeck" {
-		return nil, fmt.Errorf("something else is listening on that address")
+		return nil, fmt.Errorf("something else is listening on that address: %w", ErrNotOurs)
 	}
 	return &h, nil
 }
@@ -439,7 +460,9 @@ func refused(what string, resp *http.Response) error {
 }
 
 // RequestQuit asks a running instance to shut down, and waits for it to have
-// gone.
+// gone: to have stopped answering, and then, where pid names its process, for
+// that process to have exited. pid is what the instance said it was, and 0
+// where nothing was said.
 //
 // The instance answers as soon as it has accepted the request; stopping every
 // agent and saving the layout comes after. Returning on the acceptance made
@@ -447,7 +470,13 @@ func refused(what string, resp *http.Response) error {
 // launch racing it: a `flockdeck` typed straight afterwards would probe the
 // instance on its way out, find it answering, and attach to a process that was
 // about to exit -- ending up with a window onto nothing.
-func RequestQuit(baseURL, token string) error {
+//
+// Its port closing is not the end of it either. The port is closed first, so
+// that nothing reaches the workspace while it is saved; saving every project,
+// stopping the agents and clearing the record all come after. Returning as the
+// port closed let `flockdeck -quit && flockdeck` start a second instance
+// beside the first one's agents, still running.
+func RequestQuit(baseURL, token string, pid int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/quit?t="+token, nil)
@@ -465,16 +494,28 @@ func RequestQuit(baseURL, token string) error {
 
 	deadline := time.Now().Add(quitGrace)
 	for {
-		// Only an instance that has stopped answering has gone. One that is
-		// merely too busy to report on itself is still there -- and being busy
-		// is exactly what shutting down looks like from outside.
+		// Only an instance that has stopped answering has stopped listening.
+		// One that is merely too busy to report on itself is still there --
+		// and being busy is exactly what shutting down looks like from outside.
 		_, err := probeOnce(baseURL, token)
 		if err != nil && !errors.Is(err, ErrNotReady) {
-			return nil
+			break
 		}
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf("the instance at %s accepted the request but is still running", baseURL)
 		}
 		time.Sleep(quitPoll)
 	}
+	// And only one whose process has exited has gone.
+	for pid > 0 && instanceAlive(pid) {
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the instance at %s has stopped listening but is still running, as process %d", baseURL, pid)
+		}
+		time.Sleep(quitPoll)
+	}
+	return nil
 }
+
+// instanceAlive reports whether an instance's process is still running. It is
+// a variable so a test can say when a stand-in instance has exited.
+var instanceAlive = store.ProcessAlive

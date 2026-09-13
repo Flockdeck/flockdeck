@@ -1404,3 +1404,8 @@ var processAlive = func(pid int) bool {
 	}
 	return pidAlive(pid)
 }
+
+// ProcessAlive reports whether a process id still names a running process. It
+// is how `flockdeck -quit` tells that the instance it asked to stop has gone,
+// rather than only stopped listening.
+func ProcessAlive(pid int) bool { return processAlive(pid) }

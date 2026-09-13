@@ -345,21 +345,43 @@ func quitRunning() error {
 	if inst == nil {
 		return errNoneRunning
 	}
-	// The instance is asked outright rather than probed first. One whose
-	// workspace has wedged answers the probe as too busy, which read as
-	// nothing running at all — and a wedged instance is exactly the one
-	// somebody reaches for -quit to stop, while the request to quit needs
-	// nothing from the workspace. Only a request that cannot even connect
-	// means the record was left by an instance that has gone.
+	// Whatever answers at the recorded address is asked who it is before it is
+	// asked to quit. The port of an instance that has gone can have been taken
+	// by anything since, and sending it the old token with a request to quit
+	// went wrong both ways: a service that answers a POST with a 2xx read as
+	// "stopped", and another user's flockdeck, refusing the token, as an
+	// error -- with the record never cleared, so every -quit after it the same.
 	//
-	// RequestQuit returns only once the instance has stopped answering, not
-	// when it has taken the request: saving every project and stopping the
-	// agents comes after, with the instance still listening, and a
-	// `flockdeck -quit && flockdeck` would otherwise attach to one on its way
-	// out. So "stopped" below is true when it is printed.
-	if err := server.RequestQuit(inst.URL, inst.Token); err != nil {
-		var dial *net.OpError
-		if errors.As(err, &dial) && dial.Op == "dial" {
+	// It is asked once, without Probe's patience for a busy instance. One whose
+	// workspace has wedged says it is not ready, which is still flockdeck and
+	// still ours -- and a wedged instance is exactly the one somebody reaches
+	// for -quit to stop, while the request to quit needs nothing from the
+	// workspace. So that is asked to quit, as one that answers is.
+	h, err := server.Identify(inst.URL, inst.Token)
+	switch {
+	case err == nil, errors.Is(err, server.ErrNotReady):
+	case refusedConnection(err), errors.Is(err, server.ErrNotOurs):
+		// Nothing listening there, or not the instance on record: the record
+		// was left by one that has gone.
+		_ = store.ClearInstance()
+		return errNoneRunning
+	default:
+		return fmt.Errorf("ask the instance at %s whether it is running: %w", inst.URL, err)
+	}
+
+	// RequestQuit returns only once the instance has gone -- stopped
+	// answering, and then its process exited -- not when it has taken the
+	// request. It closes its port first and saves every project and stops the
+	// agents after, so a `flockdeck -quit && flockdeck` would otherwise attach
+	// to one on its way out, or start a second beside its agents. So "stopped"
+	// below is true when it is printed.
+	pid := 0
+	if h != nil {
+		pid = h.PID
+	}
+	if err := server.RequestQuit(inst.URL, inst.Token, pid); err != nil {
+		// Gone between the question and the request.
+		if refusedConnection(err) {
 			_ = store.ClearInstance()
 			return errNoneRunning
 		}
@@ -371,6 +393,13 @@ func quitRunning() error {
 
 // errNoneRunning is what -quit reports when there is nothing to stop.
 var errNoneRunning = errors.New("no running flockdeck found")
+
+// refusedConnection reports whether a request failed because nothing was
+// listening at all, which is what an instance that has gone leaves behind.
+func refusedConnection(err error) bool {
+	var dial *net.OpError
+	return errors.As(err, &dial) && dial.Op == "dial"
+}
 
 // runningInstance returns the recorded instance if it is alive and answering.
 func runningInstance() (*store.Instance, string, error) {
@@ -779,9 +808,20 @@ func run(opts options) error {
 
 	// The tunnel is a way in like the local port, so it is closed with it,
 	// before anything is saved.
+	//
+	// Closing the server stops it taking changes, but the one it was applying
+	// as it closed runs on, on its own goroutine -- and that goroutine is the
+	// workspace's only owner. Saving, and then closing the workspace, while it
+	// was still at work were the races shutdown exists to avoid, so they wait
+	// for it to have finished, for as long as the shutdown is given at all.
 	stopServing := func() error {
 		remoteAccess.Close()
-		return srv.Close()
+		err := srv.Close()
+		select {
+		case <-srv.Stopped():
+		case <-time.After(shutdownGrace):
+		}
+		return err
 	}
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)

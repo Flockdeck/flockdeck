@@ -257,6 +257,11 @@
    *  The palette, the keyboard and the help pages are all drawn from it, so a
    *  binding cannot be changed in one of them and left stale in the others. */
   let keyTable = [];
+  /** remoteWindow is whether this window was reached through the relay, as
+   *  the hello says. Such a window is not offered what the desk alone may
+   *  do: restarting onto an update, turning remote access off or on, and
+   *  setting API keys. The server refuses each of them from here anyway. */
+  let remoteWindow = false;
   /** Normalised binding → action id, built from the same table. */
   let bindings = new Map();
   /** What this person has already been shown. Kept by the Go side, because a
@@ -412,7 +417,9 @@
    *  which arrive several times a second while agents are working. */
   let updateShown = null;
   function renderUpdate(s) {
-    const u = s.update || null;
+    // Installing is a restart, which stops every agent at the desk; a window
+    // reached through the relay is not offered it (see remoteWindow).
+    const u = remoteWindow ? null : (s.update || null);
     const key = u ? u.version : "";
     if (key === updateShown) return;
     updateShown = key;
@@ -433,7 +440,7 @@
    *  a live process and restarting stops it. Saying so here is the difference
    *  between a restart the user chose and one they regret. */
   function openUpdate() {
-    const u = state && state.update;
+    const u = !remoteWindow && state && state.update;
     if (!u) return;
     // Named like every other dialog, so that the one it replaced — whose answer
     // may still be on its way — no longer thinks the panel is its own.
@@ -554,6 +561,13 @@
     return null;
   }
 
+  /** DESK_ONLY_REMOTE is shown to a window reached through the relay in place
+   *  of turning remote access on or off, which the server refuses from there:
+   *  off cuts the way in that window came by, with nothing at its end to turn
+   *  it on again, and on, from a window already in, is against another relay. */
+  const DESK_ONLY_REMOTE = "Remote access is turned on, turned off and moved to another relay " +
+    "on the machine itself, not from a window reached through the relay.";
+
   function renderRemote() {
     const body = remoteHost();
     if (!body) return;
@@ -565,7 +579,7 @@
       body.append(el("div", "fan-hint",
         "Remote access opens this window from another device — a laptop, a tablet, a phone — " +
         "through a relay, without opening a port on this machine."));
-      body.append(remoteEnableForm());
+      body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
     }
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
@@ -790,6 +804,12 @@
         keepFocus(renderRemote);
       };
       row.append(retry);
+    }
+    if (remoteWindow) {
+      // Off, and on again against another relay, are the desk's: see
+      // DESK_ONLY_REMOTE. Trying the relay again is not.
+      box.append(row, el("p", "fan-hint", DESK_ONLY_REMOTE), enterpriseNote());
+      return box;
     }
     const off = el("button", "chip danger", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
     off.id = "remote-disable";
@@ -4212,6 +4232,7 @@
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
     keyTable = msg.keys || [];
+    remoteWindow = !!msg.remote;
     prefs = msg.prefs || prefs;
     applyPrefs();
     bindings = new Map();
@@ -5738,27 +5759,34 @@
       main.append(meta);
       row.append(main);
 
-      const actions = el("div", "wt-actions");
-      const set = el("button", "chip", k.set ? "Replace…" : "Set…");
-      // An id, because its wording changes when a key is saved.
-      set.id = "key-set-" + encodeURIComponent(k.agent);
-      set.onclick = () => { keyEditing = k.agent; renderKeys(); };
-      actions.append(set);
-      // Only a stored key can be forgotten. A key that came from the
-      // environment is the user's own arrangement and this dialog has no
-      // business unsetting a variable it did not set -- but a stored key that
-      // a variable shadows is still Flockdeck's, and can be cleared.
-      if (k.stored || (k.set && k.source === "store")) {
-        const clear = el("button", "chip danger", "Clear");
-        clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
-        actions.append(clear);
+      // Keys are the desk's to set and clear: see remoteWindow.
+      if (!remoteWindow) {
+        const actions = el("div", "wt-actions");
+        const set = el("button", "chip", k.set ? "Replace…" : "Set…");
+        // An id, because its wording changes when a key is saved.
+        set.id = "key-set-" + encodeURIComponent(k.agent);
+        set.onclick = () => { keyEditing = k.agent; renderKeys(); };
+        actions.append(set);
+        // Only a stored key can be forgotten. A key that came from the
+        // environment is the user's own arrangement and this dialog has no
+        // business unsetting a variable it did not set -- but a stored key that
+        // a variable shadows is still Flockdeck's, and can be cleared.
+        if (k.stored || (k.set && k.source === "store")) {
+          const clear = el("button", "chip danger", "Clear");
+          clear.onclick = () => { keyActed = k.agent; send({ cmd: "keyClear", id: k.agent }); };
+          actions.append(clear);
+        }
+        row.append(actions);
       }
-      row.append(actions);
       wrap.append(row);
 
-      if (keyEditing === k.agent) wrap.append(keyForm(k));
+      if (keyEditing === k.agent && !remoteWindow) wrap.append(keyForm(k));
     });
     body.append(wrap);
+    if (remoteWindow) {
+      body.append(el("div", "fan-hint", "Keys are set and cleared on the machine itself: one typed here " +
+        "would pass through the relay, which can read what passes through it."));
+    }
 
     // Whatever was being typed is what the keyboard should be on, and after a
     // save or a clear the button that did it is gone with the redraw.
@@ -6070,7 +6098,8 @@
       "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
       switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
 
-    const u = state && state.update;
+    // Not offered in a window reached through the relay: see remoteWindow.
+    const u = !remoteWindow && state && state.update;
     let install = null;
     if (u) {
       install = el("button", "chip primary", "Install " + u.version + "…");
