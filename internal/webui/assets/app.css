@@ -446,6 +446,21 @@ textarea:focus-visible {
 }
 .pane[data-status="exited"] .pane-header {
   background: color-mix(in srgb, var(--exited) 18%, var(--bg-raised));
+  color: var(--fg);
+}
+/* The small text in the header was coloured for the plain header, and on these
+ * two grounds it fell short of the 4.5:1 text needs: the dim 11px details came
+ * to 3.72:1 on amber, the blue detail 4.04:1, the red behind count 3.53:1. The
+ * same colours a little lighter reach it on both (waiting / exited): dim
+ * 4.92 / 5.65, blue 4.77 / 5.48, red 4.87 / 5.60, orange 4.87 / 5.60. Amber and
+ * green already did. On the header's children rather than the header, whose
+ * own ground is mixed from --exited. */
+.pane[data-status="waiting"] .pane-header > *,
+.pane[data-status="exited"] .pane-header > * {
+  --fg-dim: #a2aab7;
+  --accent: #67a9ff;
+  --exited: #f68a84;
+  --cast: #de9a5c;
 }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--idle); }
