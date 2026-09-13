@@ -41,6 +41,9 @@ type releases struct {
 	stalled  bool            // the site takes every connection and never answers
 	tampered bool            // the site serves an archive its checksums do not describe
 	forged   string          // a place that serves a tampered archive, and checksums to match it
+	latest   string          // what dl.flockdeck.ai's latest.json names; "" answers with nothing
+	ghLatest string          // what GitHub's "latest release" API names; "" answers with nothing
+	program  []byte          // the program the archives carry; installArchive's plain text if nil
 	asked    []string
 	served   []string // the places an archive was served from
 }
@@ -51,9 +54,17 @@ var archiveName = regexp.MustCompile(`^flockdeck_(v[^_]+)_([a-z]+)_([a-z0-9]+)\.
 // the site and GitHub both have, with the checksums of its archives as they
 // serve them.
 func testRelease() release {
+	return testReleaseWithProgram(nil)
+}
+
+// testReleaseWithProgram is testRelease for a release whose archives carry
+// program instead of installArchive's plain text -- what the tests that run
+// the installed binary's own `update` give it, since those have to be able to
+// execute what the script installs, not merely read its bytes.
+func testReleaseWithProgram(program []byte) release {
 	rel := release{Version: "v9.9.9", Sums: map[string]string{}}
 	for _, name := range archives(rel.Version) {
-		sum := sha256.Sum256(installArchive(name))
+		sum := sha256.Sum256(installArchiveWithProgram(name, program))
 		rel.Sums[name] = hex.EncodeToString(sum[:])
 	}
 	return rel
@@ -70,8 +81,10 @@ func newReleases(t *testing.T) *releases {
 func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.asked = append(r.asked, req.URL.Path)
-	onSite, down, stalled, tampered, forged := r.onSite, r.down, r.stalled, r.tampered, r.forged
+	onSite, down, stalled, tampered, forged, latest, ghLatest, program :=
+		r.onSite, r.down, r.stalled, r.tampered, r.forged, r.latest, r.ghLatest, r.program
 	r.mu.Unlock()
+	archiveOf := func(name string) []byte { return installArchiveWithProgram(name, program) }
 
 	place, rest, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
 	if place == "gh" {
@@ -94,6 +107,28 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 			}()
 		}
 		return
+	// latest.json, the one file dl.flockdeck.ai carries outside a version's
+	// own directory, and its counterpart on GitHub's API: what the scripts
+	// read to decide whether to move the pinned release they just installed
+	// on to something newer. Neither is signed, matching the real ones
+	// (internal/selfupdate/site.go), since nothing here is trusted beyond
+	// deciding whether to ask -- the installed binary's own `update` checks
+	// the release signature. Answering with nothing, the default, is what
+	// every test that does not care about this gets.
+	case place == "dl" && rest == "latest.json":
+		if latest == "" {
+			http.NotFound(w, req)
+			return
+		}
+		fmt.Fprintf(w, `{"version":%q}`, latest)
+		return
+	case place == "ghapi":
+		if rest != "repos/"+defaultRepo[len("https://github.com/"):]+"/releases/latest" || ghLatest == "" {
+			http.NotFound(w, req)
+			return
+		}
+		fmt.Fprintf(w, `{"tag_name":%q}`, ghLatest)
+		return
 	case place != "dl" && place != "gh" && place != "mirror":
 		http.NotFound(w, req)
 		return
@@ -113,7 +148,7 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 			if place == forged {
 				described = evil(name)
 			}
-			sum := sha256.Sum256(installArchive(described))
+			sum := sha256.Sum256(archiveOf(described))
 			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
 		}
 		return
@@ -128,7 +163,7 @@ func (r *releases) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.served = append(r.served, place)
 	r.mu.Unlock()
-	w.Write(installArchive(file))
+	w.Write(archiveOf(file))
 }
 
 // askedOf is every path requested under one place.
@@ -154,12 +189,31 @@ func (r *releases) servedFrom() []string {
 // installArchive is the archive of that name: the same bytes every time,
 // holding a program that names its version.
 func installArchive(name string) []byte {
+	return installArchiveWithProgram(name, nil)
+}
+
+// installArchiveWithProgram is installArchive, except the archive holds
+// program in place of the usual plain text, when program is not nil. The
+// tests that ask the script to run what it just installed need a real
+// executable there; every other test only ever reads the file back.
+func installArchiveWithProgram(name string, program []byte) []byte {
 	var buf bytes.Buffer
-	body := []byte("flockdeck " + archiveName.FindStringSubmatch(name)[1])
+	body := program
+	if body == nil {
+		body = []byte("flockdeck " + archiveName.FindStringSubmatch(name)[1])
+	}
 	if strings.HasSuffix(name, ".zip") {
 		zw := zip.NewWriter(&buf)
 		w, _ := zw.Create("flockdeck.exe")
 		w.Write(body)
+		if program != nil {
+			// Real releases carry the console twin beside the program
+			// (selfupdate.chatName); the tests that run what the script
+			// installs need it there too, to exercise install.ps1 running
+			// `update` through it.
+			w, _ = zw.Create("flockdeck-chat.exe")
+			w.Write(body)
+		}
 		zw.Close()
 		return buf.Bytes()
 	}
@@ -191,12 +245,14 @@ func pointAt(t *testing.T, script string, r *releases, lines map[string]string) 
 // pointAt makes of each.
 var (
 	shAddresses = map[string]string{
-		`DL="https://dl.flockdeck.ai"`: `DL="%s/dl"`,
-		`GITHUB="https://github.com"`:  `GITHUB="%s/gh"`,
+		`DL="https://dl.flockdeck.ai"`:        `DL="%s/dl"`,
+		`GITHUB="https://github.com"`:         `GITHUB="%s/gh"`,
+		`GITHUB_API="https://api.github.com"`: `GITHUB_API="%s/ghapi"`,
 	}
 	ps1Addresses = map[string]string{
-		`$dl = 'https://dl.flockdeck.ai'`: `$dl = '%s/dl'`,
-		`$github = 'https://github.com'`:  `$github = '%s/gh'`,
+		`$dl = 'https://dl.flockdeck.ai'`:       `$dl = '%s/dl'`,
+		`$github = 'https://github.com'`:        `$github = '%s/gh'`,
+		`$githubApi = 'https://api.github.com'`: `$githubApi = '%s/ghapi'`,
 	}
 )
 
@@ -863,5 +919,200 @@ func TestSitegenWantsTheReleaseAndItsChecksums(t *testing.T) {
 		if _, err := parseRelease(c.version, []byte(c.sums)); err == nil {
 			t.Errorf("%s was accepted", c.why)
 		}
+	}
+}
+
+// --- moving the pinned install on to whatever is newest --------------------
+
+// updateStubSource stands in for the release the scripts install, in the
+// tests that exercise their own step of moving it on to something newer:
+// given "update" as its argument it acts as FAKE_UPDATE_MODE says, recording
+// that in the file FAKE_UPDATE_MARKER names, and otherwise prints a line so
+// a test that ran it by mistake is easy to tell from one that read its bytes.
+// It has to be a real, runnable program, unlike installArchive's plain text,
+// because these tests run what the script installs rather than only read it.
+const updateStubSource = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		mode := os.Getenv("FAKE_UPDATE_MODE")
+		if marker := os.Getenv("FAKE_UPDATE_MARKER"); marker != "" {
+			os.WriteFile(marker, []byte(mode), 0o644)
+		}
+		if mode == "fail" {
+			fmt.Fprintln(os.Stderr, "flockdeck update: simulated failure")
+			os.Exit(1)
+		}
+		fmt.Println("flockdeck: updated to vFAKE. It will be in use from the next start.")
+		return
+	}
+	fmt.Println("flockdeck update stub")
+}
+`
+
+// buildUpdateStub compiles updateStubSource for this machine and returns the
+// program's bytes.
+func buildUpdateStub(t *testing.T) []byte {
+	t.Helper()
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go toolchain to build the update stub with")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "stub.go")
+	if err := os.WriteFile(src, []byte(updateStubSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "stub")
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
+	cmd := exec.Command(goBin, "build", "-o", out, src)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build the update stub: %v\n%s", err, b)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// generateForUpdate writes the site for a release whose archives carry
+// program in place of installArchive's usual plain text.
+func generateForUpdate(t *testing.T, program []byte) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := run(dir, defaultRepo, defaultModule, defaultURL, testReleaseWithProgram(program)); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return dir
+}
+
+// updateCase is one scenario for the scripts' own step, once the pinned
+// release above is installed and checked, of asking it to move itself on to
+// whatever is newest.
+type updateCase struct {
+	name     string
+	env      map[string]string
+	latest   string // dl.flockdeck.ai's latest.json names; "" leaves it unanswered
+	ghLatest string // GitHub's "latest release" API names; asked only once dl's is not
+	down     bool   // dl.flockdeck.ai (the whole site) is unreachable
+	mode     string // FAKE_UPDATE_MODE the installed stub's `update` acts on; "" if it must not run
+	says     string // a substring the combined output must contain
+}
+
+func updateCases() []updateCase {
+	return []updateCase{
+		{name: "a newer release named by the site", latest: "v9.9.10", mode: "ok",
+			says: "updated to vFAKE"},
+		{name: "the same release named by the site", latest: "v9.9.9"},
+		{name: "an older release named by the site", latest: "v9.9.8"},
+		{name: "nothing named anywhere"},
+		{name: "a release chosen by hand", env: map[string]string{"FLOCKDECK_VERSION": "v9.9.9"}, latest: "v9.9.10"},
+		{name: "a newer release the site is down for, named by GitHub's API instead",
+			down: true, ghLatest: "v9.9.10", mode: "ok", says: "updated to vFAKE"},
+		{name: "the update itself fails", latest: "v9.9.10", mode: "fail",
+			says: "installed at v9.9.9 and will offer the update when it runs"},
+	}
+}
+
+// check is what an updateCase asks of one run: the freshly installed
+// binary's `update` ran, or did not, exactly as c says, recorded in marker
+// rather than read from out, since a script that ran it through a program
+// with no console of its own (install.ps1, with no flockdeck-chat.exe to
+// prefer) may have nothing of its output to show.
+func (c updateCase) check(t *testing.T, marker string, out []byte) {
+	t.Helper()
+	mode, readErr := os.ReadFile(marker)
+	switch ran := readErr == nil; {
+	case c.mode == "" && ran:
+		t.Errorf("`update` ran (recorded mode %q) when it should not have\n%s", mode, out)
+	case c.mode != "" && (!ran || string(mode) != c.mode):
+		t.Errorf("`update` did not run as wanted (marker %q, %v)\n%s", mode, readErr, out)
+	}
+	if c.says != "" && !strings.Contains(string(out), c.says) {
+		t.Errorf("the script said %q; want %q in it", out, c.says)
+	}
+}
+
+// install.sh, once the pinned release above is installed and checked, asks
+// it to move itself on to whatever dl.flockdeck.ai's latest.json (or
+// GitHub's own idea of the latest release, once that cannot be read) names
+// as newer -- unless FLOCKDECK_VERSION or FLOCKDECK_DOWNLOAD said to stay
+// put. `flockdeck update` checks the release signature itself, so nothing
+// more is checked here. A failure there is not a failure to install: the
+// script still exits 0, with the pinned release in place.
+func TestInstallShMovesToTheLatestRelease(t *testing.T) {
+	sh := installShRunner(t)
+	stub := buildUpdateStub(t)
+	dir := generateForUpdate(t, stub)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range updateCases() {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			r.latest, r.ghLatest, r.down, r.program = c.latest, c.ghLatest, c.down, stub
+			script := pointAt(t, string(shipped), r, shAddresses)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.sh")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, "bin")
+			marker := filepath.Join(home, "marker")
+			cmd := exec.Command(sh, path)
+			cmd.Env = append(installEnv(r, c.env), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin,
+				"FAKE_UPDATE_MODE="+c.mode, "FAKE_UPDATE_MARKER="+marker)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install exited %v; it should exit 0 even when the update step fails\n%s", err, out)
+			}
+			c.check(t, marker, out)
+		})
+	}
+}
+
+// install.ps1 does the same, asking through flockdeck-chat.exe, which has a
+// console to draw `update`'s progress on where flockdeck.exe has none (see
+// cli.md's `chat` section).
+func TestInstallPs1MovesToTheLatestRelease(t *testing.T) {
+	ps := installPs1Runner(t)
+	stub := buildUpdateStub(t)
+	dir := generateForUpdate(t, stub)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range updateCases() {
+		t.Run(c.name, func(t *testing.T) {
+			r := newReleases(t)
+			r.latest, r.ghLatest, r.down, r.program = c.latest, c.ghLatest, c.down, stub
+			script := pointAt(t, string(shipped), r, ps1Addresses)
+			home := t.TempDir()
+			path := filepath.Join(home, "install.ps1")
+			if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(home, "bin")
+			marker := filepath.Join(home, "marker")
+			cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
+			cmd.Env = append(installEnv(r, c.env), "FLOCKDECK_INSTALL_DIR="+bin, "FLOCKDECK_NO_MODIFY_PATH=1",
+				"FAKE_UPDATE_MODE="+c.mode, "FAKE_UPDATE_MARKER="+marker)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install exited %v; it should exit 0 even when the update step fails\n%s", err, out)
+			}
+			c.check(t, marker, out)
+		})
 	}
 }

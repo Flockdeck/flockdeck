@@ -102,16 +102,26 @@ puts it in a directory you own — `~/.local/bin`, or
 neither installing nor updating ever asks for admin rights. The scripts are in
 `cmd/sitegen/assets`, beside the page that serves them.
 
+With that pinned release installed, if the site has moved on since — the site
+is only regenerated on a release, but the script you fetched today can be
+older than that — it asks the binary it just installed to update itself with
+`flockdeck update`, so you land on the latest release even from a page
+sitting behind a CDN's cache. That update is checked by the release
+signature, the same way every update after it is; the script itself checks
+nothing but the pinned archive above.
+
 Both read a few settings from the environment:
 
-- `FLOCKDECK_VERSION` — another release, such as `v0.2.8`. The script carries
+- `FLOCKDECK_VERSION` — another release, such as `v0.2.8`, which is left
+  exactly as installed rather than moved to the latest. The script carries
   checksums for its own release only, so any other is checked against the
-  `checksums.txt` downloaded beside it. To stay on it, also set
-  `FLOCKDECK_UPDATE=off` where Flockdeck runs, or it updates itself.
+  `checksums.txt` downloaded beside it. To also keep Flockdeck itself from
+  updating once it runs, set `FLOCKDECK_UPDATE=off` where it runs.
 - `FLOCKDECK_INSTALL_DIR` — another directory to install into.
 - `FLOCKDECK_DOWNLOAD` — a mirror to fetch the release files from instead,
   laid out as `<mirror>/<version>/<file>`. It is the only place asked, with no
-  falling back to GitHub. It is asked for the script's own release unless
+  falling back to GitHub, and it also skips moving to the latest, which a
+  mirror may not carry. It is asked for the script's own release unless
   `FLOCKDECK_VERSION` names another, and for that release's `checksums.txt`
   too when it does.
 - `FLOCKDECK_NO_MODIFY_PATH=1` — Windows only: leave `PATH` and the Start menu
@@ -169,6 +179,11 @@ workflow vets, tests, cross-builds all six, publishes them on GitHub, signs
 them and uploads them to `dl.flockdeck.ai` (`scripts/publish-downloads.sh`). A
 tag with a suffix, `v1.2.3-rc.1`, is a pre-release: it is published under its
 version and never becomes the latest.
+
+The install scripts above use the same `latest.json` to decide, once their
+own pinned release is in and checked, whether to run `flockdeck update`
+right away and land you on the latest release instead — unless
+`FLOCKDECK_VERSION` or `FLOCKDECK_DOWNLOAD` said to stay put.
 
 A running Flockdeck watches for releases and downloads anything newer in the
 background. It asks `dl.flockdeck.ai` first, and trusts only what carries the

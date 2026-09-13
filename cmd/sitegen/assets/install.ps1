@@ -11,17 +11,32 @@
 # need elevation to do it. The directory is added to the user's PATH, and the
 # Start menu gets a shortcut.
 #
+# With that pinned release checked and installed, if a newer one has been
+# published since this script's own site was generated -- dl.flockdeck.ai's
+# latest.json, or GitHub's idea of the latest release when that cannot be
+# read, says so -- the script asks the binary it just installed to move onto
+# it with its own `flockdeck update`. That is not a second way of checking a
+# download: the updater verifies the release signature against the keys
+# built into the binary (internal/selfupdate), so a fresh install ends on the
+# latest release checked exactly as every update after it is, with no crypto
+# of its own here. A failure there leaves the pinned release installed and
+# working; Flockdeck offers the update again once it runs.
+#
 # Settings, all optional, read from the environment:
 #
 #   FLOCKDECK_VERSION         a release tag such as v0.2.8; by default the
-#                             release named in $release below. Any other release
-#                             is checked only against the checksums.txt
-#                             downloaded beside it. To stay on it, also set
-#                             FLOCKDECK_UPDATE=off for your user, or Flockdeck
-#                             updates itself to the latest.
+#                             release named in $release below, which is moved
+#                             to the latest as above. Any other release is
+#                             checked only against the checksums.txt
+#                             downloaded beside it, and is left exactly as
+#                             installed: set this to stay off the latest.
+#                             FLOCKDECK_UPDATE=off for your user also keeps it
+#                             from updating itself later.
 #   FLOCKDECK_INSTALL_DIR     where flockdeck.exe goes
 #   FLOCKDECK_DOWNLOAD        a mirror to fetch the release files from instead,
-#                             laid out as <mirror>/<version>/<file>
+#                             laid out as <mirror>/<version>/<file>. Also
+#                             skips moving to the latest, which a mirror may
+#                             not carry.
 #   FLOCKDECK_NO_MODIFY_PATH  set to 1 to leave PATH and the Start menu alone
 #
 # The archive names below are the ones cmd/release writes, and the updater in
@@ -43,6 +58,23 @@ function Install-Flockdeck {
     # point these at servers of their own.
     $dl = 'https://dl.flockdeck.ai'
     $github = 'https://github.com'
+    $githubApi = 'https://api.github.com'
+
+    # Test-ReleaseNewer reports whether $a names a later release than $b,
+    # going by major, minor and patch alone: the only parts of a release tag
+    # this needs to be sure of, since what the update step below reads never
+    # names a pre-release -- cmd/release only ever writes latest.json for a
+    # plain release, and GitHub never gives a pre-release as the latest
+    # either.
+    function Test-ReleaseNewer($a, $b) {
+        $pa = @($a.TrimStart('v') -split '\.') + @('0', '0', '0')
+        $pb = @($b.TrimStart('v') -split '\.') + @('0', '0', '0')
+        for ($i = 0; $i -lt 3; $i++) {
+            $na = [int]$pa[$i]; $nb = [int]$pb[$i]
+            if ($na -ne $nb) { return $na -gt $nb }
+        }
+        return $false
+    }
 
     # The release this script was published with, and the SHA-256 of each of
     # its archives: cmd/sitegen writes both in from that release's
@@ -184,6 +216,38 @@ function Install-Flockdeck {
     if ($env:FLOCKDECK_VERSION) {
         Write-Host "flockdeck: to stay on $version, set FLOCKDECK_UPDATE=off for your user; otherwise Flockdeck updates itself to the latest"
     }
+
+    # With the pinned release above installed and checked, move it to
+    # whatever is newest: `flockdeck update` verifies the release signature
+    # itself (internal/selfupdate), so nothing more is checked here. Skipped
+    # for a release chosen by hand, which asked to stay put, and for a
+    # mirror, which may carry nothing past what it was given.
+    if (-not $env:FLOCKDECK_VERSION -and -not $env:FLOCKDECK_DOWNLOAD) {
+        $latestVersion = $null
+        try {
+            $body = (Invoke-WebRequest -UseBasicParsing "$dl/latest.json").Content
+            if ($body -match '"version"\s*:\s*"([^"]+)"') { $latestVersion = $Matches[1] }
+        } catch { }
+        if (-not $latestVersion) {
+            try {
+                $body = (Invoke-WebRequest -UseBasicParsing "$githubApi/repos/$repo/releases/latest").Content
+                if ($body -match '"tag_name"\s*:\s*"([^"]+)"') { $latestVersion = $Matches[1] }
+            } catch { }
+        }
+        if ($latestVersion -and (Test-ReleaseNewer $latestVersion $version)) {
+            # flockdeck.exe has no console to draw `update`'s progress on
+            # (see cli.md's `chat` section); its twin does, and Apply
+            # resolves the program to replace from it, exactly as it does
+            # for `flockdeck-chat chat`.
+            $updater = Join-Path $dir 'flockdeck-chat.exe'
+            if (-not (Test-Path $updater)) { $updater = $dest }
+            & $updater update
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "flockdeck: could not move to $latestVersion automatically; flockdeck is installed at $version and will offer the update when it runs"
+            }
+        }
+    }
+
     # Starting it again while an older copy runs joins that copy instead.
     Write-Host 'flockdeck: if Flockdeck is already running, quit it before starting this version'
 

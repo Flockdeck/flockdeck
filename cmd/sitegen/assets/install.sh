@@ -10,16 +10,30 @@
 # later: the application updates itself in place, and it should never need a
 # password to do it.
 #
+# With that pinned release checked and installed, if a newer one has been
+# published since this script's own site was generated -- dl.flockdeck.ai's
+# latest.json, or GitHub's idea of the latest release when that cannot be
+# read, says so -- the script asks the binary it just installed to move onto
+# it with its own `flockdeck update`. That is not a second way of checking a
+# download: the updater verifies the release signature against the keys
+# built into the binary (internal/selfupdate), so a fresh install ends on the
+# latest release checked exactly as every update after it is, with no crypto
+# of its own here. A failure there leaves the pinned release installed and
+# working; Flockdeck offers the update again once it runs.
+#
 # Settings, all optional, read from the environment:
 #
 #   FLOCKDECK_VERSION      a release tag such as v0.2.8; by default the release
-#                          named in RELEASE below. Any other release is checked
-#                          only against the checksums.txt downloaded beside it.
-#                          To stay on it, also set FLOCKDECK_UPDATE=off where
-#                          Flockdeck runs, or it updates itself to the latest.
+#                          named in RELEASE below, which is moved to the latest
+#                          as above. Any other release is checked only against
+#                          the checksums.txt downloaded beside it, and is left
+#                          exactly as installed: set this to stay off the
+#                          latest. FLOCKDECK_UPDATE=off where Flockdeck runs
+#                          also keeps it from updating itself later.
 #   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
 #   FLOCKDECK_DOWNLOAD     a mirror to fetch the release files from instead,
-#                          laid out as <mirror>/<version>/<file>
+#                          laid out as <mirror>/<version>/<file>. Also skips
+#                          moving to the latest, which a mirror may not carry.
 #
 # The archive names below are the ones cmd/release writes, and the updater in
 # internal/selfupdate reads. The three have to agree.
@@ -35,6 +49,7 @@ REPO="jmwri/flockdeck"
 # point these at servers of their own.
 DL="https://dl.flockdeck.ai"
 GITHUB="https://github.com"
+GITHUB_API="https://api.github.com"
 
 # The release this script was published with, and the SHA-256 of each of its
 # archives: cmd/sitegen writes both in from that release's checksums.txt when
@@ -114,6 +129,51 @@ sha256() {
 	else
 		die "checking the download needs sha256sum or shasum, and it is not installed unchecked"
 	fi
+}
+
+# fetch_body downloads a URL and prints it, or fails quietly. Nothing it
+# returns is trusted the way the archive above is: it only decides whether
+# main bothers asking the freshly installed binary to update itself, and that
+# binary checks the release signature itself, so a forged or missing answer
+# here can only make it check unnecessarily or skip a check it could have
+# made -- never install anything unverified.
+fetch_body() {
+	probe="$tmp/probe"
+	fetch "$1" "$probe" 2>/dev/null || return 1
+	cat "$probe"
+	rm -f "$probe"
+}
+
+# latest_release prints the newest published release's tag: from
+# dl.flockdeck.ai's latest.json first, and from GitHub's own idea of the
+# latest release when that cannot be read, the same order and the same
+# fallback main already uses for the archive itself. It prints nothing, and
+# fails, when neither can be read.
+latest_release() {
+	body=$(fetch_body "$DL/latest.json") &&
+		tag=$(printf '%s' "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') &&
+		[ -n "$tag" ] && { printf '%s\n' "$tag"; return 0; }
+	body=$(fetch_body "$GITHUB_API/repos/$REPO/releases/latest") &&
+		tag=$(printf '%s' "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') &&
+		[ -n "$tag" ] && { printf '%s\n' "$tag"; return 0; }
+	return 1
+}
+
+# release_gt reports whether $1 names a later release than $2, going by
+# major, minor and patch alone: the only parts of a release tag this needs to
+# be sure of, since latest_release never names a pre-release -- cmd/release
+# only ever writes latest.json for a plain release, and GitHub never gives a
+# pre-release as the latest either.
+release_gt() {
+	a=${1#v}
+	b=${2#v}
+	set -- $(printf '%s' "$a" | tr '.' ' ')
+	a1=${1:-0} a2=${2:-0} a3=${3:-0}
+	set -- $(printf '%s' "$b" | tr '.' ' ')
+	b1=${1:-0} b2=${2:-0} b3=${3:-0}
+	if [ "$a1" -ne "$b1" ] 2>/dev/null; then [ "$a1" -gt "$b1" ] 2>/dev/null; return; fi
+	if [ "$a2" -ne "$b2" ] 2>/dev/null; then [ "$a2" -gt "$b2" ] 2>/dev/null; return; fi
+	[ "$a3" -gt "$b3" ] 2>/dev/null
 }
 
 detect_os() {
@@ -234,6 +294,20 @@ main() {
 	say "installed $version to $dir/flockdeck"
 	if [ -n "${FLOCKDECK_VERSION:-}" ]; then
 		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
+	fi
+
+	# With the pinned release above installed and checked, move it to
+	# whatever is newest: `flockdeck update` verifies the release signature
+	# itself (internal/selfupdate), so nothing more is checked here. Skipped
+	# for a release chosen by hand, which asked to stay put, and for a
+	# mirror, which may carry nothing past what it was given.
+	if [ -z "${FLOCKDECK_VERSION:-}" ] && [ -z "${FLOCKDECK_DOWNLOAD:-}" ]; then
+		latest=$(latest_release) || latest=
+		if [ -n "$latest" ] && release_gt "$latest" "$version"; then
+			if ! "$dir/flockdeck" update; then
+				say "could not move to $latest automatically; flockdeck is installed at $version and will offer the update when it runs"
+			fi
+		fi
 	fi
 
 	# A copy found first on PATH -- a go install, say -- is the one that runs,
