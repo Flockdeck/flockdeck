@@ -13,6 +13,17 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 )
 
+// cannotRun skips a test that needs a real shell where none can run or echo --
+// on a developer's machine. CI is where these tests are meant to run, and a
+// skip there passes every one of them unrun, so there it fails instead.
+func cannotRun(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf(format+" (and CI is set, where these tests are meant to run)", args...)
+	}
+	t.Skipf(format, args...)
+}
+
 // startShell starts a shell session for testing, skipping if none can run.
 func startShell(t *testing.T) *Session {
 	t.Helper()
@@ -26,7 +37,7 @@ func startShell(t *testing.T) *Session {
 		Rows: 24,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
@@ -90,7 +101,7 @@ func TestAClosedPaneLetsGoOfItsFolder(t *testing.T) {
 		}
 		s, err := Start(Config{ID: "folder", Kind: KindShell, Cwd: dir, Argv: ShellArgs(), Env: Env(), Cols: 80, Rows: 24})
 		if err != nil {
-			t.Skipf("cannot start a shell in this environment: %v", err)
+			cannotRun(t, "cannot start a shell in this environment: %v", err)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close: %v", err)
@@ -126,7 +137,7 @@ func TestOnChangeIsInstalledBeforeTheReaderStarts(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -147,7 +158,7 @@ func TestSubscribeReplaysHistory(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	if _, ok := collect(t, out, replay, "replay_marker_ok", 20*time.Second); !ok {
-		t.Skip("shell did not echo in time; nothing to replay")
+		cannotRun(t, "shell did not echo in time; nothing to replay")
 	}
 	s.Unsubscribe(first)
 
@@ -614,7 +625,7 @@ func TestStartClampsItsInitialSize(t *testing.T) {
 		Rows: 1 << 20,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
@@ -1365,7 +1376,7 @@ func TestARealPaneReportsBusyThenIdle(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	if _, ok := collect(t, out, replay, "busy_marker_ok", 30*time.Second); !ok {
-		t.Skip("shell did not echo in time")
+		cannotRun(t, "shell did not echo in time")
 	}
 
 	waitForStatus(t, s, StatusWorking, 10*time.Second)
@@ -1612,7 +1623,7 @@ func TestStartTakesWhatItNeedsOffTheSpec(t *testing.T) {
 		Rows: 24,
 	})
 	if err != nil {
-		t.Skipf("cannot start a shell in this environment: %v", err)
+		cannotRun(t, "cannot start a shell in this environment: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
