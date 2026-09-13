@@ -115,7 +115,7 @@ func (s *Server) listChanges(c *controlClient, path string) {
 // another listing since the request numbered asked.
 func (s *Server) sendChanges(c *controlClient, dir string, asked uint64) {
 	go func() {
-		defer s.survive("reading what changed")
+		defer s.surviveFor(c, "reading what changed")
 		msg := readChanges(dir)
 		if !changeListings.answer(c, asked) {
 			return
@@ -214,7 +214,7 @@ func noRepoReason(dir string) string {
 func (s *Server) showDiff(c *controlClient, path, file string) {
 	dir := s.reviewDir(path)
 	go func() {
-		defer s.survive("showing a diff")
+		defer s.surviveFor(c, "showing a diff")
 		dir = repoRoot(dir)
 		msg := diffMsg{Type: "diff", Cwd: dir, File: file}
 		text, err := gitx.Diff(dir, file)
@@ -247,15 +247,26 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 	// so a review opened while it ran is not drawn over when it finishes.
 	asked := changeListings.asked(c)
 	go func() {
-		defer s.survive("committing")
+		defer s.surviveFor(c, "committing")
+		// The panel's buttons wait, disabled, until the tree is sent again,
+		// so it is sent whatever becomes of the commit. One that panicked
+		// sent nothing, and they went on saying "Committing…" until the panel
+		// was closed.
+		answered := false
+		defer func() {
+			if !answered {
+				s.sendChanges(c, dir, asked)
+			}
+		}()
 		dir = repoRoot(dir)
 		commit := func() error { return gitx.CommitAll(dir, message) }
 		if listed != nil {
-			commit = func() error { return gitx.CommitReviewed(dir, message, listed, unlisted) }
+			commit = func() error { return commitReviewed(dir, message, listed, unlisted) }
 		}
 		if err := commit(); err != nil {
 			c.notify(err.Error(), true)
 			s.sendChanges(c, dir, asked)
+			answered = true
 			return
 		}
 		c.notify("committed in "+shortName(dir), false)
@@ -267,6 +278,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			}
 		}
 		s.sendChanges(c, dir, asked)
+		answered = true
 		// The pane headers show the same counts, so refresh them too. Asking
 		// the git loop rather than sweeping here keeps one sweep running at a
 		// time: each one shells out to git for every open checkout, and a
@@ -276,12 +288,16 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 	}()
 }
 
+// commitReviewed is gitx.CommitReviewed. It is a variable so a test can have a
+// commit go wrong in a way git itself never does.
+var commitReviewed = gitx.CommitReviewed
+
 // runRemote performs a push, pull or fetch and reports the result.
 func (s *Server) runRemote(c *controlClient, action, path string) {
 	dir := s.reviewDir(path)
 	asked := changeListings.asked(c) // as a commit's: see commitChanges
 	go func() {
-		defer s.survive("talking to the remote")
+		defer s.surviveFor(c, "talking to the remote")
 		var (
 			out string
 			err error

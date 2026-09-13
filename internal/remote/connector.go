@@ -74,9 +74,14 @@ var (
 	keepAliveTimeout = 45 * time.Second
 )
 
-// smuxConfig is the multiplexer's configuration, which has to agree with the
-// relay's: the version must match, and the buffers are what keep one busy
-// terminal from starving every other stream on the tunnel.
+// smuxConfig is the multiplexer's configuration. The version has to match the
+// relay's; the buffers need not, since each end's are about what it is sent.
+// A stream's sender keeps within the window its receiver announces, which is
+// the receiver's MaxStreamBuffer, so these bound what the relay may send a
+// stream here before it is read -- what browsers type, which is little. What
+// keeps one busy terminal from starving the other streams is the relay's own
+// per-stream buffer, a quarter of a megabyte against four for the tunnel,
+// since terminal output goes the other way.
 func smuxConfig() *smux.Config {
 	cfg := smux.DefaultConfig()
 	cfg.Version = 2
@@ -357,12 +362,11 @@ func (c *Connector) session(ctx context.Context) error {
 		conn.CloseNow()
 		return fmt.Errorf("start the tunnel: %w", err)
 	}
-	c.set(StateConnected, "", time.Time{})
-
 	served := make(chan error, 1)
 	go func() { served <- c.serve(listener{sess}) }()
+	c.set(StateConnected, "", time.Time{})
 
-	serving, silent := true, false
+	serving, silent, failed := true, false, false
 	var serveErr error
 	select {
 	case <-ctx.Done():
@@ -388,8 +392,21 @@ func (c *Connector) session(ctx context.Context) error {
 	// the keepalive gives up most of a minute later. The failure itself is
 	// the news, so it is watched for directly.
 	case <-rec.failed:
+		failed = true
 	case serveErr = <-served:
 		serving = false
+		// serve's Accept fails the moment the tunnel does, so serve ends on
+		// the tunnel's failure as well as on its own, and when both have
+		// happened by the time this looks, which of them it takes is chance.
+		// Taken for this Flockdeck stopping, a relay that had revoked this
+		// machine went on being dialled. So the tunnel is looked at once more
+		// before serve is blamed.
+		select {
+		case <-rec.failed:
+			failed = true
+		default:
+			silent = sess.IsClosed()
+		}
 	}
 	_ = sess.Close()
 	conn.CloseNow()
@@ -407,12 +424,10 @@ func (c *Connector) session(ctx context.Context) error {
 	if silent {
 		return errSilent
 	}
-	if !serving {
-		// serve ends only once the session has, and a session that ended is
-		// seen above before serve can say so. So serve stopped of its own
-		// accord, with the tunnel still open: this Flockdeck is shutting down,
-		// or its server failed. The relay did nothing, and saying it did would
-		// send somebody to look at the relay.
+	if !serving && !failed {
+		// serve stopped of its own accord, with the tunnel still open: this
+		// Flockdeck is shutting down, or its server failed. The relay did
+		// nothing, and saying it did would send somebody to look at the relay.
 		if serveErr != nil {
 			return fmt.Errorf("this Flockdeck stopped answering remote windows: %w", serveErr)
 		}

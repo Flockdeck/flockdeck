@@ -1893,10 +1893,21 @@ func (w *Workspace) BroadcastTargets() []*Pane {
 	if t == nil {
 		return nil
 	}
+	return w.BroadcastTargetsFor(t.Focus)
+}
+
+// BroadcastTargetsFor is BroadcastTargets with the pane named standing where
+// the focused one does. The prompt bar sends to the pane it was opened on,
+// which focus may have left while it was being written in.
+func (w *Workspace) BroadcastTargetsFor(focus string) []*Pane {
+	t := w.CurrentTab()
+	if t == nil {
+		return nil
+	}
 	var out []*Pane
 	seen := map[string]bool{}
 	for _, id := range t.Tree.Panes() {
-		if !w.InBroadcast(id) && id != t.Focus {
+		if !w.InBroadcast(id) && id != focus {
 			continue
 		}
 		if seen[id] {
@@ -1924,7 +1935,17 @@ func (w *Workspace) BroadcastTargets() []*Pane {
 // further messages. Where the program has not asked for bracketed paste the
 // markers would reach it as text, so it is typed as before.
 func (w *Workspace) SendPrompt(text string, submit bool) {
-	for _, p := range w.BroadcastTargets() {
+	w.sendPrompt(w.BroadcastTargets(), text, submit)
+}
+
+// SendPromptTo is SendPrompt with the pane named standing where the focused
+// one does; see BroadcastTargetsFor.
+func (w *Workspace) SendPromptTo(focus, text string, submit bool) {
+	w.sendPrompt(w.BroadcastTargetsFor(focus), text, submit)
+}
+
+func (w *Workspace) sendPrompt(targets []*Pane, text string, submit bool) {
+	for _, p := range targets {
 		go func(s *session.Session) {
 			typed, pasted := promptInput(text, s.BracketedPaste())
 			if err := s.WriteString(typed); err == nil && submit {

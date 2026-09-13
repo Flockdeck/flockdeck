@@ -101,10 +101,17 @@ func (s *Server) Stopped() <-chan struct{} { return s.loopDone }
 // away because one command from the window reached a pane or a tab that had
 // gone. The agents are the valuable thing here and they are not what failed,
 // so the panic is reported and the interface carries on. The stack goes to
-// the console, where a crash would have put it, and the window is told, since
-// the person watching is otherwise left with a click that did nothing.
+// the console, where a crash would have put it, and to error.log, and the
+// windows are told, since the person watching is otherwise left with a click
+// that did nothing.
 func (s *Server) guard(doing string, fn func()) {
 	defer s.survive(doing)
+	fn()
+}
+
+// guardFor is guard for a command from one window, which alone is told.
+func (s *Server) guardFor(c *controlClient, doing string, fn func()) {
+	defer s.surviveFor(c, doing)
 	fn()
 }
 
@@ -114,13 +121,60 @@ func (s *Server) guard(doing string, fn func()) {
 // output and files other programs write -- and a panic on a goroutine nothing
 // recovers takes every agent in every project down with it, over one reply to
 // one window.
+//
+// It is for work no one window asked for, and every window is told. Work done
+// for one window defers surviveFor instead.
 func (s *Server) survive(doing string) {
-	r := recover()
-	if r == nil {
+	if r := recover(); r != nil {
+		s.reportPanic(nil, doing, r)
+	}
+}
+
+// surviveFor is survive for work done for one window, which alone is told
+// what went wrong. Every window used to be: the others had asked for nothing,
+// a phone reached through the relay was shown an error for a click made at
+// the desk, and a window waiting on an answer of its own -- the Changes
+// panel's commit, say -- took the notice for that answer.
+func (s *Server) surviveFor(c *controlClient, doing string) {
+	if r := recover(); r != nil {
+		s.reportPanic(c, doing, r)
+	}
+}
+
+// reportPanic says that a panic was recovered: its stack to the console and to
+// error.log, and what was being done to the window that asked, or to every
+// window when none did. The stack went only to the console, which a Flockdeck
+// started from a shortcut does not have, and was lost.
+func (s *Server) reportPanic(c *controlClient, doing string, r any) {
+	stack := debug.Stack()
+	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, stack)
+	text := fmt.Sprintf("something went wrong %s: %v", doing, r)
+	if logPanic(doing, r, stack) {
+		text += " — the details are in error.log in flockdeck's state directory"
+	}
+	if c != nil {
+		c.notify(text, true)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, debug.Stack())
-	s.notifyAll(fmt.Sprintf("something went wrong %s: %v", doing, r), true)
+	s.notifyAll(text, true)
+}
+
+// logPanic appends a recovered panic and its stack to error.log in the state
+// directory, where a failed start is written too, and reports whether it did.
+func logPanic(doing string, r any, stack []byte) bool {
+	dir, err := store.Dir()
+	if err != nil {
+		return false
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "error.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return false
+	}
+	_, err = fmt.Fprintf(f, "%s panic %s: %v\n%s\n", time.Now().Format(time.RFC3339), doing, r, stack)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err == nil
 }
 
 // notifyAll sends a one-off message to every connected window.
@@ -750,6 +804,13 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	go c.writeLoop(ctx)
+	// Pinged as a terminal socket is (see keepalive). A window that went away
+	// without closing -- a laptop shut, a phone gone out of signal while the
+	// relay holds its end -- is otherwise found out only when a write to it
+	// times out, and with the agents quiet nothing is written: it went on
+	// being counted, among the windows through the relay the desk is shown,
+	// for as long as the instance ran.
+	go keepalive(ctx, cancel, conn, s.pingInterval, s.pingTimeout)
 
 	// The key table and the preferences come first: the palette and the
 	// first-run hints are drawn from them, and both are wanted before the
@@ -819,7 +880,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
-		s.guard("handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
+		s.guardFor(c, "handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}
 }
 
@@ -1035,6 +1096,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.setScrollback(c, cmd.Size)
 		return
 	case "updates":
+		// Whether releases are fetched and staged is the desk's to say, as
+		// restarting onto one is: a switch flipped on a phone changed what
+		// the machine downloads and puts in place. The window has already
+		// moved its switch, so it is sent the preferences as they stand,
+		// which moves it back.
+		if c.remote {
+			c.notify("whether flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
+			return
+		}
 		s.setUpdates(c, cmd.Kind == "off")
 		return
 	case "resetTips":
@@ -1070,6 +1141,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	}
 
 	s.do(func() {
+		// Recovered here rather than by the workspace goroutine's own guard,
+		// so that it is this window that is told.
+		defer s.surviveFor(c, "handling "+cmdName(cmd.Cmd))
 		ws := s.ws
 		switch cmd.Cmd {
 		case "newTab":
@@ -1228,14 +1302,32 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// The bar names the pane it was opened on, and the prompt goes
+			// there. Focus can move while it is open -- the desk clicking
+			// another pane, a fan-out revealing its first agent, a pane picked
+			// from the agents list -- and the prompt went to whichever pane had
+			// it by the time it was sent. A pane no longer in the tab on screen
+			// is not guessed at. A window that names none still sends to the
+			// focused pane.
+			focus := ""
+			if t := ws.CurrentTab(); t != nil {
+				focus = t.Focus
+				if cmd.ID != "" {
+					if t.Tree.Find(cmd.ID) == nil {
+						c.notify("the pane that prompt was written for is no longer in the tab on screen, so it was not sent — ↑ in the prompt bar brings it back", true)
+						return
+					}
+					focus = cmd.ID
+				}
+			}
 			// Only a pane with a process running takes the text. With the
 			// focused one stopped and nothing else in the broadcast it went
 			// nowhere, while the prompt bar closed as though it had been sent.
-			if len(ws.BroadcastTargets()) == 0 {
+			if len(ws.BroadcastTargetsFor(focus)) == 0 {
 				c.notify("nothing in this tab is running to send that to — restart the pane and send it again", true)
 				return
 			}
-			ws.SendPrompt(cmd.Text, true)
+			ws.SendPromptTo(focus, cmd.Text, true)
 		case "save":
 			_ = ws.SaveAll()
 		case "detach":

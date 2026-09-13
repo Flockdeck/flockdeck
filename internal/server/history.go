@@ -114,7 +114,7 @@ func (s *Server) listConversations(c *controlClient, cwd string) {
 	}
 
 	go func() {
-		defer s.survive("listing conversations")
+		defer s.surviveFor(c, "listing conversations")
 		// A listing that panics before it answers is forgotten on the way out,
 		// or its window is tracked for as long as the server runs. Only then:
 		// answering forgets the window, whose next request is numbered from

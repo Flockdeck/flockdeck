@@ -647,19 +647,88 @@ func TestDescribeExpiry(t *testing.T) {
 	}
 }
 
-// A relay that takes new accounts only with an invitation says it needs an
-// invite code; enable says which flag takes one.
-func TestRemoteEnableNamesTheInviteFlag(t *testing.T) {
-	isolateKeys(t)
+// relayRefusing is a relay that refuses to enrol anything, with status and in
+// the words given.
+func relayRefusing(t *testing.T, status int, words string) string {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = io.WriteString(w, `{"error":"this relay needs an invite code to register"}`)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": words})
 	}))
-	defer srv.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk")
-	if err == nil || !strings.HasSuffix(err.Error(), "pass it with -invite CODE") {
-		t.Errorf("enable on a relay that needs an invite = %v, want it to name -invite", err)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// The relay's refusals to enrol a machine, in its own words -- which name the
+// flag or command that does what they ask -- reach the command line with that
+// advice said once. Enable added its own after them, the same thing again in
+// other words, and read as two things to do; the invitation's case matched an
+// older relay's words and never came into play at all.
+func TestRemoteEnableGivesTheRelaysAdviceOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		words  string
+		args   []string
+		once   string
+	}{
+		{"an invitation is needed", http.StatusForbidden,
+			"this relay needs an invite to create an account: ask whoever runs it for one and pass it with -invite, or join an account you already have with -join",
+			[]string{"-name", "desk"}, "-invite"},
+		{"the relay takes no new accounts", http.StatusForbidden,
+			"this relay is not accepting new accounts; to add this machine to an account you already have, pass -join with a code from `flockdeck remote pair -desktop` on one of its machines",
+			[]string{"-name", "desk"}, "remote pair -desktop"},
+		{"the invitation is spent", http.StatusForbidden,
+			"that invite code is not valid, or has already been used; ask whoever runs the relay for another",
+			[]string{"-name", "desk", "-invite", "fdi_code"}, "whoever runs the relay"},
+		{"the join code is spent", http.StatusBadRequest,
+			"that join code is not valid, or has expired or already been used; make a new one with `flockdeck remote pair -desktop` on a machine already enrolled",
+			[]string{"-join", "fdp_code"}, "remote pair -desktop"},
+		{"the account is full", http.StatusConflict,
+			"this account already has as many desktops as it may; remove one first, from a paired browser or with `flockdeck remote disable` on it",
+			[]string{"-join", "fdp_code"}, "remote disable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateKeys(t)
+			relay := relayRefusing(t, tc.status, tc.words)
+			_, _, err := runRemoteCmd(t, append([]string{"enable", "-relay", relay}, tc.args...)...)
+			if err == nil || !strings.HasSuffix(err.Error(), tc.words) || strings.Count(err.Error(), tc.once) != 1 {
+				t.Errorf("enable refused in the relay's words = %v, want them to end it, with %q said once", err, tc.once)
+			}
+		})
+	}
+}
+
+// A relay whose refusal does not say what to do -- one from before its words
+// did -- has enable say it.
+func TestRemoteEnableAddsAdviceTheRelayLeftOut(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		words  string
+		args   []string
+		advice string
+	}{
+		{"an invitation is needed", http.StatusForbidden, "this relay needs an invite code to register",
+			[]string{"-name", "desk"}, "; pass it with -invite CODE"},
+		{"the relay takes no new accounts", http.StatusForbidden, "this relay is not accepting new accounts",
+			[]string{"-name", "desk"}, "; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here"},
+		{"the invitation is spent", http.StatusForbidden, "that invite code is not valid, or has already been used",
+			[]string{"-name", "desk", "-invite", "fdi_code"}, "; whoever runs the relay makes invitations, and can make another"},
+		{"the join code is spent", http.StatusBadRequest, "that join code is not valid, or has expired or already been used",
+			[]string{"-join", "fdp_code"}, "; `flockdeck remote pair -desktop` on the other machine makes a new one"},
+		{"the account is full", http.StatusConflict, "this account already has as many desktops as it may; unregister one first",
+			[]string{"-join", "fdp_code"}, "; running `flockdeck remote disable` on one of that account's machines does that"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateKeys(t)
+			relay := relayRefusing(t, tc.status, tc.words)
+			_, _, err := runRemoteCmd(t, append([]string{"enable", "-relay", relay}, tc.args...)...)
+			if want := tc.words + tc.advice; err == nil || !strings.HasSuffix(err.Error(), want) {
+				t.Errorf("enable refused in words that say nothing of what to do = %v, want it to end %q", err, want)
+			}
+		})
 	}
 }
 
@@ -855,22 +924,6 @@ func TestRemoteUnknownCommandSuggests(t *testing.T) {
 	}
 }
 
-// A relay closed to new accounts still takes a machine into an account it
-// has, and the refusal says how.
-func TestRemoteEnableOnAClosedRelay(t *testing.T) {
-	isolateKeys(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = io.WriteString(w, `{"error":"this relay is not accepting new accounts"}`)
-	}))
-	defer srv.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk")
-	if want := "; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here"; err == nil || !strings.HasSuffix(err.Error(), want) {
-		t.Errorf("enable on a closed relay = %v, want it to end %q", err, want)
-	}
-}
-
 // A device the relay does not know is refused in its words, and the refusal
 // says where the ones it does know are listed.
 func TestRemoteRevokeAnUnknownDevice(t *testing.T) {
@@ -1026,55 +1079,6 @@ func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
 	}
 	if out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil || strings.Contains(out, "Joined") {
 		t.Errorf("enable without a join code = %q, %v; want no word of joining", out, err)
-	}
-}
-
-// An invitation that has been used, or was never one, is refused by the relay
-// in its own words, and the refusal says who can make another.
-func TestRemoteEnableWithASpentInvitation(t *testing.T) {
-	isolateKeys(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = io.WriteString(w, `{"error":"that invite code is not valid, or has already been used"}`)
-	}))
-	defer srv.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-name", "desk", "-invite", "fdi_code")
-	if want := "already been used; whoever runs the relay makes invitations, and can make another"; err == nil || !strings.HasSuffix(err.Error(), want) {
-		t.Errorf("enabling with a spent invitation = %v, want it to end %q", err, want)
-	}
-}
-
-// A join code that has run out or been used is refused by the relay in its
-// own words, and the refusal says where a new one comes from.
-func TestRemoteJoinWithASpentCode(t *testing.T) {
-	isolateKeys(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, `{"error":"that join code is not valid, or has expired or already been used"}`)
-	}))
-	defer srv.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-join", "fdp_code")
-	if want := "already been used; `flockdeck remote pair -desktop` on the other machine makes a new one"; err == nil || !strings.HasSuffix(err.Error(), want) {
-		t.Errorf("joining with a spent code = %v, want it to end %q", err, want)
-	}
-}
-
-// Joining an account that has all the machines it may is refused by the
-// relay in its own words, and the refusal says which command here does what
-// they ask.
-func TestRemoteJoinAFullAccount(t *testing.T) {
-	isolateKeys(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, `{"error":"this account already has as many desktops as it may; unregister one first"}`)
-	}))
-	defer srv.Close()
-	_, _, err := runRemoteCmd(t, "enable", "-relay", srv.URL, "-join", "fdp_code")
-	if want := "; running `flockdeck remote disable` on one of that account's machines does that"; err == nil || !strings.HasSuffix(err.Error(), want) {
-		t.Errorf("joining a full account = %v, want it to end %q", err, want)
 	}
 }
 

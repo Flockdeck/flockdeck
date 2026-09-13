@@ -6,7 +6,8 @@ changes its setting at once, and it is the same setting the command palette and
 the keys change, so whichever you use, the others show it.
 
 - **General** — desktop notifications, and whether Flockdeck checks for new
-  releases. **Show them again** brings back every hint you sent away.
+  releases, which is changed only at the desk. **Show them again** brings back
+  every hint you sent away.
 - **Terminal** — the font size, the font, how many lines each pane keeps to
   scroll back through, and the cursor's shape and whether it blinks, with a
   preview. The size is also [[key:fontUp]], [[key:fontDown]] and
@@ -28,9 +29,14 @@ the keys change, so whichever you use, the others show it.
     the default, **Always** or **Never**. It applies to a pane when it starts.
     [Spend and limits](#spend) says what each one costs.
 - **API keys** — set, replace or clear the key each API agent uses. A key is
-  never shown once it is set.
+  never shown once it is set. Keys are set and cleared only at the desk: a
+  window reached through the relay shows which are set, and no more.
 - **Remote access** — turn it on or off, the relay it goes through, this
-  machine's name, and the paired devices.
+  machine's name, and the paired devices. Turning it on or off, and the
+  relay, are changed only at the desk.
+
+A window reached through the relay leaves a few things to the desk: [Remote
+access](#remote) lists them.
 - **Account & plan** — the free plan you are on, and Enterprise, coming for
   companies to run the relay on their own infrastructure with SSO and support.
   At its foot are the privacy policy and terms for the shared relay, and the
@@ -52,7 +58,10 @@ word. On a narrow screen the sections go across the top.
 - **Whether Claude panes read their usage limits** — **Agents › Claude Code's
   usage limits** in the settings. Kept in `prefs.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
-  `flockdeck keys set <agent>`. Kept in `keys.json`.
+  `flockdeck keys set <agent>`. Kept in `keys.json`. At the desk only.
+- **Where an API agent sends its prompts** — its address, in the agent picker,
+  or `flockdeck keys endpoint <agent> <url>`. Kept in `agents.json`. At the
+  desk only.
 - **A tab's name** — double-click the tab, press F2 while the keyboard is on
   it, or **Rename this tab…** in the command palette. An empty name, or **Use the automatic title** there, goes
   back to the title the tab gives itself. Kept with the layout.

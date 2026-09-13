@@ -327,7 +327,7 @@ func (s *Server) setRouting(c *controlClient, cmd command) {
 		project, where = root, filepath.Base(root)
 	}
 	go func() {
-		defer s.survive("saving routing")
+		defer s.surviveFor(c, "saving routing")
 		path, err := agent.ConfigPath()
 		if err == nil {
 			defaultWrites.Lock()
@@ -365,7 +365,7 @@ func routingNotice(where, field, value string) string {
 // clearRoutingLog deletes the routing log, which is the user's to delete.
 func (s *Server) clearRoutingLog(c *controlClient) {
 	go func() {
-		defer s.survive("clearing the routing history")
+		defer s.surviveFor(c, "clearing the routing history")
 		dir, err := routingLogDir()
 		if err == nil {
 			err = route.ClearLog(dir)

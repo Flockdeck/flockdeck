@@ -1,7 +1,9 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
@@ -18,12 +20,16 @@ func TestAReplyThatPanicsLeavesTheInstanceRunning(t *testing.T) {
 		panic("a transcript nobody expected")
 	}
 
-	conn := dialControl(t, srv)
 	c := &controlClient{out: make(chan []byte, 8)}
 	srv.listConversations(c, srv.activeRoot())
 	var note noticeMsg
-	readUntil(t, conn, "notice", &note)
-	if !note.Error {
+	select {
+	case raw := <-c.out:
+		_ = json.Unmarshal(raw, &note)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the window that asked was told nothing")
+	}
+	if note.Type != "notice" || !note.Error {
 		t.Fatalf("the panic was reported as %+v; want an error notice", note)
 	}
 	// The listing never answered, and the notice goes out only after it has

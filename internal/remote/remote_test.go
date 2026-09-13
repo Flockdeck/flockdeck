@@ -511,6 +511,43 @@ func TestServeStoppingIsNotBlamedOnTheRelay(t *testing.T) {
 	}
 }
 
+// A relay that revokes this machine is heard as revoking it even when serve --
+// whose Accept fails with the tunnel, as http.Serve's does -- has ended too by
+// the time the connector looks. Which of the two it took was chance, and a
+// revoked machine taken for one whose server had stopped went on dialling the
+// relay for as long as it ran. The tunnel opening is held back until the relay
+// has closed it, so that both are waiting every time; each run is a coin
+// tossed, and sixteen of them are all but sure to land on the wrong side once.
+func TestARevocationIsHeardWhenServeEndsWithTheTunnel(t *testing.T) {
+	quick(t)
+	for i := range 16 {
+		f := newFakeRelay(t)
+		f.mu.Lock()
+		f.closeWith = CloseRevoked
+		f.mu.Unlock()
+		var c *Connector
+		var held atomic.Bool
+		c = NewConnector(f.config(), "", func(l net.Listener) error {
+			_, err := l.Accept()
+			return err
+		}, func() {
+			if c.Status().State == StateConnected && held.CompareAndSwap(false, true) {
+				time.Sleep(50 * time.Millisecond)
+			}
+		})
+		c.Start()
+		waitFor(t, "an outcome", func() bool {
+			st := c.Status().State
+			return st == StateRevoked || st == StateError
+		})
+		st := c.Status()
+		c.Stop()
+		if st.State != StateRevoked || f.count() != 1 {
+			t.Fatalf("run %d: a revoked tunnel ended %s (%q) after %d connections, want revoked after 1", i, st.State, st.Detail, f.count())
+		}
+	}
+}
+
 // revokedSays is what a machine the relay no longer accepts is told to do:
 // enrol again, by either of the ways there are.
 const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"

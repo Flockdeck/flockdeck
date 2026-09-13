@@ -391,34 +391,44 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// for good, and it costs a listing there that only a paired device
 		// can then take off.
 		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run `flockdeck remote disable -force` to start again, which leaves this machine listed on it", err)
-	case f.invite == "" && strings.Contains(err.Error(), "needs an invite code"):
-		// The relay's words name an invite code but not the flag that takes
-		// one. They are matched rather than its 403, which a relay closed to
-		// new accounts also answers, and for which an invite does not help.
-		return fmt.Errorf("%v; pass it with -invite CODE", err)
+	case f.invite == "" && strings.Contains(err.Error(), "needs an invite"):
+		// An invite code is wanted. The relay's words are matched rather than
+		// its 403, which a relay closed to new accounts also answers, and for
+		// which an invite does not help. Today's relay says "needs an invite
+		// to create an account" and names the flag itself; this matched only
+		// an older relay's "needs an invite code", so it never came into play.
+		return withAdvice(err, "-invite", "pass it with -invite CODE")
 	case f.invite != "" && strings.Contains(err.Error(), "invite code is not valid"):
-		// An invitation that has been used, or was never one. Whoever runs
-		// the relay makes them, and can make another; the relay's words are
-		// matched because its 403 is also the closed relay's and the missing
-		// invitation's.
-		return fmt.Errorf("%v; whoever runs the relay makes invitations, and can make another", err)
+		// An invitation that has been used, or was never one. The relay's
+		// words are matched because its 403 is also the closed relay's and
+		// the missing invitation's.
+		return withAdvice(err, "whoever runs the relay", "whoever runs the relay makes invitations, and can make another")
 	case strings.Contains(err.Error(), "not accepting new accounts"):
 		// A relay closed to new accounts still takes machines into the ones
 		// it has, which is the way in that is left. Its words are matched for
 		// the reason the invite's are.
-		return fmt.Errorf("%v; a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here", err)
+		return withAdvice(err, "remote pair -desktop", "a machine already on it can take this one into its account: `flockdeck remote pair -desktop` there prints the command to run here")
 	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
-		// A join code that has run out, been used, or was never one: the
-		// relay says which, but not where a good one comes from. With a
-		// join code given, its 400 is about the code; its other one is for
-		// a body this client never sends.
-		return fmt.Errorf("%v; `flockdeck remote pair -desktop` on the other machine makes a new one", err)
+		// A join code that has run out, been used, or was never one. With a
+		// join code given, the relay's 400 is about the code; its other one
+		// is for a body this client never sends.
+		return withAdvice(err, "remote pair -desktop", "`flockdeck remote pair -desktop` on the other machine makes a new one")
 	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusConflict:
-		// An account with all the machines it may have. The relay says to
-		// unregister one, which is not a word this command line uses.
-		return fmt.Errorf("%v; running `flockdeck remote disable` on one of that account's machines does that", err)
+		// An account with all the machines it may have.
+		return withAdvice(err, "remote disable", "running `flockdeck remote disable` on one of that account's machines does that")
 	}
 	return err
+}
+
+// withAdvice puts advice after the relay's refusal, unless the refusal already
+// gives it -- told by whether it names the flag or command, said. The relay's
+// words have come to say what to do themselves, and the same thing said a
+// second time, in other words, read as two things to do.
+func withAdvice(err error, said, advice string) error {
+	if strings.Contains(err.Error(), said) {
+		return err
+	}
+	return fmt.Errorf("%v; %s", err, advice)
 }
 
 // cliWord writes one argument of a command the user is told to run so that it
