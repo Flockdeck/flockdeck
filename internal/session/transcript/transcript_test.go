@@ -339,6 +339,56 @@ func TestAllListsEachChatOnceUnderItsAgent(t *testing.T) {
 	}
 }
 
+// TestAClaudeEntryUnderAnotherNameIsReadAsClaude covers a second Claude
+// account, which is run as a catalog entry of its own: "claude-work", running
+// claude with CLAUDE_CONFIG_DIR set. The reader was chosen by the entry's id,
+// so that one got none -- its history listed nothing and a restart found
+// nothing to resume -- and an entry on the same account as the built-in one,
+// once it did get a reader, would list every conversation twice.
+func TestAClaudeEntryUnderAnotherNameIsReadAsClaude(t *testing.T) {
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	own := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", own)
+	work := t.TempDir()
+	const mine, theirs = "55555555-5555-5555-5555-555555555555", "66666666-6666-6666-6666-666666666666"
+	writeTranscript(t, filepath.Join(own, "projects", projectSlug(cwd)), mine,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"on my own account"}}`)
+	writeTranscript(t, filepath.Join(work, "projects", projectSlug(cwd)), theirs,
+		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"on the work account"}}`)
+
+	workSpec := claudeSpec
+	workSpec.ID = "claude-work"
+	workSpec.Exe = `C:\Tools\Claude\claude.EXE`
+	workSpec.Env = []string{"CLAUDE_CONFIG_DIR=" + work}
+	if r := For(workSpec); r != (Claude{}) {
+		t.Fatalf("For(%s running %s) = %T, want Claude", workSpec.ID, workSpec.Exe, r)
+	}
+	if !Exists(workSpec, theirs) {
+		t.Error("the work account's conversation was not found to resume")
+	}
+
+	// A third entry, on the built-in one's account: an npm install's claude.
+	again := claudeSpec
+	again.ID = "claude-npm"
+	again.Exe = "claude.cmd"
+	got, err := All([]agent.Spec{claudeSpec, workSpec, again}, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := map[string][]string{}
+	for _, c := range got {
+		held[c.ID] = append(held[c.ID], c.Agent)
+	}
+	if a := held[mine]; len(a) != 1 || a[0] != "claude" {
+		t.Errorf("the own account's conversation is listed under %q, want once, under claude", a)
+	}
+	if a := held[theirs]; len(a) != 1 || a[0] != "claude-work" {
+		t.Errorf("the work account's conversation is listed under %q, want once, under claude-work", a)
+	}
+}
+
 // BenchmarkFirstPromptOfAPaste measures tidying an opening prompt that was a
 // pasted log a megabyte long, of which the history overlay shows 160
 // characters.

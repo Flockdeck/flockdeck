@@ -11,8 +11,10 @@ package transcript
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -67,17 +69,48 @@ func For(spec agent.Spec) Reader {
 	if spec.Runner == agent.RunnerAPI {
 		return Chat{}
 	}
-	if r, ok := readers[spec.ID]; ok {
+	if r, ok := readers[program(spec)]; ok {
 		return r
 	}
 	return Null{}
 }
 
-// readers are the CLI agents whose stored conversations Flockdeck can read, by id.
-// A CLI claiming Caps.Transcript that is not in here is one whose format
-// nobody has written a reader for yet, and it is treated as having none.
+// readers are the CLI agents whose stored conversations Flockdeck can read, by
+// the program they run. A CLI claiming Caps.Transcript that is not in here is
+// one whose format nobody has written a reader for yet, and it is treated as
+// having none.
+//
+// By the program rather than the catalog's id, because where the record is
+// kept is the program's business. A second Claude account is an entry of its
+// own -- "claude-work", running claude with CLAUDE_CONFIG_DIR set -- and chosen
+// by id it got the null reader: its history listed nothing, and a restart
+// found nothing to resume and started the conversation again.
 var readers = map[string]Reader{
 	"claude": Claude{},
+}
+
+// program is the name of the program a CLI agent runs, as readers is keyed:
+// without its folder, in lower case, and without the extension Windows gives
+// a program or a script, so that "claude", "C:\Tools\claude.exe" and an npm
+// install's "claude.cmd" are all Claude. An entry that names no program is
+// known by its id.
+func program(spec agent.Spec) string {
+	exe := spec.Exe
+	if exe == "" {
+		return spec.ID
+	}
+	// Either separator, whatever this runs on: a catalog is written on one
+	// machine and can be carried to another.
+	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
+		exe = exe[i+1:]
+	}
+	exe = strings.ToLower(exe)
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".com", ".ps1"} {
+		if name, ok := strings.CutSuffix(exe, ext); ok {
+			return name
+		}
+	}
+	return exe
 }
 
 // Null is the reader for an agent that records nothing Flockdeck can read.
@@ -136,6 +169,7 @@ func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
 		}
 	}
 	var api []agent.Spec
+	homes := map[string]bool{}
 	for _, spec := range specs {
 		r := For(spec)
 		// Every API agent is the same chat client writing to the same folder,
@@ -144,6 +178,20 @@ func All(specs []agent.Spec, cwd string) ([]Conversation, error) {
 		if _, chat := r.(Chat); chat {
 			api = append(api, spec)
 			continue
+		}
+		// Two Claude entries on one account -- the built-in one and another
+		// under a name of its own that sets no CLAUDE_CONFIG_DIR, or sets the
+		// same one -- read the same folder, and listed every conversation in it
+		// twice. The first entry in the catalog has it.
+		if _, claude := r.(Claude); claude {
+			home := filepath.Clean(ClaudeHomeFor(spec))
+			if pathsIgnoreCase {
+				home = strings.ToLower(home)
+			}
+			if homes[home] {
+				continue
+			}
+			homes[home] = true
 		}
 		found, err := r.Conversations(spec, cwd)
 		note(err)
