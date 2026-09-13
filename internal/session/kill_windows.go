@@ -51,14 +51,6 @@ const (
 	endPasses = 3
 )
 
-// jobProcessIDs is JOBOBJECT_BASIC_PROCESS_ID_LIST with room for as many
-// processes as a pane's tree is ever walked to.
-type jobProcessIDs struct {
-	Assigned uint32
-	Listed   uint32
-	IDs      [maxTreeProcs]uintptr
-}
-
 // procTree is the job a pane's process was put in, or zero when it could not
 // be. A pane without one is ended the way it always was, one process alone.
 type procTree struct{ job syscall.Handle }
@@ -87,15 +79,28 @@ func containTree(pid int) procTree {
 	return procTree{job: syscall.Handle(job)}
 }
 
-// jobMemberIDs lists the processes a job holds.
-func jobMemberIDs(job syscall.Handle) []uint32 {
-	list := new(jobProcessIDs)
-	if r, _, _ := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList,
-		uintptr(unsafe.Pointer(list)), unsafe.Sizeof(*list), 0); r == 0 {
+// jobMemberIDs lists the processes a job holds, as many as a pane's tree is
+// ever walked to.
+func jobMemberIDs(job syscall.Handle) []uint32 { return listJob(job, maxTreeProcs) }
+
+// listJob lists up to room of the processes a job holds.
+//
+// The list is JOBOBJECT_BASIC_PROCESS_ID_LIST: two counts, then the ids. A
+// job holding more than there is room for fails the call as ERROR_MORE_DATA,
+// but still fills in as many as fit, and those are ended rather than none.
+func listJob(job syscall.Handle, room int) []uint32 {
+	const counts = 2 * 4
+	word := int(unsafe.Sizeof(uintptr(0)))
+	buf := make([]uintptr, counts/word+room)
+	r, _, err := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)*word), 0)
+	if r == 0 && err != syscall.ERROR_MORE_DATA {
 		return nil
 	}
-	out := make([]uint32, 0, list.Listed)
-	for _, pid := range list.IDs[:min(int(list.Listed), len(list.IDs))] {
+	listed := (*[2]uint32)(unsafe.Pointer(&buf[0]))[1]
+	ids := buf[counts/word:]
+	out := make([]uint32, 0, min(int(listed), len(ids)))
+	for _, pid := range ids[:min(int(listed), len(ids))] {
 		out = append(out, uint32(pid))
 	}
 	return out

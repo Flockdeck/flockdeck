@@ -135,6 +135,36 @@ func TestAnIDTheJobListedIsNotEndedOnceItIsSomebodyElses(t *testing.T) {
 	}
 }
 
+// TestAJobHoldingMoreThanThereIsRoomForStillListsWhatFits covers a pane
+// whose tree has grown past the room its job is listed into. The listing
+// fails as ERROR_MORE_DATA, and that was taken for nothing listed, so closing
+// the pane ended none of the tree rather than most of it.
+func TestAJobHoldingMoreThanThereIsRoomForStillListsWhatFits(t *testing.T) {
+	first, second := startSleeper(t), startSleeper(t)
+	tree := containTree(first)
+	if tree.job == 0 {
+		t.Fatal("the process could not be put in a job")
+	}
+	defer syscall.CloseHandle(tree.job)
+	h, err := syscall.OpenProcess(processSetQuota|processTerminate, false, uint32(second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := procAssignProcessToJobObject.Call(uintptr(tree.job), uintptr(h))
+	_ = syscall.CloseHandle(h)
+	if r == 0 {
+		t.Fatalf("the second process could not be put in the job: %v", err)
+	}
+
+	if all := listJob(tree.job, 2); len(all) != 2 {
+		t.Fatalf("a job of two listed with room for two gave %v", all)
+	}
+	got := listJob(tree.job, 1)
+	if len(got) != 1 || (got[0] != uint32(first) && got[0] != uint32(second)) {
+		t.Fatalf("a job of two listed with room for one gave %v, want one of %d and %d", got, first, second)
+	}
+}
+
 // TestConsoleProgramsAreToldFromWindowedOnes pins the reading the choice rests
 // on, against programs every Windows machine has.
 func TestConsoleProgramsAreToldFromWindowedOnes(t *testing.T) {
