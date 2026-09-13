@@ -70,12 +70,18 @@ func keepToTheAddress(req *http.Request, via []*http.Request) error {
 // agents.json: a gateway is given as `https://gateway.example/anthropic/v1` as
 // often as without the version, while the vendors' own roots carry none at
 // all. Guessing wrong is a 404 the user cannot do anything about, so the
-// version is added only when the base does not already end in it.
+// version is added only when the base does not already end in one. Any
+// version counts, not only the default: Gemini's stable API is /v1 and its
+// preview /v1alpha, and a base naming either had /v1beta put after it.
 func endpoint(base, fallback, version, path string) string {
 	return joinEndpoint(base, fallback, version, path, func(p string) bool {
-		return strings.HasSuffix(p, "/"+version)
+		return apiVersionRE.MatchString(p[strings.LastIndex(p, "/")+1:])
 	})
 }
+
+// apiVersionRE is a path segment that names an API version: v1, v1beta,
+// v1alpha, v1beta1.
+var apiVersionRE = regexp.MustCompile(`^v\d+((alpha|beta)\d*)?$`)
 
 // openaiEndpoint builds a request URL for the OpenAI wire.
 //
