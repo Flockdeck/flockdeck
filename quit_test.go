@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,11 +85,12 @@ func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	before := &store.Session{Open: []string{a, b}, Active: b}
 	// What the -new run on a saved on its way out: only itself.
-	if err := store.SaveSession(&store.Session{Open: []string{a}, Active: a}); err != nil {
+	now := &store.Session{Open: []string{a}, Active: a}
+	if err := store.SaveSession(now); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := keepOpenProjects(before); err != nil {
+	if err := keepOpenProjects(before, now); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.LoadSession()
@@ -99,8 +101,40 @@ func TestKeepOpenProjectsAfterANewRun(t *testing.T) {
 		t.Errorf("session = %+v, want both projects open and this run's active", got)
 	}
 
-	if err := keepOpenProjects(nil); err != nil {
+	if err := keepOpenProjects(nil, now); err != nil {
 		t.Errorf("a run without -new: %v", err)
+	}
+}
+
+// The projects a -new run skipped are kept even when the list it saved on its
+// way out cannot be read back. They were added to what was read back, and a
+// read that failed, or a list that came back damaged, returned without saving:
+// the only copy of them, the one in memory, went with it.
+func TestKeepOpenProjectsWhenTheSavedListCannotBeReadBack(t *testing.T) {
+	isolateState(t)
+	a, b := t.TempDir(), t.TempDir()
+	before := &store.Session{Open: []string{a, b}, Active: b}
+	now := &store.Session{Open: []string{a}, Active: a}
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "session.json"), []byte(`{"open": [`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := keepOpenProjects(before, now); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSession()
+	if err != nil || got == nil {
+		t.Fatalf("LoadSession = %v, %v; want the projects kept", got, err)
+	}
+	if len(got.Open) != 2 || got.Open[0] != a || got.Open[1] != b || got.Active != a {
+		t.Errorf("session = %+v, want both projects open and this run's active", got)
 	}
 }
 

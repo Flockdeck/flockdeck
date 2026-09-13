@@ -752,8 +752,13 @@ func (w *Workspace) sessionRootIsOpen(root string) bool {
 
 // SaveSession records which projects are open for the next run.
 func (w *Workspace) SaveSession() error {
-	return store.SaveSession(&store.Session{
+	return store.SaveSession(w.Session())
+}
+
+// Session is the list of open projects SaveSession records.
+func (w *Workspace) Session() *store.Session {
+	return &store.Session{
 		Open:   append([]string(nil), w.openRoots...),
 		Active: w.activeRoot,
-	})
+	}
 }

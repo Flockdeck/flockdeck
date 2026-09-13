@@ -772,7 +772,7 @@ func run(opts options) error {
 	if err := shutdown(stopServing, ws.SaveAll); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not save layout:", err)
 	}
-	if err := keepOpenProjects(before); err != nil {
+	if err := keepOpenProjects(before, ws.Session()); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: could not keep the list of open projects:", err)
 	}
 	close(saved)
@@ -1005,16 +1005,20 @@ func sameFolder(a, b string) bool {
 // session that run has just saved, after its own, which keeps its active
 // project the one the next start lands in. SaveSession drops the ones both
 // lists name. It does nothing for a run that was not started with -new.
-func keepOpenProjects(before *store.Session) error {
+//
+// The list is built from now, what this run had open, rather than read back
+// from the file its save has just written. Reading it back returned without
+// saving on any trouble with the read -- a file held a moment too long, a list
+// that came back damaged -- and the projects kept aside were lost with the
+// only copy of them, which was the one in memory.
+func keepOpenProjects(before, now *store.Session) error {
 	if before == nil {
 		return nil
 	}
-	now, err := store.LoadSession()
-	if err != nil || now == nil {
-		return err
-	}
-	now.Open = append(now.Open, before.Open...)
-	return store.SaveSession(now)
+	return store.SaveSession(&store.Session{
+		Open:   append(append([]string(nil), now.Open...), before.Open...),
+		Active: now.Active,
+	})
 }
 
 // shutdown stops serving, and only then saves.
