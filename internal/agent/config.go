@@ -235,36 +235,14 @@ func writeConfig(dir string, f *File) error {
 	if err := enc.Encode(f); err != nil {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
-	data := buf.Bytes()
-	path := filepath.Join(dir, ConfigName)
-	tmp, err := os.CreateTemp(dir, ConfigName+".tmp*")
-	if err != nil {
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	// The state directory is the user's alone, but the file is written 0600 as
-	// well: an OpenAI-compatible entry may carry a private endpoint, and the
-	// rest of Flockdeck's state is kept that way too.
-	if err := os.Chmod(name, 0o600); err != nil && !os.IsNotExist(err) {
-		os.Remove(name)
-		return fmt.Errorf("write %s: %w", ConfigName, err)
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
+	// The state directory's own atomic write: a temporary file flushed and
+	// renamed into place, 0600 -- an OpenAI-compatible entry may carry a
+	// private endpoint -- and one save of the file at a time. Its rename waits
+	// out whatever has the file open for a moment. A plain rename failed on
+	// Windows with "Access is denied" whenever the virus scanner, another
+	// instance or a picker reading the catalog had agents.json open, and the
+	// default or the address being saved was lost.
+	if err := store.WriteAtomic(filepath.Join(dir, ConfigName), buf.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", ConfigName, err)
 	}
 	return nil
