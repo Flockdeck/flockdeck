@@ -16,7 +16,10 @@ Actions marked *Command palette* have no binding of their own: press
 them by name.
 
 On macOS the bindings are the same, with <kbd>Ctrl</kbd> rather than
-<kbd>Cmd</kbd>.
+<kbd>Cmd</kbd>, except for picking a tab by number: that is
+<kbd>Cmd+1</kbd> … <kbd>Cmd+9</kbd> there. <kbd>Option</kbd> with a digit is
+how most Mac layouts type characters such as <kbd>[</kbd>, <kbd>|</kbd> and
+<kbd>#</kbd>, so it is left to type them.
 
 {{keys}}
 

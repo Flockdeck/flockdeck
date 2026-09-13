@@ -2616,6 +2616,37 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t1" });
 `)
 }
 
+// On a Mac, Option with a digit types a character on most layouts - [ is
+// Option+5 on a German Mac, | is Option+7 - and it was read by position as
+// Alt+1 … Alt+9, so it switched tab and the character never reached the pane.
+// There Cmd with a digit picks the tab, as it does in every Mac application.
+func TestOptionWithADigitOnAMacTypesItsCharacter(t *testing.T) {
+	runFrontEnd(t, `
+const m = boot({ platform: "MacIntel" });
+m.hello();
+m.recv(fixture());
+const typing = m.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+m.terms[0].host.append(typing);
+const reached = [];
+typing.addEventListener("keydown", (e) => reached.push(e.key));
+typing.focus();
+const before = m.commands().length;
+const ev = m.key({ key: "[", code: "Digit5", altKey: true });
+assert.ok(!ev.defaultPrevented, "Option+5 was kept from typing [");
+assert.deepStrictEqual(reached, ["["], "Option+5 did not reach the terminal as [");
+m.key({ key: "|", code: "Digit7", altKey: true });
+assert.deepStrictEqual(m.commands().slice(before), [], "typing [ and | switched tabs");
+
+m.key({ key: "2", code: "Digit2", metaKey: true });
+assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t2" }, "Cmd+2 did not pick the second tab");
+// A French Mac's digit row types & é " ' unless Shift is held, and Cmd+é is
+// still the second key along.
+m.key({ key: "&", code: "Digit1", metaKey: true });
+assert.deepStrictEqual(m.commands().pop(), { cmd: "selectTab", id: "t1" }, "Cmd and the first key did not pick the first tab");
+`)
+}
+
 // Alt held while digits are typed on the keypad is how Windows types a
 // character by its code: Alt+0233 is é. The keypad was read as Alt+1 … Alt+9,
 // so typing é switched to tab 2 and then tab 3, and the character never
@@ -6887,7 +6918,8 @@ function boot(opts) {
     focus: () => {},
     // The clipboard a Copy button writes to; a case reads what it was given
     // back as _copied.
-    navigator: { clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
+    navigator: { platform: opts.platform || "Win32",
+      clipboard: { writeText: (t) => { win._copied = String(t); return Promise.resolve(); } } },
     _listeners: new Map(),
   };
   win.window = win;

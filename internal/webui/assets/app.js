@@ -282,6 +282,16 @@
    *  kept in local storage, it was forgotten on every run, for the reason
    *  given for prefs above. */
   let fontSize = 13;
+  /** onMac is whether this window is on a Mac. Option there is how a layout
+   *  types the characters it has no key for - [ ] { } | # on German, Nordic,
+   *  French and UK Macs are Option with a digit - so it cannot be the
+   *  modifier for the window's own keys the way Alt is elsewhere. */
+  const onMac = (() => {
+    try {
+      const n = window.navigator || {};
+      return /Mac|iPhone|iPad|iPod/.test(n.platform || n.userAgent || "");
+    } catch { return false; }
+  })();
 
   // ---------------------------------------------------------------- control
 
@@ -7656,10 +7666,22 @@
     // its code, and Alt+0233 for é switched to tab 2 and then to tab 3.
     const row = /^Digit([1-9])$/.exec(e.code || "");
     const keypad = /^Numpad/.test(e.code || "");
-    const n = row ? row[1] : (!keypad && /^[1-9]$/.test(e.key || "") ? e.key : "");
-    if (e.altKey && !e.ctrlKey && !e.shiftKey && n) {
+    const typed = /^[1-9]$/.test(e.key || "") ? e.key : "";
+    // On a Mac, Option with a digit is how most layouts type a character -
+    // [ on a German Mac is Option+5, | is Option+7 - and read by position it
+    // switched tab instead, so those characters could not be typed into a
+    // pane at all. There it is a tab number only where it typed the digit,
+    // and Cmd with a digit, which is how a Mac picks a tab anyway, does it.
+    const n = onMac ? typed : row ? row[1] : (!keypad ? typed : "");
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && n) {
       claimKey(e);
       runAction("selectTab", n);
+      return;
+    }
+    const cmd = row ? row[1] : typed;
+    if (onMac && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && cmd) {
+      claimKey(e);
+      runAction("selectTab", cmd);
     }
   }, true);
 
