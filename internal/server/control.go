@@ -404,6 +404,14 @@ type command struct {
 func (s *Server) snapshot() stateMsg {
 	ws := s.ws
 	waiting, working := ws.AttentionCount()
+	// The git loop reads only the checkouts of the project on screen, so one
+	// just brought on screen is read straight away rather than when the loop
+	// next comes round, up to fifteen seconds later, with its headers showing
+	// whatever was read before it was left.
+	if root := ws.ActiveRoot(); root != s.gitShown {
+		s.gitShown = root
+		s.RefreshGitNow()
+	}
 
 	msg := stateMsg{
 		Type:            "state",

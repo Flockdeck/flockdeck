@@ -43,8 +43,14 @@ in.
 
 Every pane header carries the same information for the checkout it is working
 in — branch, `●n` uncommitted files, `↑n` and `↓n` against upstream —
-refreshed in the background. That is the state of every agent's tree at a
-glance, without opening anything.
+refreshed in the background while its project is on screen. That is the state
+of every agent's tree at a glance, without opening anything. The panes of the
+other open projects are read when you switch to one, and when the Agents
+overview opens.
+
+Work left uncommitted inside a submodule is not counted there: finding it
+means running git inside every submodule on every refresh. The review panel
+still shows it, and a submodule moved to another commit is counted in both.
 
 Each checkout is read on its own. One that git does not answer for within ten
 seconds — a very large checkout, or one on a network drive gone quiet — holds

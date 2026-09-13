@@ -43,59 +43,80 @@ type agentsMsg struct {
 // the only place that answers "where is the agent that needs me".
 func (s *Server) listAgents(c *controlClient) {
 	s.do(func() {
-		msg := agentsMsg{Type: "agents"}
-		focused := ""
-		if t := s.ws.CurrentTab(); t != nil {
-			focused = t.Focus
+		s.sendAgents(c)
+		// The git loop reads only the checkouts of the project on screen, and
+		// this lists every pane in every project, with its branch and its
+		// uncommitted files. So the others are read now, and the list sent
+		// again with what they said. Not more often than the loop goes round,
+		// though: the window asks for the list again whenever an agent
+		// anywhere changes what it is doing.
+		if time.Since(s.gitAllAt) < gitStatusInterval {
+			return
 		}
-		names := map[string]string{}
-		for _, pr := range s.ws.Projects() {
-			names[pr.Root] = pr.Name
-		}
-
-		for _, t := range s.ws.Tabs {
-			for _, id := range t.Tree.Panes() {
-				p := s.ws.Pane(id)
-				if p == nil {
-					continue
-				}
-				st, detail := p.Status()
-				av := agentView{
-					PaneID: p.ID,
-					TabID:  t.ID,
-					Tab:    t.Title,
-					// Root says where the pane is drawn, which is what
-					// revealing it has to switch to; Project says which
-					// project the agent is actually working in. They differ
-					// for a pane borrowed onto another project's tab.
-					Root:    t.Root,
-					Project: projectLabel(names, s.ws.RootOf(p.ID)),
-					Name:    p.Name,
-					Branch:  p.Branch,
-					Kind:    kindName(p.Kind),
-					Status:  st.String(),
-					Detail:  detail,
-					Dirty:   p.Git.Dirty + p.Git.Untracked,
-					Active:  p.ID == focused,
-				}
-				if p.Sess != nil {
-					av.For = humanAgo(time.Since(p.Sess.StatusSince()))
-				}
-				msg.Items = append(msg.Items, av)
-			}
-		}
-
-		// Whatever needs a person comes first; that is the point of the list.
-		rank := map[string]int{"waiting": 0, "working": 1, "idle": 2, "starting": 3, "exited": 4}
-		sort.SliceStable(msg.Items, func(i, j int) bool {
-			ri, rj := rank[msg.Items[i].Status], rank[msg.Items[j].Status]
-			if ri != rj {
-				return ri < rj
-			}
-			return msg.Items[i].Project < msg.Items[j].Project
-		})
-		c.sendJSON(msg)
+		s.gitAllAt = time.Now()
+		go func() {
+			defer s.survive("reading every project's checkouts")
+			s.ws.RefreshGit(s.do)
+			s.do(func() { s.sendAgents(c) })
+		}()
 	})
+}
+
+// sendAgents sends a window every pane in every open project. It must run on
+// the workspace goroutine.
+func (s *Server) sendAgents(c *controlClient) {
+	msg := agentsMsg{Type: "agents"}
+	focused := ""
+	if t := s.ws.CurrentTab(); t != nil {
+		focused = t.Focus
+	}
+	names := map[string]string{}
+	for _, pr := range s.ws.Projects() {
+		names[pr.Root] = pr.Name
+	}
+
+	for _, t := range s.ws.Tabs {
+		for _, id := range t.Tree.Panes() {
+			p := s.ws.Pane(id)
+			if p == nil {
+				continue
+			}
+			st, detail := p.Status()
+			av := agentView{
+				PaneID: p.ID,
+				TabID:  t.ID,
+				Tab:    t.Title,
+				// Root says where the pane is drawn, which is what
+				// revealing it has to switch to; Project says which
+				// project the agent is actually working in. They differ
+				// for a pane borrowed onto another project's tab.
+				Root:    t.Root,
+				Project: projectLabel(names, s.ws.RootOf(p.ID)),
+				Name:    p.Name,
+				Branch:  p.Branch,
+				Kind:    kindName(p.Kind),
+				Status:  st.String(),
+				Detail:  detail,
+				Dirty:   p.Git.Dirty + p.Git.Untracked,
+				Active:  p.ID == focused,
+			}
+			if p.Sess != nil {
+				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
+			}
+			msg.Items = append(msg.Items, av)
+		}
+	}
+
+	// Whatever needs a person comes first; that is the point of the list.
+	rank := map[string]int{"waiting": 0, "working": 1, "idle": 2, "starting": 3, "exited": 4}
+	sort.SliceStable(msg.Items, func(i, j int) bool {
+		ri, rj := rank[msg.Items[i].Status], rank[msg.Items[j].Status]
+		if ri != rj {
+			return ri < rj
+		}
+		return msg.Items[i].Project < msg.Items[j].Project
+	})
+	c.sendJSON(msg)
 }
 
 // revealPane brings a pane into view wherever it lives, switching project and
