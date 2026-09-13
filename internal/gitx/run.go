@@ -204,13 +204,25 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = &errb
-	// The deadline kills git and nothing git started. A hook, an ssh or a
-	// credential helper still holding the output pipes kept Run waiting for
-	// them regardless, so a push given up on after ten minutes went on being
-	// waited for until whatever it was stuck on let go -- if it ever did. This
-	// stops waiting for the pipes that long after git itself has gone.
+	// The deadline kills git and, on Unix, nothing git started. A hook, an ssh
+	// or a credential helper still holding the output pipes kept Run waiting
+	// for them regardless, so a push given up on after ten minutes went on
+	// being waited for until whatever it was stuck on let go -- if it ever did.
+	// This stops waiting for the pipes that long after git itself has gone.
 	cmd.WaitDelay = pipeGrace
-	err := cmd.Run()
+	// On Windows the process started is often a wrapper around git rather
+	// than git, and ending it alone left git running; the tree is what ends
+	// the lot (see tree_windows.go).
+	tree := newTree()
+	cmd.Cancel = func() error {
+		tree.end()
+		return cmd.Process.Kill()
+	}
+	err := tree.start(cmd)
+	if err == nil {
+		err = cmd.Wait()
+	}
+	gone := tree.settle(ctx.Err() != nil)
 	if errors.Is(err, exec.ErrWaitDelay) {
 		// git finished, and succeeded; only something it left running in the
 		// background was still holding its output, which git had long since
@@ -219,7 +231,7 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", &timeoutError{fmt.Sprintf("%s: gave up after %s", gitLabel(args), timeout)}
+			return "", &timeoutError{msg: fmt.Sprintf("%s: gave up after %s", gitLabel(args), timeout), gone: gone}
 		}
 		if parent.Err() != nil {
 			return "", parent.Err()
@@ -319,7 +331,45 @@ func (e *gitError) Error() string { return e.msg }
 // context.DeadlineExceeded in it, so a caller can tell a checkout that did not
 // answer in time -- whose last answer is now of unknown age -- from one that
 // answered with an error, such as no longer being a repository.
-type timeoutError struct{ msg string }
+type timeoutError struct {
+	msg string
+	// gone is closed once every process the command started has exited.
+	gone <-chan struct{}
+}
 
 func (e *timeoutError) Error() string { return e.msg }
 func (e *timeoutError) Unwrap() error { return context.DeadlineExceeded }
+
+// Exited is closed once every process behind the command has exited.
+func (e *timeoutError) Exited() <-chan struct{} {
+	if e.gone == nil {
+		return alreadyGone
+	}
+	return e.gone
+}
+
+// alreadyGone is a channel that is already closed, for a command with nothing
+// left running.
+var alreadyGone = func() chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
+}()
+
+// Exited returns a channel that is closed once every process a git command
+// failed with err started has exited.
+//
+// A command given up on at its deadline is answered as soon as it has been
+// ended, so that a pane header can say at once that its checkout did not
+// answer, but ending a process only starts its end: one stuck on a network
+// drive that has gone away ends only when the drive gives up. A caller about
+// to ask the same checkout again waits for this first, rather than start
+// another git beside the one still stuck there. For any other error, and for
+// none, it is closed already.
+func Exited(err error) <-chan struct{} {
+	var e interface{ Exited() <-chan struct{} }
+	if errors.As(err, &e) {
+		return e.Exited()
+	}
+	return alreadyGone
+}
