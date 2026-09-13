@@ -550,7 +550,7 @@ func (s *session) sayWhyItStopped(err error) {
 		// Not asked again, and not called busy: what fixes it is money or
 		// another key, and neither is in the pane.
 		s.out.line(ansiRed, "the account behind this key is out of credit: "+err.Error())
-		s.out.line(ansiDim, "(add credit with the vendor, or set another key with `flockdeck keys set "+keyAgent(s.opts)+"`, then /retry)")
+		s.out.line(ansiDim, "(add credit with the vendor, or set another key with `flockdeck keys set "+agentNamed(s.opts)+"`, then /retry)")
 	case modelUnknown(err):
 		s.out.line(ansiRed, "the model could not answer: "+err.Error())
 		if names := s.localModels(); len(names) > 0 {
@@ -571,7 +571,7 @@ func (s *session) sayWhyItStopped(err error) {
 		s.out.line(ansiDim, "(say \"go on\" for the rest; /retry would start the answer again from the beginning)")
 	case unreachable(err):
 		s.out.line(ansiRed, "could not reach the endpoint: "+err.Error())
-		change := "`flockdeck keys endpoint " + keyAgent(s.opts) + " <url>` changes the address"
+		change := "`flockdeck keys endpoint " + agentNamed(s.opts) + " <url>` changes the address"
 		if isLoopback(s.opts.BaseURL) {
 			// A server on this machine that is not answering is almost always
 			// one that has not been started.

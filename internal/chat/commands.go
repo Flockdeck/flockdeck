@@ -95,13 +95,13 @@ func (s *session) status() {
 	// The two settings behind a pane that is failing, and where each is
 	// changed, since neither is anywhere else on the screen.
 	if s.opts.wire == nil {
-		s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; `flockdeck keys endpoint "+keyAgent(s.opts)+" <url>` changes it")
+		s.out.line(ansiDim, "endpoint "+endpointOf(s.opts)+"; `flockdeck keys endpoint "+agentNamed(s.opts)+" <url>` changes it")
 		if strings.HasPrefix(s.keyFrom, "stored with") {
 			// The place is the command; naming it twice in one line reads
 			// as two different things.
 			s.out.line(ansiDim, "key "+s.keyFrom+"; running it again changes it")
 		} else {
-			s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+keyAgent(s.opts)+"` changes it")
+			s.out.line(ansiDim, "key "+firstNonEmpty(s.keyFrom, "none")+"; `flockdeck keys set "+agentNamed(s.opts)+"` changes it")
 		}
 	}
 	// What "always" has been answered to is standing permission nothing else

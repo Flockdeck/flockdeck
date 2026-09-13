@@ -44,9 +44,18 @@ func resolveKey(o Options) (string, error) {
 // noKey says that there is no key, and where one goes.
 func noKey(o Options) string {
 	first, last := keyNames(o)
-	return fmt.Sprintf("no API key for %s: set %s, or run `flockdeck keys set %s`",
-		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(append(first, last...), " or "), keyAgent(o))
+	store := "run `flockdeck keys set " + agentNamed(o) + "`"
+	if keyAgent(o) == "" {
+		store += " and start this with -agent <agent>"
+	}
+	return fmt.Sprintf("no API key for %s: set %s, or %s",
+		firstNonEmpty(o.Agent, o.Wire, "this agent"), strings.Join(append(first, last...), " or "), store)
 }
+
+// agentNamed is the agent id to put in a command the user is told to run: the
+// chat's own, or "<agent>" where it has none to give, rather than a command
+// with a gap where the id goes.
+func agentNamed(o Options) string { return firstNonEmpty(keyAgent(o), "<agent>") }
 
 // keyPoll is how often a chat waiting for a key looks for one.
 var keyPoll = 2 * time.Second
@@ -83,9 +92,17 @@ func waitForKey(ctx context.Context, o Options) (string, error) {
 // agent that speaks that wire, which is the id `flockdeck keys set` would have
 // been given. Looked for under no id at all, a stored key was never found,
 // and the error said to run the very command that had stored it.
+//
+// Started by hand at somebody else's address -- a gateway -- it is not that
+// built-in, and there is no agent: the key stored for the built-in is the
+// user's key for the vendor, and was sent to the gateway. It is "" then, and
+// no stored key is looked for.
 func keyAgent(o Options) string {
 	if o.Agent != "" {
 		return o.Agent
+	}
+	if !agent.VendorsOwn(agent.APISpec{Wire: o.Wire, BaseURL: o.BaseURL}) {
+		return ""
 	}
 	switch strings.ToLower(strings.TrimSpace(o.Wire)) {
 	case "openai", "openai-compatible":
@@ -107,9 +124,9 @@ func lookupKey(o Options) (key, from string) {
 	if v, name := envKey(first); v != "" {
 		return v, "from " + name
 	}
-	if KeyStore != nil {
-		if v := strings.TrimSpace(KeyStore(keyAgent(o))); v != "" {
-			return v, "stored with `flockdeck keys set " + keyAgent(o) + "`"
+	if id := keyAgent(o); KeyStore != nil && id != "" {
+		if v := strings.TrimSpace(KeyStore(id)); v != "" {
+			return v, "stored with `flockdeck keys set " + id + "`"
 		}
 	}
 	if v, name := envKey(last); v != "" {
@@ -220,8 +237,7 @@ func (s *session) rekey() bool {
 	if key, from := lookupKey(s.opts); key != "" {
 		candidates = append(candidates, candidate{key, from})
 	}
-	if KeyStore != nil {
-		agent := keyAgent(s.opts)
+	if agent := keyAgent(s.opts); KeyStore != nil && agent != "" {
 		candidates = append(candidates, candidate{strings.TrimSpace(KeyStore(agent)), "stored with `flockdeck keys set " + agent + "`"})
 	}
 	for _, c := range candidates {
