@@ -1,8 +1,65 @@
 package webui
 
 import (
+	"regexp"
+	"strconv"
 	"testing"
 )
+
+// The tab strip scrolls sideways, and a scrolling box clips whatever is drawn
+// past its padding edge. A tab's focus ring is drawn outside the tab, and the
+// strip had no padding, so the ring was cut off: above and below, and at the
+// ends of the strip. The padding has to be at least as wide as the ring and
+// its offset together.
+func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	ring := ruleBody(css, ".tab:focus-visible")
+	if ring == "" {
+		t.Fatal("app.css has no focus ring for .tab")
+	}
+	need := cssPx(ring, "outline") + cssPx(ring, "outline-offset")
+	if got := cssPx(ruleBody(css, "#tabs"), "padding"); got < need {
+		t.Errorf("the tab strip is padded %dpx, and a tab's focus ring reaches %dpx outside it, so the strip cuts it off", got, need)
+	}
+}
+
+// The buttons in a pane's header - fan out, broadcast, restart, zoom and close -
+// were about twenty pixels tall, under the 24 a target needs to be hit without
+// care. They have to be at least that, and still fit inside the header, whose
+// height includes its one-pixel rule.
+func TestAPaneHeadersButtonsAreBigEnoughToHit(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	tall := cssPx(ruleBody(css, ".pane-actions button"), "min-height")
+	if tall < 24 {
+		t.Errorf("a pane header's buttons are %dpx tall at least, short of 24px", tall)
+	}
+	if header := cssPx(ruleBody(css, ":root"), "--header-h"); tall > header-1 {
+		t.Errorf("a pane header's buttons are %dpx tall, and the %dpx header has room for %dpx", tall, header, header-1)
+	}
+}
+
+// cssPx reads a length in pixels that a block gives a property, or 0.
+func cssPx(body, prop string) int {
+	m := regexp.MustCompile(`(?:^|[;\s])` + prop + `:\s*(\d+)px`).FindStringSubmatch(body)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// A text field's automatic minimum width is its default size, about twenty
+// characters, so in a narrow window the prompt bar and the find bar could not
+// shrink below it and ran off the side, their buttons with them. min-width: 0
+// lets the field give up width, as the worktree form's fields already do.
+func TestThePromptAndFindFieldsShrinkInANarrowWindow(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	for _, sel := range []string{"#prompt-input", "#searchbar input"} {
+		if !regexp.MustCompile(`(?:^|[;\s])min-width:\s*0\b`).MatchString(ruleBody(css, sel)) {
+			t.Errorf("%s keeps a text field's default minimum width, so its bar overflows a narrow window", sel)
+		}
+	}
+}
 
 // The disconnected panel takes the keyboard so that typing does not go to a
 // terminal nobody can see. When the connection came back the panel was hidden

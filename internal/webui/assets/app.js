@@ -450,7 +450,16 @@
     openOverlay("Update to " + u.version, "cli");
     const body = $("overlay-body");
     body.append(el("p", "", "This version has been downloaded and checked against its published checksum. Installing it saves and reopens your layout, but the agents running in panes are stopped."));
-    if (u.notes) body.append(el("pre", "update-notes", u.notes));
+    if (u.notes) {
+      // The notes scroll inside a box of their own, and a box nothing can
+      // focus cannot be scrolled from the keyboard: the part below its
+      // bottom edge was out of reach without a mouse.
+      const notes = el("pre", "update-notes", u.notes);
+      notes.tabIndex = 0;
+      notes.setAttribute("role", "region");
+      notes.setAttribute("aria-label", "Release notes");
+      body.append(notes);
+    }
     if (u.url) {
       const a = el("a", "", "Release notes on GitHub");
       a.href = u.url; a.target = "_blank"; a.rel = "noreferrer noopener";
@@ -946,6 +955,7 @@
     renderTabs(s);
     renderRail(s);
     renderSummary(s);
+    announceStatus(s);
     followAgents(s);
     followProjects(s);
     followWorktrees(s);
@@ -1558,13 +1568,41 @@
     link.href = ICONS[state];
   }
 
-  /** The counts the summary is currently showing. It is a live region, so
-   *  rewriting it is not free the way rewriting an ordinary element is: a
-   *  screen reader reads out whatever appears in it, and a status push arrives
-   *  every time any agent changes what it is doing. Left to rewrite itself
-   *  unconditionally it spoke the same tally over and over, which with several
-   *  agents running is continuously. */
+  /** The counts the summary is currently showing. A status push arrives every
+   *  time any agent changes what it is doing, and rewriting the tally
+   *  unconditionally rebuilt it over and over, which with several agents
+   *  running is continuously. It was a live region as well, which spoke the
+   *  counts on every change of them; announceStatus says what matters now. */
   let summaryShown = "";
+
+  /** What each pane was doing at the last push, for announceStatus. */
+  const announced = new Map();
+
+  /** announceStatus tells a screen reader, by name, about an agent that has
+   *  started waiting on you or whose process has exited: the two changes
+   *  that need a person. Working and idle are not news. Never on the first
+   *  sighting of a pane, since arriving at a workspace where agents already
+   *  wait is not the moment they stopped. */
+  function announceStatus(s) {
+    const said = [];
+    for (const [id, v] of Object.entries(s.panes || {})) {
+      const before = announced.get(id);
+      announced.set(id, v.status);
+      if (before === undefined || before === v.status) continue;
+      const name = v.name || "An agent";
+      if (v.status === "waiting") said.push(name + " is waiting on you");
+      else if (v.status === "exited") said.push(name + " has exited");
+    }
+    for (const id of [...announced.keys()]) {
+      if (!s.panes || !s.panes[id]) announced.delete(id);
+    }
+    if (!said.length) return;
+    // Each announcement is a line of its own, so the same words said twice
+    // are still an addition and are read again; only the last few are kept.
+    const box = $("announcer");
+    box.append(el("div", null, said.join(". ")));
+    while (box.children.length > 3) box.firstChild.remove();
+  }
 
   function renderSummary(s) {
     const shown = s.waiting + " " + s.working;
@@ -1933,6 +1971,22 @@
     return i >= 0 && i + 1 < tabs.length ? tabs[i + 1].id : "";
   }
 
+  /** moveTabBy moves the tab on screen one place along the strip, which was
+   *  otherwise done only by dragging it. moveTab puts a tab in front of the
+   *  one it names, or last for "". */
+  function moveTabBy(step) {
+    if (!state) return;
+    const tabs = state.tabs;
+    const at = tabs.findIndex((t) => t.id === state.activeTab);
+    if (at < 0) return;
+    const to = at + step;
+    if (to < 0 || to >= tabs.length) {
+      notice(step < 0 ? "This tab is already the first" : "This tab is already the last", false);
+      return;
+    }
+    send({ cmd: "moveTab", id: tabs[at].id, target: step < 0 ? tabs[to].id : tabAfter(tabs[to].id) });
+  }
+
   /** makeTabDraggable makes a tab reorderable, mergeable into another tab, and
    * a place to drop a pane. */
   function makeTabDraggable(tabId, node) {
@@ -2141,6 +2195,9 @@
       fontSize: fontSize,
       lineHeight: 1.15,
       scrollback: scrollback,
+      // Drawn on a canvas, what an agent writes is nothing a screen reader
+      // can see; this keeps an accessible copy of the lines beside it.
+      screenReaderMode: !!prefs.screenReader,
       theme: {
         background: "#0f1114",
         foreground: "#d8dee9",
@@ -2760,6 +2817,9 @@
       return;
     }
     const box = el("div", "pane-error");
+    // It goes up on its own, over a terminal somebody may be reading or
+    // typing in, so it is said as it appears.
+    box.setAttribute("role", "alert");
     p.overlayText = el("div", null, text);
     box.append(p.overlayText);
     const row = el("div");
@@ -2771,6 +2831,14 @@
     box.append(row);
     p.body.append(box);
     p.overlay = box;
+    // The keyboard was left in the terminal under the cover, where nothing
+    // typed went anywhere. It moves to Restart once, as the cover goes up,
+    // and only for the pane being typed in: not from the rail or the top bar,
+    // and not out from under a dialog or the palette.
+    const t = currentTab();
+    const at = document.activeElement;
+    const here = !at || at === document.body || p.wrap.contains(at);
+    if (t && t.focus === p.id && here && !dialogOpen() && $("disconnected").hidden) restart.focus();
   }
 
   /** prunePanes takes down the panes the workspace no longer has. Everything a
@@ -2822,6 +2890,51 @@
     send({ cmd: "focusPane", id: order[(at + step + order.length) % order.length] });
   }
   function focusedPaneId() { const t = currentTab(); return t ? t.focus : ""; }
+
+  /** regionOf says which part of the window a node is in, in the order
+   *  cycleRegion walks them: the rail, the top bar, a pane's header and a
+   *  pane's terminal. -1 is anywhere else: the page itself, or a bar along
+   *  the bottom. */
+  function regionOf(node) {
+    if (!node || !node.closest) return -1;
+    if (node.closest("#rail")) return 0;
+    if (node.closest("#topbar")) return 1;
+    if (node.closest(".pane-header")) return 2;
+    if (node.closest(".pane-body")) return 3;
+    return -1;
+  }
+
+  /** cycleRegion moves the keyboard to the next part of the window, or the
+   *  one before, coming round at either end. Tab inside a terminal belongs to
+   *  the program in it, so there was no way from a terminal to the rail, the
+   *  tabs or the pane's own buttons without the mouse. A dialog keeps the
+   *  keyboard, as it keeps Tab. */
+  function cycleRegion(step) {
+    if (modalRoot()) return;
+    const t = currentTab();
+    const p = t ? panes.get(t.focus) : null;
+    const stops = [
+      // The rail, unless a narrow window has folded it into a menu; the
+      // button that opens the menu is in the top bar.
+      () => { if (railFolded()) return null; placeRailStop(); return railStop; },
+      // The top bar, at the tab on screen: the strip is most of what it is.
+      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("project-btn"); },
+      // The focused pane's buttons, at whichever of them is their stop.
+      () => (p ? [...p.actions.children].find((b) => b.tabIndex === 0) || null : null),
+      () => (p ? p.term : null),
+    ];
+    const at = regionOf(document.activeElement);
+    // From outside all four, forwards starts at the first and back at the last.
+    const from = at < 0 ? (step > 0 ? -1 : stops.length) : at;
+    for (let i = 1; i <= stops.length; i++) {
+      const to = (((from + step * i) % stops.length) + stops.length) % stops.length;
+      const target = stops[to]();
+      if (!target) continue;
+      if (p && target === p.term) focusTerminal();
+      else target.focus();
+      return;
+    }
+  }
 
   // -------------------------------------------------------------- prompt bar
 
@@ -3864,6 +3977,27 @@
     applyCursorBlink();
     applyCursorStyle();
     applyFontFamily();
+    applyScreenReader();
+  }
+
+  /** setScreenReader turns screen reader support on or off. It is kept as
+   *  "on", unlike the preferences setOff looks after: it costs every terminal
+   *  a copy of its lines, so it stays off until somebody asks for it. It takes
+   *  effect here at once, as they do. */
+  function setScreenReader(on) {
+    prefs.screenReader = on;
+    send({ cmd: "screenReader", kind: on ? "on" : "off" });
+    notice(on ? "Screen reader support is on" : "Screen reader support is off", false);
+    applyScreenReader();
+    settingsChanged();
+  }
+  /** applyScreenReader makes every terminal follow the preference. A pane
+   *  made later reads it as it is made. */
+  function applyScreenReader() {
+    const on = !!prefs.screenReader;
+    for (const p of panes.values()) {
+      if (p.term.options.screenReaderMode !== on) p.term.options.screenReaderMode = on;
+    }
   }
 
   /** The typeface the terminals are drawn in where nobody has chosen one. */
@@ -4199,8 +4333,11 @@
     },
     mergeAllTabs: () => send({ cmd: "mergeAllTabs", id: state ? state.activeTab : "", dir: "h" }),
     renameTab: () => { if (state) renameTab(state.activeTab); },
+    moveTabLeft: () => moveTabBy(-1),
+    moveTabRight: () => moveTabBy(1),
 
     toggleBroadcast: () => send({ cmd: "toggleBroadcast" }),
+    toggleBroadcastMember: () => { const id = focusedPaneId(); if (id) send({ cmd: "toggleBroadcastMember", id }); },
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
     agents: () => openAgents(),
@@ -4210,6 +4347,8 @@
     changes: () => openChanges(),
 
     palette: () => openPalette(),
+    nextRegion: () => cycleRegion(1),
+    prevRegion: () => cycleRegion(-1),
     findInTerminal: () => openSearch(),
     history: () => openHistory(),
     projects: () => openProjects(),
@@ -4372,6 +4511,9 @@
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
       scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
+      // One label for both ways a toggle goes, so the hint says which it is.
+      toggleBroadcastMember: id && s.panes && s.panes[id]
+        ? (s.panes[id].broadcast ? "in the broadcast set" : "out of the broadcast set") : "",
     };
     const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable
@@ -4411,6 +4553,12 @@
     // The cursor's blink was fixed in the source, and one blinking cursor
     // among a tab of still terminals is a distraction some people want gone.
     toggle("cursorSteady", ["Make the terminal cursor blink", "Stop the terminal cursor blinking"]);
+    // What the agents write was out of a screen reader's reach, and the one
+    // way to reach it has to be findable by somebody who cannot see the
+    // settings: this entry is it.
+    cmds.push(prefs.screenReader
+      ? { label: "Turn screen reader support off", also: SETTING + " accessibility", run: () => setScreenReader(false) }
+      : { label: "Turn screen reader support on", also: SETTING + " accessibility", run: () => setScreenReader(true) });
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
@@ -4919,6 +5067,13 @@
       // each time, while it was being read, for the same lines.
       const keep = was && selectedFile && was.file === selectedFile && diffText ? was.panel : null;
       const diff = keep || el("div", "rev-diff");
+      // It scrolls on its own, three hundred pixels of a diff that can run
+      // to thousands of lines, and a box that cannot be focused cannot be
+      // scrolled from the keyboard. fillDiff names it after its file.
+      if (!keep) {
+        diff.tabIndex = 0;
+        diff.setAttribute("role", "region");
+      }
       split.append(diff);
       body.append(split);
       changeView = { rows, diff, list };
@@ -5018,6 +5173,10 @@
     if (!changeView) return;
     const diff = changeView.diff;
     const top = diff.scrollTop;
+    // Named after the file it shows, since it is a stop of its own on the way
+    // round the dialog and the list beside it is where the name was.
+    const name = selectedFile ? "Diff of " + selectedFile : "Diff";
+    if (diff.getAttribute("aria-label") !== name) diff.setAttribute("aria-label", name);
     diff.textContent = "";
     if (!selectedFile) diff.append(el("span", "meta", "Select a file to see what changed."));
     else if (!diffText) diff.append(el("span", "meta", "Loading diff…"));
@@ -5068,7 +5227,9 @@
       more.remove();
       for (let i = shown; i < lines.length; i++) host.append(diffLine(lines[i]));
       if (had) {
-        if (!host.hasAttribute("tabindex")) host.tabIndex = -1;
+        // A stop on Tab's way round, as renderChanges made it: -1 would take
+        // it off that way for as long as the dialog stayed open.
+        if (host.getAttribute("tabindex") !== "0") host.tabIndex = 0;
         host.focus();
       }
     };
@@ -5855,7 +6016,7 @@
 
   const SETTINGS_SECTIONS = [
     { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
-    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview" },
+    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet" },
@@ -6220,6 +6381,9 @@
     pane.append(settingRow("Blinking cursor",
       reducedMotion() ? "Your system asks for less motion, so the cursors stay still whatever this says." : "",
       switchControl("set-cursor-blink", !prefs.cursorSteady, (on) => setOff("cursorSteady", !on))));
+    pane.append(settingRow("Screen reader support",
+      "Lets a screen reader read what the agents write. Each terminal keeps a copy of its lines for it, which slows them a little.",
+      switchControl("set-screen-reader", !!prefs.screenReader, (on) => setScreenReader(on))));
 
     // Drawn in the terminals' own font and size, with a cursor of the chosen
     // shape, so a change is seen here before a pane is looked at.

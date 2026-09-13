@@ -315,12 +315,15 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Alt+1 … Alt+9` | Select tab by number |
 | Command palette | Merge every tab into this one |
+| Command palette | Move tab left |
+| Command palette | Move tab right |
 
 ### Agents
 
 | Keys | Action |
 | --- | --- |
 | `Ctrl+Shift+B` | Toggle broadcast |
+| Command palette | Add this pane to broadcast, or take it out |
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
 | `Ctrl+Shift+A` | All agents across projects |
@@ -338,6 +341,8 @@ which the command palette and the in-app help are also drawn from; run
 | Keys | Action |
 | --- | --- |
 | `Ctrl+Shift+K` | Command palette |
+| `F6` | Move to the next part of the window |
+| `Shift+F6` | Move to the previous part of the window |
 | `Ctrl+Shift+F` | Find in terminal |
 | `Ctrl+Shift+R` | Resume a past conversation |
 | `Ctrl+Shift+O` | Projects |

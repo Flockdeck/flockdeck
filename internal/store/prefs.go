@@ -35,6 +35,10 @@ type Prefs struct {
 	UpdatesOff bool `json:"updatesOff,omitempty"`
 	// CursorSteady stops the terminal cursors blinking.
 	CursorSteady bool `json:"cursorSteady,omitempty"`
+	// ScreenReader has every terminal keep an accessible copy of its lines,
+	// which is what lets a screen reader read what the agents write. It costs
+	// every terminal some speed, so it is off until it is asked for.
+	ScreenReader bool `json:"screenReader,omitempty"`
 	// CursorStyle is the shape of the terminal cursors: "bar" or
 	// "underline". Empty is the default, a block.
 	CursorStyle string `json:"cursorStyle,omitempty"`

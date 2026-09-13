@@ -644,9 +644,10 @@ console.log("elements built to show a diff: " + built);
 	t.Log(strings.TrimSpace(out))
 }
 
-// The tally of who is waiting and who is working is a live region, so putting
-// it back unchanged is not free: a screen reader reads out whatever appears
-// there, and a status push arrives every time any agent moves.
+// The tally of who is waiting and who is working is rebuilt only when the
+// counts move: a status push arrives every time any agent moves. It is not a
+// live region any more - that read the counts out on every change of them,
+// and never said which agent; announceStatus says what matters instead.
 func TestTheSummaryIsOnlySpokenWhenItChanges(t *testing.T) {
 	out := runFrontEnd(t, `
 h.hello();
@@ -654,7 +655,7 @@ const busy = { p1: pane("p1", { status: "waiting" }), p2: pane("p2", { status: "
 h.recv(fixture({ waiting: 1, working: 1, panes: busy }));
 
 const box = h.$("summary");
-assert.strictEqual(box.getAttribute("aria-live"), "polite", "the summary is a live region");
+assert.strictEqual(box.getAttribute("aria-live"), null, "the summary reads its counts out on every change of them");
 assert.ok(box.textContent.includes("1 waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("1 working"), "got: " + box.textContent);
 assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
@@ -685,6 +686,38 @@ assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
 assert.strictEqual(h.doc.title, "flockdeck");
 `)
 	t.Log(strings.TrimSpace(out))
+}
+
+// The tally in the top bar was a live region, so every agent that started or
+// stopped working had the counts read out, and none of it said which agent.
+// What a screen reader is told now is the news that needs a person, by name:
+// an agent that has started waiting on you, or one whose process has exited.
+func TestAnAgentThatStartsWaitingIsAnnouncedByName(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const region = h.$("announcer");
+const said = () => region.textContent;
+assert.strictEqual(region.getAttribute("role"), "status", "there is no status region to announce anything in");
+assert.strictEqual(said(), "", "something was announced before anything happened");
+
+// Working and idle are not news.
+h.recv(fixture({ working: 1, panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+h.recv(fixture({ panes: { p1: pane("p1"), p2: pane("p2") } }));
+assert.strictEqual(said(), "", "an agent starting and stopping work was announced: " + said());
+
+const waiting = { status: "waiting", name: "fix the parser" };
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", waiting), p2: pane("p2") } }));
+assert.ok(said().endsWith("fix the parser is waiting on you"), "the agent that stopped to wait was not named: " + said());
+
+// Still waiting is not news again.
+const lines = region.children.length;
+h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", Object.assign({ detail: "asking again" }, waiting)), p2: pane("p2") } }));
+assert.strictEqual(region.children.length, lines, "an agent still waiting was announced again");
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "exited", name: "fix the parser" }), p2: pane("p2") } }));
+assert.ok(said().endsWith("fix the parser has exited"), "the agent whose process exited was not named: " + said());
+`)
 }
 
 // The pane headers are the hottest part of the screen: one per agent, redrawn
@@ -2424,6 +2457,56 @@ h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
   files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
 assert.ok(h.$("overlay-body").textContent.includes("Restart now"), "the review was drawn over the update");
 assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn over the update");
+`)
+}
+
+// The release notes and a file's diff each scroll inside a box of their own,
+// and neither box could be focused, so what was past its bottom edge was out
+// of reach from the keyboard. Each is a named stop on Tab's way round its
+// dialog now, and drawing the rest of a long diff keeps it one.
+func TestTheDiffAndTheReleaseNotesCanBeScrolledFromTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
+const stops = () => {
+  const seen = [];
+  for (let i = 0; i < 40; i++) { h.key({ key: "Tab" }); seen.push(h.doc.activeElement); }
+  return seen;
+};
+
+h.click(h.$("btn-update"));
+const notes = h.$("overlay-body").querySelector("pre.update-notes");
+assert.strictEqual(notes.getAttribute("tabindex"), "0", "the release notes cannot be focused, so they cannot be scrolled from the keyboard");
+assert.strictEqual(notes.getAttribute("role"), "region");
+assert.strictEqual(notes.getAttribute("aria-label"), "Release notes");
+assert.ok(stops().includes(notes), "Tab never reaches the release notes");
+h.key({ key: "Escape" });
+
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a/one.go", label: "M", added: 1, removed: 0 }, { path: "a/two.go", label: "M", added: 1, removed: 0 }] });
+const rows = h.$("overlay-body").querySelectorAll("div.rev-file");
+h.click(rows[0]);
+const NL = String.fromCharCode(10);
+const long = ["@@ -1,4000 +1,4000 @@"];
+for (let i = 0; i < 4000; i++) long.push("+line " + i);
+h.recv({ type: "diff", cwd: "C:/repo", file: "a/one.go", text: long.join(NL) });
+const diff = h.$("overlay-body").querySelector("div.rev-diff");
+assert.strictEqual(diff.getAttribute("tabindex"), "0", "the diff cannot be focused, so it cannot be scrolled from the keyboard");
+assert.strictEqual(diff.getAttribute("role"), "region");
+assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/one.go");
+assert.ok(stops().includes(diff), "Tab never reaches the diff");
+
+// Drawing the rest from the keyboard puts the keyboard on the diff, which
+// stays a stop on the way round.
+const more = diff.querySelectorAll("button").find((b) => b.textContent === "Show them");
+more.focus();
+h.key({ key: "Enter" });
+assert.ok(h.doc.activeElement === diff, "the keyboard did not go to the diff");
+assert.strictEqual(diff.getAttribute("tabindex"), "0", "drawing the rest took the diff off Tab's way round");
+
+h.click(rows[1]);
+assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/two.go", "the diff is still named after the file before");
 `)
 }
 
@@ -4587,6 +4670,151 @@ h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
 assert.strictEqual(h.terms[0].options.cursorBlink, true, "the terminals did not follow the choice");
 paletteRun("cursor blinking");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
+`)
+}
+
+// The terminals are drawn on a canvas, so without xterm's screen reader mode
+// nothing an agent wrote could be read out. It is turned on from the palette
+// or the settings, kept with the preferences, and followed by every terminal:
+// those already open, those opened after, and those in another window.
+func TestScreenReaderSupportReachesEveryTerminal(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.terms[0].options.screenReaderMode, false, "screen reader support is on before anybody asked for it");
+paletteRun("screen reader support on");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
+assert.strictEqual(h.terms[0].options.screenReaderMode, true, "an open terminal did not follow the choice");
+
+// A pane opened afterwards reads it as it is made.
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n3", "p3")]) },
+  { id: "t2", title: "two", focus: "p2", zoom: false, attention: false, root: leaf("n2", "p2") }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } }));
+const late = h.terms[h.terms.length - 1];
+assert.strictEqual(late.options.screenReaderMode, true, "a pane opened after the choice cannot be read out");
+
+// Another window turning it off.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.ok(h.terms.every((t) => t.disposed || t.options.screenReaderMode === false), "the terminals did not follow another window");
+
+// The settings have a switch for it.
+h.press("settings");
+h.click(h.$("settings-tab-terminal"));
+assert.ok(h.$("set-screen-reader"), "the terminal settings have no switch for screen reader support");
+h.click(h.$("set-screen-reader"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
+`)
+}
+
+// Inside a terminal Tab belongs to the program there, so nothing took the
+// keyboard out of one to the rest of the window. F6 and Shift+F6 move it round
+// the window's parts - the rail, the top bar, the focused pane's buttons, its
+// terminal - and a dialog keeps it. Putting a pane in the broadcast set and
+// moving a tab along the strip had no key and no command either, and are in
+// the palette now.
+func TestTheKeyboardCanLeaveATerminalForTheRestOfTheWindow(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture());
+// A wide window, where the rail is on screen rather than folded into a menu.
+Object.defineProperty(h.$("rail-toggle"), "offsetParent", { get: () => null });
+const term = h.terms[0];
+const buttons = term.host.parentElement.parentElement.querySelector("div.pane-actions");
+// xterm types through a textarea of its own inside the terminal's host.
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+term.host.append(typing);
+const inTerminal = () => { term.blur(); typing.focus(); };
+
+inTerminal();
+h.press("nextRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "F6 in a terminal did not reach the rail");
+h.press("nextRegion");
+assert.ok(h.doc.activeElement === h.$("tab-t1"), "the second F6 did not reach the top bar's current tab");
+h.press("nextRegion");
+assert.ok(buttons.contains(h.doc.activeElement), "the third F6 did not reach the focused pane's buttons");
+h.press("nextRegion");
+assert.ok(term.focused, "the fourth F6 did not come back to the terminal");
+
+inTerminal();
+h.press("prevRegion");
+assert.ok(buttons.contains(h.doc.activeElement), "Shift+F6 in a terminal did not reach its pane's buttons");
+h.press("prevRegion");
+assert.ok(h.doc.activeElement === h.$("tab-t1"), "Shift+F6 did not go back to the top bar");
+h.press("prevRegion");
+assert.ok(h.$("rail").contains(h.doc.activeElement), "Shift+F6 did not go back to the rail");
+term.blur();
+h.press("prevRegion");
+assert.ok(term.focused, "Shift+F6 from the rail did not come round to the terminal");
+
+// A dialog keeps the keyboard.
+h.press("settings");
+const panel = h.$("overlay-panel");
+h.press("nextRegion");
+assert.ok(panel === h.doc.activeElement || panel.contains(h.doc.activeElement), "F6 took the keyboard out of a dialog");
+h.key({ key: "Escape" });
+
+paletteRun("add this pane to broadcast");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleBroadcastMember", id: "p1" });
+
+const three = (active) => fixture({ activeTab: active, tabs: [
+  { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") },
+  { id: "t2", title: "two", focus: "p2", root: leaf("n2", "p2") },
+  { id: "t3", title: "three", focus: "p3", root: leaf("n3", "p3") }],
+  panes: { p1: pane("p1"), p2: pane("p2"), p3: pane("p3") } });
+h.recv(three("t1"));
+paletteRun("move tab right");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "moveTab", id: "t1", target: "t3" });
+let before = h.commands().length;
+paletteRun("move tab left");
+assert.strictEqual(h.commands().length, before, "the first tab was sent further left than the start");
+h.recv(three("t3"));
+paletteRun("move tab left");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "moveTab", id: "t3", target: "t2" });
+before = h.commands().length;
+paletteRun("move tab right");
+assert.strictEqual(h.commands().length, before, "the last tab was sent further right than the end");
+`)
+}
+
+// A pane whose process has gone is covered with what happened and a Restart
+// button, and the cover was silent and left the keyboard in the terminal under
+// it, where nothing typed went anywhere and nothing said why. It is an alert
+// now, and takes the keyboard to Restart - once, as it goes up, for the pane
+// being typed in, and never out of the palette or a dialog.
+func TestAnExitedPaneSaysSoAndOffersRestartToTheKeyboard(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.ok(h.terms[0].focused, "the first pane's terminal has the keyboard to begin with");
+const exited = (id) => fixture({ panes: { p1: pane("p1", { status: id === "p1" ? "exited" : "idle" }),
+  p2: pane("p2", { status: id === "p2" ? "exited" : "idle" }) } });
+const cover = () => h.terms[0].host.parentElement.querySelector("div.pane-error");
+const restart = () => cover().querySelectorAll("button").find((b) => b.textContent === "Restart");
+
+h.recv(exited("p1"));
+assert.strictEqual(cover().getAttribute("role"), "alert", "the cover appears without a word to a screen reader");
+assert.ok(h.doc.activeElement === restart(), "the keyboard stayed in the terminal under the cover");
+
+// Once: a push that changes nothing about the exit does not take it back.
+h.$("project-btn").focus();
+h.recv(exited("p1"));
+assert.ok(h.doc.activeElement === h.$("project-btn"), "another push took the keyboard back to Restart");
+
+// Not out of the palette.
+h.recv(fixture());
+assert.ok(!cover(), "the cover stayed up with the process back");
+h.press("palette");
+h.recv(exited("p1"));
+assert.ok(h.doc.activeElement === h.$("palette-input"), "an exit took the keyboard out of the palette");
+h.key({ key: "Escape" });
+
+// Nor for a pane in another tab.
+h.recv(fixture());
+h.$("project-btn").focus();
+h.recv(exited("p2"));
+assert.ok(h.doc.activeElement === h.$("project-btn"), "a pane in another tab took the keyboard as it exited");
 `)
 }
 

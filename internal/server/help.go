@@ -195,6 +195,12 @@ func (s *Server) setCursorSteady(c *controlClient, steady bool) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.CursorSteady, steady) })
 }
 
+// setScreenReader records whether the terminals keep a copy of their lines for
+// a screen reader. Without it nothing an agent wrote could be read out at all.
+func (s *Server) setScreenReader(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.ScreenReader, on) })
+}
+
 // setCursorStyle records the shape of the terminal cursors. A block is the
 // default and is kept as nothing, so a file written before there was a choice
 // reads the same; a shape the terminals do not draw is refused.

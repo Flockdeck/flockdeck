@@ -10,7 +10,9 @@ the keys change, so whichever you use, the others show it.
 - **Terminal** — the font size, the font, how many lines each pane keeps to
   scroll back through, and the cursor's shape and whether it blinks, with a
   preview. The size is also [[key:fontUp]], [[key:fontDown]] and
-  [[key:fontReset]].
+  [[key:fontReset]]. **Screen reader support** lets a screen reader read what
+  the agents write; it is off unless you turn it on, because it slows every
+  terminal a little. The palette has **Turn screen reader support on** too.
 - **Agents** — the agent and model a pane starts when nobody chooses: for every
   project, and for the project on screen, which can go back to **Same as every
   project**.

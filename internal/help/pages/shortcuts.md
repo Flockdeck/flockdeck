@@ -3,8 +3,13 @@
 Everything not listed here goes to the focused agent, which needs the rest of
 the keyboard for itself. That is why almost every binding is on
 <kbd>Ctrl+Shift</kbd>. The exceptions are the ones no terminal program claims:
-switching tabs, the font size, [[key:settings]] for the settings, and
-<kbd>F1</kbd> for this help.
+switching tabs, the font size, [[key:settings]] for the settings,
+<kbd>F1</kbd> for this help, and [[key:nextRegion]] for the rest of the window.
+
+Inside a terminal <kbd>Tab</kbd> belongs to the program running there, so
+[[key:nextRegion]] is how the keyboard gets out: it moves between the rail, the
+top bar, the focused pane's buttons and its terminal, in that order, and
+[[key:prevRegion]] goes the other way. While a dialog is open it stays there.
 
 Actions marked *Command palette* have no binding of their own: press
 [[key:palette]], or **Commands** at the right of the top bar, and search for
