@@ -75,6 +75,9 @@ A link works once and expires after a few minutes. Until then, whoever opens it
 can drive every agent on every desktop on this account, and open a shell on
 any of them, so treat it like a password.
 
+A phone paired with just one desktop opens straight into it; paired with more
+than one, it shows a list to choose from first.
+
 On a phone, opening a pane shows a chat with the agent rather than its raw
 terminal, for a Claude Code pane and Flockdeck's own chat client — see
 **Your agents on your phone**, below. When an agent stops to ask a question
@@ -93,7 +96,11 @@ switch in the pane's own header moves between the two anyway, and is
 remembered there, per device, per pane. A search button beside it opens a
 slim bar over the conversation — type to see matching prompts, replies and
 tool summaries as you go, and tap one to jump straight to it, paging in
-older history if it isn't loaded yet.
+older history if it isn't loaded yet. Switching to **Terminal** still gives a
+proper terminal, not a cut-down one: Escape, Tab, the arrows, Enter and
+Ctrl+C sit in a row above the keyboard, with Ctrl, Page Up, Page Down, Home
+and End behind a **More** button, and the prompt itself stays above the
+phone's own keyboard rather than sliding behind it.
 
 Replies render as Markdown — headings, lists, tables, quotes, and code with a
 copy button, a wrap toggle and syntax colouring. Each turn's tool calls and
@@ -103,17 +110,34 @@ or a permission prompt appears as a card with buttons in the chat, rather
 than needing the terminal — multiple choice, a typed answer, and Yes/No for a
 permission are all covered, including a call that asks several questions at
 once: answer them one at a time on the card, then send them all together.
+Each reply also carries its own **Copy**, for the whole thing as Markdown,
+and **Quote**, which drops a paragraph or so of it into the box, quoted,
+ahead of whatever you've already typed. A message you start and don't send
+is kept too, per agent, in that browser, so leaving the chat and coming back
+doesn't lose it.
 
 While an agent works, "Working for 3m — Bash", naming what it's doing, sits
 above the prompt box, and a **Stop** button — the same as pressing Escape —
 takes Send's place in the prompt row, with Send back beside it once you type;
 once it's idle, quick replies — Continue, Yes, go ahead, Explain that more
-simply, Run the tests — cover the common ones without typing. Every open
-pane also appears in the paired device's list with its latest reply, or the
-question it's waiting on, a time, and an unread dot, so you can see what's
-happened everywhere without opening each one. Messages Flockdeck itself
-injects — a background task finishing, a session notice — show as small
-notes, never as if you had typed them.
+simply, Run the tests — cover the common ones without typing. A message you
+send says what's happened to it: **Sending…**, then **Sent**, then a quiet
+tick for **Delivered** once the agent's own transcript shows it arrived; one
+that hasn't after a while says **Not delivered yet**, with **Retry** beside
+it. The chat header, and each row in the list below, also says what the
+agent has spent in its conversation — a token count and the tightest of its
+usage windows for one on a subscription, or a rough cost in dollars for one
+paying by the token — coloured once that window is close to running out.
+
+Every open pane also appears in the paired device's list with its latest
+reply, or the question it's waiting on, a time, and an unread dot, so you
+can see what's happened everywhere without opening each one. One waiting on
+a permission offers Yes and No right there in the list; one waiting on a
+single, short question offers a button for each option; anything more — several
+questions at once, a typed answer — still just opens the chat, the way
+tapping the row always has. Messages Flockdeck itself injects — a background
+task finishing, a session notice — show as small notes, never as if you had
+typed them.
 
 A screenshot in the conversation shows as a thumbnail that opens full
 screen; you can attach a photo from the phone too. It's shrunk on the phone
@@ -126,7 +150,11 @@ older one, a pane simply opens as a terminal instead. Even where a pane does
 open as a chat, a few parts fall back gracefully on a desktop too old to send
 them, rather than breaking: no live timer, a plain "waiting for you — open
 the terminal to answer" banner instead of a question or permission card, and
-no preview text in the paired device's list.
+no preview text in the paired device's list. **New agent**, search, and
+muting a single pane each need their own, newer understanding from the
+desktop too, and simply don't appear against an older one, rather than
+sending it a command it would silently drop.
+
 **New agent**, near the top of a desktop's page in the relay's client, starts
 one without going to the desk: choose a project already open there, an agent
 and model, optionally a fresh worktree, and a first message, then **Start**.
@@ -138,10 +166,11 @@ a project the desktop does not already have open rather than opening one.
 A paired phone can be told when an agent has been waiting on you for a while,
 whether or not the relay's page is open on it, and whether or not a window is
 open here: a run left detached reaches you too. On the phone, open a desktop
-and press **Notify me when an agent needs me**. On an iPhone or iPad, add the
-page to the Home Screen first — Share, then **Add to Home Screen** — and open
-it from there: iOS and iPadOS send notifications only to web apps added that
-way, from version 16.4. Tapping a notification opens the pane that is waiting.
+and press **Notify me when an agent needs me**, below its list of panes. On
+an iPhone or iPad, add the page to the Home Screen first — Share, then **Add
+to Home Screen** — and open it from there: iOS and iPadOS send notifications
+only to web apps added that way, from version 16.4. Tapping a notification
+opens the pane that is waiting.
 
 Here, Settings › **Remote access** says what is sent:
 
@@ -161,9 +190,11 @@ Here, Settings › **Remote access** says what is sent:
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 
-A single agent that is chatty and safe to leave can also be muted from its
-own row or header on the phone, which leaves it out of what is sent while it
-goes on showing as waiting everywhere, including here.
+A single agent that is chatty and safe to leave can also be muted from the
+bell in its own header on the phone, which leaves it out of what is sent
+while it goes on showing as waiting everywhere, including here. Muting lives
+on the pane, not the device that asked, and is forgotten on close: it does
+not survive a restart of Flockdeck.
 
 Each notification is encrypted here, on this machine, for the device it goes
 to, and the relay only passes it on: neither the relay nor the push service

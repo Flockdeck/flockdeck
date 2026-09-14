@@ -145,10 +145,16 @@ The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 Where a pane opens as a conversation rather than a terminal (a Claude Code
 pane, or Flockdeck's own chat client), that conversation passes through the
-relay the same way, and the relay stores none of it. A photo you attach to
-a message from your phone passes through it too, but is kept only on your
-desktop, in Flockdeck's own folder, never your project, and removed after
-about a week.
+relay the same way, and the relay stores none of it. Searching that
+conversation runs on your desktop, against what it has already kept; only
+the query you type and the matches it finds pass through the relay, the same
+way the rest of the conversation does. A photo you attach to a message from
+your phone passes through it too, but is kept only on your desktop, in
+Flockdeck's own folder, never your project, and removed after about a week.
+
+Muting a single pane's notifications from a phone is held only in that
+desktop's memory while it keeps running: it is not persisted there or
+anywhere else, and the relay stores nothing about it.
 
 Notifications are the exception. When an agent has been waiting on you for a
 while and you haven't touched this computer — no keyboard or mouse input in
@@ -213,8 +219,10 @@ on every request, and stops working the moment the device or the desktop is
 removed. Getting there uses a one-time code, kept in the relay's memory for
 60 seconds and good once, never written to a cookie or stored any longer. The
 relay's web client also remembers three display preferences in your
-browser's local storage: notifications, zoom and fit to screen. None of this
-is used for tracking, or shared with anyone.
+browser's local storage: notifications, zoom and fit to screen. It keeps a
+message you've started typing to an agent there too, per pane, so switching
+away and back doesn't lose it — on your device only, and never sent anywhere
+until you send it. None of this is used for tracking, or shared with anyone.
 
 ## This website
 
