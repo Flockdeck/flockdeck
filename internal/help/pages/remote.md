@@ -79,7 +79,11 @@ can drive every agent on every desktop on this account, and open a shell on
 any of them, so treat it like a password.
 
 A phone paired with just one desktop opens straight into it; paired with more
-than one, it shows a list to choose from first.
+than one, it shows a list to choose from first. At 900px and wider — a
+tablet, or a browser window that wide — a desktop's list of panes sits in its
+own column beside whichever one is open, instead of swapping the whole
+screen for it; tapping another row swaps only that side, so the list keeps
+its scroll position and any helper group you had open.
 
 On a phone, opening a pane shows a chat with the agent rather than its raw
 terminal, for a Claude Code pane and Flockdeck's own chat client — see
@@ -106,9 +110,14 @@ and End behind a **More** button, and the prompt itself stays above the
 phone's own keyboard rather than sliding behind it.
 
 Replies render as Markdown — headings, lists, tables, quotes, and code with a
-copy button, a wrap toggle and syntax colouring. Each turn's tool calls and
-thinking fold into one line, "12 steps · 3 files edited · 4 commands", tapped
-open to see each step; an edit shows its diff, with line numbers. A question
+copy button, a wrap toggle and syntax colouring. A long code block or diff
+folds to its first dozen-odd lines behind "Show all N lines", and a reply
+longer than about a screen and a half folds to about one screen under "Show
+more" — the newest reply stays open, an older long one folds, and one still
+arriving is never folded mid-stream; jumping to it from search opens
+whichever fold is in the way. Each turn's tool calls and thinking fold into
+one line, "12 steps · 3 files edited · 4 commands", tapped open to see each
+step; an edit shows its diff, with line numbers. A question
 or a permission prompt appears as a card with buttons in the chat, rather
 than needing the terminal — multiple choice, a typed answer, and Yes/No for a
 permission are all covered, including a call that asks several questions at
@@ -134,18 +143,35 @@ paying by the token — coloured once that window is close to running out.
 
 Every open pane also appears in the paired device's list with its latest
 reply, or the question it's waiting on, a time, and an unread dot, so you
-can see what's happened everywhere without opening each one. One waiting on
-a permission offers Yes and No right there in the list; one waiting on a
-single, short question offers a button for each option; anything more — several
-questions at once, a typed answer — still just opens the chat, the way
-tapping the row always has. Messages Flockdeck itself injects — a background
-task finishing, a session notice — show as small notes, never as if you had
-typed them.
+can see what's happened everywhere without opening each one. Opening the
+list again after a while away leads with **Since you last looked** — new
+replies, agents that finished, and ones that started waiting, since this
+device last had it open — and a tap on any of those jumps to and
+highlights the first row it counts, opening its helper group first if that
+was folded. It says nothing once there is nothing honest left to count. One
+waiting on a permission offers Yes and No right there in the list; one
+waiting on a single, short question offers a button for each option;
+anything more — several questions at once, a typed answer — still just
+opens the chat, the way tapping the row always has. Messages Flockdeck
+itself injects — a background task finishing, a session notice — show as
+small notes, never as if you had typed them.
+
+A lead agent's own helpers — started by `flockdeck spawn` or a fan-out —
+are grouped under its row instead of filling the list with one each,
+folded by default into a line such as "3 helpers · 1 waiting"; tap it to
+open them as indented rows, and again to fold them back, remembered per
+desktop and lead. A helper waiting on you is never hidden by the fold, and
+a group with one waiting sorts to the top even while its lead is idle.
 
 A screenshot in the conversation shows as a thumbnail that opens full
-screen; you can attach a photo from the phone too. It's shrunk on the phone
-before it's sent, kept on this desktop — in Flockdeck's own folder, never
-your project — and removed after about a week; the agent is told its file
+screen. The attach button offers your photo library or the camera in one
+tap, and the library lets you pick several at once, up to six; each queues
+its own thumbnail in a strip above the prompt box, with a spinner while it
+uploads and its own Retry if it fails, and Send goes once every picture is
+in, as one message carrying all of them — attaching too many too quickly
+is refused rather than queued. They're shrunk on the phone before they're
+sent, kept on this desktop — in Flockdeck's own folder, never your
+project — and removed after about a week; the agent is told each file's
 path, the same way typing one would tell it.
 
 Most of this needs a fairly recent Flockdeck on the desktop; paired with an
@@ -163,6 +189,8 @@ one without going to the desk: choose a project already open there, an agent
 and model, optionally a fresh worktree, and a first message, then **Start**.
 It opens straight into that agent's conversation once it starts, and refuses
 a project the desktop does not already have open rather than opening one.
+Starting several in quick succession is refused, the same guard that limits
+pictures.
 
 ## Notifications on your phone
 

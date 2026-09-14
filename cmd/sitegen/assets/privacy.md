@@ -154,7 +154,11 @@ Flockdeck's own folder, never your project, and removed after about a week.
 
 Muting a single pane's notifications from a phone is held only in that
 desktop's memory while it keeps running: it is not persisted there or
-anywhere else, and the relay stores nothing about it.
+anywhere else, and the relay stores nothing about it. Which paired devices
+have a pane open right now, shown as a small phone glyph naming the device
+on the desk's own window, is worked out from those same connections and
+kept the same way — in memory only, forgotten the moment the pane is
+closed or the device disconnects.
 
 Notifications are the exception. When an agent has been waiting on you for a
 while and you haven't touched this computer — no keyboard or mouse input in
@@ -222,7 +226,10 @@ relay's web client also remembers three display preferences in your
 browser's local storage: notifications, zoom and fit to screen. It keeps a
 message you've started typing to an agent there too, per pane, so switching
 away and back doesn't lose it — on your device only, and never sent anywhere
-until you send it. None of this is used for tracking, or shared with anyone.
+until you send it. It also remembers, per desktop, when you last had that
+desktop's list of panes open, so it can show what's changed since, and
+whether an agent's helpers are folded or shown — the same way, on your
+device only. None of this is used for tracking, or shared with anyone.
 
 ## This website
 
