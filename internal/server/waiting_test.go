@@ -32,6 +32,45 @@ func TestWaitingViewsBuildsTheQuestionAskUserQuestionIsAsking(t *testing.T) {
 	}
 }
 
+// TestWaitingViewsCarriesEveryQuestionOfAMultiQuestionCall covers
+// AskUserQuestion's own "tabs" form -- several questions asked in one call,
+// Claude Code's own strip of tabs across the top of the screen -- which the
+// phone needs every one of, with its own header, options and whether it
+// takes several, to answer the whole call rather than only the first tab.
+// The tool_input below is shaped exactly as Claude Code 2.1.270 sent it for
+// a real three-question call, one of them multiSelect, made against a
+// scratch pane while confirming the terminal's own key sequence (see the
+// scratchpad's multi-ask/NOTES.md).
+func TestWaitingViewsCarriesEveryQuestionOfAMultiQuestionCall(t *testing.T) {
+	toolInput := `{"questions":[
+		{"header":"Fruit","question":"Pick a fruit","multiSelect":false,
+		 "options":[{"label":"Apple"},{"label":"Pear"}]},
+		{"header":"Toppings","question":"Pick toppings","multiSelect":true,
+		 "options":[{"label":"Nuts"},{"label":"Cream"}]},
+		{"header":"Drink","question":"Pick a drink","multiSelect":false,
+		 "options":[{"label":"Tea"},{"label":"Coffee"}]}
+	]}`
+	ask, perm := waitingViews("AskUserQuestion", toolInput)
+	if perm != nil {
+		t.Errorf("permission = %+v, want nil for an AskUserQuestion call", perm)
+	}
+	if ask == nil || len(ask.Questions) != 3 {
+		t.Fatalf("ask = %+v, want all three questions carried through", ask)
+	}
+	if ask.Questions[0].Header != "Fruit" || ask.Questions[0].MultiSelect {
+		t.Errorf("question 1 = %+v, want Fruit, single-select", ask.Questions[0])
+	}
+	if ask.Questions[1].Header != "Toppings" || !ask.Questions[1].MultiSelect {
+		t.Errorf("question 2 = %+v, want Toppings, multiSelect", ask.Questions[1])
+	}
+	if len(ask.Questions[1].Options) != 2 || ask.Questions[1].Options[1].Label != "Cream" {
+		t.Errorf("question 2 options = %+v, want Nuts and Cream", ask.Questions[1].Options)
+	}
+	if ask.Questions[2].Header != "Drink" || ask.Questions[2].Question != "Pick a drink" {
+		t.Errorf("question 3 = %+v, want Drink carried through", ask.Questions[2])
+	}
+}
+
 // TestWaitingViewsBuildsABashPermission covers a Bash permission prompt: the
 // command it wants to run, straight from the PreToolUse call, before the
 // tool has even run.
