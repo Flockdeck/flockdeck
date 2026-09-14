@@ -290,6 +290,11 @@ type paneView struct {
 	Project string `json:"project,omitempty"`
 	Status  string `json:"status"`
 	Detail  string `json:"detail"`
+	// StatusSince is when the current status began, RFC 3339 -- how the phone's
+	// chat view times "Working for 3m" without polling: it ticks the gap to now
+	// locally rather than asking again every second. Left out for a pane with
+	// no session (Sess is nil), which has no status to time either.
+	StatusSince string `json:"statusSince,omitempty"`
 	// Ask is the question an AskUserQuestion call is putting to the user, and
 	// Permission what a permission prompt for any other tool wants to do --
 	// built from the same PreToolUse call's own input (see waitingViews), so
@@ -538,6 +543,7 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
+				pv.StatusSince = p.Sess.StatusSince().Format(time.RFC3339)
 				if sampleUsage {
 					pv.CPU, pv.RSS, pv.Procs = shownUsage(usageOf(p.Sess))
 				}
