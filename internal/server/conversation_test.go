@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/chat"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -431,5 +432,172 @@ func appendJSONL(t *testing.T, path string, lines ...string) {
 	defer f.Close()
 	if _, err := f.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// chatTranscriptPath is where a pane running Flockdeck's own chat client keeps
+// its transcript, once newTestServer's APPDATA/XDG_CONFIG_HOME/HOME point at
+// the test's own state directory.
+func chatTranscriptPath(t *testing.T, sessionID string) string {
+	t.Helper()
+	dir, err := chat.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, sessionID+".jsonl")
+}
+
+// writeChatJSONL writes a chat transcript fixture, creating its folder.
+func writeChatJSONL(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, path, lines...)
+}
+
+// TestConversationOpenChatPane is the phase-2 counterpart of
+// TestConversationOpenPagesThenAppends: a pane running Flockdeck's own chat
+// client (an API agent) answers conversationOpen with supported:true and
+// entries built from its own transcript format, and streams appends the
+// same way a Claude pane does.
+func TestConversationOpenChatPane(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "anthropic")
+
+	path := chatTranscriptPath(t, paneID)
+	writeChatJSONL(t, path,
+		`{"type":"user","ts":"2026-09-14T10:00:00Z","text":"add a health endpoint"}`,
+		`{"type":"assistant","ts":"2026-09-14T10:00:01Z","text":"Right away."}`,
+		`{"type":"tool","ts":"2026-09-14T10:00:02Z","tool":"read_file","call":"read_file main.go","text":"1\tpackage main\n"}`,
+	)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if !page.Supported || page.Agent != "anthropic" {
+		t.Fatalf("page = %+v, want a supported chat page", page)
+	}
+	if len(page.Entries) != 3 {
+		t.Fatalf("entries = %+v, want 3", page.Entries)
+	}
+	if page.Entries[0].Kind != transcript.KindPrompt || page.Entries[0].Text != "add a health endpoint" {
+		t.Errorf("prompt entry = %+v", page.Entries[0])
+	}
+	if page.Entries[1].Kind != transcript.KindReply || page.Entries[1].Markdown != "Right away." {
+		t.Errorf("reply entry = %+v", page.Entries[1])
+	}
+	tool := page.Entries[2]
+	if tool.Kind != transcript.KindTool || tool.Label != "Read main.go" || tool.Status != transcript.StatusOK {
+		t.Errorf("tool entry = %+v", tool)
+	}
+
+	appendJSONL(t, path, `{"type":"assistant","ts":"2026-09-14T10:00:03Z","text":"a second reply"}`)
+	srv.ConversationHookEvent(paneID)
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationAppend" {
+		t.Fatalf("got %s, want conversationAppend", raw)
+	}
+	var app conversationAppendMsg
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.Entries) != 1 || app.Entries[0].Markdown != "a second reply" {
+		t.Errorf("appended entries = %+v", app.Entries)
+	}
+}
+
+// TestConversationOlderAndDetailChatPane covers the other two commands the
+// design says must "just work" for a chat pane with no changes of their
+// own: conversationOlder pages backward, and conversationDetail fetches a
+// tool result too large to arrive inline -- both are generic over
+// transcript.Entry/Stream and never mention which adapter produced them.
+func TestConversationOlderAndDetailChatPane(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "anthropic")
+	path := chatTranscriptPath(t, paneID)
+
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, `{"type":"user","ts":"2026-09-14T10:00:00Z","text":"message `+itoa(i)+`"}`)
+	}
+	full := strings.Repeat("a line of output\n", 400) // well over the 4KB cap
+	fullJSON, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines = append(lines, `{"type":"tool","ts":"2026-09-14T10:00:01Z","tool":"run_command","call":"run_command go test ./...","text":`+string(fullJSON)+`}`)
+	writeChatJSONL(t, path, lines...)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if len(page.Entries) != conversationPageSize {
+		t.Fatalf("first page = %d entries, want %d", len(page.Entries), conversationPageSize)
+	}
+	if page.Entries[0].Text != "message 11" {
+		t.Errorf("first page starts at %q, want \"message 11\"", page.Entries[0].Text)
+	}
+	tool := page.Entries[len(page.Entries)-1]
+	if !tool.HasDetail {
+		t.Fatalf("tool entry = %+v, want hasDetail", tool)
+	}
+
+	older := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOlder(older, paneID, page.Entries[0].ID)
+	olderPage := decodePage(t, nextRaw(t, older))
+	if !olderPage.AtStart {
+		t.Error("the page reaching the first entry should say atStart")
+	}
+	if len(olderPage.Entries) != 11 || olderPage.Entries[0].Text != "message 0" {
+		t.Fatalf("older page = %+v", olderPage.Entries)
+	}
+
+	srv.conversationDetailReq(c, paneID, tool.ID)
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationDetail" {
+		t.Fatalf("got %s, want conversationDetail", raw)
+	}
+	var d conversationDetailMsg
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Detail.Text != full {
+		t.Errorf("detail = %d bytes, want the full %d-byte output", len(d.Detail.Text), len(full))
+	}
+}
+
+// TestConversationChatClearResetsInPlace covers a chat pane's /clear, which,
+// unlike Claude Code's, keeps the same session id and file (see
+// transcript.Stream's Reset method, added for exactly this): a client
+// already watching must still be told to drop what it has, not shown a
+// growing tail underneath entries that are no longer part of the
+// conversation.
+func TestConversationChatClearResetsInPlace(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "anthropic")
+	path := chatTranscriptPath(t, paneID)
+	writeChatJSONL(t, path, `{"type":"user","ts":"2026-09-14T10:00:00Z","text":"before clear"}`)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	before := decodePage(t, nextRaw(t, c))
+	if len(before.Entries) != 1 || before.Entries[0].Text != "before clear" {
+		t.Fatalf("entries before clear = %+v", before.Entries)
+	}
+
+	appendJSONL(t, path, `{"type":"clear"}`, `{"type":"user","ts":"2026-09-14T10:05:00Z","text":"after clear"}`)
+	srv.ConversationHookEvent(paneID)
+
+	raw := nextRaw(t, c)
+	if msgType(t, raw) != "conversationPage" {
+		t.Fatalf("got %s, want a resetting conversationPage", raw)
+	}
+	after := decodePage(t, raw)
+	if !after.Reset {
+		t.Error("a /clear that keeps the same session id should still arrive with reset:true")
+	}
+	if len(after.Entries) != 1 || after.Entries[0].Text != "after clear" {
+		t.Fatalf("entries after clear = %+v", after.Entries)
 	}
 }
