@@ -60,6 +60,12 @@ type chatStream struct {
 
 	seq          int
 	resetPending bool
+
+	// light is whether this stream is in preview-only mode -- see
+	// SetLight on the Stream interface. Zero value is false, so a freshly
+	// built stream defaults to full, matching every caller that built one
+	// before this field existed.
+	light bool
 }
 
 func newChatStream(sessionID string) *chatStream {
@@ -138,6 +144,48 @@ func (s *chatStream) Reset() bool {
 	v := s.resetPending
 	s.resetPending = false
 	return v
+}
+
+// SetLight implements Stream.
+func (s *chatStream) SetLight(light bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if light == s.light {
+		return
+	}
+	s.light = light
+	if light {
+		s.entries = nil
+		s.index = map[string]int{}
+		s.detail = map[string]Detail{}
+		return
+	}
+	// Coming back to full: light mode never kept the entries it tailed
+	// through, so the only way to answer with the whole conversation again
+	// is to read the file from the top, same as a stream built fresh.
+	s.offset = 0
+	s.carry = nil
+	s.seq = 0
+	s.resetPending = false
+	s.entries = nil
+	s.index = map[string]int{}
+	s.detail = map[string]Detail{}
+}
+
+// EntryCount implements Stream.
+func (s *chatStream) EntryCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+// setDetail records an entry's trimmed-away full body, except in light mode,
+// where nothing is worth keeping for a pane nobody is watching.
+func (s *chatStream) setDetail(id string, d Detail) {
+	if s.light {
+		return
+	}
+	s.detail[id] = d
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +291,7 @@ func (s *chatStream) toolEntry(line chatStreamLine) Entry {
 	e.Summary = summary
 	if hasDetail {
 		e.HasDetail = true
-		s.detail[e.ID] = Detail{Text: line.Text}
+		s.setDetail(e.ID, Detail{Text: line.Text})
 	}
 	return e
 }
@@ -286,6 +334,13 @@ func (s *chatStream) nextID() string {
 }
 
 func (s *chatStream) add(e Entry) Entry {
+	if s.light {
+		// Still translated and returned -- Refresh's caller (the inbox
+		// preview) needs the entry -- just never retained: a pane nobody
+		// has open keeps no history in memory, only the latest reply,
+		// which the caller reads straight off Refresh's return value.
+		return e
+	}
 	s.index[e.ID] = len(s.entries)
 	s.entries = append(s.entries, e)
 	return e

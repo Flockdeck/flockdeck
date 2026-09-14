@@ -184,6 +184,76 @@ func TestChatStreamWithNoTranscriptYet(t *testing.T) {
 	}
 }
 
+// TestChatStreamLightModeKeepsNoEntries is claude_stream_test.go's
+// TestClaudeStreamLightModeKeepsNoEntries, exercised against chat's own
+// format: light mode still returns every reply Refresh sees, but keeps none
+// of them.
+func TestChatStreamLightModeKeepsNoEntries(t *testing.T) {
+	const id = "55555555-5555-5555-5555-555555555555"
+	dir := writeChats(t, map[string][]string{id: {
+		`{"type":"assistant","ts":"2026-09-14T10:00:00Z","text":"first reply"}`,
+	}})
+	path := filepath.Join(dir, id+".jsonl")
+
+	stream, ok := (Chat{}).Stream(chatSpec, id)
+	if !ok {
+		t.Fatal("Stream answered ok=false")
+	}
+	stream.SetLight(true)
+
+	changed := stream.Refresh()
+	if len(changed) != 1 || changed[0].Markdown != "first reply" {
+		t.Fatalf("light Refresh = %+v, want the reply translated as normal", changed)
+	}
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount = %d, want 0 in light mode", n)
+	}
+
+	appendRaw(t, path, `{"type":"assistant","ts":"2026-09-14T10:00:01Z","text":"second reply"}`+"\n")
+	changed = stream.Refresh()
+	if len(changed) != 1 || changed[0].Markdown != "second reply" {
+		t.Fatalf("light Refresh after growth = %+v, want the new reply", changed)
+	}
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount after growth = %d, want still 0 in light mode", n)
+	}
+}
+
+// TestChatStreamPromotingToFullRebuildsWholeHistory is
+// claude_stream_test.go's TestClaudeStreamPromotingToFullRebuildsWholeHistory,
+// exercised against chat's own format.
+func TestChatStreamPromotingToFullRebuildsWholeHistory(t *testing.T) {
+	const id = "66666666-6666-6666-6666-666666666666"
+	dir := writeChats(t, map[string][]string{id: {
+		`{"type":"user","ts":"2026-09-14T10:00:00Z","text":"hello"}`,
+		`{"type":"assistant","ts":"2026-09-14T10:00:01Z","text":"first reply"}`,
+	}})
+	path := filepath.Join(dir, id+".jsonl")
+
+	stream, ok := (Chat{}).Stream(chatSpec, id)
+	if !ok {
+		t.Fatal("Stream answered ok=false")
+	}
+	stream.SetLight(true)
+	stream.Refresh()
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount = %d, want 0 before promotion", n)
+	}
+
+	appendRaw(t, path, `{"type":"assistant","ts":"2026-09-14T10:00:02Z","text":"second reply"}`+"\n")
+	stream.Refresh()
+
+	stream.SetLight(false)
+	stream.Refresh()
+	entries := stream.Snapshot()
+	if len(entries) != 3 {
+		t.Fatalf("entries after promotion = %+v, want all 3 lines, including those tailed while light", entries)
+	}
+	if entries[0].Text != "hello" || entries[1].Markdown != "first reply" || entries[2].Markdown != "second reply" {
+		t.Errorf("entries after promotion = %+v", entries)
+	}
+}
+
 func appendRaw(t *testing.T, path, s string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
