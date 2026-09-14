@@ -161,6 +161,10 @@ Here, Settings › **Remote access** says what is sent:
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 
+A single agent that is chatty and safe to leave can also be muted from its
+own row or header on the phone, which leaves it out of what is sent while it
+goes on showing as waiting everywhere, including here.
+
 Each notification is encrypted here, on this machine, for the device it goes
 to, and the relay only passes it on: neither the relay nor the push service
 that carries it — Apple's, Google's, Mozilla's or Microsoft's, which is the

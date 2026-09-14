@@ -37,6 +37,10 @@ import (
 // Whether the account may be sent pushes is the relay's to decide, not this
 // application's, which is free and gates nothing. A refusal is shown in
 // Settings in the relay's own words.
+//
+// A pane the phone has muted is left out of the waits a push is built from.
+// It still shows waiting everywhere else, since muting is about the phone's
+// own buzzing, not about the pane. See Pane.Muted and Workspace.SetPaneMuted.
 
 // waitTick is how often the panes are looked at for a wait that has lasted.
 // A wait is pushed at most this long after its delay has passed.
@@ -286,6 +290,12 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 				continue
 			}
 			waitingNow[id] = true
+			// A pane muted from the phone is left out of the push entirely,
+			// though it goes on showing as waiting everywhere else. See
+			// Pane.Muted.
+			if p.Muted {
+				continue
+			}
 			// Somebody using this pane from their phone has seen it waiting,
 			// and is not told of it there as well. It is told of if it is
 			// still waiting once they have left it a while.

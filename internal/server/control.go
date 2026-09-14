@@ -253,6 +253,12 @@ type stateMsg struct {
 	// never sends it is exactly the case a phone should hide the button for,
 	// rather than send a command that would be silently dropped.
 	CanSearchConversation bool `json:"canSearchConversation,omitempty"`
+	// CanMutePane says this instance understands the mutePane command, so a
+	// phone can offer to mute one pane's push notifications rather than only
+	// all or none. Always true where sent at all; an older desktop that never
+	// sends it is exactly the case a phone should hide the offer for, rather
+	// than send a command that would be silently dropped.
+	CanMutePane bool `json:"canMutePane,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -314,6 +320,11 @@ type paneView struct {
 	// screen. Both are left out for a pane not waiting on either.
 	Ask        *askView        `json:"ask,omitempty"`
 	Permission *permissionView `json:"permission,omitempty"`
+	// Muted says a phone asked not to be pushed to about this pane's waits.
+	// It still shows waiting everywhere this view is drawn -- the mute is
+	// about the phone's own notifications, not the pane's status. See
+	// Pane.Muted.
+	Muted bool `json:"muted,omitempty"`
 	// Last is this pane's agent's latest reply, trimmed for the phone's
 	// inbox row -- left out for a shell, and for an agent pane whose
 	// adapter has not seen a reply yet. See preview.go.
@@ -447,6 +458,9 @@ type command struct {
 	// rather than in the project itself. See startAgent.
 	Task     string `json:"task"`
 	Worktree bool   `json:"worktree"`
+	// Muted is mutePane's own: whether the named pane should stop, or resume,
+	// being pushed to the phone about. See Workspace.SetPaneMuted.
+	Muted bool `json:"muted"`
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +494,7 @@ func (s *Server) snapshot() stateMsg {
 		Remote:                s.remoteSnapshot(),
 		CanStartAgent:         true,
 		CanSearchConversation: true,
+		CanMutePane:           true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -544,6 +559,7 @@ func (s *Server) snapshot() stateMsg {
 				Status:    st.String(),
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
+				Muted:     p.Muted,
 			}
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
@@ -1352,6 +1368,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(paneGone, true)
 				return
 			}
+		case "mutePane":
+			if !ws.SetPaneMuted(cmd.ID, cmd.Muted) {
+				c.notify(paneGone, true)
+				return
+			}
+			s.wakeAsked()
 		case "movePane":
 			if err := ws.MovePane(cmd.ID, cmd.Target, parseEdge(cmd.Edge)); err != nil {
 				c.notify(err.Error(), true)
