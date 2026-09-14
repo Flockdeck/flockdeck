@@ -7898,14 +7898,51 @@
   // ----------------------------------------------------------------- hints
 
   /* One line under the tab bar, at most, and only for something the interface
-   * cannot say for itself — a gesture with nothing on screen to suggest it.
-   * Each is dismissed for good, and remembered on the Go side: a hint that
-   * comes back after being sent away is worse than one never shown.
+   * cannot say for itself. Each is dismissed for good, and remembered on the
+   * Go side: a hint that comes back after being sent away is worse than one
+   * never shown.
    *
    * The bindings are not written out here either. A hint names the action and
    * the key is filled in from the same table as everything else.
+   *
+   * Two tiers. PRIORITY_HINTS explains something already on screen that needs
+   * it — an amber dot, a pane that has died, work nobody has looked at yet —
+   * and the first one that matches wins outright: a dot nobody can read
+   * outranks anything else this bar could be saying. TIP_HINTS is the rest: a
+   * pool of features worth knowing about that most people never stumble on,
+   * several of which usually apply at once. Rather than whichever sits first
+   * in the list winning forever, tipIndex below turns them over, so a
+   * workspace left open a while surfaces more of the pool than the one entry
+   * closest to the top — and since `when` still gates every entry, what turns
+   * up still depends on what is actually true of the workspace right now: an
+   * idle pane and a busy one are not offered the same tips.
    */
-  const HINTS = [
+  const PRIORITY_HINTS = [
+    {
+      id: "waiting",
+      text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
+      page: "status",
+      // Only with an amber dot on screen to point at. The waiting count is
+      // every project's, and an agent waiting in one not shown had this
+      // explaining a dot that was nowhere to be seen.
+      when: (s) => currentPanes(s).some((v) => v.status === "waiting"),
+    },
+    {
+      id: "exited",
+      text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and picks the conversation back up.",
+      page: "panes",
+      when: (s) => currentPanes(s).some((v) => v.status === "exited"),
+    },
+    {
+      id: "dirty-pane",
+      action: "changes",
+      text: "reviews what has changed in this checkout — a coloured diff, then commit and push — before whichever agent wrote it gets any further ahead of you.",
+      page: "changes",
+      when: (s) => currentPanes(s).some((v) => (v.dirty || 0) + (v.untracked || 0) > 0),
+    },
+  ];
+
+  const TIP_HINTS = [
     {
       id: "palette",
       action: "palette",
@@ -7920,13 +7957,24 @@
       when: (s) => paneCount(s) > 1,
     },
     {
-      id: "waiting",
-      text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
-      page: "status",
-      // Only with an amber dot on screen to point at. The waiting count is
-      // every project's, and an agent waiting in one not shown had this
-      // explaining a dot that was nowhere to be seen.
-      when: (s) => Object.values(s.panes || {}).some((v) => v.status === "waiting"),
+      id: "shell-pane",
+      text: "Split right (shell), in the command palette, opens an ordinary terminal beside your agent, in the same folder — for the git status or npm run you want to run yourself while it works.",
+      page: "panes",
+      when: () => true,
+    },
+    {
+      id: "broadcast",
+      action: "promptAll",
+      text: "opens the prompt bar — write an instruction once and send it to several agents together. Turn on Broadcast to reach every pane in the tab, or add panes to the set by hand with their ⇉ button.",
+      page: "broadcast",
+      when: (s) => paneCount(s) > 1,
+    },
+    {
+      id: "fanout",
+      action: "fanout",
+      text: "turns a plan an agent just wrote into one agent per task, up to twelve at once — each can get its own git worktree, and nothing starts until you say so.",
+      page: "fanout",
+      when: () => true,
     },
     {
       id: "worktrees",
@@ -7935,15 +7983,112 @@
       page: "worktrees",
       when: (s) => paneCount(s) > 2,
     },
+    {
+      id: "history",
+      action: "history",
+      text: "lists every past conversation in this project — Claude Code's own transcripts included — and resumes any of them into a new tab, picked up exactly where it stopped.",
+      page: "history",
+      when: () => true,
+    },
+    {
+      id: "zoom",
+      action: "zoomPane",
+      text: "gives the focused pane the whole tab. The others keep running, just off screen, until you press it again.",
+      page: "panes",
+      when: (s) => paneCount(s) > 1,
+    },
+    {
+      id: "tidy-panes",
+      text: "Tile these panes evenly and Merge every tab into this one, both in the command palette, straighten a lopsided split and fold a scattered workspace back into a single tab.",
+      page: "rearranging",
+      when: (s) => paneCount(s) > 2,
+    },
+    {
+      id: "find-in-terminal",
+      action: "findInTerminal",
+      text: "searches the focused terminal's own scrollback — the error message that went by twenty tool calls ago is still in there.",
+      page: "panes",
+      when: () => true,
+    },
+    {
+      id: "api-keys",
+      text: "API keys…, in the command palette, stores a key for an API agent once, kept on this machine only — no more pasting it into every terminal it opens.",
+      page: "agents",
+      when: () => true,
+    },
+    {
+      id: "remote-access",
+      text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so a waiting agent can be glanced at, or answered, away from this machine.",
+      page: "remote",
+      when: () => true,
+    },
+    {
+      id: "detach",
+      text: "Detach, in the command palette, closes the window but leaves every agent running — flockdeck from a terminal brings the window back to exactly where you left it.",
+      page: "persistence",
+      when: () => true,
+    },
+    {
+      id: "split-project",
+      text: "Split into project: …, in the command palette, puts an agent from another open project into this tab, so two repositories can sit side by side.",
+      page: "projects",
+      when: (s) => (s.projects || []).length > 1,
+    },
+    {
+      id: "pane-header-git",
+      text: "A pane's header keeps showing its branch and how many files are uncommitted even while it sits idle, so you can see whose work is worth a look without opening anything.",
+      page: "worktrees",
+      when: (s) => {
+        const p = currentPanes(s);
+        return p.length > 0 && p.every((v) => v.status === "idle");
+      },
+    },
+    {
+      id: "working-tool",
+      text: "While a pane's dot pulses green, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
+      page: "status",
+      when: (s) => currentPanes(s).some((v) => v.status === "working"),
+    },
   ];
 
+  function currentPanes(s) { return Object.values((s && s.panes) || {}); }
   function dismissedHint(id) { return (prefs.dismissedTips || []).includes(id); }
   function paneCount(s) { return Object.keys((s && s.panes) || {}).length; }
+
+  /** tipIndex turns TIP_HINTS from "whichever matches first, forever" into a
+   *  rotation: scheduleTipRotate moves it on every so often, so a workspace
+   *  left open surfaces more of the pool than the one entry nearest the top
+   *  of it. Real time, not a state change, is what advances it — a tip
+   *  nobody read is still worth trying again later, on a screen nothing else
+   *  has changed on. */
+  let tipIndex = 0;
+  let tipRotateTimer = null;
+  const TIP_ROTATE_MS = 45000;
+
+  function scheduleTipRotate() {
+    clearTimeout(tipRotateTimer);
+    tipRotateTimer = setTimeout(() => {
+      tipIndex++;
+      renderHints();
+      scheduleTipRotate();
+    }, TIP_ROTATE_MS);
+  }
+
+  /** pickHint is what renderHints shows: whichever PRIORITY_HINTS entry
+   *  matches, since something on screen needs explaining right now; failing
+   *  that, whichever TIP_HINTS entry the rotation currently lands on, among
+   *  those that both match the state and have not been sent away for good. */
+  function pickHint(s) {
+    const urgent = PRIORITY_HINTS.find((h) => !dismissedHint(h.id) && h.when(s));
+    if (urgent) return urgent;
+    const pool = TIP_HINTS.filter((h) => !dismissedHint(h.id) && h.when(s));
+    return pool.length ? pool[tipIndex % pool.length] : null;
+  }
 
   function renderHints() {
     const bar = $("hints");
     if (!bar) return;
-    const hint = state ? HINTS.find((h) => !dismissedHint(h.id) && h.when(state)) : null;
+    const hint = state ? pickHint(state) : null;
     if (!hint) {
       bar.hidden = true;
       bar.textContent = "";
@@ -8557,5 +8702,6 @@
 
   window.addEventListener("beforeunload", () => send({ cmd: "save" }));
 
+  scheduleTipRotate();
   connectControl();
 })();
