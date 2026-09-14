@@ -534,8 +534,39 @@ func TestTerminalResumesWhereItWasCutOff(t *testing.T) {
 	if !h.Resumed || h.Offset != was {
 		t.Fatalf("reconnecting holding %d bytes got %+v, want a resume from exactly there", was, h)
 	}
-	if strings.Contains(got, "echo resume_one") {
-		t.Errorf("a resume was sent output the window already held:\n%s", got)
+	// What the resume was sent must be the pane's own output from exactly
+	// where the window left off, compared as bytes against a full replay
+	// rather than by looking for text the window had already seen. A shell
+	// slow to start (the macOS runner's) echoes the typed line at once, which
+	// ends the first wait, and only then prints its banner and redraws that
+	// line -- after the first window has gone. So the same text comes round
+	// again as output that window never held, and a text search failed on a
+	// resume that was right.
+	full := dialResumable(t, srv, paneID, "&from=-1")
+	fullCtx, fullCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer fullCancel()
+	var replay []byte
+	start := int64(-1)
+	for start < 0 || start+int64(len(replay)) < was+int64(len(got)) {
+		typ, data, err := full.Read(fullCtx)
+		if err != nil {
+			t.Fatalf("reading a full replay to compare the resume against: %v", err)
+		}
+		if typ == websocket.MessageText {
+			var fh streamHeader
+			if err := json.Unmarshal(data, &fh); err != nil {
+				t.Fatalf("a text frame that is not a header: %q", data)
+			}
+			start = fh.Offset
+			continue
+		}
+		replay = append(replay, data...)
+	}
+	if start > was {
+		t.Fatalf("the full replay starts at %d, after the %d bytes the window held", start, was)
+	}
+	if want := string(replay[was-start : was-start+int64(len(got))]); got != want {
+		t.Errorf("a resume from %d was not sent the pane's own output from there:\ngot:\n%s\nwant:\n%s", was, got, want)
 	}
 
 	// A window that does not say what it holds is served as windows always

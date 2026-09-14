@@ -1014,8 +1014,9 @@ permission are all covered, though a call that asks several questions at
 once only puts the first one on a card, and the rest still need the
 terminal.
 
-While an agent works, a **Stop** button — the same as pressing Escape — and
-"Working for 3m — Bash", naming what it's doing, sit above the prompt box;
+While an agent works, "Working for 3m — Bash", naming what it's doing, sits
+above the prompt box, and a **Stop** button — the same as pressing Escape —
+takes Send's place in the prompt row, with Send back beside it once you type;
 once it's idle, quick replies — Continue, Yes, go ahead, Explain that more
 simply, Run the tests — cover the common ones without typing. Every open
 pane also appears in the paired device's list with its latest reply, or the
