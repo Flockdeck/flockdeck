@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"net/url"
@@ -827,5 +828,57 @@ func TestSpawnAgentFlagsSurviveTheReordering(t *testing.T) {
 	want := []string{"--agent", "codex", "--model", "gpt-5", "--", "repair the token refresh"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestHookPrintsAnAllowPermissionDecision covers auto-review's other end: a
+// PreToolUse hook the application's review handler allows must print the
+// hookSpecificOutput shape Claude Code itself reads a permission decision
+// from, since printing nothing at all is what every ordinary PreToolUse call
+// still does.
+func TestHookPrintsAnAllowPermissionDecision(t *testing.T) {
+	srv, err := hooks.Serve(func(hooks.Event) {})
+	if err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	srv.SetReviewHandler(func(string, hooks.Event) (bool, string) {
+		return true, "auto-review: a read-only command"
+	})
+
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)
+	var stdout, stderr bytes.Buffer
+	hook([]string{"-endpoint", srv.Endpoint(), "-token", srv.Token(), "-session", "pane-1", "-event", "PreToolUse"}, stdin, &stdout, &stderr)
+	if stderr.Len() != 0 {
+		t.Fatalf("hook wrote to stderr: %s", stderr.String())
+	}
+
+	var out hookOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("hook did not print valid JSON: %v (%s)", err, stdout.String())
+	}
+	if out.HookSpecificOutput.PermissionDecision != "allow" {
+		t.Errorf("permissionDecision = %q, want allow", out.HookSpecificOutput.PermissionDecision)
+	}
+	if out.HookSpecificOutput.PermissionDecisionReason == "" {
+		t.Error("permissionDecisionReason is empty, want the handler's reason")
+	}
+}
+
+// TestHookPrintsNothingWhenNotAllowed covers every PreToolUse call today,
+// before this ever existed: without a review handler installed, the hook must
+// print nothing at all, so Claude Code's own permission prompt is untouched.
+func TestHookPrintsNothingWhenNotAllowed(t *testing.T) {
+	srv, err := hooks.Serve(func(hooks.Event) {})
+	if err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`)
+	var stdout, stderr bytes.Buffer
+	hook([]string{"-endpoint", srv.Endpoint(), "-token", srv.Token(), "-session", "pane-1", "-event", "PreToolUse"}, stdin, &stdout, &stderr)
+	if stdout.Len() != 0 {
+		t.Errorf("hook printed %q, want nothing without a review handler", stdout.String())
 	}
 }

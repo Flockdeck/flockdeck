@@ -159,12 +159,12 @@ func TestSessionStartReturnsContext(t *testing.T) {
 	srv, r := newServer(t)
 	srv.SetContextHandler(func(id string) string { return "you are pane " + id })
 
-	ctx, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-5", SessionStart)
+	res, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-5", SessionStart)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if ctx != "you are pane pane-5" {
-		t.Errorf("context = %q, want the handler's answer", ctx)
+	if res.Context != "you are pane pane-5" {
+		t.Errorf("context = %q, want the handler's answer", res.Context)
 	}
 	if got := r.next(t); got.Event != SessionStart {
 		t.Errorf("event = %q, want SessionStart", got.Event)
@@ -181,12 +181,12 @@ func TestOtherEventsReturnNoContext(t *testing.T) {
 		return "should not be asked for"
 	})
 
-	ctx, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-6", "Stop")
+	res, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-6", "Stop")
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if ctx != "" {
-		t.Errorf("context = %q, want empty for a Stop hook", ctx)
+	if res.Context != "" {
+		t.Errorf("context = %q, want empty for a Stop hook", res.Context)
 	}
 	r.next(t)
 	select {
@@ -561,6 +561,78 @@ func TestEmitToolInputEmptyForAToolWithNothingToAsk(t *testing.T) {
 	got := r.next(t)
 	if got.ToolInput != "" {
 		t.Errorf("ToolInput = %q, want empty for a tool_input with nothing to ask about", got.ToolInput)
+	}
+}
+
+// TestReviewHandlerCanAnswerAPreToolUseHookWithAllow covers the one path
+// SetReviewHandler exists for: a PreToolUse call the handler allows comes
+// back from Emit saying so, with the reason carried along for the agent to
+// read.
+func TestReviewHandlerCanAnswerAPreToolUseHookWithAllow(t *testing.T) {
+	srv, r := newServer(t)
+	srv.SetReviewHandler(func(id string, ev Event) (bool, string) {
+		if id != "pane-1" || ev.Tool != "Bash" {
+			t.Errorf("review handler saw session %q tool %q, want pane-1 Bash", id, ev.Tool)
+		}
+		return true, "a read-only command"
+	})
+
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)
+	res, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-1", "PreToolUse")
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if !res.Allow {
+		t.Fatal("Allow = false, want true from a handler that allowed it")
+	}
+	if res.Reason != "a read-only command" {
+		t.Errorf("reason = %q, want the handler's own reason", res.Reason)
+	}
+	r.next(t) // the event itself still reaches the server
+}
+
+// TestReviewHandlerDecliningFallsThroughUnchanged covers the fallback: a
+// handler that declines to allow a call is answered exactly as no handler at
+// all would be, so the request goes on to Claude Code's own permission
+// prompt.
+func TestReviewHandlerDecliningFallsThroughUnchanged(t *testing.T) {
+	srv, r := newServer(t)
+	srv.SetReviewHandler(func(string, Event) (bool, string) { return false, "" })
+
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`)
+	res, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-2", "PreToolUse")
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if res.Allow {
+		t.Error("Allow = true, want false from a handler that declined")
+	}
+	r.next(t)
+}
+
+// TestReviewHandlerNotConsultedOutsidePreToolUse checks that a handler
+// installed only ever answers PreToolUse -- every other event is answered as
+// it always was, whether or not a handler is installed.
+func TestReviewHandlerNotConsultedOutsidePreToolUse(t *testing.T) {
+	srv, r := newServer(t)
+	called := make(chan string, 1)
+	srv.SetReviewHandler(func(id string, ev Event) (bool, string) {
+		called <- ev.Event
+		return true, "should not matter"
+	})
+
+	res, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-3", "Stop")
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if res.Allow {
+		t.Error("Allow = true for a Stop event, want false: only PreToolUse is reviewed")
+	}
+	r.next(t)
+	select {
+	case ev := <-called:
+		t.Errorf("review handler was consulted for %q", ev)
+	default:
 	}
 }
 

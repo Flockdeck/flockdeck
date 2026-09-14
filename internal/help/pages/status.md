@@ -55,6 +55,21 @@ Status therefore reflects what the agent is actually doing rather than what
 its output happens to look like. Those settings are additive: your own
 settings, hooks and permissions still apply.
 
+### Auto-review approvals
+
+A pane can turn on auto-review approvals, which spares a person the wait for
+some of what would otherwise stop and ask: the same hidden hook that reports
+a `PreToolUse` call can also carry a permission decision back, before Claude
+Code's own prompt ever opens, for a call auto-review is confident about. It
+works like Codex's `auto_review` -- a reviewer looking at the request in
+front of it -- but it never touches Claude Code's own permission settings and
+it can only ever say "let this one through," never "deny": off, or for a call
+it is not sure of, a pane behaves exactly as it always would. Today that
+reviewer is a fixed policy: a `Bash` call is let through only when it is a
+single call to a command that only ever reads -- `git status`, `cat`, `grep`
+and the like -- with nothing in it that could chain into something else or
+write anywhere; a call that changes a file is always left to ask.
+
 One answer is not reported by any event: a permission prompt answered from
 the keyboard. Enter turns the pane green, since allowing the tool starts it
 running. Refusing it puts Claude Code back at its prompt without a word, so

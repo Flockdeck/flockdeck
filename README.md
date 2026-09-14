@@ -512,6 +512,28 @@ like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 The settings are additive — your own settings, hooks and permissions still
 apply.
 
+### Auto-review approvals
+
+Turned on for a pane, auto-review answers a `PreToolUse` call itself, before
+Claude Code would otherwise stop and show its own permission prompt: the same
+`hook` invocation that reports the call carries a permission decision back on
+its stdout, in the shape Claude Code's own hooks already use, so a call
+auto-review is confident about never turns the pane amber at all. It works
+like Codex's `auto_review` — a reviewer looking at the request that would
+otherwise interrupt you — but it only ever spares the interruption for the one
+call in front of it: it never touches Claude Code's own permission settings,
+and it can only ever say "let this one through," never "deny." Off, or for a
+call it is not sure of, a pane behaves exactly as it always has.
+
+Today's reviewer is a fixed, inspectable policy rather than a model of its
+own: a `Bash` call is let through only when it is a single call to one of a
+short list of commands that only ever read — `git status`, `git log`, `cat`,
+`grep` and the like — with nothing in it that could chain into something
+else, redirect output to a file, or substitute in a nested command. Anything
+that changes a file — `Edit`, `Write`, `MultiEdit` — is left to ask every
+time, on purpose: that is exactly the kind of call a person is meant to see
+before it happens.
+
 The one key the file can take over is `statusLine`, because Claude Code hands a
 subscription's usage limits to its status line command and nowhere else. Where
 you have a status line of your own, the pane's runs this binary in a hidden

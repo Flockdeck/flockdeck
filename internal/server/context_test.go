@@ -37,12 +37,12 @@ func TestSessionStartIsAnsweredWhileTheWorkspaceIsBackedUp(t *testing.T) {
 	}
 
 	start := time.Now()
-	ctx, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), pane, hooks.SessionStart)
+	res, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), pane, hooks.SessionStart)
 	if err != nil {
 		t.Fatalf("the hook was not answered while the workspace was backed up: %v", err)
 	}
-	if ctx != "" {
-		t.Errorf("a workspace that could not be asked still described the pane: %q", ctx)
+	if res.Context != "" {
+		t.Errorf("a workspace that could not be asked still described the pane: %q", res.Context)
 	}
 	if elapsed := time.Since(start); elapsed > contextDeadline+time.Second {
 		t.Errorf("the hook was answered after %v, want within the %v the handler allows", elapsed, contextDeadline)
@@ -63,15 +63,15 @@ func TestSessionStartHookAnswersWithPaneContext(t *testing.T) {
 		t.Fatal("the workspace has no hook server")
 	}
 
-	ctx, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), pane, hooks.SessionStart)
+	res, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), pane, hooks.SessionStart)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if !strings.Contains(ctx, "Flockdeck") {
-		t.Errorf("context does not describe the application:\n%s", ctx)
+	if !strings.Contains(res.Context, "Flockdeck") {
+		t.Errorf("context does not describe the application:\n%s", res.Context)
 	}
-	if !strings.Contains(ctx, root) {
-		t.Errorf("context does not mention the pane's directory %q:\n%s", root, ctx)
+	if !strings.Contains(res.Context, root) {
+		t.Errorf("context does not mention the pane's directory %q:\n%s", root, res.Context)
 	}
 }
 
@@ -82,11 +82,11 @@ func TestSessionStartForAClosedPaneIsHarmless(t *testing.T) {
 	_, ws := newTestServer(t)
 
 	hookSrv := ws.HookServer()
-	ctx, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), "gone", hooks.SessionStart)
+	res, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), "gone", hooks.SessionStart)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if ctx != "" {
-		t.Errorf("context = %q, want nothing for an unknown pane", ctx)
+	if res.Context != "" {
+		t.Errorf("context = %q, want nothing for an unknown pane", res.Context)
 	}
 }

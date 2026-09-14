@@ -259,6 +259,11 @@ type stateMsg struct {
 	// sends it is exactly the case a phone should hide the offer for, rather
 	// than send a command that would be silently dropped.
 	CanMutePane bool `json:"canMutePane,omitempty"`
+	// CanAutoReview says this instance understands the autoReview command, so
+	// a phone can offer to turn auto-review approvals on or off for a pane
+	// rather than the offer being silently dropped by an older desktop that
+	// never sends this field at all.
+	CanAutoReview bool `json:"canAutoReview,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -325,6 +330,12 @@ type paneView struct {
 	// about the phone's own notifications, not the pane's status. See
 	// Pane.Muted.
 	Muted bool `json:"muted,omitempty"`
+	// AutoReview says this pane's PreToolUse calls are put to auto-review
+	// approvals before Claude Code would otherwise show its own permission
+	// prompt, and AutoApproved counts how many it has let through unasked so
+	// far. See Pane.AutoReview and Pane.AutoApproved.
+	AutoReview   bool `json:"autoReview,omitempty"`
+	AutoApproved int  `json:"autoApproved,omitempty"`
 	// RemoteViewers is the device name of every window reached through the
 	// relay that has this pane open right now, in its chat view or its
 	// terminal -- so a window at the desk can show that a phone, its own
@@ -469,6 +480,10 @@ type command struct {
 	// Muted is mutePane's own: whether the named pane should stop, or resume,
 	// being pushed to the phone about. See Workspace.SetPaneMuted.
 	Muted bool `json:"muted"`
+	// AutoReview is autoReview's own: whether the named pane should start, or
+	// stop, having its PreToolUse calls put to auto-review approvals. See
+	// Workspace.SetPaneAutoReview.
+	AutoReview bool `json:"autoReview"`
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +518,7 @@ func (s *Server) snapshot() stateMsg {
 		CanStartAgent:         true,
 		CanSearchConversation: true,
 		CanMutePane:           true,
+		CanAutoReview:         true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -567,7 +583,9 @@ func (s *Server) snapshot() stateMsg {
 				Status:    st.String(),
 				Detail:    detail,
 				Broadcast: ws.InBroadcast(p.ID),
-				Muted:     p.Muted,
+				Muted:        p.Muted,
+				AutoReview:   p.AutoReview,
+				AutoApproved: p.AutoApproved,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			if st == session.StatusWaiting && p.Sess != nil {
@@ -1421,6 +1439,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 		case "mutePane":
 			if !ws.SetPaneMuted(cmd.ID, cmd.Muted) {
+				c.notify(paneGone, true)
+				return
+			}
+			s.wakeAsked()
+		case "autoReview":
+			if !ws.SetPaneAutoReview(cmd.ID, cmd.AutoReview) {
 				c.notify(paneGone, true)
 				return
 			}
