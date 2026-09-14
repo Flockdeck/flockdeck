@@ -25,6 +25,11 @@
     changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
     history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
     worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    github: '<circle cx="5" cy="3.2" r="1.4"></circle><circle cx="5" cy="12.8" r="1.4"></circle><circle cx="11.5" cy="8" r="1.4"></circle><path d="M5 4.6v6.8"></path><path d="M5 6.6c0 3.4 2.6 1.4 6.5 1.4"></path>',
+    // Two branches meeting in one, the shape a pull request itself is drawn as
+    // on github.com -- not the octocat, which is a filled mark and reads as a
+    // smudge stroked at 16px the way every other glyph here is drawn.
+    github: '<circle cx="4.5" cy="4" r="1.5"></circle><circle cx="4.5" cy="12" r="1.5"></circle><circle cx="11.5" cy="4" r="1.5"></circle><path d="M4.5 5.5v5M11.5 5.5v1.7a2.8 2.8 0 0 1-2.8 2.8H8"></path>',
     remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
     help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
     settings: '<path d="M2.5 4.5h6.5M12.5 4.5h1M2.5 11.5h1.5M7.5 11.5h6"></path><circle cx="10.7" cy="4.5" r="1.6"></circle><circle cx="5.7" cy="11.5" r="1.6"></circle>',
@@ -403,6 +408,68 @@
         window.close();
       }
       else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
+      else if (msg.type === "ghStatus") {
+        ghStatus = msg;
+        if (dialog === "github") keepFocus(renderGithub);
+        else if (dialog === "settings" && settingsSection === "github") keepFocus(renderGhSettings);
+      }
+      else if (msg.type === "ghProgress") {
+        if (msg.line) ghRunLines.push(msg.line);
+        if (msg.code) ghLoginCode = msg.code;
+        if (msg.done) {
+          ghRunning = "";
+          if (msg.error) notice(msg.error, true);
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+        else if (dialog === "settings" && settingsSection === "github") keepFocus(renderGhSettings);
+      }
+      else if (msg.type === "ghPRs") {
+        ghPRList = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "prs" && !ghSelected) keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghPR") {
+        if (ghCreating) {
+          ghCreating = false;
+          if (!msg.error && msg.item) {
+            ghCreateOpen = false;
+            ghSelected = { kind: "prs", number: msg.item.number, item: msg.item, error: "" };
+            notice("Pull request opened", false);
+          } else {
+            notice(msg.error || "Could not open the pull request", true);
+          }
+        } else if (ghSelected && ghSelected.kind === "prs") {
+          ghSelected.item = msg.item;
+          ghSelected.error = msg.error || "";
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghIssues") {
+        ghIssueList = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "issues" && !ghSelected) keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghIssue") {
+        if (ghCreating) {
+          ghCreating = false;
+          if (!msg.error && msg.item) {
+            ghCreateOpen = false;
+            ghSelected = { kind: "issues", number: msg.item.number, item: msg.item, error: "" };
+            notice("Issue opened", false);
+          } else {
+            notice(msg.error || "Could not open the issue", true);
+          }
+        } else if (ghSelected && ghSelected.kind === "issues") {
+          ghSelected.item = msg.item;
+          ghSelected.error = msg.error || "";
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghChecks") {
+        ghChecksData = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "checks") keepFocus(renderGithub);
+      }
     };
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
@@ -3692,6 +3759,8 @@
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
     else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
+    else if (dialog === "settings" && settingsSection === "github") send({ cmd: "ghStatus", path: ghDir });
+    else if (dialog === "github") { send({ cmd: "ghStatus", path: ghDir }); ghRequestTab(); }
     else if (dialog === "projects") {
       send({ cmd: "recents" });
       send({ cmd: "browse", path: browseState ? browseState.path : "" });
@@ -5956,6 +6025,479 @@
     });
   }
 
+  // ------------------------------------------------------------------ github
+
+  /** gh's own status -- installed?, signed in? -- shared by the GitHub dialog's
+   *  own header and the Settings section, which show the same thing. */
+  let ghStatus = null;
+  /** The working tree the GitHub panel is reading, echoed back on every answer
+   *  the way changes.cwd is, so a request outlived by a project switch still
+   *  lands on the project it was asked about. */
+  let ghDir = "";
+  /** Which of an install or a sign-in is running right now -- "install",
+   *  "login", or "" when neither is -- and the lines gh has printed so far.
+   *  Cleared each time one starts: this is a running attempt's own log, not
+   *  a history kept once it is over. */
+  let ghRunning = "";
+  let ghRunLines = [];
+  /** The one-time code a running sign-in has shown, until it ends. */
+  let ghLoginCode = "";
+
+  /** Which tab of the GitHub dialog is on show. */
+  let ghTab = "prs";
+  let ghPRState = "";
+  let ghIssueState = "";
+  let ghPRList = null;
+  let ghIssueList = null;
+  let ghChecksData = null;
+  /** The pull request or issue open in the dialog, in place of the list, or
+   *  null for the list itself. */
+  let ghSelected = null;
+  let ghCreateOpen = false;
+  let ghCreateDraft = { title: "", body: "", base: "", draft: false };
+  /** A comment being written, kept by "kind:number" for as long as the
+   *  dialog is open, the same reason worktrees keeps wtDraft: the item is
+   *  redrawn whole on every answer, and a comment half-typed would go with it. */
+  const ghCommentDrafts = new Map();
+  /** Whether a create just asked for is still out, so its answer is told
+   *  from an ordinary read of the same kind of item. */
+  let ghCreating = false;
+
+  /** ghClass buckets any of gh's several words for a check or a run's outcome
+   *  down to the four this panel actually draws differently. */
+  function ghClass(s) {
+    s = (s || "").toLowerCase();
+    if (["success", "pass", "passing"].includes(s)) return "pass";
+    if (["failure", "fail", "failing", "cancelled", "cancel", "timed_out", "startup_failure", "action_required"].includes(s)) return "fail";
+    if (["pending", "queued", "in_progress", "requested", "waiting"].includes(s)) return "pending";
+    return "neutral";
+  }
+
+  function ghInstallClick() {
+    ghRunning = "install";
+    ghRunLines = [];
+    keepFocus(dialog === "github" ? renderGithub : renderGhSettings);
+    send({ cmd: "ghInstall" });
+  }
+  function ghLoginClick() {
+    ghRunning = "login";
+    ghRunLines = [];
+    ghLoginCode = "";
+    keepFocus(dialog === "github" ? renderGithub : renderGhSettings);
+    send({ cmd: "ghLogin" });
+  }
+  function ghLogoutClick() {
+    if (!window.confirm("Sign out of GitHub?")) return;
+    send({ cmd: "ghLogout", path: ghDir });
+  }
+
+  /** ghProgressBox draws the log of a running install or sign-in, and, for a
+   *  sign-in, the one-time code the moment gh has printed it. Shared by the
+   *  dialog and the settings section, which show the same run. */
+  function ghProgressBox() {
+    const box = el("div", "gh-run");
+    if (ghRunning === "login" && ghLoginCode) {
+      box.append(el("p", null, "Enter this code at github.com/login/device:"));
+      box.append(el("div", "gh-code", ghLoginCode));
+    } else {
+      box.append(el("p", null, ghRunning === "install" ? "Installing the GitHub CLI…" : "Opening github.com/login/device…"));
+    }
+    if (ghRunLines.length) box.append(el("div", "gh-log", ghRunLines.join("\n")));
+    if (ghRunning === "login") {
+      const row = el("div", "wt-actions");
+      const cancel = el("button", "chip", "Cancel");
+      cancel.onclick = () => send({ cmd: "ghLoginCancel" });
+      row.append(cancel);
+      box.append(row);
+    }
+    return box;
+  }
+
+  // -------------------------------------------------------- settings section
+
+  /** ghShown is where the GitHub status is drawn right now, or null while it
+   *  is on neither screen -- the same idea as remoteHost. */
+  function ghShown() {
+    if (dialog === "github") return null; // renderGithub draws its own header
+    if (dialog === "settings" && settingsSection === "github") return $("settings-host");
+    return null;
+  }
+
+  function renderGhSettings() {
+    const body = ghShown();
+    if (!body) return;
+    body.textContent = "";
+    if (!ghStatus) { body.append(el("div", "dir-empty", "Checking…")); return; }
+    if (ghRunning) { body.append(ghProgressBox()); return; }
+    const st = ghStatus;
+    if (st.error) body.append(el("p", "remote-error", st.error));
+
+    if (!st.installed) {
+      body.append(el("p", "fan-hint",
+        "The GitHub CLI (gh) is what talks to GitHub for pull requests, issues and CI status here. It is not on this machine yet."));
+      const row = el("div", "update-row");
+      if (st.installManager) {
+        const install = el("button", "chip primary", "Install with " + st.installManager);
+        install.id = "gh-install";
+        install.onclick = ghInstallClick;
+        row.append(install);
+      }
+      const link = el("a", "chip", "Get it from cli.github.com");
+      link.href = st.installUrl || "https://cli.github.com";
+      link.target = "_blank";
+      link.rel = "noopener";
+      row.append(link);
+      body.append(row);
+      return;
+    }
+    if (!st.loggedIn) {
+      body.append(el("p", "fan-hint",
+        "gh is installed but not signed in. Signing in opens a one-time code to enter at github.com/login/device."));
+      const row = el("div", "update-row");
+      const login = el("button", "chip primary", "Sign in with GitHub");
+      login.id = "gh-signin";
+      login.onclick = ghLoginClick;
+      row.append(login);
+      body.append(row);
+      return;
+    }
+    body.append(el("div", "remote-status", "Signed in to " + (st.host || "github.com") + " as " + st.account));
+    const row = el("div", "update-row");
+    const logout = el("button", "chip danger", "Sign out");
+    logout.onclick = ghLogoutClick;
+    row.append(logout);
+    body.append(row);
+  }
+
+  // ----------------------------------------------------------------- dialog
+
+  /** ghRequestTab asks for whatever the tab on show needs. */
+  function ghRequestTab() {
+    if (ghTab === "prs") send({ cmd: "ghPRs", path: ghDir, ghState: ghPRState });
+    else if (ghTab === "issues") send({ cmd: "ghIssues", path: ghDir, ghState: ghIssueState });
+    else send({ cmd: "ghChecks", path: ghDir });
+  }
+
+  function openGithub(path) {
+    dialog = "github";
+    ghSelected = null;
+    ghCreateOpen = false;
+    ghStatus = null;
+    ghRunning = "";
+    ghRunLines = [];
+    ghLoginCode = "";
+    if (path) ghDir = path;
+    openOverlay("GitHub", "github");
+    $("overlay-body").append(el("div", "dir-empty", "Reading GitHub status…"));
+    send({ cmd: "ghStatus", path: ghDir });
+    ghRequestTab();
+  }
+
+  function renderGithub() {
+    if (dialog !== "github") return; // see openWorktrees
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    if (!ghStatus) { body.append(el("div", "dir-empty", "Reading GitHub status…")); return; }
+    if (ghRunning) { body.append(ghProgressBox()); return; }
+    if (!ghStatus.installed || !ghStatus.loggedIn) {
+      body.append(el("p", "fan-hint", ghStatus.installed
+        ? "Sign in to GitHub to see pull requests, issues and CI here."
+        : "The GitHub CLI is not installed on this machine yet."));
+      const go = el("button", "chip primary", "Open GitHub settings");
+      go.onclick = () => openSettings("github");
+      body.append(go);
+      return;
+    }
+
+    const tabs = el("div", "gh-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "GitHub");
+    [["prs", "Pull requests"], ["issues", "Issues"], ["checks", "Checks"]].forEach(([id, label]) => {
+      const on = ghTab === id;
+      const b = el("button", "chip gh-tab" + (on ? " sel" : ""), label);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(on));
+      b.onclick = () => {
+        if (ghTab === id) return;
+        ghTab = id;
+        ghSelected = null;
+        ghCreateOpen = false;
+        keepFocus(renderGithub);
+        ghRequestTab();
+      };
+      tabs.append(b);
+    });
+    body.append(tabs);
+
+    if (ghSelected) body.append(ghDetailView());
+    else if (ghTab === "checks") body.append(ghChecksView());
+    else body.append(ghListView(ghTab));
+
+    body.append(rootLabel(ghDir));
+  }
+
+  /** ghListView is the Pull requests and Issues tabs: a state filter, a way to
+   *  open a new one, and the list itself. */
+  function ghListView(kind) {
+    const wrap = el("div", "gh-list-wrap");
+    const list = kind === "prs" ? ghPRList : ghIssueList;
+    const state = kind === "prs" ? ghPRState : ghIssueState;
+
+    const bar = el("div", "wt-actions");
+    const states = kind === "prs"
+      ? [["", "Open"], ["closed", "Closed"], ["merged", "Merged"], ["all", "All"]]
+      : [["", "Open"], ["closed", "Closed"], ["all", "All"]];
+    states.forEach(([val, label]) => {
+      const b = el("button", "chip" + (state === val ? " on" : ""), label);
+      b.onclick = () => {
+        if (kind === "prs") ghPRState = val; else ghIssueState = val;
+        if (kind === "prs") ghPRList = null; else ghIssueList = null;
+        keepFocus(renderGithub);
+        ghRequestTab();
+      };
+      bar.append(b);
+    });
+    const create = el("button", "chip primary", kind === "prs" ? "New pull request" : "New issue");
+    create.onclick = () => {
+      ghCreateOpen = true;
+      ghCreateDraft = { title: "", body: "", base: "", draft: false };
+      keepFocus(renderGithub);
+    };
+    bar.append(create);
+    wrap.append(bar);
+
+    if (ghCreateOpen) wrap.append(ghCreateForm(kind));
+
+    if (!list) { wrap.append(el("div", "dir-empty", "Reading…")); return wrap; }
+    if (list.error) { wrap.append(el("p", "remote-error", list.error)); return wrap; }
+    const items = list.items || [];
+    if (!items.length) { wrap.append(el("div", "dir-empty", "Nothing here.")); return wrap; }
+    items.forEach((item) => wrap.append(ghRow(kind, item)));
+    return wrap;
+  }
+
+  function ghRow(kind, item) {
+    const row = el("div", "wt-row");
+    row.dataset.key = kind + ":" + item.number;
+    const main = el("div", "wt-main");
+    const title = el("div", "wt-title");
+    const open = el("button", "gh-open", "#" + item.number + " " + item.title);
+    open.onclick = () => ghOpenItem(kind, item.number);
+    title.append(open);
+    if (kind === "prs" && item.isDraft) title.append(el("span", "wt-flag", "draft"));
+    title.append(el("span", "wt-flag", (item.state || "").toLowerCase()));
+    main.append(title);
+    main.append(el("div", "wt-meta", (item.author && item.author.login ? item.author.login + " · " : "") + "updated " + remoteAgo(item.updatedAt)));
+    row.append(main);
+    return row;
+  }
+
+  function ghOpenItem(kind, number) {
+    ghSelected = { kind, number, item: null, error: "" };
+    keepFocus(renderGithub);
+    send({ cmd: kind === "prs" ? "ghPR" : "ghIssue", path: ghDir, ghNumber: number });
+  }
+
+  /** ghCreateForm is the new pull request / new issue form, opened above the
+   *  list it will land in once gh has answered. */
+  function ghCreateForm(kind) {
+    const box = el("div", "gh-create");
+    const title = el("input");
+    title.placeholder = "Title";
+    title.setAttribute("aria-label", "Title");
+    title.value = ghCreateDraft.title;
+    title.oninput = () => { ghCreateDraft.title = title.value; };
+    box.append(title);
+    const body = el("textarea");
+    body.placeholder = "Description (optional)";
+    body.setAttribute("aria-label", "Description");
+    body.value = ghCreateDraft.body;
+    body.oninput = () => { ghCreateDraft.body = body.value; };
+    box.append(body);
+    if (kind === "prs") {
+      const row = el("div", "gh-create-row");
+      const base = el("input");
+      base.placeholder = "Base branch (default: the repository's own)";
+      base.setAttribute("aria-label", "Base branch");
+      base.value = ghCreateDraft.base;
+      base.oninput = () => { ghCreateDraft.base = base.value; };
+      row.append(base);
+      const draftBtn = el("button", "chip" + (ghCreateDraft.draft ? " on" : ""), ghCreateDraft.draft ? "Draft: on" : "Draft: off");
+      draftBtn.onclick = () => { ghCreateDraft.draft = !ghCreateDraft.draft; keepFocus(renderGithub); };
+      row.append(draftBtn);
+      box.append(row);
+    }
+    const buttons = el("div", "rev-commit-buttons");
+    const submit = el("button", "chip primary", ghCreating ? "Opening…" : (kind === "prs" ? "Open pull request" : "Open issue"));
+    submit.disabled = ghCreating;
+    submit.onclick = () => {
+      if (!ghCreateDraft.title.trim()) {
+        notice(kind === "prs" ? "A pull request needs a title" : "An issue needs a title", true);
+        title.focus();
+        return;
+      }
+      ghCreating = true;
+      keepFocus(renderGithub);
+      if (kind === "prs") {
+        send({ cmd: "ghPRCreate", path: ghDir, ghTitle: ghCreateDraft.title, ghBody: ghCreateDraft.body, ghBase: ghCreateDraft.base, ghDraft: ghCreateDraft.draft });
+      } else {
+        send({ cmd: "ghIssueCreate", path: ghDir, ghTitle: ghCreateDraft.title, ghBody: ghCreateDraft.body });
+      }
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = () => { ghCreateOpen = false; keepFocus(renderGithub); };
+    buttons.append(submit, cancel);
+    box.append(buttons);
+    return box;
+  }
+
+  /** ghDetailView is one pull request or issue: its body, its checks when it
+   *  is a pull request gh has already read the checks of, its comments, and a
+   *  box to add one. */
+  function ghDetailView() {
+    const wrap = el("div", "gh-detail");
+    const back = el("button", "chip", "← Back");
+    back.onclick = () => { ghSelected = null; keepFocus(renderGithub); };
+    wrap.append(back);
+
+    const sel = ghSelected;
+    if (!sel.item) {
+      wrap.append(el("div", "dir-empty", sel.error || "Reading…"));
+      return wrap;
+    }
+    const item = sel.item;
+    const head = el("div", "gh-detail-head");
+    head.append(el("h3", null, "#" + item.number + " " + item.title));
+    const meta = el("div", "wt-meta");
+    meta.append(el("span", "wt-flag", (item.state || "").toLowerCase()));
+    if (sel.kind === "prs" && item.isDraft) meta.append(el("span", "wt-flag", "draft"));
+    if (sel.kind === "prs" && item.headRefName) meta.append(el("span", null, item.headRefName + " → " + item.baseRefName));
+    if (item.author && item.author.login) meta.append(el("span", null, item.author.login));
+    head.append(meta);
+    if (item.url) {
+      const link = el("a", "chip", "Open on GitHub");
+      link.href = item.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      head.append(link);
+    }
+    wrap.append(head);
+
+    if (item.body) wrap.append(el("div", "gh-body", item.body));
+
+    if (sel.kind === "prs" && ghChecksData && ghChecksData.pr && ghChecksData.pr.number === item.number) {
+      wrap.append(ghChecksSummaryLine(ghChecksData.summary));
+    }
+
+    const comments = item.comments || [];
+    const commentsBox = section(comments.length === 1 ? "1 comment" : comments.length + " comments");
+    comments.forEach((cm) => {
+      const c = el("div", "gh-comment");
+      c.append(el("div", "gh-comment-meta", ((cm.author && cm.author.login) || "") + " · " + remoteAgo(cm.createdAt)));
+      c.append(el("div", "gh-comment-body", cm.body));
+      commentsBox.append(c);
+    });
+    wrap.append(commentsBox);
+
+    const key = sel.kind + ":" + item.number;
+    const commentRow = el("div", "rev-commit");
+    const box = el("textarea");
+    box.placeholder = "Write a comment (Ctrl+Enter to post)";
+    box.setAttribute("aria-label", "Comment");
+    box.value = ghCommentDrafts.get(key) || "";
+    box.oninput = () => ghCommentDrafts.set(key, box.value);
+    const doComment = () => {
+      const text = box.value.trim();
+      if (!text) return;
+      send({ cmd: sel.kind === "prs" ? "ghPRComment" : "ghIssueComment", path: ghDir, ghNumber: item.number, ghBody: text });
+      ghCommentDrafts.delete(key);
+      box.value = "";
+    };
+    box.onkeydown = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault();
+      doComment();
+    };
+    const post = el("button", "chip primary", "Comment");
+    post.onclick = doComment;
+    commentRow.append(box, post);
+    wrap.append(commentRow);
+    return wrap;
+  }
+
+  /** ghChecksView is the Checks tab: the open pull request's own checks, when
+   *  there is one, and the branch's recent Actions runs regardless -- a
+   *  checkout with no pull request yet still has CI worth showing. */
+  function ghChecksView() {
+    const wrap = el("div", "gh-checks");
+    const data = ghChecksData;
+    if (!data) { wrap.append(el("div", "dir-empty", "Reading…")); return wrap; }
+    if (data.error) wrap.append(el("p", "remote-error", data.error));
+    wrap.append(el("div", "wt-meta", "branch " + (data.branch || "—")));
+
+    if (data.pr) {
+      const prSec = section("Pull request #" + data.pr.number);
+      const open = el("button", "gh-open", data.pr.title);
+      open.onclick = () => ghOpenItem("prs", data.pr.number);
+      prSec.append(open);
+      prSec.append(ghChecksSummaryLine(data.summary));
+      (data.checks || []).forEach((c) => prSec.append(ghCheckRow(c)));
+      wrap.append(prSec);
+    } else {
+      wrap.append(el("p", "fan-hint", "This branch has no open pull request yet. The runs below are for the branch itself."));
+    }
+
+    const runsSec = section("Recent runs");
+    const runs = data.runs || [];
+    if (!runs.length) runsSec.append(el("div", "dir-empty", "No workflow runs found for this branch."));
+    runs.forEach((r) => {
+      const row = el("div", "wt-row");
+      const main = el("div", "wt-main");
+      const title = el("div", "wt-title");
+      const link = el("a", "gh-open", r.displayTitle || r.workflowName);
+      link.href = r.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      title.append(link);
+      title.append(el("span", "wt-flag gh-" + ghClass(r.conclusion || r.status), (r.conclusion || r.status || "").replace(/_/g, " ")));
+      main.append(title);
+      main.append(el("div", "wt-meta", r.workflowName + " · " + remoteAgo(r.updatedAt)));
+      row.append(main);
+      runsSec.append(row);
+    });
+    wrap.append(runsSec);
+    return wrap;
+  }
+
+  function ghCheckRow(c) {
+    const row = el("div", "wt-row");
+    const main = el("div", "wt-main");
+    const title = el("div", "wt-title");
+    if (c.link) {
+      const link = el("a", "gh-open", c.name);
+      link.href = c.link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      title.append(link);
+    } else {
+      title.append(el("span", "wt-label", c.name));
+    }
+    title.append(el("span", "wt-flag gh-" + ghClass(c.bucket), (c.state || "").toLowerCase()));
+    main.append(title);
+    if (c.workflow) main.append(el("div", "wt-meta", c.workflow));
+    row.append(main);
+    return row;
+  }
+
+  function ghChecksSummaryLine(summary) {
+    const s = summary || { pending: 0, passing: 0, failing: 0, overall: "none" };
+    const text = s.overall === "none" ? "No checks reported"
+      : [s.passing ? s.passing + " passing" : "", s.failing ? s.failing + " failing" : "", s.pending ? s.pending + " pending" : ""]
+        .filter(Boolean).join(", ");
+    return el("div", "gh-summary gh-" + ghClass(s.overall), text);
+  }
+
   // ---------------------------------------------------------------- agents
 
   let agents = null;
@@ -6764,6 +7306,7 @@
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
+    { id: "github", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
     { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
   ];
   /** The section on show, kept from one opening to the next. */
@@ -6812,7 +7355,7 @@
     if (dialog !== "settings") return;
     // Of remote access's section, only the push settings are preferences.
     if (settingsSection === "remote") keepFocus(drawPushSettings);
-    else if (settingsSection !== "keys") keepFocus(renderSettings);
+    else if (settingsSection !== "keys" && settingsSection !== "github") keepFocus(renderSettings);
   }
 
   function buildSettingsShell() {
@@ -6914,6 +7457,7 @@
         remoteRoster = null; remotePairing = null; remoteOutcome = null; remoteBusy = "";
         send({ cmd: "remoteDevices" });
       } else if (id === "agents") send({ cmd: "refreshAgents" });
+      else if (id === "github") { ghStatus = null; send({ cmd: "ghStatus", path: ghDir }); }
     }
     renderSettings();
     const pane = $("settings-pane");
@@ -6943,6 +7487,11 @@
     agents: settingsAgents,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
     remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
+    github: (pane) => {
+      settingsHead(pane, "GitHub", "Create and review pull requests and issues, and see CI status, without leaving Flockdeck.");
+      settingsHost(pane);
+      renderGhSettings();
+    },
     plan: settingsPlan,
   };
 
@@ -8478,6 +9027,7 @@
   }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
+  $("btn-github").onclick = () => openGithub();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;

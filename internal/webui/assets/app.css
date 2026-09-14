@@ -1439,6 +1439,71 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   .rail-btn { width: 100%; }
 }
 
+/* -------------------------------------------------------------- github --- */
+
+.gh-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.chip.gh-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
+
+.gh-list-wrap .wt-actions { margin-bottom: 10px; flex-wrap: wrap; }
+
+/* A row's title used to be plain text; it is a button here, so the whole
+ * item opens with one press, and it has to read as a link rather than the
+ * chip everything else in this row is. */
+.gh-open {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.gh-open:hover, .gh-open:focus-visible { color: var(--accent); text-decoration: underline; }
+
+.gh-create { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 14px; background: var(--bg-inset); }
+.gh-create input, .gh-create textarea {
+  width: 100%; box-sizing: border-box; margin-bottom: 8px;
+  background: var(--bg-raised); border: 1px solid var(--field-line); border-radius: var(--radius);
+  color: var(--fg); font: inherit; padding: 7px 9px;
+}
+.gh-create textarea { min-height: 72px; resize: vertical; }
+.gh-create-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.gh-create-row input { flex: 1 1 auto; margin-bottom: 0; }
+
+.gh-detail-head h3 { margin: 0 0 6px; font-size: 15px; }
+.gh-detail-head .wt-meta { margin-bottom: 8px; }
+.gh-body { white-space: pre-wrap; font-size: 13px; line-height: 1.5; margin: 10px 0 16px; }
+
+.gh-comment { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.gh-comment:last-child { border-bottom: 0; }
+.gh-comment-meta { font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
+.gh-comment-body { white-space: pre-wrap; font-size: 13px; }
+
+.gh-run { padding: 4px 0; }
+.gh-code {
+  font-size: 26px; font-weight: 700; letter-spacing: 2px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  padding: 10px 16px; display: inline-block; margin: 6px 0 12px;
+}
+.gh-log {
+  max-height: 140px; overflow-y: auto; font-size: 11px; color: var(--fg-dim);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap;
+  background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 10px; margin: 8px 0;
+}
+
+.gh-summary { font-size: 12px; font-weight: 600; margin: 4px 0 10px; }
+/* Placed after .wt-flag so a check or run's own colour wins over the plain
+ * flag it is drawn as: same specificity, later in the sheet. */
+.wt-flag.gh-pass { color: var(--working); border-color: var(--working); }
+.wt-flag.gh-fail { color: var(--exited); border-color: var(--exited); }
+.wt-flag.gh-pending { color: var(--waiting); border-color: var(--waiting); }
+.wt-flag.gh-neutral { color: var(--fg-dim); border-color: var(--line-strong); }
+.gh-summary.gh-pass { color: var(--working); }
+.gh-summary.gh-fail { color: var(--exited); }
+.gh-summary.gh-pending { color: var(--waiting); }
+
 /* Windows high contrast replaces every colour with a system one, and much of
  * this window is told apart by colour alone: every row of a list looked like
  * the chosen one's neighbours, a switch could not be seen to be on, and the

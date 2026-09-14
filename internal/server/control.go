@@ -487,6 +487,18 @@ type command struct {
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
 	AutoReview bool `json:"autoReview"`
+	// GHNumber, GHTitle, GHBody, GHBase and GHDraft are the GitHub panel's
+	// own, for opening and commenting on pull requests and issues through
+	// gh: a PR or issue number, a new item's title and body, the branch to
+	// merge into, and whether to open it as a draft. GHState filters a
+	// listing ("open", "closed", "merged" for pull requests, "all"); empty
+	// means gh's own default, open. See internal/server/ghcli.go.
+	GHNumber int    `json:"ghNumber"`
+	GHTitle  string `json:"ghTitle"`
+	GHBody   string `json:"ghBody"`
+	GHBase   string `json:"ghBase"`
+	GHDraft  bool   `json:"ghDraft"`
+	GHState  string `json:"ghState"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,6 +1233,48 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "gitFetch":
 		s.runRemote(c, "fetch", cmd.Path)
+		return
+	case "ghStatus":
+		s.ghStatus(c, cmd.Path)
+		return
+	case "ghInstall":
+		s.ghInstall(c)
+		return
+	case "ghLogin":
+		s.ghLogin(c)
+		return
+	case "ghLoginCancel":
+		s.ghLoginCancel(c)
+		return
+	case "ghLogout":
+		s.ghLogout(c, cmd.Path)
+		return
+	case "ghPRs":
+		s.ghPRs(c, cmd.Path, cmd.GHState)
+		return
+	case "ghPR":
+		s.ghPR(c, cmd.Path, cmd.GHNumber)
+		return
+	case "ghPRCreate":
+		s.ghPRCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody, cmd.GHBase, cmd.GHDraft)
+		return
+	case "ghPRComment":
+		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
+		return
+	case "ghIssues":
+		s.ghIssues(c, cmd.Path, cmd.GHState)
+		return
+	case "ghIssue":
+		s.ghIssue(c, cmd.Path, cmd.GHNumber)
+		return
+	case "ghIssueCreate":
+		s.ghIssueCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody)
+		return
+	case "ghIssueComment":
+		s.ghIssueComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
+		return
+	case "ghChecks":
+		s.ghChecks(c, cmd.Path)
 		return
 	case "conversations":
 		s.listConversations(c, cmd.Path)

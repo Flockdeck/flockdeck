@@ -36,6 +36,7 @@ var order = []string{
 	"fanout",
 	"worktrees",
 	"changes",
+	"github",
 	"history",
 	"projects",
 	"persistence",

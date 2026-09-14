@@ -4497,7 +4497,7 @@ const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
 
 h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
-assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "Account & plan"]);
+assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "GitHub", "Account & plan"]);
 assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
 assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
 assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
