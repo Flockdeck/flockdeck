@@ -529,7 +529,10 @@
    *  rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
-    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "off";
+    // retryAt is part of the key too: a run of failures with the same detail
+    // still moves it on each attempt, and the dialog's "trying again at…"
+    // has to follow it rather than sit on the first one shown.
+    const key = r ? [r.state, r.viewers, r.detail, r.relay, r.retryAt].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
     const b = $("btn-remote");
@@ -564,12 +567,30 @@
         return "Reachable through " + where +
           (n ? " — " + n + (n === 1 ? " window is" : " windows are") + " open from another device" : "");
       }
-      case "connecting": return "Connecting to " + where + "…";
-      case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + ". Trying again shortly.";
+      // A retry that has not yet been waited out shows when it is due, as a
+      // clock time rather than a countdown: nothing here redraws on a timer,
+      // so a countdown would sit still and go stale between state pushes,
+      // where a clock time reads true until the next one arrives.
+      case "connecting": return r.retryAt ? "Reconnecting to " + where + "." + remoteRetryClock(r.retryAt) :
+        "Connecting to " + where + "…";
+      case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
       case "revoked":
       case "replaced": return r.detail || "Remote access has stopped.";
       default: return "Not connected to " + where + ".";
     }
+  }
+
+  /** remoteRetryClock is " Trying again at 14:32:07." for when the tunnel's
+   *  own backoff is due to try the relay again, or " Trying again shortly."
+   *  once that time is at hand, so the line never claims a moment already
+   *  past. Empty once there is nothing waiting to retry. */
+  function remoteRetryClock(retryAt) {
+    const t = Date.parse(retryAt || "");
+    if (!(t > 0)) return "";
+    if (t <= Date.now()) return " Trying again shortly.";
+    const d = new Date(t);
+    const two = (n) => String(n).padStart(2, "0");
+    return " Trying again at " + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + ".";
   }
 
   /** openRemote shows remote access: whether the relay can be reached, a way
