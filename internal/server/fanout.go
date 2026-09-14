@@ -410,6 +410,13 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 	}()
 }
 
+// startAgentRateLimit and startAgentRateWindow bound how often one window
+// may call startAgent -- see controlClient.startAgentLimit.
+const (
+	startAgentRateLimit  = 5
+	startAgentRateWindow = 10 * time.Second
+)
+
 // startAgent starts one fresh agent in an already open project and answers
 // the window that asked for it with the new pane's id, so it can open that
 // pane's chat straight away -- what lets somebody start an agent from their
@@ -426,7 +433,17 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 // through newTab or fanout already (see control.go's command dispatch), so
 // this adds no power a window at the desk did not already have -- only a way
 // to reach it without the desk.
+//
+// It is rate-limited per window (startAgentRateLimit within
+// startAgentRateWindow): unlike a fan-out, capped at MaxTasks agents in one
+// go, this starts one agent -- and, with worktree:true, cuts one worktree --
+// per call, with nothing else to stop a window calling it as fast as it can
+// send frames.
 func (s *Server) startAgent(c *controlClient, cmd command) {
+	if !c.startAgentLimit.allow(startAgentRateLimit, startAgentRateWindow) {
+		c.notify("too many agents started too quickly -- wait a moment and try again", true)
+		return
+	}
 	task := strings.TrimSpace(cmd.Task)
 	if task == "" {
 		c.notify("a task is required to start an agent", true)

@@ -41,9 +41,22 @@ const maxAttachedImageBytes = 8 << 20
 // with them.
 const attachedImageMaxAge = 7 * 24 * time.Hour
 
+// attachImageRateLimit and attachImageRateWindow bound how often one window
+// may call attachImage -- see controlClient.attachImageLimit. Each call
+// decodes and writes up to maxAttachedImageBytes to disk, with nothing else
+// to slow a window sending them as fast as it can encode base64.
+const (
+	attachImageRateLimit  = 10
+	attachImageRateWindow = 10 * time.Second
+)
+
 // attachImage saves a picture the phone sent for a pane's prompt, and answers
 // with the path an agent in that pane can read it back from.
 func (s *Server) attachImage(c *controlClient, paneID, name, mediaType, dataB64 string) {
+	if !c.attachImageLimit.allow(attachImageRateLimit, attachImageRateWindow) {
+		c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Error: "too many pictures attached too quickly"})
+		return
+	}
 	go func() {
 		defer s.surviveFor(c, "attaching a picture")
 		if paneID == "" {
