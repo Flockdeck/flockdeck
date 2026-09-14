@@ -1,0 +1,52 @@
+{{template "head" .}}
+</head>
+<body>
+
+{{template "header" .}}
+
+<main class="wrap" id="main">
+<section class="hero docs-hero">
+  <p class="kicker">Documentation</p>
+  <h1>Everything Flockdeck can do, <em>and how to run it yourself</em>.</h1>
+  <p class="lede">Two guides: using the desktop app, generated from the same
+     help that's built into it, and self-hosting the relay for remote access
+     on your own infrastructure.</p>
+</section>
+
+<div class="grid docs-home-grid">
+  <a class="card docs-card" href="/app/getting-started.html">
+    <span class="g">Using Flockdeck</span>
+    <h3>Run every agent side by side</h3>
+    <p>Panes, agents, worktrees, fan out, routing, spend, remote access and
+       every keyboard shortcut — the same guide that's behind F1 in the app.</p>
+  </a>
+  <a class="card docs-card" href="/self-hosting/overview.html">
+    <span class="g">Self-hosting</span>
+    <h3>Run the relay on your own infrastructure</h3>
+    <p>Deploy the Flockdeck relay yourself: requirements, configuration,
+       storage, admin, connecting desktops, and upgrading it.</p>
+  </a>
+</div>
+
+<section class="band">
+  <p class="eyebrow">Using Flockdeck</p>
+  <h2>In the app.</h2>
+  <div class="grid">
+    {{range (index .Nav 0).Items}}<a class="card docs-card" href="/{{.Href}}"><h3>{{.Title}}</h3></a>
+    {{end}}
+  </div>
+</section>
+
+<section class="band">
+  <p class="eyebrow">Self-hosting</p>
+  <h2>Running your own relay.</h2>
+  <div class="grid">
+    {{range (index .Nav 1).Items}}<a class="card docs-card" href="/{{.Href}}"><h3>{{.Title}}</h3></a>
+    {{end}}
+  </div>
+</section>
+</main>
+
+{{template "footer" .}}
+</body>
+</html>

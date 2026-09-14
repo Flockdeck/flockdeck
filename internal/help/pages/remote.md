@@ -279,7 +279,9 @@ deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
 For companies: a licence to run the relay on your own infrastructure, with SSO
 and support, for a company whose rules don't allow a third party to decrypt
-its developers' terminal traffic.
+its developers' terminal traffic. The relay's own configuration already
+supports this today; see [Self-hosting the relay](https://docs.flockdeck.ai/self-hosting/overview.html)
+for how.
 
 ## Leaving the agents running for it
 

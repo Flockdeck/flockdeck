@@ -1,0 +1,75 @@
+{{/*
+  The pieces every docs page shares: the head, the header, the sidebar nav
+  and the footer. A page is its own template that draws these in and says
+  what goes in the middle, so the fonts, the stylesheet, the top nav and the
+  way back to flockdeck.ai are written once, here.
+
+  "head" leaves the head open, for a page that has something of its own to
+  add; the page closes it.
+*/}}
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Description}}">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#0F1418">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{.Canonical}}">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{{.Canonical}}">
+<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/docs.css">
+{{end}}
+
+{{define "header"}}
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="wordmark" href="/">{{mark}}Flockdeck <span class="tag">docs</span></a>
+  <nav aria-label="Site">
+    <a href="/app/getting-started.html">Using Flockdeck</a>
+    <a href="/self-hosting/overview.html">Self-hosting</a>
+    <a href="https://flockdeck.ai/">flockdeck.ai</a>
+    <a href="https://github.com/jmwri/flockdeck">Source</a>
+  </nav>
+</header>
+{{end}}
+
+{{/* The sidebar: every page in both sections, with the current one marked. */}}
+{{define "sidebar"}}
+<nav class="docs-nav" aria-label="Documentation">
+  {{range .Nav}}
+  <div class="docs-nav-group">
+    <p class="eyebrow">{{.Title}}</p>
+    <ol>
+      {{range .Items}}<li><a href="/{{.Href}}"{{if eq .Href $.Active}} aria-current="page"{{end}}>{{.Title}}</a></li>
+      {{end}}
+    </ol>
+  </div>
+  {{end}}
+</nav>
+{{end}}
+
+{{define "footer"}}
+<footer class="foot">
+  <div class="wrap">
+    <p>Flockdeck documentation.<br>
+       <span class="foot-note">The desktop app is free and open source under the MIT licence.</span></p>
+    <nav aria-label="Footer">
+      <a href="https://flockdeck.ai/">flockdeck.ai</a>
+      <a href="https://flockdeck.ai/privacy.html">Privacy</a>
+      <a href="https://flockdeck.ai/terms.html">Terms</a>
+      <a href="https://github.com/jmwri/flockdeck">Source</a>
+    </nav>
+    <div class="foot-legal">
+      <p>© 2026 Jim Wright</p>
+    </div>
+  </div>
+</footer>
+{{end}}

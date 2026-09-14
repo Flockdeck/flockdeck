@@ -1,0 +1,22 @@
+{{/*
+  One documentation page: the sidebar beside it, the prose in the middle.
+  Used for both the generated "using Flockdeck" pages and the hand-written
+  self-hosting ones — they are the same shape once they are Markdown.
+*/}}
+{{template "head" .}}
+</head>
+<body>
+
+{{template "header" .}}
+
+<main class="wrap docs-shell" id="main">
+  {{template "sidebar" .}}
+  <article class="prose">
+    <p class="eyebrow">{{.Section}}</p>
+{{.Body}}
+  </article>
+</main>
+
+{{template "footer" .}}
+</body>
+</html>
