@@ -248,6 +248,11 @@ func TestStartAgentIsRateLimitedPerWindow(t *testing.T) {
 	srv, ws := fanoutServer(t)
 	root := ws.ActiveRoot()
 	c := &controlClient{out: make(chan []byte, 256)}
+	// A frozen clock: each call starts a real agent process, and a slow
+	// runner taking longer than the window over the first five would let the
+	// sixth through.
+	frozen := time.Now()
+	c.startAgentLimit.now = func() time.Time { return frozen }
 
 	for i := 0; i < startAgentRateLimit; i++ {
 		reply := runStartAgentOn(t, srv, c, command{Root: root, Agent: "gocli", Task: "task"})

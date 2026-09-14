@@ -805,6 +805,9 @@ type controlClient struct {
 type rateLimiter struct {
 	mu    sync.Mutex
 	times []time.Time
+	// now is the clock, time.Now when nil. A test sets it so a burst of
+	// calls lands inside the window however slowly the machine runs them.
+	now func() time.Time
 }
 
 // allow reports whether another call may go ahead now, and records it if so.
@@ -812,6 +815,9 @@ func (r *rateLimiter) allow(limit int, window time.Duration) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
+	if r.now != nil {
+		now = r.now()
+	}
 	cutoff := now.Add(-window)
 	kept := r.times[:0]
 	for _, t := range r.times {

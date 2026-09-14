@@ -130,6 +130,10 @@ func TestAttachImageIsRateLimitedPerWindow(t *testing.T) {
 	srv, ws := newTestServer(t)
 	paneID := addAgentPane(t, srv, ws, "claude")
 	c := &controlClient{out: make(chan []byte, 256)}
+	// A frozen clock, so a slow machine cannot let the window slide past
+	// the first calls before the one that should be refused.
+	frozen := time.Now()
+	c.attachImageLimit.now = func() time.Time { return frozen }
 
 	for i := 0; i < attachImageRateLimit; i++ {
 		srv.attachImage(c, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
