@@ -485,31 +485,36 @@ func TestTheFallbackHookLineRunsInPowerShellAndGitBash(t *testing.T) {
 // TestSessionStartDoesNotMoveTheStatusDot keeps a compaction, which reports as
 // a session start of its own, from showing a busy agent as idle.
 func TestSessionStartDoesNotMoveTheStatusDot(t *testing.T) {
-	if _, _, ok := StatusForEvent("SessionStart", ""); ok {
+	if _, _, ok := StatusForEvent("SessionStart", "", ""); ok {
 		t.Error("SessionStart should not change a pane's status")
 	}
 }
 
-// TestIsIdleReminder covers telling Claude Code's idle nudge apart from a
-// real ask: only a Notification whose notification_type is idle_prompt is
-// one, since that is the only kind a helper's idle parent should be allowed
-// to swallow.
-func TestIsIdleReminder(t *testing.T) {
+// TestStatusForEventTellsIdleNudgeFromARealAsk covers a Notification's
+// notification_type: only Claude Code's own idle nudge ("idle_prompt") --
+// sent about a minute after a pane has simply gone quiet -- leaves the pane's
+// status alone. A permission prompt, an MCP elicitation, an agent asking for
+// input, or Flockdeck's own chat client naming a tool all turn it amber, the
+// same as a Notification too old to say what it is about at all.
+func TestStatusForEventTellsIdleNudgeFromARealAsk(t *testing.T) {
 	cases := []struct {
-		event, notificationType string
-		want                    bool
+		notificationType string
+		wantOK           bool
 	}{
-		{"Notification", "idle_prompt", true},
-		{"Notification", "permission_prompt", false},
-		{"Notification", "elicitation_dialog", false},
-		{"Notification", "agent_needs_input", false},
-		{"Notification", "", false},
-		{"PreToolUse", "idle_prompt", false},
-		{"PermissionRequest", "", false},
+		{"idle_prompt", false},
+		{"permission_prompt", true},
+		{"elicitation_dialog", true},
+		{"agent_needs_input", true},
+		{"", true},
 	}
 	for _, c := range cases {
-		if got := IsIdleReminder(c.event, c.notificationType); got != c.want {
-			t.Errorf("IsIdleReminder(%q, %q) = %v, want %v", c.event, c.notificationType, got, c.want)
+		st, _, ok := StatusForEvent("Notification", "", c.notificationType)
+		if ok != c.wantOK {
+			t.Errorf("StatusForEvent(Notification, %q): ok = %v, want %v", c.notificationType, ok, c.wantOK)
+			continue
+		}
+		if ok && st != StatusWaiting {
+			t.Errorf("StatusForEvent(Notification, %q) = %v, want StatusWaiting", c.notificationType, st)
 		}
 	}
 }
@@ -545,7 +550,7 @@ func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
 // put it right.
 func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
 	for _, ev := range append(slices.Clip(hookEvents), laterHookEvents...) {
-		st, detail, ok := StatusForEvent(ev, "Bash")
+		st, detail, ok := StatusForEvent(ev, "Bash", "permission_prompt")
 		if !ok {
 			continue
 		}

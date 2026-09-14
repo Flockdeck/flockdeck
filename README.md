@@ -492,11 +492,12 @@ knows, not decorating the window.
 | faint grey | Starting — launched, and not heard from yet |
 | red | The process exited |
 
-A helper another agent started for itself (see [An agent starting its own
-helpers](#an-agent-starting-its-own-helpers)) raises none of this while that
-agent's own pane stays open — its idle nudge is the agent's to notice, not
-yours, though a permission prompt or a real question still reaches you as
-usual, and once that pane is closed the helper's idle nudges do too.
+Claude Code's own idle nudge — sent about a minute after a pane has simply
+gone quiet, waiting for a new prompt — never raises any of this, for any pane:
+it says nothing more than that the pane is still there, not that it needs you.
+A permission prompt or a real question always still reaches you, including for
+a helper another agent started for itself (see [An agent starting its own
+helpers](#an-agent-starting-its-own-helpers)).
 
 For an agent that reports its own lifecycle, this is not screen scraping. A
 Claude Code pane is launched with a generated `--settings` file registering its

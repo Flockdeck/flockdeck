@@ -117,10 +117,9 @@ Ask a lead agent to plan and then run one of these per task, and it fans
 itself out. Only processes running inside a pane can do this: the token never
 leaves the environment the pane was started with.
 
-A helper started this way is its parent's responsibility, not yours: its
-finishing and going quiet does not raise a phone push, a desktop notification
-or count toward the waiting badges, for as long as its parent's pane stays
-open to notice instead. A helper asking permission or a real question still
-turns amber and reaches you as usual, since only you can answer those. Once
-the parent's pane is closed, its helpers are yours again, from their next idle
-moment on.
+A helper started this way is its parent's responsibility to watch, not yours:
+its finishing and going quiet never raises a phone push, a desktop
+notification or counts toward the waiting badges, since Claude Code's own
+idle nudge means nothing more than that the pane has gone quiet — true of
+any pane, not only a helper's. A helper asking permission or a real question
+still turns amber and reaches you as usual, since only you can answer those.

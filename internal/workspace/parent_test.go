@@ -68,11 +68,11 @@ func TestParentSurvivesSaveAndRestore(t *testing.T) {
 	}
 }
 
-// TestHelperIgnoresIdleReminderWhileParentIsOpen is the change this file is
-// about. It fails without it: on the code before this, every Notification --
-// idle_prompt included -- turns a pane amber regardless of who spawned it, so
-// a helper whose lead agent is still right there watching it notified the
-// user anyway, all afternoon.
+// TestHelperIgnoresIdleReminderWhileParentIsOpen covers a helper's idle nudge
+// with its lead agent's pane still open. It is the general rule -- an idle
+// nudge never turns any pane amber, see TestIdleReminderNeverTurnsAPaneWaiting
+// -- applying here too, where a special case used to be the only thing
+// keeping the helper quiet.
 func TestHelperIgnoresIdleReminderWhileParentIsOpen(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -107,10 +107,12 @@ func TestHelperIgnoresIdleReminderWhileParentIsOpen(t *testing.T) {
 	}
 }
 
-// TestPaneWithNoParentIdleReminderTurnsWaiting pins today's behaviour for a
-// pane nobody spawned as a helper: its own idle reminders go on turning it
-// amber, exactly as before this change.
-func TestPaneWithNoParentIdleReminderTurnsWaiting(t *testing.T) {
+// TestIdleReminderNeverTurnsAPaneWaiting covers the general rule an idle
+// nudge follows now: it is Claude Code saying a pane has simply gone quiet,
+// not a real ask, so it leaves the pane exactly as the Stop before it left
+// it -- whether or not the pane is a helper, and whether or not a helper's
+// parent is still open to notice for it.
+func TestIdleReminderNeverTurnsAPaneWaiting(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
@@ -122,15 +124,17 @@ func TestPaneWithNoParentIdleReminderTurnsWaiting(t *testing.T) {
 	ws.handleHook(hooks.Event{SessionID: p.ID, Event: "Stop"})
 
 	ws.handleHook(hooks.Event{SessionID: p.ID, Event: "Notification", NotificationType: "idle_prompt"})
-	if st, _ := p.Sess.Status(); st != session.StatusWaiting {
-		t.Errorf("status after an idle reminder on an unspawned pane = %v, want waiting, as today", st)
+	if st, _ := p.Sess.Status(); st != session.StatusIdle {
+		t.Errorf("status after an idle reminder on an unspawned pane = %v, want still idle", st)
 	}
 }
 
-// TestHelperIdleReminderTurnsWaitingAfterParentCloses covers the parent's
-// pane being closed: from then on the helper is the user's own, so its next
-// idle reminder turns it amber like any other pane's.
-func TestHelperIdleReminderTurnsWaitingAfterParentCloses(t *testing.T) {
+// TestHelperIdleReminderStaysIdleAfterParentCloses covers the parent's pane
+// being closed: the helper's idle nudges go on leaving it idle exactly as
+// they did while the parent was open, since the rule no longer depends on
+// who, if anyone, is watching. Only a real ask -- a permission prompt, say --
+// turns it amber, and does so whether or not the parent is still open.
+func TestHelperIdleReminderStaysIdleAfterParentCloses(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
@@ -155,7 +159,13 @@ func TestHelperIdleReminderTurnsWaitingAfterParentCloses(t *testing.T) {
 	}
 
 	ws.handleHook(hooks.Event{SessionID: helper, Event: "Notification", NotificationType: "idle_prompt"})
+	if st, _ := p.Sess.Status(); st != session.StatusIdle {
+		t.Errorf("status after an idle reminder once the parent is closed = %v, want still idle", st)
+	}
+
+	// A real ask still reaches the user, parent open or not.
+	ws.handleHook(hooks.Event{SessionID: helper, Event: "Notification", NotificationType: "permission_prompt"})
 	if st, _ := p.Sess.Status(); st != session.StatusWaiting {
-		t.Errorf("status after an idle reminder once the parent is closed = %v, want waiting", st)
+		t.Errorf("status after a permission prompt once the parent is closed = %v, want waiting", st)
 	}
 }

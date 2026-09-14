@@ -327,35 +327,40 @@ func TestSlowViewerIsDroppedNotBlocking(t *testing.T) {
 // TestStatusForEvent pins the mapping from Claude lifecycle events to statuses.
 func TestStatusForEvent(t *testing.T) {
 	cases := []struct {
-		event string
-		tool  string
-		want  Status
-		ok    bool
+		event            string
+		tool             string
+		notificationType string
+		want             Status
+		ok               bool
 	}{
-		{"UserPromptSubmit", "", StatusWorking, true},
-		{"PreToolUse", "Bash", StatusWorking, true},
+		{"UserPromptSubmit", "", "", StatusWorking, true},
+		{"PreToolUse", "Bash", "", StatusWorking, true},
 		// A question for the user is a tool call, and the pane is waiting on
 		// the answer.
-		{"PreToolUse", "AskUserQuestion", StatusWaiting, true},
-		{"Notification", "", StatusWaiting, true},
-		{"Stop", "", StatusIdle, true},
-		{"PermissionRequest", "Bash", StatusWaiting, true},
-		{"PostToolUseFailure", "Bash", StatusWorking, true},
-		{"PermissionDenied", "Bash", StatusWorking, true},
-		{"StopFailure", "", StatusIdle, true},
-		{"Interrupted", "Bash", StatusIdle, true},
-		{"SomethingElse", "", StatusIdle, false},
+		{"PreToolUse", "AskUserQuestion", "", StatusWaiting, true},
+		{"Notification", "", "permission_prompt", StatusWaiting, true},
+		// Claude Code's own idle nudge -- sent about a minute after a turn
+		// ends, to say a pane has simply gone quiet -- leaves the pane's
+		// status alone rather than turning it amber.
+		{"Notification", "", "idle_prompt", StatusIdle, false},
+		{"Stop", "", "", StatusIdle, true},
+		{"PermissionRequest", "Bash", "", StatusWaiting, true},
+		{"PostToolUseFailure", "Bash", "", StatusWorking, true},
+		{"PermissionDenied", "Bash", "", StatusWorking, true},
+		{"StopFailure", "", "", StatusIdle, true},
+		{"Interrupted", "Bash", "", StatusIdle, true},
+		{"SomethingElse", "", "", StatusIdle, false},
 	}
 	for _, c := range cases {
-		got, detail, ok := StatusForEvent(c.event, c.tool)
+		got, detail, ok := StatusForEvent(c.event, c.tool, c.notificationType)
 		if ok != c.ok {
-			t.Errorf("%s: ok = %v, want %v", c.event, ok, c.ok)
+			t.Errorf("%s/%s: ok = %v, want %v", c.event, c.notificationType, ok, c.ok)
 			continue
 		}
 		if ok && got != c.want {
-			t.Errorf("%s: status = %v, want %v", c.event, got, c.want)
+			t.Errorf("%s/%s: status = %v, want %v", c.event, c.notificationType, got, c.want)
 		}
-		if c.event == "PreToolUse" && detail != c.tool {
+		if ok && c.event == "PreToolUse" && detail != c.tool {
 			t.Errorf("PreToolUse should surface the tool name %q, got %q", c.tool, detail)
 		}
 	}
@@ -816,7 +821,7 @@ func BenchmarkPublish(b *testing.B) {
 func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
 	s := claudePane()
 	report := func(event, tool string) {
-		st, detail, ok := StatusForEvent(event, tool)
+		st, detail, ok := StatusForEvent(event, tool, "")
 		if ok {
 			s.SetStatus(st, detail)
 		}
@@ -828,11 +833,12 @@ func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
 		t.Errorf("status = %v %q; the pane should say it is waiting on Bash", st, detail)
 	}
 
-	// An idle nudge arrives with nothing running, and names nothing.
+	// A bare permission-prompt notification arrives with nothing running, and
+	// names nothing.
 	report("Stop", "")
 	report("Notification", "")
 	if st, detail := s.Status(); st != StatusWaiting || detail != "" {
-		t.Errorf("status = %v %q after an idle nudge, want waiting on nothing", st, detail)
+		t.Errorf("status = %v %q after a bare notification, want waiting on nothing", st, detail)
 	}
 
 	// Flockdeck's chat client names the tool it is asking about.
@@ -851,7 +857,7 @@ func TestAWaitingPaneKeepsTheToolItIsAskingAbout(t *testing.T) {
 func TestAWaitingPaneKeepsTheToolInputItIsAskingAbout(t *testing.T) {
 	s := claudePane()
 	report := func(event, tool, toolInput string) {
-		st, detail, ok := StatusForEvent(event, tool)
+		st, detail, ok := StatusForEvent(event, tool, "")
 		if ok {
 			s.SetStatusFull(st, detail, toolInput)
 		}
@@ -874,11 +880,11 @@ func TestAWaitingPaneKeepsTheToolInputItIsAskingAbout(t *testing.T) {
 		t.Errorf("ToolInput = %q, want the newer PreToolUse's input", got)
 	}
 
-	// An idle nudge with nothing running carries nothing either.
+	// A bare notification with nothing running carries nothing either.
 	report("Stop", "", "")
 	report("Notification", "", "")
 	if got := s.ToolInput(); got != "" {
-		t.Errorf("ToolInput = %q, want empty after an idle nudge", got)
+		t.Errorf("ToolInput = %q, want empty after a bare notification", got)
 	}
 }
 
@@ -1227,7 +1233,7 @@ func TestEnterAnswersAPermissionPrompt(t *testing.T) {
 	s.Kind = KindClaude
 	s.sawInput = true
 	report := func(event, tool string) {
-		if st, detail, ok := StatusForEvent(event, tool); ok {
+		if st, detail, ok := StatusForEvent(event, tool, ""); ok {
 			s.SetStatus(st, detail)
 		}
 	}
@@ -1299,7 +1305,7 @@ func TestARefusedPermissionPromptGoesBackToIdle(t *testing.T) {
 	s.sawInput = true
 	s.answerQuiet = 60 * time.Millisecond
 	report := func(event, tool string) {
-		if st, detail, ok := StatusForEvent(event, tool); ok {
+		if st, detail, ok := StatusForEvent(event, tool, ""); ok {
 			s.SetStatus(st, detail)
 		}
 	}

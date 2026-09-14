@@ -15,8 +15,10 @@ const (
 	// StatusWorking means the agent is actively producing output or running
 	// tools, and does not need you.
 	StatusWorking
-	// StatusWaiting means the agent is blocked on you: a permission prompt, a
-	// question, or an idle nudge. This is the status worth surfacing loudly.
+	// StatusWaiting means the agent is blocked on you: a permission prompt or
+	// a question. This is the status worth surfacing loudly. Claude Code's own
+	// idle nudge -- sent about a minute after a turn ends, to say a pane has
+	// simply gone quiet -- is not this: nobody is blocked on anything.
 	StatusWaiting
 	// StatusIdle means the agent finished its turn and is waiting for a new
 	// prompt.

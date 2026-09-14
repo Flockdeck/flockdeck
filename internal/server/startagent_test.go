@@ -72,9 +72,9 @@ func runStartAgentOn(t *testing.T, srv *Server, c *controlClient, cmd command) s
 
 // TestStartAgentStartsWithTheTaskNotAHelper covers the whole point of the
 // feature: a phone starting an agent gets a pane running the task it typed,
-// and that pane is the user's own -- not a helper, which since v0.3.7 is not
-// notified while its parent stays open, and a pane nobody is watching that
-// never notifies its user is worse than not starting it at all.
+// and that pane is the user's own -- not a helper, which the phone's chat
+// view groups under its parent's row rather than showing as an ordinary
+// agent of the user's own (see internal/server/agents.go's Parent field).
 func TestStartAgentStartsWithTheTaskNotAHelper(t *testing.T) {
 	srv, ws := fanoutServer(t)
 	root := ws.ActiveRoot()
@@ -94,9 +94,7 @@ func TestStartAgentStartsWithTheTaskNotAHelper(t *testing.T) {
 	if p.Task != "reticulate the splines" {
 		t.Errorf("pane task = %q, want the task it was started with", p.Task)
 	}
-	// Pane.Parent is unexported outside the workspace package, so it is read
-	// the same way the phone's chat view would notice a helper: by asking
-	// whether an idle nudge would be suppressed is not exposed either, but
+	// Pane.Parent is unexported outside the workspace package, so
 	// TestAgentSpawnRecordsParentButAUserFanoutDoesNot in the workspace
 	// package pins Spawn's own rule that only SpawnedByAgent sets it, and
 	// StartAgent never sets it -- this test is what would catch a change to
