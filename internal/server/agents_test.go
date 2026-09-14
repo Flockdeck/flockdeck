@@ -407,12 +407,24 @@ func TestAgentsOverviewCarriesAHelpersParent(t *testing.T) {
 		t.Fatal("could not close the lead pane")
 	}
 
-	av, ok = find()
-	if !ok {
-		t.Fatal("the helper was not listed in the overview after its parent closed")
-	}
-	if av.Parent != "" {
-		t.Errorf("helper's parent = %q after its parent closed, want none", av.Parent)
+	// Asked again until the overview stops naming the parent, rather than
+	// trusting the first "agents" message read after the close: one built
+	// or sent just before it can still be on its way, and a slow runner (the
+	// v0.3.19 release's macOS run) reads that one first. The overview must
+	// still drop the parent, and within the deadline.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		av, ok = find()
+		if !ok {
+			t.Fatal("the helper was not listed in the overview after its parent closed")
+		}
+		if av.Parent == "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("helper's parent = %q still, 10s after its parent closed, want none", av.Parent)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
