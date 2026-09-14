@@ -190,6 +190,21 @@ func TestStartAgentRefusesAnEmptyTask(t *testing.T) {
 	}
 }
 
+// TestSnapshotSaysStartAgentIsUnderstood covers what a phone reads to decide
+// whether to offer "New agent" at all: canStartAgent on the state message,
+// true for any desktop new enough to run this test. An older desktop simply
+// never sends the field, which is what the phone treats as unsupported.
+func TestSnapshotSaysStartAgentIsUnderstood(t *testing.T) {
+	srv, _ := newTestServer(t)
+	msg, ok := ask(srv, srv.snapshot)
+	if !ok {
+		t.Fatal("server closed")
+	}
+	if !msg.CanStartAgent {
+		t.Error("the snapshot does not say startAgent is understood")
+	}
+}
+
 // TestStartAgentInAFreshWorktree covers the phone's "in a new worktree"
 // switch, which reuses the fan-out's own worktree naming rather than a
 // second copy of it: the branch is named from the task, and the pane works
