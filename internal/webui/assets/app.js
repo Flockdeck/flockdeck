@@ -1904,9 +1904,13 @@
    * indicator has to be drawn during dragover, not on drop.
    */
   let dragging = null; // { kind: "pane" | "tab", id }
+  // Whether this drag actually reordered, merged or moved something -- see
+  // endDrag. Reset at the start of every drag.
+  let dragHandled = false;
 
   function beginDrag(kind, id, ev, node) {
     dragging = { kind, id };
+    dragHandled = false;
     node.classList.add("dragging");
     if (ev.dataTransfer) {
       ev.dataTransfer.effectAllowed = "move";
@@ -1917,13 +1921,26 @@
 
   function endDrag() {
     const wasTab = dragging && dragging.kind === "tab";
+    const draggedTabId = wasTab ? dragging.id : null;
+    const handled = dragHandled;
     dragging = null;
+    dragHandled = false;
     document.querySelectorAll(".dragging").forEach((n) => n.classList.remove("dragging"));
     clearDropMarks();
     // The strip was left alone while a tab was being dragged; catch it up now
     // rather than waiting for a state push, which may not come if every agent
     // is idle.
     if (wasTab && state) renderTabs(state);
+    // A tab is draggable, so the browser reads a click on it as the start of a
+    // drag the moment the pointer moves a pixel or two between mousedown and
+    // mouseup -- which a real mouse or trackpad does on almost every press.
+    // Once it does, the click this would otherwise have been never fires at
+    // all. A drag that neither reordered, merged nor moved anything is that
+    // swallowed click, so it is answered as one: by selecting the tab it
+    // began on, exactly as the click would have.
+    if (draggedTabId && !handled && state && state.activeTab !== draggedTabId) {
+      send({ cmd: "selectTab", id: draggedTabId });
+    }
   }
 
   /** tabIdOfPane reports which tab currently holds a pane. */
@@ -2065,6 +2082,7 @@
       const { kind, id } = dragging;
       const zone = zoneAt(ev);
       clearDropMarks();
+      dragHandled = true;
       if (kind === "pane") send({ cmd: "movePaneToTab", id, target: tabId });
       else if (zone === "merge") send({ cmd: "mergeTab", id, target: tabId, dir: "h" });
       else send({ cmd: "moveTab", id, target: zone === "before" ? tabId : tabAfter(tabId) });
@@ -2118,6 +2136,7 @@
       ev.preventDefault();
       const { kind, id } = dragging;
       clearDropMarks();
+      dragHandled = true;
       if (kind === "tab") send({ cmd: "moveTab", id, target: "" });
       else send({ cmd: "movePaneToNewTab", id });
     });
@@ -2138,6 +2157,7 @@
       ev.preventDefault();
       const { kind, id } = dragging;
       clearDropMarks();
+      dragHandled = true;
       if (kind === "tab") send({ cmd: "moveTab", id, target: "" });
       else send({ cmd: "movePaneToNewTab", id });
     });

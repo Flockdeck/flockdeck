@@ -1462,6 +1462,50 @@ assert.strictEqual(btns[7].scrolledTo, settled, "an ordinary push moves the stri
 `)
 }
 
+// A tab is draggable, so an ordinary click on it -- a mousedown and a mouseup
+// with a pixel or two of drift between them, which any real pointer has -- is
+// read by the browser as the start of a drag, and the click that would
+// otherwise have switched to it never fires at all. A drag that ends without
+// reordering, merging or moving anything is answered as the click it was: it
+// selects the tab it began on.
+func TestADragThatReorderedNothingSelectsTheTabInstead(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const dt = () => ({ effectAllowed: null, setData: () => {} });
+const item1 = h.$("tab-t1").parentElement;
+const item2 = h.$("tab-t2").parentElement;
+
+// Pressed, drifted a couple of pixels, and released back over itself --
+// nothing to reorder or merge -- is switched to all the same.
+h.dispatch(item2, new h.Ev("dragstart", { dataTransfer: dt() }));
+h.dispatch(item2, new h.Ev("dragend", {}));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectTab", id: "t2" },
+  "a drag that went nowhere did not select the tab it began on");
+
+// Already the active tab: nothing to send for it.
+h.recv(fixture({ activeTab: "t2" }));
+const before = h.commands().length;
+h.dispatch(item2, new h.Ev("dragstart", { dataTransfer: dt() }));
+h.dispatch(item2, new h.Ev("dragend", {}));
+assert.strictEqual(h.commands().length, before, "the already-active tab sent a command for nothing");
+
+// A drag that actually reordered a tab is the real thing, not a swallowed
+// click, and is not also read as one.
+h.recv(fixture({ activeTab: "t1" }));
+const sinceReorder = h.commands().length;
+h.dispatch(item1, new h.Ev("dragstart", { dataTransfer: dt() }));
+h.dispatch(item2, new h.Ev("dragover", { dataTransfer: dt(), clientX: 0 }));
+h.dispatch(item2, new h.Ev("drop", { dataTransfer: dt(), clientX: 0 }));
+h.dispatch(item1, new h.Ev("dragend", {}));
+const sent = h.commands().slice(sinceReorder);
+assert.deepStrictEqual(sent.pop(), { cmd: "moveTab", id: "t1", target: "t2" },
+  "the reorder itself was not sent");
+assert.ok(!sent.some((c) => c.cmd === "selectTab"),
+  "a drag that reordered a tab also sent a redundant selectTab");
+`)
+}
+
 // These dialogs are drawn whole from the reply that comes back, so the button
 // that asked for the reply is thrown away by the answer to it.
 func TestADialogPutsTheKeyboardBackAfterARedraw(t *testing.T) {
