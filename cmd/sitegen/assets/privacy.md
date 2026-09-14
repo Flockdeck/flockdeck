@@ -145,7 +145,7 @@ The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 Where a pane opens as a conversation rather than a terminal (a Claude Code
 pane, or Flockdeck's own chat client), that conversation passes through the
-relay the same way, and is stored no further than it. A photo you attach to
+relay the same way, and the relay stores none of it. A photo you attach to
 a message from your phone passes through it too, but is kept only on your
 desktop, in Flockdeck's own folder, never your project, and removed after
 about a week.
