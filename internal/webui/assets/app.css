@@ -590,6 +590,9 @@ textarea:focus-visible {
 .pane-actions button.on { background: var(--cast); color: #1f0d02; }
 /* Zoomed: the accent rather than broadcast's orange, which means something else. */
 .pane-actions button.zoomed { background: var(--accent); color: #06101f; }
+/* Auto-review on: the same green a working status dot uses, since this is
+ * exactly what it is trusting the pane to do unwatched. */
+.pane-actions button.reviewing { background: var(--working); color: #062b0d; }
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
 /* touch-action: with none of xterm's own scrollback able to see a touch (only

@@ -991,6 +991,13 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
+		// A child starts with its parent's auto-review choice, not the
+		// default off: a fan-out or a spawned helper is exactly the kind of
+		// pane a person who trusted its parent with read-only commands would
+		// want trusted the same way, without having to find and flip a
+		// switch on every one of a dozen new panes by hand. See
+		// Pane.AutoReview.
+		AutoReview: parent != nil && parent.AutoReview,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID

@@ -97,6 +97,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
+    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
     chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
@@ -2284,9 +2285,14 @@
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
+    const reviewBtn = btn("✓", TIPS.autoReview, () => {
+      const v = state && state.panes && state.panes[id];
+      send({ cmd: "autoReview", id, autoReview: !(v && v.autoReview) });
+    });
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
       castBtn,
+      reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
@@ -2394,7 +2400,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -2910,6 +2916,9 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
+      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0);
+      if (was.review !== review) { was.review = review; renderPaneReview(p, v); }
+
       const focused = !!tab && tab.focus === id;
       p.wrap.classList.toggle("focused", focused);
       speakIfFocused(p, focused);
@@ -2954,6 +2963,22 @@
       ? "Zoomed: " + (hidden === 1 ? "1 other pane is" : hidden + " other panes are") +
         " hidden, still running. Press to bring them back."
       : TIPS.zoom);
+  }
+
+  /** renderPaneReview says whether a pane's PreToolUse calls are put to
+   *  auto-review before Claude Code would otherwise show its own permission
+   *  prompt, and how many it has let through unasked so far -- see
+   *  Pane.AutoReview and Pane.AutoApproved. A child a pane starts, by fan-out
+   *  or by its own `flockdeck spawn`, comes up already showing whatever its
+   *  parent had, since it inherits the same setting. */
+  function renderPaneReview(p, v) {
+    const on = !!v.autoReview;
+    p.reviewBtn.classList.toggle("reviewing", on);
+    p.reviewBtn.setAttribute("aria-pressed", String(on));
+    describe(p.reviewBtn, (on
+      ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
+        "Press to turn it off."
+      : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
