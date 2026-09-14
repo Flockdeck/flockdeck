@@ -575,14 +575,14 @@ func (s *Server) snapshot() stateMsg {
 			}
 			st, detail := p.Status()
 			pv := paneView{
-				ID:        p.ID,
-				Kind:      kindName(p.Kind),
-				Name:      p.Name,
-				Cwd:       p.Cwd,
-				Branch:    p.Branch,
-				Status:    st.String(),
-				Detail:    detail,
-				Broadcast: ws.InBroadcast(p.ID),
+				ID:           p.ID,
+				Kind:         kindName(p.Kind),
+				Name:         p.Name,
+				Cwd:          p.Cwd,
+				Branch:       p.Branch,
+				Status:       st.String(),
+				Detail:       detail,
+				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,
 				AutoReview:   p.AutoReview,
 				AutoApproved: p.AutoApproved,
