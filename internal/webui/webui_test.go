@@ -269,6 +269,79 @@ assert.ok(h.$("overlay-body").textContent.includes("lost the relay"), "the dialo
 `)
 }
 
+// A tunnel waiting out its backoff says when it will try the relay again, as
+// a clock time, so that "trying again shortly" is not left to sit however
+// long the wait actually is; once that moment has passed it says "shortly"
+// rather than naming a time already gone by.
+func TestRemoteAccessShowsWhenItWillRetry(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const clockOf = (iso) => {
+  const d = new Date(iso);
+  const two = (n) => String(n).padStart(2, "0");
+  return two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds());
+};
+const retryAt = new Date(Date.now() + 45000).toISOString();
+h.recv(fixture({ remote: { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z", detail: "lost the relay", retryAt } }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: false, self: true }] });
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("Trying again at " + clockOf(retryAt) + "."),
+  "the retry clock is not shown: " + body.textContent);
+
+const past = new Date(Date.now() - 1000).toISOString();
+h.recv(fixture({ remote: { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z", detail: "lost the relay", retryAt: past } }));
+assert.ok(body.textContent.includes("Trying again shortly."), "a retry already due is shown as a time already past: " + body.textContent);
+
+h.recv(fixture({ remote: { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z", detail: "lost the relay" } }));
+assert.ok(!body.textContent.includes("Trying again"), "nothing to retry is not shown as something to wait on: " + body.textContent);
+
+const reconnecting = new Date(Date.now() + 5000).toISOString();
+h.recv(fixture({ remote: { state: "connecting", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z", retryAt: reconnecting } }));
+assert.ok(body.textContent.includes("Reconnecting to relay.example."), "a short retry mid-backoff still says connecting, not dialling: " + body.textContent);
+assert.ok(body.textContent.includes("Trying again at " + clockOf(reconnecting) + "."), "the retry clock is not shown while connecting: " + body.textContent);
+
+h.recv(fixture({ remote: { state: "connecting", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" } }));
+assert.ok(body.textContent.includes("Connecting to relay.example…"), "a tunnel actively dialling is not said to be connecting: " + body.textContent);
+`)
+}
+
+// A pairing link left on screen is not left stale: the roster is asked again
+// every few seconds while the link is still good to scan, so a device paired
+// while nobody touched the dialog shows up without it being closed and
+// reopened. The asking stops once the dialog closes.
+func TestRemoteAccessPollsWhileAPairingLinkIsShown(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" } }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+
+h.click(h.$("remote-pair"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "device" });
+h.recv({ type: "remotePair", kind: "device", code: "fdp_c", url: "https://relay.example/pair#fdp_c",
+  expiresAt: new Date(Date.now() + 600000).toISOString() });
+
+await h.sleep(4300);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" }, "the roster was not asked again while the link sat on screen");
+h.recv({ type: "remoteDevices", enabled: true, devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+assert.ok(h.$("overlay-body").textContent.includes("phone"), "the device paired mid-wait is not shown without reopening the dialog");
+
+// Closing the dialog ends the asking.
+h.click(h.$("overlay-close"));
+const before = h.commands().length;
+await h.sleep(4300);
+assert.strictEqual(h.commands().length, before, "the roster went on being asked after the dialog closed");
+`)
+}
+
 // relayPromise finds a sentence that speaks of the relay or remote access and
 // promises what it will cost from now on, which nothing may say while that is
 // not settled. A sentence about the app alone is left be.

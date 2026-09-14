@@ -379,7 +379,13 @@
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
       else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
-      else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
+      else if (msg.type === "remotePair") {
+        remotePairing = msg;
+        if (remoteShown()) keepFocus(renderRemote);
+        // A fresh link starts the chain; one already going, for the link it
+        // replaces, carries on and finds this one in remotePairing next.
+        if (msg.url && !remotePairPollTimer) remotePairPollTimer = setTimeout(remotePairPoll, REMOTE_PAIR_POLL_MS);
+      }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
         remoteOutcome = msg;
@@ -511,6 +517,33 @@
   let remotePairing = null;
   let remoteChipKey = null;
 
+  /** How often the roster is asked for again while a pairing link is on
+   *  screen, waiting on a scan: nothing else here asks again on its own, so
+   *  a device paired while the link sat there showed up only once the
+   *  dialog was closed and opened again. remotePairPollTimer is the chain's
+   *  own handle, cleared whenever the dialog closes. */
+  const REMOTE_PAIR_POLL_MS = 4000;
+  let remotePairPollTimer = null;
+
+  /** remotePairPoll keeps asking for the roster while remotePairing is a
+   *  link still good to scan. It stops itself the moment that stops being
+   *  true — spent for a fresh one, expired, or the dialog gone — rather
+   *  than at every place that can happen to it. */
+  function remotePairPoll() {
+    remotePairPollTimer = null;
+    const p = remotePairing;
+    const live = p && p.url && (!p.expiresAt || Date.parse(p.expiresAt) > Date.now());
+    if (!live || !remoteShown()) return;
+    send({ cmd: "remoteDevices" });
+    remotePairPollTimer = setTimeout(remotePairPoll, REMOTE_PAIR_POLL_MS);
+  }
+
+  /** remotePairPollStop ends the chain, if one is going. */
+  function remotePairPollStop() {
+    clearTimeout(remotePairPollTimer);
+    remotePairPollTimer = null;
+  }
+
   /** remoteDraft is what has been typed into the form that turns remote
    *  access on, kept across the redraws a state snapshot causes while the
    *  dialog is open. remoteBusy is which request is out, so its button waits
@@ -529,7 +562,10 @@
    *  rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
-    const key = r ? [r.state, r.viewers, r.detail, r.relay].join("|") : "off";
+    // retryAt is part of the key too: a run of failures with the same detail
+    // still moves it on each attempt, and the dialog's "trying again at…"
+    // has to follow it rather than sit on the first one shown.
+    const key = r ? [r.state, r.viewers, r.detail, r.relay, r.retryAt].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
     const b = $("btn-remote");
@@ -564,12 +600,30 @@
         return "Reachable through " + where +
           (n ? " — " + n + (n === 1 ? " window is" : " windows are") + " open from another device" : "");
       }
-      case "connecting": return "Connecting to " + where + "…";
-      case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + ". Trying again shortly.";
+      // A retry that has not yet been waited out shows when it is due, as a
+      // clock time rather than a countdown: nothing here redraws on a timer,
+      // so a countdown would sit still and go stale between state pushes,
+      // where a clock time reads true until the next one arrives.
+      case "connecting": return r.retryAt ? "Reconnecting to " + where + "." + remoteRetryClock(r.retryAt) :
+        "Connecting to " + where + "…";
+      case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
       case "revoked":
       case "replaced": return r.detail || "Remote access has stopped.";
       default: return "Not connected to " + where + ".";
     }
+  }
+
+  /** remoteRetryClock is " Trying again at 14:32:07." for when the tunnel's
+   *  own backoff is due to try the relay again, or " Trying again shortly."
+   *  once that time is at hand, so the line never claims a moment already
+   *  past. Empty once there is nothing waiting to retry. */
+  function remoteRetryClock(retryAt) {
+    const t = Date.parse(retryAt || "");
+    if (!(t > 0)) return "";
+    if (t <= Date.now()) return " Trying again shortly.";
+    const d = new Date(t);
+    const two = (n) => String(n).padStart(2, "0");
+    return " Trying again at " + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + ".";
   }
 
   /** openRemote shows remote access: whether the relay can be reached, a way
@@ -3607,6 +3661,7 @@
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide", "settings-panel");
     dialog = null;
+    remotePairPollStop();
     focusTerminal();
   }
 

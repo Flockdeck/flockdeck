@@ -230,13 +230,22 @@ func remoteFlags(name string) *flag.FlagSet {
 	return fs
 }
 
-// parseRemote parses a subcommand's flags and refuses anything left over.
-func parseRemote(fs *flag.FlagSet, args []string) error {
+// parseFlags parses args with fs, turning -h/--help into errHelpAsked so a
+// subcommand need not compare against flag.ErrHelp itself.
+func parseFlags(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return errHelpAsked
 		}
 		return errReported
+	}
+	return nil
+}
+
+// parseRemote parses a subcommand's flags and refuses anything left over.
+func parseRemote(fs *flag.FlagSet, args []string) error {
+	if err := parseFlags(fs, args); err != nil {
+		return err
 	}
 	if fs.NArg() > 0 {
 		// Which command it was, and where to find what it does take, are what
@@ -737,11 +746,8 @@ func remoteRevokeCmd(args []string, rio remoteIO) error {
 	// The id goes through a flag set like every other argument here, so that
 	// -h asks how revoke is used rather than going to the relay as a device.
 	fs := remoteFlags("revoke")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return errHelpAsked
-		}
-		return errReported
+	if err := parseFlags(fs, args); err != nil {
+		return err
 	}
 	if fs.NArg() == 0 {
 		// Whoever typed revoke knows the command and missed its argument, so
@@ -793,11 +799,8 @@ func remoteRenameCmd(args []string, rio remoteIO) error {
 	fs := remoteRenameFlagSet(&f)
 	// -device may come after the name, as in `rename Sam's phone -device d1`,
 	// and is taken out of it as spawn's flags are taken out of a task.
-	if err := fs.Parse(orderSpawnArgs(fs, args)); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return errHelpAsked
-		}
-		return errReported
+	if err := parseFlags(fs, orderSpawnArgs(fs, args)); err != nil {
+		return err
 	}
 	// A name of several words, typed without quotes, arrives as several
 	// arguments, and is the one name.
