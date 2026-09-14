@@ -355,6 +355,18 @@ func New(opts Options) (*Workspace, error) {
 	// closed, so the state directory does not grow without bound.
 	_, _ = store.SweepSessions(orphanedSettingsAge)
 
+	// End every process a past run left working in a git worktree and never
+	// got the chance to close itself -- an update that relaunched before the
+	// old run finished tearing down, a crash, the machine turned off under
+	// it, or simply a bug in the lifecycle code above. Left alone, such a
+	// process can go on holding a worktree's folder open on Windows long
+	// after the pane that was working in it, and the run that started it,
+	// are both gone -- which is what happened to an old fan-out that outlived
+	// the app version that started it. This runs before anything else looks
+	// at what is open, so it cannot be raced by a fresh worktree reusing the
+	// same folder.
+	ReapStaleWorktreeProcesses()
+
 	// A missing claude CLI is not fatal: shell panes still work, and the pane
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
@@ -1370,6 +1382,10 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	p.Sess = s
 	p.Err = nil
 	w.mu.Unlock()
+	// Noted while it is still working, so a run that never gets the chance
+	// to close this pane leaves something the next one can still find its
+	// process and end it by; see ReapStaleWorktreeProcesses.
+	w.recordWorktreeProcess(p)
 	// The opening prompt is spent; a later restart resumes instead.
 	p.initial = ""
 }
@@ -1774,6 +1790,10 @@ func (w *Workspace) destroyPane(id string) {
 	if p != nil && p.Sess != nil {
 		_ = p.Sess.Close()
 	}
+	// The pane's process has now been asked to end the ordinary way, so the
+	// record that would have a future run chase it down again is no longer
+	// needed.
+	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
 }

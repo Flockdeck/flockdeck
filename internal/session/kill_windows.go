@@ -240,7 +240,19 @@ func (s *Session) endTree() {
 	// process only starts its end, and it holds what it had open until that
 	// is over.
 	var ending []syscall.Handle
-	if job != 0 {
+	if job == 0 {
+		// containTree could not put the pane's process in a job at all --
+		// AssignProcessToJobObject can be refused by security software that
+		// has already put its own children in one, or simply not exist on an
+		// old enough Windows -- so nothing here links the pane to what it
+		// started. This is the failure the job object was brought in to fix
+		// in the first place: killing the one process left everything under
+		// it running, which on Windows meant a worktree's folder stayed open
+		// long after the pane working in it had been closed. Rather than
+		// fall back to that, the machine's whole process table stands in for
+		// the job that could not be made; see killDescendants.
+		ending = killDescendants(uint32(s.cmd.Process.Pid))
+	} else {
 		pane := s.cmd.Process.Pid
 		seen := map[uint32]bool{}
 		members := map[uint32]jobMember{}
@@ -299,5 +311,131 @@ func (s *Session) endTree() {
 	}
 	if job != 0 {
 		_ = syscall.CloseHandle(job)
+	}
+}
+
+// stillActive is the exit code Windows reports for a process that has not
+// exited yet.
+const stillActive = 259
+
+// stillRunning reports whether pid names a process that is still running.
+//
+// Opening a handle is not the test it looks like: Windows keeps a process
+// object alive for as long as anything holds a handle to it, so a process
+// that exited an hour ago can still be opened and its creation time read from
+// -- which is what procMetrics does, and why Started must not be trusted for
+// liveness on its own. The exit code is the state itself.
+func stillRunning(pid int) bool {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer syscall.CloseHandle(h)
+	var code uint32
+	if err := syscall.GetExitCodeProcess(h, &code); err != nil {
+		// The handle opened but will not answer. Saying "running" is the safe
+		// way round for a reaper about to act on it.
+		return true
+	}
+	return code == stillActive
+}
+
+// openLimited opens a process to be ended, without regard to any job: for
+// killDescendants, which finds what to end by walking the machine's own
+// process table rather than a job's membership.
+func openLimited(pid uint32) (syscall.Handle, bool) {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation|processTerminate|synchronize, false, pid)
+	if err != nil {
+		return 0, false
+	}
+	return h, true
+}
+
+// killDescendants finds every process the machine's whole process table shows
+// descended from root, starts ending each one that is not left for the user
+// to close by hand -- a program with windows of its own, or anything started
+// under one, by the same rule endTree applies to a job's own members -- and
+// returns their handles, still open, for the caller to wait on. root itself
+// is not included; the caller ends that one its own way.
+//
+// It is where endTree falls back to when the pane's process could not be put
+// in a job to track its children by, and it is how KillProcessTree ends a
+// past run's own orphaned pane, once nothing links it to anything any more.
+// Either way the process table is all there is left to walk, the way Usage
+// already walks it for CPU and memory.
+//
+// A process claiming root, or one already found under it, as its parent but
+// created before it was is not really descended from it: the id it claims has
+// been handed to something unrelated since, on a machine where process ids
+// come round again quickly. Such a process, and anything under it, is left
+// alone rather than guessed about.
+func killDescendants(root uint32) []syscall.Handle {
+	parents := procParents()
+	if len(parents) == 0 {
+		return nil
+	}
+	children := make(map[uint32][]uint32, len(parents))
+	for pid, ppid := range parents {
+		if ppid > 0 && uint32(ppid) != uint32(pid) {
+			children[uint32(ppid)] = append(children[uint32(ppid)], uint32(pid))
+		}
+	}
+
+	type queued struct {
+		pid     uint32
+		started int64
+	}
+	seen := map[uint32]bool{root: true}
+	queue := []queued{{root, 0}}
+	var ending []syscall.Handle
+	for i := 0; i < len(queue) && len(queue) < maxTreeProcs; i++ {
+		for _, kid := range children[queue[i].pid] {
+			if seen[kid] {
+				continue
+			}
+			seen[kid] = true
+			h, ok := openLimited(kid)
+			if !ok {
+				continue
+			}
+			sub, known := programSubsystem(h)
+			if known && sub == imageSubsystemWindowsGUI {
+				_ = syscall.CloseHandle(h)
+				continue
+			}
+			started := startedAt(h)
+			if parent := queue[i].started; parent != 0 && started != 0 && started < parent {
+				_ = syscall.CloseHandle(h)
+				continue
+			}
+			_ = syscall.TerminateProcess(h, 1)
+			ending = append(ending, h)
+			queue = append(queue, queued{kid, started})
+		}
+	}
+	return ending
+}
+
+// killTree ends pid and every process the machine's process table shows
+// descended from it -- the same thing endTree does for a pane's own tree when
+// it is still in a job, except pid belongs to no job this run can query:
+// whatever job it may once have held its children in died with the run that
+// made it. See killDescendants and KillProcessTree.
+func killTree(pid int) {
+	root := uint32(pid)
+	deadline := time.Now().Add(closeGrace)
+
+	var ending []syscall.Handle
+	if h, ok := openLimited(root); ok {
+		_ = syscall.TerminateProcess(h, 1)
+		ending = append(ending, h)
+	}
+	ending = append(ending, killDescendants(root)...)
+
+	for _, h := range ending {
+		if left := time.Until(deadline); left > 0 {
+			_, _ = syscall.WaitForSingleObject(h, uint32(left/time.Millisecond))
+		}
+		_ = syscall.CloseHandle(h)
 	}
 }
