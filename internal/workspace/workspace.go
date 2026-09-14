@@ -2044,13 +2044,21 @@ func (w *Workspace) SetPaneMuted(id string, muted bool) bool {
 // Pane.AutoReview and reviewTool, which is where it is read. It reports
 // whether the pane was found, which is false for one already closed, and is
 // what an autoReview command for a gone id is refused by.
+//
+// It writes under w.mu, unlike SetPaneMuted: reviewTool reads AutoReview from
+// the hook server's own goroutines, not the one that owns the workspace.
 func (w *Workspace) SetPaneAutoReview(id string, on bool) bool {
-	p := w.Pane(id)
+	w.mu.Lock()
+	p := w.panes[id]
+	changed := p != nil && p.AutoReview != on
+	if changed {
+		p.AutoReview = on
+	}
+	w.mu.Unlock()
 	if p == nil {
 		return false
 	}
-	if p.AutoReview != on {
-		p.AutoReview = on
+	if changed {
 		w.wake()
 	}
 	return true

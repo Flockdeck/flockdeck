@@ -43,6 +43,33 @@ func TestDecideAsksForAnythingElse(t *testing.T) {
 		"npm install",
 		"chmod +x a.sh",
 		"sudo ls",
+		// A read-only name that runs, or writes, whatever it is handed.
+		"env rm -rf /tmp/x",
+		"sort -o out.txt in.txt",
+		"uniq in.txt out.txt",
+		"tree -o out.txt",
+		"rg --pre sh x",
+		"file -C -m magic",
+		"date -s 2020-01-01",
+		"printenv",
+		// A read-only subcommand given the one flag that makes it write or run.
+		"git diff --output=patch.txt",
+		"git log -p --output patch.txt",
+		"git diff --ext-diff",
+		"git show --textconv HEAD",
+		"go env -w GOFLAGS=-toolexec=x",
+		"go env -u GOFLAGS",
+		"go list -toolexec x ./...",
+		// Reading outside the project, which Claude Code would have asked about.
+		"cat /etc/passwd",
+		"cat ~/.ssh/id_rsa",
+		"cat ../secret.txt",
+		"cat C:/Users/me/token.json",
+		`cat C:\Users\me\token.json`,
+		`cat \\server\share\x`,
+		"grep -r password /",
+		"grep --file=/etc/shadow x",
+		"git diff --no-index ../a b",
 	} {
 		d := Decide("Bash", `{"command":`+quote(cmd)+`}`)
 		if d.Allow {
