@@ -18,8 +18,18 @@ func TestPaneStatusSinceRidesTheStatePush(t *testing.T) {
 	nextState(t, conn, nil)
 	id := firstPane(t, srv, ws)
 
-	before := time.Now()
+	// The pane's own shell can already be "working" from its start-up by the
+	// time the test gets here, and setting the status it already has is no
+	// change, so statusSince keeps the start-up time. Put it in a known,
+	// different status first, so the change timed below really is one.
 	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+	p.Sess.SetStatusFull(session.StatusIdle, "", "")
+	nextState(t, conn, func(s stateMsg) bool {
+		pv, ok := s.Panes[id]
+		return ok && pv.Status == "idle"
+	})
+
+	before := time.Now()
 	p.Sess.SetStatusFull(session.StatusWorking, "Bash", "")
 
 	st := nextState(t, conn, func(s stateMsg) bool {
