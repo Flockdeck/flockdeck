@@ -79,6 +79,14 @@ On a phone, when an agent stops to ask a question with set answers, the relay's
 own client shows its choices as buttons, so you can answer with a tap rather
 than typing into the terminal.
 
+**New agent**, near the top of a desktop's page in the relay's client, starts
+one without going to the desk: choose a project already open there, an agent
+and model, optionally a fresh worktree, and a first message, then **Start**.
+It opens straight into that agent's conversation once it starts, and refuses
+a project the desktop does not already have open rather than opening one.
+
+
+
 ## Notifications on your phone
 
 A paired phone can be told when an agent has been waiting on you for a while,

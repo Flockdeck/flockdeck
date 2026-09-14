@@ -794,6 +794,13 @@ func (w *Workspace) isOpen(root string) bool {
 	return ok
 }
 
+// OpenRootFor is openRootFor for callers outside the package: it resolves a
+// path to the open project it names, spelled as that project was opened.
+// StartAgent uses it to refuse a root that is not an already open project,
+// rather than open one itself -- a phone is never let create a project the
+// person at the desk never asked for.
+func (w *Workspace) OpenRootFor(root string) (string, bool) { return w.openRootFor(root) }
+
 // openRootFor finds the open project a path names and returns it as it was
 // opened.
 //

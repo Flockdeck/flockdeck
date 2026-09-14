@@ -1054,6 +1054,101 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	return p.ID, nil
 }
 
+// resolveStartAgent settles what StartAgent needs before it can run: root as
+// an already open project, spelled as it was opened, and the agent and model
+// that choice resolves to for that project. Nothing is created; a caller
+// asks this first to refuse a bad request -- an unknown root or agent --
+// before doing anything as slow as cutting a worktree for it, and StartAgent
+// asks it again right before it creates the pane, so a project closed or an
+// agents.json edited in between is still caught.
+func (w *Workspace) resolveStartAgent(root, agentID, model string) (openRoot, resolvedAgent, resolvedModel string, err error) {
+	open, ok := w.openRootFor(root)
+	if !ok {
+		return "", "", "", fmt.Errorf("%s is not an open project", filepath.Base(root))
+	}
+	agentID, model = w.resolveChoice(open, agentID, model)
+	if _, err := w.AgentSpecByID(agentID); err != nil {
+		return "", "", "", err
+	}
+	return open, agentID, model, nil
+}
+
+// ValidateStartAgent reports what StartAgent would run for root, agentID and
+// model, or the error it would refuse with, without starting anything.
+func (w *Workspace) ValidateStartAgent(root, agentID, model string) (openRoot, resolvedAgent string, err error) {
+	open, agentID, _, err := w.resolveStartAgent(root, agentID, model)
+	return open, agentID, err
+}
+
+// StartAgent starts a fresh agent in an already open project, in a new tab of
+// its own, without moving the desk's focus: neither the active project nor
+// the active tab changes, because a phone starting an agent cannot see the
+// desk's window and must not move it out from under whoever is sitting there.
+//
+// root must already be open; StartAgent refuses to open one, unlike Spawn's
+// caller newTabFor, which always works in the active project. cwd is where
+// the pane actually works -- root itself, or a worktree cut from it, chosen
+// by the caller, since cutting one is slow and best done, as a fan-out's are,
+// before anything touches the workspace.
+//
+// Its Parent is left empty, so unlike a helper started by another agent's own
+// `flockdeck spawn`, it is never held back from notifying its user while some
+// other pane stays open; see Pane.Parent. It is the user's own pane, exactly
+// as one opened by hand at the desk would be -- started from a phone instead.
+func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, error) {
+	if strings.TrimSpace(task) == "" {
+		return "", fmt.Errorf("a task is required")
+	}
+	if len(task) > maxTaskBytes {
+		return "", fmt.Errorf("the task is %d characters, too long to start an agent with; save the detail to a file in the checkout and give the agent a task that points at it",
+			utf8.RuneCountInString(task))
+	}
+	open, agentID, model, err := w.resolveStartAgent(root, agentID, model)
+	if err != nil {
+		return "", err
+	}
+	if cwd == "" {
+		cwd = open
+	}
+
+	title := summarisePrompt(task)
+	if title == "" {
+		title = filepath.Base(cwd)
+	}
+
+	p := &Pane{
+		ID:      uuid.NewString(),
+		Kind:    session.KindClaude,
+		Cwd:     cwd,
+		Name:    filepath.Base(cwd),
+		Root:    open,
+		Branch:  branchOf(cwd),
+		initial: task,
+		Task:    task,
+		Agent:   agentID,
+		Model:   model,
+	}
+	w.mu.Lock()
+	w.panes[p.ID] = p
+	w.mu.Unlock()
+	w.startPane(p, false)
+	if p.Err != nil {
+		err := p.Err
+		w.destroyPane(p.ID)
+		return "", err
+	}
+
+	w.Tabs = append(w.Tabs, &Tab{
+		ID:    uuid.NewString(),
+		Root:  open,
+		Title: title,
+		Tree:  layout.NewLeaf(p.ID),
+		Focus: p.ID,
+	})
+	w.wake()
+	return p.ID, nil
+}
+
 // PrepareWorktree creates (or reuses) a worktree for a branch and returns its
 // path. It only runs git, so it is safe to call away from the goroutine that
 // owns the workspace — which matters, because git is slow.

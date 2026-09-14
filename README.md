@@ -992,6 +992,13 @@ answer a permission question with a tap. **Full interface**, in its top bar,
 opens this window through the same tunnel. The client resizes a pane only when
 you ask it to fit the pane to the screen.
 
+**New agent**, on that same client, starts one without going to the desk: pick
+a project already open there, an agent and model, optionally a fresh
+worktree, and a first message, and it opens straight into that agent's
+conversation once it starts. It only ever starts a pane in a project the
+desktop already has open — it never opens one on your say-so — and its agent
+notifies you the same way any other pane you started yourself would.
+
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** button in the
 rail) or printed by `flockdeck remote pair`. The
