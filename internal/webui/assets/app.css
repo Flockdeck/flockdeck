@@ -94,7 +94,10 @@ body { flex-direction: row; }
 
 /* A dot on the corner of a tile or a button. Amber on a project is an agent
  * there waiting on you, which is what the rail is most for; on Remote, green
- * is a working tunnel, grey one still connecting and amber one in trouble. */
+ * is a working tunnel, grey one still connecting and amber one in trouble; on
+ * the button that folds the rail away, amber is an agent waiting on you in a
+ * project other than the one on screen, so it still shows once its own tile
+ * is out of sight. */
 .rail-badge {
   display: none; position: absolute; right: 3px; top: 3px;
   width: 8px; height: 8px; border-radius: 50%;
@@ -105,7 +108,7 @@ body { flex-direction: row; }
 .rail-badge.pending { display: block; background: var(--idle); }
 
 /* Only a narrow screen, where the rail is folded away, has these two. */
-#rail-toggle { display: none; }
+#rail-toggle { display: none; position: relative; }
 #rail-scrim { display: none; }
 
 /* ---------------------------------------------------------------- top bar */
@@ -1383,6 +1386,9 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   body.rail-open #rail { transform: none; visibility: visible; transition: transform 160ms ease; }
   body.rail-open #rail-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.5); }
   #rail-toggle { display: flex; }
+  /* Open, the tiles beneath already carry the badge for a project waiting on
+   * you; the toggle's own copy of it would say the same thing twice. */
+  body.rail-open #rail-toggle .rail-badge { display: none; }
   .rail-mark { align-self: flex-start; margin: 4px 10px 8px; }
   .rail-rule { width: auto; align-self: stretch; }
   #rail-projects { align-items: stretch; }
@@ -1392,7 +1398,10 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
     overflow: hidden; text-overflow: ellipsis; color: inherit;
   }
   .rail-tile .mono { width: 24px; flex: 0 0 auto; text-align: center; }
-  .rail-badge { left: 30px; right: auto; top: 6px; }
+  /* The tiles' own badges, moved beside the monogram now the row is wide
+   * enough to spell itself out; the toggle button's badge is not a tile and
+   * keeps the default corner position. */
+  #rail .rail-badge { left: 30px; right: auto; top: 6px; }
 
   #topbar { flex-wrap: wrap; height: auto; padding: 4px 8px; row-gap: 4px; column-gap: 6px; }
   #topbar > #tabbar { order: 10; flex: 1 1 100%; }

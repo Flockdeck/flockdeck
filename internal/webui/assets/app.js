@@ -1031,6 +1031,7 @@
     showActiveTab(s, rebuilt);
     renderTabs(s);
     renderRail(s);
+    renderRailToggle(s);
     renderSummary(s);
     announceStatus(s);
     followAgents(s);
@@ -1804,6 +1805,33 @@
       railTiles.delete(root);
     }
     placeRailStop();
+  }
+
+  /** What the toggle's badge was last drawn from, so a push that changes
+   *  nothing it shows - which is nearly every push - does not search the
+   *  document for it. */
+  let railToggleShown = "";
+
+  /** renderRailToggle badges the button that folds the rail away with the
+   *  same amber dot a tile carries, for the one time a tile cannot be seen: a
+   *  narrow window, where the rail itself is out of sight until this button
+   *  is pressed. It counts every project but the one on screen, so an agent
+   *  waiting in the project already open — visible without opening anything —
+   *  does not light a button that has nothing new to show. Open, the tiles
+   *  underneath already carry the badge, so the style sheet hides this copy
+   *  of it rather than showing the same thing twice. */
+  function renderRailToggle(s) {
+    const elsewhere = (s.projects || []).filter((p) => !p.active && (p.waiting || 0) > 0);
+    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|");
+    if (key === railToggleShown) return;
+    railToggleShown = key;
+    const btn = $("rail-toggle");
+    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0);
+    const why = elsewhere.length
+      ? (elsewhere.length === 1 ? "An agent is" : "Agents are") + " waiting on you in " +
+        elsewhere.map((p) => p.name).join(", ")
+      : "";
+    describe(btn, ["Projects, tools and settings", why].filter(Boolean).join(". "));
   }
 
   /** railTile makes the button for one project, bound to its folder rather

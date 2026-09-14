@@ -4223,6 +4223,7 @@ func TestANarrowScreenFoldsTheRailIntoAMenu(t *testing.T) {
 		`#rail\s*\{[^}]*position:\s*fixed[^}]*transform:\s*translateX\(-100%\);\s*visibility:\s*hidden`,
 		`body\.rail-open #rail\s*\{[^}]*transform:\s*none;\s*visibility:\s*visible`,
 		`#rail-toggle\s*\{\s*display:\s*flex`,
+		`body\.rail-open #rail-toggle \.rail-badge\s*\{\s*display:\s*none`,
 		`#topbar\s*\{[^}]*flex-wrap:\s*wrap`,
 		`#topbar > #tabbar\s*\{[^}]*flex:\s*1 1 100%`,
 		`\.rail-btn \.rail-label\s*\{[^}]*position:\s*static`,
@@ -4358,6 +4359,48 @@ assert.ok(fr.classList.contains("current") && !aw.classList.contains("current"),
 assert.ok(!badged(fm), "the badge stayed after the agent was answered");
 h.recv(fixture({ projects: [projects[0]] }));
 assert.strictEqual(tiles().length, 1, "a closed project kept its tile");
+`)
+}
+
+// On a narrow window the rail is out of sight until its toggle is pressed, so
+// its tiles' own badges - the rail's usual way of saying an agent is waiting
+// in a project that is not on screen - are out of sight with it. The toggle
+// carries the same amber dot itself, so the one thing the rail is most for is
+// not lost to a narrow window. An agent waiting in the project already open
+// does not count: its tab already shows that without opening anything.
+func TestTheRailToggleBadgesWhenAnotherProjectWaits(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const badge = () => h.$("rail-toggle").querySelector(".rail-badge");
+const tip = () => h.$("rail-toggle").dataset.tip || "";
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+assert.ok(!badge().classList.contains("waiting"), "the project on screen's own waiting agent lit the toggle");
+assert.ok(!/waiting/.test(tip()), "the tooltip mentioned waiting with nothing waiting elsewhere: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+assert.ok(badge().classList.contains("waiting"), "an agent waiting in another project did not light the toggle");
+assert.ok(/waiting on you in api/.test(tip()), "the toggle does not say where: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+  { root: "C:/web", name: "web", active: false, tabs: 1, waiting: 2, working: 0 },
+] }));
+assert.ok(/waiting on you in api, web/.test(tip()), "two other projects waiting are not both named: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+assert.ok(!badge().classList.contains("waiting"), "the badge stayed after every other project was answered");
+assert.ok(!/waiting/.test(tip()), "the tooltip kept saying an agent was waiting");
 `)
 }
 
