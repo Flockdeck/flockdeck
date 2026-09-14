@@ -437,8 +437,12 @@ func TestAMutedPaneIsLeftOutOfThePush(t *testing.T) {
 	enrolled(srv)
 	a := firstPane(t, srv, ws)
 	b := addPane(t, srv, ws, "second")
-	since := waitIn(t, srv, ws, a)
-	waitIn(t, srv, ws, b)
+	waitIn(t, srv, ws, a)
+	// Timed from the later of the two waits, b's: on a fine-grained clock b
+	// goes waiting a little after a, so "30 s after a" is not yet 30 s after
+	// b and nothing would be due. Windows' coarser clock gave both the same
+	// instant and hid this.
+	since := waitIn(t, srv, ws, b)
 	if muted, ok := ask(srv, func() bool { return ws.SetPaneMuted(a, true) }); !ok || !muted {
 		t.Fatal("muting a pane that exists was refused")
 	}
