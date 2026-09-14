@@ -1662,10 +1662,10 @@
   let iconState = "";
 
   /** setFavicon points every icon link — the vector one and each sized raster
-   *  fallback — at the marks for state. Assigning the same href again makes
-   *  some browsers drop and refetch the icon, which shows up as the tab
-   *  flickering on every state push, so an unchanged state is left alone —
-   *  and the pushes are frequent. */
+   *  fallback — and the rail's own mark at the top of the window, at the marks
+   *  for state. Assigning the same href again makes some browsers drop and
+   *  refetch the icon, which shows up as the tab flickering on every state
+   *  push, so an unchanged state is left alone — and the pushes are frequent. */
   function setFavicon(state) {
     if (state === iconState) return;
     const link = $("favicon");
@@ -1677,6 +1677,10 @@
       const sized = $("favicon-" + size);
       if (sized) sized.href = icons.prefix + size + ".png";
     }
+    // The rail's mark is inline in the page rather than a favicon a browser
+    // rasterizes on request, so it only ever needs the one vector source.
+    const mark = $("rail-mark");
+    if (mark) mark.setAttribute("src", icons.svg);
   }
 
   /** The counts the summary is currently showing. A status push arrives every
@@ -1747,39 +1751,6 @@
     if (document.title !== title) document.title = title;
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
-    renderProjectChip(s);
-  }
-
-  /** renderProjectChip labels the switcher with the active project, and the
-   *  branch its own checkout is on. */
-  function renderProjectChip(s) {
-    const active = (s.projects || []).find((p) => p.active);
-    const name = active ? active.name : "project";
-    if ($("project-name").textContent !== name) $("project-name").textContent = name;
-    // The branch of the project's own folder, read off a pane working there.
-    // A pane in a worktree is on a branch of its own and says so in its
-    // header; with no pane in the folder itself there is nothing to say.
-    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
-    const root = norm(active ? active.root : s.root);
-    const home = Object.values(s.panes || {}).find((v) => v.branch && norm(v.cwd) === root);
-    const branch = home ? home.branch : "";
-    const bn = $("project-branch");
-    if (bn.textContent !== branch) bn.textContent = branch;
-    bn.hidden = !branch;
-    // The path goes into the same bubble as what the button does and the key
-    // that does it, rather than into a title of its own. A title is taken over
-    // as the tooltip the first time an element is hovered, so writing one here
-    // replaced the button's description with a bare path and took the binding
-    // away with it — the one thing the action table exists to prevent.
-    const btn = $("project-btn");
-    // Highlight when another project needs attention, so switching away does
-    // not hide the fact that an agent there is blocked - and say which, since
-    // the amber on its own says only that something somewhere wants you.
-    const elsewhere = (s.projects || []).filter((p) => !p.active && p.waiting > 0);
-    const why = elsewhere.length ? "waiting on you in " + elsewhere.map((p) => p.name).join(", ") : "";
-    const tip = actionTip("projects", [active ? active.root : "", why].filter(Boolean).join("; "));
-    if (btn.dataset.tip !== tip) describe(btn, tip);
-    btn.classList.toggle("attention", elsewhere.length > 0);
   }
 
   // ------------------------------------------------------------------- rail
@@ -3354,7 +3325,8 @@
       // button that opens the menu is in the top bar.
       () => { if (railFolded()) return null; placeRailStop(); return railStop; },
       // The top bar, at the tab on screen: the strip is most of what it is.
-      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("project-btn"); },
+      // With no tab to land on, New agent tab is the bar's own first stop.
+      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("new-tab"); },
       // The focused pane's buttons, at whichever of them is their stop.
       () => (p ? [...p.actions.children].find((b) => b.tabIndex === 0) || null : null),
       () => (p ? p.term : null),
@@ -4965,8 +4937,6 @@
     const label = (id, node, extra) => {
       if (node && keyTable.some((k) => k.id === id)) describe(node, actionTip(id, extra));
     };
-    // The project switcher is not in this list: its bubble names the project
-    // as well, so renderProjectChip writes it as the project changes.
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
@@ -7075,19 +7045,31 @@
       "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
       switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
 
-    // Not offered in a window reached through the relay: see remoteWindow.
+    // Neither is offered in a window reached through the relay: see
+    // remoteWindow. Checking is the desk's to do, as restarting onto what it
+    // finds is.
     const u = !remoteWindow && state && state.update;
-    let install = null;
-    if (u) {
-      install = el("button", "chip primary", "Install " + u.version + "…");
-      install.id = "set-install";
-      install.style.marginTop = "8px";
-      install.onclick = openUpdate;
+    let extra = null;
+    if (!remoteWindow) {
+      extra = el("div", "update-actions");
+      // The switch above only ever governed looking in the background; a
+      // person pressing a button marked "Check for updates now" is asking
+      // once, this moment, not turning that back on.
+      const check = el("button", "chip", "Check for updates now");
+      check.id = "set-check-update";
+      check.onclick = () => send({ cmd: "checkForUpdate" });
+      extra.append(check);
+      if (u) {
+        const install = el("button", "chip primary", "Install " + u.version + "…");
+        install.id = "set-install";
+        install.onclick = openUpdate;
+        extra.append(install);
+      }
     }
     pane.append(settingRow("Check for updates",
       "Looks for new releases in the background and downloads them, to go in when you choose to restart. " +
       "FLOCKDECK_UPDATE=off in the environment stops it whatever this says.",
-      switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), install));
+      switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), extra));
 
     const dismissed = (prefs.dismissedTips || []).length;
     const tips = el("button", "chip", "Show them again");
@@ -8481,7 +8463,6 @@
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;
-  $("project-btn").onclick = openProjects;
   // Bound through a closure rather than passed straight in: the click event
   // would otherwise arrive as the page to open.
   $("btn-help").onclick = () => openHelp();

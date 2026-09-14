@@ -2,10 +2,9 @@
 
 Each open project has a tile in the rail down the left of the window: two
 letters, with the full name and folder in its tooltip, and a click switches to
-it. The project's name at the left of the top bar opens the projects dialog,
-which switches between them, opens new ones and closes them; [[key:projects]]
-does the same from the keyboard, and **Open a project**, under the tiles,
-opens it at the folder browser.
+it. **Open a project**, under the tiles, opens the projects dialog at the
+folder browser; [[key:projects]] does the same from the keyboard. The dialog
+also switches between the projects already open, and closes them.
 
 Several projects stay open at once and **switching does not stop anything** —
 the other project's agents keep working, and its tile carries an amber badge if

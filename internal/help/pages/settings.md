@@ -6,8 +6,9 @@ changes its setting at once, and it is the same setting the command palette and
 the keys change, so whichever you use, the others show it.
 
 - **General** — desktop notifications, and whether Flockdeck checks for new
-  releases, which is changed only at the desk. **Show them again** brings back
-  every hint you sent away.
+  releases in the background, which is changed only at the desk; **Check for
+  updates now** asks once on the spot, whatever that switch says. **Show them
+  again** brings back every hint you sent away.
 - **Terminal** — the font size, the font, how many lines each pane keeps to
   scroll back through, and the cursor's shape and whether it blinks, with a
   preview. The size is also [[key:fontUp]], [[key:fontDown]] and
@@ -140,11 +141,11 @@ These are read when Flockdeck starts, so set one where it will be seen then —
 `setx NAME value` on Windows, or an `export` line in your shell's profile
 elsewhere — and start Flockdeck again.
 
-- `FLOCKDECK_UPDATE` — `off` stops updating in the background, whatever
-  **Check for updates** in the settings says: no checks for new releases, and
-  nothing already downloaded is put in place. That is what
-  keeps an older version you installed on purpose from updating itself to the
-  latest.
+- `FLOCKDECK_UPDATE` — `off` stops Flockdeck checking for new releases at all,
+  whatever **Check for updates** or **Check for updates now** in the settings
+  says: no checks, in the background or asked for on the spot, and nothing
+  already downloaded is put in place. That is what keeps an older version you
+  installed on purpose from updating itself to the latest.
 - `FLOCKDECK_BROWSER` — which browser provides the window, by name or path.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or

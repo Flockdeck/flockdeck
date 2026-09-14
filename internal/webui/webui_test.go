@@ -777,6 +777,29 @@ assert.strictEqual(h.doc.title, "flockdeck");
 	t.Log(strings.TrimSpace(out))
 }
 
+// The mark at the top of the rail is the application's own icon, drawn twice
+// more: once for the taskbar (the favicon links) and once here, inline in the
+// page, so that whoever is waiting on you shows even to somebody who never
+// looks at the taskbar because the window already has the keyboard.
+func TestTheRailMarkFollowsStatus(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+const mark = h.$("rail-mark");
+assert.ok(mark.getAttribute("src").includes("icon.svg"), "starts on the mark the page shipped with: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 1, working: 0, panes: { p1: pane("p1", { status: "waiting" }) } }));
+assert.ok(mark.getAttribute("src").includes("icon-waiting.svg"), "an agent waiting on you: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 0, working: 1, panes: { p1: pane("p1", { status: "working" }) } }));
+assert.ok(mark.getAttribute("src").includes("icon.svg") && !mark.getAttribute("src").includes("icon-waiting"),
+  "an agent working: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 0, working: 0 }));
+assert.ok(mark.getAttribute("src").includes("icon-idle.svg"), "nothing under way: " + mark.getAttribute("src"));
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // The tally in the top bar was a live region, so every agent that started or
 // stopped working had the counts read out, and none of it said which agent.
 // What a screen reader is told now is the news that needs a person, by name:
@@ -864,49 +887,6 @@ assert.ok(third.querySelector("span.pane-branch").textContent.includes("renamed"
   "got: " + third.querySelector("span.pane-branch").textContent);
 `)
 	t.Log(strings.TrimSpace(out))
-}
-
-// A title attribute is taken over as the tooltip the first time an element is
-// hovered, so writing one onto a button that already has a description
-// replaces it — and every description here carries the key that runs the
-// action, which is the one thing the key table exists to keep from drifting.
-func TestTheProjectChipKeepsItsBinding(t *testing.T) {
-	runFrontEnd(t, `
-const keys = h.hello();
-const projects = [
-  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 1 },
-  { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 1, working: 0 },
-];
-h.recv(fixture({ projects: projects }));
-
-const btn = h.$("project-btn");
-const k = keys.find((x) => x.id === "projects");
-assert.ok(k && k.keys, "the action table gives this a binding");
-assert.strictEqual(h.$("project-name").textContent, "repo");
-assert.ok(btn.classList.contains("attention"), "the other project is blocked and the chip does not say so");
-
-const says = () => btn.dataset.tip || "";
-assert.ok(says().includes(k.label), "the chip does not say what it does: " + says());
-assert.ok(says().includes(k.keys), "the chip does not say which key opens it: " + says());
-assert.ok(says().includes("C:/repo"), "the chip does not name the project: " + says());
-
-// Hovering is what adopts a title, so it is what would lose the binding.
-h.dispatch(btn, new h.Ev("pointerover", { pointerType: "mouse" }));
-assert.ok(says().includes(k.keys), "hovering took the binding off the chip: " + says());
-assert.ok(!btn.hasAttribute("title"), "a title here would be adopted and replace the description");
-
-// And another push does not put it back.
-h.recv(fixture({ projects: projects }));
-assert.ok(says().includes(k.keys), "a push took the binding off the chip: " + says());
-
-// Switching project follows.
-projects[0].active = false;
-projects[1].active = true;
-h.recv(fixture({ projects: projects }));
-assert.strictEqual(h.$("project-name").textContent, "other");
-assert.ok(says().includes("C:/other"), "the chip did not follow the project: " + says());
-assert.ok(!btn.classList.contains("attention"), "the blocked project is the one on screen now");
-`)
 }
 
 // The palette is the one place every action can be reached from, so it is long
@@ -1494,8 +1474,8 @@ assert.ok(btns.slice(1).every((b) => b.tabIndex === -1),
 assert.ok(btns.slice(1).every((b) => b.parentElement.querySelector(".close").tabIndex === -1),
   "every close button is a stop too");
 
-// Tab from the project chip reaches the strip once and leaves it once.
-h.$("project-btn").focus();
+// Tab from the button before the strip reaches it once and leaves it once.
+h.$("rail-toggle").focus();
 h.key({ key: "Tab" });
 assert.ok(h.doc.activeElement === btns[0], "Tab did not reach the current tab");
 h.key({ key: "Tab" });
@@ -1796,7 +1776,7 @@ assert.strictEqual(h.$("wt-base").value, "main", "an old base outlived the dialo
 // The folder browser keeps a path being typed, and gives way once the browser
 // has actually been sent somewhere.
 h.key({ key: "Escape" });
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "browse", path: "C:/repos", parent: "C:/", entries: [
   { name: "one", path: "C:/repos/one", isRepo: true }], places: [] });
 h.recv({ type: "recents", items: [{ root: "C:/old", name: "old", exists: true, open: false }] });
@@ -2108,7 +2088,7 @@ h.recv(fixture({ projects: [
   { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 2, working: 0 },
 ] }));
 
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "recents", items: [
   { root: "C:/old", name: "old", exists: true, open: false },
   { root: "C:/gone", name: "gone", exists: false, open: false },
@@ -2142,7 +2122,7 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/oth
 assert.ok(h.$("overlay").hidden, "the dialog stayed open after switching project");
 
 // A recent project whose folder has gone is not a button that does nothing.
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "recents", items: [
   { root: "C:/old", name: "old", exists: true, open: false },
   { root: "C:/gone", name: "gone", exists: false, open: false },
@@ -2968,10 +2948,10 @@ assert.ok(h.terms[0].focused, "the keyboard went with the cover instead of back 
 
 // Only where the cover had it: elsewhere, the keyboard stays where it is.
 h.recv(exited);
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.terms[0].focused = false;
 h.recv(fixture());
-assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("project-btn"), "the cover going took the keyboard from the top bar");
+assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("rail-toggle"), "the cover going took the keyboard from the top bar");
 `)
 }
 
@@ -3008,7 +2988,7 @@ h.recv(fixture());
 h.recv(fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } }));
 const restart = h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
   .find((b) => b.textContent === "Restart");
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.terms[0].focused = false;
 // The tab on screen, clicked again, hands the keyboard back to its pane.
 h.click(h.$("tab-t1"));
@@ -3017,7 +2997,7 @@ assert.ok(!h.terms[0].focused, "the covered terminal took the keyboard");
 
 // With the process back, the terminal is where it goes again.
 h.recv(fixture());
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.click(h.$("tab-t1"));
 assert.ok(h.terms[0].focused, "the terminal no longer takes the keyboard once its cover has gone");
 `)
@@ -4254,7 +4234,7 @@ func TestANarrowScreenFoldsTheRailIntoAMenu(t *testing.T) {
 	coarse := mediaBlock(t, css, `\(pointer:\s*coarse\)`)
 	for _, want := range []string{
 		`\.rail-btn\s*\{\s*width:\s*44px;\s*height:\s*44px`,
-		`\.bar-btn, \.project, #summary, \.commands, \.update, \.tab\s*\{\s*min-height:\s*44px`,
+		`\.bar-btn, #summary, \.commands, \.update, \.tab\s*\{\s*min-height:\s*44px`,
 		`\.bar-btn, \.commands\s*\{\s*min-width:\s*44px`,
 		`\.tab \.close\s*\{\s*width:\s*44px;\s*height:\s*44px`,
 	} {
@@ -4359,9 +4339,6 @@ assert.ok((aw.dataset.tip || "").includes("C:/code/agent-wrapper"), "the tooltip
 const badged = (t) => t.querySelector(".rail-badge").classList.contains("waiting");
 assert.ok(badged(fm) && !badged(aw) && !badged(fr), "only the project with an agent waiting carries the badge");
 assert.ok(fm.getAttribute("aria-label").includes("2 agents are waiting on you"), "the badge is not in the tile's name");
-assert.strictEqual(h.$("project-name").textContent, "agent-wrapper");
-assert.strictEqual(h.$("project-branch").textContent, "main", "the top bar does not give the project's branch");
-assert.ok(!h.$("project-branch").hidden);
 
 h.click(fr);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/code/flockdeck-relay" });
@@ -4407,7 +4384,7 @@ func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();
 h.recv(fixture());
-for (const id of ["project-btn", "new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
+for (const id of ["new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
   "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-settings", "btn-palette", "rail-open"]) {
   assert.ok(h.$(id), id + " is gone");
 }
@@ -4621,6 +4598,8 @@ const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-lab
 assert.ok(labels.includes("Turn update checks on"), "the palette does not know the settings turned update checks off");
 h.key({ key: "Escape" });
 assert.ok(h.$("set-install"), "the update already downloaded is not offered");
+h.click(h.$("set-check-update"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
 h.click(h.$("set-tips"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
@@ -5678,9 +5657,9 @@ assert.strictEqual(cover().getAttribute("role"), "alert", "the cover appears wit
 assert.ok(h.doc.activeElement === restart(), "the keyboard stayed in the terminal under the cover");
 
 // Once: a push that changes nothing about the exit does not take it back.
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.recv(exited("p1"));
-assert.ok(h.doc.activeElement === h.$("project-btn"), "another push took the keyboard back to Restart");
+assert.ok(h.doc.activeElement === h.$("rail-toggle"), "another push took the keyboard back to Restart");
 
 // Not out of the palette.
 h.recv(fixture());
@@ -5692,9 +5671,9 @@ h.key({ key: "Escape" });
 
 // Nor for a pane in another tab.
 h.recv(fixture());
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.recv(exited("p2"));
-assert.ok(h.doc.activeElement === h.$("project-btn"), "a pane in another tab took the keyboard as it exited");
+assert.ok(h.doc.activeElement === h.$("rail-toggle"), "a pane in another tab took the keyboard as it exited");
 `)
 }
 
@@ -6292,25 +6271,6 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/api
 // The same count again is not news.
 h.recv(fixture({ projects: projects(1) }));
 assert.strictEqual(h.notifications.length, 1, "a count that did not rise raised another notification");
-`)
-}
-
-// The project button turns amber when an agent in another project is waiting,
-// and nothing said which project or why: its tooltip named the current folder
-// alone.
-func TestTheProjectButtonSaysWhereAnAgentIsWaiting(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture({ projects: [
-  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
-  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
-] }));
-const btn = h.$("project-btn");
-assert.ok(btn.classList.contains("attention"));
-assert.ok(/waiting on you in api/.test(btn.dataset.tip), "the amber does not say where the agent is: " + btn.dataset.tip);
-
-h.recv(fixture());
-assert.ok(!/waiting/.test(h.$("project-btn").dataset.tip), "the tooltip kept saying an agent was waiting");
 `)
 }
 

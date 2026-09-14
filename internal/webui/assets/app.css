@@ -121,27 +121,12 @@ body { flex-direction: row; }
   flex: 0 0 auto;
 }
 /* The tab strip is the one part of the bar that scrolls, so it is the part
- * that gives up width; the project's name is cut short after it. Everything
- * else keeps its size, so the last control is never clipped off the edge. */
+ * that gives up width. Everything else keeps its size, so the last control
+ * is never clipped off the edge. */
 #topbar > * { flex: 0 0 auto; }
 #topbar > .spacer { flex: 1 1 auto; }
-#topbar > .project { flex: 0 1 auto; min-width: 0; }
 #topbar > #tabbar { flex: 0 1 auto; min-width: 0; }
 #tabbar { display: flex; align-items: center; gap: 8px; }
-
-.project {
-  display: flex; align-items: center; gap: 8px; max-width: 320px;
-  height: 28px; padding: 0 6px 0 8px; border: 0; border-radius: var(--radius);
-  background: transparent; color: var(--fg); font: inherit; cursor: pointer;
-}
-.project:hover { background: #22262e; }
-#project-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#project-branch { color: var(--fg-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
-#project-branch[hidden] { display: none; }
-.project .caret { color: var(--fg-dim); }
-/* An agent is waiting in a project that is not on screen. Its tile in the
- * rail has the badge; this says as much where the eye is. */
-.project.attention .caret { color: var(--waiting); }
 
 .bar-btn {
   display: flex; align-items: center; justify-content: center;
@@ -311,7 +296,6 @@ body { flex-direction: row; }
 .icon-btn:focus-visible,
 .rail-btn:focus-visible,
 .bar-btn:focus-visible,
-.project:focus-visible,
 #summary:focus-visible,
 .commands:focus-visible,
 .update:focus-visible,
@@ -1067,6 +1051,8 @@ textarea:focus-visible {
 .set-desc { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
 .set-error { color: var(--exited); font-size: 12px; margin-top: 4px; }
 .set-control { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+/* Check for updates now, and — once there is one — install what it found. */
+.update-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .switch {
   position: relative; display: flex; justify-content: flex-start; flex: 0 0 auto;
@@ -1410,7 +1396,7 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 
   #topbar { flex-wrap: wrap; height: auto; padding: 4px 8px; row-gap: 4px; column-gap: 6px; }
   #topbar > #tabbar { order: 10; flex: 1 1 100%; }
-  #topbar > .divider-v, #project-branch, .commands-label, .commands-keys { display: none; }
+  #topbar > .divider-v, .commands-label, .commands-keys { display: none; }
   /* The pane header is already tight at this width; the phone glyph is the
    * one thing in it that is purely nice-to-know. */
   .pane-remote { display: none; }
@@ -1428,7 +1414,7 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 @media (pointer: coarse) {
   .rail-btn { width: 44px; height: 44px; }
   #topbar { height: auto; min-height: 48px; }
-  .bar-btn, .project, #summary, .commands, .update, .tab { min-height: 44px; }
+  .bar-btn, #summary, .commands, .update, .tab { min-height: 44px; }
   .bar-btn, .commands { min-width: 44px; justify-content: center; }
   .update { border-radius: 22px; }
   .new-tab-group .bar-btn { height: 42px; }

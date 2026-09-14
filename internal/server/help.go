@@ -177,6 +177,20 @@ func (s *Server) setUpdates(c *controlClient, off bool) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.UpdatesOff, off) })
 }
 
+// checkForUpdates answers the interface's manual "Check for updates" action.
+// This package knows nothing of GitHub or releases -- that is OnCheckForUpdates,
+// wired up by whatever started the server -- so all that is done here is
+// running it and telling the window that asked what it found, since clicking
+// the button is what asking to be told looks like.
+func (s *Server) checkForUpdates(c *controlClient) {
+	if s.OnCheckForUpdates == nil {
+		c.notify("checking for updates is not available in this build", true)
+		return
+	}
+	message, isErr := s.OnCheckForUpdates()
+	c.notify(message, isErr)
+}
+
 // resetTips brings back every inline hint that was dismissed, which could
 // otherwise only be done by editing prefs.json.
 func (s *Server) resetTips(c *controlClient) {

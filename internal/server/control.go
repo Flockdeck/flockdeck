@@ -1299,6 +1299,17 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.setUpdates(c, cmd.Kind == "off")
 		return
+	case "checkForUpdate":
+		// Reaching GitHub, and downloading a release that turns out to be
+		// newer, both take a while -- long past what a handler is meant to
+		// hold the connection's read loop up for -- so this runs on its own,
+		// as restarting onto an update already does below.
+		if c.remote {
+			c.notify("checking for updates is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+			return
+		}
+		go s.checkForUpdates(c)
+		return
 	case "presence":
 		s.setDeskUsed(c, cmd.Kind == "used")
 		return
