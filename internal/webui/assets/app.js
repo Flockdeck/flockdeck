@@ -2160,6 +2160,11 @@
     const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
     const agent = el("span", "pane-agent");
+    // Shown while a phone -- this one's own, or a colleague's -- has this
+    // pane open in its chat view or its terminal, so text appearing here
+    // unbidden has an explanation instead of looking like the program on its
+    // own. See renderPaneRemote.
+    const remote = el("span", "pane-remote");
     const detail = el("span", "pane-detail");
     const git = el("span", "pane-git");
     // The counts say something changed, and nothing went from them to what
@@ -2197,7 +2202,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, git, detail, spend, limit, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, remote, git, detail, spend, limit, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -2298,7 +2303,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -2783,6 +2788,9 @@
       const badge = agent + "|" + (v.routed || "") + "|" + (v.routedFrom || "") + "|" + (v.route || "");
       if (was.agent !== badge) { was.agent = badge; renderPaneAgent(p, v); }
 
+      const remoteViewers = (v.remoteViewers || []).join("\u0000");
+      if (was.remote !== remoteViewers) { was.remote = remoteViewers; renderPaneRemote(p, v); }
+
       const detail = v.detail || "";
       if (was.detail !== detail) {
         was.detail = detail;
@@ -2902,6 +2910,28 @@
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
+  }
+
+  /** renderPaneRemote shows a small phone glyph while a window reached
+   *  through the relay has this pane open, in its chat view or its terminal —
+   *  its own owner's phone, or a colleague's. Without it, text appearing in a
+   *  pane nobody at the desk is touching looks like it came from nowhere,
+   *  when it was typed on another device. Named devices only; nothing at all
+   *  while no phone has the pane open. */
+  function renderPaneRemote(p, v) {
+    p.remote.textContent = "";
+    const names = v.remoteViewers || [];
+    if (!names.length) {
+      delete p.remote.dataset.tip;
+      p.remote.removeAttribute("aria-label");
+      p.remote.removeAttribute("role");
+      return;
+    }
+    p.remote.append(glyph("📱"));
+    const label = "Open on " + names.map((n) => n || "an unnamed device").join(" and ");
+    p.remote.setAttribute("role", "img");
+    p.remote.setAttribute("aria-label", label);
+    describe(p.remote, label);
   }
 
   /** renderPaneUsage shows what the pane is costing the machine: its share of a

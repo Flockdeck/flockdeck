@@ -15,7 +15,10 @@ bar the few things done only at the desk, listed below.
 A pane open in two windows at once, the one on your desk and a phone say, takes
 the size of whichever window last typed into it or focused it. Glancing at it
 from the phone leaves the desk's terminal as it was; typing on the phone fits it
-to the phone until you type at the desk again.
+to the phone until you type at the desk again. The desk's own window shows a
+small phone glyph on a pane's header while a paired device has it open, in its
+chat or its terminal, naming the device — so text appearing there is not a
+surprise.
 
 Nothing on this machine listens for the network. The local server still binds
 to loopback only, and its token never leaves the machine — a request that came

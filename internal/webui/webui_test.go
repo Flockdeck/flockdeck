@@ -6338,6 +6338,40 @@ assert.ok(/working tree/.test(tip(".pane-branch")), "the branch's bubble lost it
 `)
 }
 
+// Someone at the desk can be surprised by text appearing in a pane because a
+// phone -- their own, or a colleague's -- is also driving it. The header
+// shows a small phone glyph while any window reached through the relay has
+// the pane open, in its chat view or its terminal, naming the device in its
+// tooltip and its aria-label; nothing at all while no phone has it open.
+func TestThePaneHeaderShowsAPhoneHasItOpen(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const remote = () => wrap.querySelector(".pane-remote");
+assert.strictEqual(remote().textContent, "", "the glyph showed before any phone had this pane open");
+assert.ok(!remote().getAttribute("aria-label"), "the glyph named a device before any phone had this pane open");
+
+h.recv(fixture({ panes: { p1: pane("p1", { remoteViewers: ["Jim's iPhone"] }) } }));
+assert.notStrictEqual(remote().textContent, "", "a phone has this pane open, but no glyph appeared");
+assert.ok((remote().getAttribute("aria-label") || "").includes("Jim's iPhone"),
+  "the glyph's aria-label does not name the device: " + remote().getAttribute("aria-label"));
+assert.ok((remote().dataset.tip || "").includes("Jim's iPhone"),
+  "the glyph's bubble does not name the device: " + remote().dataset.tip);
+
+// Two phones on the same pane: both are named.
+h.recv(fixture({ panes: { p1: pane("p1", { remoteViewers: ["Jim's iPhone", "Sam's iPad"] }) } }));
+const label = remote().getAttribute("aria-label") || "";
+assert.ok(label.includes("Jim's iPhone") && label.includes("Sam's iPad"),
+  "the glyph does not name both devices: " + label);
+
+// The phone leaves: the glyph goes with it.
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+assert.strictEqual(remote().textContent, "", "the glyph stayed after every phone closed the pane");
+assert.ok(!remote().getAttribute("aria-label"), "the glyph's name stayed after every phone closed the pane");
+`)
+}
+
 // A pane's header counts its checkout's changes, and nothing went from the
 // counts to the changes: the review was a trip to the top bar.
 func TestAPanesChangeCountsOpenItsReview(t *testing.T) {

@@ -325,6 +325,14 @@ type paneView struct {
 	// about the phone's own notifications, not the pane's status. See
 	// Pane.Muted.
 	Muted bool `json:"muted,omitempty"`
+	// RemoteViewers is the device name of every window reached through the
+	// relay that has this pane open right now, in its chat view or its
+	// terminal -- so a window at the desk can show that a phone, its own
+	// owner's or a colleague's, is also looking at or driving this pane,
+	// rather than text appearing in it with nothing saying why. Left out
+	// when nobody reached through the relay has it open. See
+	// remoteviewers.go.
+	RemoteViewers []string `json:"remoteViewers,omitempty"`
 	// Last is this pane's agent's latest reply, trimmed for the phone's
 	// inbox row -- left out for a shell, and for an agent pane whose
 	// adapter has not seen a reply yet. See preview.go.
@@ -561,6 +569,7 @@ func (s *Server) snapshot() stateMsg {
 				Broadcast: ws.InBroadcast(p.ID),
 				Muted:     p.Muted,
 			}
+			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
 			}

@@ -502,6 +502,13 @@ textarea:focus-visible {
 /* The routing arrow keeps its place when the label is cut, and its space,
  * which a flex item would otherwise drop from the start of its text. */
 .pane-agent .agent-route { flex: none; white-space: pre; }
+/* Shown only while a phone has this pane open, in its chat view or its
+ * terminal -- quiet on purpose, a glyph and nothing else, so it says "someone
+ * else may be here" without competing with the branch and agent for the eye.
+ * The least essential thing in the header, so it gives way before all of
+ * them: a three-way split shows the pane's identity over who else is looking
+ * at it. */
+.pane-remote { flex: 0 1200 auto; min-width: 0; overflow: hidden; color: var(--fg-dim); font-size: 12px; }
 /* Only a pane borrowed from another project carries this, so it is meant to
  * catch the eye: it is the one thing saying that the tab is not all one
  * project. It does not collapse, because a pane whose project has been
@@ -1404,6 +1411,9 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   #topbar { flex-wrap: wrap; height: auto; padding: 4px 8px; row-gap: 4px; column-gap: 6px; }
   #topbar > #tabbar { order: 10; flex: 1 1 100%; }
   #topbar > .divider-v, #project-branch, .commands-label, .commands-keys { display: none; }
+  /* The pane header is already tight at this width; the phone glyph is the
+   * one thing in it that is purely nice-to-know. */
+  .pane-remote { display: none; }
   .commands { padding: 0 8px; }
   #summary { gap: 10px; }
   #summary .tally-word {

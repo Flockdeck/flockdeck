@@ -116,6 +116,15 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	if relay {
 		relayUse.mark(id, time.Now())
 		defer func() { relayUse.mark(id, time.Now()) }()
+		// The desk is told this pane's terminal has a phone open on it, and
+		// again once this socket closes -- see remoteViewersFor.
+		device := r.Header.Get("Flockdeck-Remote-Device")
+		remoteTermViewers.add(id, viewer, device)
+		s.Wake()
+		defer func() {
+			remoteTermViewers.remove(id, viewer)
+			s.Wake()
+		}()
 	}
 	defer func() {
 		// This window is no longer one the pane is sized for, so it goes back

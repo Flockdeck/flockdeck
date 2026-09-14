@@ -984,7 +984,10 @@ the front end asks for everything relative to wherever it was served from so
 that it works under the relay's per-machine prefix unchanged. A pane open in
 two windows at once takes the size of whichever last typed into it or focused
 it, so glancing from a phone leaves the desk's terminal alone, and typing on the
-phone fits it to the phone until you type at the desk again.
+phone fits it to the phone until you type at the desk again. The desk's own
+window shows a small phone glyph on a pane's header while a paired device has
+it open, in its chat or its terminal, naming the device — so text appearing
+there is not a surprise.
 
 A paired browser opens the relay's own client first, built for a small
 screen — straight onto its one desktop if that's the only one paired, or a

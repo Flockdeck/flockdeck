@@ -223,6 +223,12 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 			return
 		}
 		pc.watchers[c] = true
+		// A window reached through the relay having this pane's chat open is
+		// worth the desk knowing about now, not whenever the pane next
+		// changes on its own -- see remoteViewersFor.
+		if c.remote {
+			s.Wake()
+		}
 		pc.stream.Refresh()
 		// Drained, not read: a stream built just now from the whole file may
 		// have passed over a past /clear (a chat pane's own, which keeps the
@@ -383,6 +389,11 @@ func (s *Server) conversationClose(c *controlClient, paneID string) {
 	pc.mu.Unlock()
 	if empty {
 		pc.scheduleLightDowngrade()
+	}
+	// The desk is told a phone's chat view closed the same way it is told one
+	// opened -- see conversationOpen.
+	if c.remote {
+		s.Wake()
 	}
 }
 
