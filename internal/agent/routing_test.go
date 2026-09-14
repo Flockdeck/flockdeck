@@ -196,12 +196,38 @@ func TestSetRouting(t *testing.T) {
 	}
 
 	before := mustRead(t, dir)
-	for _, bad := range [][3]string{{"", "mode", ""}, {"", "mode", "always"}, {"", "floor", "large"}, {"", "rules", "x"}} {
+	for _, bad := range [][3]string{{"", "mode", ""}, {"", "mode", "always"}, {"", "floor", "large"}, {"", "rules", "x"}, {"", "crossAgent", "sometimes"}} {
 		if err := SetRouting(dir, bad[0], bad[1], bad[2]); err == nil {
 			t.Errorf("SetRouting(%q, %q, %q) was accepted", bad[0], bad[1], bad[2])
 		}
 	}
 	if string(mustRead(t, dir)) != string(before) {
 		t.Error("a refused setting changed the file")
+	}
+}
+
+// crossAgent round-trips as a real JSON boolean, not the string every other
+// routing setting is written as, and "false" is taken out rather than kept,
+// since that is what leaving it out already means.
+func TestSetRoutingCrossAgent(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, `{"version": 1}`)
+
+	if err := SetRouting(dir, "", "crossAgent", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if dig(readBack(t, dir), "routing", "crossAgent") != true {
+		t.Errorf("crossAgent = %v, want true", readBack(t, dir)["routing"])
+	}
+	if p, _ := LoadFrom(dir).RoutingFor(""); !p.CrossAgent {
+		t.Error("the policy read back does not have CrossAgent set")
+	}
+
+	if err := SetRouting(dir, "", "crossAgent", "false"); err != nil {
+		t.Fatal(err)
+	}
+	m := readBack(t, dir)
+	if dig(m, "routing", "crossAgent") != nil {
+		t.Errorf("crossAgent = %v after being set to false, want it gone", dig(m, "routing", "crossAgent"))
 	}
 }

@@ -4883,6 +4883,34 @@ assert.deepStrictEqual(sent.routeOverrides, [{ rule: "hard work", agent: "claude
 `)
 }
 
+// A row routed to another agent shows that agent's select, and starts it:
+// what was shown is what runs, agent included.
+func TestTheFanOutShowsARouteToAnotherAgent(t *testing.T) {
+	runFrontEnd(t, fanoutRouting+`
+h.press("fanout");
+h.recv(routedPreview({
+  agents: routedAgents.concat([{ id: "openai-compatible", name: "OpenAI-compatible endpoint",
+    models: [{ id: "qwen2.5-coder", name: "Qwen 2.5 Coder", tier: "small" }] }]),
+  routes: [{ model: "qwen2.5-coder", tier: "small", rule: "tests go local", agent: "openai-compatible",
+             reason: "rule 'tests go local' → OpenAI-compatible endpoint · Qwen 2.5 Coder. Runs on your own machine, no per-token cost" },
+           null, null],
+}));
+assert.deepStrictEqual(sels().map((s) => s.value), ["openai-compatible\nqwen2.5-coder", "", ""]);
+assert.strictEqual(tags().length, 1, "the cross-agent row is not marked routed");
+assert.ok(tags()[0].dataset.tip.includes("no per-token cost"), "the tag does not say what it costs: " + tags()[0].dataset.tip);
+
+body.querySelector("button.primary").onclick();
+const sent = h.commands().pop();
+assert.deepStrictEqual(sent.taskAgents, ["openai-compatible", "", ""]);
+assert.deepStrictEqual(sent.taskModels, ["qwen2.5-coder", "", ""]);
+assert.deepStrictEqual(sent.taskRouted, ["tests go local", "", ""]);
+
+// The count line says which agent the routed row actually runs on.
+assert.ok(body.querySelector("span.fan-count").textContent.includes("OpenAI-compatible endpoint"),
+  "the split does not name the agent a routed row runs on: " + body.querySelector("span.fan-count").textContent);
+`)
+}
+
 // One button puts every routed row back on the run's model.
 func TestTheRunsModelCanBeTakenForEveryTask(t *testing.T) {
 	runFrontEnd(t, fanoutRouting+`
@@ -5043,6 +5071,10 @@ h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "opus", route
 assert.strictEqual(badge().textContent, "claude · opus ↗");
 h.recv(fixture({ panes: { p1: pane("p1", { agent: "claude", model: "opus" }), p2: pane("p2") } }));
 assert.strictEqual(badge().textContent, "claude · opus", "a model chosen by hand is marked routed");
+h.recv(fixture({ panes: { p1: pane("p1", { agent: "openai-compatible", model: "qwen2.5-coder",
+  routed: "tests go local", routedFrom: "sonnet", routedFromAgent: "claude" }), p2: pane("p2") } }));
+assert.ok(badge().dataset.tip.includes("from claude · sonnet"),
+  "a route to another agent does not name where the model came from: " + badge().dataset.tip);
 `)
 }
 
@@ -5064,16 +5096,25 @@ const pick = (id, value) => { const s = h.$(id); s.value = value; h.dispatch(s, 
 assert.deepStrictEqual(pick("set-route-all", "suggest"), { cmd: "setRouting", kind: "all", target: "mode", text: "suggest" });
 assert.deepStrictEqual(pick("set-route-project", "auto"), { cmd: "setRouting", target: "mode", text: "auto" });
 assert.deepStrictEqual(pick("set-route-floor", "mid"), { cmd: "setRouting", target: "floor", text: "mid", kind: "all" });
+assert.strictEqual(h.$("set-route-cross").checked, false, "cross-agent routing is shown on by default");
+h.$("set-route-cross").checked = true;
+h.dispatch(h.$("set-route-cross"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", kind: "all", target: "crossAgent", text: "true" });
 assert.ok(h.$("set-route-rules").textContent.includes("run the tests"), "the rules are not listed");
 assert.ok(h.$("set-route-note").textContent.includes("Default"), "nothing says why routing would do nothing");
 h.click(h.$("set-route-clear-log"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "clearRoutingLog" });
 
 // A project with a policy of its own: that is the floor changed.
-h.recv(fixture({ agents: catalog({ routing: routing({ project: { mode: "suggest", floor: "mid" }, note: "" }) }) }));
+h.recv(fixture({ agents: catalog({ routing: routing({ project: { mode: "suggest", floor: "mid" }, note: "", crossAgent: true }) }) }));
 assert.strictEqual(h.$("set-route-project").value, "suggest");
 assert.strictEqual(h.$("set-route-floor").value, "mid", "the project's own floor is not shown");
 assert.deepStrictEqual(pick("set-route-floor", "top"), { cmd: "setRouting", target: "floor", text: "top" });
+assert.strictEqual(h.$("set-route-cross").checked, true, "the project's own crossAgent is not shown");
+h.$("set-route-cross").checked = false;
+h.dispatch(h.$("set-route-cross"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", target: "crossAgent", text: "false" },
+  "a project with its own policy sent kind: all");
 `)
 }
 

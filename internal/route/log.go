@@ -33,9 +33,14 @@ type LogEntry struct {
 	Kind    string    `json:"kind"`
 	Project string    `json:"project,omitempty"`
 	Pane    string    `json:"pane,omitempty"`
-	Agent   string    `json:"agent,omitempty"`
-	Source  string    `json:"source"`
-	Rule    string    `json:"rule,omitempty"`
+	// Agent is the agent the work ran on, as it always has been. BaselineAgent
+	// is the agent it would have run on without routing, and is left empty
+	// unless a rule moved the work to another agent -- so an old log line,
+	// and every same-agent decision since, still reads as it always has.
+	Agent         string `json:"agent,omitempty"`
+	BaselineAgent string `json:"baselineAgent,omitempty"`
+	Source        string `json:"source"`
+	Rule          string `json:"rule,omitempty"`
 	// Baseline is the model the work would have run without routing, and
 	// Routed the model routing chose for it.
 	Baseline string `json:"baseline"`

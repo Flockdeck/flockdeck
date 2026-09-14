@@ -2,13 +2,17 @@ package server
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/pricing"
 	"github.com/jmwri/flockdeck/internal/route"
+	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
@@ -29,6 +33,9 @@ type routeView struct {
 	Rule   string `json:"rule"`
 	Reason string `json:"reason"`
 	Up     bool   `json:"up,omitempty"`
+	// Agent is set only when the rule moved the row to another agent, not
+	// only another model. Empty means the row stays on the run's own.
+	Agent string `json:"agent,omitempty"`
 }
 
 // routesMsg answers routeTasks: the routes for the rows as the dialog now has
@@ -69,6 +76,10 @@ func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (r
 		return nil, policy.Mode, ""
 	}
 	note = routeNote(spec, model)
+	var other func(string) (agent.Spec, bool)
+	if policy.CrossAgent {
+		other = otherAgentFor(c, root)
+	}
 	routed := make([]*routeView, len(tasks))
 	any := false
 	for i, task := range tasks {
@@ -76,18 +87,135 @@ func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (r
 		if task == "" {
 			continue
 		}
-		d := r.Decide(route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model})
+		d := r.Decide(route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
 		if !d.Routed {
 			continue
 		}
 		any = true
-		routed[i] = &routeView{Model: d.Model, Tier: d.Tier, Rule: d.Rule, Up: d.Up,
-			Reason: d.Reason + priceNote(spec, model, d.Model)}
+		reason := d.Reason
+		if d.Agent == "" {
+			reason += priceNote(spec, model, d.Model)
+		} else if dest, ok := c.Find(d.Agent); ok {
+			reason += crossAgentNote(dest)
+		}
+		routed[i] = &routeView{Model: d.Model, Tier: d.Tier, Rule: d.Rule, Up: d.Up, Agent: d.Agent, Reason: reason}
 	}
 	if any {
 		routes = routed
 	}
 	return routes, policy.Mode, note
+}
+
+// routeSpawnChoice decides a model, and maybe an agent, for a helper spawned
+// with `flockdeck spawn` and given neither --agent nor --model. It answers
+// only in "auto" mode: a spawned helper has no dialog for "suggest" to fill
+// in, and a choice nobody can see or change would be worse than not routing
+// at all. baseAgent and baseModel are what the helper would have run without
+// routing, for the pane to record as RoutedFromAgent and RoutedFrom.
+func routeSpawnChoice(c *agent.Catalog, cwd, task string) (d route.Decision, baseAgent, baseModel string) {
+	policy, _ := c.RoutingFor(cwd)
+	if policy.Mode != agent.RoutingAuto {
+		return route.Decision{}, "", ""
+	}
+	spec, model, ok := c.Resolve(cwd, "", "")
+	if !ok {
+		return route.Decision{}, "", ""
+	}
+	r := route.New(policy)
+	var other func(string) (agent.Spec, bool)
+	if policy.CrossAgent {
+		other = otherAgentFor(c, cwd)
+	}
+	return r.Decide(route.Input{Kind: route.KindSpawn, Task: task, Agent: spec, Current: model, OtherAgent: other}), spec.ID, model
+}
+
+// otherAgentFor is the route.Input.OtherAgent a fan-out or a spawned helper
+// may use: an agent besides the one the work would run on, but only when it
+// could actually take the work right now -- installed or keyed, trusted for
+// root, and, for one with an address of its own, answering.
+//
+// This, and not route.Decide, is where routing does its I/O: deciding stays
+// pure, and this closure is the one thing here that touches disk or network.
+func otherAgentFor(c *agent.Catalog, root string) func(id string) (agent.Spec, bool) {
+	return func(id string) (agent.Spec, bool) {
+		spec, ok := c.Find(id)
+		if !ok || !agent.Available(spec) || !session.TrustedFor(spec, root) {
+			return agent.Spec{}, false
+		}
+		if spec.API.BaseURL != "" && !endpointReachable(spec.API.BaseURL) {
+			return agent.Spec{}, false
+		}
+		return spec, true
+	}
+}
+
+// reachTTL is how long endpointReachable trusts an answer, the same span
+// agent.Available trusts its own probes for: long enough that a fan-out
+// asking about a dozen rows dials an endpoint once, short enough that
+// starting the local model server and routing again finds it.
+const reachTTL = 5 * time.Second
+
+var reach = struct {
+	sync.Mutex
+	seen map[string]reachResult
+}{seen: map[string]reachResult{}}
+
+type reachResult struct {
+	ok bool
+	at time.Time
+}
+
+// dialTimeout bounds how long endpointReachable waits for a connection, kept
+// short because it runs in line with every routed decision a fan-out asks
+// about.
+var dialTimeout = 500 * time.Millisecond
+
+// endpointReachable reports whether something answers at base's host and
+// port, remembering the answer for reachTTL.
+//
+// agent.Available reports a local endpoint as available the moment its
+// address is a loopback one, without asking whether anything is listening
+// there -- which is right for the picker, where picking a stopped Ollama and
+// finding out is the user's own choice, but wrong here: routing to it would
+// cut a fan-out row's worktree, start its pane, and only then learn the pane
+// could never connect, with nothing left to discard the worktree afterwards.
+func endpointReachable(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Host
+	if u.Port() == "" {
+		port := "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+		host = net.JoinHostPort(u.Hostname(), port)
+	}
+	now := time.Now()
+	reach.Lock()
+	if got, ok := reach.seen[host]; ok && now.Sub(got.at) < reachTTL {
+		reach.Unlock()
+		return got.ok
+	}
+	reach.Unlock()
+
+	ok := dialReachable(host)
+	reach.Lock()
+	reach.seen[host] = reachResult{ok: ok, at: now}
+	reach.Unlock()
+	return ok
+}
+
+// dialReachable is the dial itself, a variable so a test can answer without
+// a real socket.
+var dialReachable = func(host string) bool {
+	conn, err := net.DialTimeout("tcp", host, dialTimeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // routeNote says why routing can do nothing for work on a model, or "" when
@@ -123,6 +251,17 @@ func priceNote(spec agent.Spec, from, to string) string {
 	checked := min(a.Checked, b.Checked)
 	return fmt.Sprintf(". %s is %s / %s per M tokens, against %s / %s for %s (prices checked %s)",
 		modelNameOf(spec, to), dollars(a.In), dollars(a.Out), dollars(b.In), dollars(b.Out), modelNameOf(spec, from), checked)
+}
+
+// crossAgentNote is what a row moved to another agent says about the cost of
+// that, in place of priceNote's dollar figures: comparing a subscription
+// CLI's tokens against a local model's makes no honest claim of a saving, so
+// none is made. A local endpoint at least says plainly what it costs.
+func crossAgentNote(dest agent.Spec) string {
+	if agent.NeedsNoKey(dest) {
+		return ". Runs on your own machine, no per-token cost"
+	}
+	return ""
 }
 
 // dollars writes a price per million tokens the way the providers do.
@@ -195,36 +334,54 @@ func fanoutRouteLog(req fanoutRequest, project string, started map[*fanoutJob]st
 		if j.routed == "" {
 			continue
 		}
-		out = append(out, route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
+		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
 			Agent: j.agent, Source: route.SourceRule, Rule: j.routed,
-			Baseline: req.Model, Routed: j.model, Outcome: route.OutcomeKept})
+			Baseline: req.Model, Routed: j.model, Outcome: route.OutcomeKept}
+		if j.agent != req.Agent {
+			e.BaselineAgent = req.Agent
+		}
+		out = append(out, e)
 	}
 	for _, o := range req.Overrides {
-		out = append(out, route.LogEntry{At: now, Kind: route.KindFanout, Project: project,
+		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project,
 			Agent: o.Agent, Source: route.SourceRule, Rule: o.Rule,
-			Baseline: req.Model, Routed: o.Routed, Outcome: route.OutcomeOverridden + o.Chosen})
+			Baseline: req.Model, Routed: o.Routed, Outcome: route.OutcomeOverridden + o.Chosen}
+		if o.Agent != req.Agent {
+			e.BaselineAgent = req.Agent
+		}
+		out = append(out, e)
 	}
 	return out
 }
 
 // paneRoute is what a pane's header says of its routing: the rule that chose
 // its model, the model it would otherwise have run, and whether that moved it
-// "down" or "up" -- empty where the tiers no longer say.
-func paneRoute(c *agent.Catalog, p *workspace.Pane) (rule, from, dir string) {
+// "down" or "up" -- empty where the tiers no longer say. RoutedFromAgent
+// names the agent that model belongs to, when routing moved the pane to
+// another agent, so the pane's tier is not read off the wrong catalog entry.
+func paneRoute(c *agent.Catalog, p *workspace.Pane) (rule, from, fromAgent, dir string) {
 	if p == nil || !p.IsAgent() || p.Routed == "" {
-		return "", "", ""
+		return "", "", "", ""
 	}
-	rule, from = p.Routed, p.RoutedFrom
-	if spec, ok := c.Find(p.Agent); ok {
-		to, was := route.TierOf(spec, p.Model), route.TierOf(spec, from)
-		switch {
-		case to > 0 && was > 0 && to < was:
-			dir = "down"
-		case to > was && was > 0:
-			dir = "up"
+	rule, from, fromAgent = p.Routed, p.RoutedFrom, p.RoutedFromAgent
+	toSpec, ok := c.Find(p.Agent)
+	if !ok {
+		return rule, from, fromAgent, ""
+	}
+	fromSpec := toSpec
+	if fromAgent != "" && fromAgent != p.Agent {
+		if s, ok := c.Find(fromAgent); ok {
+			fromSpec = s
 		}
 	}
-	return rule, from, dir
+	to, was := route.TierOf(toSpec, p.Model), route.TierOf(fromSpec, from)
+	switch {
+	case to > 0 && was > 0 && to < was:
+		dir = "down"
+	case to > was && was > 0:
+		dir = "up"
+	}
+	return rule, from, fromAgent, dir
 }
 
 // routingView is the routing part of Settings › Agents: the mode and floor for
@@ -236,6 +393,10 @@ type routingView struct {
 	Rules   []ruleView     `json:"rules"`
 	BuiltIn bool           `json:"builtIn"`
 	Note    string         `json:"note,omitempty"`
+	// CrossAgent is the policy's own switch for moving a rule's work to
+	// another agent, not only another model. It is read from the same
+	// policy Every or Project names, never mixed between the two.
+	CrossAgent bool `json:"crossAgent,omitempty"`
 	// Config is where agents.json is, since the rules are edited there.
 	Config string `json:"config,omitempty"`
 }
@@ -259,6 +420,7 @@ func routingOf(c *agent.Catalog, root string) *routingView {
 		v.Project = &routingChoice{Mode: modeOr(policy.Mode), Floor: policy.Floor}
 	}
 	v.BuiltIn = policy.Rules == nil
+	v.CrossAgent = policy.CrossAgent
 	for _, r := range route.RulesOf(policy) {
 		choice := r.Tier
 		if r.Model != "" {
@@ -270,11 +432,53 @@ func routingOf(c *agent.Catalog, root string) *routingView {
 		if spec, model, ok := c.Resolve(root, "", ""); ok {
 			v.Note = routeNote(spec, model)
 		}
+		if v.Note == "" {
+			v.Note = crossAgentNoteFor(c, policy)
+		}
 	}
 	if path, err := agent.ConfigPath(); err == nil {
 		v.Config = path
 	}
 	return v
+}
+
+// crossAgentNoteFor names, for the rules a policy applies, another agent a
+// cross-agent rule points at that could never be routed to as things stand --
+// no address, a model it does not offer, or one with no tier -- so Settings
+// says what is missing rather than routing quietly doing nothing about it.
+func crossAgentNoteFor(c *agent.Catalog, policy agent.RoutingPolicy) string {
+	if !policy.CrossAgent {
+		return ""
+	}
+	for _, r := range route.RulesOf(policy) {
+		if r.Model == "" || r.Agent == "" {
+			continue
+		}
+		spec, ok := c.Find(r.Agent)
+		if !ok {
+			continue // named in the notice already, by Catalog.Notice
+		}
+		if agent.TakesAddress(spec) && spec.API.BaseURL == "" {
+			return "Rule '" + r.Name + "' names " + spec.Name + ", which has no address yet; give it one in Settings › Agents."
+		}
+		m, ok := findModelIn(spec, r.Model)
+		switch {
+		case !ok:
+			return "Rule '" + r.Name + "' names " + r.Model + ", which " + spec.Name + " does not offer."
+		case agent.TierRank(m.Tier) == 0:
+			return "Rule '" + r.Name + "' names " + spec.Name + "'s " + modelNameOf(spec, r.Model) + ", which has no tier yet; give it one in agents.json."
+		}
+	}
+	return ""
+}
+
+func findModelIn(spec agent.Spec, id string) (agent.Model, bool) {
+	for _, m := range spec.Models {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return agent.Model{}, false
 }
 
 func modeOr(mode string) string {

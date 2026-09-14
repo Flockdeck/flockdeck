@@ -12,6 +12,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
@@ -376,7 +377,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				Title: title,
 			}
 			if j.routed != "" {
-				opts.Routed, opts.RoutedFrom = j.routed, req.Model
+				opts.Routed, opts.RoutedFrom, opts.RoutedFromAgent = j.routed, req.Model, req.Agent
 			}
 			r, ok := ask(s, func() spawned {
 				id, err := s.ws.Spawn(parent, opts)
@@ -1198,6 +1199,16 @@ func (s *Server) installSpawnHandler() {
 		}
 		cwd := in.cwd
 
+		// A helper asked for neither --agent nor --model can be routed, only
+		// ever in "auto" mode -- see routeSpawnChoice -- and decided here,
+		// before the worktree below, on the project the helper is starting
+		// in rather than on whatever path it ends up cut into.
+		var routed route.Decision
+		var baseAgent, baseModel string
+		if !req.Shell && req.Agent == "" && req.Model == "" {
+			routed, baseAgent, baseModel = routeSpawnChoice(s.ws.Catalog(), cwd, req.Task)
+		}
+
 		if req.Branch != "" {
 			// Held until the helper is running in the worktree, which may be
 			// one a fan-out has just made. A fan-out whose own agent there
@@ -1221,7 +1232,7 @@ func (s *Server) installSpawnHandler() {
 			err error
 		}
 		r, ok := ask(s, func() result {
-			id, err := s.ws.Spawn(req.Parent, workspace.SpawnOptions{
+			opts := workspace.SpawnOptions{
 				Task:           req.Task,
 				Cwd:            cwd,
 				Split:          req.Split,
@@ -1229,7 +1240,14 @@ func (s *Server) installSpawnHandler() {
 				Agent:          req.Agent,
 				Model:          req.Model,
 				SpawnedByAgent: true,
-			})
+			}
+			if routed.Routed {
+				opts.Model, opts.Routed, opts.RoutedFrom = routed.Model, routed.Rule, baseModel
+				if routed.Agent != "" {
+					opts.Agent, opts.RoutedFromAgent = routed.Agent, baseAgent
+				}
+			}
+			id, err := s.ws.Spawn(req.Parent, opts)
 			return result{id, err}
 		})
 		if !ok {

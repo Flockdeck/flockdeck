@@ -266,3 +266,148 @@ func TestARuleForAnotherAgentsModelLetsTheNextRuleDecide(t *testing.T) {
 		t.Errorf("decided %+v, want haiku by rule \"tests\"", d)
 	}
 }
+
+// ollama is a local, OpenAI-compatible agent as routing sees it: one small
+// model, given a tier by the user's own hand in agents.json.
+func ollama() agent.Spec {
+	return agent.Spec{ID: "openai-compatible", Name: "OpenAI-compatible endpoint", Models: []agent.Model{
+		{ID: "qwen2.5-coder", Name: "Qwen 2.5 Coder", Tier: agent.TierSmall},
+		{ID: "untiered-model", Name: "Untiered"},
+	}}
+}
+
+// crossRule is a rule that asks for ollama's model, for a policy that turns
+// cross-agent routing on.
+func crossRule(name, task string) agent.RoutingRule {
+	return agent.RoutingRule{Name: name, Model: "qwen2.5-coder", Agent: "openai-compatible", When: agent.RuleMatch{Task: task}}
+}
+
+// usable answers OtherAgent by looking an agent up in a fixed list, as a
+// caller that has already checked availability and trust would.
+func usable(specs ...agent.Spec) func(string) (agent.Spec, bool) {
+	return func(id string) (agent.Spec, bool) {
+		for _, s := range specs {
+			if s.ID == id {
+				return s, true
+			}
+		}
+		return agent.Spec{}, false
+	}
+}
+
+func onCross(rules ...agent.RoutingRule) agent.RoutingPolicy {
+	p := on(rules...)
+	p.CrossAgent = true
+	return p
+}
+
+// A cross-agent rule moves the work to the other agent's model, and the
+// reason names both.
+func TestCrossAgentRuleMovesTheWork(t *testing.T) {
+	d := Decide(onCross(crossRule("tests local", "tests")), Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		OtherAgent: usable(ollama()),
+	})
+	if d.Model != "qwen2.5-coder" || d.Agent != "openai-compatible" || d.Rule != "tests local" || !d.Routed {
+		t.Fatalf("decided %+v, want qwen2.5-coder on openai-compatible", d)
+	}
+	if !strings.Contains(d.Reason, "OpenAI-compatible endpoint") || !strings.Contains(d.Reason, "Qwen 2.5 Coder") {
+		t.Errorf("reason %q does not name the agent and the model", d.Reason)
+	}
+}
+
+// The policy's own switch, off by default, is the first gate: naming another
+// agent's model is not by itself enough.
+func TestCrossAgentRuleDoesNothingWithoutTheSwitch(t *testing.T) {
+	d := Decide(on(crossRule("tests local", "tests")), Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		OtherAgent: usable(ollama()),
+	})
+	if d.Routed {
+		t.Errorf("decided %+v, want the switch off to route nothing", d)
+	}
+}
+
+// A running conversation cannot change agent under it, so cross-agent rules
+// apply only to a fresh pane: a fan-out row or a spawned helper.
+func TestCrossAgentRuleOnlyMovesFreshWork(t *testing.T) {
+	for _, kind := range []string{KindTurn, ""} {
+		d := Decide(onCross(crossRule("tests local", "tests")), Input{
+			Kind: kind, Task: "run the tests", Agent: claude(), Current: "sonnet",
+			OtherAgent: usable(ollama()),
+		})
+		if d.Routed {
+			t.Errorf("kind %q decided %+v, want nothing routed", kind, d)
+		}
+	}
+}
+
+// A nil OtherAgent means the caller offers no destination at all -- the
+// default for every kind of work until a caller sets one up.
+func TestCrossAgentRuleNeedsACaller(t *testing.T) {
+	d := Decide(onCross(crossRule("tests local", "tests")), Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+	})
+	if d.Routed {
+		t.Errorf("decided %+v, want nothing routed with no OtherAgent", d)
+	}
+}
+
+// The caller says an agent is not usable right now -- not installed, not
+// keyed, not trusted, or not answering -- and the rule changes nothing,
+// saying why.
+func TestCrossAgentRuleNeedsAUsableDestination(t *testing.T) {
+	d := Decide(onCross(crossRule("tests local", "tests")), Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		OtherAgent: usable(),
+	})
+	if d.Routed || !strings.Contains(d.Reason, "openai-compatible") {
+		t.Errorf("decided %+v, want a reason naming the agent that is not ready", d)
+	}
+}
+
+// A model the destination does not offer, or offers with no known size, is
+// never routed to, exactly as for the agent's own models.
+func TestCrossAgentRuleNeedsATieredModel(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+	}{
+		{"not offered", "not-a-model"},
+		{"no tier", "untiered-model"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := agent.RoutingRule{Name: "x", Model: tc.model, Agent: "openai-compatible", When: agent.RuleMatch{Task: "tests"}}
+			d := Decide(onCross(rule), Input{
+				Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+				OtherAgent: usable(ollama()),
+			})
+			if d.Routed {
+				t.Errorf("decided %+v, want nothing routed for %q", d, tc.model)
+			}
+		})
+	}
+}
+
+// The floor and never-downgrade bind a cross-agent move exactly as they bind
+// one on the same agent, compared against the destination's tier.
+func TestCrossAgentRuleObeysTheFloorAndNoDowngrade(t *testing.T) {
+	policy := onCross(crossRule("tests local", "tests"))
+	policy.Floor = agent.TierMid
+	d := Decide(policy, Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		OtherAgent: usable(ollama()),
+	})
+	if d.Routed {
+		t.Errorf("decided %+v, want the floor to refuse a small-tier destination", d)
+	}
+
+	d = Decide(onCross(crossRule("tests local", "tests")), Input{
+		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		NoDowngrade: true, OtherAgent: usable(ollama()),
+	})
+	if d.Routed {
+		t.Errorf("decided %+v, want never-downgrade to refuse a smaller-tier destination", d)
+	}
+}
