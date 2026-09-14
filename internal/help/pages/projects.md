@@ -7,6 +7,11 @@ which switches between them, opens new ones and closes them; [[key:projects]]
 does the same from the keyboard, and **Open a project**, under the tiles,
 opens it at the folder browser.
 
+The rail starts as icons alone. [[key:toggleRail]] widens it into a panel of
+icons and names, or folds it back; widened, drag its right edge — or use the
+left and right arrow keys once it has the keyboard — to whatever width suits
+you. Both are kept, and are what a new window opens onto.
+
 Several projects stay open at once and **switching does not stop anything** —
 the other project's agents keep working, and its tile carries an amber badge if
 one of them starts waiting on you while you are elsewhere.

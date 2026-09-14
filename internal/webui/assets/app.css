@@ -108,6 +108,56 @@ body { flex-direction: row; }
 #rail-toggle { display: none; }
 #rail-scrim { display: none; }
 
+/* The chevron on the collapse button points at what pressing it does: right
+ * to open the rail out, left to fold it away again. */
+.rail-collapse-ico { transform: rotate(-90deg); }
+body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
+
+/* Nothing to resize until the rail is a panel rather than icons alone, and
+ * only on a screen wide enough to let it be one — see below. */
+#rail-resize { display: none; }
+
+/* -------------------------------------------------------- the rail, widened */
+
+/* A screen with room to spare can widen the rail into a panel of icons and
+ * names, rather than icons alone, and drag its edge to whatever width suits
+ * it — the same shape the narrow-screen menu below always takes, reached
+ * here by choice instead of by the window being too narrow for icons alone.
+ * The breakpoint matches the one that folds the rail away entirely, so nothing
+ * below fights the rules made for that. */
+@media (min-width: 641px) {
+  /* The width itself is inline, set from the preferences; this is only which
+   * rules apply to it. Smooth for the toggle button, off during a drag:
+   * chasing a moving target through an eased transition reads as lag rather
+   * than as the pointer. */
+  #rail { transition: width 140ms ease; }
+  body.rail-resizing #rail { transition: none; }
+
+  body.rail-expanded #rail { align-items: stretch; }
+  body.rail-expanded #rail-projects { align-items: stretch; }
+  body.rail-expanded .rail-btn {
+    width: 100%; height: 34px; justify-content: flex-start; padding: 0 10px;
+  }
+  body.rail-expanded .rail-btn .rail-label {
+    position: static; width: auto; height: auto; clip-path: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;
+  }
+  body.rail-expanded .rail-tile .mono { width: 24px; flex: 0 0 auto; text-align: center; }
+  body.rail-expanded .rail-badge { left: 30px; right: auto; top: 6px; }
+
+  /* The handle that drags the rail's width, styled like a split's own
+   * divider: a hairline that widens to a grab strip, lit on hover, in focus
+   * or while it is held. */
+  body.rail-expanded #rail-resize {
+    display: block; flex: 0 0 4px; position: relative; z-index: 1;
+    touch-action: none; cursor: col-resize;
+  }
+  #rail-resize::after { content: ""; position: absolute; inset: 0; background: var(--line); }
+  #rail-resize::before { content: ""; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
+  #rail-resize:hover::after, #rail-resize.dragging::after { background: var(--accent); }
+  #rail-resize:focus-visible::after { background: var(--accent); }
+}
+
 /* ---------------------------------------------------------------- top bar */
 
 #topbar {
@@ -1397,6 +1447,9 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   body.rail-open #rail { transform: none; visibility: visible; transition: transform 160ms ease; }
   body.rail-open #rail-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.5); }
   #rail-toggle { display: flex; }
+  /* The menu this folds the rail into is already the widened shape; there is
+   * nothing here for the collapse button or the resize handle to do. */
+  #rail-collapse, #rail-resize { display: none; }
   .rail-mark { align-self: flex-start; margin: 4px 10px 8px; }
   .rail-rule { width: auto; align-self: stretch; }
   #rail-projects { align-items: stretch; }

@@ -420,8 +420,8 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
-	// Size is the terminal font size for fontSize, and a number of lines for
-	// scrollback.
+	// Size is the terminal font size for fontSize, a number of lines for
+	// scrollback, and a width in pixels for railWidth.
 	Size int `json:"size"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
@@ -1328,6 +1328,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "fontFamily":
 		s.setFontFamily(c, cmd.Text)
+		return
+	case "railExpanded":
+		s.setRailExpanded(c, cmd.Kind == "on")
+		return
+	case "railWidth":
+		s.setRailWidth(c, cmd.Size)
 		return
 	case "forgetRecent":
 		// On the workspace goroutine, where opening or switching to a project

@@ -1894,9 +1894,13 @@
     return out;
   }
 
-  /** railButtons is every button in the rail, in the order the arrows walk. */
+  /** railButtons is every button in the rail, in the order the arrows walk.
+   *  offsetParent leaves out the collapse button on a narrow screen, where
+   *  the style sheet hides it rather than the rail folding into a menu that
+   *  already takes its shape - display:none rather than the hidden
+   *  attribute, so it takes a layout check to notice. */
   function railButtons() {
-    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled);
+    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled && b.offsetParent !== null);
   }
 
   /** placeRailStop keeps exactly one of the rail's buttons as its stop for
@@ -4464,6 +4468,7 @@
     applyCursorStyle();
     applyFontFamily();
     applyScreenReader();
+    applyRail();
   }
 
   /** setScreenReader turns screen reader support on or off. It is kept as
@@ -4621,6 +4626,116 @@
       p.term.options.fontSize = fontSize;
       scheduleFit(p);
     }
+  }
+
+  // ------------------------------------------------------------------- rail
+
+  /** How wide the rail is drawn while it shows names beside its icons, in
+   *  pixels, where nobody has dragged it, and the range a drag or the
+   *  keyboard may leave it at. */
+  const RAIL_WIDTH = 220;
+  const RAIL_MIN = 180;
+  const RAIL_MAX = 480;
+  /** The width in effect now, kept so a drag has something to add its delta
+   *  to and the keyboard something to step from. */
+  let railWidth = RAIL_WIDTH;
+
+  function clampRailWidth(px) {
+    return Math.max(RAIL_MIN, Math.min(RAIL_MAX, px || RAIL_WIDTH));
+  }
+
+  /** applyRail puts the rail's expanded state and width into effect. They
+   *  arrive before the first pane is drawn, and again whenever another
+   *  window changes them. */
+  function applyRail() {
+    railWidth = clampRailWidth(prefs.railWidth);
+    const expanded = !!prefs.railExpanded;
+    document.body.classList.toggle("rail-expanded", expanded);
+    // Collapsed, the width the style sheet already gives an icon rail is left
+    // alone; only "expanded" asks for a width of its own.
+    $("rail").style.width = expanded ? railWidth + "px" : "";
+    $("rail-collapse").setAttribute("aria-pressed", String(expanded));
+    $("rail-resize").setAttribute("aria-valuenow", String(railWidth));
+  }
+
+  /** setRailExpanded widens the rail into a panel of icons and names, or
+   *  folds it back to icons alone. It takes effect here at once, as the
+   *  other switches in the settings do. */
+  function setRailExpanded(on) {
+    prefs.railExpanded = on;
+    sentPref("railExpanded");
+    send({ cmd: "railExpanded", kind: on ? "on" : "off" });
+    notice(on ? "The rail is expanded" : "The rail is collapsed", false);
+    applyRail();
+    settingsChanged();
+  }
+
+  /** liveRailWidth redraws the rail at a width mid-drag, without telling the
+   *  Go side yet: that waits for the drag, or the key press, to be over,
+   *  the way the split dividers already do it. */
+  function liveRailWidth(px) {
+    railWidth = clampRailWidth(px);
+    $("rail").style.width = railWidth + "px";
+    $("rail-resize").setAttribute("aria-valuenow", String(railWidth));
+  }
+
+  /** saveRailWidth draws the rail at a width and tells the Go side, so a
+   *  drag let go or a key pressed both come back the same way next time. */
+  function saveRailWidth(px) {
+    liveRailWidth(px);
+    prefs.railWidth = railWidth;
+    sentPref("railWidth");
+    send({ cmd: "railWidth", size: railWidth });
+    settingsChanged();
+  }
+
+  /** One press of an arrow key moves the rail this many pixels. */
+  const RAIL_RESIZE_STEP = 16;
+
+  /** initRailResize wires the handle that drags the rail's width, the same
+   *  way makeDivider wires a split's: pointer capture so a drag that leaves
+   *  the window is still delivered, and the left and right arrow keys once
+   *  the handle has the keyboard. */
+  function initRailResize() {
+    const handle = $("rail-resize");
+    describe(handle, "Sets how wide the rail is drawn. Drag it, or use the left and right arrow keys.");
+    handle.setAttribute("aria-valuemin", String(RAIL_MIN));
+    handle.setAttribute("aria-valuemax", String(RAIL_MAX));
+
+    handle.addEventListener("keydown", (ev) => {
+      const less = ev.key === "ArrowLeft";
+      const more = ev.key === "ArrowRight";
+      if (!less && !more) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      saveRailWidth(railWidth + (more ? RAIL_RESIZE_STEP : -RAIL_RESIZE_STEP));
+    });
+
+    handle.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      const startX = ev.clientX;
+      const startWidth = railWidth;
+      handle.classList.add("dragging");
+      document.body.classList.add("rail-resizing");
+      try { handle.setPointerCapture(ev.pointerId); } catch { /* older engines */ }
+      const onMove = (m) => {
+        if (m.pointerId !== ev.pointerId) return;
+        liveRailWidth(startWidth + (m.clientX - startX));
+      };
+      const onUp = (u) => {
+        if (u.pointerId !== ev.pointerId) return;
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        handle.classList.remove("dragging");
+        document.body.classList.remove("rail-resizing");
+        saveRailWidth(railWidth);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
   }
 
   // ----------------------------------------------------------------- search
@@ -4919,6 +5034,7 @@
     help: () => openHelp(),
 
     settings: () => openSettings(),
+    toggleRail: () => setRailExpanded(!prefs.railExpanded),
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
@@ -4978,6 +5094,7 @@
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
     label("projects", $("rail-open"), "open a folder as a project");
+    label("toggleRail", $("rail-collapse"));
     // The palette's key, drawn as keys on the button that opens it.
     const k = keyTable.find((x) => x.id === "palette");
     const keys = $("palette-keys");
@@ -8450,6 +8567,8 @@
   $("rail-toggle").onclick = () => { if (railMenuOpen()) closeRailMenu(true); else openRailMenu(); };
   describe($("rail-toggle"), "Projects, tools and settings");
   $("rail-scrim").onclick = () => closeRailMenu(true);
+  $("rail-collapse").onclick = () => runAction("toggleRail");
+  initRailResize();
   // Widened past the point where the rail folds, an open menu would go on
   // holding the keyboard with nothing on screen to say so.
   try {

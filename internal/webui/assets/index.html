@@ -30,6 +30,10 @@
        from app.js, from one set of path data. -->
   <nav id="rail" aria-label="Projects and tools">
     <img class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
+    <!-- Wide screens only: a narrow one folds the rail into a menu instead,
+         which is already as wide as it needs to be. app.js fills in whether
+         pressing it opens the rail out or folds it away. -->
+    <button id="rail-collapse" class="rail-btn" aria-pressed="false"><span class="ico rail-collapse-ico" data-icon="chev" aria-hidden="true"></span><span class="rail-label">Widen the rail</span></button>
     <div class="rail-rule"></div>
     <div id="rail-projects" role="group" aria-label="Open projects"></div>
     <button id="rail-open" class="rail-btn"><span class="ico" data-icon="folderplus" aria-hidden="true"></span><span class="rail-label">Open a project</span></button>
@@ -45,6 +49,10 @@
     <button id="btn-help" class="rail-btn"><span class="ico" data-icon="help" aria-hidden="true"></span><span class="rail-label">Help</span></button>
     <button id="btn-settings" class="rail-btn"><span class="ico" data-icon="settings" aria-hidden="true"></span><span class="rail-label">Settings</span></button>
   </nav>
+  <!-- Wide screens only, and only once the rail is expanded: drag it to
+       resize the rail, or give it the keyboard and use the left and right
+       arrow keys. -->
+  <div id="rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize the rail" tabindex="0"></div>
   <!-- Behind the rail while a narrow screen shows it as a menu; a tap here
        puts it away. The style sheet shows it, from the class on the body. -->
   <div id="rail-scrim"></div>

@@ -48,6 +48,12 @@ type Prefs struct {
 	// FontFamily is the typeface the terminals are drawn in, as a CSS font
 	// family list. Empty is the default.
 	FontFamily string `json:"fontFamily,omitempty"`
+	// RailExpanded shows the rail as a panel of icons and names, rather than
+	// icons alone. False is the default, the rail as it has always been.
+	RailExpanded bool `json:"railExpanded,omitempty"`
+	// RailWidth is how wide the rail is drawn while it is expanded, in
+	// pixels. Zero is the default width.
+	RailWidth int `json:"railWidth,omitempty"`
 	// Spend is how the pane headers show what the agents spend and how near
 	// they are to their limits. Left out of the file while it is all defaults.
 	Spend SpendPrefs `json:"spend,omitzero"`

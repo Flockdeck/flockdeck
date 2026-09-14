@@ -226,6 +226,30 @@ func (s *Server) setFontFamily(c *controlClient, family string) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
 }
 
+// railWidthMin and railWidthMax bound how wide the rail may be dragged or
+// typed to: narrower and the names in it are not worth showing, wider and it
+// is most of the window on anything but a very large one.
+const (
+	railWidthMin = 180
+	railWidthMax = 480
+)
+
+// setRailExpanded records whether the rail is a panel of icons and names, or
+// icons alone. The window used to keep this itself, in local storage, which
+// forgot it on every run, like the font size above.
+func (s *Server) setRailExpanded(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.RailExpanded, on) })
+}
+
+// setRailWidth records how wide the rail is drawn while it is expanded,
+// within what a window will still show something in.
+func (s *Server) setRailWidth(c *controlClient, width int) {
+	if width < railWidthMin || width > railWidthMax {
+		return
+	}
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.RailWidth, width) })
+}
+
 // setStatusLine records when a Claude pane's status line is routed through
 // Flockdeck. It takes effect for a pane when it next starts, which is when
 // its settings are written; a mode the panes do not know is refused.
