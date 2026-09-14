@@ -30,6 +30,13 @@ type agentView struct {
 	For     string `json:"for"`
 	Dirty   int    `json:"dirty"`
 	Active  bool   `json:"active"`
+	// Parent is the pane whose agent started this one with its own `flockdeck
+	// spawn` (workspace.Pane.Parent), sent only while that pane is still
+	// open. The phone's list groups a helper under its parent's row while
+	// this is set; a parent that has since closed leaves it out, so the
+	// helper is drawn as an ordinary row rather than orphaned under one that
+	// no longer exists.
+	Parent string `json:"parent,omitempty"`
 }
 
 type agentsMsg struct {
@@ -99,6 +106,9 @@ func (s *Server) sendAgents(c *controlClient) {
 				Detail:  detail,
 				Dirty:   p.Git.Dirty + p.Git.Untracked,
 				Active:  p.ID == focused,
+			}
+			if p.Parent != "" && s.ws.Pane(p.Parent) != nil {
+				av.Parent = p.Parent
 			}
 			if p.Sess != nil {
 				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
