@@ -112,6 +112,10 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}
+	// Nobody is at the desk unless a test says so. Left to the real OS, a push
+	// test run by someone using this computer saw them at it and held every
+	// push back, failing eight tests that pass on an unattended runner.
+	setIdle(srv, time.Hour, false, true)
 	// Close only asks the workspace goroutine to stop; the change it is applying
 	// runs on, reading whatever package variables it reads. The next test swaps
 	// some of those -- usageOf, readChanges, panesIn -- so the cleanup waits for
