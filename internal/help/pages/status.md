@@ -67,8 +67,10 @@ it can only ever say "let this one through," never "deny": off, or for a call
 it is not sure of, a pane behaves exactly as it always would. Today that
 reviewer is a fixed policy: a `Bash` call is let through only when it is a
 single call to a command that only ever reads -- `git status`, `cat`, `grep`
-and the like -- with nothing in it that could chain into something else or
-write anywhere; a call that changes a file is always left to ask.
+and the like -- inside the project, with nothing in it that could chain into
+something else or write anywhere; a call that changes a file, or reads
+outside the project, is always left to ask. It is off for every pane, and
+there is no switch for it in the window or on the phone yet.
 
 One answer is not reported by any event: a permission prompt answered from
 the keyboard. Enter turns the pane green, since allowing the tool starts it

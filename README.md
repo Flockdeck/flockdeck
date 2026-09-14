@@ -562,10 +562,17 @@ Today's reviewer is a fixed, inspectable policy rather than a model of its
 own: a `Bash` call is let through only when it is a single call to one of a
 short list of commands that only ever read — `git status`, `git log`, `cat`,
 `grep` and the like — with nothing in it that could chain into something
-else, redirect output to a file, or substitute in a nested command. Anything
-that changes a file — `Edit`, `Write`, `MultiEdit` — is left to ask every
-time, on purpose: that is exactly the kind of call a person is meant to see
-before it happens.
+else, redirect output to a file, or substitute in a nested command, and no
+flag that makes one of them write or run something (`git diff --output`,
+`go env -w`). No argument may name a path outside the project: absolute,
+under `~`, or climbing out with `..`, since Claude Code would have asked
+before reading there. Anything that changes a file — `Edit`, `Write`,
+`MultiEdit` — is left to ask every time, on purpose: that is exactly the
+kind of call a person is meant to see before it happens.
+
+It is off for every pane and is not saved across a restart. The control
+socket's `autoReview` command turns it on or off for one pane; there is no
+switch for it in the window or on the phone yet.
 
 The one key the file can take over is `statusLine`, because Claude Code hands a
 subscription's usage limits to its status line command and nowhere else. Where
